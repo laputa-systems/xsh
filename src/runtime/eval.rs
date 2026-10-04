@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
+use crate::diagnostic::{DiagnosticCode, DiagnosticFamily};
 use crate::map_key::MapKey;
 
 use crate::diagnostic::Diagnostic;
@@ -3860,7 +3861,7 @@ impl Evaluator {
                 {
                     Ok(plan) => plan,
                     Err(diagnostic) => {
-                        let status = if diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check.")) { 2 } else { 1 };
+                        let status = if diagnostic.code.is_some_and(|code| code.family() == DiagnosticFamily::Check) { 2 } else { 1 };
                         return EvalOutput {
                             stdout: std::mem::take(&mut self.stdout),
                             stderr: std::mem::take(&mut self.stderr),
@@ -4103,7 +4104,7 @@ impl Evaluator {
             return Err(compact_lowerability_diagnostic(
                 zero_span(),
                 "source text was unavailable while building indexed IR",
-                "compact.indexed-source",
+                DiagnosticCode::CompactIndexedSource,
             ));
         };
         let indexed = FullBuilder::build_compact_with_options(
@@ -4120,7 +4121,7 @@ impl Evaluator {
             compact_lowerability_diagnostic(
                 span,
                 &format!("indexed IR could not encode `{}`", error.construct),
-                "compact.indexed-build",
+                DiagnosticCode::CompactIndexedBuild,
             )
         })?;
         let root = program.statement_ids().collect::<Vec<_>>();
@@ -4130,7 +4131,7 @@ impl Evaluator {
                     .map(|stmt| program.arena.stmt(*stmt).span)
                     .unwrap_or_else(zero_span),
                 &format!("indexed driver verification failed: {}", error.message),
-                "compact.indexed-driver",
+                DiagnosticCode::CompactIndexedDriver,
             )
         })?;
         if driver_steps != root.len() {
@@ -4139,7 +4140,7 @@ impl Evaluator {
                     .map(|stmt| program.arena.stmt(*stmt).span)
                     .unwrap_or_else(zero_span),
                 "indexed driver statement count did not match the source program",
-                "compact.statement-count",
+                DiagnosticCode::CompactStatementCount,
             ));
         }
         let signature_cli = declarations.cli_entry.as_ref().map(|entry| {
@@ -4149,7 +4150,7 @@ impl Evaluator {
                     debug_assert!(constant.matches_data_type(&parameter.ty));
                     lower::lower_literal_constant(constant, Some(&declarations.wire_enums)).map(LoweredValue::into_value)
                         .ok_or_else(|| compact_lowerability_diagnostic(program.arena.stmt(entry.statement).span,
-                            "a prepared CLI default cannot be represented", "compact.cli-default"))
+                            "a prepared CLI default cannot be represented", DiagnosticCode::CompactCliDefault))
                 }).transpose()?;
                 Ok(crate::modules::cli::SignatureParameter { name: parameter.name.to_string(),
                     type_name: parameter.parser_type.clone(), default, rest: parameter.rest })
@@ -4160,14 +4161,14 @@ impl Evaluator {
                 .map(|text| text.lines().map(|line| line.trim_start().trim_start_matches('#').trim_start_matches('!').trim_start())
                     .collect::<Vec<_>>().join("\n")).unwrap_or_default();
             let parser = crate::modules::cli::PreparedSignatureCli::prepare(parameters, description, span)
-                .map_err(|error| compact_lowerability_diagnostic(span, &error.message, "check.cli-entry"))?;
+                .map_err(|error| compact_lowerability_diagnostic(span, &error.message, DiagnosticCode::CheckCliEntry))?;
             let argv = self.lookup(Name::intern("args")).and_then(|binding| match &binding.value {
                 Value::List(values) => values.iter().map(|value| match value {
                     Value::Str(text) => Some(text.to_string()), _ => None,
                 }).collect::<Option<Vec<_>>>(),
                 _ => None,
             }).ok_or_else(|| compact_lowerability_diagnostic(span,
-                "incoming script arguments must be a List[Str]", "compact.cli-args"))?;
+                "incoming script arguments must be a List[Str]", DiagnosticCode::CompactCliArgs))?;
             Ok(SignatureCliRunPlan { parser, argv })
         }).transpose()?;
         let auto_main_required = signature_cli.is_some()
@@ -4186,7 +4187,7 @@ impl Evaluator {
             return Err(compact_lowerability_diagnostic(
                 span,
                 "proc main could not be encoded in indexed IR",
-                "compact.unlowered-main",
+                DiagnosticCode::CompactUnloweredMain,
             ));
         }
         if auto_main_required && signature_cli.is_none() {
@@ -4202,14 +4203,14 @@ impl Evaluator {
                 compact_lowerability_diagnostic(
                     span,
                     &format!("indexed driver verification failed: {}", error.message),
-                    "compact.indexed-driver",
+                    DiagnosticCode::CompactIndexedDriver,
                 )
             })?;
             if unbindable {
                 return Err(compact_lowerability_diagnostic(
                     span,
                     "proc main must use the spread form `(...argv: List[Str])` to receive script arguments; a fixed parameter of this type cannot bind script arguments in the compact runtime",
-                    "compact.main-missing-spread",
+                    DiagnosticCode::CompactMainMissingSpread,
                 ));
             }
         }
@@ -4220,7 +4221,7 @@ impl Evaluator {
                 compact_lowerability_diagnostic(
                     zero_span(),
                     "script arguments could not be converted for compact main dispatch",
-                    "compact.main-args",
+                    DiagnosticCode::CompactMainArgs,
                 )
             })?
         } else {
@@ -4234,7 +4235,7 @@ impl Evaluator {
                 compact_lowerability_diagnostic(
                     program.arena.stmt(stmt).span,
                     &format!("indexed driver verification failed: {}", error.message),
-                    "compact.indexed-driver",
+                    DiagnosticCode::CompactIndexedDriver,
                 )
             })?;
             if !encoded
@@ -4244,7 +4245,7 @@ impl Evaluator {
                 return Err(compact_lowerability_diagnostic(
                     program.arena.stmt(stmt).span,
                     "top-level statement could not be encoded in indexed IR",
-                    "compact.unlowered-statement",
+                    DiagnosticCode::CompactUnloweredStatement,
                 ));
             }
             statements.push(CompactIndexedDriverStepPlan {
@@ -4352,7 +4353,7 @@ impl Evaluator {
             let diagnostics = vec![runtime_diagnostic(
                 span,
                 message,
-                "runtime.compact-statement-count",
+                DiagnosticCode::RuntimeCompactStatementCount,
             )];
             let traceback = Some(self.traceback_for_value(
                 span,
@@ -4399,7 +4400,7 @@ impl Evaluator {
                     let error = Value::Error(Box::new(error));
                     if let Some(stop_status) = self.handle_cli_parse_stop(&error) { status = stop_status; }
                     else {
-                        diagnostics.push(runtime_diagnostic(cli.parser.span, "CLI argument binding failed", "runtime.cli-args"));
+                        diagnostics.push(runtime_diagnostic(cli.parser.span, "CLI argument binding failed", DiagnosticCode::RuntimeCliArgs));
                         traceback = Some(self.traceback_for_value(cli.parser.span, "cli.parse", &error));
                     }
                     stopped = true;
@@ -4414,7 +4415,7 @@ impl Evaluator {
                 diagnostics.push(runtime_diagnostic(
                     error.span.unwrap_or(span),
                     &error.message,
-                    "runtime.error",
+                    DiagnosticCode::RuntimeError,
                 ));
                 traceback = Some(pending_traceback.unwrap_or_else(|| {
                     self.traceback_for_value(
@@ -4450,7 +4451,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         &error.message,
-                        "runtime.indexed-driver",
+                        DiagnosticCode::RuntimeIndexedDriver,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,
@@ -4475,7 +4476,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "return outside function",
-                        "runtime.return-outside-function",
+                        DiagnosticCode::RuntimeReturnOutsideFunction,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,
@@ -4491,7 +4492,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "loop control outside loop",
-                        "runtime.loop-control",
+                        DiagnosticCode::RuntimeLoopControl,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,
@@ -4517,7 +4518,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         message,
-                        "runtime.compact-unsupported-statement",
+                        DiagnosticCode::RuntimeCompactUnsupportedStatement,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,
@@ -4547,7 +4548,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         error.span.unwrap_or(span),
                         &error.message,
-                        "runtime.error",
+                        DiagnosticCode::RuntimeError,
                     ));
                     traceback = Some(pending_traceback.unwrap_or_else(|| {
                         self.traceback_for_value(
@@ -4564,7 +4565,7 @@ impl Evaluator {
                 diagnostics.push(runtime_diagnostic(
                     error.span.unwrap_or(span),
                     &error.message,
-                    "runtime.error",
+                    DiagnosticCode::RuntimeError,
                 ));
                 traceback = Some(pending_traceback.unwrap_or_else(|| {
                     self.traceback_for_value(
@@ -4600,7 +4601,7 @@ impl Evaluator {
             diagnostics.push(runtime_diagnostic(
                 error.span.unwrap_or(script_span),
                 &error.message,
-                "runtime.error",
+                DiagnosticCode::RuntimeError,
             ));
             traceback = Some(self.take_traceback_for_runtime_error(&error).unwrap_or_else(|| {
                 self.traceback_for_value(
@@ -4650,7 +4651,7 @@ impl Evaluator {
                             diagnostics.push(runtime_diagnostic(
                                 error.span.unwrap_or(zero),
                                 &error.message,
-                                "runtime.error",
+                                DiagnosticCode::RuntimeError,
                             ));
                             traceback = Some(pending_traceback.unwrap_or_else(|| {
                                 self.traceback_for_value(
@@ -4668,7 +4669,7 @@ impl Evaluator {
                 diagnostics.push(runtime_diagnostic(
                     span,
                     message,
-                    "runtime.compact-unsupported-main",
+                    DiagnosticCode::RuntimeCompactUnsupportedMain,
                 ));
                 traceback = Some(self.traceback_for_value(
                     span,
@@ -4690,7 +4691,7 @@ impl Evaluator {
                 diagnostics.push(runtime_diagnostic(
                     error.span.unwrap_or(script_span),
                     &error.message,
-                    "runtime.error",
+                    DiagnosticCode::RuntimeError,
                 ));
                 traceback = Some(self.take_traceback_for_runtime_error(&error).unwrap_or_else(|| {
                     self.traceback_for_value(
@@ -4761,7 +4762,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         script_span,
                         "deferred cleanup produced invalid control flow",
-                        "runtime.defer-control-flow",
+                        DiagnosticCode::RuntimeDeferControlFlow,
                     ));
                     traceback = Some(self.traceback_for_value(
                         script_span,
@@ -4780,7 +4781,7 @@ impl Evaluator {
                         diagnostics.push(runtime_diagnostic(
                             error.span.unwrap_or(script_span),
                             &error.message,
-                            "runtime.error",
+                            DiagnosticCode::RuntimeError,
                         ));
                         traceback = Some(self.traceback_for_value(
                             error.span.unwrap_or(script_span),
@@ -4804,7 +4805,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         error.span.unwrap_or(script_span),
                         &error.message,
-                        "runtime.exit-status",
+                        DiagnosticCode::RuntimeExitStatus,
                     ));
                     traceback = Some(self.traceback_for_value(
                         error.span.unwrap_or(script_span),
@@ -4934,7 +4935,7 @@ impl Evaluator {
                 vec![runtime_diagnostic(
                     span,
                     "native-test program could not be encoded in indexed IR",
-                    "runtime.test-setup",
+                    DiagnosticCode::RuntimeTestSetup,
                 )],
                 None,
                 None,
@@ -4994,7 +4995,7 @@ impl Evaluator {
                 diagnostics.push(runtime_diagnostic(
                     span,
                     "indexed native-test program is not installed",
-                    "runtime.test-setup",
+                    DiagnosticCode::RuntimeTestSetup,
                 ));
                 break;
             };
@@ -5013,7 +5014,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "invalid top-level control flow in test setup",
-                        "runtime.test-setup",
+                        DiagnosticCode::RuntimeTestSetup,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,
@@ -5038,7 +5039,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         error.span.unwrap_or(span),
                         &error.message,
-                        "runtime.error",
+                        DiagnosticCode::RuntimeError,
                     ));
                     traceback = Some(pending_traceback.unwrap_or_else(|| {
                         self.traceback_for_value(
@@ -5053,7 +5054,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "indexed native-test driver step is not available",
-                        "runtime.test-setup",
+                        DiagnosticCode::RuntimeTestSetup,
                     ));
                     break;
                 }
@@ -5131,7 +5132,7 @@ impl Evaluator {
                         error: TraceError::from_runtime_error(&error),
                     },
                 );
-                let diagnostic = runtime_diagnostic(span, &error.message, "runtime.error");
+                let diagnostic = runtime_diagnostic(span, &error.message, DiagnosticCode::RuntimeError);
                 let traceback = pending_traceback.unwrap_or_else(|| {
                     self.traceback_for_value(span, "test.call", &Value::Error(Box::new(error)))
                 });
@@ -5141,7 +5142,7 @@ impl Evaluator {
                 let diagnostic = runtime_diagnostic(
                     script_span,
                     "test proc was not found",
-                    "runtime.test-missing",
+                    DiagnosticCode::RuntimeTestMissing,
                 );
                 let traceback = self.traceback_for_value(
                     script_span,
@@ -6976,13 +6977,13 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
     }
 }
 
-fn runtime_diagnostic(span: Span, message: &str, code: &str) -> Diagnostic {
+fn runtime_diagnostic(span: Span, message: &str, code: DiagnosticCode) -> Diagnostic {
     crate::diagnostic::Diagnostic::error(message)
         .with_code(code)
         .with_label(crate::diagnostic::Label::primary(span, ""))
 }
 
-fn compact_lowerability_diagnostic(span: Span, message: &str, code: &str) -> Diagnostic {
+fn compact_lowerability_diagnostic(span: Span, message: &str, code: DiagnosticCode) -> Diagnostic {
     crate::diagnostic::Diagnostic::error(message)
         .with_code(code)
         .with_label(crate::diagnostic::Label::primary(span, message))
@@ -7071,7 +7072,7 @@ fn compact_root_proc_main_requires_auto_call_indexed(
         compact_lowerability_diagnostic(
             program.arena.stmt(last_stmt).span,
             &format!("indexed driver verification failed: {}", error.message),
-            "compact.indexed-driver",
+            DiagnosticCode::CompactIndexedDriver,
         )
     })
 }

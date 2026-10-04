@@ -6,7 +6,7 @@
 //! parenthesis. A parenthesis is required only when removing it changes the
 //! parse or breaks a grouping rule.
 
-use crate::diagnostic::{Diagnostic, FixHint, Label};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::source::Span;
 use crate::syntax::arena::{
     ArenaExprKind, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, AstArena, ExprId,
@@ -889,7 +889,7 @@ pub fn remove_redundant_parens(source: &str, within: &[std::ops::Range<usize>]) 
         }
         let mut fixes: Vec<(usize, usize, String)> = grouping_diagnostics(&parsed.arena, &text)
             .into_iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some("check.redundant-parens"))
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRedundantParens))
             .flat_map(|diagnostic| diagnostic.fix_hints)
             .filter_map(|hint| Some((hint.span?.start(), hint.span?.end(), hint.replacement?)))
             .filter(|(start, end, _)| ranges.iter().any(|range| range.start <= *start && *end <= range.end))
@@ -1036,7 +1036,7 @@ fn redundant_parens(span: Span, source: &str) -> Diagnostic {
         FixHint::replacement(span, "remove the parentheses", inner)
     };
     Diagnostic::error("parentheses do not change how this expression parses")
-        .with_code("check.redundant-parens")
+        .with_code(DiagnosticCode::CheckRedundantParens)
         .with_label(Label::primary(span, "remove these parentheses"))
         .with_fix_hint(fix)
 }
@@ -1060,7 +1060,7 @@ fn ambiguous_grouping(arena: &AstArena, operand: ExprId, source: &str) -> Diagno
         "group a pipeline that an operator applies to"
     };
     Diagnostic::error(message)
-        .with_code("check.ambiguous-grouping")
+        .with_code(DiagnosticCode::CheckAmbiguousGrouping)
         .with_label(Label::primary(span, "add parentheses around this operand"))
         .with_fix_hint(FixHint::replacement(span, "add parentheses", format!("({text})")))
 }
@@ -1069,7 +1069,7 @@ fn mixed_logical(arena: &AstArena, operand: ExprId, source: &str) -> Diagnostic 
     let span = arena.expr(operand).span;
     let text = &source[span.range()];
     Diagnostic::error("group `and`, `or`, and `??` explicitly when mixing them")
-        .with_code("check.mixed-logical")
+        .with_code(DiagnosticCode::CheckMixedLogical)
         .with_label(Label::primary(span, "add parentheses around the intended operand"))
         .with_fix_hint(FixHint::replacement(span, "add parentheses", format!("({text})")))
 }

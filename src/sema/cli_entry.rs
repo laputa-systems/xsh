@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Label, Severity};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Label, Severity};
 use crate::sema::constants::LiteralConstant;
 use crate::sema::types::Type;
 use crate::symbol::Name;
@@ -44,7 +44,7 @@ pub(crate) fn validate_cli_entry(
         let ArenaStmtKind::CliMain(definition) = statement.kind else { continue; };
         if !sources.contains(&statement.span.source_id) { continue; }
         let mut error = |span, message: &str| diagnostics.push(Diagnostic::new(Severity::Error, message)
-            .with_code("check.cli-entry").with_label(Label::primary(span, message)));
+            .with_code(DiagnosticCode::CheckCliEntry).with_label(Label::primary(span, message)));
         if entry.is_some() { error(statement.span, "only one signature CLI entry may be declared"); }
         let function = program.arena.function_def(definition);
         if function.name != "main" { error(statement.span, "a signature CLI entry must be named `main`"); }

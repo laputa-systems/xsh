@@ -7,6 +7,7 @@
 //! `and`/`or`/`??` and for Bool operands of comparisons).
 
 use std::fmt::Write as _;
+use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::syntax::grammar;
 use xsh::frontend::syntax::node::BinaryOp;
 
@@ -369,7 +370,7 @@ fn strip_redundant_parens(mut source: String) -> String {
         let mut edits: Vec<(usize, usize, String)> = checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some("check.redundant-parens"))
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRedundantParens))
             .flat_map(|diagnostic| &diagnostic.fix_hints)
             .filter_map(|hint| Some((hint.span?.start(), hint.span?.end(), hint.replacement.clone()?)))
             .collect();

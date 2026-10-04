@@ -5,6 +5,7 @@ use super::{
     BinaryOp, Diagnostic, DurationLiteral, FixHint, FloatLiteral, IntLiteral, Keyword, Label, Name,
     Parser, StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCompQualifier, ArenaCallArgInput, ArenaListElementInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
     ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId, RunFormId,
@@ -182,7 +183,7 @@ impl<'a> Parser<'a> {
             None => {
                 self.diagnostic_here(
                     "if expressions require an `else` branch",
-                    "parse.if-expression-else",
+                    DiagnosticCode::ParseIfExpressionElse,
                 );
                 arena.push_null_expr(self.current_span())
             }
@@ -348,7 +349,7 @@ impl<'a> Parser<'a> {
         let end = self.peek_end(last_close).unwrap_or(start);
         self.diagnostics.push(
             Diagnostic::error("`[ ... ]` is shell test syntax; an XSH condition is a Bool expression")
-                .with_code("parse.foreign-syntax")
+                .with_code(DiagnosticCode::ParseForeignSyntax)
                 .with_label(Label::primary(self.span(start, end), "write an expression such as `p\"x\".exists()?` or `count < 3`")),
         );
         for _ in 0..=last_close {
@@ -465,7 +466,7 @@ impl<'a> Parser<'a> {
                 let span = self.current_span();
                 self.diagnostics.push(
                     Diagnostic::error("the `then` keyword is not used in XSH")
-                        .with_code("parse.unsupported-then")
+                        .with_code(DiagnosticCode::ParseUnsupportedThen)
                         .with_label(Label::primary(
                             span,
                             "XSH `if`/`while`/`for` heads are followed directly by `{`, not `then`",
@@ -479,7 +480,7 @@ impl<'a> Parser<'a> {
             Diagnostic::error(format!(
                 "unsupported operator '{unsupported}': XSH boolean operators are the word forms '{supported}'"
             ))
-            .with_code("parse.unsupported-boolean-operator")
+            .with_code(DiagnosticCode::ParseUnsupportedBooleanOperator)
             .with_label(Label::primary(
                 span,
                 format!("use '{supported}' instead of '{unsupported}'"),
@@ -512,7 +513,7 @@ impl<'a> Parser<'a> {
             Diagnostic::error(format!(
                 "unsupported integer-division operator '{replacement}': use `/` on Int operands"
             ))
-            .with_code("parse.unsupported-integer-division")
+            .with_code(DiagnosticCode::ParseUnsupportedIntegerDivision)
             .with_label(Label::primary(
                 span,
                 "use `/` on Int operands; it truncates the result",
@@ -769,7 +770,7 @@ impl<'a> Parser<'a> {
                     let grouped = left.span.start() < inner_span.start() && left.span.end() > inner_span.end();
                     if !grouped && matches!(arena.expr_kind(left.id), ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { op: BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge, .. }) {
                         self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing pattern tests")
-                            .with_code("parse.mixed-comparison")
+                            .with_code(DiagnosticCode::ParseMixedComparison)
                             .with_label(Label::primary(span, "add parentheses around the intended comparison")));
                     }
                     left = ArenaOnlyExpr {
@@ -805,7 +806,7 @@ impl<'a> Parser<'a> {
                         let grouped = operand.span.start() < inner_span.start() && operand.span.end() > inner_span.end();
                         if !grouped && grouping::comparison_family(&arena.expr_kind(operand.id)).is_some_and(|inner_ordering| inner_ordering != grouping::is_ordering(op)) {
                             self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing equality, membership, or pattern tests")
-                                .with_code("parse.mixed-comparison")
+                                .with_code(DiagnosticCode::ParseMixedComparison)
                                 .with_label(Label::primary(span, "add parentheses around the intended comparison")));
                         }
                     }
@@ -1060,7 +1061,7 @@ impl<'a> Parser<'a> {
                         Diagnostic::error(
                             "expression string literals do not interpolate; use raw strings for literal `$` or formatted strings for interpolation",
                         )
-                        .with_code("parse.expr-string-interpolation")
+                        .with_code(DiagnosticCode::ParseExprStringInterpolation)
                         .with_label(Label::primary(
                             span,
                             "interpolation is only valid in command words",
@@ -1176,7 +1177,7 @@ impl<'a> Parser<'a> {
                 let span = self.span(span.start(), self.previous_end());
                 if arena.block_parameter_count(block) == 0 {
                     self.diagnostics.push(Diagnostic::error("error fallback block requires an error parameter")
-                        .with_code("parse.fallback-block-params")
+                        .with_code(DiagnosticCode::ParseFallbackBlockParams)
                         .with_label(Label::primary(span, "use one name or `_` between the pipes")));
                 }
                 Some(ArenaOnlyExpr { id: arena.push_value_block_expr(block, span), span, bare_ident: None })
@@ -1210,7 +1211,7 @@ impl<'a> Parser<'a> {
                     Diagnostic::error(
                         "`$name` is command-word syntax; in expression context, use `name` directly",
                     )
-                    .with_code("parse.expected-expression")
+                    .with_code(DiagnosticCode::ParseExpectedExpression)
                     .with_label(Label::primary(
                         span,
                         format!("use `{name}` here, not `${name}`"),
@@ -1224,7 +1225,7 @@ impl<'a> Parser<'a> {
                     Diagnostic::error(
                         "`${...}` is command-word syntax; in expression context, use the expression directly",
                     )
-                    .with_code("parse.expected-expression")
+                    .with_code(DiagnosticCode::ParseExpectedExpression)
                     .with_label(Label::primary(
                         span,
                         "remove `$` and braces in expression context",
@@ -1233,7 +1234,7 @@ impl<'a> Parser<'a> {
                 None
             }
             _ => {
-                self.diagnostic_here("expected expression", "parse.expected-expression");
+                self.diagnostic_here("expected expression", DiagnosticCode::ParseExpectedExpression);
                 None
             }
         }
@@ -1245,7 +1246,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         let Some(end) = literal::scan_bare_path_at(self.source, start) else {
-            self.diagnostic_here("expected path literal", "parse.expected-expression");
+            self.diagnostic_here("expected path literal", DiagnosticCode::ParseExpectedExpression);
             return None;
         };
         let value: Arc<str> = self.source[start..end].into();
@@ -1468,7 +1469,7 @@ impl<'a> Parser<'a> {
                 if dotted_key {
                     self.diagnostic_here(
                         "dotted update paths require `:` and a replacement value",
-                        "parse.expected-record-update-value",
+                        DiagnosticCode::ParseExpectedRecordUpdateValue,
                     );
                     break;
                 }
@@ -1508,7 +1509,7 @@ impl<'a> Parser<'a> {
         let Some(leading_entries) = leading_entries else { return };
         self.diagnostics.push(
             Diagnostic::error("a map comprehension must be the only entry in its braces")
-                .with_code("parse.map-comprehension-entries")
+                .with_code(DiagnosticCode::ParseMapComprehensionEntries)
                 .with_label(Label::primary(leading_entries, "these entries come before the comprehension"))
                 .with_label(Label::secondary(self.current_span(), "its `for` clause"))
                 .with_note("build the comprehension on its own and add the other entries with `.set(key, value)`"),
@@ -1653,7 +1654,7 @@ impl<'a> Parser<'a> {
             let span = self.span(start, self.previous_end());
             if let Err(hole_span) = arena.value_pipeline_hole(expr_id) {
                 self.diagnostics.push(Diagnostic::new(super::Severity::Error, "a value pipeline call requires exactly one whole argument placeholder")
-                    .with_code("parse.pipeline-hole")
+                    .with_code(DiagnosticCode::ParsePipelineHole)
                     .with_label(Label::primary(hole_span, "place `_` as one positional argument or named argument value of the immediate call")));
             }
             return Some((ArenaPipeStageKind::Expr(expr_id), span));
@@ -1678,7 +1679,7 @@ impl<'a> Parser<'a> {
             None
         };
         let stage = grammar::stream_stage_named(&name.as_str(), member.map(|member| member.as_str()).as_deref()).unwrap_or_else(|| {
-            self.diagnostic_previous("unknown stream stage", "parse.unknown-stream-stage");
+            self.diagnostic_previous("unknown stream stage", DiagnosticCode::ParseUnknownStreamStage);
             grammar::stream_stage(StreamStageKind::Map)
         });
         let kind = stage.kind;
@@ -1765,7 +1766,7 @@ impl<'a> Parser<'a> {
         if !named_arguments.is_empty() {
             let span = self.span(migration_start, migration_end);
             let mut diagnostic = Diagnostic::error("structured stream options use ordinary named arguments")
-                .with_code("parse.stream-option-migration")
+                .with_code(DiagnosticCode::ParseStreamOptionMigration)
                 .with_label(Label::primary(span, "replace stage flags with named arguments"));
             if !self.source[span.range()].contains('#') && !self.at(TokenKindMatch::LParen) {
                 diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use named stage arguments", format!("({})", named_arguments.join(", "))));
@@ -1919,7 +1920,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn expect_stage_name(&mut self) -> Option<Name> {
         if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
-            self.diagnostic_here("expected stream stage name", "parse.expected-stream-stage");
+            self.diagnostic_here("expected stream stage name", DiagnosticCode::ParseExpectedStreamStage);
             return None;
         }
         let name = self
@@ -1931,7 +1932,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn expect_stream_option_name(&mut self) -> Option<Name> {
         if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
-            self.diagnostic_here("expected stream stage option name", "parse.expected-ident");
+            self.diagnostic_here("expected stream stage option name", DiagnosticCode::ParseExpectedIdent);
             return None;
         }
         let name = self

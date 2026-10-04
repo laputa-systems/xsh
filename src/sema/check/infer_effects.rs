@@ -1,3 +1,4 @@
+use crate::diagnostic::DiagnosticCode;
 use super::{BTreeMap, Effect, Name, Span};
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
@@ -205,7 +206,7 @@ impl Checker {
         if let Some(caller) = &self.current_effects
             && !Self::effects_covers(caller, &effect)
         {
-            self.error(span, &format!("{subject} requires the `{}` effect", effect.as_str()), "check.effect-violation");
+            self.error(span, &format!("{subject} requires the `{}` effect", effect.as_str()), DiagnosticCode::CheckEffectViolation);
         }
     }
 
@@ -221,7 +222,7 @@ impl Checker {
             if sig.effects.is_none() && sig.inferred_effects {
                 let mut chain = vec![name.to_string()];
                 if let Some(summary) = sig.effect_declaration.and_then(|declaration| self.effect_summaries.get(&declaration)) { chain.extend(summary.unknown_chain.clone()); }
-                self.error(span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), "check.effect-violation");
+                self.error(span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), DiagnosticCode::CheckEffectViolation);
             } else {
                 self.check_callee_effects(&caller, &sig.effects, name, span);
             }

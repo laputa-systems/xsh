@@ -5,6 +5,10 @@
 
 use crate::source::{SourceMap, Span};
 
+mod code;
+
+pub use code::{DiagnosticCode, DiagnosticFamily};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Severity {
     Error,
@@ -104,7 +108,7 @@ impl FixHint {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
     pub severity: Severity,
-    pub code: Option<String>,
+    pub code: Option<DiagnosticCode>,
     pub message: String,
     pub span: Option<Span>,
     pub labels: Vec<Label>,
@@ -133,8 +137,16 @@ impl Diagnostic {
         Self::new(Severity::Warning, message)
     }
 
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = Some(code.into());
+    /// Attaches `code`, which must agree with this diagnostic's severity
+    /// when the code declares a default one.
+    pub fn with_code(mut self, code: DiagnosticCode) -> Self {
+        debug_assert!(
+            code.severity().is_none_or(|severity| severity == self.severity),
+            "{code} is declared {:?} but emitted as {:?}",
+            code.severity(),
+            self.severity
+        );
+        self.code = Some(code);
         self
     }
 
@@ -161,7 +173,7 @@ impl Diagnostic {
     pub fn to_machine(&self, sources: &SourceMap) -> MachineDiagnostic {
         MachineDiagnostic {
             severity: self.severity.as_str().to_string(),
-            code: self.code.clone(),
+            code: self.code.map(|code| code.name().to_owned()),
             message: self.message.clone(),
             span: self
                 .span
@@ -322,7 +334,7 @@ impl DiagnosticRenderer {
                 output.push_str(SGR_DIM);
             }
             output.push('[');
-            output.push_str(code);
+            output.push_str(code.name());
             output.push(']');
             if self.color {
                 output.push_str(SGR_RESET);
@@ -560,7 +572,7 @@ fn non_empty(value: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Diagnostic, DiagnosticRenderer, FixHint, Label, Severity};
+    use super::{Diagnostic, DiagnosticCode, DiagnosticRenderer, FixHint, Label, Severity};
     use crate::source::{SourceMap, Span};
 
     #[test]
@@ -569,7 +581,7 @@ mod tests {
         let id = sources.add_file("example.xsh", "let answer =\n");
         let span = Span::new(id, 11, 12);
         let diagnostic = Diagnostic::error("expected expression")
-            .with_code("parse.expected-expression")
+            .with_code(DiagnosticCode::ParseExpectedExpression)
             .with_label(Label::primary(span, "expected expression after `=`"))
             .with_note("bindings require an initializer");
 

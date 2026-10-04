@@ -17,7 +17,7 @@ mod literal_migration_tests;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
-use xsh::diagnostic::{Diagnostic, FixHint, Label, Severity};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
@@ -177,148 +177,15 @@ pub struct LintOptions {
     pub native_test_file: bool,
     /// `xsht lint --only`: retain only diagnostics with these codes, which
     /// also restricts the fixes derived from them.
-    pub only: Option<Vec<String>>,
+    pub only: Option<Vec<DiagnosticCode>>,
 }
 
 /// One match arm as the adjacent-arm lint sees it: pattern, guard, body, span.
 type PatternArm = (PatternId, Option<ExprId>, Result<BlockId, ExprId>, Span);
 
-/// Every diagnostic code `xsht lint` can report, with a one-line summary for
-/// `xsht lint --list` and the generated `docs/reference/lints.md`. `--only`
-/// validates against these codes.
-pub const LINT_CODES: &[(&str, &str)] = &[
-    ("lint.block-header", "Move error-handler parameters inside the block of an `else` block"),
-    ("lint.boolean-guard", "Rewrite a leading failure branch on a Bool condition as `guard ... else`"),
-    ("lint.boolean-pattern-test", "Replace a match yielding `true`/`false` per arm with a pattern test"),
-    ("lint.command-value", "Write a parenthesized name or field path command argument as `$name` or `$record.field`"),
-    ("lint.compatibility-vocabulary", "Replace removed vocabulary with its canonical name, such as dropping `run.builtin`"),
-    ("lint.core-assert", "Use an `assert` statement instead of a core assertion call in statement position"),
-    ("lint.dead-code", "Flag unreachable statements after code that always exits"),
-    ("lint.default-param-type", "Drop a parameter type annotation when its default already establishes that type"),
-    ("lint.dollar-in-expression-string", "Warn that `$name` in an expression string literal is literal text, not interpolation"),
-    ("lint.duration-arithmetic", "Use Duration arithmetic such as `(n * 1s)` for a bounded numeric conversion"),
-    ("lint.enum-declaration", "Replace a legacy tag-union `type` declaration with `enum Name { A, B }`"),
-    ("lint.env-scope", "Write expression environment assignments as `env ({NAME: value}) { body }`"),
-    ("lint.error-fallback-block", "Replace an identity success match with a `??` error fallback block"),
-    ("lint.fs-root-receiver", "Call removed filesystem operations as methods on the `FsRoot` receiver"),
-    ("lint.identical-match-arms", "Merge adjacent match arms with identical bodies into one alternative pattern"),
-    ("lint.inferred-require-target", "Drop a `require` schema target the checked boundary already supplies"),
-    ("lint.interactive-command", "Flag interactive-only commands in scripts and suggest the scripting replacement"),
-    ("lint.json-roundtrip", "Flag a JSON encode then decode round trip as usually redundant"),
-    ("lint.legacy-test-proc", "Replace a legacy native test proc taking `TestContext` with a `test` declaration"),
-    ("lint.lexical-block", "Use a lexical block for an unconditional scope instead of a value block"),
-    ("lint.lookup-absence", "Compare a lookup against `null` for absence, not the `-1` numeric sentinel"),
-    ("lint.lookup-fallback", "Remove the fallback argument from lookup calls, which no longer accept one"),
-    ("lint.missing-effects", "Flag a proc whose declared effects are incomplete and suggest the full effect list"),
-    ("lint.missing-f-prefix", "Add the `f` prefix to a string whose `{name}` names a binding in scope"),
-    ("lint.needless-annotation", "Remove a type annotation that the initializer or checked constraints already fix"),
-    ("lint.organize-top-level-consts", "Group safe immutable top-level constants after imports and before functions"),
-    ("lint.path-constructor", "Prefer a `p` string literal or path interpolation over `Path(...)`"),
-    ("lint.pattern-conditional", "Use `if let` for a two-arm match with a complementary pattern"),
-    ("lint.prefer-bare-field-label", "Write identifier-shaped record field labels without quotes"),
-    ("lint.prefer-block-string", "Use a block string for a constant multiline string concatenation"),
-    ("lint.prefer-callable-alias", "Use an immutable alias for a callable that exactly forwards to another"),
-    ("lint.prefer-comparison-chain", "Use an ordering chain like `a < b < c` for repeated adjacent comparisons"),
-    ("lint.prefer-const", "Declare inert module-level `let` data as `const`"),
-    ("lint.prefer-context-scope-value", "Let a scope such as `cd` or `env` yield the value instead of a placeholder assigned inside"),
-    ("lint.prefer-defer-block", "Replace a single-use literal cleanup helper with a `defer` block"),
-    ("lint.prefer-empty-map-literal", "Use `{}` for an empty map in map-typed contexts"),
-    ("lint.prefer-file-lines", "Use `path.lines()?` instead of `read_text()?.lines()` in a loop"),
-    ("lint.prefer-fs-files", "Use `fs.files()` instead of `fs.walk()` filtered to `kind == file`"),
-    ("lint.prefer-generic-record-constructor", "Let a constructor infer its concrete schema from the supplied fields"),
-    ("lint.prefer-guard", "Use `guard` instead of a single-action `if`"),
-    ("lint.prefer-in", "Use `in` or `not in` instead of a membership method call"),
-    ("lint.prefer-inferred-private-effects", "Drop a private proc effect clause when it is inferred exactly"),
-    ("lint.prefer-inferred-pure-return", "Drop a private pure return type when it is inferred exactly"),
-    ("lint.prefer-known-field-access", "Select a guaranteed record field directly instead of through a lookup"),
-    ("lint.prefer-list-comp", "Use a list comprehension instead of a for loop that only builds a list"),
-    ("lint.prefer-list-compound-assignment", "Use `+=` for a local list update that reassigns the list"),
-    ("lint.prefer-list-element-assignment", "Assign a list element directly when the index is known valid"),
-    ("lint.prefer-list-pattern", "Use a list pattern with `if let` for bounded element extraction after a length check"),
-    ("lint.prefer-list-splicing", "Build a list with one literal and explicit splices instead of chained concatenation"),
-    ("lint.prefer-map-comp", "Use a map comprehension instead of a for loop that only builds a map"),
-    ("lint.prefer-map-entry-iteration", "Iterate map entries instead of looping over keys and looking each value up"),
-    ("lint.prefer-map-literal", "Construct a fresh Map with one literal instead of incremental insertion"),
-    ("lint.prefer-method", "Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)`"),
-    ("lint.prefer-named-argument-pun", "Use the named-argument shorthand when the argument repeats its value name"),
-    ("lint.prefer-named-argument-spread", "Forward record fields with a named argument spread such as `...record`"),
-    ("lint.prefer-nested-record-update", "Use disjoint static field paths instead of nested record spreads"),
-    ("lint.prefer-optional-postfix", "Use a guarded postfix and `??` instead of an explicit null branch"),
-    ("lint.prefer-record-constructor", "Use the named schema constructor for a record literal of a schema type"),
-    ("lint.prefer-record-destructuring", "Bind adjacent fields of one record together with a destructuring `let`"),
-    ("lint.prefer-regex-literal", "Prepare a static regex pattern with an `rx` literal instead of a call"),
-    ("lint.prefer-scalar-iteration", "Iterate a Str by scalars or bytes without a split List or unused offsets"),
-    ("lint.prefer-signature-cli", "Declare a literal CLI schema as a `cli main(...)` entry signature"),
-    ("lint.prefer-slice", "Use half-open slicing where offset/count method bounds are equivalent"),
-    ("lint.prefer-stream-producer", "Suggest a `stream` producer with `yield` for a proc that builds a list item by item"),
-    ("lint.prefer-string-concat", "Use `+` instead of joining literal pieces with an empty separator"),
-    ("lint.prefer-try-capture", "Replace a single-use closed helper with a local `try` block capture"),
-    ("lint.prefer-value-pipeline", "Use a value pipeline for nested calls or a single-use temporary"),
-    ("lint.prefer-yield-delegation", "Replace a transparent forwarding loop with `yield @iterable`"),
-    ("lint.redundant-bare-return", "Remove a bare `return` at the end of a `Result[Unit]` function"),
-    ("lint.redundant-command-fmt", "Use command value syntax directly for a single-value command f-string"),
-    ("lint.redundant-command-interpolation", "Use expression syntax directly for a single interpolation in command args"),
-    ("lint.redundant-default", "Remove a named Bool argument that equals the call default, such as `parents: true`"),
-    ("lint.redundant-display-parse", "Remove a display then parse round trip on a value already of the parsed type"),
-    ("lint.redundant-fmt-wrapper", "Remove redundant `${}` or `()` wrapping around an f-string"),
-    ("lint.redundant-main-call", "Remove an explicit `main(@args)` since main is invoked implicitly"),
-    ("lint.redundant-newline-triple-string", "Write a single-newline triple string as an escaped newline literal"),
-    ("lint.redundant-ok-return", "Remove `return Ok()` in a `Result[Unit]` function, using bare `return` or none"),
-    ("lint.redundant-ok-tail", "Remove `return Ok(...)` at a function tail since plain values are wrapped"),
-    ("lint.redundant-optional-fallback", "Drop a `??` fallback on an Optional receiver proved present"),
-    ("lint.redundant-path-display", "Drop `.display()` from an interpolated Path; interpolation already renders it"),
-    ("lint.redundant-path-interpolation", "Remove a single-value path interpolation that wraps one value"),
-    ("lint.redundant-path-parse", "Remove a Path display then parse round trip on a value already a Path"),
-    ("lint.redundant-pipeline-stage", "Remove no-op `where true` and `map .` pipeline stages"),
-    ("lint.redundant-require", "Remove a schema `require` on an expression that already has the required type"),
-    ("lint.redundant-result-unit", "Remove a `Result[Unit]` return annotation that a proc without a value tail infers"),
-    ("lint.redundant-string-interpolation", "Remove a string interpolation containing only a single value"),
-    ("lint.redundant-tail-return-binding", "Return the initializer implicitly instead of binding it and returning at the tail"),
-    ("lint.redundant-tail-return", "Use the tail value implicitly instead of a final `return`"),
-    ("lint.removed-record-require", "Replace the removed `record.require` with a named schema and `.require(Schema)`"),
-    ("lint.run-status", "Remove `?` from a `run` of a command whose nonzero status is expected"),
-    ("lint.runless", "Reject external commands when linting with `--runless`, except allowed names"),
-    ("lint.shadowing", "Flag a binding that shadows a name from an outer scope"),
-    ("lint.stage-callable", "Name the callable directly instead of a transparent stream stage block"),
-    ("lint.stream-options", "Replace stream stage flags with ordinary named arguments"),
-    ("lint.stringly-typed-match", "Suggest a tag union type for a match with three or more string-literal arms"),
-    ("lint.unannotated-effects", "Flag a proc that has effects but no annotation and suggest the effect list"),
-    ("lint.unsorted-imports", "Sort a contiguous import block by module path and alias"),
-    ("lint.unused-callable", "Flag an unexported callable not reachable from a bundle entry point"),
-    ("lint.unused-local", "Flag a local variable that is never read"),
-    ("lint.unused-type", "Flag a type declaration that is never referenced"),
-];
-
-/// Checker diagnostic codes that carry a source fix and may be selected with
-/// `xsht lint --only`, for scoped migrations such as `--only check.bool-statement --fix`.
-pub const FIXABLE_CHECK_CODES: &[&str] = &["check.ambiguous-grouping", "check.bool-statement", "check.dynamic-boundary", "check.ignored-result", "check.mixed-logical", "check.redundant-parens"];
-
-/// One-line summaries of `FIXABLE_CHECK_CODES` for `xsht lint --list`.
-pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[
-    ("check.ambiguous-grouping", "Group an `if` or `match` operand, or a pipeline that an operator applies to"),
-    (
-        "check.bool-statement",
-        "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",
-    ),
-    ("check.dynamic-boundary", "Validate an `Any` value with `.require(T)?` where the context names its concrete type"),
-    ("check.ignored-result", "Discard a value a statement would otherwise drop silently with `let _ =`"),
-    ("check.mixed-logical", "Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand"),
-    ("check.redundant-parens", "Remove parentheses that do not change the parse"),
-];
-
-/// Whether `xsht lint --only` accepts `code`.
-pub fn lint_code_known(code: &str) -> bool {
-    LINT_CODES.iter().any(|(known, _)| *known == code) || FIXABLE_CHECK_CODES.contains(&code)
-}
-
-/// Every selectable code with its summary, lint codes first, for `xsht lint --list`.
-pub fn lint_code_catalog() -> impl Iterator<Item = (&'static str, &'static str)> {
-    LINT_CODES.iter().chain(FIXABLE_CHECK_SUMMARIES).copied()
-}
-
 /// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
-pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {
-    only.is_none_or(|only| code.is_some_and(|code| only.iter().any(|selected| selected == code)))
+pub fn lint_code_selected(only: Option<&[DiagnosticCode]>, code: Option<DiagnosticCode>) -> bool {
+    only.is_none_or(|only| code.is_some_and(|code| only.contains(&code)))
 }
 
 impl Default for LintOptions {
@@ -568,7 +435,7 @@ impl<'a> Linter<'a> {
             linter.lint_declaration_reachability(program);
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
-        linter.diagnostics.retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code.as_deref()));
+        linter.diagnostics.retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));
         minimize_fix_grouping(program, source, &mut linter.diagnostics);
         LintOutput {
             diagnostics: linter.diagnostics,
@@ -593,7 +460,7 @@ impl<'a> Linter<'a> {
             ) { continue; }
             let signature = Span::new(stmt.span.source_id, stmt.span.start(), body_span.start());
             let mut diagnostic = Diagnostic::warning("legacy native test proc requires an explicit test declaration")
-                .with_code("lint.legacy-test-proc")
+                .with_code(DiagnosticCode::LintLegacyTestProc)
                 .with_label(Label::primary(signature, "preserve the exact name to retain the test ID"));
             let references = (0..tokens.token_table.len()).filter(|&index|
                 tokens.token_table.name_at(index).is_some_and(|name| name.as_str() == def.name.as_str())
@@ -661,7 +528,7 @@ impl<'a> Linter<'a> {
             let preceding_comment = self.source.get(..definition_span.start()).and_then(|text| text.trim_end().lines().last()).is_some_and(|line| line.trim_start().starts_with('#'));
             if definition_text.contains('#') || preceding_comment { continue; }
             self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a deferred block for this single-use literal cleanup helper")
-                .with_code("lint.prefer-defer-block")
+                .with_code(DiagnosticCode::LintPreferDeferBlock)
                 .with_label(Label::secondary(deferred, "register the cleanup body directly"))
                 .with_fix_hint(FixHint::replacement(deferred, "register a deferred block", format!("defer {body_text}\n")))
                 .with_fix_hint(FixHint::replacement(definition_span, "remove the unused private helper", String::new())));
@@ -855,7 +722,7 @@ impl<'a> Linter<'a> {
         let span = Span::new(first_span.source_id, start, end);
         let has_comment = self.source[start..end].contains('#');
         let mut diagnostic = Diagnostic::new(Severity::Warning, "import block is not sorted")
-            .with_code("lint.unsorted-imports")
+            .with_code(DiagnosticCode::LintUnsortedImports)
             .with_label(Label::secondary(
                 span,
                 "sort this contiguous import block by module path and alias",
@@ -906,7 +773,7 @@ impl<'a> Linter<'a> {
             let span = Span::new(stmt.span.source_id, start, start + 3);
             if self.source.get(span.range()) != Some("let") { continue; }
             self.diagnostics.push(Diagnostic::new(Severity::Warning, "module data can be declared as const")
-                .with_code("lint.prefer-const")
+                .with_code(DiagnosticCode::LintPreferConst)
                 .with_label(Label::secondary(span, "this initializer is inert and can be prepared"))
                 .with_fix_hint(FixHint::replacement(span, "declare prepared immutable data", "const")));
         }
@@ -922,7 +789,7 @@ impl<'a> Linter<'a> {
                         Severity::Warning,
                         "top-level constant should be grouped after imports",
                     )
-                    .with_code("lint.organize-top-level-consts")
+                    .with_code(DiagnosticCode::LintOrganizeTopLevelConsts)
                     .with_label(Label::secondary(
                         self.arena.stmt(stmt_id).span,
                         "move this safe immutable binding before top-level functions",
@@ -952,7 +819,7 @@ impl<'a> Linter<'a> {
                     xsh::diagnostic::Severity::Warning,
                     format!("unused type declaration `{name}`"),
                 )
-                .with_code("lint.unused-type")
+                .with_code(DiagnosticCode::LintUnusedType)
                 .with_label(xsh::diagnostic::Label::secondary(
                     span,
                     "type is declared but never referenced",
@@ -1079,7 +946,7 @@ impl<'a> Linter<'a> {
                 xsh::diagnostic::Severity::Warning,
                 "redundant `main(@args)` — main is invoked implicitly",
             )
-            .with_code("lint.redundant-main-call")
+            .with_code(DiagnosticCode::LintRedundantMainCall)
             .with_label(xsh::diagnostic::Label::secondary(
                 last_stmt.span,
                 "main is called automatically after all top-level statements run",
@@ -1290,7 +1157,7 @@ impl<'a> Linter<'a> {
                     self.warning(
                         stmt.span,
                         "3+ string-literal match arms — consider defining a tag union type",
-                        "lint.stringly-typed-match",
+                        DiagnosticCode::LintStringlyTypedMatch,
                         "tag unions are safer and exhaustiveness-checked",
                     );
                 }
@@ -1369,7 +1236,7 @@ impl<'a> Linter<'a> {
         let message = *values.last().unwrap();
         if self.expr_types.get(&self.arena.expr(message).span) != Some(&Type::Str) { return; }
         let mut diagnostic = Diagnostic::warning("use a core assertion for statement assertion context")
-            .with_code("lint.core-assert")
+            .with_code(DiagnosticCode::LintCoreAssert)
             .with_label(Label::primary(self.arena.expr(expression).span, "assert condition, message"));
         // Only a literal message can be delayed without changing eager effects,
         // failure timing, or observation of a binding changed by an operand.
@@ -1419,7 +1286,7 @@ impl<'a> Linter<'a> {
         let after = checked_return_removal_facts(&rewritten, ty_span.source_id, Some((start, ty_span.end() - start)));
         if Some(before) != after.as_ref() { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "private pure return type can be inferred exactly")
-            .with_code("lint.prefer-inferred-pure-return")
+            .with_code(DiagnosticCode::LintPreferInferredPureReturn)
             .with_label(Label::secondary(ty_span, "definition and caller types remain identical without this annotation"))
             .with_fix_hint(FixHint::deletion(deletion, "infer the private pure return")));
     }
@@ -1442,7 +1309,7 @@ impl<'a> Linter<'a> {
         let after = checked_return_removal_facts(&rewritten, span.source_id, Some((start, span.end() - start)));
         if Some(before) != after.as_ref() { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "default establishes exactly the declared parameter type")
-            .with_code("lint.default-param-type")
+            .with_code(DiagnosticCode::LintDefaultParamType)
             .with_label(Label::secondary(span, "checked signatures, expression types, effects and conversions remain identical"))
             .with_fix_hint(FixHint::deletion(Span::new(span.source_id, start, span.end()), "infer the parameter type from its default")));
     }
@@ -1467,7 +1334,7 @@ impl<'a> Linter<'a> {
         let after = checked_return_removal_facts(&rewritten, span.source_id, Some((span.start(), span.end() - span.start())));
         if before.is_none() || before != after { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "private proc effect clause can be inferred exactly")
-            .with_code("lint.prefer-inferred-private-effects")
+            .with_code(DiagnosticCode::LintPreferInferredPrivateEffects)
             .with_label(Label::secondary(span, "checked body, caller contracts, and statement purposes remain equivalent"))
             .with_fix_hint(FixHint::deletion(span, "infer the private proc effects")));
     }
@@ -1488,7 +1355,7 @@ impl<'a> Linter<'a> {
                     Severity::Warning,
                     "redundant `Result[Unit]` return annotation",
                 )
-                .with_code("lint.redundant-result-unit")
+                .with_code(DiagnosticCode::LintRedundantResultUnit)
                 .with_label(Label::secondary(
                     ty_span,
                     "a proc without a value tail infers `Result[Unit]`",
@@ -1542,7 +1409,7 @@ impl<'a> Linter<'a> {
                     Severity::Warning,
                     format!("proc `{}` is missing declared effects", def.name),
                 )
-                .with_code("lint.missing-effects")
+                .with_code(DiagnosticCode::LintMissingEffects)
                 .with_label(Label::secondary(
                     stmt_span,
                     format!("suggest [{annotation}]"),
@@ -1571,7 +1438,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 format!("proc `{}` has effects but no annotation", def.name),
             )
-            .with_code("lint.unannotated-effects")
+            .with_code(DiagnosticCode::LintUnannotatedEffects)
             .with_label(Label::secondary(
                 stmt_span,
                 format!("suggest [{annotation}]"),
@@ -1651,7 +1518,7 @@ impl<'a> Linter<'a> {
                     Severity::Warning,
                     "redundant `return` at end of `Result[Unit]` function",
                 )
-                .with_code("lint.redundant-bare-return")
+                .with_code(DiagnosticCode::LintRedundantBareReturn)
                 .with_label(Label::secondary(
                     last_stmt.span,
                     "falling off the end also returns `Ok()`",
@@ -1728,7 +1595,7 @@ impl<'a> Linter<'a> {
         // carry author intent and must survive a source rewrite.
         if self.source.get(expression.span.range()).is_none_or(|text| text.contains('#')) { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "schema target is supplied by the checked boundary")
-            .with_code("lint.inferred-require-target")
+            .with_code(DiagnosticCode::LintInferredRequireTarget)
             .with_label(Label::secondary(span, "the same concrete schema is independently known here"))
             .with_fix_hint(FixHint::replacement(span, "infer the validation target", String::new())));
     }
@@ -1797,7 +1664,7 @@ impl<'a> Linter<'a> {
         };
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "redundant display/parse round trip")
-                .with_code("lint.redundant-display-parse")
+                .with_code(DiagnosticCode::LintRedundantDisplayParse)
                 .with_label(Label::secondary(
                     label_span,
                     "this value already has the parsed type",
@@ -1831,11 +1698,11 @@ impl<'a> Linter<'a> {
         // whitespace in a block string, which editors and formatters strip.
         if value.split('\n').any(|line| line.ends_with([' ', '\t'])) { return; }
         // Report the outermost literal chain once; its operands are part of the same rewrite.
-        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferBlockString)
             && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && span.end() <= label.span.end()))
         { return; }
         let diagnostic = Diagnostic::new(Severity::Warning, "constant multiline concatenation can use a block string")
-            .with_code("lint.prefer-block-string")
+            .with_code(DiagnosticCode::LintPreferBlockString)
             .with_label(Label::secondary(span, "all pieces are literal text in source order"));
         // Comments and a closing delimiter that cannot stand alone are layout
         // facts: they decide only whether the rewrite is offered.
@@ -1886,7 +1753,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 "single-newline triple string can be written as `\"\\n\"`",
             )
-            .with_code("lint.redundant-newline-triple-string")
+            .with_code(DiagnosticCode::LintRedundantNewlineTripleString)
             .with_label(Label::secondary(
                 expr_span,
                 "use the escaped newline literal",
@@ -1955,7 +1822,7 @@ impl<'a> Linter<'a> {
                                         "expression string literals never interpolate; `${name}` is literal text here"
                                     ),
                                 )
-                                .with_code("lint.dollar-in-expression-string")
+                                .with_code(DiagnosticCode::LintDollarInExpressionString)
                                 .with_label(Label::primary(
                                     dollar_span,
                                     format!(
@@ -1989,7 +1856,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 format!("`{{{first}}}` is literal text without the `f` prefix"),
             )
-            .with_code("lint.missing-f-prefix")
+            .with_code(DiagnosticCode::LintMissingFPrefix)
             .with_label(Label::primary(label, format!("`{first}` is a binding in scope")))
             .with_fix_hint(FixHint::replacement(
                 span,
@@ -2064,7 +1931,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 "JSON encode/decode round trip is usually redundant",
             )
-            .with_code("lint.json-roundtrip")
+            .with_code(DiagnosticCode::LintJsonRoundtrip)
             .with_label(Label::secondary(
                 label_span,
                 "review whether JSON normalization is intentional",
@@ -2087,7 +1954,7 @@ impl<'a> Linter<'a> {
         let expr_span = self.arena.expr(*expr).span;
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "use `{}` for an empty map")
-                .with_code("lint.prefer-empty-map-literal")
+                .with_code(DiagnosticCode::LintPreferEmptyMapLiteral)
                 .with_label(Label::secondary(
                     expr_span,
                     "`{}` is the empty-map literal in map-typed contexts",
@@ -2150,7 +2017,7 @@ impl<'a> Linter<'a> {
         let deletion_span = Span::new(ty_span.source_id, deletion_start, deletion_end);
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "needless type annotation")
-                .with_code("lint.needless-annotation")
+                .with_code(DiagnosticCode::LintNeedlessAnnotation)
                 .with_label(Label::secondary(
                     ty_span,
                     "this type annotation is redundant with the initializer",
@@ -2178,7 +2045,7 @@ impl<'a> Linter<'a> {
         if deletion.start() >= deletion.end() || self.source[deletion.range()].contains('#') { return true; }
         if !self.local_annotation_removal_preserves_contract(deletion, binding_span) { return true; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "local type is determined by consistent checked constraints")
-            .with_code("lint.needless-annotation")
+            .with_code(DiagnosticCode::LintNeedlessAnnotation)
             .with_label(Label::secondary(annotation_span, "the whole local binding retains this fixed type without the annotation"))
             .with_fix_hint(FixHint::deletion(deletion, "remove the redundant local annotation")));
         true
@@ -2369,7 +2236,7 @@ impl<'a> Linter<'a> {
         // Retaining the original branch suffix preserves its else block and value context.
         let replacement = format!("if let [{}] = {} {{\n{}{}", elements.join(", "), subject, body, suffix);
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "prefer a list pattern for bounded element extraction")
-            .with_code("lint.prefer-list-pattern")
+            .with_code(DiagnosticCode::LintPreferListPattern)
             .with_label(Label::secondary(span, "length establishes every element bound before extraction"))
             .with_fix_hint(FixHint::replacement(span, "bind the list elements after structural matching", replacement)));
     }
@@ -2384,7 +2251,7 @@ impl<'a> Linter<'a> {
             }
         }
         let span = self.arena.expr(expr).span;
-        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain") && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && label.span.end() >= span.end())) { return; }
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferComparisonChain) && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && label.span.end() >= span.end())) { return; }
         if !matches!(self.arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::And, .. }) { return; }
         let mut pairs = Vec::new();
         if !ladder(self.arena, expr, &mut pairs) || pairs.len() < 2 { return; }
@@ -2416,7 +2283,7 @@ impl<'a> Linter<'a> {
             replacement.push_str(&text);
         }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "prefer an ordering comparison chain")
-            .with_code("lint.prefer-comparison-chain")
+            .with_code(DiagnosticCode::LintPreferComparisonChain)
             .with_label(Label::secondary(span, "the repeated adjacent operand is stable"))
             .with_fix_hint(FixHint::replacement(span, "compare adjacent operands once", replacement)));
     }
@@ -2570,7 +2437,7 @@ impl<'a> Linter<'a> {
     fn single_interpolation_replacement(
         &self,
         expr: ExprId,
-    ) -> Option<(Span, String, &'static str, &'static str)> {
+    ) -> Option<(Span, String, DiagnosticCode, &'static str)> {
         let expr_span = self.arena.expr(expr).span;
         match self.arena.expr(expr).kind {
             ArenaExprKind::FmtString(parts)
@@ -2585,7 +2452,7 @@ impl<'a> Linter<'a> {
                 Some((
                     inner_span,
                     replacement,
-                    "lint.redundant-string-interpolation",
+                    DiagnosticCode::LintRedundantStringInterpolation,
                     "redundant single-value string interpolation",
                 ))
             }
@@ -2597,7 +2464,7 @@ impl<'a> Linter<'a> {
                 Some((
                     label_span,
                     replacement,
-                    "lint.redundant-path-interpolation",
+                    DiagnosticCode::LintRedundantPathInterpolation,
                     "redundant single-value path interpolation",
                 ))
             }
@@ -2775,7 +2642,7 @@ impl<'a> Linter<'a> {
     ) {
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "redundant schema require")
-                .with_code("lint.redundant-require")
+                .with_code(DiagnosticCode::LintRedundantRequire)
                 .with_label(Label::secondary(
                     label_span,
                     "this expression already has the required type",
@@ -2837,7 +2704,7 @@ impl<'a> Linter<'a> {
         }
         .filter(|(span, _)| !self.source[span.range()].contains('#'));
         let mut diagnostic = Diagnostic::new(Severity::Warning, "needless `.display()` on an interpolated Path")
-            .with_code("lint.redundant-path-display")
+            .with_code(DiagnosticCode::LintRedundantPathDisplay)
             .with_label(Label::secondary(expr_span, "interpolation already renders the Path"))
             .with_note("fp-strings and command words take the Path's native bytes; keep `.display()` where a Str is required");
         if let Some((span, replacement)) = edit {
@@ -2897,7 +2764,7 @@ impl<'a> Linter<'a> {
     ) {
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "redundant path display/parse round trip")
-                .with_code("lint.redundant-path-parse")
+                .with_code(DiagnosticCode::LintRedundantPathParse)
                 .with_label(Label::secondary(
                     label_span,
                     "this value is already a Path before `.display()`",
@@ -2940,7 +2807,7 @@ impl<'a> Linter<'a> {
                         format!("({})", &self.source[value_span.range()]))
                 } else { (prefix, String::new()) };
                 self.diagnostics.push(Diagnostic::warning("tail return can supply its value implicitly")
-                    .with_code("lint.redundant-tail-return")
+                    .with_code(DiagnosticCode::LintRedundantTailReturn)
                     .with_label(Label::primary(prefix, "remove the tail return"))
                     .with_fix_hint(FixHint::replacement(replacement_span, "use the tail value", replacement)));
             }
@@ -3018,7 +2885,7 @@ impl<'a> Linter<'a> {
             Severity::Warning,
             format!("tail binding `{binding_name}` can be returned implicitly"),
         )
-        .with_code("lint.redundant-tail-return-binding")
+        .with_code(DiagnosticCode::LintRedundantTailReturnBinding)
         .with_label(Label::secondary(
             return_stmt.span,
             "make the initializer the final expression",
@@ -3098,7 +2965,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 "redundant `return Ok()` in `Result[Unit]` function",
             )
-            .with_code("lint.redundant-ok-return")
+            .with_code(DiagnosticCode::LintRedundantOkReturn)
             .with_label(Label::secondary(
                 val_span,
                 "use bare `return`, or omit the final return",
@@ -3156,7 +3023,7 @@ impl<'a> Linter<'a> {
             Severity::Warning,
             "redundant `return Ok(...)` at function tail",
         )
-        .with_code("lint.redundant-ok-tail")
+        .with_code(DiagnosticCode::LintRedundantOkTail)
         .with_label(Label::secondary(
             expr_span,
             "plain tail values are wrapped in `Ok(...)` automatically",
@@ -3243,7 +3110,7 @@ impl<'a> Linter<'a> {
             || !self.pattern_condition_complement(value, selected.pattern, complement.pattern)
         { return; }
         let mut diagnostic = Diagnostic::new(Severity::Warning, "two-arm match can use a pattern conditional")
-            .with_code("lint.pattern-conditional")
+            .with_code(DiagnosticCode::LintPatternConditional)
             .with_label(Label::secondary(span, "bind the selected pattern with `if let`"));
         if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
             let subject = self.source.get(self.arena.expr(value).span.range());
@@ -3276,7 +3143,7 @@ impl<'a> Linter<'a> {
         { return; }
         let span = expression.span;
         let mut diagnostic = Diagnostic::new(Severity::Warning, "two-arm match can use a pattern conditional")
-            .with_code("lint.pattern-conditional")
+            .with_code(DiagnosticCode::LintPatternConditional)
             .with_label(Label::secondary(span, "bind the selected pattern with `if let`"));
         if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
             let subject = self.source.get(self.arena.expr(value).span.range());
@@ -3359,7 +3226,7 @@ impl<'a> Linter<'a> {
         };
         let replacement = format!("{subject} ?? {handler}");
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "identity success match can use an error fallback block")
-            .with_code("lint.error-fallback-block")
+            .with_code(DiagnosticCode::LintErrorFallbackBlock)
             .with_label(Label::secondary(expression.span, "retain the lazy error handler with `??`"))
             .with_fix_hint(FixHint::replacement(expression.span, "use an error fallback block", replacement)));
     }
@@ -3395,7 +3262,7 @@ impl<'a> Linter<'a> {
                 // including nominal constructor payloads and aliases of those types.
                 if checked.diagnostics.is_empty() {
                     self.diagnostics.push(Diagnostic::new(Severity::Warning, "adjacent match arms can share an alternative pattern")
-                        .with_code("lint.identical-match-arms")
+                        .with_code(DiagnosticCode::LintIdenticalMatchArms)
                         .with_label(Label::secondary(span, "unguarded arms share a checked body and capture contract"))
                         .with_fix_hint(FixHint::replacement(span, "combine the compatible alternatives", replacement)));
                 }
@@ -3423,7 +3290,7 @@ impl<'a> Linter<'a> {
         if yes == no { return; }
         let span = expression.span;
         let mut diagnostic = Diagnostic::new(Severity::Warning, "boolean match can use a pattern test")
-            .with_code("lint.boolean-pattern-test")
+            .with_code(DiagnosticCode::LintBooleanPatternTest)
             .with_label(Label::secondary(span, "test the selected pattern with `is`"));
         if self.pattern_test_fix_is_nonbinding(selected.pattern)
             && self.source.get(span.range()).is_some_and(|source| !source.contains('#'))
@@ -3605,7 +3472,7 @@ impl<'a> Linter<'a> {
             let Some(pattern) = target(&entries, 0) else { continue; };
             let suffix = if self.source.get(span.range()).is_some_and(|source| source.ends_with('\n')) { "\n" } else { "" };
             self.diagnostics.push(Diagnostic::new(Severity::Warning, "adjacent record field bindings can destructure their source")
-                .with_code("lint.prefer-record-destructuring")
+                .with_code(DiagnosticCode::LintPreferRecordDestructuring)
                 .with_label(Label::secondary(span, "these fields come from the same checked record binding"))
                 .with_fix_hint(FixHint::replacement(span, "bind the selected record fields together", format!("let {pattern} = {root}{suffix}"))));
         }
@@ -3647,7 +3514,7 @@ impl<'a> Linter<'a> {
                 || self.expr_types.get(&self.arena.expr(initial).span) != self.expr_types.get(&self.arena.expr(value).span) { continue; }
             let edit = Span::new(declaration.span.source_id, declaration.span.start(), statement.span.end());
             let mut diagnostic = Diagnostic::warning("a fresh placeholder can consume the scope value")
-                .with_code("lint.prefer-context-scope-value")
+                .with_code(DiagnosticCode::LintPreferContextScopeValue)
                 .with_label(Label::secondary(edit, "initialize directly from the restored context"));
             // Cleanup captures, signal handlers, and comments can observe or explain the original
             // assignment timing; leave those scaffolds for an explicit edit.
@@ -3711,7 +3578,7 @@ impl<'a> Linter<'a> {
                 self.warning(
                     self.arena.stmt(stmt).span,
                     "unreachable code",
-                    "lint.dead-code",
+                    DiagnosticCode::LintDeadCode,
                     "this statement can never execute",
                 );
                 reported_dead_region = true;
@@ -3747,7 +3614,7 @@ impl<'a> Linter<'a> {
                 || self.expr_types.get(&self.arena.expr(replacement.value).span) != Some(element.as_ref())
             { continue; }
             let mut diagnostic = Diagnostic::warning("prefer an element assignment when the list index is known valid")
-                .with_code("lint.prefer-list-element-assignment")
+                .with_code(DiagnosticCode::LintPreferListElementAssignment)
                 .with_label(Label::secondary(node.span, "replace one existing element"));
             // Only an immediately preceding literal declaration proves a current
             // length without removing a read across intervening effects.
@@ -3794,7 +3661,7 @@ impl<'a> Linter<'a> {
         let Some(dot) = self.source.get(callee_span.range()).and_then(|source| source.rfind('.')) else { return; };
         let suffix = Span::new(span.source_id, callee_span.start() + dot, span.end());
         self.diagnostics.push(Diagnostic::warning("iterate over Unicode scalars without a split List")
-            .with_code("lint.prefer-scalar-iteration")
+            .with_code(DiagnosticCode::LintPreferScalarIteration)
             .with_label(Label::secondary(span, "the checked Str source is retained once"))
             .with_fix_hint(FixHint::deletion(suffix, "iterate over the Str directly")));
     }
@@ -3867,7 +3734,7 @@ impl<'a> Linter<'a> {
         if !parsed.diagnostics.is_empty()
             || !xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() { return; }
         self.diagnostics.push(Diagnostic::warning("iterate over bytes instead of constructing unused offsets")
-            .with_code("lint.prefer-scalar-iteration")
+            .with_code(DiagnosticCode::LintPreferScalarIteration)
             .with_label(Label::secondary(header, "the immutable Bytes source covers the exact full range"))
             .with_fix_hint(FixHint::replacement(edit, "bind each byte directly", replacement)));
     }
@@ -3908,7 +3775,7 @@ impl<'a> Linter<'a> {
         let edit = Span::new(header.source_id, header.start(), deletion.end());
         let replacement = format!("for {{{key_field}, {value_field}}} in {map}{}", &self.source[header.end()..line_start]);
         self.diagnostics.push(Diagnostic::warning("iterate over map entries instead of keys followed by a lookup")
-            .with_code("lint.prefer-map-entry-iteration")
+            .with_code(DiagnosticCode::LintPreferMapEntryIteration)
             .with_label(Label::secondary(header, "this checked map stays stable across the loop"))
             .with_fix_hint(FixHint::replacement(edit, "bind the map entry and remove its redundant lookup", replacement)));
     }
@@ -3940,7 +3807,7 @@ impl<'a> Linter<'a> {
                         candidate.function_name, candidate.accumulator_name,
                     ),
                 )
-                .with_code("lint.prefer-stream-producer")
+                .with_code(DiagnosticCode::LintPreferStreamProducer)
                 .with_label(Label::secondary(
                     candidate.span,
                     "`yield` can avoid materializing this list for direct stream consumers",
@@ -4015,7 +3882,7 @@ impl<'a> Linter<'a> {
         let Some(source) = self.source.get(self.arena.expr(iter).span.range()) else { return; };
         let source = if source.contains('\n') { format!("({source})") } else { source.to_string() };
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "delegate a transparent forwarding loop with `yield @`")
-            .with_code("lint.prefer-yield-delegation")
+            .with_code(DiagnosticCode::LintPreferYieldDelegation)
             .with_label(Label::secondary(span, "this loop only yields its current item"))
             .with_fix_hint(FixHint::replacement(span, "delegate the iterable", format!("yield @{source}"))));
     }
@@ -4098,7 +3965,7 @@ impl<'a> Linter<'a> {
                     "use a list comprehension instead of building `{var_name}` with a for loop"
                 ),
             )
-            .with_code("lint.prefer-list-comp")
+            .with_code(DiagnosticCode::LintPreferListComp)
             .with_label(Label::secondary(
                 for_stmt.span,
                 "this for loop only builds a list",
@@ -4175,7 +4042,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 format!("use a map comprehension instead of building `{var_name}` with a for loop"),
             )
-            .with_code("lint.prefer-map-comp")
+            .with_code(DiagnosticCode::LintPreferMapComp)
             .with_label(Label::secondary(
                 for_stmt.span,
                 "this for loop only builds a map",
@@ -4229,7 +4096,7 @@ impl<'a> Linter<'a> {
                     replacement
                 ),
             )
-            .with_code("lint.interactive-command")
+            .with_code(DiagnosticCode::LintInteractiveCommand)
             .with_label(Label::secondary(span, "interactive compatibility command")),
         );
     }
@@ -4261,7 +4128,7 @@ impl<'a> Linter<'a> {
                     Severity::Warning,
                     "command args can use expression syntax directly",
                 )
-                .with_code("lint.redundant-command-interpolation")
+                .with_code(DiagnosticCode::LintRedundantCommandInterpolation)
                 .with_label(Label::secondary(
                     arg_span,
                     "this interpolation is unnecessary",
@@ -4343,7 +4210,7 @@ impl<'a> Linter<'a> {
                             Severity::Error,
                             "external command not permitted (--runless)",
                         )
-                        .with_code("lint.runless")
+                        .with_code(DiagnosticCode::LintRunless)
                         .with_label(Label::secondary(seg_span, label)),
                     );
                 }
@@ -4398,7 +4265,7 @@ impl<'a> Linter<'a> {
             format!("{target_name} += {argument_source}")
         };
         let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer list compound assignment for a local update")
-            .with_code("lint.prefer-list-compound-assignment")
+            .with_code(DiagnosticCode::LintPreferListCompoundAssignment)
             .with_label(Label::secondary(span, "append a list with `+=`"));
         let edit_span = Span::new(span.source_id, span.start(), self.arena.expr(value).span.end());
         if self.source.get(edit_span.range()).is_some_and(|source| !source.contains('#') && !source.contains('\n')) {
@@ -4522,7 +4389,7 @@ impl<'a> Linter<'a> {
         let replacement = format!("{input_text} |> {stage}");
         if !self.pipeline_rewrite_preserves_types(span, &replacement, value, *input, span.start(), span.start()) { return; }
         let mut diagnostic = Diagnostic::new(Severity::Warning, "nested calls form a value pipeline")
-            .with_code("lint.prefer-value-pipeline")
+            .with_code(DiagnosticCode::LintPreferValuePipeline)
             .with_label(Label::secondary(span, "place the retained input at an explicit argument hole"));
         if !original.contains('#') {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use an explicit value pipeline", replacement));
@@ -4573,7 +4440,7 @@ impl<'a> Linter<'a> {
         let new_start = first.span.start() + value_span.start() - second.span.start();
         if !self.pipeline_rewrite_preserves_types(span, &replacement, value, input, new_start, new_start) { return; }
         let mut diagnostic = Diagnostic::new(Severity::Warning, "single-use temporary forms a value pipeline")
-            .with_code("lint.prefer-value-pipeline")
+            .with_code(DiagnosticCode::LintPreferValuePipeline)
             .with_label(Label::secondary(span, "retain the input directly in the following ordinary call"));
         if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "collapse the single-use temporary", replacement));
@@ -4633,7 +4500,7 @@ impl<'a> Linter<'a> {
         let replacement = if absent_is_null { format!("({before}?{after})") }
             else { format!("({before}?{after} ?? ({fallback}))") };
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "explicit null branch can use a guarded postfix")
-            .with_code("lint.prefer-optional-postfix")
+            .with_code(DiagnosticCode::LintPreferOptionalPostfix)
             .with_label(Label::secondary(expression.span, "guard the receiver and retain the lazy fallback"))
             .with_fix_hint(FixHint::replacement(expression.span, "use guarded postfix and fallback", replacement)));
     }
@@ -4702,7 +4569,7 @@ impl<'a> Linter<'a> {
         }
         let replacement = format!("{{...{root}, {}}}", entries.join(", "));
         self.diagnostics.push(Diagnostic::warning("nested record spreads can use disjoint update paths")
-            .with_code("lint.prefer-nested-record-update")
+            .with_code(DiagnosticCode::LintPreferNestedRecordUpdate)
             .with_label(Label::secondary(expression.span, "the repeated record reads are stable and statically known"))
             .with_fix_hint(FixHint::replacement(expression.span, "replace nested spreads with static field paths", replacement)));
     }
@@ -4719,7 +4586,7 @@ impl<'a> Linter<'a> {
         if !value.matches_data_type(expected) { return; }
         let Some(replacement) = self.source.get(self.arena.expr(left).span.range()) else { return; };
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "this Optional receiver is proved present")
-            .with_code("lint.redundant-optional-fallback")
+            .with_code(DiagnosticCode::LintRedundantOptionalFallback)
             .with_label(Label::secondary(expression.span, "the fallback cannot be reached"))
             .with_fix_hint(FixHint::replacement(expression.span, "use the proved present value", replacement)));
     }
@@ -4789,7 +4656,7 @@ impl<'a> Linter<'a> {
                 // stage arguments. Keep rewritten expressions inside the same
                 // callback by giving its synthetic block explicit delimiters.
                 let mut edits: Vec<_> = self.diagnostics[first_diagnostic..].iter()
-                    .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert")))
+                    .filter(|diagnostic| matches!(diagnostic.code, Some(DiagnosticCode::LintPreferIn | DiagnosticCode::LintCoreAssert)))
                     .flat_map(|diagnostic| &diagnostic.fix_hints)
                     .filter_map(|hint| Some((hint.span?, hint.replacement.as_ref()?)))
                     .filter(|(edit, _)| edit.start() >= span.start() && edit.end() <= span.end())
@@ -4808,7 +4675,7 @@ impl<'a> Linter<'a> {
                     }
                     let replacement = format!("{{ {replacement} }}");
                     for diagnostic in &mut self.diagnostics[first_diagnostic..] {
-                        if matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert")) {
+                        if matches!(diagnostic.code, Some(DiagnosticCode::LintPreferIn | DiagnosticCode::LintCoreAssert)) {
                             for hint in &mut diagnostic.fix_hints {
                                 if hint.span.is_some_and(|edit| edit.start() >= span.start() && edit.end() <= span.end()) {
                                     *hint = FixHint::replacement(span, "preserve the stream predicate callback", replacement.clone());
@@ -4850,7 +4717,7 @@ impl<'a> Linter<'a> {
             format!("{prefix}, block: {name})")
         };
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "transparent stream block can name its callable directly")
-            .with_code("lint.stage-callable")
+            .with_code(DiagnosticCode::LintStageCallable)
             .with_label(Label::secondary(span, "use the same checked one-item call"))
             .with_fix_hint(FixHint::replacement(span, "use named stage callable", replacement)));
     }
@@ -4886,7 +4753,7 @@ impl<'a> Linter<'a> {
                 && (actual == expected || matches!(expected, Type::Optional(inner) if actual == inner.as_ref())));
         }
         let mut diagnostic = Diagnostic::new(Severity::Warning, "constructor fields can infer the same concrete schema")
-            .with_code("lint.prefer-generic-record-constructor")
+            .with_code(DiagnosticCode::LintPreferGenericRecordConstructor)
             .with_label(Label::secondary(call.span, "use the parameterized schema constructor"));
         if safe {
             let callee_span = self.arena.expr(callee).span;
@@ -4927,7 +4794,7 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::Record(fields) = value.kind else { return; };
         if !matches!(self.expr_types.get(&value.span), Some(Type::Record(_))) { return; }
         let mut diagnostic = Diagnostic::new(Severity::Warning, "schema record can use its named constructor")
-            .with_code("lint.prefer-record-constructor")
+            .with_code(DiagnosticCode::LintPreferRecordConstructor)
             .with_label(Label::secondary(value.span, "construct the declared schema"));
         let mut arguments = Vec::new();
         let mut safe = !self.source[value.span.range()].contains('#');
@@ -4997,7 +4864,7 @@ impl<'a> Linter<'a> {
             Severity::Warning,
             "named argument repeats its value's name",
         )
-        .with_code("lint.prefer-named-argument-pun")
+        .with_code(DiagnosticCode::LintPreferNamedArgumentPun)
         .with_label(Label::secondary(
             span,
             "use the lexical named-argument shorthand",
@@ -5042,7 +4909,7 @@ impl<'a> Linter<'a> {
                     .is_some_and(|binding| !binding.mutable);
             if exact_types && supplied.len() == fields.len() && fields.keys().all(|field| supplied.contains(field)) {
                 let mut diagnostic = Diagnostic::new(Severity::Warning, "record fields can forward through a named argument spread")
-                    .with_code("lint.prefer-named-argument-spread")
+                    .with_code(DiagnosticCode::LintPreferNamedArgumentSpread)
                     .with_label(Label::secondary(edit_span, "forward exactly the checked visible fields"));
                 if stable && !self.source[edit_span.range()].contains('#') {
                     let replacement = format!("...{receiver}");
@@ -5089,7 +4956,7 @@ impl<'a> Linter<'a> {
             else if self.proven_absence_lookup(right) && self.is_negative_one_literal(left) { left } else { return; };
         if self.source[node.span.range()].contains('#') { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "lookup absence is null rather than a numeric sentinel")
-            .with_code("lint.lookup-absence")
+            .with_code(DiagnosticCode::LintLookupAbsence)
             .with_label(Label::secondary(node.span, "compare the proved lookup result with null"))
             .with_fix_hint(FixHint::replacement(self.arena.expr(sentinel).span, "use absence", "null")));
     }
@@ -5107,7 +4974,7 @@ impl<'a> Linter<'a> {
         };
         let [index, fallback] = self.arena.call_args(args) else { return; };
         let diagnostic = Diagnostic::new(Severity::Warning, "lookup fallback arguments have been removed")
-            .with_code("lint.lookup-fallback")
+            .with_code(DiagnosticCode::LintLookupFallback)
             .with_label(Label::secondary(span, "use the ordinary fallback expression"));
         let (ArenaCallArgKind::Positional(index), ArenaCallArgKind::Positional(fallback)) = (&index.kind, &fallback.kind) else {
             self.diagnostics.push(diagnostic.with_note("no automatic fix: named argument evaluation order is not proven equivalent"));
@@ -5204,7 +5071,7 @@ impl<'a> Linter<'a> {
         let receiver = &self.source[receiver_span.range()];
         let receiver = if matches!(self.arena.expr(base).kind, ArenaExprKind::Record(_)) { format!("({receiver})") } else { receiver.to_owned() };
         self.diagnostics.push(Diagnostic::warning("a guaranteed field on an ordinary record can be selected directly")
-            .with_code("lint.prefer-known-field-access")
+            .with_code(DiagnosticCode::LintPreferKnownFieldAccess)
             .with_label(Label::secondary(span, "the selected value retains its exact checked type"))
             .with_fix_hint(FixHint::replacement(span, "select the known record field", format!("{receiver}.{field}"))));
     }
@@ -5223,7 +5090,7 @@ impl<'a> Linter<'a> {
             let key = lexed.token_table.span_at(0, span.source_id, source).unwrap();
             let key = Span::new(span.source_id, span.start() + key.start(), span.start() + key.end());
             self.diagnostics.push(Diagnostic::new(Severity::Warning, "identifier-shaped field labels can be bare")
-                .with_code("lint.prefer-bare-field-label")
+                .with_code(DiagnosticCode::LintPreferBareFieldLabel)
                 .with_label(Label::secondary(key, "quoting does not change this explicit key"))
                 .with_fix_hint(FixHint::replacement(key, "use the exact bare label", name.as_str().to_string())));
         }
@@ -5270,7 +5137,7 @@ impl<'a> Linter<'a> {
         let comments = self.source[outer.span.start()..value.span.start()].contains('#')
             || self.source[value.span.end()..outer.span.end()].contains('#');
         let diagnostic = Diagnostic::new(Severity::Warning, "prepare static regex patterns with a literal")
-            .with_code("lint.prefer-regex-literal")
+            .with_code(DiagnosticCode::LintPreferRegexLiteral)
             .with_label(Label::secondary(outer.span, "this validated pattern is directly propagated"));
         self.diagnostics.push(if comments {
             diagnostic.with_note("no automatic fix: the call contains comments")
@@ -5292,7 +5159,7 @@ impl<'a> Linter<'a> {
             Severity::Warning,
             "prefer half-open slicing where bounds are equivalent",
         )
-            .with_code("lint.prefer-slice")
+            .with_code(DiagnosticCode::LintPreferSlice)
             .with_label(Label::secondary(
                 span,
                 "offset/count methods have distinct bounds and error behavior",
@@ -5436,7 +5303,7 @@ impl<'a> Linter<'a> {
             || self.source[span.range()].contains('#') { return; }
         let suffix = if unit == 1 { "1ms" } else { "1s" };
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "bounded numeric conversion can use Duration arithmetic")
-            .with_code("lint.duration-arithmetic")
+            .with_code(DiagnosticCode::LintDurationArithmetic)
             .with_label(Label::secondary(span, "multiply by a duration unit"))
             .with_fix_hint(FixHint::replacement(span, "use checked Duration arithmetic", format!("({amount} * {suffix})"))));
     }
@@ -5468,7 +5335,7 @@ impl<'a> Linter<'a> {
         };
         let mut diagnostic =
             xsh::diagnostic::Diagnostic::new(xsh::diagnostic::Severity::Warning, message)
-                .with_code("lint.path-constructor")
+                .with_code(DiagnosticCode::LintPathConstructor)
                 .with_label(xsh::diagnostic::Label::secondary(
                     span,
                     "use path string syntax instead",
@@ -5553,7 +5420,7 @@ impl<'a> Linter<'a> {
     fn map_literal_diagnostic(&mut self, span: Span, replacement: String) {
         let Some(source) = self.source.get(span.range()) else { return; };
         let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer a Map literal for fresh Map construction")
-            .with_code("lint.prefer-map-literal").with_label(Label::secondary(span, "construct the entries in one Map"));
+            .with_code(DiagnosticCode::LintPreferMapLiteral).with_label(Label::secondary(span, "construct the entries in one Map"));
         if source.contains('#') { diagnostic = diagnostic.with_note("comments in the initialization require a manual rewrite"); }
         else { diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "construct one Map literal", replacement)); }
         self.diagnostics.push(diagnostic);
@@ -5634,7 +5501,7 @@ impl<'a> Linter<'a> {
         if links == 1 && matches!(node.kind, ArenaExprKind::Call { .. }) { return; }
         let Some(source) = self.source.get(node.span.range()) else { return; };
         let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer one list literal with explicit splices for list construction")
-            .with_code("lint.prefer-list-splicing")
+            .with_code(DiagnosticCode::LintPreferListSplicing)
             .with_label(Label::secondary(node.span, "build the elements in one literal"));
         if source.contains('#') {
             diagnostic = diagnostic.with_note("comments in the construction require a manual rewrite");
@@ -5689,7 +5556,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 "prefer `+` over `[a, b].join(\"\")` for string concatenation",
             )
-            .with_code("lint.prefer-string-concat")
+            .with_code(DiagnosticCode::LintPreferStringConcat)
             .with_label(Label::secondary(span, "use `+` instead"))
             .with_fix_hint(FixHint::replacement(span, "rewrite with `+`", replacement)),
         );
@@ -5771,7 +5638,7 @@ impl<'a> Linter<'a> {
         if self.expr_types.get(&self.arena.expr(receiver).span) != Some(&Type::FsRoot) { return; }
         let receiver_span = self.arena.expr(receiver).span;
         let mut diagnostic = Diagnostic::new(Severity::Warning, format!("use FsRoot.{method} for this removed filesystem operation"))
-            .with_code("lint.fs-root-receiver").with_label(Label::secondary(span, "preserve receiver and argument evaluation order"));
+            .with_code(DiagnosticCode::LintFsRootReceiver).with_label(Label::secondary(span, "preserve receiver and argument evaluation order"));
         let safe_receiver = match first.kind { ArenaCallArgKind::Positional(_) => true, ArenaCallArgKind::Named { name, .. } => name == "root", _ => false };
         let safe_args = entries.iter().all(|entry| !matches!(entry.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
         if safe_receiver && safe_args && !span_may_contain_comment(self.source, span) {
@@ -5837,7 +5704,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 format!("prefer method form `{replacement}`"),
             )
-            .with_code("lint.prefer-method")
+            .with_code(DiagnosticCode::LintPreferMethod)
             .with_label(Label::secondary(span, "use method syntax instead"))
             .with_fix_hint(FixHint::replacement(
                 span,
@@ -5856,7 +5723,7 @@ impl<'a> Linter<'a> {
         let mut text = self.source.get(span.range())?.to_string();
         let cst = self.source_cst.get().expect("expression span initializes CST");
         let mut edits: Vec<_> = self.diagnostics.iter()
-            .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert")))
+            .filter(|diagnostic| matches!(diagnostic.code, Some(DiagnosticCode::LintPreferIn | DiagnosticCode::LintCoreAssert)))
             .flat_map(|diagnostic| diagnostic.fix_hints.iter())
             .filter_map(|hint| Some((hint.span?, hint.replacement.as_ref()?)))
             .filter(|(edit, _)| edit.source_id == span.source_id && edit.start() >= span.start() && edit.end() <= span.end() && !cst.contains_comment(*edit))
@@ -5887,7 +5754,7 @@ impl<'a> Linter<'a> {
         if !self.membership_migration_spans.contains(&span) { return; }
         if matches!(self.arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. }) {
             self.diagnostics.push(Diagnostic::new(Severity::Warning, "use canonical membership after explicitly handling the Optional or Result")
-                .with_code("lint.prefer-in").with_label(Label::secondary(span, "retain null-safe consumption and operand evaluation order")));
+                .with_code(DiagnosticCode::LintPreferIn).with_label(Label::secondary(span, "retain null-safe consumption and operand evaluation order")));
             return;
         }
         let ArenaExprKind::Field { base: receiver, name } = self.arena.expr(callee).kind else { return; };
@@ -5914,7 +5781,7 @@ impl<'a> Linter<'a> {
 
     fn lint_membership_replacement(&mut self, container: ExprId, item: ExprId, span: Span, negated: bool) {
         let mut diagnostic = Diagnostic::new(Severity::Warning, "use canonical membership syntax")
-            .with_code("lint.prefer-in").with_label(Label::secondary(span, "use `in` or `not in`; bind operands in their original order if necessary"));
+            .with_code(DiagnosticCode::LintPreferIn).with_label(Label::secondary(span, "use `in` or `not in`; bind operands in their original order if necessary"));
         if self.membership_types_supported(container, item) && let (Some(container_text), Some(item_text)) = (self.expression_text(container), self.expression_text(item)) {
             let operator = if negated { "not in" } else { "in" };
             if migration_reorder_safe(self.arena, container, item) {
@@ -5964,7 +5831,7 @@ impl<'a> Linter<'a> {
             }
         };
         let mut diagnostic = Diagnostic::new(Severity::Warning, if membership { "use canonical membership syntax" } else { "use an `assert` statement" })
-            .with_code(if membership { "lint.prefer-in" } else { "lint.core-assert" })
+            .with_code(if membership { DiagnosticCode::LintPreferIn } else { DiagnosticCode::LintCoreAssert })
             .with_label(Label::secondary(span, "preserve custom messages, consumed Results, and argument evaluation order"));
         let source_order: Vec<ExprId> = self.arena.call_args(args).iter().map(|arg| match arg.kind { ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value, _ => unreachable!() }).collect();
         let expected_order: Vec<ExprId> = arguments.iter().flatten().copied().collect();
@@ -6034,7 +5901,7 @@ impl<'a> Linter<'a> {
         let ArenaStmtKind::Expr(expr) = parsed.arena.arena.stmt(statement).kind else { return; };
         if !matches!(parsed.arena.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a lexical block for an unconditional scope")
-            .with_code("lint.lexical-block")
+            .with_code(DiagnosticCode::LintLexicalBlock)
             .with_label(Label::secondary(span, "retain the block's binding and cleanup scope"))
             .with_fix_hint(FixHint::replacement(
                 Span::new(span.source_id, span.start(), block_span.start()),
@@ -6075,13 +5942,13 @@ impl<'a> Linter<'a> {
         };
         let replacement = format!("guard {inverse} else {}", &self.source[block_span.start()..block_span.end()]);
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "leading failure branch can use a Boolean guard")
-            .with_code("lint.boolean-guard")
+            .with_code(DiagnosticCode::LintBooleanGuard)
             .with_label(Label::secondary(stmt.span, "continue only when the condition succeeds"))
             .with_fix_hint(FixHint::replacement(stmt.span, "use explicit guard failure branch", replacement)));
     }
 
     fn lint_if_as_guard(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {
-        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard") && diagnostic.fix_hints.iter().any(|fix| fix.span == Some(span))) { return; }
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintBooleanGuard) && diagnostic.fix_hints.iter().any(|fix| fix.span == Some(span))) { return; }
         // Only single-branch if with no else
         if branches.len() != 1 || else_block.is_some() {
             return;
@@ -6143,7 +6010,7 @@ impl<'a> Linter<'a> {
             Severity::Warning,
             format!("use `{keyword} {guard_word}` instead of a single-action `if`"),
         )
-        .with_code("lint.prefer-guard")
+        .with_code(DiagnosticCode::LintPreferGuard)
         .with_label(Label::secondary(span, "replace with postfix guard"));
         // Replacing the whole branch would discard comments attached to its body.
         self.diagnostics.push(if span_may_contain_comment(self.source, span) {
@@ -6208,7 +6075,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 "prefer `fs.files()` over `fs.walk() |> where .kind == \"file\"`",
             )
-            .with_code("lint.prefer-fs-files")
+            .with_code(DiagnosticCode::LintPreferFsFiles)
             .with_label(Label::secondary(
                 first_stage_span,
                 "this stage is redundant with fs.files",
@@ -6243,7 +6110,7 @@ impl<'a> Linter<'a> {
                     if matches!(self.arena.expr(expr).kind, ArenaExprKind::Bool(true)) =>
                 {
                     (
-                        "lint.redundant-pipeline-stage",
+                        DiagnosticCode::LintRedundantPipelineStage,
                         "redundant `where true` pipeline stage",
                     )
                 }
@@ -6251,7 +6118,7 @@ impl<'a> Linter<'a> {
                     if matches!(self.arena.expr(expr).kind, ArenaExprKind::Item) =>
                 {
                     (
-                        "lint.redundant-pipeline-stage",
+                        DiagnosticCode::LintRedundantPipelineStage,
                         "redundant `map .` pipeline stage",
                     )
                 }
@@ -6283,7 +6150,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 "prefer file-backed lines in line-by-line loops",
             )
-            .with_code("lint.prefer-file-lines")
+            .with_code(DiagnosticCode::LintPreferFileLines)
             .with_label(Label::secondary(
                 iter_span,
                 "`read_text()?.lines()` reads the full file first; use `path.lines()?` when consuming once",
@@ -6308,7 +6175,7 @@ impl<'a> Linter<'a> {
                 Severity::Warning,
                 format!("`{name}: {val_str}` is redundant"),
             )
-            .with_code("lint.redundant-default")
+            .with_code(DiagnosticCode::LintRedundantDefault)
             .with_label(Label::secondary(arg_span, label))
             .with_fix_hint(FixHint::deletion(
                 deletion_span,
@@ -6322,7 +6189,7 @@ impl<'a> Linter<'a> {
         {
             self.diagnostics.push(
                 Diagnostic::error("binding shadows an outer name")
-                    .with_code("lint.shadowing")
+                    .with_code(DiagnosticCode::LintShadowing)
                     .with_label(Label::secondary(span, "shadowed binding starts here")),
             );
         }
@@ -6379,7 +6246,7 @@ impl<'a> Linter<'a> {
             self.warning(
                 binding.span,
                 format!("unused local variable `{name}`"),
-                "lint.unused-local",
+                DiagnosticCode::LintUnusedLocal,
                 "binding is never read",
             );
         }
@@ -6389,7 +6256,7 @@ impl<'a> Linter<'a> {
         &mut self,
         span: Span,
         message: impl Into<String>,
-        code: &'static str,
+        code: DiagnosticCode,
         label: &'static str,
     ) {
         self.diagnostics.push(
@@ -8165,7 +8032,7 @@ impl LintExprVisitor<'_, '_> {
                         self.linter.source[expr_span.start()..expr_span.end()].to_string();
                     self.linter.diagnostics.push(
                         Diagnostic::new(Severity::Warning, "redundant `${}` around f-string")
-                            .with_code("lint.redundant-fmt-wrapper")
+                            .with_code(DiagnosticCode::LintRedundantFmtWrapper)
                             .with_span(arg_span)
                             .with_fix_hint(FixHint::replacement(
                                 arg_span,
@@ -8198,7 +8065,7 @@ impl LintExprVisitor<'_, '_> {
                         self.linter.source[expr_span.start()..expr_span.end()].to_string();
                     self.linter.diagnostics.push(
                         Diagnostic::new(Severity::Warning, "redundant `()` around f-string")
-                            .with_code("lint.redundant-fmt-wrapper")
+                            .with_code(DiagnosticCode::LintRedundantFmtWrapper)
                             .with_span(arg_span)
                             .with_fix_hint(FixHint::replacement(
                                 arg_span,
@@ -8212,7 +8079,7 @@ impl LintExprVisitor<'_, '_> {
                             Severity::Warning,
                             "redundant single-value command f-string",
                         )
-                        .with_code("lint.redundant-command-fmt")
+                        .with_code(DiagnosticCode::LintRedundantCommandFmt)
                         .with_label(Label::secondary(
                             expr_span,
                             "use command value syntax directly",
@@ -8230,7 +8097,7 @@ impl LintExprVisitor<'_, '_> {
                             Severity::Warning,
                             "redundant parentheses around a command value",
                         )
-                        .with_code("lint.command-value")
+                        .with_code(DiagnosticCode::LintCommandValue)
                         .with_label(Label::secondary(
                             arg_span,
                             "a name or field path takes `$`",
@@ -8273,7 +8140,7 @@ impl LintExprVisitor<'_, '_> {
                         Severity::Warning,
                         "remove `?` when inspecting an expected nonzero status",
                     )
-                    .with_code("lint.run-status")
+                    .with_code(DiagnosticCode::LintRunStatus)
                     .with_label(Label::secondary(
                         seg_span,
                         "nonzero status is expected for this command",
@@ -9087,7 +8954,7 @@ impl<'a> CallableReachability<'a> {
                     Severity::Warning,
                     format!("unused callable `{}`", callable.name.as_str()),
                 )
-                .with_code("lint.unused-callable")
+                .with_code(DiagnosticCode::LintUnusedCallable)
                 .with_label(Label::secondary(
                     callable.span,
                     "this unexported callable is not reachable from a bundle entry point",
@@ -10646,6 +10513,7 @@ mod effect_fact_tests {
 mod annotation_probe_tests {
     use super::{LintOptions, Linter};
     use std::cell::Cell;
+    use xsh::diagnostic::DiagnosticCode;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
@@ -10671,7 +10539,7 @@ mod annotation_probe_tests {
             function_effect_facts_checked: true,
             ..LintOptions::default()
         });
-        assert!(!output.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.as_deref(),
+        assert!(!output.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name),
             Some("lint.prefer-inferred-pure-return" | "lint.default-param-type"))));
         assert_eq!(PROBES.with(Cell::get), 1, "a failed baseline makes every candidate unprovable");
     }
@@ -10681,6 +10549,7 @@ mod annotation_probe_tests {
 mod nested_pipeline_index_tests {
     use super::{LintOptions, Linter};
     use std::cell::Cell;
+    use xsh::diagnostic::DiagnosticCode;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
@@ -10706,7 +10575,7 @@ mod nested_pipeline_index_tests {
             ..LintOptions::default()
         });
         assert!(!output.diagnostics.iter().any(|diagnostic|
-            diagnostic.code.as_deref() == Some("lint.prefer-value-pipeline")));
+            diagnostic.code == Some(DiagnosticCode::LintPreferValuePipeline)));
         assert_eq!(STATEMENTS.with(Cell::get), parsed.arena.arena.stmt_tags.len(),
             "whole statement membership must require one scan for every eligible expression");
     }
@@ -10716,6 +10585,7 @@ mod nested_pipeline_index_tests {
 mod local_annotation_probe_tests {
     use super::{LintOptions, Linter};
     use std::cell::Cell;
+    use xsh::diagnostic::DiagnosticCode;
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
@@ -10754,7 +10624,7 @@ mod local_annotation_probe_tests {
             ..LintOptions::default()
         });
         assert!(!output.diagnostics.iter().any(|diagnostic|
-            diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{:?}", output.diagnostics);
+            diagnostic.code == Some(DiagnosticCode::LintNeedlessAnnotation)), "{:?}", output.diagnostics);
         assert_eq!(ORIGINALS.with(Cell::get), 0);
         assert_eq!(CANDIDATES.with(Cell::get), 0);
     }
@@ -10794,7 +10664,7 @@ mod local_annotation_probe_tests {
             });
             if missing_import {
                 assert!(!output.diagnostics.iter().any(|diagnostic|
-                    diagnostic.code.as_deref() == Some("lint.needless-annotation")));
+                    diagnostic.code == Some(DiagnosticCode::LintNeedlessAnnotation)));
             }
             assert_eq!(ORIGINALS.with(Cell::get), 1, "the original source is unchanged between candidates");
             assert_eq!(CANDIDATES.with(Cell::get), if missing_import { 0 } else { 12 });
@@ -10807,6 +10677,7 @@ mod local_annotation_probe_tests {
 #[cfg(test)]
 mod user_type_reference_tests {
     use super::{LintOptions, Linter};
+    use xsh::diagnostic::DiagnosticCode;
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
@@ -10823,52 +10694,9 @@ mod user_type_reference_tests {
             ..LintOptions::default()
         });
         let unused = output.diagnostics.iter().filter(|diagnostic|
-            diagnostic.code.as_deref() == Some("lint.unused-type"))
+            diagnostic.code == Some(DiagnosticCode::LintUnusedType))
             .map(|diagnostic| diagnostic.message.as_str()).collect::<Vec<_>>();
         assert_eq!(unused, vec!["unused type declaration `Unused`"]);
-    }
-}
-
-#[cfg(test)]
-mod lint_code_registry_tests {
-    use super::{FIXABLE_CHECK_CODES, FIXABLE_CHECK_SUMMARIES, LINT_CODES};
-    use std::collections::BTreeSet;
-
-    // `--only` validates against `LINT_CODES`; every code the lint sources
-    // emit must be registered there.
-    #[test]
-    fn lint_codes_cover_every_emitted_lint_code() {
-        fn visit(dir: &std::path::Path, codes: &mut BTreeSet<String>) {
-            for entry in std::fs::read_dir(dir).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() { visit(&path, codes); continue; }
-                if path.extension().is_none_or(|extension| extension != "rs") { continue; }
-                let text = std::fs::read_to_string(&path).unwrap();
-                for (start, _) in text.match_indices("\"lint.") {
-                    let rest = &text[start + 1..];
-                    let end = rest.find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')).unwrap();
-                    if rest[end..].starts_with('"') && end > "lint.".len() && !rest[..end].ends_with(".rs") {
-                        codes.insert(rest[..end].to_owned());
-                    }
-                }
-            }
-        }
-        let mut emitted = BTreeSet::new();
-        visit(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut emitted);
-        let registered = LINT_CODES.iter().map(|(code, _)| (*code).to_owned()).collect::<BTreeSet<_>>();
-        assert_eq!(emitted, registered);
-    }
-
-    // `xsht lint --list` and `docs/reference/lints.md` describe every
-    // selectable code in one line.
-    #[test]
-    fn every_selectable_code_has_a_one_line_summary() {
-        for code in FIXABLE_CHECK_CODES {
-            assert!(FIXABLE_CHECK_SUMMARIES.iter().any(|(known, _)| known == code), "{code} has no summary");
-        }
-        for (code, summary) in super::lint_code_catalog() {
-            assert!(!summary.is_empty() && !summary.contains('\n') && !summary.ends_with('.'), "{code}: {summary:?}");
-        }
     }
 }
 

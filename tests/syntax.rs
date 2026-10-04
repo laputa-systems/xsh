@@ -1,3 +1,4 @@
+use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
@@ -98,7 +99,7 @@ fn lexer_fixture_covers_valid_and_invalid_inputs() {
         invalid_output
             .diagnostics
             .iter()
-            .any(|diag| diag.code.as_deref() == Some("lex.invalid-bytes-escape"))
+            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("lex.invalid-bytes-escape"))
     );
 }
 
@@ -449,7 +450,7 @@ fn parser_reports_unsupported_c_style_boolean_operators_constructively() {
             output
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.code.as_deref() == Some(code)),
+                .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some(code)),
             "expected {code} but got for source:\n{source}\n{:?}",
             output.diagnostics
         );
@@ -464,7 +465,7 @@ fn parser_reports_integer_division_spellings_with_int_division_guidance() {
             .diagnostics
             .iter()
             .find(|diagnostic| {
-                diagnostic.code.as_deref() == Some("parse.unsupported-integer-division")
+                diagnostic.code.map(DiagnosticCode::name) == Some("parse.unsupported-integer-division")
             })
             .unwrap_or_else(|| panic!("expected integer-division diagnostic: {output:?}"));
         assert!(diagnostic.message.contains("use `/` on Int operands"));
@@ -770,7 +771,7 @@ fn parser_reports_malformed_signal_hook_syntax() {
         missing_effects
             .diagnostics
             .iter()
-            .any(|diag| diag.code.as_deref() == Some("parse.signal-hook"))
+            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.signal-hook"))
     );
 
     let bad_option =
@@ -779,7 +780,7 @@ fn parser_reports_malformed_signal_hook_syntax() {
         bad_option
             .diagnostics
             .iter()
-            .any(|diag| diag.code.as_deref() == Some("parse.signal-hook"))
+            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.signal-hook"))
     );
 }
 
@@ -2580,7 +2581,7 @@ fn parser_rejects_stale_surface_syntax() {
                 parsed
                     .diagnostics
                     .iter()
-                    .any(|diag| diag.code.as_deref() == Some(code)),
+                    .any(|diag| diag.code.map(DiagnosticCode::name) == Some(code)),
                 "{source}: {:?}",
                 parsed.diagnostics
             );
@@ -2626,7 +2627,7 @@ fn proc_without_signature_fixture_is_rejected() {
         output
             .diagnostics
             .iter()
-            .any(|diag| diag.code.as_deref() == Some("parse.required-signature"))
+            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.required-signature"))
     );
 }
 
@@ -2639,13 +2640,13 @@ fn reserved_keywords_and_proc_identifiers_are_not_expression_names() {
         keyword
             .diagnostics
             .iter()
-            .any(|diag| diag.code.as_deref() == Some("parse.expected-ident"))
+            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.expected-ident"))
     );
     assert!(
         proc_ident
             .diagnostics
             .iter()
-            .any(|diag| diag.code.as_deref() == Some("parse.expected-ident"))
+            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.expected-ident"))
     );
 }
 
@@ -3206,7 +3207,7 @@ fn parser_accepts_call_and_index_chains_in_command_args() {
         !output
             .diagnostics
             .iter()
-            .any(|d| d.code.as_deref() == Some("parse.command-call-expr")),
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("parse.command-call-expr")),
         "bare name() should not trigger parse.command-call-expr: {:?}",
         output.diagnostics
     );
@@ -3359,7 +3360,7 @@ fn checker_named_argument_pun_missing_name_labels_original_identifier() {
     let diagnostic = checked
         .diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.unresolved-name"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.unresolved-name"))
         .expect("the pun must resolve an ordinary lexical name");
     assert_eq!(diagnostic.labels.len(), 1);
     assert_eq!(&source[diagnostic.labels[0].span.range()], "value");
@@ -3548,7 +3549,7 @@ fn guarded_postfix_records_index_and_slice_flags_and_byte_spans() {
 fn parser_requires_grouping_between_ordering_and_pattern_tests() {
     for source in ["let result = 0 < 1 < 2 is Bool\n", "let result = value is Str < true\n"] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.mixed-comparison")), "{source}: {:?}", parsed.diagnostics);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("parse.mixed-comparison")), "{source}: {:?}", parsed.diagnostics);
     }
     for source in ["let result = (0 < 1 < 2) is Bool\n", "let result = (value is Str) < true\n"] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -3619,7 +3620,7 @@ fn regex_literals_parse_as_prepared_regex_atoms_with_raw_source_spans() {
 fn regex_literal_unterminated_delimiters_are_lexical_errors() {
     for source in ["let pattern = rx\"abc", "let pattern = rx\"\"\"abc\n"] {
         let lexed = Lexer::new(SourceId::new(0), source).lex_compact();
-        assert!(lexed.diagnostics.iter().any(|d| d.code.as_deref() == Some("lex.unterminated-string")), "{:?}", lexed.diagnostics);
+        assert!(lexed.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lex.unterminated-string")), "{:?}", lexed.diagnostics);
     }
 }
 
@@ -3696,7 +3697,7 @@ fn field_label_keywords_cannot_be_shorthand_puns_or_lexical_bindings() {
         "let row = {type: 1}\nlet selected = match row { {type} => 1, _ => 2 }\n",
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.iter().any(|d| d.code.as_deref() == Some("parse.keyword-label-binding")), "{source}: {:?}", parsed.diagnostics);
+        assert!(parsed.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("parse.keyword-label-binding")), "{source}: {:?}", parsed.diagnostics);
     }
     for source in ["let type = 1\n", "pure value(match: Int) -> Int { 1 }\n", "use fs as type\n"] {
         assert!(!Parser::parse_source_arena_only(SourceId::new(0), source).diagnostics.is_empty(), "{source}");
@@ -3807,7 +3808,7 @@ fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
 fn parser_value_pipeline_holes_reject_nested_multiple_and_spread_arguments() {
     for source in ["1 |> render(_, _)\n", "1 |> render(_ + 1)\n", "1 |> render(nested(_))\n", "1 |> render(@_)\n", "1 |> render(if true { _ } else { 0 })\n"] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.pipeline-hole")), "{source}: {:?}", parsed.diagnostics);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("parse.pipeline-hole")), "{source}: {:?}", parsed.diagnostics);
     }
 }
 
@@ -3818,7 +3819,7 @@ fn stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes() {
     assert_eq!(parsed.diagnostics.len(), 2, "{:?}", parsed.diagnostics);
     let mut fixed = source.to_string();
     for diagnostic in parsed.diagnostics.iter().rev() {
-        assert_eq!(diagnostic.code.as_deref(), Some("parse.stream-option-migration"));
+        assert_eq!(diagnostic.code.map(DiagnosticCode::name), Some("parse.stream-option-migration"));
         let hint = diagnostic.fix_hints.first().expect("unambiguous stage flag fix");
         fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
     }
@@ -3833,7 +3834,7 @@ fn stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes() {
 fn stream_stage_flag_migration_refuses_ambiguous_argument_lists() {
     let source = "let values = [1] |> sort-by --desc (.size)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    let migration = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.stream-option-migration")).expect("stage migration diagnostic");
+    let migration = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("parse.stream-option-migration")).expect("stage migration diagnostic");
     assert!(migration.fix_hints.is_empty());
     let command = Parser::parse_source_arena_only(SourceId::new(0), "run printf --jobs --desc --max-bytes\n");
     assert!(command.diagnostics.is_empty(), "{:?}", command.diagnostics);
@@ -3857,7 +3858,7 @@ fn parser_enum_migration_preserves_comments_exports_and_aliases() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
     let migration = &parsed.diagnostics[0];
-    assert_eq!(migration.code.as_deref(), Some("parse.enum-migration"));
+    assert_eq!(migration.code.map(DiagnosticCode::name), Some("parse.enum-migration"));
     let mut edits: Vec<_> = migration.fix_hints.iter().map(|hint| {
         (hint.span.expect("migration edit span"), hint.replacement.as_ref().expect("migration replacement"))
     }).collect();
@@ -3908,7 +3909,7 @@ fn parser_and_formatter_preserve_selective_retry() {
 #[test]
 fn selective_retry_requires_parenthesized_clause_and_retains_on_names() {
     let invalid = Parser::parse_source_arena_only(SourceId::new(0), "let result = retry [] on FetchError.Busy { fetch()? }");
-    assert!(invalid.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-token")));
+    assert!(invalid.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("parse.expected-token")));
     let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let on = 1\nlet result = retry [] { on }\nrun echo on\n");
     assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
 }
@@ -3938,7 +3939,7 @@ fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
     assert!(parsed.diagnostics.iter().flat_map(|diagnostic| &diagnostic.labels).any(|label| &invalid[label.span.range()] == "@"), "{:?}", parsed.diagnostics);
     let invalid = "let name = \"café\"\nlet value = \"\"\"\n  good\n wrong\n  \"\"\"\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(19), invalid);
-    let issue = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.block-string-margin")).unwrap();
+    let issue = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("parse.block-string-margin")).unwrap();
     assert_eq!(&invalid[issue.labels[0].span.range()], " w");
 }
 

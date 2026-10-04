@@ -5,6 +5,7 @@ use super::{
     Checker, FunctionParamSig, FxHashSet, ModuleFnSig, Span, Type,
     command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaProgram, ExprId};
 
 pub(super) fn module_sig_accepts_arity(arg_count: usize, sig: &ModuleFnSig) -> bool {
@@ -26,7 +27,7 @@ impl Checker {
         span: Span,
     ) {
         if args.len() != names.len() {
-            self.error(span, "incorrect standard API arity", "check.arity");
+            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
         }
         for (index, arg) in args.iter().enumerate() {
             if let ArenaCallArgKind::Named { name, .. } = &arg.kind
@@ -35,7 +36,7 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "unexpected named parameter",
-                    "check.named-arg",
+                    DiagnosticCode::CheckNamedArg,
                 );
             }
         }
@@ -110,7 +111,7 @@ impl Checker {
                 self.error(
                     span,
                     "ambiguous standard API overload",
-                    "check.ambiguous-overload",
+                    DiagnosticCode::CheckAmbiguousOverload,
                 );
             }
             return sig;
@@ -121,7 +122,7 @@ impl Checker {
             .filter(|sig| module_sig_accepts_arity(args.len(), sig))
             .collect::<Vec<_>>();
         if arity_matches.is_empty() {
-            self.error(span, "incorrect standard API arity", "check.arity");
+            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
             return &overloads[0];
         }
         if arity_matches
@@ -136,10 +137,10 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "unexpected named parameter",
-                    "check.named-arg",
+                    DiagnosticCode::CheckNamedArg,
                 );
             } else {
-                self.error(span, "unexpected named parameter", "check.named-arg");
+                self.error(span, "unexpected named parameter", DiagnosticCode::CheckNamedArg);
             }
             return arity_matches[0];
         }
@@ -160,7 +161,7 @@ impl Checker {
         self.error(
             span,
             "no standard API overload matches argument types",
-            "check.type-mismatch",
+            DiagnosticCode::CheckTypeMismatch,
         );
         arity_matches[0]
     }
@@ -174,7 +175,7 @@ impl Checker {
         span: Span,
     ) {
         if args.len() != params.len() {
-            self.error(span, "incorrect function arity", "check.arity");
+            self.error(span, "incorrect function arity", DiagnosticCode::CheckArity);
         }
         for (arg, expected) in args.iter().zip(params) {
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(expected));
@@ -213,7 +214,7 @@ impl Checker {
                 self.argument_bindings.insert(span, super::CheckedArguments { callable_entry: None, argument_slots: binding.argument_slots.clone() });
             }) {
                 Err(error) => {
-                    self.error(error.span, &error.message, "check.named-arg");
+                    self.error(error.span, &error.message, DiagnosticCode::CheckNamedArg);
                     for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
                 }
                 Ok(binding) => for (arg, slot) in args.iter().zip(binding.argument_slots) {
@@ -250,7 +251,7 @@ impl Checker {
             } else {
                 format!("{required} to {max} arguments")
             };
-            self.error(span, &format!("incorrect function arity: expected {expected}, found {}", args.len()), "check.arity");
+            self.error(span, &format!("incorrect function arity: expected {expected}, found {}", args.len()), DiagnosticCode::CheckArity);
         }
 
         let mut index = 0;
@@ -262,7 +263,7 @@ impl Checker {
                     Type::Any => Type::Any,
                     Type::Unknown => Type::Unknown,
                     _ => {
-                        self.error(span, "rest parameter requires List", "check.rest-type");
+                        self.error(span, "rest parameter requires List", DiagnosticCode::CheckRestType);
                         Type::Unknown
                     }
                 };
@@ -276,13 +277,13 @@ impl Checker {
                                 Type::List(_) => self.error(
                                     splice_span,
                                     "splice item type does not match rest parameter",
-                                    "check.type-mismatch",
+                                    DiagnosticCode::CheckTypeMismatch,
                                 ),
                                 Type::Any | Type::Unknown => {}
                                 _ => self.error(
                                     splice_span,
                                     "`@` splices require List values",
-                                    "check.splice-target",
+                                    DiagnosticCode::CheckSpliceTarget,
                                 ),
                             }
                         }
@@ -309,7 +310,7 @@ impl Checker {
                     self.error(
                         splice_span,
                         "`@` splices require List values",
-                        "check.splice-target",
+                        DiagnosticCode::CheckSpliceTarget,
                     );
                 }
                 can_check_following_positionals = false;
@@ -322,7 +323,7 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "unexpected named parameter",
-                    "check.named-arg",
+                    DiagnosticCode::CheckNamedArg,
                 );
             }
             let expected = can_check_following_positionals.then_some(&param.ty);
@@ -356,7 +357,7 @@ impl Checker {
         let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
             Ok(expanded) => expanded,
             Err(error) => {
-                self.error(error.span, &error.message, "check.named-spread");
+                self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
                 return;
             }
         };
@@ -364,7 +365,7 @@ impl Checker {
             Ok(binding) => binding,
             Err(error) => {
                 let required = params.iter().filter(|parameter| !parameter.defaulted).count();
-                let code = if args.len() < required || args.len() > params.len() { "check.arity" } else { "check.named-arg" };
+                let code = if args.len() < required || args.len() > params.len() { DiagnosticCode::CheckArity } else { DiagnosticCode::CheckNamedArg };
                 self.error(if args.is_empty() { span } else { error.span }, &error.message, code);
                 for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
                 return;
@@ -395,7 +396,7 @@ impl Checker {
             }
             ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } => {
                 let span = arena.arena.span(*span);
-                self.error(span, "`@` splice is not valid here", "check.call-splice");
+                self.error(span, "`@` splice is not valid here", DiagnosticCode::CheckCallSplice);
                 self.check_expr_arena(arena, source, *value, None)
             }
             ArenaCallArgKind::Named { name, value, span } => {
@@ -407,7 +408,7 @@ impl Checker {
                     // A punned argument writes its parameter label and binding
                     // once. Expand the value while retaining the original label.
                     for diagnostic in &mut self.diagnostics[first_diagnostic..] {
-                        if diagnostic.code.as_deref() == Some("check.compatibility-vocabulary") {
+                        if diagnostic.code == Some(DiagnosticCode::CheckCompatibilityVocabulary) {
                             for hint in &mut diagnostic.fix_hints {
                                 if hint.span == Some(value_span) && hint.replacement.as_deref() == Some("args") {
                                     hint.span = Some(argument_span);
@@ -430,7 +431,7 @@ impl Checker {
         span: Span,
     ) {
         let Some(arg) = arg else {
-            self.error(span, "incorrect function arity", "check.arity");
+            self.error(span, "incorrect function arity", DiagnosticCode::CheckArity);
             return;
         };
         let ty = self.check_call_arg_arena(arena, source, arg, None);
@@ -440,7 +441,7 @@ impl Checker {
             self.error(
                 call_arg_span_arena(arena, arg),
                 "expected Path",
-                "check.type-mismatch",
+                DiagnosticCode::CheckTypeMismatch,
             );
         }
     }
@@ -462,7 +463,7 @@ impl Checker {
                     self.error(
                         arg_span,
                         "unknown module command flag",
-                        "check.module-command-flag",
+                        DiagnosticCode::CheckModuleCommandFlag,
                     );
                     continue;
                 };
@@ -470,7 +471,7 @@ impl Checker {
                     self.error(
                         arg_span,
                         "module command flag must target a defaulted Bool parameter",
-                        "check.module-command-flag",
+                        DiagnosticCode::CheckModuleCommandFlag,
                     );
                     continue;
                 }
@@ -478,7 +479,7 @@ impl Checker {
                     self.error(
                         arg_span,
                         "duplicate module command flag",
-                        "check.module-command-flag",
+                        DiagnosticCode::CheckModuleCommandFlag,
                     );
                 }
                 continue;
@@ -492,7 +493,7 @@ impl Checker {
                 self.error(
                     arg_span,
                     "module commands do not accept splices",
-                    "check.module-command-arg",
+                    DiagnosticCode::CheckModuleCommandArg,
                 );
                 continue;
             }
@@ -502,7 +503,7 @@ impl Checker {
         let required = sig.params.iter().filter(|param| !param.defaulted).count();
         let max_positionals = sig.params.len().saturating_sub(flags.len());
         if positionals.len() < required || positionals.len() > max_positionals {
-            self.error(span, "incorrect module command arity", "check.arity");
+            self.error(span, "incorrect module command arity", DiagnosticCode::CheckArity);
         }
         let positional_params = sig
             .params

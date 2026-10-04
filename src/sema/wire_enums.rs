@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Label};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use crate::sema::constants::LiteralConstant;
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaTypeDefBody, ExprId};
@@ -72,7 +72,7 @@ impl PreparedWireEnums {
                     };
                     if let Some(message) = message {
                         valid = false;
-                        diagnostics.push(Diagnostic::error(message).with_code("check.enum-wire-mapping")
+                        diagnostics.push(Diagnostic::error(message).with_code(DiagnosticCode::CheckEnumWireMapping)
                             .with_label(Label::primary(program.arena.span(variant.span), message)));
                     }
                 }

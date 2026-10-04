@@ -8,7 +8,7 @@ use crate::syntax::arena::{
     ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
     ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BlockId, ExprId, PatternId, RunFormId,
 };
-use crate::diagnostic::FixHint;
+use crate::diagnostic::{DiagnosticCode, FixHint};
 use crate::syntax::literal;
 use crate::syntax::node::EnvGetKind;
 
@@ -98,7 +98,7 @@ impl Checker {
 
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
         if name == "_" {
-            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", DiagnosticCode::CheckPipelineHole);
             return Type::Invalid;
         }
         if let Some(binding) = self.lookup(name) {
@@ -123,7 +123,7 @@ impl Checker {
             // let `let host = system` check and then fail preparation.
             self.diagnostics.push(
                 Diagnostic::error(format!("standard module `{name}` is a namespace, not a value"))
-                    .with_code("check.module-member")
+                    .with_code(DiagnosticCode::CheckModuleMember)
                     .with_label(Label::primary(span, "call one of its functions instead")),
             );
             return Type::Unknown;
@@ -144,7 +144,7 @@ impl Checker {
         let text = name.as_str();
         let text: &str = text.as_ref();
         let mut diagnostic = Diagnostic::error(format!("unresolved name `{text}`"))
-            .with_code("check.unresolved-name")
+            .with_code(DiagnosticCode::CheckUnresolvedName)
             .with_label(Label::primary(span, "unresolved name"));
         let literal = match text {
             "None" | "Null" | "NULL" | "nil" | "undefined" => Some("null"),
@@ -173,7 +173,7 @@ impl Checker {
         let unknown = name.as_str();
         let unknown: &str = unknown.as_ref();
         let mut diagnostic = Diagnostic::error(format!("unknown field `{unknown}` on known record type"))
-            .with_code("check.unknown-field")
+            .with_code(DiagnosticCode::CheckUnknownField)
             .with_label(Label::primary(span, "unknown field on known record type"));
         if let Some(nearby) = super::method::nearest_name(unknown, fields.map(|field| field.as_str().to_string())) {
             diagnostic = diagnostic.with_note(format!("did you mean `{nearby}`?"));
@@ -185,7 +185,7 @@ impl Checker {
         let ty = self.lookup_expr_ident(name, span);
         if name == "ARGV"
             && let Some(diagnostic) = self.diagnostics.last_mut()
-            && diagnostic.code.as_deref() == Some("check.compatibility-vocabulary")
+            && diagnostic.code == Some(DiagnosticCode::CheckCompatibilityVocabulary)
         {
             for hint in &mut diagnostic.fix_hints {
                 if hint.span == Some(span) && hint.replacement.as_deref() == Some("args") {
@@ -202,7 +202,7 @@ impl Checker {
             self.error(
                 span,
                 "environment lookup is not allowed in pure functions",
-                "check.pure-effect",
+                DiagnosticCode::CheckPureEffect,
             );
         }
         match kind {
@@ -221,7 +221,7 @@ impl Checker {
             self.error(
                 span,
                 &format!("{form} forms are not allowed in pure functions"),
-                "check.pure-run",
+                DiagnosticCode::CheckPureRun,
             );
         } else if let Some(effs) = &self.current_effects
             && !Self::effects_covers(effs, &Effect::Process)
@@ -229,7 +229,7 @@ impl Checker {
             self.error(
                 span,
                 &format!("{form} requires the `process` effect"),
-                "check.effect-violation",
+                DiagnosticCode::CheckEffectViolation,
             );
         }
     }
@@ -326,7 +326,7 @@ impl Checker {
             ArenaExprKind::Bool(_) => Type::Bool,
             ArenaExprKind::Int(value) => {
                 if arena.arena.int_literal(*value).value().is_none() {
-                    self.error(expr.span, "integer literal is outside the 64-bit signed range", "check.int-literal");
+                    self.error(expr.span, "integer literal is outside the 64-bit signed range", DiagnosticCode::CheckIntLiteral);
                 }
                 Type::Int
             }
@@ -335,7 +335,7 @@ impl Checker {
                 // An unrepresentable literal used to check and then fail
                 // preparation, which has no value to encode.
                 if arena.arena.duration_literal(*value).millis().is_none() {
-                    self.error(expr.span, "duration literal exceeds 18446744073709551615ms", "check.duration-literal");
+                    self.error(expr.span, "duration literal exceeds 18446744073709551615ms", DiagnosticCode::CheckDurationLiteral);
                 }
                 Type::Duration
             }
@@ -347,7 +347,7 @@ impl Checker {
                     self.error(
                         expr.span,
                         "glob expansion is not allowed in pure functions",
-                        "check.pure-effect",
+                        DiagnosticCode::CheckPureEffect,
                     );
                 }
                 Type::List(Box::new(Type::Path))
@@ -361,7 +361,7 @@ impl Checker {
             ArenaExprKind::Ident(name) => {
                 if *name == "_" {
                     self.pipeline_hole_types.get(&expr.span).cloned().unwrap_or_else(|| {
-                        self.error(expr.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+                        self.error(expr.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", DiagnosticCode::CheckPipelineHole);
                         Type::Invalid
                     })
                 } else {
@@ -386,13 +386,13 @@ impl Checker {
                 self.error(
                     expr.span,
                     "`.` is valid only in stream stage blocks",
-                    "check.stream-item",
+                    DiagnosticCode::CheckStreamItem,
                 );
                 Type::Unknown
             }),
             ArenaExprKind::LastStatus => {
                 if !self.last_status_available {
-                    self.error(expr.span, "`$?` is not set", "check.last-status");
+                    self.error(expr.span, "`$?` is not set", DiagnosticCode::CheckLastStatus);
                 }
                 Type::Status
             }
@@ -413,22 +413,22 @@ impl Checker {
             ArenaExprKind::ContextScope { kind, input, block, value_body } => {
                 use crate::syntax::arena::ContextScopeKind;
                 let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
-                if self.in_pure { self.error(expr.span, "context scopes are not allowed in pure functions", "check.pure-effect"); }
+                if self.in_pure { self.error(expr.span, "context scopes are not allowed in pure functions", DiagnosticCode::CheckPureEffect); }
                 self.require_effect(crate::syntax::node::Effect::Env, expr.span, "context scopes");
                 let input_type = self.check_expr_arena(arena, source, *input, None);
                 match kind {
                     ContextScopeKind::Cwd => if !matches!(input_type, Type::Path | Type::Str | Type::Unknown | Type::Invalid) {
-                        self.error(arena.arena.expr(*input).span, "cwd scope requires Path or Str", "check.context-scope-input");
+                        self.error(arena.arena.expr(*input).span, "cwd scope requires Path or Str", DiagnosticCode::CheckContextScopeInput);
                     },
                     ContextScopeKind::Env => {
                         let values = match &input_type {
                             Type::Record(fields) => Some(fields.values().collect::<Vec<_>>()),
                             Type::Map(key, value) if **key == Type::Str => Some(vec![value.as_ref()]),
                             Type::Unknown | Type::Invalid => None,
-                            _ => { self.error(arena.arena.expr(*input).span, "environment overlay requires a Record or string-keyed Map", "check.context-scope-input"); None },
+                            _ => { self.error(arena.arena.expr(*input).span, "environment overlay requires a Record or string-keyed Map", DiagnosticCode::CheckContextScopeInput); None },
                         };
                         if let Some(values) = values && values.into_iter().any(|ty| !ty.can_be_argv_item()) {
-                            self.error(arena.arena.expr(*input).span, "environment values must convert to one scalar argv item", "check.env-value");
+                            self.error(arena.arena.expr(*input).span, "environment values must convert to one scalar argv item", DiagnosticCode::CheckEnvValue);
                         }
                     }
                 }
@@ -441,14 +441,14 @@ impl Checker {
                 self.pop_scope();
                 self.context_scope_depths.pop();
                 if !body_type.can_escape_context_scope() {
-                    self.error(expr.span, "a live producer or host handle cannot escape a restored context", "check.context-scope-escape");
+                    self.error(expr.span, "a live producer or host handle cannot escape a restored context", DiagnosticCode::CheckContextScopeEscape);
                 }
                 self.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::ValueBlock(block) => {
                 if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first() {
-                    self.error(arena.arena.span(param.span), "parameter value blocks require a Result fallback", "check.fallback-block-context");
+                    self.error(arena.arena.span(param.span), "parameter value blocks require a Result fallback", DiagnosticCode::CheckFallbackBlockContext);
                 }
                 self.push_scope();
                 let ty = self.check_tail_block_arena(arena, source, *block, expected);
@@ -469,7 +469,7 @@ impl Checker {
                     let left_ty = previous.take().unwrap_or_else(|| self.check_expr_arena(arena, source, left, None));
                     let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
                     if !matches!(left_ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown) {
-                        self.error(arena.arena.expr(left).span, "comparison requires Int, Float, Str, or Duration", "check.operator-type");
+                        self.error(arena.arena.expr(left).span, "comparison requires Int, Float, Str, or Duration", DiagnosticCode::CheckOperatorType);
                     }
                     self.expect_type(&left_ty, &right_ty, arena.arena.expr(right).span);
                     previous = Some(right_ty);
@@ -526,7 +526,7 @@ impl Checker {
                     self.requirement_targets.insert(expr.span, target);
                     Type::Result(Box::new(ty), Box::new(Type::Error))
                 } else {
-                    self.error(expr.span, "cannot infer require target; supply a schema or an independently typed boundary", "check.require-target");
+                    self.error(expr.span, "cannot infer require target; supply a schema or an independently typed boundary", DiagnosticCode::CheckRequireTarget);
                     Type::Invalid
                 }
             }
@@ -544,7 +544,7 @@ impl Checker {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
                 if super::stmt::patterns_are_exhaustive_arena(arena, &value_ty, std::iter::once(pattern), &self.type_defs, &self.tag_variants) {
-                    self.error(expr.span, "pattern condition cannot fail; bind the subject with `let` instead", "check.irrefutable-pattern-condition");
+                    self.error(expr.span, "pattern condition cannot fail; bind the subject with `let` instead", DiagnosticCode::CheckIrrefutablePatternCondition);
                 }
                 self.push_scope();
                 self.check_pattern_arena(arena, source, pattern, &value_ty);
@@ -599,7 +599,7 @@ impl Checker {
                     self.reject_dynamic_use("an interpolation", None, arena.arena.expr(expr_id).span);
                 } else if !ty.can_display() && !matches!(ty, Type::Unknown) {
                     let span = arena.arena.expr(expr_id).span;
-                    self.report_conversion(span, &ty, "cannot be displayed in fmt string", "check.display-conversion");
+                    self.report_conversion(span, &ty, "cannot be displayed in fmt string", DiagnosticCode::CheckDisplayConversion);
                 }
             }
         }
@@ -616,7 +616,7 @@ impl Checker {
         use crate::syntax::arena::ArenaPipeStageKind;
         let ast = &arena.arena;
         let Some(&ArenaPipeStageKind::Expr(stage)) = ast.pipe_stages(stages).first().map(|stage| &stage.kind) else {
-            self.error(pipeline, "a pipeline without a leading value stage reached the checker", "check.desugar");
+            self.error(pipeline, "a pipeline without a leading value stage reached the checker", DiagnosticCode::CheckDesugar);
             return;
         };
         let is_call = |expr: ExprId| {
@@ -641,7 +641,7 @@ impl Checker {
         let diagnostic = if operand != stage && (is_call(operand) || names_callee(operand)) {
             let span = Span::new(pipeline.source_id, pipeline.start(), ast.expr(operand).span.end());
             let diagnostic = Diagnostic::error("group a pipeline that an operator applies to")
-                .with_code("check.ambiguous-grouping")
+                .with_code(DiagnosticCode::CheckAmbiguousGrouping)
                 .with_label(Label::primary(span, "add parentheses around this operand"));
             match source.get(span.range()) {
                 Some(text) => diagnostic.with_fix_hint(FixHint::replacement(span, "add parentheses", format!("({text})"))),
@@ -650,7 +650,7 @@ impl Checker {
         } else {
             let span = ast.expr(stage).span;
             let diagnostic = Diagnostic::error("a value pipeline stage must be a call")
-                .with_code("check.pipeline-stage")
+                .with_code(DiagnosticCode::CheckPipelineStage)
                 .with_label(Label::primary(span, "call a method or function here, or name a stream stage"));
             match source.get(span.range()).filter(|_| names_callee(stage)) {
                 Some(text) => diagnostic.with_fix_hint(FixHint::replacement(span, "call it", format!("{text}()"))),
@@ -680,7 +680,7 @@ impl Checker {
             let dollar = Span::new(span.source_id, range.start, range.end);
             self.diagnostics.push(
                 Diagnostic::error(format!("f-strings interpolate with `{{{name}}}`; `${name}` is literal text"))
-                    .with_code("check.fmt-dollar-name")
+                    .with_code(DiagnosticCode::CheckFmtDollarName)
                     .with_label(Label::primary(dollar, format!("`{name}` is a binding in scope")))
                     .with_fix_hint(FixHint::replacement(dollar, format!("interpolate with `{{{name}}}`"), format!("{{{name}}}")))
                     .with_note("write `\\$` for a literal dollar sign"),
@@ -711,7 +711,7 @@ impl Checker {
                     Type::List(ty) => *ty,
                     Type::Unknown => Type::Unknown,
                     _ => {
-                        self.error(span, "list literal splice requires List; handle Results explicitly and collect Streams explicitly", "check.list-splice-type");
+                        self.error(span, "list literal splice requires List; handle Results explicitly and collect Streams explicitly", DiagnosticCode::CheckListSpliceType);
                         Type::Unknown
                     }
                 }
@@ -749,13 +749,13 @@ impl Checker {
                 ArenaRecordFieldKind::Computed { key, value, span } => {
                     let key_ty = self.check_schema_child_expr_arena(arena, source, key, expected_key, crate::sema::constants::SchemaComponent::Key);
                     if !key_ty.is_map_key() && !key_ty.is_recovery() {
-                        self.error(arena.arena.expr(key).span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", "check.map-key-type");
+                        self.error(arena.arena.expr(key).span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", DiagnosticCode::CheckMapKeyType);
                     }
                     (key_ty, self.check_schema_child_expr_arena(arena, source, value, expected_item, crate::sema::constants::SchemaComponent::Value), arena.arena.span(span))
                 }
                 ArenaRecordFieldKind::Path { value, span, .. } => {
                     self.check_schema_child_expr_arena(arena, source, value, expected_item, crate::sema::constants::SchemaComponent::Value);
-                    self.error(arena.arena.span(span), "map literals do not permit static record update paths", "check.map-update-path");
+                    self.error(arena.arena.span(span), "map literals do not permit static record update paths", DiagnosticCode::CheckMapUpdatePath);
                     continue;
                 }
                 ArenaRecordFieldKind::Named { value, span, .. } => (Type::Str, self.check_schema_child_expr_arena(arena, source, value, expected_item, crate::sema::constants::SchemaComponent::Value), arena.arena.span(span)),
@@ -763,7 +763,7 @@ impl Checker {
                 ArenaRecordFieldKind::Spread { expr, span } => {
                     let ty = self.check_expr_arena(arena, source, expr, expected);
                     match ty { Type::Map(key, item) => (*key, *item, arena.arena.span(span)), Type::Unknown => (Type::Unknown, Type::Unknown, arena.arena.span(span)), _ => {
-                        self.error(arena.arena.span(span), "map literal spreads require Map", "check.map-spread-type");
+                        self.error(arena.arena.span(span), "map literal spreads require Map", DiagnosticCode::CheckMapSpreadType);
                         (Type::Unknown, Type::Unknown, arena.arena.span(span))
                     }}
                 }
@@ -794,19 +794,19 @@ impl Checker {
         let base_ty = match fields.first().map(|field| &field.kind) {
             Some(ArenaRecordFieldKind::Spread { expr, .. }) => self.check_expr_arena(arena, source, *expr, None),
             _ => {
-                self.error(span, "nested record updates require one leading record spread", "check.record-update-base");
+                self.error(span, "nested record updates require one leading record spread", DiagnosticCode::CheckRecordUpdateBase);
                 Type::Unknown
             }
         };
         if !matches!(&base_ty, Type::Record(fields) if !fields.is_empty()) {
-            self.error(span, "nested record updates require a statically known record shape", "check.record-update-shape");
+            self.error(span, "nested record updates require a statically known record shape", DiagnosticCode::CheckRecordUpdateShape);
         }
         let mut targets: Vec<Vec<Name>> = Vec::new();
         for (index, field) in fields.iter().enumerate() {
             let (path, value, field_span) = match &field.kind {
                 ArenaRecordFieldKind::Spread { expr, span } => {
                     if index != 0 {
-                        self.error(arena.arena.span(*span), "nested record updates permit only the leading spread", "check.record-update-base");
+                        self.error(arena.arena.span(*span), "nested record updates permit only the leading spread", DiagnosticCode::CheckRecordUpdateBase);
                         self.check_expr_arena(arena, source, *expr, None);
                     }
                     continue;
@@ -814,7 +814,7 @@ impl Checker {
                 ArenaRecordFieldKind::Computed { key, value, span } => {
                     self.check_expr_arena(arena, source, *key, Some(&Type::Str));
                     self.check_expr_arena(arena, source, *value, None);
-                    self.error(arena.arena.span(*span), "nested record updates do not permit computed map keys", "check.map-update-path");
+                    self.error(arena.arena.span(*span), "nested record updates do not permit computed map keys", DiagnosticCode::CheckMapUpdatePath);
                     continue;
                 }
                 ArenaRecordFieldKind::Path { path, value, span } => (arena.arena.names(*path).collect::<Vec<_>>(), Some(*value), arena.arena.span(*span)),
@@ -822,7 +822,7 @@ impl Checker {
                 ArenaRecordFieldKind::Shorthand { name, span } => (vec![*name], None, arena.arena.span(*span)),
             };
             if targets.iter().any(|prior| prior.starts_with(&path) || path.starts_with(prior)) {
-                self.error(field_span, "record update targets must be disjoint", "check.record-update-overlap");
+                self.error(field_span, "record update targets must be disjoint", DiagnosticCode::CheckRecordUpdateOverlap);
             }
             targets.push(path.clone());
             let mut selected = Some(&base_ty);
@@ -834,7 +834,7 @@ impl Checker {
                 if selected.is_none() { break; }
             }
             if selected.is_none() {
-                self.error(field_span, "every update target must select an existing field through known records", "check.record-update-field");
+                self.error(field_span, "every update target must select an existing field through known records", DiagnosticCode::CheckRecordUpdateField);
             }
             let actual = match value {
                 Some(value) => self.check_expr_arena(arena, source, value, selected),
@@ -842,7 +842,7 @@ impl Checker {
             };
             if let Some(selected) = selected {
                 if requires_validation(&actual, selected) {
-                    self.error(field_span, "record update replacements require a checked field type", "check.record-update-value");
+                    self.error(field_span, "record update replacements require a checked field type", DiagnosticCode::CheckRecordUpdateValue);
                 } else {
                     self.expect_type(selected, &actual, field_span);
                 }
@@ -888,26 +888,26 @@ impl Checker {
                 self.error(
                     span,
                     "`ProcessHandle` is a runtime-only type and cannot be constructed with a record literal; obtain it from `spawn`",
-                    "check.type-mismatch",
+                    DiagnosticCode::CheckTypeMismatch,
                 );
                 return Type::Unknown;
             }
             if matches!(expected, Some(Type::FsRoot)) {
-                self.error(span, "`FsRoot` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from a filesystem root factory", "check.type-mismatch");
+                self.error(span, "`FsRoot` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from a filesystem root factory", DiagnosticCode::CheckTypeMismatch);
                 return Type::Unknown;
             }
             if matches!(expected, Some(Type::NetJob)) {
                 self.error(
                     span,
                     "`NetJob` is a runtime-only type and cannot be constructed with a record literal; obtain it from `net.start`",
-                    "check.type-mismatch",
+                    DiagnosticCode::CheckTypeMismatch,
                 );
                 return Type::Unknown;
             }
             self.error(
                 span,
                 "`Status` is a runtime-only type and cannot be constructed with a record literal; obtain it from `process.run`, `run.status`, or similar",
-                "check.type-mismatch",
+                DiagnosticCode::CheckTypeMismatch,
             );
             return Type::Unknown;
         }
@@ -937,7 +937,7 @@ impl Checker {
                             self.error(
                                 last_span,
                                 "spread must be a record",
-                                "check.spread-not-record",
+                                DiagnosticCode::CheckSpreadNotRecord,
                             );
                         }
                     }
@@ -950,13 +950,13 @@ impl Checker {
                         self.error(
                             field_span,
                             "duplicate record field",
-                            "check.duplicate-record-field",
+                            DiagnosticCode::CheckDuplicateRecordField,
                         );
                     }
                     if let Some(expected_fields) = expected_fields
                         && !expected_fields.contains_key(name)
                     {
-                        self.error(field_span, "unknown schema field", "check.schema-field");
+                        self.error(field_span, "unknown schema field", DiagnosticCode::CheckSchemaField);
                     }
                     let field_expected = expected_fields.and_then(|fields| fields.get(name));
                     let schema = self.expected_schema.as_ref().and_then(|schema| schema.value_context().children.get(&crate::sema::constants::SchemaComponent::Field(*name))).cloned();
@@ -974,13 +974,13 @@ impl Checker {
                         self.error(
                             field_span,
                             "duplicate record field",
-                            "check.duplicate-record-field",
+                            DiagnosticCode::CheckDuplicateRecordField,
                         );
                     }
                     if let Some(expected_fields) = expected_fields
                         && !expected_fields.contains_key(name)
                     {
-                        self.error(field_span, "unknown schema field", "check.schema-field");
+                        self.error(field_span, "unknown schema field", DiagnosticCode::CheckSchemaField);
                     }
                     let ty = self.lookup_record_shorthand(*name, field_span);
                     if let Some(field_expected) =
@@ -997,7 +997,7 @@ impl Checker {
         {
             for name in expected_fields.keys() {
                 if !record.contains_key(name) {
-                    self.error(last_span, "missing schema field", "check.schema-field");
+                    self.error(last_span, "missing schema field", DiagnosticCode::CheckSchemaField);
                 }
             }
         }
@@ -1014,7 +1014,7 @@ impl Checker {
     ) -> Type {
         let mut inferred = None;
         for branch in arena.arena.if_expr_branches(branches) {
-            let narrowings = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
+            let narrowings = self.check_condition_arena(arena, source, branch.condition, DiagnosticCode::CheckIfCondition);
             self.push_scope();
             self.apply_narrowings(&narrowings.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
@@ -1061,7 +1061,7 @@ impl Checker {
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
                         if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else {
-                            self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Map, Str, or Bytes values", if map { "check.mapcomp-iterator" } else { "check.listcomp-iterator" });
+                            self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
                     });
@@ -1074,7 +1074,7 @@ impl Checker {
                     if ty == Type::Any {
                         self.expect_type(&Type::Bool, &ty, arena.arena.expr(condition).span);
                     } else if !matches!(ty, Type::Bool | Type::Status | Type::Unknown) {
-                        self.error(arena.arena.expr(condition).span, "comprehension condition must be Bool or Status", if map { "check.mapcomp-condition" } else { "check.listcomp-condition" });
+                        self.error(arena.arena.expr(condition).span, "comprehension condition must be Bool or Status", if map { DiagnosticCode::CheckMapcompCondition } else { DiagnosticCode::CheckListcompCondition });
                     }
                 }
             }
@@ -1098,7 +1098,7 @@ impl Checker {
         let (expected_key, expected_value) = match expected { Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())), _ => (None, None) };
         let key_ty = self.check_expr_arena(arena, source, key, expected_key);
         if !key_ty.is_map_key() && !key_ty.is_recovery() {
-            self.error(arena.arena.expr(key).span, "Map comprehension keys require an ordered scalar key", "check.map-key-type");
+            self.error(arena.arena.expr(key).span, "Map comprehension keys require an ordered scalar key", DiagnosticCode::CheckMapKeyType);
         }
         if let Some(expected_key) = expected_key {
             self.expect_type(expected_key, &key_ty, arena.arena.expr(key).span);
@@ -1125,7 +1125,7 @@ impl Checker {
             self.error(
                 span,
                 "`loop` has no `break` — will run forever",
-                "check.loop-no-break",
+                DiagnosticCode::CheckLoopNoBreak,
             );
         }
         Type::Unknown
@@ -1146,7 +1146,7 @@ impl Checker {
         self.pop_scope();
         let body = if let Some(expected_ok) = expected_ok { if capture_success_underconstrained(&body) && body.matches_expected(expected_ok) { expected_ok.clone() } else { body } } else { body };
         if capture_success_underconstrained(&body) {
-            self.error(span, "cannot infer try success type; annotate Result success type", "check.try-success-type");
+            self.error(span, "cannot infer try success type; annotate Result success type", DiagnosticCode::CheckTrySuccessType);
         }
         Type::Result(Box::new(body), Box::new(error))
     }
@@ -1173,7 +1173,7 @@ impl Checker {
                 self.error(
                     span,
                     "retry delays are not allowed in pure functions",
-                    "check.pure-effect",
+                    DiagnosticCode::CheckPureEffect,
                 );
             } else if let Some(effs) = &self.current_effects
                 && !Self::effects_covers(effs, &Effect::Time)
@@ -1181,7 +1181,7 @@ impl Checker {
                 self.error(
                     span,
                     "`retry` with delays requires the `time` effect",
-                    "check.effect-violation",
+                    DiagnosticCode::CheckEffectViolation,
                 );
             }
         }
@@ -1217,7 +1217,7 @@ impl Checker {
                 for child in arena.arena.pattern_ids(children) { self.check_retry_selection_shape(arena, child); }
             }
             ArenaPatternKind::Literal(_) | ArenaPatternKind::Record { .. } | ArenaPatternKind::List { .. } | ArenaPatternKind::Tuple(_) | ArenaPatternKind::Constructor { .. } => {
-                self.error(arena.arena.span(node.span), "retry selection requires a nominal error, facet, type or wildcard pattern", "check.retry-pattern");
+                self.error(arena.arena.span(node.span), "retry selection requires a nominal error, facet, type or wildcard pattern", DiagnosticCode::CheckRetryPattern);
             }
             _ => {}
         }
@@ -1235,7 +1235,7 @@ impl Checker {
             self.error(
                 run_span,
                 "`run` forms are not allowed in pure functions",
-                "check.pure-run",
+                DiagnosticCode::CheckPureRun,
             );
         } else if let Some(effs) = &self.current_effects
             && !Self::effects_covers(effs, &Effect::Process)
@@ -1243,7 +1243,7 @@ impl Checker {
             self.error(
                 run_span,
                 "`run` requires the `process` effect",
-                "check.effect-violation",
+                DiagnosticCode::CheckEffectViolation,
             );
         }
         self.check_run_arena(arena, source, run_id)
@@ -1269,7 +1269,7 @@ impl Checker {
                     self.error(
                         run_span,
                         "`spawn run` requires exactly one run segment",
-                        "check.spawn-run-shape",
+                        DiagnosticCode::CheckSpawnRunShape,
                     );
                 }
                 if let Some(segment) = segments.first()
@@ -1279,7 +1279,7 @@ impl Checker {
                     self.error(
                         segment_span,
                         "`spawn run` supports only `run` and `run.status` forms",
-                        "check.spawn-run-kind",
+                        DiagnosticCode::CheckSpawnRunKind,
                     );
                 }
             }
@@ -1327,7 +1327,7 @@ impl Checker {
                 self.error(
                     target_span,
                     "`wait` expects ProcessHandle or List[ProcessHandle]",
-                    "check.wait-target",
+                    DiagnosticCode::CheckWaitTarget,
                 );
                 Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
             }
@@ -1349,7 +1349,7 @@ impl Checker {
             self.error(
                 span,
                 "match expressions require at least one arm",
-                "check.empty-match",
+                DiagnosticCode::CheckEmptyMatch,
             );
             return expected.cloned().unwrap_or(Type::Unknown);
         }
@@ -1428,12 +1428,12 @@ impl Checker {
     ) -> Type {
         let params = arena.arena.block_params(arena.arena.block(block).params);
         if params.len() != 1 {
-            self.error(arena.arena.expr(expression).span, "error fallback block requires exactly one parameter", "check.fallback-block-params");
+            self.error(arena.arena.expr(expression).span, "error fallback block requires exactly one parameter", DiagnosticCode::CheckFallbackBlockParams);
         }
         let (value_ty, error_ty) = match result_ty {
             Type::Result(value, error) => (value.as_ref().clone(), error.as_ref().clone()),
             _ => {
-                self.error(left_span, "error fallback block requires a Result value", "check.fallback-block-result");
+                self.error(left_span, "error fallback block requires a Result value", DiagnosticCode::CheckFallbackBlockResult);
                 (Type::Unknown, Type::Unknown)
             }
         };
@@ -1489,7 +1489,7 @@ impl Checker {
                     self.error(
                         left_span,
                         "`??` requires a Result or Optional value",
-                        "check.result-fallback",
+                        DiagnosticCode::CheckResultFallback,
                     );
                     self.check_expr_arena(arena, source, right, None);
                     return Type::Unknown;
@@ -1516,7 +1516,7 @@ impl Checker {
                     self.error(
                         left_span,
                         "`or` is only for Bool values; use `??` for Result fallback",
-                        "check.result-fallback",
+                        DiagnosticCode::CheckResultFallback,
                     );
                     return Type::Bool;
                 }
@@ -1558,7 +1558,7 @@ impl Checker {
                     self.error(
                         left_span,
                         "comparison requires Int, Float, Str, or Duration",
-                        "check.operator-type",
+                        DiagnosticCode::CheckOperatorType,
                     );
                 }
                 self.expect_type(&left_ty, &right_ty, right_span);
@@ -1587,7 +1587,7 @@ impl Checker {
                             self.error(
                                 left_span,
                                 "Path membership requires Str or Path",
-                                "check.membership-type",
+                                DiagnosticCode::CheckMembershipType,
                             );
                         }
                     }
@@ -1601,7 +1601,7 @@ impl Checker {
                             self.error(
                                 left_span,
                                 "env.PATH membership requires Path; write a path literal such as p\"/opt/bin\"",
-                                "check.membership-type",
+                                DiagnosticCode::CheckMembershipType,
                             );
                         }
                     }
@@ -1610,7 +1610,7 @@ impl Checker {
                     _ => self.error(
                         right_span,
                         "membership requires List, Map, Record, Str, Bytes, Path, or env.PATH",
-                        "check.membership-type",
+                        DiagnosticCode::CheckMembershipType,
                     ),
                 }
                 Type::Bool
@@ -1640,7 +1640,7 @@ impl Checker {
                         | (BinaryOp::Div, Type::Duration, Type::Int) => Type::Duration,
                         (BinaryOp::Div, Type::Duration, Type::Duration) => Type::Int,
                         _ => {
-                            self.error(left_span, "invalid Duration arithmetic dimensions", "check.operator-type");
+                            self.error(left_span, "invalid Duration arithmetic dimensions", DiagnosticCode::CheckOperatorType);
                             Type::Unknown
                         }
                     };
@@ -1666,7 +1666,7 @@ impl Checker {
                     | Type::Record(_) | Type::Optional(_) | Type::Result(_, _) | Type::Status => {
                         let symbol = match op { BinaryOp::Add => "+", BinaryOp::Sub => "-", BinaryOp::Mul => "*", BinaryOp::Div => "/", _ => "%" };
                         let mut diagnostic = Diagnostic::error(format!("`{symbol}` is not defined for {left_ty}"))
-                            .with_code("check.operator-type")
+                            .with_code(DiagnosticCode::CheckOperatorType)
                             .with_label(Label::primary(left_span, format!("this operand is {left_ty}")));
                         let note = match left_ty {
                             Type::Path => Some("operators never join paths; build the path with an `fp\"...\"` literal"),
@@ -1754,7 +1754,7 @@ impl Checker {
             };
             self.diagnostics.push(
                 Diagnostic::error(message)
-                    .with_code("check.module-member")
+                    .with_code(DiagnosticCode::CheckModuleMember)
                     .with_label(Label::primary(span, "standard module members are functions, not values")),
             );
             return Type::Unknown;
@@ -1775,7 +1775,7 @@ impl Checker {
                     self.error(
                         span,
                         "unknown export on known module contract",
-                        "check.unknown-field",
+                        DiagnosticCode::CheckUnknownField,
                     );
                     Type::Unknown
                 }
@@ -1791,7 +1791,7 @@ impl Checker {
                 self.error(
                     span,
                     "field access requires a record-like value",
-                    "check.field-access",
+                    DiagnosticCode::CheckFieldAccess,
                 );
                 Type::Unknown
             }
@@ -1844,7 +1844,7 @@ impl Checker {
     fn checked_fixed_field(&mut self, receiver: &Type, name: Name, span: Span) -> Type {
         let is_error = matches!(receiver, Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_));
         if is_error && name == "kind" {
-            self.error(span, "error `.kind` was removed; match exact variants or facets instead", "check.error-removed");
+            self.error(span, "error `.kind` was removed; match exact variants or facets instead", DiagnosticCode::CheckErrorRemoved);
             return Type::Str;
         }
         match Self::fixed_field_type(receiver, name).flatten() {
@@ -1852,7 +1852,7 @@ impl Checker {
             None => {
                 self.diagnostics.push(
                     Diagnostic::error(format!("unknown field `{name}` on {receiver}"))
-                        .with_code("check.unknown-field")
+                        .with_code(DiagnosticCode::CheckUnknownField)
                         .with_label(Label::primary(span, format!("{receiver} has no field `{name}`"))),
                 );
                 Type::Unknown
@@ -1878,7 +1878,7 @@ impl Checker {
                 self.error(
                     span,
                     "`?.` requires an Optional or Result value",
-                    "check.null-safe-field",
+                    DiagnosticCode::CheckNullSafeField,
                 );
                 return Type::Unknown;
             }
@@ -1898,14 +1898,14 @@ impl Checker {
             Type::Module(exports) => match exports.get(&name) {
                 Some(export) => export.field_type(),
                 None => {
-                    self.error(span, "unknown export on known module contract", "check.unknown-field");
+                    self.error(span, "unknown export on known module contract", DiagnosticCode::CheckUnknownField);
                     Type::Unknown
                 }
             },
             Type::Any | Type::DynamicModule => Type::Any,
             Type::Unknown => Type::Unknown,
             _ => {
-                self.error(span, "field access requires a record-like value", "check.field-access");
+                self.error(span, "field access requires a record-like value", DiagnosticCode::CheckFieldAccess);
                 Type::Unknown
             }
         };
@@ -1940,7 +1940,7 @@ impl Checker {
             self.error(
                 span,
                 "environment lookup is not allowed in pure functions",
-                "check.pure-effect",
+                DiagnosticCode::CheckPureEffect,
             );
         }
         Some(match name.as_str().as_str() {
@@ -1954,7 +1954,7 @@ impl Checker {
                 self.error(
                     base_expr.span,
                     "unknown env namespace",
-                    "check.unknown-env-namespace",
+                    DiagnosticCode::CheckUnknownEnvNamespace,
                 );
                 Type::Unknown
             }
@@ -1969,7 +1969,7 @@ impl Checker {
             Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&ty, span), false),
             _ => {
-                self.error(span, "guarded indexing requires a checked Optional or Result receiver", "check.null-safe-index");
+                self.error(span, "guarded indexing requires a checked Optional or Result receiver", DiagnosticCode::CheckNullSafeIndex);
                 (Type::Unknown, false)
             }
         }
@@ -2027,7 +2027,7 @@ impl Checker {
                 Type::Unknown
             }
             _ => {
-                self.error(span, "indexing requires List or Record", "check.index-type");
+                self.error(span, "indexing requires List or Record", DiagnosticCode::CheckIndexType);
                 Type::Unknown
             }
         };
@@ -2063,7 +2063,7 @@ impl Checker {
             Type::Any => Type::Any,
             Type::Unknown => Type::Unknown,
             _ => {
-                self.error(span, "slicing requires List, Str, or Bytes", "check.slice-type");
+                self.error(span, "slicing requires List, Str, or Bytes", DiagnosticCode::CheckSliceType);
                 Type::Unknown
             }
         };

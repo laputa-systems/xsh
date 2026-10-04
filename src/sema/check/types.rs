@@ -4,6 +4,7 @@ use super::{
     BTreeMap, CallableParamType, CallableType, Checker, ContractParam, Diagnostic, Effect, FixHint, Label,
     ModuleContractEntryKind, ModuleExportType, Span, Type, TypeAnnRef, TypeDefBody,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::sema::records::standard_record_type;
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{ArenaProgram, ArenaTypeExprTag, TypeExprId};
@@ -49,14 +50,14 @@ impl Checker {
             self.error(
                 span,
                 "`?` requires the `error` effect",
-                "check.effect-violation",
+                DiagnosticCode::CheckEffectViolation,
             );
         }
         let Some((ok, err)) = result_types(ty) else {
             self.error(
                 span,
                 "`?` can be applied only to Result values",
-                "check.try-result",
+                DiagnosticCode::CheckTryResult,
             );
             return Type::Unknown;
         };
@@ -75,7 +76,7 @@ impl Checker {
             self.error(
                 span,
                 "`?` requires a Result-returning context",
-                "check.try-context",
+                DiagnosticCode::CheckTryContext,
             );
         }
         if let Some(Type::Result(_, return_err)) = &self.current_return
@@ -83,7 +84,7 @@ impl Checker {
         {
             self.diagnostics.push(
                 Diagnostic::error("incompatible propagated error")
-                    .with_code("check.try-error")
+                    .with_code(DiagnosticCode::CheckTryError)
                     .with_label(Label::primary(
                         span,
                         format!("cannot propagate {err} from function returning {return_err}"),
@@ -104,7 +105,7 @@ impl Checker {
             self.error(
                 span,
                 "`?` can be applied only to Result values",
-                "check.try-result",
+                DiagnosticCode::CheckTryResult,
             );
             return Type::Unknown;
         };
@@ -162,7 +163,7 @@ impl Checker {
             };
             if let Err(conflict) = constrained {
                 let mut diagnostic = Diagnostic::error("inferred types disagree")
-                    .with_code("check.type-mismatch")
+                    .with_code(DiagnosticCode::CheckTypeMismatch)
                     .with_label(Label::primary(conflict.contribution,
                         format!("expected {}, found {}", conflict.expected, conflict.actual)));
                 if let Some(origin) = conflict.initializer {
@@ -188,7 +189,7 @@ impl Checker {
             let (expected, actual) = self.mismatch_labels(expected, actual);
             self.diagnostics.push(
                 Diagnostic::error("type mismatch")
-                    .with_code("check.type-mismatch")
+                    .with_code(DiagnosticCode::CheckTypeMismatch)
                     .with_label(Label::primary(
                         span,
                         format!("expected {expected}, found {actual}"),
@@ -214,7 +215,7 @@ impl Checker {
     /// `Error`, so applying it never introduces an effect or error mismatch.
     fn report_dynamic_boundary(&mut self, message: String, target: Option<&Type>, span: Span) {
         let mut diagnostic = Diagnostic::error(message.clone())
-            .with_code("check.dynamic-boundary")
+            .with_code(DiagnosticCode::CheckDynamicBoundary)
             .with_label(Label::primary(span, message));
         if let Some(target) = target
             && self.may_propagate_error()
@@ -299,7 +300,7 @@ impl Checker {
                 }
                 match self.record_constructors.resolve_type_checked(&program.arena, type_id, self.current_namespace) {
                     Ok(ty) => ty,
-                    Err(error) if matches!(error.code, "check.type-arity" | "check.recursive-type") => {
+                    Err(error) if matches!(error.code, DiagnosticCode::CheckTypeArity | DiagnosticCode::CheckRecursiveType) => {
                         self.error(span, &error.message, error.code);
                         Type::Invalid
                     }
@@ -312,7 +313,7 @@ impl Checker {
             ArenaTypeExprTag::Map => {
                 let key = TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| self.type_from_arena(program, id));
                 if !key.is_map_key() && !key.is_recovery() {
-                    self.error(span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", "check.map-key-type");
+                    self.error(span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", DiagnosticCode::CheckMapKeyType);
                 }
                 Type::Map(Box::new(key), Box::new(self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize))))
             },
@@ -343,7 +344,7 @@ impl Checker {
                         self.error(
                             program.arena.type_expr_span(inner),
                             &format!("Module[...] expected a module contract, found `{other}`"),
-                            "check.type-mismatch",
+                            DiagnosticCode::CheckTypeMismatch,
                         );
                         Type::Invalid
                     }
@@ -367,7 +368,7 @@ impl Checker {
             self.error(
                 span,
                 "`Unknown` is not a source type; use `Any` for dynamic values",
-                "check.unknown-type",
+                DiagnosticCode::CheckUnknownType,
             );
             return Type::Invalid;
         }
@@ -384,7 +385,7 @@ impl Checker {
             return Type::ErrorFacet(name);
         }
         let Some(body) = self.type_defs.get(&name).cloned() else {
-            self.error(span, "unknown type", "check.unknown-type");
+            self.error(span, "unknown type", DiagnosticCode::CheckUnknownType);
             return Type::Invalid;
         };
         self.type_from_body(name, body, span)
@@ -404,11 +405,11 @@ impl Checker {
             return Type::ErrorFacet(qualified);
         }
         let Some(types) = self.type_namespaces.get(&namespace) else {
-            self.error(span, "unknown type namespace", "check.unknown-type");
+            self.error(span, "unknown type namespace", DiagnosticCode::CheckUnknownType);
             return Type::Invalid;
         };
         let Some(ty) = types.get(&name).cloned() else {
-            self.error(span, "unknown exported type", "check.unknown-type");
+            self.error(span, "unknown exported type", DiagnosticCode::CheckUnknownType);
             return Type::Invalid;
         };
         ty
@@ -419,7 +420,7 @@ impl Checker {
             self.error(
                 span,
                 "recursive type aliases are not supported",
-                "check.recursive-type",
+                DiagnosticCode::CheckRecursiveType,
             );
             return Type::Invalid;
         }
@@ -430,7 +431,7 @@ impl Checker {
                 Err(error) => { self.error(span, &error.message, error.code); Type::Invalid }
             },
             TypeDefBody::Parameterized(arity) => {
-                self.error(span, &format!("type `{key}` requires {arity} type arguments"), "check.type-arity");
+                self.error(span, &format!("type `{key}` requires {arity} type arguments"), DiagnosticCode::CheckTypeArity);
                 Type::Invalid
             }
             TypeDefBody::Resolved(ty) => ty,

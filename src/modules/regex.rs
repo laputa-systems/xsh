@@ -20,6 +20,7 @@ pub(crate) fn prepare_literal(
 
 #[cfg(test)]
 mod tests {
+    use crate::diagnostic::DiagnosticCode;
     use crate::sema::check::Checker;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
@@ -51,7 +52,7 @@ mod tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         for checked in [Checker::check_arena(&parsed.arena, source), Checker::check_arena(&parsed.arena, source)] {
-            let errors = checked.diagnostics.iter().filter(|error| error.code.as_deref() == Some("check.regex-literal")).collect::<Vec<_>>();
+            let errors = checked.diagnostics.iter().filter(|error| error.code == Some(DiagnosticCode::CheckRegexLiteral)).collect::<Vec<_>>();
             assert_eq!(errors.len(), 2, "{:?}", checked.diagnostics);
             for (error, literal) in errors.iter().zip(&parsed.arena.arena.regex_literals) {
                 assert_eq!(error.labels[0].span, literal.span);

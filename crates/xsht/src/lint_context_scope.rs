@@ -1,4 +1,4 @@
-use xsh::diagnostic::{Diagnostic, FixHint, Label};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{Checker, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
@@ -67,7 +67,7 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
         let parsed = Parser::parse_source_arena_only(edit.source_id, &candidate);
         if !parsed.diagnostics.is_empty() || !Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() { continue; }
         linter.diagnostics.push(Diagnostic::warning("a fresh text placeholder can consume the scope value")
-            .with_code("lint.prefer-context-scope-value")
+            .with_code(DiagnosticCode::LintPreferContextScopeValue)
             .with_label(Label::secondary(edit, "retain the capture and initialize after restoring the context"))
             .with_fix_hint(FixHint::replacement(edit, "consume the propagated text capture as the scope tail", replacement)));
     }
@@ -106,7 +106,7 @@ fn simple_argument(linter: &super::Linter<'_>, argument: &ArenaCommandArg) -> bo
 
 #[cfg(test)]
 mod tests {
-    use xsh::diagnostic::Diagnostic;
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
@@ -127,7 +127,7 @@ mod tests {
     fn command_scope_run_text_initializer_preserves_mutability_and_converges() {
         let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] {\n  var revision = \"\"\n  cd $repo {\n    revision = run.text git rev-parse HEAD ?\n  }\n  revision = revision.trim()\n  revision\n}\n";
         let output = diagnostics(source);
-        let diagnostic = output.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value"))
+        let diagnostic = output.iter().find(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferContextScopeValue))
             .expect("command scope initializer migration");
         assert_eq!(diagnostic.fix_hints.len(), 1);
         let fix = &diagnostic.fix_hints[0];
@@ -135,11 +135,11 @@ mod tests {
         fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
         assert!(fixed.contains("var revision = cd (repo) { run.text git rev-parse HEAD ? }?"), "{fixed}");
         assert!(fixed.contains("revision = revision.trim()"));
-        assert!(!diagnostics(&fixed).iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")));
+        assert!(!diagnostics(&fixed).iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferContextScopeValue)));
     }
     fn rewrite(source: &str) -> String {
         let output = diagnostics(source);
-        let fixes = output.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value"))
+        let fixes = output.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferContextScopeValue))
             .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
         assert_eq!(fixes.len(), 1, "{output:?}");
         let mut fixed = source.to_owned();
@@ -153,7 +153,7 @@ mod tests {
         let fixed = rewrite(source);
         assert!(fixed.contains("var revision: Str = cd (repo)"), "{fixed}");
         assert!(fixed.contains("revision = revision.trim()"));
-        assert!(!diagnostics(&fixed).iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")));
+        assert!(!diagnostics(&fixed).iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferContextScopeValue)));
     }
 
     #[test]
@@ -168,7 +168,7 @@ mod tests {
             "proc inspect(repo: Path) [env, process, error] -> Result[Result[Str]] { var revision: Result[Str] = Ok(\"\"); cd $repo { revision = run.text /bin/pwd }; Ok(revision) }\n",
         ] {
             let output = diagnostics(source);
-            assert!(output.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value"))
+            assert!(output.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferContextScopeValue))
                 .all(|diagnostic| diagnostic.fix_hints.is_empty()), "{source}");
         }
     }

@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use xsh::diagnostic::{Diagnostic, DiagnosticRenderer};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer};
 use xsh::frontend::check::CheckOptions;
 use xsh::frontend::load::parse_load_check_file;
 use xsh::frontend::source::SourceMap;
@@ -234,7 +234,7 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
     let blocking = checked
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() != Some("check.redundant-parens"))
+        .filter(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckRedundantParens))
         .cloned()
         .collect::<Vec<_>>();
     if !blocking.is_empty() {
@@ -308,7 +308,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
         Some((span, loc)) => format!(
             "{:?}:{}:{}:{}:{}:{}",
             diagnostic.severity,
-            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.code.map_or("", DiagnosticCode::name),
             diagnostic.message,
             loc.file,
             span.start(),
@@ -317,7 +317,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
         None => format!(
             "{:?}:{}:{}",
             diagnostic.severity,
-            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.code.map_or("", DiagnosticCode::name),
             diagnostic.message,
         ),
     }

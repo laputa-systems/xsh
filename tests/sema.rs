@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
+use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::check::{AnnotationFactKind, CheckOptions, Checker};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
@@ -73,7 +74,7 @@ fn removed_record_require_identity_fix_uses_plain_values_and_exact_named_schema(
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
-        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
+        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.removed-record-require")).unwrap();
         let [hint] = diagnostic.fix_hints.as_slice() else { panic!("expected identity migration: {diagnostics:?}"); };
         let mut fixed = source.to_string();
         fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
@@ -99,7 +100,7 @@ fn removed_record_require_refuses_unproved_or_different_contracts() {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
-        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
+        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.removed-record-require")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}: {diagnostic:?}");
     }
 }
@@ -266,7 +267,7 @@ let joined = left + right
 
     let unknown = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.unknown-method"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.unknown-method"))
         .expect("expected unknown method diagnostic");
     assert!(unknown.message.contains("`length` on Str"));
     assert!(
@@ -277,7 +278,7 @@ let joined = left + right
     );
 
     assert!(!diagnostics.iter().any(|diagnostic| {
-        diagnostic.code.as_deref() == Some("check.operator-type")
+        diagnostic.code.map(DiagnosticCode::name) == Some("check.operator-type")
     }));
 }
 
@@ -2487,7 +2488,7 @@ fn ignored_result_diagnostic_has_source_span() {
     let diagnostic = checked
         .diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.ignored-result"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.ignored-result"))
         .expect("expected ignored result diagnostic");
     assert!(diagnostic.labels.iter().any(|label| !label.span.is_empty()));
 }
@@ -2759,7 +2760,7 @@ fn checker_cli_constant_descriptor_errors_keep_the_declaration_origin() {
     let source = "const schema = {count: {kind: \"Nope\"}}\nlet _ = cli.parse([], schema)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     let checked = Checker::check_arena(&parsed.arena, source);
-    let error = checked.diagnostics.iter().find(|error| error.code.as_deref() == Some("check.cli-descriptor")).unwrap();
+    let error = checked.diagnostics.iter().find(|error| error.code.map(DiagnosticCode::name) == Some("check.cli-descriptor")).unwrap();
     assert!(error.message.contains("unsupported option type `Nope`"));
     assert!(error.labels.iter().any(|label| &source[label.span.range()] == "{kind: \"Nope\"}"));
 }
@@ -2975,7 +2976,7 @@ fn check(source: &str) -> Vec<Option<String>> {
     Checker::check_arena(&parsed.arena, source)
         .diagnostics
         .into_iter()
-        .map(|diagnostic| diagnostic.code)
+        .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
         .collect()
 }
 
@@ -2993,7 +2994,7 @@ fn check_with_migration(source: &str) -> Vec<Option<String>> {
     )
     .diagnostics
     .into_iter()
-    .map(|diagnostic| diagnostic.code)
+    .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
     .collect()
 }
 
@@ -3013,7 +3014,7 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
         codes: output
             .diagnostics
             .into_iter()
-            .map(|diagnostic| diagnostic.code)
+            .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
             .collect(),
         reveals: output
             .reveal_types
@@ -3030,7 +3031,7 @@ fn check_interactive(source: &str) -> Vec<Option<String>> {
     Checker::check_arena_interactive(&parsed.arena, source)
         .diagnostics
         .into_iter()
-        .map(|diagnostic| diagnostic.code)
+        .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
         .collect()
 }
 
@@ -3063,7 +3064,7 @@ fn check_with_module(main_source: &str, module_source: &str) -> Vec<Option<Strin
     )
     .diagnostics
     .into_iter()
-    .map(|diagnostic| diagnostic.code)
+    .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
     .collect()
 }
 
@@ -3522,7 +3523,7 @@ fn checker_list_compound_assignment_points_at_scalar_rhs() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
-    let mismatch = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("scalar append rejection");
+    let mismatch = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.type-mismatch")).expect("scalar append rejection");
     assert!(mismatch.labels.iter().any(|label| &source[label.span.range()] == "2"));
 }
 
@@ -3537,9 +3538,9 @@ fn checker_accepts_half_open_slicing_types_and_rejects_bad_bounds() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty());
     let output = Checker::check_arena(&parsed.arena, source);
-    let bounds = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("bound must be Int");
+    let bounds = output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.type-mismatch")).expect("bound must be Int");
     assert!(bounds.labels.iter().any(|label| &source[label.span.range()] == "true"));
-    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.slice-type")));
+    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.slice-type")));
 }
 
 #[test]
@@ -3713,7 +3714,7 @@ fn checker_list_splice_errors_cover_the_original_splice_span() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty());
     let checked = Checker::check_arena(&parsed.arena, source);
-    let diagnostic = checked.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.list-splice-type")).expect("splice domain diagnostic");
+    let diagnostic = checked.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.list-splice-type")).expect("splice domain diagnostic");
     assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "@\"wrong\""));
 }
 
@@ -3826,7 +3827,7 @@ fn computed_map_literals_locate_key_errors_without_weakening_values() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty());
     let checked = Checker::check_arena(&parsed.arena, source);
-    let diagnostic = checked.diagnostics.iter().find(|d| d.code.as_deref() == Some("check.map-key-type")).expect("unsupported scalar key diagnostic");
+    let diagnostic = checked.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("check.map-key-type")).expect("unsupported scalar key diagnostic");
     assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "1.5"));
     for source in ["let values = {[\"one\"]: 1, two: \"bad\"}\n", "let key: Any = \"one\"\nlet values = {[key]: 1}\n"] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -4012,7 +4013,7 @@ fn signature_cli_rejects_imported_entries_and_unprepared_defaults() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(1), source);
     let entry = Parser::parse_source_arena_only(SourceId::new(0), "use module\n");
     let output = Checker::check_arena_with_modules((&entry.arena, "use module\n"), &[("module", "module", &parsed.arena, source)]);
-    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.cli-entry")), "{:?}", output.diagnostics);
+    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.cli-entry")), "{:?}", output.diagnostics);
     for source in ["let jobs = 4\ncli main(jobs: Int = jobs) [] {}\n", "cli main(verbose: Bool = false, root: Path) [] {}\n", "type Count = UInt\ncli main(count: Count = -1) [] {}\n"] {
         let output = check(source);
         assert!(output.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.cli-entry")), "{source}: {output:?}");
@@ -4086,7 +4087,7 @@ fn typed_cause_flattened_handler_guidance_has_no_automatic_fix() {
     let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions {
         migration_diagnostics: true, ..CheckOptions::default()
     });
-    let guidance = checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.error-cause")).collect::<Vec<_>>();
+    let guidance = checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.error-cause")).collect::<Vec<_>>();
     assert_eq!(guidance.len(), 1, "{:?}", checked.diagnostics);
     assert!(guidance[0].fix_hints.is_empty());
     for replacement in [
@@ -4338,7 +4339,7 @@ let command: CommandValues = cli.commands(["build", "workspace"], commands)?
     let incorrect = source.replace("{count: Int}", "{count: Str}");
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), &incorrect);
     let checked = Checker::check_arena(&parsed.arena, &incorrect);
-    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")));
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.type-mismatch")));
 }
 
 #[test]

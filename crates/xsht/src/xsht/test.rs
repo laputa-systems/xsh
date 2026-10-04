@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
     Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram, TestCancellation,
 };
@@ -475,7 +475,7 @@ fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
                 Diagnostic::error(
                     "test files cannot run top-level commands, mutation, or control flow",
                 )
-                .with_code("check.test-top-level")
+                .with_code(DiagnosticCode::CheckTestTopLevel)
                 .with_label(Label::primary(span, "not allowed at test file top level")),
             );
         }
@@ -578,7 +578,7 @@ fn discover_native_tests(
                     && native_test_signature_uses_ctx(&parsed.arena, def_id).is_ok()
                 {
                     top_level_errors.push(Diagnostic::error("legacy native test proc requires migration: replace its signature with `test NAME { |ctx| ... }`; extract callable shared work into an ordinary helper")
-                        .with_code("check.legacy-test-proc")
+                        .with_code(DiagnosticCode::CheckLegacyTestProc)
                         .with_label(Label::primary(parsed.arena.arena.stmt(stmt_id).span, "keep the exact declared name to preserve the test ID")));
                 }
             }

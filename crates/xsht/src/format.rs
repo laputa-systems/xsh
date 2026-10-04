@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 use std::sync::Arc;
-use xsh::diagnostic::Diagnostic;
+use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
@@ -3595,7 +3595,7 @@ fn verify_formatted_output(
             formatted: String::new(),
             diagnostics: vec![
                 Diagnostic::error(format!("formatter refused to rewrite this file: {message}"))
-                    .with_code("format-equivalence")
+                    .with_code(DiagnosticCode::FormatEquivalence)
                     .with_span(Span::new(source_id, offset, offset))
                     .with_note("this is a formatter bug; the file was left unchanged"),
             ],
@@ -3914,6 +3914,7 @@ fn write_bytes(value: &[u8], output: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::{FormatOutput, Formatter, Parser, SourceId, format_equivalence, verify_formatted_output};
+    use xsh::diagnostic::DiagnosticCode;
 
     /// Formats `source`, checks the exact text, and checks that the text
     /// reparses to the same position-free tree and is a formatting fixpoint.
@@ -3963,7 +3964,7 @@ mod tests {
         let refused = verify_formatted_output(SourceId::new(0), source, &parsed, regrouped);
         assert!(refused.formatted.is_empty());
         assert_eq!(refused.diagnostics.len(), 1);
-        assert_eq!(refused.diagnostics[0].code.as_deref(), Some("format-equivalence"));
+        assert_eq!(refused.diagnostics[0].code, Some(DiagnosticCode::FormatEquivalence));
         assert!(refused.diagnostics[0].message.contains("output 1:9"), "{}", refused.diagnostics[0].message);
         assert_eq!(refused.diagnostics[0].span.map(|span| span.start()), Some(8));
 

@@ -5,6 +5,7 @@ use super::{
     BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo,
     FxHashMap, FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
 use crate::symbol::QualifiedName;
 use crate::syntax::arena::{
@@ -265,7 +266,7 @@ impl CompactDeclCollector {
                         self.error(
                             program.arena.span(field.span),
                             "duplicate schema field",
-                            "check.duplicate-record-field",
+                            DiagnosticCode::CheckDuplicateRecordField,
                         );
                     }
                     record.insert(field.name, Type::from_arena(&program.arena, field.ty));
@@ -288,7 +289,7 @@ impl CompactDeclCollector {
                         self.error(
                             program.arena.span(entry.span),
                             "duplicate module contract export",
-                            "check.duplicate-name",
+                            DiagnosticCode::CheckDuplicateName,
                         );
                     }
                     match entry.kind {
@@ -392,7 +393,7 @@ impl CompactDeclCollector {
                 self.error(
                     program.arena.span(variant.span),
                     "duplicate error variant",
-                    "check.duplicate-name",
+                    DiagnosticCode::CheckDuplicateName,
                 );
             }
             let fields = program.arena.error_fields(variant.fields);
@@ -404,7 +405,7 @@ impl CompactDeclCollector {
                     self.error(
                         program.arena.span(field.span),
                         "duplicate error payload field",
-                        "check.duplicate-record-field",
+                        DiagnosticCode::CheckDuplicateRecordField,
                     );
                 }
                 field_types.insert(field.name, Type::from_arena(&program.arena, field.ty));
@@ -448,12 +449,12 @@ impl CompactDeclCollector {
                 self.error(
                     span,
                     "proc name conflicts with a core command",
-                    "check.core-command-shadow",
+                    DiagnosticCode::CheckCoreCommandShadow,
                 );
             }
         }
         if !self.names.insert(def.name) {
-            self.error(span, "duplicate top-level name", "check.duplicate-name");
+            self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
         }
         let sig = self.function_sig(program, id, namespace);
         if let Some(namespace) = namespace {
@@ -551,11 +552,11 @@ impl CompactDeclCollector {
         builtin_message: &str,
     ) {
         if is_builtin_or_standard_record_type_name(name.as_str()) {
-            self.error(span, builtin_message, "check.duplicate-name");
+            self.error(span, builtin_message, DiagnosticCode::CheckDuplicateName);
         }
         self.check_standard_module_shadow(&name.as_str(), span);
         if !self.names.insert(name) {
-            self.error(span, "duplicate top-level name", "check.duplicate-name");
+            self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
         }
     }
 
@@ -565,11 +566,11 @@ impl CompactDeclCollector {
         }
         if name != "error" && api_spec().is_standard_module(name) {
             let message = format!("name `{name}` shadows the standard module `{name}`");
-            self.error(span, &message, "check.standard-module-shadow");
+            self.error(span, &message, DiagnosticCode::CheckStandardModuleShadow);
         }
     }
 
-    fn error(&mut self, span: crate::source::Span, message: &str, code: &str) {
+    fn error(&mut self, span: crate::source::Span, message: &str, code: DiagnosticCode) {
         self.diagnostics.push(
             Diagnostic::error(message)
                 .with_code(code)

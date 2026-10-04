@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
+use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::grammar::earley::{Recognizer, top_level_parts};
 use xsh::frontend::syntax::grammar::generate::{Generator, NAMES};
@@ -150,7 +151,7 @@ fn grammar_generated_sentences_parse_without_diagnostics() {
         covered.lock().unwrap().extend(generator.expanded_rules().iter().copied());
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
         let diagnostic = parsed.diagnostics.first()?;
-        Some(format!("depth {depth} seed {seed} target {target:?}: [{}] {}\n{source}", diagnostic.code.as_deref().unwrap_or(""), diagnostic.message))
+        Some(format!("depth {depth} seed {seed} target {target:?}: [{}] {}\n{source}", diagnostic.code.map(DiagnosticCode::name).unwrap_or(""), diagnostic.message))
     });
     let sentences = sentences.into_inner();
     eprintln!("grammar generation: {sentences} sentences of {} candidates in {:?}", jobs.len(), started.elapsed());

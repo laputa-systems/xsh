@@ -8,6 +8,7 @@ use crate::xsht::commands::{self, ParsedArgs};
 use crate::xsht::help::{command_help as generated_command_help, root_help};
 use crate::xsht::test::{TestOptions, install_test_cancellation_signal_handlers, test_scripts};
 use std::process::ExitCode;
+use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
 use xsh::process::{
     clear_cancellation_request, install_cancellation_signal_handlers,
 };
@@ -108,7 +109,7 @@ enum Command {
         files: Vec<String>,
         fix: bool,
         runless: bool,
-        only: Option<Vec<String>>,
+        only: Option<Vec<DiagnosticCode>>,
     },
     Ast {
         script: String,
@@ -469,13 +470,19 @@ fn parse_trace(args: &[String]) -> Result<Command, String> {
 
 fn parse_lint(args: &[String]) -> Result<Command, String> {
     parse_command("lint", args, |parsed| {
-        let mut only: Option<Vec<String>> = None;
+        let mut only: Option<Vec<DiagnosticCode>> = None;
         for selection in parsed.values("--only") {
-            for code in selection.split(',') {
-                if !crate::xsht::lint::lint_code_known(code) {
-                    return Err(format!("unknown lint rule '{code}' for `xsht lint --only`"));
-                }
-                only.get_or_insert_with(Vec::new).push(code.to_owned());
+            for name in selection.split(',') {
+                let code = DiagnosticCode::from_name(name)
+                    .filter(|code| code.lint_selectable())
+                    .ok_or_else(|| {
+                        let unknown = format!("unknown lint rule '{name}' for `xsht lint --only`");
+                        match DiagnosticCode::nearest(name, lint_selectable_codes()) {
+                            Some(nearby) => format!("{unknown}; did you mean '{nearby}'?"),
+                            None => unknown,
+                        }
+                    })?;
+                only.get_or_insert_with(Vec::new).push(code);
             }
         }
         let fix = parsed.flag("--fix");
@@ -501,25 +508,29 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
     })
 }
 
+/// Every code `xsht lint --only` accepts: lint codes first, then the fixable
+/// codes of other stages, each in declaration order.
+fn lint_selectable_codes() -> impl Iterator<Item = DiagnosticCode> {
+    let lints = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() == DiagnosticFamily::Lint);
+    let fixable = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() != DiagnosticFamily::Lint && code.fixable());
+    lints.chain(fixable)
+}
+
 /// `xsht lint --list`: one selectable code and its summary per line.
 fn lint_code_list(format: &str) -> Result<String, String> {
-    let catalog = crate::xsht::lint::lint_code_catalog();
     let lines = match format {
         "text" => {
-            let width = crate::xsht::lint::lint_code_catalog()
-                .map(|(code, _)| code.len())
-                .max()
-                .unwrap_or(0);
-            catalog
-                .map(|(code, summary)| format!("{code:width$}  {summary}\n"))
+            let width = lint_selectable_codes().map(|code| code.name().len()).max().unwrap_or(0);
+            lint_selectable_codes()
+                .map(|code| format!("{:width$}  {}\n", code.name(), code.summary()))
                 .collect()
         }
-        "jsonl" => catalog
-            .map(|(code, summary)| {
+        "jsonl" => lint_selectable_codes()
+            .map(|code| {
                 format!(
                     "{{\"code\":{},\"summary\":{}}}\n",
-                    miniserde::json::to_string(code),
-                    miniserde::json::to_string(summary)
+                    miniserde::json::to_string(code.name()),
+                    miniserde::json::to_string(code.summary())
                 )
             })
             .collect(),

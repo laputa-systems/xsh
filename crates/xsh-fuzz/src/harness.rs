@@ -12,7 +12,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use xsh::diagnostic::{Diagnostic, Severity};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{CheckOptions, Checker};
 use xsh::frontend::load::parse_load_check_text;
@@ -85,7 +85,7 @@ fn describe(diagnostic: &Diagnostic) -> String {
     format!(
         "{}[{}]: {}",
         diagnostic.severity.as_str(),
-        diagnostic.code.as_deref().unwrap_or("-"),
+        diagnostic.code.map_or("-", DiagnosticCode::name),
         diagnostic.message
     )
 }

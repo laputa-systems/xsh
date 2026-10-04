@@ -2,6 +2,7 @@
 //! `eval.rs` as a separate `impl Evaluator` block. Registry/bridge methods
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
+use crate::diagnostic::DiagnosticCode;
 use crate::map_key::{MapKey, MapKeyRef};
 use super::LoweredTypeCheck;
 
@@ -1408,7 +1409,6 @@ fn module_load_failure(
                 .unwrap_or_default();
             let code = diagnostic
                 .code
-                .as_deref()
                 .map(|code| format!("{code}: "))
                 .unwrap_or_default();
             let detail = primary
@@ -1659,11 +1659,11 @@ fn validate_dynamic_module_top_level(
 ) -> Result<(), RuntimeError> {
     for stmt in program.statement_ids() {
         let code = match program.arena.stmt(stmt).kind {
-            crate::syntax::arena::ArenaStmtKind::SignalHook(_) => Some("check.signal-hook-module"),
+            crate::syntax::arena::ArenaStmtKind::SignalHook(_) => Some(DiagnosticCode::CheckSignalHookModule),
             crate::syntax::arena::ArenaStmtKind::Var { .. }
-            | crate::syntax::arena::ArenaStmtKind::Command(_) => Some("check.module-top-level"),
+            | crate::syntax::arena::ArenaStmtKind::Command(_) => Some(DiagnosticCode::CheckModuleTopLevel),
             crate::syntax::arena::ArenaStmtKind::Expr(expr)
-                if matches!(program.arena.expr(expr).kind, crate::syntax::arena::ArenaExprKind::ValueBlock(_)) => Some("check.module-top-level"),
+                if matches!(program.arena.expr(expr).kind, crate::syntax::arena::ArenaExprKind::ValueBlock(_)) => Some(DiagnosticCode::CheckModuleTopLevel),
             _ => None,
         };
         if let Some(code) = code {

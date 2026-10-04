@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::sync::Arc;
+use xsh::diagnostic::DiagnosticCode;
 
 use tempfile::TempDir;
 use xsh::diagnostic::Diagnostic;
@@ -37,14 +38,14 @@ fn callable_alias_forwarder_fix_preserves_signature_and_converges() {
     let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nexport pure format(value: Str, prefix: Str = \"label:\") -> Str { render(value, prefix) }\nprint format(value: \"one\")\n";
     let parsed = parse_lint_source(source);
     let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-callable-alias")).expect("exact forwarder");
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-callable-alias")).expect("exact forwarder");
     let fix = &diagnostic.fix_hints[0];
     let mut fixed = source.to_owned();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
     assert!(fixed.contains("export let format = render"));
     assert_parse_check_standalone("callable alias", &fixed);
     let parsed = parse_lint_source(&fixed);
-    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-callable-alias")));
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-callable-alias")));
 }
 
 #[test]
@@ -57,7 +58,7 @@ fn callable_alias_forwarder_fix_retains_policy_comments_and_argument_order() {
     ] {
         let parsed = parse_lint_source(source);
         let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-        assert!(output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-callable-alias")).all(|diagnostic| diagnostic.fix_hints.is_empty()), "{source}");
+        assert!(output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-callable-alias")).all(|diagnostic| diagnostic.fix_hints.is_empty()), "{source}");
     }
 }
 
@@ -87,9 +88,9 @@ fn fs_root_receiver_fix_preserves_named_argument_text_and_refuses_reordered_rece
     ] {
         let parsed = parse_lint_source(source);
         let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.unsupported-api")));
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.unsupported-api")));
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-        let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver"))
+        let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.fs-root-receiver"))
             .flat_map(|diagnostic| diagnostic.fix_hints.iter()).collect::<Vec<_>>();
         if let Some(expected) = expected {
             assert_eq!(fixes.len(), 1);
@@ -100,7 +101,7 @@ fn fs_root_receiver_fix_preserves_named_argument_text_and_refuses_reordered_rece
             let parsed = parse_lint_source(&fixed);
             let checked = Checker::check_arena(&parsed.arena, &fixed);
             assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics.iter()
-                .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
+                .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.fs-root-receiver")));
         } else { assert!(fixes.is_empty()); }
     }
 }
@@ -114,7 +115,7 @@ fn fs_root_receiver_refuses_user_record_methods_and_forged_capabilities() {
         let parsed = parse_lint_source(source);
         let checked = Checker::check_arena(&parsed.arena, source);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.fs-root-receiver")));
     }
 }
 
@@ -129,7 +130,7 @@ fn stage_callable_wrapper_fix_rechecks_and_converges() {
         statically_resolved_call_spans: checked.statically_resolved_call_spans,
         ..LintOptions::default()
     }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.stage-callable")).expect("transparent wrapper");
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.stage-callable")).expect("transparent wrapper");
     let fix = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -143,7 +144,7 @@ fn stage_callable_wrapper_fix_rechecks_and_converges() {
         statically_resolved_call_spans: checked.statically_resolved_call_spans,
         ..LintOptions::default()
     }).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.stage-callable")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.stage-callable")));
 }
 
 #[test]
@@ -162,7 +163,7 @@ fn stage_callable_wrapper_fix_requires_exact_item_stable_name_and_no_propagation
             statically_resolved_call_spans: checked.statically_resolved_call_spans,
             ..LintOptions::default()
         }).diagnostics;
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.stage-callable")), "{source}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.stage-callable")), "{source}");
     }
 }
 
@@ -177,7 +178,7 @@ fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
         definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
         ..LintOptions::default()
     }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")).expect("checked guard rewrite");
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.boolean-guard")).expect("checked guard rewrite");
     let fix = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -193,7 +194,7 @@ fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
         definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
         ..LintOptions::default()
     }).diagnostics;
-    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")));
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.boolean-guard")));
 }
 
 #[test]
@@ -207,7 +208,7 @@ fn boolean_guard_float_fix_retains_nan_negation() {
         definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
         ..LintOptions::default()
     }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")).unwrap();
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.boolean-guard")).unwrap();
     let replacement = diagnostic.fix_hints[0].replacement.as_ref().unwrap();
     assert!(replacement.starts_with("guard ! (value <= 0.0) else"), "{replacement}");
     let mut fixed = source.to_string();
@@ -229,7 +230,7 @@ fn boolean_guard_fix_refuses_fallthrough_unchecked_and_binding_forms() {
         let options = LintOptions { expr_types: checked.expr_types, definitely_exiting_block_spans: checked.definitely_exiting_block_spans, ..LintOptions::default() };
         for options in [options, LintOptions::default()] {
             let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
-            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")), "{source}");
+            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.boolean-guard")), "{source}");
         }
     }
 }
@@ -293,7 +294,7 @@ fn assert_lint_fixes_fmt_stable(program: &ArenaProgram, source: &str, diagnostic
 
             let mut fixed = source.to_string();
             fixed.replace_range(span.range(), replacement);
-            let label = diagnostic.code.as_deref().unwrap_or("lint fix");
+            let label = diagnostic.code.map(DiagnosticCode::name).unwrap_or("lint fix");
             let formatted = Formatter::new().format_source(span.source_id, &fixed);
             assert!(
                 formatted.diagnostics.is_empty(),
@@ -363,7 +364,7 @@ main(args)?
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let codes: Vec<_> = diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.code.as_deref().unwrap())
+        .map(|diagnostic| diagnostic.code.map(DiagnosticCode::name).unwrap())
         .collect();
 
     assert_eq!(
@@ -407,7 +408,7 @@ proc load() [fs] {
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.missing-effects"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.missing-effects"))
         .expect("expected missing effects lint");
 
     assert_eq!(diagnostic.fix_hints.len(), 1);
@@ -425,8 +426,8 @@ fn effect_annotation_lints(source: &str) -> Vec<(String, String)> {
     Linter::lint(&parsed.arena, source, LintOptions { native_test_file: true, ..LintOptions::default() })
         .diagnostics
         .into_iter()
-        .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.unannotated-effects" | "lint.missing-effects")))
-        .map(|diagnostic| (diagnostic.code.unwrap(), diagnostic.message))
+        .filter(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name), Some("lint.unannotated-effects" | "lint.missing-effects")))
+        .map(|diagnostic| (diagnostic.code.unwrap().name().to_owned(), diagnostic.message))
         .collect()
 }
 
@@ -505,7 +506,7 @@ proc stamp() [] -> Int {
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.missing-effects"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.missing-effects"))
         .expect("expected missing effects lint");
 
     assert_eq!(
@@ -564,7 +565,7 @@ proc build() [] -> Int {
         );
         let diagnostic = diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.missing-effects"))
+            .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.missing-effects"))
             .expect("expected missing effects lint");
 
         assert_eq!(
@@ -616,14 +617,14 @@ proc main() {
 
     assert!(
         diagnostics.iter().any(|diagnostic| {
-            diagnostic.code.as_deref() == Some("lint.unused-local")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-local")
                 && diagnostic.message.contains("`unused`")
         }),
         "genuinely unused local should still be reported: {diagnostics:?}"
     );
     assert!(
         !diagnostics.iter().any(|diagnostic| {
-            diagnostic.code.as_deref() == Some("lint.unused-local")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-local")
                 && diagnostic.message.contains("`dir`")
         }),
         "display-string interpolation should count as a use: {diagnostics:?}"
@@ -648,7 +649,7 @@ proc main() {
 
     assert!(
         !diagnostics.iter().any(|diagnostic| {
-            diagnostic.code.as_deref() == Some("lint.unused-local")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-local")
                 && diagnostic.message.contains("`key`")
         }),
         "indexed assignment key should count as a use: {diagnostics:?}"
@@ -674,7 +675,7 @@ export proc public() -> Result[Unit] {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let codes: Vec<_> = diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.code.as_deref().unwrap())
+        .map(|diagnostic| diagnostic.code.map(DiagnosticCode::name).unwrap())
         .collect();
 
     assert_eq!(
@@ -710,7 +711,7 @@ proc parsed(value: Int) -> Result[Int] {
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-ok-tail"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-ok-tail"))
         .expect("expected redundant tail Ok diagnostic");
 
     assert_eq!(
@@ -737,7 +738,7 @@ proc parsed(value: Int) -> Result[Int] {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-ok-tail"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-ok-tail"))
         .expect("expected redundant tail Ok diagnostic");
 
     assert!(diagnostic.fix_hints.is_empty());
@@ -759,7 +760,7 @@ proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return-binding"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return-binding"))
         .expect("expected redundant tail return binding diagnostic");
     let hint = diagnostic
         .fix_hints
@@ -789,7 +790,7 @@ pure value() -> Int {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return-binding"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return-binding"))
         .expect("expected redundant tail return binding diagnostic");
 
     assert!(diagnostic.fix_hints.is_empty());
@@ -811,7 +812,7 @@ pure values() -> List[Str] {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return-binding"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return-binding"))
         .expect("expected redundant tail return binding diagnostic");
 
     assert_eq!(
@@ -846,7 +847,7 @@ pure values(items: List[Str]) -> List[Str] {
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return-binding"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return-binding"))
         .expect("expected redundant tail return binding diagnostic");
 
     assert_eq!(
@@ -871,7 +872,7 @@ fn linter_counts_a_record_type_annotation_as_a_type_use() {
     assert!(
         !diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.code.as_deref() == Some("lint.unused-type") }),
+            .any(|diagnostic| { diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-type") }),
         "record annotation must use its declared type: {diagnostics:?}"
     );
 }
@@ -900,7 +901,7 @@ proc convert_all(values: List[Str]) -> List[Item] {
 
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     assert!(!diagnostics.iter().any(|diagnostic| {
-        diagnostic.code.as_deref() == Some("lint.redundant-tail-return-binding")
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return-binding")
     }));
 }
 
@@ -924,7 +925,7 @@ beta\"\"\"
     let newline_fixes: Vec<_> = diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic.code.as_deref() == Some("lint.redundant-newline-triple-string")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-newline-triple-string")
         })
         .map(|diagnostic| {
             diagnostic.fix_hints[0]
@@ -952,7 +953,7 @@ let newline = \"\"\"
     let diagnostic = diagnostics
         .iter()
         .find(|diagnostic| {
-            diagnostic.code.as_deref() == Some("lint.redundant-newline-triple-string")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-newline-triple-string")
         })
         .expect("expected newline triple-string diagnostic");
     let hint = diagnostic
@@ -1001,12 +1002,12 @@ proc main(root: Path, value: Str) [error] {
     );
     let path_parse_diagnostics: Vec<_> = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-path-parse"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-path-parse"))
         .collect();
 
     assert!(path_parse_diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     let constructor_fixes = diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.path-constructor"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.path-constructor"))
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .map(|hint| hint.replacement.as_deref().unwrap())
         .collect::<Vec<_>>();
@@ -1049,7 +1050,7 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
     let fixes_for = |code: &str| -> Vec<&str> {
         diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some(code))
+            .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some(code))
             .filter(|diagnostic| !diagnostic.fix_hints.is_empty())
             .map(|diagnostic| {
                 diagnostic.fix_hints[0]
@@ -1096,7 +1097,7 @@ proc main(manifest: Path, name: Str) {
     );
     let replacements: Vec<_> = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-command-fmt"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-command-fmt"))
         .map(|diagnostic| {
             diagnostic.fix_hints[0]
                 .replacement
@@ -1108,7 +1109,7 @@ proc main(manifest: Path, name: Str) {
     assert!(
         diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.code.as_deref()
+            .all(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
                 != Some("lint.redundant-string-interpolation")),
         "diagnostics: {diagnostics:?}"
     );
@@ -1130,7 +1131,7 @@ proc main(name: Str) {
     let replacements: Vec<_> = diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic.code.as_deref() == Some("lint.redundant-command-interpolation")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-command-interpolation")
         })
         .map(|diagnostic| {
             diagnostic.fix_hints[0]
@@ -1166,11 +1167,11 @@ proc main() [error] {
     );
     let json_count = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.json-roundtrip"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.json-roundtrip"))
         .count();
     let stream_fixes: Vec<_> = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-pipeline-stage"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-pipeline-stage"))
         .map(|diagnostic| {
             diagnostic.fix_hints[0]
                 .replacement
@@ -1196,7 +1197,7 @@ use fs
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.unsorted-imports"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unsorted-imports"))
         .expect("expected unsorted imports diagnostic");
     let replacement = diagnostic
         .fix_hints
@@ -1222,7 +1223,7 @@ use env
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let replacements = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.unsorted-imports"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unsorted-imports"))
         .map(|diagnostic| {
             diagnostic.fix_hints[0]
                 .replacement
@@ -1248,7 +1249,7 @@ use alpha
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let diagnostic = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.unsorted-imports"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unsorted-imports"))
         .expect("expected unsorted imports diagnostic");
 
     assert!(diagnostic.fix_hints.is_empty());
@@ -1271,7 +1272,7 @@ let status = run.status true
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let const_diagnostics = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.organize-top-level-consts"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.organize-top-level-consts"))
         .collect::<Vec<_>>();
 
     assert_eq!(const_diagnostics.len(), 1);
@@ -1294,7 +1295,7 @@ for item in items {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let codes: Vec<_> = diagnostics
         .iter()
-        .filter_map(|d| d.code.as_deref())
+        .filter_map(|d| d.code.map(DiagnosticCode::name))
         .collect();
     assert!(
         codes.contains(&"lint.prefer-list-comp"),
@@ -1302,7 +1303,7 @@ for item in items {
     );
     let hint = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.prefer-list-comp"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp"))
         .and_then(|d| d.fix_hints.first())
         .expect("fix hint present");
     assert!(hint.replacement.is_some(), "fix hint has replacement");
@@ -1324,7 +1325,7 @@ for item in items {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let hint = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.prefer-list-comp"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp"))
         .and_then(|d| d.fix_hints.first())
         .expect("guarded accumulation has list-comprehension fix");
 
@@ -1354,7 +1355,7 @@ for item in items {
     assert!(
         !diagnostics
             .iter()
-            .any(|d| d.code.as_deref() == Some("lint.prefer-list-comp")),
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp")),
         "branching accumulation should not get a list-comprehension fix: {diagnostics:?}"
     );
 }
@@ -1377,7 +1378,7 @@ for item in items {
     assert!(
         !diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-comp")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp")),
         "unique accumulation depends on the accumulator: {diagnostics:?}"
     );
 }
@@ -1397,7 +1398,7 @@ for bucket in buckets {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let hint = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.prefer-map-comp"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-comp"))
         .and_then(|d| d.fix_hints.first())
         .expect("map-building loop has map-comprehension fix");
 
@@ -1426,7 +1427,7 @@ let counts: Map[Int] = map.empty()
     );
     let hint = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.prefer-empty-map-literal"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-empty-map-literal"))
         .and_then(|d| d.fix_hints.first())
         .expect("map.empty has empty-map literal fix");
 
@@ -1468,7 +1469,7 @@ pure pure_rows(items: List[Str]) -> List[Str] {
     assert!(
         !diagnostics
             .iter()
-            .any(|d| d.code.as_deref() == Some("lint.prefer-stream-producer")),
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-stream-producer")),
         "definition alone should not warn: {diagnostics:?}"
     );
 
@@ -1478,7 +1479,7 @@ pure pure_rows(items: List[Str]) -> List[Str] {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, &source, LintOptions::default());
     let stream_warnings = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.prefer-stream-producer"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-stream-producer"))
         .count();
     assert_eq!(stream_warnings, 1, "diagnostics: {diagnostics:?}");
 }
@@ -1492,7 +1493,7 @@ fn linter_suggests_string_concat_over_join_empty() {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let codes: Vec<_> = diagnostics
         .iter()
-        .filter_map(|d| d.code.as_deref())
+        .filter_map(|d| d.code.map(DiagnosticCode::name))
         .collect();
     assert!(
         codes.contains(&"lint.prefer-string-concat"),
@@ -1500,7 +1501,7 @@ fn linter_suggests_string_concat_over_join_empty() {
     );
     let hint = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.prefer-string-concat"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-string-concat"))
         .and_then(|d| d.fix_hints.first())
         .expect("fix hint present");
     let replacement = hint.replacement.as_ref().expect("fix hint has replacement");
@@ -1525,7 +1526,7 @@ pure is_op(t: Tok, name: Str) -> Bool {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let codes: Vec<_> = diagnostics
         .iter()
-        .filter_map(|d| d.code.as_deref())
+        .filter_map(|d| d.code.map(DiagnosticCode::name))
         .collect();
     assert!(
         codes.contains(&"lint.dead-code"),
@@ -1551,7 +1552,7 @@ proc work() {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let dead_code = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code"))
         .collect::<Vec<_>>();
     assert_eq!(dead_code.len(), 1, "diagnostics: {diagnostics:?}");
     assert_eq!(dead_code[0].message, "unreachable code");
@@ -1576,7 +1577,7 @@ proc main(foo: Path) {
         ..LintOptions::default()
     });
     let mut fixes = diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-path-display"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-path-display"))
         .map(|diagnostic| {
             let [hint] = diagnostic.fix_hints.as_slice() else { panic!("one fix per display: {diagnostic:?}") };
             (hint.span.unwrap(), hint.replacement.clone().unwrap())
@@ -1614,14 +1615,14 @@ run printf "%s" f"{raw}" ?
     }).diagnostics;
     // Dropping `.display()` passes the native bytes the text would replace.
     let display_fixes = diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-path-display"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-path-display"))
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .map(|hint| hint.replacement.as_deref().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(display_fixes, ["raw", "raw", "$raw", "raw"], "{diagnostics:?}");
     // An f-string word asks for text, so it is not unwrapped without proof
     // that the Path's bytes are UTF-8.
-    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-command-fmt"))
+    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-command-fmt"))
         .all(|diagnostic| diagnostic.fix_hints.is_empty()), "{diagnostics:?}");
 }
 
@@ -1641,7 +1642,7 @@ print $displayed $formatted $compound
         ..LintOptions::default()
     }).diagnostics;
     let fixes = diagnostics.iter()
-        .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.redundant-path-parse" | "lint.path-constructor")))
+        .filter(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name), Some("lint.redundant-path-parse" | "lint.path-constructor")))
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .map(|hint| hint.replacement.as_deref().unwrap())
         .collect::<Vec<_>>();
@@ -1658,7 +1659,7 @@ fn linter_path_constructor_utf8_text_fix_rechecks_and_converges() {
         expr_types: checked.expr_types,
         ..LintOptions::default()
     }).diagnostics;
-    let mut fixes = diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
+    let mut fixes = diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name),
         Some("lint.path-constructor" | "lint.redundant-path-parse")))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     fixes.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
@@ -1673,7 +1674,7 @@ fn linter_path_constructor_utf8_text_fix_rechecks_and_converges() {
     assert!(Linter::lint(&parsed.arena, &fixed, LintOptions {
         expr_types: checked.expr_types,
         ..LintOptions::default()
-    }).diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
+    }).diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name),
         Some("lint.path-constructor" | "lint.redundant-path-parse")))
         .all(|diagnostic| diagnostic.fix_hints.is_empty()));
 }
@@ -1698,7 +1699,7 @@ let name: Str = \"pkg\"
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .expect("expected needless-annotation diagnostic");
 
     assert_eq!(
@@ -1734,7 +1735,7 @@ let root: Path = p\"src\"
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert_eq!(needless.len(), 4, "expected 4 needless diagnostics");
     for d in &needless {
@@ -1767,7 +1768,7 @@ let paths: List[Path] = [p\"src/main.c\", p\"lib/foo.c\"]
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert_eq!(needless.len(), 3, "expected 3 needless list diagnostics");
 }
@@ -1792,7 +1793,7 @@ export let rel: Str = \"1\"
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .expect("expected needless-annotation diagnostic for exported binding");
     assert!(!diagnostic.fix_hints.is_empty());
 }
@@ -1815,7 +1816,7 @@ let name: Str = metadata.get(\"name\")?
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert!(needless.is_empty(), "should not lint dynamic initializers");
 }
@@ -1838,7 +1839,7 @@ let rows: List[Record] = json.read(index)?
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert!(
         needless.is_empty(),
@@ -1865,7 +1866,7 @@ var entries: List[Entry] = []
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert!(
         needless.is_empty(),
@@ -1891,7 +1892,7 @@ proc main(...argv: List[Str]) [error] {}
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert!(needless.is_empty(), "should never lint proc parameters");
 }
@@ -1916,7 +1917,7 @@ var count: Int = 0
     );
     let diagnostic = diagnostics
         .iter()
-        .find(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .expect("expected needless-annotation diagnostic for var binding");
     assert!(!diagnostic.fix_hints.is_empty());
 }
@@ -1942,7 +1943,7 @@ let name: Str = getenv(\"X\")?.display()
     .diagnostics;
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert!(needless.is_empty(), "should not lint dynamic initializers");
 }
@@ -1970,7 +1971,7 @@ let source_path: Path = p\"src/main.c\"
     );
     let needless: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.needless-annotation"))
         .collect();
     assert_eq!(
         needless.len(),
@@ -2005,7 +2006,7 @@ fn needless_annotation_retains_contextual_collection_element_domains() {
         "type Row = {value: Str?}\npure take(rows: List[Row]) {}\nlet rows: List[Row] = [{value: null}]\ntake(rows)\n",
     ] {
         let diagnostics = context_safety_lints(source);
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
     }
 }
 
@@ -2018,8 +2019,8 @@ fn needless_annotation_retains_independent_inferred_require_boundary() {
         "let raw: Any = 3\nlet value: Int = raw.require(Int)?\nlet _ = value\n",
     ] {
         let diagnostics = context_safety_lints(source);
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
-        for diagnostic in diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")) {
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+        for diagnostic in diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.inferred-require-target")) {
             let hint = &diagnostic.fix_hints[0];
             let mut fixed = source.to_string();
             fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
@@ -2035,7 +2036,7 @@ fn needless_annotation_retains_empty_splice_element_anchor() {
         "let empty: List[Str] = [@[@[]], @[]]\npure consume(values: List[Str]) {}\nconsume(empty)\n",
     ] {
         let diagnostics = context_safety_lints(source);
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
     }
 }
 
@@ -2051,7 +2052,7 @@ fn needless_annotation_retains_result_constructor_contract() {
         let (declaration, body) = source.split_once('\n').unwrap();
         for source in [source.to_owned(), format!("{declaration}\ntest result [error] {{ {body} }}\n")] {
             let diagnostics = context_safety_lints(&source);
-            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
             let path = temp.path().join("result-constructor.xsh");
             fs::write(&path, &source).unwrap();
             let result = xsht::lint_files(&[path.to_string_lossy().into_owned()], false, false, None);
@@ -2064,7 +2065,7 @@ fn needless_annotation_retains_result_constructor_contract() {
 fn needless_annotation_retains_applied_nominal_element_anchor() {
     let source = "type Row[T] = {value: T}\nproc gather() -> List[Row[Int]] { var rows: List[Row[Int]] = []; rows = rows.push(Row(value: 1)); rows }\n";
     let diagnostics = context_safety_lints(source);
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
 }
 
 #[test]
@@ -2094,7 +2095,7 @@ fn redundant_require_retains_unsigned_validation() {
         "let value = [1, -1].require(List[UInt])?\nlet _ = value\n",
     ].into_iter().enumerate() {
         let diagnostics = context_safety_lints(source);
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")), "{source}: {diagnostics:?}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-require")), "{source}: {diagnostics:?}");
         let path = temp.path().join(format!("unsigned-{index}.xsh"));
         fs::write(&path, source).unwrap();
         let output = std::process::Command::new(release_bin!("xsht"))
@@ -2113,7 +2114,7 @@ fn assertion_helper_fix_retains_contextual_collection_domains() {
         "test unsigned [error] { let values: Map[UInt, Str] = {[3]: \"three\", [20]: \"twenty\"}; test.eq(values.keys(), [3, 20])? }\n",
     ] {
         let diagnostics = context_safety_lints(source);
-        let diagnostics = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
+        let diagnostics = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.core-assert")).collect::<Vec<_>>();
         assert_eq!(diagnostics.len(), 1, "{source}");
         for hint in &diagnostics[0].fix_hints {
             let mut fixed = source.to_string();
@@ -2127,7 +2128,7 @@ fn membership_lints(source: &str) -> Vec<Diagnostic> {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-membership")), "{:?}", checked.diagnostics);
+    assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.removed-membership")), "{:?}", checked.diagnostics);
     Linter::lint(&parsed.arena, source, LintOptions {
         expr_types: checked.expr_types,
         callable_effects: checked.callable_effects,
@@ -2136,7 +2137,7 @@ fn membership_lints(source: &str) -> Vec<Diagnostic> {
         membership_migration_spans: checked.membership_migration_spans,
         standard_call_spans: checked.standard_call_spans,
         ..LintOptions::default()
-    }).diagnostics.into_iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert"))).collect()
+    }).diagnostics.into_iter().filter(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name), Some("lint.prefer-in" | "lint.core-assert"))).collect()
 }
 
 fn membership_fixed(source: &str) -> String {
@@ -2390,7 +2391,7 @@ print $line
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let dollar: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.dollar-in-expression-string"))
         .collect();
     assert_eq!(dollar.len(), 1);
     assert!(
@@ -2426,7 +2427,7 @@ print \"tags: $body\" $escaped $raw $fmt
     assert!(
         !diagnostics
             .iter()
-            .any(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string")),
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("lint.dollar-in-expression-string")),
         "command-word interpolation, escaped dollars, raw strings, and f-strings must not warn: {diagnostics:?}"
     );
 }
@@ -2446,7 +2447,7 @@ print $note
     assert!(
         !diagnostics
             .iter()
-            .any(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string")),
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("lint.dollar-in-expression-string")),
         "dollar lookalikes that do not name a binding should not warn: {diagnostics:?}"
     );
 }
@@ -2468,7 +2469,7 @@ print (\"tags: $body\") $block
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let dollar: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string"))
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.dollar-in-expression-string"))
         .collect();
     assert_eq!(dollar.len(), 2);
     assert!(
@@ -2502,7 +2503,7 @@ proc work(stop: Bool) {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let dead_code = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code"))
         .collect::<Vec<_>>();
     assert_eq!(dead_code.len(), 1, "diagnostics: {diagnostics:?}");
     assert_eq!(
@@ -2531,7 +2532,7 @@ proc work(stop: Bool) {
     assert!(
         !diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code")),
         "diagnostics: {diagnostics:?}"
     );
 }
@@ -2559,7 +2560,7 @@ proc main(stop: Bool) {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let dead_code = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code"))
         .collect::<Vec<_>>();
     assert_eq!(dead_code.len(), 1, "diagnostics: {diagnostics:?}");
     assert!(dead_code.iter().any(|diagnostic| {
@@ -2586,7 +2587,7 @@ proc main(choice: Int) {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code")),
         "diagnostics: {diagnostics:?}"
     );
 }
@@ -2612,7 +2613,7 @@ proc work() {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code")),
         "diagnostics: {diagnostics:?}"
     );
 }
@@ -2641,7 +2642,7 @@ proc main() {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code")),
         "diagnostics: {diagnostics:?}"
     );
 }
@@ -2674,7 +2675,7 @@ proc main() {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
     let unused: Vec<_> = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-callable"))
         .collect();
     assert_eq!(unused.len(), 1, "diagnostics: {diagnostics:?}");
     assert!(unused[0].message.contains("`unused`"));
@@ -2712,7 +2713,7 @@ proc dead() {
     assert!(
         !diagnostics.iter().any(|diagnostic| {
             matches!(
-                diagnostic.code.as_deref(),
+                diagnostic.code.map(DiagnosticCode::name),
                 Some("lint.dead-code") | Some("lint.unused-callable")
             )
         }),
@@ -2721,7 +2722,7 @@ proc dead() {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-local")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-local")),
         "non-dead-code lint should remain active: {diagnostics:?}"
     );
 }
@@ -2752,7 +2753,7 @@ proc main() {
     assert!(
         !diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-callable")),
         "diagnostics: {diagnostics:?}"
     );
 }
@@ -2789,7 +2790,7 @@ test test_callable_roots {
     assert!(
         !diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable")),
+            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-callable")),
         "diagnostics: {diagnostics:?}"
     );
 }
@@ -2843,7 +2844,7 @@ proc main() {
         Linter::lint(&checked_entry.parsed.arena, source, LintOptions::default()).diagnostics;
     let unused: Vec<_> = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unused-callable"))
         .collect();
     assert_eq!(unused.len(), 1, "diagnostics: {diagnostics:?}");
     assert!(unused[0].message.contains("`unused_helper`"));
@@ -2862,7 +2863,7 @@ fn linter_removes_checked_tail_returns_in_value_branches() {
         statement_positions: checked.statement_positions,
         ..LintOptions::default()
     }).diagnostics;
-    let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")).flat_map(|diagnostic| diagnostic.fix_hints.iter()).collect::<Vec<_>>();
+    let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return")).flat_map(|diagnostic| diagnostic.fix_hints.iter()).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 2);
     let mut candidate = source.to_owned();
     for fix in fixes.iter().rev() { candidate.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap()); }
@@ -2876,7 +2877,7 @@ fn linter_removes_checked_tail_returns_in_value_branches() {
         statement_positions: checked.statement_positions,
         ..LintOptions::default()
     }).diagnostics;
-    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")));
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return")));
 }
 
 #[test]
@@ -2889,7 +2890,7 @@ fn linter_tail_return_keeps_match_arm_record_an_expression() {
         expr_types: checked.expr_types, statement_positions: checked.statement_positions,
         ..LintOptions::default()
     }).diagnostics;
-    let mut fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return"))
+    let mut fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 2);
     fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
@@ -2905,7 +2906,7 @@ fn linter_tail_return_preserves_grouping_and_unicode_comments() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, statement_positions: checked.statement_positions, ..LintOptions::default() }).diagnostics;
-    let fix = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")).unwrap().fix_hints.first().unwrap();
+    let fix = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return")).unwrap().fix_hints.first().unwrap();
     let mut candidate = source.to_owned();
     candidate.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap());
     assert!(candidate.contains("(1 + 2) * 3 # café"));
@@ -2920,7 +2921,7 @@ fn linter_keeps_conditional_and_callback_lexical_returns() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, statement_positions: checked.statement_positions, ..LintOptions::default() }).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-tail-return")));
 }
 
 #[test]
@@ -2937,7 +2938,7 @@ fn linter_named_argument_pun_fix_preserves_resolution_comments_and_converges() {
     let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
     let puns: Vec<_> = diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-pun"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-pun"))
         .collect();
     assert_eq!(
         puns.len(),
@@ -2981,7 +2982,7 @@ fn linter_named_argument_pun_fix_preserves_resolution_comments_and_converges() {
     );
     assert!(
         second.diagnostics.iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-pun"))
+            .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-pun"))
             .all(|diagnostic| diagnostic.fix_hints.is_empty())
     );
 }
@@ -2993,7 +2994,7 @@ fn linter_named_argument_pun_requires_checked_identifier_resolution() {
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
     assert!(
         !diagnostics.iter().any(|diagnostic|
-            diagnostic.code.as_deref() == Some("lint.prefer-named-argument-pun")
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-pun")
         )
     );
 }
@@ -3009,7 +3010,7 @@ fn linter_list_compound_assignment_is_checked_and_converges() {
         expr_types: checked.expr_types,
         ..LintOptions::default()
     });
-    let updates: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")).collect();
+    let updates: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-compound-assignment")).collect();
     assert_eq!(updates.len(), 2);
     let mut fixed = source.to_string();
     for diagnostic in updates.iter().rev() {
@@ -3022,7 +3023,7 @@ fn linter_list_compound_assignment_is_checked_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-compound-assignment")));
 }
 
 #[test]
@@ -3034,7 +3035,7 @@ fn linter_list_compound_assignment_refuses_unchecked_effectful_and_nested_update
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     for options in [LintOptions::default(), LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }] {
         let output = Linter::lint(&parsed.arena, source, options);
-        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")));
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-compound-assignment")));
     }
 }
 
@@ -3046,7 +3047,7 @@ fn linter_list_compound_assignment_retains_multiline_comments() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")).expect("checked list update warning");
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-compound-assignment")).expect("checked list update warning");
     assert!(diagnostic.fix_hints.is_empty());
 }
 
@@ -3069,7 +3070,7 @@ print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()}
         ..LintOptions::default()
     });
     let mut fixes = diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice"))
         .flat_map(|diagnostic| diagnostic.fix_hints.iter())
         .map(|hint| (hint.span.unwrap(), hint.replacement.as_ref().unwrap()))
         .collect::<Vec<_>>();
@@ -3089,7 +3090,7 @@ print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()}
         expr_types: checked.expr_types,
         ..LintOptions::default()
     });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")));
 }
 
 #[test]
@@ -3115,7 +3116,7 @@ pure selected(data: Bytes) -> List[Bytes] {
         expr_types: checked.expr_types,
         ..LintOptions::default()
     }).diagnostics;
-    let slices = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")).collect::<Vec<_>>();
+    let slices = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")).collect::<Vec<_>>();
     assert_eq!(slices.len(), 5);
     for diagnostic in slices {
         assert!(diagnostic.fix_hints.is_empty());
@@ -3128,7 +3129,7 @@ fn linter_prefer_slice_requires_checked_builtin_receiver() {
     let source = "let data = b\"abc\"\nlet part = data.slice(0, 2)\nprint ${part.base64()}\n";
     let parsed = parse_lint_source(source);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")));
 }
 
 #[test]
@@ -3138,7 +3139,7 @@ fn linter_record_destructuring_fix_roundtrips_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-record-destructuring")).unwrap();
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-record-destructuring")).unwrap();
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
@@ -3150,7 +3151,7 @@ fn linter_record_destructuring_fix_roundtrips_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let output = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-destructuring")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-record-destructuring")));
 }
 
 #[test]
@@ -3164,7 +3165,7 @@ fn linter_record_destructuring_retains_annotations_comments_and_effectful_roots(
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-destructuring")), "{source}");
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-record-destructuring")), "{source}");
     }
 }
 
@@ -3184,7 +3185,7 @@ fn linter_comparison_chain_coalesces_stable_operands_and_converges() {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    let chains = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")).collect::<Vec<_>>();
+    let chains = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-comparison-chain")).collect::<Vec<_>>();
     assert_eq!(chains.len(), 3);
     let mut fixed = source.to_string();
     for diagnostic in chains.into_iter().rev() {
@@ -3197,7 +3198,7 @@ fn linter_comparison_chain_coalesces_stable_operands_and_converges() {
     assert_parse_check_standalone("comparison chains", &fixed);
     let parsed = parse_lint_source(&fixed);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics;
-    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")));
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-comparison-chain")));
     let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
     assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
     assert_eq!(formatted.formatted, fixed);
@@ -3211,7 +3212,7 @@ fn linter_comparison_chain_preserves_calls_mutable_reads_and_comments() {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-comparison-chain")));
 }
 
 #[test]
@@ -3250,7 +3251,7 @@ let value = loop {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
     let mut edits = diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard"))
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard"))
         .flat_map(|diagnostic| diagnostic.fix_hints.iter())
         .map(|hint| (hint.span.unwrap(), hint.replacement.as_ref().unwrap()))
         .collect::<Vec<_>>();
@@ -3269,7 +3270,7 @@ let value = loop {
     assert_parse_check_standalone("formatted guards", &formatted.formatted);
     let reparsed = parse_lint_source(&formatted.formatted);
     let second = Linter::lint(&reparsed.arena, &formatted.formatted, LintOptions::default()).diagnostics;
-    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")));
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")));
 }
 
 #[test]
@@ -3278,7 +3279,7 @@ fn linter_prefer_guard_preserves_comments_else_and_multiple_actions() {
     let source = "pure value() -> Int { if true { # keep\n return 1 }; return 2 }\n";
     let parsed = parse_lint_source(source);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    let guard = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")).expect("commented guard is reported");
+    let guard = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")).expect("commented guard is reported");
     assert!(guard.fix_hints.is_empty(), "{guard:?}");
     for source in [
         "pure value() -> Int { if true { return 1 } else { return 2 } }\n",
@@ -3287,7 +3288,7 @@ fn linter_prefer_guard_preserves_comments_else_and_multiple_actions() {
         let parsed = parse_lint_source(source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")), "{diagnostics:?}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")), "{diagnostics:?}");
     }
 }
 
@@ -3298,7 +3299,7 @@ fn linter_prefer_guard_groups_external_run_payload() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
     let hint = diagnostics.iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard"))
+        .find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard"))
         .unwrap().fix_hints.first().unwrap();
     assert_eq!(hint.replacement.as_deref(), Some("return (run.status /usr/bin/true) when selected"));
     let mut fixed = source.to_string();
@@ -3312,7 +3313,7 @@ fn linter_prefer_guard_keeps_unwieldy_payload_blocks() {
     let parsed = parse_lint_source(&source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions::default()).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")));
 }
 
 #[test]
@@ -3321,7 +3322,7 @@ fn linter_guarded_return_keeps_following_statements_reachable() {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")), "{diagnostics:?}");
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.dead-code")), "{diagnostics:?}");
 }
 
 #[test]
@@ -3332,13 +3333,13 @@ fn linter_multi_clause_accumulators_have_safe_idempotent_fixes() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let hint = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-list-comp")).and_then(|d| d.fix_hints.first()).expect("nested accumulator fix");
+    let hint = diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp")).and_then(|d| d.fix_hints.first()).expect("nested accumulator fix");
     let mut fixed = source.to_owned();
     fixed.replace_range(hint.span.expect("fix span").range(), hint.replacement.as_deref().expect("replacement"));
     assert_parse_check_standalone("multi clause fix", &fixed);
     let reparsed = parse_lint_source(&fixed);
     let second = Linter::lint(&reparsed.arena, &fixed, LintOptions::default());
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-comp")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp")));
 }
 
 #[test]
@@ -3346,7 +3347,7 @@ fn linter_multi_clause_map_accumulator_retains_annotation_and_filters() {
     let source = "let entries = [{key: \"a\", values: [1, 2]}]\nvar values: Map[Int] = {}\nfor entry in entries {\n  for value in entry.values {\n    if value > 1 {\n      values[entry.key] = value\n    }\n  }\n}\n";
     let parsed = parse_lint_source(source);
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
-    let hint = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-comp")).and_then(|d| d.fix_hints.first()).expect("nested map fix");
+    let hint = diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-comp")).and_then(|d| d.fix_hints.first()).expect("nested map fix");
     assert!(hint.replacement.as_deref().unwrap().contains("var values: Map[Int] = {\n"));
 }
 
@@ -3364,7 +3365,7 @@ fn linter_multi_clause_accumulators_keep_uncertain_loops() {
         let parsed = parse_lint_source(&source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let output = Linter::lint(&parsed.arena, &source, LintOptions::default());
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-comp")), "unsafe fix for {source}: {:?}", output.diagnostics);
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp")), "unsafe fix for {source}: {:?}", output.diagnostics);
     }
 }
 
@@ -3378,7 +3379,7 @@ fn optional_postfix_fix_preserves_null_fallback_and_converges() {
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
         expr_types: checked.expr_types, ..LintOptions::default()
     }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-optional-postfix")).expect("optional postfix lint");
+    let diagnostic = diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-optional-postfix")).expect("optional postfix lint");
     let fix = &diagnostic.fix_hints[0];
     let span = fix.span.unwrap();
     let mut fixed = source.to_string();
@@ -3392,7 +3393,7 @@ fn optional_postfix_fix_preserves_null_fallback_and_converges() {
     let second = Linter::lint(&reparsed.arena, &formatted.formatted, LintOptions {
         expr_types: rechecked.expr_types, ..LintOptions::default()
     });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-optional-postfix")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-optional-postfix")));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
 
@@ -3411,7 +3412,7 @@ fn optional_postfix_fix_refuses_mutation_comments_and_optional_results() {
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
             expr_types: checked.expr_types, ..LintOptions::default()
         }).diagnostics;
-        assert!(!diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-optional-postfix")), "{source}");
+        assert!(!diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-optional-postfix")), "{source}");
     }
 }
 
@@ -3434,7 +3435,7 @@ fn linter_map_entry_iteration_fix_preserves_spans_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-map-entry-iteration")).unwrap();
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-map-entry-iteration")).unwrap();
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
@@ -3447,7 +3448,7 @@ fn linter_map_entry_iteration_fix_preserves_spans_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!again.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-entry-iteration")));
+    assert!(!again.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-entry-iteration")));
 }
 
 #[test]
@@ -3463,7 +3464,7 @@ fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_me
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, &source);
         let output = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-entry-iteration")), "{source}");
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-entry-iteration")), "{source}");
     }
 }
 
@@ -3484,7 +3485,7 @@ fn linter_map_entry_iteration_preserves_mutation_inside_value_blocks() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-map-entry-iteration"))
+    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-map-entry-iteration"))
         .all(|diagnostic| diagnostic.fix_hints.is_empty()), "{diagnostics:?}");
 }
 
@@ -3496,7 +3497,7 @@ fn linter_list_splicing_rechecks_preserves_unicode_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let hint = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing"))
+    let hint = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-splicing"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).max_by_key(|hint| hint.span.unwrap().range().len()).expect("list construction fix");
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
@@ -3508,7 +3509,7 @@ fn linter_list_splicing_rechecks_preserves_unicode_and_converges() {
     let parsed = parse_lint_source(&formatted.formatted);
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-splicing")));
 }
 
 #[test]
@@ -3519,11 +3520,11 @@ fn linter_list_splicing_retains_nested_elements_and_local_update_policy() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let updates: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")).collect();
+    let updates: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-splicing")).collect();
     assert_eq!(updates.len(), 1);
     assert_eq!(updates[0].fix_hints[0].replacement.as_deref(), Some("[[1], [2], [3]]"));
     let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(!unchecked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")));
+    assert!(!unchecked.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-splicing")));
 }
 
 #[test]
@@ -3533,7 +3534,7 @@ fn linter_list_splicing_refuses_annotation_conversions() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")));
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-splicing")));
 }
 
 #[test]
@@ -3544,7 +3545,7 @@ fn linter_list_splicing_preserves_comments_without_a_fix() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")).expect("construction warning");
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-splicing")).expect("construction warning");
     assert!(diagnostic.fix_hints.is_empty());
 }
 
@@ -3567,7 +3568,7 @@ fn linter_list_pattern_preserves_unsafe_bounds_mutability_annotations_and_commen
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-pattern")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-pattern")));
 }
 
 #[test]
@@ -3578,7 +3579,7 @@ fn linter_list_pattern_rewrites_stable_bounded_extraction_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let selected: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-pattern")).collect();
+    let selected: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-pattern")).collect();
     assert_eq!(selected.len(), 2);
     let mut fixed = source.to_string();
     for diagnostic in selected.into_iter().rev() {
@@ -3590,7 +3591,7 @@ fn linter_list_pattern_rewrites_stable_bounded_extraction_and_converges() {
     assert_parse_check_standalone("list patterns", &fixed);
     let parsed = parse_lint_source(&fixed);
     let diagnostics = Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-pattern")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-pattern")));
 }
 
 #[test]
@@ -3599,7 +3600,7 @@ fn checker_list_pattern_reachability_uses_unguarded_coverage() {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
-    assert_eq!(checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.unreachable-match-arm")).count(), 1);
+    assert_eq!(checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.unreachable-match-arm")).count(), 1);
 }
 
 #[test]
@@ -3609,7 +3610,7 @@ fn linter_defer_block_helper_fix_is_checked_and_idempotent() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-defer-block")).expect("safe helper suggestion");
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-defer-block")).expect("safe helper suggestion");
     assert_eq!(diagnostic.fix_hints.len(), 2);
     let mut edits = diagnostic.fix_hints.clone();
     edits.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
@@ -3620,7 +3621,7 @@ fn linter_defer_block_helper_fix_is_checked_and_idempotent() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-defer-block")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-defer-block")));
 }
 
 #[test]
@@ -3637,7 +3638,7 @@ fn linter_defer_block_helper_refuses_captures_failures_comments_and_multiple_use
         assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
         for options in [LintOptions::default(), LintOptions { expr_types: checked.expr_types.clone(), ..LintOptions::default() }] {
             let output = Linter::lint(&parsed.arena, source, options);
-            assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-defer-block")), "{source}");
+            assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-defer-block")), "{source}");
         }
     }
 }
@@ -3651,7 +3652,7 @@ fn linter_regex_literals_decode_patterns_preserve_comments_and_converge() {
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions {
         expr_types: checked.expr_types, ..LintOptions::default()
     });
-    let mut edits = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-regex-literal"))
+    let mut edits = diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-regex-literal"))
         .flat_map(|d| &d.fix_hints).map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap())).collect::<Vec<_>>();
     assert_eq!(edits.len(), 3);
     edits.sort_by_key(|(span, _)| span.start());
@@ -3663,7 +3664,7 @@ fn linter_regex_literals_decode_patterns_preserve_comments_and_converge() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-regex-literal")));
 }
 
 #[test]
@@ -3674,11 +3675,11 @@ fn linter_regex_literals_retain_invalid_dynamic_results_contexts_and_recovery() 
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let regex = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")).collect::<Vec<_>>();
+    let regex = diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-regex-literal")).collect::<Vec<_>>();
     assert_eq!(regex.len(), 1);
     assert!(regex[0].fix_hints.is_empty());
     assert!(!regex[0].notes.is_empty());
-    assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
+    assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-regex-literal")));
 }
 
 #[test]
@@ -3705,7 +3706,7 @@ fn linter_regex_literals_retains_compile_calls_in_result_recovery_branches() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-regex-literal")));
 }
 
 #[test]
@@ -3716,7 +3717,7 @@ fn yield_delegation_forwarding_fix_is_checked_and_idempotent() {
         let checked = Checker::check_arena(&parsed.arena, &source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-        let hint = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")).and_then(|d| d.fix_hints.first()).expect("forwarding fix");
+        let hint = diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-yield-delegation")).and_then(|d| d.fix_hints.first()).expect("forwarding fix");
         let mut fixed = source.clone();
         fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
         assert!(fixed.contains("yield @"), "{fixed}");
@@ -3724,7 +3725,7 @@ fn yield_delegation_forwarding_fix_is_checked_and_idempotent() {
         assert_parse_check_standalone("yield delegation fix", &fixed);
         let parsed = parse_lint_source(&fixed);
         let again = Linter::lint(&parsed.arena, &fixed, LintOptions::default());
-        assert!(!again.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")));
+        assert!(!again.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-yield-delegation")));
     }
 }
 
@@ -3736,7 +3737,7 @@ fn yield_delegation_fix_preserves_nontransparent_forwarding_loops() {
         let checked = Checker::check_arena(&parsed.arena, &source);
         assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
         let output = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")), "unsafe fix: {source}");
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-yield-delegation")), "unsafe fix: {source}");
     }
     for source in [
         "stream rows(values: Result[List[Int]]) [error] -> Stream[Int] { for item in values { yield item } }\n",
@@ -3745,7 +3746,7 @@ fn yield_delegation_fix_preserves_nontransparent_forwarding_loops() {
         let parsed = parse_lint_source(source);
         let checked = Checker::check_arena(&parsed.arena, source);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")));
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-yield-delegation")));
     }
 }
 
@@ -3767,7 +3768,7 @@ fn error_fallback_fix_preserves_handler_effects_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, &source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.error-fallback-block")).expect("identity fallback fix");
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.error-fallback-block")).expect("identity fallback fix");
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.clone();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
@@ -3779,7 +3780,7 @@ fn error_fallback_fix_preserves_handler_effects_and_converges() {
     let reparsed = parse_lint_source(&formatted.formatted);
     let rechecked = Checker::check_arena(&reparsed.arena, &formatted.formatted);
     let second = Linter::lint(&reparsed.arena, &formatted.formatted, LintOptions { expr_types: rechecked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.error-fallback-block")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.error-fallback-block")));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
 
@@ -3796,7 +3797,7 @@ fn error_fallback_fix_refuses_success_transforms_guards_and_error_patterns() {
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.error-fallback-block")), "{source}");
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.error-fallback-block")), "{source}");
     }
 }
 
@@ -3808,7 +3809,7 @@ fn error_fallback_flow_keeps_success_path_reachable() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unreachable")), "{:?}", output.diagnostics);
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.unreachable")), "{:?}", output.diagnostics);
 }
 
 #[test]
@@ -3819,7 +3820,7 @@ fn linter_record_constructor_preserves_annotation_comments_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let constructors: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")).collect();
+    let constructors: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")).collect();
     assert_eq!(constructors.len(), 4);
     assert_eq!(constructors[0].fix_hints.len(), 1);
     assert!(constructors[1].fix_hints.is_empty());
@@ -3840,7 +3841,7 @@ fn linter_record_constructor_preserves_annotation_comments_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let constructors: Vec<_> = second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")).collect();
+    let constructors: Vec<_> = second.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")).collect();
     assert_eq!(constructors.len(), 1);
     assert!(constructors[0].fix_hints.is_empty());
 }
@@ -3851,11 +3852,11 @@ fn linter_record_constructor_requires_static_schema_and_preserves_constant_bits(
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    assert!(!unchecked.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")));
+    assert!(!unchecked.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")));
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let constructors: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")).collect();
+    let constructors: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")).collect();
     assert_eq!(constructors.len(), 4);
     assert_eq!(constructors[0].fix_hints[0].replacement.as_deref(), Some("Signed()"));
     assert_eq!(constructors[1].fix_hints[0].replacement.as_deref(), Some("Signed(value: 0.0)"));
@@ -3868,16 +3869,16 @@ fn private_pure_return_removal_is_opt_in_exact_and_convergent() {
     let source = "pure label(name: Str) -> Str { name.trim() }\nprint label(\"ready\")\n";
     let parsed = parse_lint_source(source);
     let disabled = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(!disabled.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")));
+    assert!(!disabled.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-pure-return")));
     let enabled = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_pure_returns: true, ..LintOptions::default() });
-    let diagnostic = enabled.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")).expect("safe inferred return fix");
+    let diagnostic = enabled.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-pure-return")).expect("safe inferred return fix");
     let span = diagnostic.fix_hints[0].span.unwrap();
     let mut fixed = source.to_string();
     fixed.replace_range(span.start()..span.end(), "");
     assert_parse_check_standalone("inferred return", &fixed);
     let parsed = parse_lint_source(&fixed);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions { prefer_inferred_pure_returns: true, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-pure-return")));
 }
 
 #[test]
@@ -3896,7 +3897,7 @@ fn private_pure_return_removal_retains_context_and_result_boundaries() {
         let parsed = parse_lint_source(source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let linted = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_pure_returns: true, ..LintOptions::default() });
-        assert!(!linted.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")), "{source}");
+        assert!(!linted.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-pure-return")), "{source}");
     }
 }
 
@@ -3908,7 +3909,7 @@ fn field_label_fixes_preserve_key_bytes_conversions_comments_and_converge() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let mut edits = output.diagnostics.iter().filter(|d| matches!(d.code.as_deref(), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access")))
+    let mut edits = output.diagnostics.iter().filter(|d| matches!(d.code.map(DiagnosticCode::name), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access")))
         .flat_map(|d| &d.fix_hints).map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap())).collect::<Vec<_>>();
     assert_eq!(edits.len(), 4, "{:?}", output.diagnostics);
     edits.sort_by_key(|(span, _)| span.start());
@@ -3923,7 +3924,7 @@ fn field_label_fixes_preserve_key_bytes_conversions_comments_and_converge() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!again.diagnostics.iter().any(|d| matches!(d.code.as_deref(), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access"))));
+    assert!(!again.diagnostics.iter().any(|d| matches!(d.code.map(DiagnosticCode::name), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access"))));
 }
 
 #[test]
@@ -3933,10 +3934,10 @@ fn field_label_access_fixes_retain_dynamic_results_context_recovery_and_consumer
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let fields = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")).collect::<Vec<_>>();
+    let fields = diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-known-field-access")).collect::<Vec<_>>();
     assert_eq!(fields.len(), 1, "{diagnostics:?}");
     assert_eq!(fields[0].fix_hints[0].replacement.as_deref(), Some("row.type"));
-    assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")));
+    assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-known-field-access")));
 }
 
 #[test]
@@ -3946,7 +3947,7 @@ fn field_label_known_get_fix_preserves_nullable_values_aliases_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-known-field-access"))
+    let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-known-field-access"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 2, "{diagnostics:?}");
     let mut fixed = source.to_owned();
@@ -3959,7 +3960,7 @@ fn field_label_known_get_fix_preserves_nullable_values_aliases_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics
-        .iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-known-field-access")));
+        .iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-known-field-access")));
 }
 
 #[test]
@@ -3969,7 +3970,7 @@ fn linter_map_literal_chains_recheck_and_preserve_unicode_order() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let hint = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).flat_map(|d| &d.fix_hints).max_by_key(|h| h.span.unwrap().range().len()).expect("Map construction fix");
+    let hint = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")).flat_map(|d| &d.fix_hints).max_by_key(|h| h.span.unwrap().range().len()).expect("Map construction fix");
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
     assert!(fixed.contains("{[key]: 1, [\"alpha\"]: 2, [key]: 3}"));
@@ -3980,7 +3981,7 @@ fn linter_map_literal_chains_recheck_and_preserve_unicode_order() {
     let parsed = parse_lint_source(&formatted.formatted);
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")));
 }
 
 #[test]
@@ -3990,7 +3991,7 @@ fn linter_fresh_map_initialization_retains_annotations_and_refuses_observations(
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let hint = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).expect("fresh initialization fix").fix_hints.first().unwrap();
+    let hint = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")).expect("fresh initialization fix").fix_hints.first().unwrap();
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
     assert!(fixed.contains("var counts: Map[Int] = {[name]: 1, [\"total\"]: 2}"));
@@ -4007,10 +4008,10 @@ fn linter_fresh_map_initialization_retains_annotations_and_refuses_observations(
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")), "{source}");
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")), "{source}");
     }
     let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(!unchecked.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")));
+    assert!(!unchecked.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")));
 }
 
 #[test]
@@ -4020,7 +4021,7 @@ fn linter_map_literal_comment_spans_have_guidance_without_fixes() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty());
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).expect("commented initialization warning");
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")).expect("commented initialization warning");
     assert!(diagnostic.fix_hints.is_empty());
 }
 
@@ -4032,7 +4033,7 @@ fn linter_list_element_assignment_exact_bounds_rechecks_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")).unwrap();
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-element-assignment")).unwrap();
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
@@ -4045,7 +4046,7 @@ fn linter_list_element_assignment_exact_bounds_rechecks_and_converges() {
     let parsed = parse_lint_source(&formatted.formatted);
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-element-assignment")));
 }
 
 #[test]
@@ -4061,10 +4062,10 @@ fn linter_list_element_assignment_refuses_clipped_bounds_effects_and_comments() 
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")).unwrap();
+        let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-element-assignment")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}");
         let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default());
-        assert!(!unchecked.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")));
+        assert!(!unchecked.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-element-assignment")));
     }
 }
 
@@ -4086,7 +4087,7 @@ fn linter_nested_record_update_fix_rechecks_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-nested-record-update")).expect("safe nested spread fix");
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-nested-record-update")).expect("safe nested spread fix");
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
@@ -4099,7 +4100,7 @@ fn linter_nested_record_update_fix_rechecks_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let output = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-nested-record-update")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-nested-record-update")));
 }
 
 #[test]
@@ -4115,7 +4116,7 @@ fn linter_nested_record_update_retains_unstable_reads_comments_and_new_fields() 
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-nested-record-update")), "{source}");
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-nested-record-update")), "{source}");
     }
 }
 
@@ -4126,7 +4127,7 @@ fn pattern_alternatives_adjacent_arm_fix_is_checked_and_idempotent() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let hints: Vec<_> = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.identical-match-arms")).flat_map(|d| &d.fix_hints).collect();
+    let hints: Vec<_> = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.identical-match-arms")).flat_map(|d| &d.fix_hints).collect();
     assert_eq!(hints.len(), 1);
     let mut fixed = source.to_string();
     fixed.replace_range(hints[0].span.unwrap().range(), hints[0].replacement.as_deref().unwrap());
@@ -4136,7 +4137,7 @@ fn pattern_alternatives_adjacent_arm_fix_is_checked_and_idempotent() {
     assert!(formatted.diagnostics.is_empty());
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
     let parsed = parse_lint_source(&fixed);
-    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.identical-match-arms")));
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.identical-match-arms")));
 }
 
 #[test]
@@ -4150,7 +4151,7 @@ fn pattern_alternatives_adjacent_arm_fix_retains_guards_comments_and_capture_typ
         let parsed = parse_lint_source(source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.identical-match-arms")), "{source}");
+        assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.identical-match-arms")), "{source}");
     }
 }
 
@@ -4175,7 +4176,7 @@ fn value_pipeline_hole_lint_rewrites_safe_nested_and_linear_calls() {
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")).expect("pipeline suggestion");
+        let diagnostic = linted.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-value-pipeline")).expect("pipeline suggestion");
         let fix = &diagnostic.fix_hints[0];
         let mut fixed = source.to_string();
         fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -4187,7 +4188,7 @@ fn value_pipeline_hole_lint_rewrites_safe_nested_and_linear_calls() {
         let parsed = parse_lint_source(&fixed);
         let checked = Checker::check_arena(&parsed.arena, &fixed);
         let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!again.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")), "{fixed}");
+        assert!(!again.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-value-pipeline")), "{fixed}");
     }
 }
 
@@ -4203,13 +4204,13 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
         let parsed = parse_lint_source(source);
         let checked = Checker::check_arena(&parsed.arena, source);
         let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!linted.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")), "{source}");
+        assert!(!linted.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-value-pipeline")), "{source}");
     }
     let source = "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet selected = outer(10, # keep this explanation\n  inner(2))\n";
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
     let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")).expect("manual pipeline suggestion");
+    let diagnostic = linted.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-value-pipeline")).expect("manual pipeline suggestion");
     assert!(diagnostic.fix_hints.is_empty());
 }
 
@@ -4250,7 +4251,7 @@ proc assertions(dynamic: Any) [io, error] {
         ..LintOptions::default()
     };
     let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
-    let assertions = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
+    let assertions = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.core-assert")).collect::<Vec<_>>();
     assert_eq!(assertions.len(), 4);
     assert!(assertions[3].fix_hints.is_empty(), "eager context must retain its effects");
     let mut fixed = source.to_string();
@@ -4272,7 +4273,7 @@ proc assertions(dynamic: Any) [io, error] {
         statement_positions: checked.statement_positions,
         ..LintOptions::default()
     }).diagnostics;
-    let assertions = second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
+    let assertions = second.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.core-assert")).collect::<Vec<_>>();
     assert_eq!(assertions.len(), 1);
     assert!(assertions[0].fix_hints.is_empty());
 }
@@ -4285,7 +4286,7 @@ fn native_test_declaration_migration_preserves_context_effects_and_is_idempotent
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let options = LintOptions { native_test_file: true, function_return_types: checked.function_return_types.clone(), ..LintOptions::default() };
     let linted = Linter::lint(&parsed.arena, source, options);
-    let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.legacy-test-proc")).expect("migration diagnostic");
+    let diagnostic = linted.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.legacy-test-proc")).expect("migration diagnostic");
     let mut edits = diagnostic.fix_hints.iter().map(|fix| (fix.span.unwrap(), fix.replacement.as_ref().unwrap())).collect::<Vec<_>>();
     edits.sort_by_key(|(span, _)| span.start());
     let mut rewritten = source.to_owned();
@@ -4297,7 +4298,7 @@ fn native_test_declaration_migration_preserves_context_effects_and_is_idempotent
     let checked = Checker::check_arena(&parsed.arena, &rewritten);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let second = Linter::lint(&parsed.arena, &rewritten, LintOptions { native_test_file: true, function_return_types: checked.function_return_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.legacy-test-proc")));
     let formatted = Formatter::new().format_source(SourceId::new(0), &rewritten);
     assert!(formatted.diagnostics.is_empty());
     assert!(formatted.formatted.contains("test test_exact_name [error] { |ctx|"));
@@ -4313,10 +4314,10 @@ fn native_test_declaration_migration_declines_callers_and_ordinary_files() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let linted = Linter::lint(&parsed.arena, source, LintOptions { native_test_file: true, function_return_types: checked.function_return_types.clone(), ..LintOptions::default() });
-    let migration = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.legacy-test-proc")).expect("manual migration diagnostic");
+    let migration = linted.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.legacy-test-proc")).expect("manual migration diagnostic");
     assert!(migration.fix_hints.is_empty());
     let ordinary = Linter::lint(&parsed.arena, source, LintOptions { function_return_types: checked.function_return_types, ..LintOptions::default() });
-    assert!(!ordinary.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
+    assert!(!ordinary.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.legacy-test-proc")));
 }
 
 #[test]
@@ -4370,7 +4371,7 @@ fn duration_arithmetic_conversion_fix_rechecks_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let mut fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.duration-arithmetic"))
+    let mut fixes = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.duration-arithmetic"))
         .map(|d| &d.fix_hints[0]).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 2);
     fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
@@ -4384,7 +4385,7 @@ fn duration_arithmetic_conversion_fix_rechecks_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.duration-arithmetic")));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
 
@@ -4395,9 +4396,9 @@ fn duration_arithmetic_conversion_retains_clamping_saturation_unknowns_and_comme
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.duration-arithmetic")));
     let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.duration-arithmetic")));
 }
 
 #[test]
@@ -4409,9 +4410,9 @@ fn duration_arithmetic_conversion_refuses_custom_module_alias() {
     let loaded = parse_load_check_text(entry.to_str().unwrap(), source.to_string(), Vec::new(), Default::default());
     assert!(loaded.parsed.diagnostics.is_empty(), "{:?}", loaded.parsed.diagnostics);
     let checked = loaded.checked.unwrap();
-    assert!(checked.diagnostics.iter().any(|d| d.code.as_deref() == Some("check.standard-module-shadow")), "{:?}", checked.diagnostics);
+    assert!(checked.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("check.standard-module-shadow")), "{:?}", checked.diagnostics);
     let output = Linter::lint(&loaded.parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.duration-arithmetic")));
 }
 
 #[test]
@@ -4419,7 +4420,7 @@ fn block_string_concatenation_fix_rechecks_exact_bytes_and_converges() {
     let source = "let value = \"first\\n\" + \"  café\\n\"\nprint $value\n";
     let parsed = parse_lint_source(source);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    let fix = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")).unwrap().fix_hints.first().unwrap();
+    let fix = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-block-string")).unwrap().fix_hints.first().unwrap();
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
     assert_parse_check_standalone("block string fix", &fixed);
@@ -4428,7 +4429,7 @@ fn block_string_concatenation_fix_rechecks_exact_bytes_and_converges() {
     let xsh::frontend::syntax::arena::ArenaStmtKind::Let { initializer: xsh::frontend::syntax::arena::ArenaExprOrRun::Expr(value), .. } = parsed.arena.arena.stmt(statement).kind else { panic!("binding"); };
     let xsh::frontend::syntax::arena::ArenaExprKind::Str(text) = parsed.arena.arena.expr(value).kind else { panic!("block string"); };
     assert_eq!(parsed.arena.arena.string_literal(text).as_ref(), "first\n  café\n");
-    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")));
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-block-string")));
     let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
     assert!(formatted.diagnostics.is_empty());
     assert_parse_check_standalone("formatted block string fix", &formatted.formatted);
@@ -4443,7 +4444,7 @@ fn block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_an
         "let value = \"first\\r\\n\" + \"second\"\n",
     ] {
         let parsed = parse_lint_source(source);
-        assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")), "{source}");
+        assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-block-string")), "{source}");
     }
     // Comments and expression consumers are layout: the constant chain is
     // still reported, once at its outermost node, but no rewrite is offered.
@@ -4456,7 +4457,7 @@ fn block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_an
     ] {
         let parsed = parse_lint_source(source);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-        let reported = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")).collect::<Vec<_>>();
+        let reported = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-block-string")).collect::<Vec<_>>();
         assert_eq!(reported.len(), 1, "{source}: {diagnostics:?}");
         let rewritten = reported[0].fix_hints.first().map(|fix| {
             let mut text = source.to_owned();
@@ -4489,7 +4490,7 @@ fn prepared_constant_fix_preserves_comments_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let fixes: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const")).collect();
+    let fixes: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-const")).collect();
     assert_eq!(fixes.len(), 2);
     let mut fixed = source.to_string();
     for diagnostic in fixes.iter().rev() {
@@ -4507,7 +4508,7 @@ fn prepared_constant_fix_preserves_comments_and_converges() {
     let checked = Checker::check_arena(&second.arena, &fixed);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&second.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const")));
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-const")));
 }
 
 #[test]
@@ -4518,7 +4519,7 @@ fn linter_named_argument_spread_requires_exact_stable_visible_fields_and_converg
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let forwards = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-spread")).collect::<Vec<_>>();
+    let forwards = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-spread")).collect::<Vec<_>>();
     assert_eq!(forwards.len(), 3, "partial records and effectful receivers must not forward");
     assert_eq!(forwards[0].fix_hints.len(), 1);
     assert!(forwards[1].fix_hints.is_empty(), "comments remain intact");
@@ -4535,7 +4536,7 @@ fn linter_named_argument_spread_requires_exact_stable_visible_fields_and_converg
     let parsed = parse_lint_source(&formatted.formatted);
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    assert!(second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-spread")).all(|diagnostic| diagnostic.fix_hints.is_empty()));
+    assert!(second.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-spread")).all(|diagnostic| diagnostic.fix_hints.is_empty()));
 }
 
 #[test]
@@ -4543,7 +4544,7 @@ fn linter_named_argument_spread_requires_checked_record_facts() {
     let source = include_str!("../../../tests/fixtures/syntax/valid/named-argument-forwarding.xsh");
     let parsed = parse_lint_source(source);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-spread")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-spread")));
 }
 
 #[test]
@@ -4565,7 +4566,7 @@ fn lexical_ctx_linter_visits_label_effects_and_body_bindings() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.unused-binding")), "{:?}", output.diagnostics);
+    assert!(!output.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.unused-binding")), "{:?}", output.diagnostics);
 }
 
 #[test]
@@ -4575,7 +4576,7 @@ fn typed_map_keys_formatter_and_checked_literal_fix_converge() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let hint = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).flat_map(|d| &d.fix_hints).max_by_key(|h| h.span.unwrap().range().len()).expect("typed Map literal fix");
+    let hint = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")).flat_map(|d| &d.fix_hints).max_by_key(|h| h.span.unwrap().range().len()).expect("typed Map literal fix");
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
     assert!(fixed.contains("var values: Map[Identifier, Str] = {[20]: \"twenty\", [3]: \"three\"}"));
@@ -4586,7 +4587,7 @@ fn typed_map_keys_formatter_and_checked_literal_fix_converge() {
     let parsed = parse_lint_source(&formatted.formatted);
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-map-literal")));
     let source = "let values = {[key + 1]: value for {key, value} in {[1]: 2}}\n";
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(formatted.diagnostics.is_empty());
@@ -4601,7 +4602,7 @@ fn parametric_record_constructor_fix_keeps_concrete_alias_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")).unwrap();
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")).unwrap();
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
@@ -4613,12 +4614,12 @@ fn parametric_record_constructor_fix_keeps_concrete_alias_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let repeated = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!repeated.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")));
+    assert!(!repeated.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")));
     let direct = "type Box[T] = {value: T}\nlet count: Box[Int] = {value: 7}\n";
     let parsed = parse_lint_source(direct);
     let checked = Checker::check_arena(&parsed.arena, direct);
     let output = Linter::lint(&parsed.arena, direct, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")).unwrap();
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-record-constructor")).unwrap();
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = direct.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
@@ -4636,7 +4637,7 @@ fn private_proc_effects_lint_does_not_reinsert_inferred_annotations() {
         function_effect_facts: checked.function_effect_facts,
         ..LintOptions::default()
     });
-    assert!(!linted.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.unannotated-effects" | "lint.missing-effects"))));
+    assert!(!linted.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.map(DiagnosticCode::name), Some("lint.unannotated-effects" | "lint.missing-effects"))));
 }
 
 #[test]
@@ -4644,16 +4645,16 @@ fn private_proc_effects_removal_is_opt_in_checked_and_convergent() {
     let source = "proc clock() [time] -> Int { let _ = time.now(); 42 }\nlet value = clock()\n";
     let parsed = parse_lint_source(source);
     let disabled = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(!disabled.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")));
+    assert!(!disabled.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-private-effects")));
     let enabled = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_private_effects: true, ..LintOptions::default() });
-    let diagnostic = enabled.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")).expect("equivalent private effect removal");
+    let diagnostic = enabled.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-private-effects")).expect("equivalent private effect removal");
     let span = diagnostic.fix_hints[0].span.unwrap();
     let mut fixed = source.to_string();
     fixed.replace_range(span.start()..span.end(), "");
     assert_parse_check_standalone("inferred effects", &fixed);
     let parsed = parse_lint_source(&fixed);
     let second = Linter::lint(&parsed.arena, &fixed, LintOptions { prefer_inferred_private_effects: true, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-private-effects")));
 }
 
 #[test]
@@ -4668,7 +4669,7 @@ fn private_proc_effects_removal_retains_bounds_docs_and_entry_contracts() {
     ] {
         let parsed = parse_lint_source(source);
         let linted = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_private_effects: true, ..LintOptions::default() });
-        assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")), "{source}");
+        assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-private-effects")), "{source}");
     }
 
 }
@@ -4681,7 +4682,7 @@ fn signature_cli_literal_schema_fix_preserves_bindings_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")).expect("exact literal schema migration");
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-signature-cli")).expect("exact literal schema migration");
     let fix = diagnostic.fix_hints.first().expect("safe fix");
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -4689,7 +4690,7 @@ fn signature_cli_literal_schema_fix_preserves_bindings_and_converges() {
     assert_parse_check_standalone("signature CLI", &fixed);
     let parsed = parse_lint_source(&fixed);
     assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter()
-        .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")));
+        .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-signature-cli")));
 }
 
 #[test]
@@ -4697,7 +4698,7 @@ fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
     let simple = "type Options = {jobs: Int}\nproc main(...argv: List[Str]) [error] {\n  # Preserve the options explanation.\n  let {jobs}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}})?\n  print $jobs\n}\n";
     let parsed = parse_lint_source(simple);
     let diagnostics = Linter::lint(&parsed.arena, simple, LintOptions::default()).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")).unwrap();
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-signature-cli")).unwrap();
     assert!(diagnostic.fix_hints.is_empty());
     for source in [simple.replace("# Preserve the options explanation.\n  ", "").replace("kind: \"Int\"", "kind: \"Int\", short: \"j\""),
         simple.replace("print $jobs", "print ${argv.len()} $jobs"),
@@ -4707,7 +4708,7 @@ fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
     ] {
         let parsed = parse_lint_source(&source);
         let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions::default()).diagnostics;
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")), "{source}: {diagnostics:?}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-signature-cli")), "{source}: {diagnostics:?}");
     }
 }
 
@@ -4717,7 +4718,7 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let mut fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-fallback"))
+    let mut fixes = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback"))
         .map(|d| &d.fix_hints[0]).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 2);
     fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
@@ -4729,7 +4730,7 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.lookup-fallback")));
+    assert!(!second.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback")));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
 
@@ -4739,7 +4740,7 @@ fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let fix = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.lookup-fallback"))
+    let fix = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).next().expect("inert Path fallback must be fixable");
     let mut fixed = source.to_owned();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -4747,7 +4748,7 @@ fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics
-        .iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.lookup-fallback")));
+        .iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback")));
 }
 
 #[test]
@@ -4756,7 +4757,7 @@ fn absence_lookup_immutable_fallback_fix_preserves_typed_parameter_and_alias() {
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let fix = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.lookup-fallback"))
+    let fix = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).next().expect("immutable typed fallback must be fixable");
     let mut fixed = source.to_owned();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -4776,7 +4777,7 @@ fn absence_lookup_fallback_fix_refuses_eager_effects_failure_comments_and_named_
         let parsed = parse_lint_source(source);
         let checked = Checker::check_arena(&parsed.arena, source);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-fallback")).any(|d| !d.fix_hints.is_empty()));
+        assert!(!output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback")).any(|d| !d.fix_hints.is_empty()));
     }
 }
 
@@ -4787,7 +4788,7 @@ fn absence_lookup_sentinel_fix_requires_proven_immutable_origin() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-absence")).collect::<Vec<_>>();
+    let fixes = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.lookup-absence")).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 1);
     let hint = &fixes[0].fix_hints[0];
     let mut fixed = source.to_string();
@@ -4806,7 +4807,7 @@ fn absence_lookup_sentinel_proof_respects_shadowing_narrowing_and_missing_facts(
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-absence")).collect::<Vec<_>>();
+    let fixes = output.diagnostics.iter().filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.lookup-absence")).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 1);
     let hint = &fixes[0].fix_hints[0];
     let mut fixed = source.to_string();
@@ -4815,7 +4816,7 @@ fn absence_lookup_sentinel_proof_respects_shadowing_narrowing_and_missing_facts(
     assert!(fixed.contains("let ordinary = position == -1"));
     assert_parse_check_standalone("scoped absence lookup", &fixed);
     let without_facts = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(!without_facts.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.lookup-absence")));
+    assert!(!without_facts.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.lookup-absence")));
 }
 
 #[test]
@@ -4825,7 +4826,7 @@ fn scalar_iteration_fixes_recheck_and_converge_with_comments_and_scopes() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let mut fixes: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")).flat_map(|diagnostic| &diagnostic.fix_hints).collect();
+    let mut fixes: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-scalar-iteration")).flat_map(|diagnostic| &diagnostic.fix_hints).collect();
     assert_eq!(fixes.len(), 6, "{:?}", output.diagnostics);
     fixes.sort_by_key(|fix| fix.span.unwrap().start());
     let mut fixed = source.to_string();
@@ -4840,7 +4841,7 @@ fn scalar_iteration_fixes_recheck_and_converge_with_comments_and_scopes() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let output = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")));
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-scalar-iteration")));
 }
 
 #[test]
@@ -4858,7 +4859,7 @@ fn scalar_iteration_fixes_refuse_used_adapters_offsets_mutation_and_partial_rang
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")), "{source}");
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-scalar-iteration")), "{source}");
     }
 }
 
@@ -4872,7 +4873,7 @@ fn explicit_accept_policy_keeps_propagation_and_custom_status_handlers() {
         expr_types: checked.expr_types,
         ..LintOptions::default()
     }).diagnostics;
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.run-status")));
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.run-status")));
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(formatted.formatted.contains("--accept=[0, 1] grep pattern file ?"));
     assert!(formatted.formatted.contains("if status.exited_with(1)"));
@@ -4892,7 +4893,7 @@ fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
         proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers,
         ..LintOptions::default()
     });
-    let fix = &linted.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")).unwrap().fix_hints[0];
+    let fix = &linted.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-optional-fallback")).unwrap().fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
     assert!(fixed.contains("  value\n"));
@@ -4901,7 +4902,7 @@ fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types,
         proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
-    assert!(!again.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
+    assert!(!again.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-optional-fallback")));
     for source in [
         "pure select(value: Str?) -> Str { value ?? \"fallback\" }\n",
         "pure fallback() -> Str { \"fallback\" }\npure select(value: Str?) -> Str { guard value != null else { return \"missing\" }; value ?? fallback() }\n",
@@ -4910,7 +4911,7 @@ fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
         let checked = Checker::check_arena(&parsed.arena, source);
         let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types,
             proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
-        assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
+        assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-optional-fallback")));
     }
 }
 
@@ -4921,7 +4922,7 @@ fn constant_key_projection_identity_require_fix_preserves_boundaries() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")).expect("identity validation fix");
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-require")).expect("identity validation fix");
     let fix = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -4932,7 +4933,7 @@ fn constant_key_projection_identity_require_fix_preserves_boundaries() {
     let reparsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&reparsed.arena, &fixed);
     let second = Linter::lint(&reparsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-require")));
     for source in [
         "proc read(config: Record, key: Str) [error] -> Int { config.get(key)?.require(Int)? }\n",
         "type Config = {path: Str}\nproc read(config: Config) [error] -> Path { config.get(\"path\")?.require(Path)? }\n",
@@ -4944,7 +4945,7 @@ fn constant_key_projection_identity_require_fix_preserves_boundaries() {
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")), "{source}");
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-require")), "{source}");
     }
 }
 
@@ -4955,7 +4956,7 @@ fn wire_enum_mapping_expression_walk_preserves_wire_bytes_in_safe_edits() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")).expect("mapping expression is visited");
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-block-string")).expect("mapping expression is visited");
     let fix = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
@@ -4975,7 +4976,7 @@ fn context_scope_scaffold_fix_preserves_checked_value_type_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")).expect("fresh scaffold");
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-context-scope-value")).expect("fresh scaffold");
     assert_eq!(diagnostic.fix_hints.len(), 1);
     let fix = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
@@ -4988,7 +4989,7 @@ fn context_scope_scaffold_fix_preserves_checked_value_type_and_converges() {
     let parsed = parse_lint_source(&formatted.formatted);
     let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
     let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")));
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-context-scope-value")));
 }
 
 #[test]
@@ -5003,7 +5004,7 @@ fn context_scope_scaffold_declines_cleanup_comments_and_placeholder_reads() {
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
-        assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")).all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-context-scope-value")).all(|diagnostic| diagnostic.fix_hints.is_empty()));
     }
 }
 
@@ -5013,7 +5014,7 @@ fn context_scope_environment_migration_preserves_comments_and_rechecks() {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
     let diagnostic = &parsed.diagnostics[0];
-    assert_eq!(diagnostic.code.as_deref(), Some("parse.env-scope-migration"));
+    assert_eq!(diagnostic.code.map(DiagnosticCode::name), Some("parse.env-scope-migration"));
     let mut edits = diagnostic.fix_hints.iter().collect::<Vec<_>>();
     edits.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
     let mut fixed = source.to_string();
@@ -5033,7 +5034,7 @@ fn generic_record_constructor_alias_fix_rechecks_and_converges() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")).unwrap();
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-generic-record-constructor")).unwrap();
     assert_eq!(diagnostic.fix_hints.len(), 1);
     let hint = &diagnostic.fix_hints[0];
     let mut fixed = source.to_string();
@@ -5044,7 +5045,7 @@ fn generic_record_constructor_alias_fix_rechecks_and_converges() {
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
     let repeated = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!repeated.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")));
+    assert!(!repeated.diagnostics.iter().any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-generic-record-constructor")));
 }
 
 #[test]
@@ -5060,7 +5061,7 @@ fn generic_record_constructor_alias_fix_preserves_conversion_and_ambiguous_evide
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-        let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")).unwrap();
+        let diagnostic = output.diagnostics.iter().find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-generic-record-constructor")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}");
     }
 }
@@ -5070,7 +5071,7 @@ fn default_parameter_annotation_fixes_recheck_preserve_comments_and_converge() {
     let source = "# café precedes every edit.\nconst defaults = {jobs: 4}\npure next() -> Int { 3 }\npure choose(jobs: Int = defaults.jobs + 1, value: Int = next()) -> Int {\n  # café remains attached to the body.\n  jobs + value\n}\nlet result = choose(value: 7)\n";
     let parsed = parse_lint_source(source);
     let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-    let fixes = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")).collect::<Vec<_>>();
+    let fixes = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.default-param-type")).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 2, "{:?}", output.diagnostics);
     let mut fixed = source.to_string();
     for diagnostic in fixes.into_iter().rev() {
@@ -5081,7 +5082,7 @@ fn default_parameter_annotation_fixes_recheck_preserve_comments_and_converge() {
     assert!(fixed.contains("# café remains attached to the body."));
     assert_parse_check_standalone("semantic default types", &fixed);
     let parsed = parse_lint_source(&fixed);
-    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")));
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.default-param-type")));
 }
 
 #[test]
@@ -5095,7 +5096,7 @@ fn default_parameter_annotation_keeps_domains_context_and_ambiguous_defaults() {
         "pure choose(value:\n# keep this contract comment\nInt = 4) -> Int { value }\n",
     ] {
         let parsed = parse_lint_source(source);
-        assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")), "{source}");
+        assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.default-param-type")), "{source}");
     }
 }
 
@@ -5110,7 +5111,7 @@ fn inferred_require_target_fix_preserves_validation_and_converges() {
         requirement_expected_targets: checked.requirement_expected_targets,
         ..LintOptions::default()
     });
-    let hint = &output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")).expect("same anchored schema").fix_hints[0];
+    let hint = &output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.inferred-require-target")).expect("same anchored schema").fix_hints[0];
     let mut fixed = source.to_string();
     fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
     assert!(fixed.contains("raw.require()?"));
@@ -5122,7 +5123,7 @@ fn inferred_require_target_fix_preserves_validation_and_converges() {
         requirement_expected_targets: checked.requirement_expected_targets,
         ..LintOptions::default()
     });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.inferred-require-target")));
 }
 
 #[test]
@@ -5138,7 +5139,7 @@ fn inferred_require_target_fix_rejects_unanchored_and_different_instances() {
             requirement_expected_targets: checked.requirement_expected_targets,
             ..LintOptions::default()
         });
-        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")), "{source}");
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.inferred-require-target")), "{source}");
     }
 }
 
@@ -5153,7 +5154,7 @@ fn inferred_require_formatting_round_trip_and_comments_preserve_the_operation() 
         requirement_expected_targets: checked.requirement_expected_targets,
         ..LintOptions::default()
     });
-    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")));
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.inferred-require-target")));
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
     assert!(formatted.formatted.contains("raw.require()?"));
@@ -5171,14 +5172,14 @@ fn local_inference_annotation_fix_preserves_all_checked_expression_types_and_con
     ] {
         let parsed = parse_lint_source(source);
         let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-        let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")).expect(source);
+        let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")).expect(source);
         let hint = diagnostic.fix_hints.first().expect("proved local annotation deletion");
         let mut fixed = source.to_owned();
         fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap_or(""));
         if source.contains("# preserve initializer evidence") { assert!(fixed.contains("# preserve initializer evidence")); }
         assert_parse_check_standalone("local annotation inference", &fixed);
         let parsed = parse_lint_source(&fixed);
-        assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{fixed}");
+        assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation")), "{fixed}");
         let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
         assert_parse_check_standalone("formatted local inference", &formatted.formatted);
         assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
@@ -5198,7 +5199,7 @@ fn local_inference_annotation_fix_requires_identical_material_contract_and_prese
         let parsed = parse_lint_source(source);
         assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
         let output = Linter::lint(&parsed.arena, source, LintOptions::default());
-        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation") && !diagnostic.fix_hints.is_empty()), "{source}: {:?}", output.diagnostics);
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.needless-annotation") && !diagnostic.fix_hints.is_empty()), "{source}: {:?}", output.diagnostics);
     }
 }
 
@@ -5206,7 +5207,7 @@ fn bool_statement_fixed(source: &str) -> String {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code.as_deref() == Some("check.bool-statement")), "{source}: {:?}", checked.diagnostics);
+    assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("check.bool-statement")), "{source}: {:?}", checked.diagnostics);
     let mut hints = checked.diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     hints.sort_by_key(|hint| hint.span.unwrap().start());
     assert_eq!(hints.len(), checked.diagnostics.len(), "every Bool statement carries one fix: {:?}", checked.diagnostics);
@@ -5300,7 +5301,7 @@ fn assertion_helper_migration_targets_assert() {
         standard_call_spans: checked.standard_call_spans,
         ..LintOptions::default()
     }).diagnostics;
-    let hints = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert"))
+    let hints = diagnostics.iter().filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.core-assert"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     assert_eq!(hints.iter().filter_map(|hint| hint.replacement.as_deref()).collect::<Vec<_>>(),
         ["assert actual == 3", "{ assert actual > 2 }"], "{diagnostics:?}");

@@ -1,3 +1,4 @@
+use crate::diagnostic::DiagnosticCode;
 use crate::map_key::MapKey;
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
@@ -160,12 +161,12 @@ impl LiteralConstant {
 /// A checked schema application failed before a concrete type was published.
 #[derive(Clone, Debug)]
 pub struct SchemaTypeError {
-    pub code: &'static str,
+    pub code: DiagnosticCode,
     pub message: String,
 }
 
 impl SchemaTypeError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self { Self { code, message: message.into() } }
+    fn new(code: DiagnosticCode, message: impl Into<String>) -> Self { Self { code, message: message.into() } }
 }
 
 /// Checked application identity is retained separately from the structural
@@ -410,7 +411,7 @@ impl RecordConstructors {
         match definition.body {
             ArenaTypeDefBody::RecordSchema(fields) => arena.schema_fields(fields).iter().map(|field| self.resolve_instance_annotation(arena, field.ty, namespace, &bindings, &mut active).map(|ty| (field.name, ty))).collect(),
             ArenaTypeDefBody::Alias(ty) => { self.resolve_instance_annotation(arena, ty, namespace, &bindings, &mut active)?; Ok(BTreeMap::new()) }
-            _ => Err(SchemaTypeError::new("check.type-parameters", "type parameters are supported only on record schemas and aliases")),
+            _ => Err(SchemaTypeError::new(DiagnosticCode::CheckTypeParameters, "type parameters are supported only on record schemas and aliases")),
         }
     }
 
@@ -486,22 +487,22 @@ impl RecordConstructors {
         constraints: &mut crate::sema::constraints::TypeConstraints,
     ) -> Result<RecordConstructorInference, SchemaTypeError> {
         let definition = self.constructor_definition(arena, callee, namespace)
-            .ok_or_else(|| SchemaTypeError::new("check.record-constructor", "unknown record constructor"))?;
+            .ok_or_else(|| SchemaTypeError::new(DiagnosticCode::CheckRecordConstructor, "unknown record constructor"))?;
         let arguments = arena.names(arena.type_def(definition).type_parameters).map(|_| constraints.fresh(span)).collect::<Vec<_>>();
         let ty = self.instantiate_checked(arena, definition, &arguments)?;
-        if !matches!(ty, Type::Record(_)) { return Err(SchemaTypeError::new("check.record-constructor", "constructor requires a record schema")); }
+        if !matches!(ty, Type::Record(_)) { return Err(SchemaTypeError::new(DiagnosticCode::CheckRecordConstructor, "constructor requires a record schema")); }
         if let Some(instance) = context.and_then(|context| context.value_context().instances.iter().find(|instance| instance.definition == definition)) {
             for (variable, concrete) in arguments.iter().zip(&instance.arguments) {
                 let result = if concrete.contains_inference() { constraints.constrain(variable, concrete, span) }
                     else { constraints.constrain_annotation(variable, concrete, span) };
-                result.map_err(|conflict| SchemaTypeError::new("check.type-mismatch", format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
+                result.map_err(|conflict| SchemaTypeError::new(DiagnosticCode::CheckTypeMismatch, format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
             }
         }
         if let Some(expected) = expected {
             let expected = match expected { Type::Optional(inner) => inner.as_ref(), other => other };
             if matches!(expected, Type::Record(_) | Type::Inference(_)) {
                 constraints.constrain(&ty, expected, span).map_err(|conflict|
-                    SchemaTypeError::new("check.type-mismatch", format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
+                    SchemaTypeError::new(DiagnosticCode::CheckTypeMismatch, format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
             }
         }
         let mut expectation = self.instance_expectation(arena, definition, &arguments)?;
@@ -517,7 +518,7 @@ impl RecordConstructors {
         let mut arguments = Vec::new();
         for (parameter, variable) in arena.names(definition.type_parameters).zip(&instance.arguments) {
             let resolved = constraints.resolve(variable).ok().filter(|ty| !ty.contains_inference()).ok_or_else(||
-                SchemaTypeError::new("check.constructor-inference", format!("constructor `{}` cannot infer parameter `{parameter}`; supply a concrete schema annotation or a non-null, non-empty field value", definition.name)))?;
+                SchemaTypeError::new(DiagnosticCode::CheckConstructorInference, format!("constructor `{}` cannot infer parameter `{parameter}`; supply a concrete schema annotation or a non-null, non-empty field value", definition.name)))?;
             arguments.push(resolved);
         }
         let ty = self.instantiate_checked(arena, instance.definition, &arguments)?;
@@ -536,7 +537,7 @@ impl RecordConstructors {
         // Resolution owns validity and recursion bounds; provenance never
         // manufactures an instance from a structurally equal record shape.
         self.instantiate_checked(arena, id, arguments)?;
-        if active.contains(&id) { return Err(SchemaTypeError::new("check.recursive-type", "recursive schema expectation")); }
+        if active.contains(&id) { return Err(SchemaTypeError::new(DiagnosticCode::CheckRecursiveType, "recursive schema expectation")); }
         let definition = arena.type_def(id);
         let bindings = arena.names(definition.type_parameters).zip(arguments.iter().cloned()).collect();
         let contexts = arena.names(definition.type_parameters).zip(argument_contexts.iter().cloned()).collect();
@@ -628,10 +629,10 @@ impl RecordConstructors {
     fn instantiate(&self, arena: &AstArena, id: TypeDefId, arguments: &[Type], active: &mut Vec<TypeDefId>) -> Result<Type, SchemaTypeError> {
         let definition = arena.type_def(id);
         if definition.type_parameters.len() != arguments.len() {
-            return Err(SchemaTypeError::new("check.type-arity", format!("type `{}` requires {} type arguments, found {}", definition.name, definition.type_parameters.len(), arguments.len())));
+            return Err(SchemaTypeError::new(DiagnosticCode::CheckTypeArity, format!("type `{}` requires {} type arguments, found {}", definition.name, definition.type_parameters.len(), arguments.len())));
         }
         if active.contains(&id) {
-            return Err(SchemaTypeError::new("check.recursive-type", format!("recursive or expanding application of `{}` is not supported", definition.name)));
+            return Err(SchemaTypeError::new(DiagnosticCode::CheckRecursiveType, format!("recursive or expanding application of `{}` is not supported", definition.name)));
         }
         let cacheable = !arguments.iter().any(Self::contains_template_parameter);
         if cacheable && let Some((_, _, ty)) = self.instances.lock().expect("schema instance cache").iter().find(|(cached, args, _)| *cached == id && args == arguments) { return Ok(ty.clone()); }
@@ -652,7 +653,7 @@ impl RecordConstructors {
                 };
                 Ok((entry.name, export))
             }).collect::<Result<BTreeMap<_, _>, SchemaTypeError>>().map(|exports| Type::Module(exports.into())),
-            _ => Err(SchemaTypeError::new("check.type-parameters", "type parameters are supported only on record schemas and aliases")),
+            _ => Err(SchemaTypeError::new(DiagnosticCode::CheckTypeParameters, "type parameters are supported only on record schemas and aliases")),
         };
         active.pop();
         if cacheable && let Ok(ty) = &result { self.instances.lock().expect("schema instance cache").push((id, arguments.to_vec(), ty.clone())); }
@@ -680,13 +681,13 @@ impl RecordConstructors {
             ArenaTypeExprTag::Qualified => {
                 let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
-                let owner = self.imports.get(&(namespace, alias)).copied().ok_or_else(|| SchemaTypeError::new("check.unknown-type", "unknown type namespace"))?;
-                if !self.exports.contains(&(Some(owner), name)) { return Err(SchemaTypeError::new("check.unknown-type", "unknown exported type")); }
+                let owner = self.imports.get(&(namespace, alias)).copied().ok_or_else(|| SchemaTypeError::new(DiagnosticCode::CheckUnknownType, "unknown type namespace"))?;
+                if !self.exports.contains(&(Some(owner), name)) { return Err(SchemaTypeError::new(DiagnosticCode::CheckUnknownType, "unknown exported type")); }
                 (Some(owner), name)
             }
-            _ => return Err(SchemaTypeError::new("check.type-application", "type applications require a named record schema or alias")),
+            _ => return Err(SchemaTypeError::new(DiagnosticCode::CheckTypeApplication, "type applications require a named record schema or alias")),
         };
-        self.definition(owner, name).ok_or_else(|| SchemaTypeError::new("check.type-application", format!("`{name}` is not a user record schema or alias")))
+        self.definition(owner, name).ok_or_else(|| SchemaTypeError::new(DiagnosticCode::CheckTypeApplication, format!("`{name}` is not a user record schema or alias")))
     }
 
     fn resolve_instance_annotation(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, bindings: &FxHashMap<Name, Type>, active: &mut Vec<TypeDefId>) -> Result<Type, SchemaTypeError> {
@@ -695,7 +696,7 @@ impl RecordConstructors {
         Ok(match arena.type_expr_tags[ty.index()] {
             ArenaTypeExprTag::Applied => {
                 let id = self.application_definition(arena, inner, namespace)?;
-                if !matches!(arena.type_def(id).body, ArenaTypeDefBody::RecordSchema(_) | ArenaTypeDefBody::Alias(_)) { return Err(SchemaTypeError::new("check.type-application", "only record schemas and aliases accept type arguments")); }
+                if !matches!(arena.type_def(id).body, ArenaTypeDefBody::RecordSchema(_) | ArenaTypeDefBody::Alias(_)) { return Err(SchemaTypeError::new(DiagnosticCode::CheckTypeApplication, "only record schemas and aliases accept type arguments")); }
                 let arguments = arena.applied_type_arguments(ty).map(|argument| self.resolve_instance_annotation(arena, argument, namespace, bindings, active)).collect::<Result<Vec<_>, _>>()?;
                 self.instantiate(arena, id, &arguments, active)?
             }
@@ -707,12 +708,12 @@ impl RecordConstructors {
                 else if let Some(id) = self.definition(namespace, name) { self.instantiate(arena, id, &[], active)? }
                 else if xsh_registry::errors::builtin_error_families().iter().any(|family| family.name == name.as_str().as_str()) { Type::ErrorFamily(name) }
                 else if xsh_registry::errors::ErrorFacet::from_name(&name.as_str()).is_some() { Type::ErrorFacet(name) }
-                else { return Err(SchemaTypeError::new("check.unknown-type", format!("unknown type `{name}`"))); }
+                else { return Err(SchemaTypeError::new(DiagnosticCode::CheckUnknownType, format!("unknown type `{name}`"))); }
             }
             ArenaTypeExprTag::Qualified => {
                 let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
-                let owner = self.imports.get(&(namespace, alias)).copied().ok_or_else(|| SchemaTypeError::new("check.unknown-type", "unknown type namespace"))?;
+                let owner = self.imports.get(&(namespace, alias)).copied().ok_or_else(|| SchemaTypeError::new(DiagnosticCode::CheckUnknownType, "unknown type namespace"))?;
                 if let Some(ty) = self.error_types.get(&(Some(owner), name)) { ty.clone() }
                 else { let id = self.application_definition(arena, ty, namespace)?; self.instantiate(arena, id, &[], active)? }
             }
@@ -720,7 +721,7 @@ impl RecordConstructors {
             ArenaTypeExprTag::Map => {
                 let key = TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Str), |key| self.resolve_instance_annotation(arena, key, namespace, bindings, active))?;
                 if !key.is_map_key() && !Self::contains_template_parameter(&key) {
-                    return Err(SchemaTypeError::new("check.map-key-type", "Map keys require a scalar type: Bool, Int, UInt, Str, Bytes, Path, or Duration"));
+                    return Err(SchemaTypeError::new(DiagnosticCode::CheckMapKeyType, "Map keys require a scalar type: Bool, Int, UInt, Str, Bytes, Path, or Duration"));
                 }
                 Type::Map(Box::new(key), Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?))
             },
@@ -1020,7 +1021,7 @@ mod constant_scope_index_tests {
             let constructors = RecordConstructors::collect(&parsed.arena);
             let prepared = PreparedConstants::collect(&parsed.arena, &constructors);
             assert_eq!(prepared.diagnostics.len(), 1);
-            assert_eq!(prepared.diagnostics[0].code.as_deref(), Some("check.const"));
+            assert_eq!(prepared.diagnostics[0].code, Some(DiagnosticCode::CheckConst));
         });
     }
 }
@@ -1229,7 +1230,7 @@ impl PreparedConstants {
                 preparation.steps = 0;
                 if let Err((span, message)) = preparation.declaration(id, 0) {
                     preparation.prepared.diagnostics.push(crate::diagnostic::Diagnostic::error(message)
-                        .with_code("check.const").with_label(crate::diagnostic::Label::primary(span, "constant preparation failed")));
+                        .with_code(DiagnosticCode::CheckConst).with_label(crate::diagnostic::Label::primary(span, "constant preparation failed")));
                 }
             }
         }

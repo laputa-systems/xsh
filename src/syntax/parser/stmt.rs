@@ -4,6 +4,7 @@ use super::{
     AssignOp, BlockParam, Diagnostic, FixHint, DurationLiteral, Effect, IntLiteral, Keyword, Label, Name,
     Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::grammar::{self, StatementForm};
 use crate::syntax::arena::{
     ArenaBuilderEntryKind, ArenaExprOrRun, ArenaModuleContractEntryKind, ArenaProgramBuilder,
@@ -76,7 +77,7 @@ impl<'a> Parser<'a> {
                 {
                     self.parse_function_arena_only(start, true, arena)?;
                     arena.mark_last_function_as_cli_main();
-                    if self.block_depth != 0 { self.diagnostic_at(self.span(start, self.previous_end()), "`cli main` must be declared at the entry module's top level", "parse.cli-entry-scope"); }
+                    if self.block_depth != 0 { self.diagnostic_at(self.span(start, self.previous_end()), "`cli main` must be declared at the entry module's top level", DiagnosticCode::ParseCliEntryScope); }
                     Some(())
                 } else if self.current_name().is_some_and(|name| name == "test")
                     && matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
@@ -95,7 +96,7 @@ impl<'a> Parser<'a> {
                     let replacement = if operator == "++" { " += 1" } else { " -= 1" };
                     self.diagnostics.push(
                         Diagnostic::error(format!("XSH has no `{operator}` operator"))
-                            .with_code("parse.foreign-syntax")
+                            .with_code(DiagnosticCode::ParseForeignSyntax)
                             .with_label(Label::primary(operator_span, format!("write `{}{replacement}`", self.current_name()?)))
                             .with_fix_hint(FixHint::replacement(operator_span, format!("use `{}`", replacement.trim()), replacement)),
                     );
@@ -104,7 +105,7 @@ impl<'a> Parser<'a> {
                     let span = self.current_span();
                     self.diagnostics.push(
                         Diagnostic::error(format!("XSH declares variables with `let` or `var`, not `{spelling}`"))
-                            .with_code("parse.foreign-syntax")
+                            .with_code(DiagnosticCode::ParseForeignSyntax)
                             .with_label(Label::primary(span, "write `let name = value`, or `var` to allow reassignment"))
                             .with_fix_hint(FixHint::replacement(span, "replace with `let`", "let")),
                     );
@@ -205,7 +206,7 @@ impl<'a> Parser<'a> {
             _ => {
                 let message = "`export` applies only to const, let, proc, pure, stream, type, enum, or error definitions";
                 let mut diagnostic = Diagnostic::error(message)
-                    .with_code("parse.export-target")
+                    .with_code(DiagnosticCode::ParseExportTarget)
                     .with_label(Label::primary(self.current_span(), message));
                 if matches!(self.current_tag(), TokenTag::Ident) && self.peek_tag(1) == Some(TokenTag::Equals) {
                     diagnostic = diagnostic.with_note("XSH `export` publishes module definitions; set an environment variable for commands with `env NAME=value { ... }`");
@@ -248,7 +249,7 @@ impl<'a> Parser<'a> {
         } else if let Some(variants) = self.recover_legacy_tag_union_arena_only(arena) {
             let body_end = self.previous_end();
             let mut diagnostic = Diagnostic::error("tagged unions use `enum Name { A, B }`; replace this `type` declaration")
-                .with_code("parse.enum-migration")
+                .with_code(DiagnosticCode::ParseEnumMigration)
                 .with_label(Label::primary(self.span(start, body_end), "use an explicit enum declaration"))
                 .with_fix_hint(FixHint::replacement(self.span(introducer_start, introducer_start + 4), "use enum", "enum"));
             for index in body_start.saturating_sub(1)..self.index {
@@ -291,7 +292,7 @@ impl<'a> Parser<'a> {
         if wire_backed {
             let backing = self.expect_ident("expected Str enum backing type")?;
             if backing != "Str" {
-                self.diagnostic_previous("wire enums support only Str backing", "parse.enum-backing");
+                self.diagnostic_previous("wire enums support only Str backing", DiagnosticCode::ParseEnumBacking);
             }
         }
         self.expect(TokenKindMatch::LBrace, "expected `{` after enum name")?;
@@ -313,7 +314,7 @@ impl<'a> Parser<'a> {
             }
             let wire_value = if wire_backed {
                 if !fields.is_empty() {
-                    self.diagnostic_previous("Str-backed enum variants cannot have payload fields", "parse.enum-wire-payload");
+                    self.diagnostic_previous("Str-backed enum variants cannot have payload fields", DiagnosticCode::ParseEnumWirePayload);
                 }
                 self.expect(TokenKindMatch::Equals, "every Str-backed enum variant requires `= constant_string`")?;
                 Some(self.parse_expr_id_arena_only(arena)?)
@@ -329,7 +330,7 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKindMatch::RBrace, "expected `}` after enum variants")?;
         if variants.is_empty() {
-            self.diagnostic_previous("an enum requires at least one variant", "parse.empty-enum");
+            self.diagnostic_previous("an enum requires at least one variant", DiagnosticCode::ParseEmptyEnum);
         }
         let variants = arena.push_tag_variant_range(variants);
         let end = self.expect_terminator();
@@ -587,7 +588,7 @@ impl<'a> Parser<'a> {
             self.diagnostic_at(
                 self.span(parameters_start, self.previous_end()),
                 "generic error families are not supported; declare a concrete error family and give payload fields concrete types",
-                "parse.generic-error-family",
+                DiagnosticCode::ParseGenericErrorFamily,
             );
         }
         self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
@@ -610,7 +611,7 @@ impl<'a> Parser<'a> {
                     name
                 } else {
                     if variants.is_empty() {
-                        self.diagnostic_here("expected error variant", "parse.error-variant");
+                        self.diagnostic_here("expected error variant", DiagnosticCode::ParseErrorVariant);
                     }
                     break;
                 };
@@ -752,7 +753,7 @@ impl<'a> Parser<'a> {
             TokenTag::Slash => AssignOp::Div,
             TokenTag::Percent => AssignOp::Rem,
             _ => {
-                self.diagnostic_here("expected assignment operator", "parse.expected-token");
+                self.diagnostic_here("expected assignment operator", DiagnosticCode::ParseExpectedToken);
                 return AssignOp::Set;
             }
         };
@@ -790,7 +791,7 @@ impl<'a> Parser<'a> {
                         if rest {
                             self.diagnostic_previous(
                                 "rest parameters cannot have default values",
-                                "parse.rest-default",
+                                DiagnosticCode::ParseRestDefault,
                             );
                         }
                         match self.parse_expr_id_arena_only(arena) {
@@ -805,7 +806,7 @@ impl<'a> Parser<'a> {
                     if rest {
                         self.diagnostic_previous(
                             "rest parameters cannot have default values",
-                            "parse.rest-default",
+                            DiagnosticCode::ParseRestDefault,
                         );
                     }
                     let default_start = self.current_start();
@@ -824,7 +825,7 @@ impl<'a> Parser<'a> {
                         reported_untyped = true;
                         self.diagnostics.push(
                             Diagnostic::error("expected `:` or default value after parameter name")
-                                .with_code("parse.expected-param-type")
+                                .with_code(DiagnosticCode::ParseExpectedParamType)
                                 .with_label(Label::primary(name_span, format!("parameters declare their types: write `{name}: Type`"))),
                         );
                     }
@@ -832,7 +833,7 @@ impl<'a> Parser<'a> {
                 } else {
                     self.diagnostic_here(
                         "expected `:` or default value after parameter name",
-                        "parse.expected-param-type",
+                        DiagnosticCode::ParseExpectedParamType,
                     );
                     break;
                 };
@@ -861,12 +862,12 @@ impl<'a> Parser<'a> {
         self.bump();
         let name = self.expect_ident("expected test name")?;
         if self.block_depth != 0 {
-            self.diagnostic_here("test declarations must be top-level", "parse.test-nested");
+            self.diagnostic_here("test declarations must be top-level", DiagnosticCode::ParseTestNested);
         }
         let effects = self.parse_effect_list();
         let body = self.parse_block_arena_only(arena)?;
         if arena.block_parameter_count(body) > 1 {
-            self.diagnostic_here("test declarations accept at most one immutable TestContext parameter", "parse.test-params");
+            self.diagnostic_here("test declarations accept at most one immutable TestContext parameter", DiagnosticCode::ParseTestParams);
         }
         let effects = effects.as_deref().map(|effects| arena.push_effects(effects));
         let span = self.span(start, self.previous_end());
@@ -889,7 +890,7 @@ impl<'a> Parser<'a> {
         if self.consume(TokenKindMatch::LParen).is_none() {
             self.diagnostic_here(
                 "function signatures are required",
-                "parse.required-signature",
+                DiagnosticCode::ParseRequiredSignature,
             );
             return None;
         }
@@ -936,7 +937,7 @@ impl<'a> Parser<'a> {
         if self.consume(TokenKindMatch::LParen).is_none() {
             self.diagnostic_here(
                 "stream producer signatures are required",
-                "parse.required-signature",
+                DiagnosticCode::ParseRequiredSignature,
             );
             return None;
         }
@@ -948,7 +949,7 @@ impl<'a> Parser<'a> {
         } else {
             self.diagnostic_here(
                 "stream producer return annotations are required",
-                "parse.required-return",
+                DiagnosticCode::ParseRequiredReturn,
             );
             unknown_type_expr(arena, self.current_span())
         };
@@ -1073,7 +1074,7 @@ impl<'a> Parser<'a> {
                 Name::intern(IntLiteral::from_text(self.span_text(span)).to_text())
             }
             _ => {
-                self.diagnostic_here("expected signal name after `on`", "parse.signal-hook");
+                self.diagnostic_here("expected signal name after `on`", DiagnosticCode::ParseSignalHook);
                 return None;
             }
         };
@@ -1091,7 +1092,7 @@ impl<'a> Parser<'a> {
                     name
                 }
                 _ => {
-                    self.diagnostic_here("expected signal hook option name", "parse.signal-hook");
+                    self.diagnostic_here("expected signal hook option name", DiagnosticCode::ParseSignalHook);
                     break;
                 }
             };
@@ -1107,7 +1108,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => self.diagnostic_here(
                             "`--pre-cancel` expects a duration literal",
-                            "parse.signal-hook",
+                            DiagnosticCode::ParseSignalHook,
                         ),
                     }
                 }
@@ -1115,7 +1116,7 @@ impl<'a> Parser<'a> {
                     self.diagnostic_at(
                         option_span,
                         &format!("unknown signal hook option `--{name}`"),
-                        "parse.signal-hook",
+                        DiagnosticCode::ParseSignalHook,
                     );
                     if self.consume(TokenKindMatch::Equals).is_some()
                         && !self.at_terminator()
@@ -1130,7 +1131,7 @@ impl<'a> Parser<'a> {
         let effects = if self.at(TokenKindMatch::LBracket) {
             self.parse_effect_list().unwrap_or_default()
         } else {
-            self.diagnostic_here("signal hooks require an effect list", "parse.signal-hook");
+            self.diagnostic_here("signal hooks require an effect list", DiagnosticCode::ParseSignalHook);
             Vec::new()
         };
         let effects = arena.push_effects(&effects);
@@ -1152,7 +1153,7 @@ impl<'a> Parser<'a> {
                     Err(()) => self.diagnostic_at(
                         span,
                         &format!("unknown effect `{name}`"),
-                        "parse.unknown-effect",
+                        DiagnosticCode::ParseUnknownEffect,
                     ),
                 }
             } else {
@@ -1294,7 +1295,7 @@ impl<'a> Parser<'a> {
         let span = self.current_span();
         self.diagnostics.push(
             Diagnostic::error(format!("XSH declares functions with `proc` (or `pure`), not `{spelling}`"))
-                .with_code("parse.foreign-syntax")
+                .with_code(DiagnosticCode::ParseForeignSyntax)
                 .with_label(Label::primary(span, "write `proc name(param: Type) { ... }`"))
                 .with_fix_hint(FixHint::replacement(span, "replace with `proc`", "proc")),
         );
@@ -1346,7 +1347,7 @@ impl<'a> Parser<'a> {
             let gap = self.span(self.previous_end(), self.peek_start(offset)?);
             let keyword = self.span(self.peek_start(offset)?, self.peek_end(offset)?);
             let mut diagnostic = Diagnostic::error("`else` must be on the same line as the `}` that closes the `if` block")
-                .with_code("parse.detached-else")
+                .with_code(DiagnosticCode::ParseDetachedElse)
                 .with_label(Label::primary(keyword, "a newline before `else` ends the `if` statement"));
             if self.source[gap.range()].trim().is_empty() {
                 diagnostic = diagnostic.with_fix_hint(FixHint::replacement(gap, "join `else` to the closing `}`", " "));
@@ -1360,7 +1361,7 @@ impl<'a> Parser<'a> {
             let span = self.current_span();
             self.diagnostics.push(
                 Diagnostic::error("XSH spells `elif` as `else if`")
-                    .with_code("parse.foreign-syntax")
+                    .with_code(DiagnosticCode::ParseForeignSyntax)
                     .with_label(Label::primary(span, "write `else if`"))
                     .with_fix_hint(FixHint::replacement(span, "replace with `else if`", "else if")),
             );
@@ -1489,7 +1490,7 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump();
         if self.at_terminator() {
-            self.diagnostic_here("`yield` requires a value", "parse.required-value");
+            self.diagnostic_here("`yield` requires a value", DiagnosticCode::ParseRequiredValue);
             self.expect_terminator();
             return None;
         }
@@ -1701,7 +1702,7 @@ impl<'a> Parser<'a> {
         let brace_start = self.current_start();
         let brace_end = self.current_end();
         let mut diagnostic = Diagnostic::error("put error-handler parameters inside the block: `else { |failure| ... }`")
-            .with_code("parse.block-header-migration")
+            .with_code(DiagnosticCode::ParseBlockHeaderMigration)
             .with_label(Label::primary(self.span(start, header_end), "move this header after `{`"));
         if self.at(TokenKindMatch::LBrace)
             && !self.source[start..brace_end].contains('#')
@@ -1718,7 +1719,7 @@ impl<'a> Parser<'a> {
             arena.recover_block_parameters(block, &params);
         } else {
             self.diagnostics.push(Diagnostic::error("an error handler cannot have two parameter headers")
-                .with_code("parse.block-params")
+                .with_code(DiagnosticCode::ParseBlockParams)
                 .with_label(Label::primary(self.span(start, brace_end), "remove the outside header")));
         }
         Some(block)
@@ -1858,7 +1859,7 @@ impl<'a> Parser<'a> {
             }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {}
             _ => {
-                self.diagnostic_here("expected builder entry", "parse.expected-builder-entry");
+                self.diagnostic_here("expected builder entry", DiagnosticCode::ParseExpectedBuilderEntry);
                 return None;
             }
         }

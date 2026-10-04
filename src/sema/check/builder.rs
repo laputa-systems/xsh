@@ -1,6 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{BuilderKind, Checker, FxHashSet, Name, Span, Type};
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaBuilderBlock, ArenaBuilderEntryKind, ArenaCallArg, ArenaExprKind, ArenaProgram,
     BuilderBlockId, ExprId,
@@ -20,7 +21,7 @@ impl Checker {
             self.error(
                 span,
                 "builder blocks require a module call",
-                "check.builder-call",
+                DiagnosticCode::CheckBuilderCall,
             );
             return Type::Unknown;
         };
@@ -30,7 +31,7 @@ impl Checker {
                     self.error(
                         span,
                         "process.command accepts no call arguments",
-                        "check.arity",
+                        DiagnosticCode::CheckArity,
                     );
                 }
                 self.check_builder_block_arena(
@@ -45,7 +46,7 @@ impl Checker {
                 self.error(
                     span,
                     "module API does not accept a builder block",
-                    "check.builder-call",
+                    DiagnosticCode::CheckBuilderCall,
                 );
                 Type::Unknown
             }
@@ -79,11 +80,11 @@ impl Checker {
             match &entry.kind {
                 ArenaBuilderEntryKind::Field { name, value } => {
                     if !seen_fields.insert(*name) {
-                        self.error(entry_span, "duplicate builder field", "check.builder-field");
+                        self.error(entry_span, "duplicate builder field", DiagnosticCode::CheckBuilderField);
                     }
                     let expected = builder_field_type(kind, &name.as_str());
                     if expected.is_none() && !builder_allows_field(kind, &name.as_str()) {
-                        self.error(entry_span, "unknown builder field", "check.builder-field");
+                        self.error(entry_span, "unknown builder field", DiagnosticCode::CheckBuilderField);
                     }
                     let byte_input = kind == BuilderKind::ProcessCommand && *name == "stdin";
                     let actual = self.check_expr_arena(arena, source, *value, if byte_input { None } else { expected.as_ref() });
@@ -103,7 +104,7 @@ impl Checker {
                 ArenaBuilderEntryKind::Entry { name, args, block } => {
                     seen_entries.insert(*name);
                     if !builder_allows_entry(kind, &name.as_str()) {
-                        self.error(entry_span, "unknown builder entry", "check.builder-entry");
+                        self.error(entry_span, "unknown builder entry", DiagnosticCode::CheckBuilderEntry);
                     }
                     for arg in arena.arena.command_args(*args) {
                         self.check_command_arg_arena(arena, source, arg, Some(&Type::Str));
@@ -127,7 +128,7 @@ impl Checker {
                     self.error(
                         entry_span,
                         "tasks are not valid in this builder",
-                        "check.builder-entry",
+                        DiagnosticCode::CheckBuilderEntry,
                     );
                     let previous_return = self.current_return.clone();
                     self.current_return =
@@ -155,7 +156,7 @@ impl Checker {
                             _ => self.error(
                                 arena.arena.stmt(*stmt_id).span,
                                 "process.command accepts only run entries and fields",
-                                "check.builder-entry",
+                                DiagnosticCode::CheckBuilderEntry,
                             ),
                         }
                     } else {
@@ -168,7 +169,7 @@ impl Checker {
             self.error(
                 arena.arena.span(block.span),
                 "process.command requires a run entry",
-                "check.builder-check",
+                DiagnosticCode::CheckBuilderCheck,
             );
         }
         let _ = (kind, require_complete, seen_fields, seen_entries);
@@ -190,13 +191,13 @@ impl Checker {
                     .value()
                     .is_some_and(|value| value <= 0) =>
             {
-                self.error(expr.span, message, "check.builder-field");
+                self.error(expr.span, message, DiagnosticCode::CheckBuilderField);
             }
             ArenaExprKind::Unary {
                 op: crate::syntax::node::UnaryOp::Neg,
                 expr: inner,
             } if matches!(arena.arena.expr(*inner).kind, ArenaExprKind::Int(_)) => {
-                self.error(expr.span, message, "check.builder-field");
+                self.error(expr.span, message, DiagnosticCode::CheckBuilderField);
             }
             _ => {}
         }

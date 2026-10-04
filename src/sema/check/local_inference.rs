@@ -1,4 +1,5 @@
 use super::{BTreeMap, BTreeSet, Checker, Diagnostic, Label, Span, Type};
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
 
 #[derive(Clone, Default)]
@@ -33,7 +34,7 @@ impl Checker {
     /// Checked facts carry canonical types, never inference identities. A
     /// failed material contract becomes a recovery fact after its diagnostic.
     pub(super) fn resolve_checked_types(&mut self) {
-        let mut reported = self.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.local-inference"))
+        let mut reported = self.diagnostics.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference))
             .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span)).collect::<BTreeSet<_>>();
         let constraints = &self.type_constraints;
         let diagnostics = &mut self.diagnostics;
@@ -270,7 +271,7 @@ impl Checker {
             let resolved = self.type_constraints.resolve(&raw).unwrap_or(Type::Invalid);
             if resolved.contains_inference() {
                 self.diagnostics.push(Diagnostic::error("local type needs an annotation")
-                    .with_code("check.local-inference")
+                    .with_code(DiagnosticCode::CheckLocalInference)
                     .with_label(Label::primary(super::expr::expr_or_run_span_arena(program, initializer), "no unique concrete type is established for this initializer")));
                 self.local_inference.checked_bindings.insert(span, Type::Invalid);
                 return Type::Invalid;
@@ -294,7 +295,7 @@ pub(super) fn finalize_type(constraints: &crate::sema::constraints::TypeConstrai
             let new_origins = origins.into_iter().filter(|origin| reported.insert(*origin)).collect::<Vec<_>>();
             if !new_origins.is_empty() {
                 let mut diagnostic = Diagnostic::error("material type needs an annotation")
-                    .with_code("check.local-inference")
+                    .with_code(DiagnosticCode::CheckLocalInference)
                     .with_label(Label::primary(span, "no unique concrete type is established for this value"));
                 for origin in new_origins { diagnostic = diagnostic.with_label(Label::secondary(origin, "type inference started here")); }
                 diagnostics.push(diagnostic);
@@ -304,7 +305,7 @@ pub(super) fn finalize_type(constraints: &crate::sema::constraints::TypeConstrai
         Err(_) => {
             if reported.insert(span) {
                 diagnostics.push(Diagnostic::error("type inference cannot publish this contract")
-                    .with_code("check.local-inference")
+                    .with_code(DiagnosticCode::CheckLocalInference)
                     .with_label(Label::primary(span, "inference variables must belong to one bounded checking problem")));
             }
             *ty = Type::Invalid;

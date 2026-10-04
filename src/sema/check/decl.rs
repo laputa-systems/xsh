@@ -4,6 +4,7 @@ use super::{
     BTreeMap, Checker, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
     QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::sema::check::{
     Binding, ContractParam, FunctionParamSig, FunctionSig, ModuleContractEntry,
     ModuleContractEntryKind, SchemaField, TagVariant, standard_record_type,
@@ -74,7 +75,7 @@ impl Checker {
             if let ArenaStmtKind::ProcDef(id) = kind {
                 let def = program.arena.function_def(id);
                 if def.test_declaration && !tests.insert(def.name) && module {
-                    self.error(span, "duplicate module test name", "check.duplicate-name");
+                    self.error(span, "duplicate module test name", DiagnosticCode::CheckDuplicateName);
                 }
             }
         }
@@ -105,7 +106,7 @@ impl Checker {
                 _ => {}
             }
             if names.iter().any(|name| tests.contains(name)) {
-                self.error(span, "name conflicts with a test declaration", "check.duplicate-name");
+                self.error(span, "name conflicts with a test declaration", DiagnosticCode::CheckDuplicateName);
             }
         }
     }
@@ -129,7 +130,7 @@ impl Checker {
                         self.error(
                             span,
                             "type name conflicts with a built-in type",
-                            "check.duplicate-name",
+                            DiagnosticCode::CheckDuplicateName,
                         );
                     }
                     self.check_standard_module_shadow(&def.name.as_str(), span);
@@ -137,11 +138,11 @@ impl Checker {
                         self.error(
                             span,
                             "type name conflicts with an imported type",
-                            "check.duplicate-name",
+                            DiagnosticCode::CheckDuplicateName,
                         );
                     }
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate top-level name", "check.duplicate-name");
+                        self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
                     }
                     self.check_enum_constructor_names(program, def, &mut names);
                     let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
@@ -170,12 +171,12 @@ impl Checker {
                         self.error(
                             span,
                             "error family name conflicts with a built-in type",
-                            "check.duplicate-name",
+                            DiagnosticCode::CheckDuplicateName,
                         );
                     }
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate top-level name", "check.duplicate-name");
+                        self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
                     }
                     self.register_error_family_arena(program, source, def_id);
                 }
@@ -186,25 +187,25 @@ impl Checker {
                         self.error(
                             span,
                             "proc name conflicts with a core command",
-                            "check.core-command-shadow",
+                            DiagnosticCode::CheckCoreCommandShadow,
                         );
                     }
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate top-level name", "check.duplicate-name");
+                        self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
                     }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate top-level name", "check.duplicate-name");
+                        self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
                     }
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate top-level name", "check.duplicate-name");
+                        self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
                     }
                 }
                 _ => {}
@@ -246,10 +247,10 @@ impl Checker {
             let span = program.arena.span(variant.span);
             self.check_standard_module_shadow(&variant.name.as_str(), span);
             if !names.insert(variant.name) || (self.current_namespace.is_none() && self.tag_variants.contains_key(&variant.name)) {
-                self.error(span, "duplicate enum constructor name", "check.duplicate-name");
+                self.error(span, "duplicate enum constructor name", DiagnosticCode::CheckDuplicateName);
             }
             if is_builtin_or_standard_record_type_name(variant.name.as_str()) {
-                self.error(span, "enum constructor conflicts with a built-in type", "check.duplicate-name");
+                self.error(span, "enum constructor conflicts with a built-in type", DiagnosticCode::CheckDuplicateName);
             }
         }
     }
@@ -287,7 +288,7 @@ impl Checker {
         for statement in &stmt_ids {
             if matches!(program.arena.stmt(*statement).kind, ArenaStmtKind::CliMain(_)) {
                 self.error(program.arena.stmt(*statement).span,
-                    "`cli main` is only permitted in the entry module", "check.cli-entry");
+                    "`cli main` is only permitted in the entry module", DiagnosticCode::CheckCliEntry);
             }
         }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
@@ -301,12 +302,12 @@ impl Checker {
                         self.error(
                             span,
                             "type name conflicts with a built-in type",
-                            "check.duplicate-name",
+                            DiagnosticCode::CheckDuplicateName,
                         );
                     }
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if self.type_defs.contains_key(&def.name) || !names.insert(def.name) {
-                        self.error(span, "duplicate module type name", "check.duplicate-name");
+                        self.error(span, "duplicate module type name", DiagnosticCode::CheckDuplicateName);
                     }
                     self.check_enum_constructor_names(program, def, &mut names);
                     self.type_defs
@@ -316,7 +317,7 @@ impl Checker {
                     let def = program.arena.error_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate module type name", "check.duplicate-name");
+                        self.error(span, "duplicate module type name", DiagnosticCode::CheckDuplicateName);
                     }
                     self.register_error_family_arena(program, source, def_id);
                 }
@@ -324,7 +325,7 @@ impl Checker {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate module name", "check.duplicate-name");
+                        self.error(span, "duplicate module name", DiagnosticCode::CheckDuplicateName);
                     }
                     let sig = self.function_sig_arena(program, source, def_id);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
@@ -333,7 +334,7 @@ impl Checker {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate module name", "check.duplicate-name");
+                        self.error(span, "duplicate module name", DiagnosticCode::CheckDuplicateName);
                     }
                     let mut sig = self.function_sig_arena(program, source, def_id);
                     if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
@@ -343,7 +344,7 @@ impl Checker {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
-                        self.error(span, "duplicate module name", "check.duplicate-name");
+                        self.error(span, "duplicate module name", DiagnosticCode::CheckDuplicateName);
                     }
                     let sig = self.function_sig_arena(program, source, def_id);
                     self.streams.insert(def.name, sig);
@@ -377,7 +378,7 @@ impl Checker {
                 self.error(
                     stmt.span,
                     "imported modules cannot run top-level mutation or commands",
-                    "check.module-top-level",
+                    DiagnosticCode::CheckModuleTopLevel,
                 );
                 continue;
             }
@@ -403,7 +404,7 @@ impl Checker {
                                 self.error(
                                     inner.span,
                                     "destructured exports are not supported",
-                                    "check.export-destructure",
+                                    DiagnosticCode::CheckExportDestructure,
                                 );
                             }
                             self.check_binding_arena(
@@ -677,11 +678,11 @@ impl Checker {
         span: Span,
     ) {
         let Some(module) = self.user_modules.get(key).cloned() else {
-            self.error(span, "unknown user module", "check.unknown-module");
+            self.error(span, "unknown user module", DiagnosticCode::CheckUnknownModule);
             return;
         };
         let Some(namespace) = alias.or_else(|| path.last().copied()) else {
-            self.error(span, "empty module path", "check.unknown-module");
+            self.error(span, "empty module path", DiagnosticCode::CheckUnknownModule);
             return;
         };
         let module = qualify_imported_error_types(module, namespace);
@@ -712,7 +713,7 @@ impl Checker {
     ) {
         let Some(module) = self.user_modules.get(key).cloned() else {
             if diagnose {
-                self.error(span, "unknown user module", "check.unknown-module");
+                self.error(span, "unknown user module", DiagnosticCode::CheckUnknownModule);
             }
             return;
         };
@@ -723,7 +724,7 @@ impl Checker {
                     self.error(
                         span,
                         "duplicate imported type namespace",
-                        "check.duplicate-name",
+                        DiagnosticCode::CheckDuplicateName,
                     );
                 }
             }
@@ -759,7 +760,7 @@ impl Checker {
                 if is_builtin_or_standard_record_type_name(name.as_str())
                     || self.type_defs.contains_key(&name)
                 {
-                    self.error(span, "duplicate imported type", "check.duplicate-name");
+                    self.error(span, "duplicate imported type", DiagnosticCode::CheckDuplicateName);
                 }
                 if let TypeDefBody::TagUnion(variants) = &body {
                     for variant in variants {
@@ -807,7 +808,7 @@ impl Checker {
                 self.error(
                     span,
                     "duplicate imported error family",
-                    "check.duplicate-name",
+                    DiagnosticCode::CheckDuplicateName,
                 );
             }
             for variant in family.variants.values() {
@@ -966,7 +967,7 @@ impl Checker {
                     "module path segment `{last}` contains a hyphen; \
                              use `as {suggested}` to give it a valid binding name"
                 );
-                self.error(span, &message, "check.hyphenated-module-alias");
+                self.error(span, &message, DiagnosticCode::CheckHyphenatedModuleAlias);
                 return;
             }
             self.import_user_module(key, alias, &path_names, span);
@@ -976,7 +977,7 @@ impl Checker {
             self.error(
                 span,
                 "only standard modules can be imported",
-                "check.unknown-module",
+                DiagnosticCode::CheckUnknownModule,
             );
             return;
         }
@@ -985,7 +986,7 @@ impl Checker {
                 "standard module `{}` cannot be aliased as `{alias}`",
                 path_names[0]
             );
-            self.error(span, &message, "check.standard-module-alias");
+            self.error(span, &message, DiagnosticCode::CheckStandardModuleAlias);
         }
     }
 
@@ -1000,10 +1001,10 @@ impl Checker {
             let mut names = FxHashSet::default();
             for parameter in arena.arena.names(def.type_parameters) {
                 if !names.insert(parameter) {
-                    self.error(span, "duplicate type parameter", "check.type-parameters");
+                    self.error(span, "duplicate type parameter", DiagnosticCode::CheckTypeParameters);
                 }
                 if Type::builtin_from_name(&parameter.as_str()).is_some() || standard_record_type(&parameter.as_str()).is_some() || matches!(parameter.as_str().as_str(), "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown") {
-                    self.error(span, "type parameter name is reserved", "check.type-parameters");
+                    self.error(span, "type parameter name is reserved", DiagnosticCode::CheckTypeParameters);
                 }
             }
             let namespace = self.current_namespace;
@@ -1012,17 +1013,17 @@ impl Checker {
                     if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
                         let mut field_names = FxHashSet::default();
                         for field in arena.arena.schema_fields(schema_fields) {
-                            if !field_names.insert(field.name) { self.error(arena.arena.span(field.span), "duplicate schema field", "check.duplicate-record-field"); }
+                            if !field_names.insert(field.name) { self.error(arena.arena.span(field.span), "duplicate schema field", DiagnosticCode::CheckDuplicateRecordField); }
                             if let Some(default) = field.default {
                                 let allowed = self.record_constructors.definition(namespace, def.name).and_then(|id| self.record_constructors.defaults(id)).is_some_and(|defaults| defaults.contains_key(&field.name));
-                                if !allowed { self.error(arena.arena.expr(default).span, "record default must be a literal or a previously declared immutable literal constant", "check.record-default"); }
+                                if !allowed { self.error(arena.arena.expr(default).span, "record default must be a literal or a previously declared immutable literal constant", DiagnosticCode::CheckRecordDefault); }
                                 if let Some(expected) = fields.get(&field.name) {
                                     let actual = self.check_expr_arena(arena, source, default, Some(expected));
                                     self.expect_type(expected, &actual, arena.arena.expr(default).span);
                                 }
                             }
                         }
-                        if field_names.is_empty() { self.error(span, "record schema needs at least one field", "check.schema"); }
+                        if field_names.is_empty() { self.error(span, "record schema needs at least one field", DiagnosticCode::CheckSchema); }
                     }
                 }
                 Err(error) => self.error(span, &error.message, error.code),
@@ -1042,7 +1043,7 @@ impl Checker {
                         self.error(
                             field_span,
                             "duplicate schema field",
-                            "check.duplicate-record-field",
+                            DiagnosticCode::CheckDuplicateRecordField,
                         );
                     }
                     let expected = self.type_from_arena(arena, field.ty);
@@ -1053,7 +1054,7 @@ impl Checker {
                         if !allowed {
                             self.error(arena.arena.expr(default).span,
                                 "record default must be a literal or a previously declared immutable literal constant",
-                                "check.record-default");
+                                DiagnosticCode::CheckRecordDefault);
                         }
                         let actual = self.check_expr_arena(arena, source, default, Some(&expected));
                         self.expect_type(&expected, &actual, arena.arena.expr(default).span);
@@ -1063,7 +1064,7 @@ impl Checker {
                     self.error(
                         span,
                         "record schema needs at least one field",
-                        "check.schema",
+                        DiagnosticCode::CheckSchema,
                     );
                 }
             }
@@ -1076,7 +1077,7 @@ impl Checker {
                         self.error(
                             entry_span,
                             "duplicate module contract export",
-                            "check.duplicate-name",
+                            DiagnosticCode::CheckDuplicateName,
                         );
                     }
                     match &entry.kind {
@@ -1098,7 +1099,7 @@ impl Checker {
                     self.error(
                         span,
                         "module contract needs at least one export",
-                        "check.module-contract",
+                        DiagnosticCode::CheckModuleContract,
                     );
                 }
             }
@@ -1140,7 +1141,7 @@ impl Checker {
                 self.error(
                     variant_span,
                     "duplicate error variant",
-                    "check.duplicate-name",
+                    DiagnosticCode::CheckDuplicateName,
                 );
             }
             let mut fields = FxHashSet::default();
@@ -1150,7 +1151,7 @@ impl Checker {
                     self.error(
                         field_span,
                         "duplicate error payload field",
-                        "check.duplicate-record-field",
+                        DiagnosticCode::CheckDuplicateRecordField,
                     );
                 }
                 self.type_from_arena(arena, field.ty);
