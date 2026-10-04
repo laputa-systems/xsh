@@ -244,7 +244,7 @@ stream lines(file: Path) [fs, error] -> Stream[Str] {
 }
 stream rows(values: List[Int]) [] -> Stream[Int] { yield @values }
 proc main() [io, fs, error] {
-  for line in lines(Path("${file_path.display()}")) { print f"\${line}" }
+  for line in lines(Path("${file_path}")) { print f"\${line}" }
   var values = [1, 2, 3]
   let source = rows(values)
   for number in source {

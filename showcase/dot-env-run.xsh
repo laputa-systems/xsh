@@ -49,7 +49,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     pairs = pairs.push({key: key, val: val})
   }
 
-  print f"loaded ${pairs.len()} var(s) from ${file.display()}"
+  print f"loaded ${pairs.len()} var(s) from ${file}"
   let env_args = ["env", @[f"${kv.key}=${kv.val}" for kv in pairs], @cmd_args]
   let command = process.command_argv("env", env_args)
   let status = process.run(command)?

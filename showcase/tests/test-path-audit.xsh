@@ -25,7 +25,7 @@ test test_path_audit_findings { |ctx|
 
   fp"${bin2}/tool".chmod(0o755)?
   let missing = fp"${root}/missing"
-  let raw = f"${bin1.display()}:${bin2.display()}:${duplicate.display()}:${missing.display()}:${file_entry.display()}::${world.display()}:${noexec.display()}"
+  let raw = f"${bin1}:${bin2}:${duplicate}:${missing}:${file_entry}::${world}:${noexec}"
 
   env XSH_SHOWCASE_PATH=$raw {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
@@ -61,7 +61,7 @@ test test_path_audit_distinguishes_non_utf8_command_names { |ctx|
   first.chmod(0o755)?
   second.chmod(0o755)?
 
-  let raw = f"${bin1.display()}:${bin2.display()}"
+  let raw = f"${bin1}:${bin2}"
   env XSH_SHOWCASE_PATH=$raw {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
     let distinct_commands = "shadowed-command" not in output

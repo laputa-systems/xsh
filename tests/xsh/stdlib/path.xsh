@@ -119,7 +119,7 @@ test test_absolute_glob_traverses_symlinked_literal_components { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-let files = g"${link.display()}/*.txt" |> map { |entry_path| entry_path.name }
+let files = g"${link}/*.txt" |> map { |entry_path| entry_path.name }
 print \${files[0]}
 """,
   )?
@@ -139,7 +139,8 @@ test test_path_interpolation_retains_native_bytes_and_text_boundaries { |ctx|
   assert fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false"
   assert fp"${raw:>12}" == Path.parse_bytes(b"   raw\xff name")?
   assert f"${raw}" == raw.display()
-  assert fp"${raw.display()}" != raw
+  let shown = raw.display()
+  assert fp"${shown}" != raw
   let output = test.run_script(
     ctx,
     r"""
@@ -220,4 +221,53 @@ third
 fourth
 third/fourth
 """
+}
+
+test test_path_display_lint_fixes_drop_needless_text_conversions { |ctx|
+  let source = r"""proc show(marker: Path, name: Str) {
+  let whole = Path(f"${marker.display()}")
+  let nested = Path(f"/tmp/${marker.display()}/y")
+  let text = Path(name)
+  let label = marker.display()
+  print f"at ${marker.display()}"
+  run printf "%s\n" ${marker.display()} ?
+  print $whole $nested $text $label
+}
+
+show(p"m", "n")
+"""
+  let candidate = test.temp_file(ctx, name: "path-display.xsh", contents: bytes.from_text(source))?
+  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
+  let fixed = candidate.read_text()?
+
+  # A Str binding is an explicit text boundary, so `label` keeps its conversion.
+  assert fixed == r"""proc show(marker: Path, name: Str) {
+  let whole = marker
+  let nested = fp"/tmp/${marker}/y"
+  let text = fp"${name}"
+  let label = marker.display()
+  print f"at ${marker}"
+  run printf "%s\n" $marker ?
+  print $whole $nested $text $label
+}
+
+show(p"m", "n")
+"""
+  let before = test.run_script(ctx, source)?
+  let after = test.run_script(ctx, fixed)?
+  let {success: succeeded, stderr: failure_details, ..} = after
+  assert succeeded, failure_details
+  assert after.stdout == before.stdout
+  assert after.stdout == """at m
+m
+m /tmp/m/y n m
+"""
+  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated_succeeded = repeated.status.exited_with(0)
+  let repeated_details = repeated.stderr
+  assert repeated_succeeded, repeated_details
+  assert candidate.read_text()? == fixed
 }

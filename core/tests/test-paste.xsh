@@ -19,7 +19,7 @@ test test_paste_reads_stdin_and_rejects_flags { |ctx|
 
   let command = f"""printf 'a
 b
-' | ${ctx.xsh_bin.display()} ${script.display()} -- -s"""
+' | ${ctx.xsh_bin} ${script} -- -s"""
 
   let output = run.text sh -c $command ?
 

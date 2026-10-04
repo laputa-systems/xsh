@@ -102,7 +102,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
         stages.StageError.Failed(
           stage: "install-darwin-xattr",
           target: ctx.target.triple,
-          detail: f"failed to remove quarantine from ${destination.display()}",
+          detail: f"failed to remove quarantine from ${destination}",
         ),
       )
     }
@@ -154,7 +154,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
   let path_value = env.get_or("PATH", "")?
   let rustflags = env.get_or(
     "LINUX_INSTALL_RUSTFLAGS",
-    f"-C linker=clang -C link-arg=-B${ctx.root.display()}/target/llvm-crt -C link-arg=-B${ctx.root.display()}/tools -C link-arg=-fuse-ld=lld",
+    f"-C linker=clang -C link-arg=-B${ctx.root}/target/llvm-crt -C link-arg=-B${ctx.root}/tools -C link-arg=-fuse-ld=lld",
   )?
   stages.execute(
     stages.command(

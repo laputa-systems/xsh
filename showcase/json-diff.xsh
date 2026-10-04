@@ -37,8 +37,8 @@ proc main(...argv: List[Str]) [fs, error] {
     }
   }
 
-  print f"a: ${opts.a.display()}  (${keys_a.len()} keys)"
-  print f"b: ${opts.b.display()}  (${keys_b.len()} keys)"
+  print f"a: ${opts.a}  (${keys_a.len()} keys)"
+  print f"b: ${opts.b}  (${keys_b.len()} keys)"
   print ""
 
   if removed.len() == 0 and added.len() == 0 and changed.len() == 0 {

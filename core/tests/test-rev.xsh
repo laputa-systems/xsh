@@ -10,7 +10,7 @@ test test_rev_lines_files_and_stdin { |ctx|
 
   let command = f"""printf 'one
 two
-' | ${ctx.xsh_bin.display()} ${script.display()}"""
+' | ${ctx.xsh_bin} ${script}"""
 
   let stdin_output = run.text sh -c $command ?
 

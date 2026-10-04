@@ -71,7 +71,7 @@ let flag: Bool = parsed.verbose
 let tags: List[Str] = parsed.tag
 let default_jobs: Int = prepared.values.jobs
 print $jobs
-print ${selected_root.display()}
+print ${selected_root}
 print $flag
 print ${tags.len()}
 print $default_jobs
@@ -174,7 +174,7 @@ let jobs: Int = options.jobs
 let root: Path = options.root
 let inline_jobs: Int = inline.jobs
 let inline_root: Path = inline.root
-print $jobs ${root.display()} $inline_jobs ${inline_root.display()}
+print $jobs ${root} $inline_jobs ${inline_root}
 """,
   )?
   assert accepted.success, accepted.stderr

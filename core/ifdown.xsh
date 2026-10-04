@@ -139,7 +139,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfdownError.Config(f"${path_value.display()}: source expects one path"))
+          return Err(IfdownError.Config(f"${path_value}: source expects one path"))
         }
 
         result = parse_source_path(fields[1], result)?
@@ -149,7 +149,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfdownError.Config(f"${path_value.display()}: source-directory expects one path"))
+          return Err(IfdownError.Config(f"${path_value}: source-directory expects one path"))
         }
 
         let dir = fp"${fields[1]}"
@@ -171,28 +171,28 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         result = append_current(result, current)
 
         if fields.len() < 4 {
-          return Err(IfdownError.Config(f"${path_value.display()}: iface expects name, address family, and method"))
+          return Err(IfdownError.Config(f"${path_value}: iface expects name, address family, and method"))
         }
 
         current = {...empty_interface(), logical: fields[1], family: fields[2], method: fields[3]}
       }
       "pre-down" => {
         if current.logical == "" {
-          return Err(IfdownError.Config(f"${path_value.display()}: pre-down outside iface stanza"))
+          return Err(IfdownError.Config(f"${path_value}: pre-down outside iface stanza"))
         }
 
         current = {...current, pre_down: current.pre_down.push(rest_after_word(line))}
       }
       "down" => {
         if current.logical == "" {
-          return Err(IfdownError.Config(f"${path_value.display()}: down outside iface stanza"))
+          return Err(IfdownError.Config(f"${path_value}: down outside iface stanza"))
         }
 
         current = {...current, down: current.down.push(rest_after_word(line))}
       }
       "post-down" => {
         if current.logical == "" {
-          return Err(IfdownError.Config(f"${path_value.display()}: post-down outside iface stanza"))
+          return Err(IfdownError.Config(f"${path_value}: post-down outside iface stanza"))
         }
 
         current = {...current, post_down: current.post_down.push(rest_after_word(line))}
@@ -275,9 +275,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 
     let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
 
-    if ! status.ok {
-      return Err(IfdownError.Hook(f"${entry.path.display()} failed for ${physical}"))
-    }
+    return Err(IfdownError.Hook(f"${entry.path} failed for ${physical}")) unless status.ok
   }
 }
 

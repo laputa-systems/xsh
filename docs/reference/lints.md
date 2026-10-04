@@ -86,7 +86,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.redundant-ok-return` | Remove `return Ok()` in a `Result[Unit]` function, using bare `return` or none |
 | `lint.redundant-ok-tail` | Remove `return Ok(...)` at a function tail since plain values are wrapped |
 | `lint.redundant-optional-fallback` | Drop a `??` fallback on an Optional receiver proved present |
-| `lint.redundant-path-display` | Avoid `.display()` on a Path argument, which replaces preserved bytes with text |
+| `lint.redundant-path-display` | Drop `.display()` from an interpolated Path; interpolation already renders it |
 | `lint.redundant-path-interpolation` | Remove a single-value path interpolation that wraps one value |
 | `lint.redundant-path-parse` | Remove a Path display then parse round trip on a value already a Path |
 | `lint.redundant-pipeline-stage` | Remove no-op `where true` and `map .` pipeline stages |

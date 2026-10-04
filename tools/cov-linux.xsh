@@ -70,7 +70,7 @@ proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
   ]
 
   if paths.len() == 0 {
-    return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in ${raw_dir.display()}"))
+    return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in ${raw_dir}"))
   }
 
   paths
@@ -160,7 +160,7 @@ proc main() [fs, process, env, error, io] {
   let objects = collect_objects(debug_dir)?.extend(collect_objects(deps_dir)?) |> sort
 
   if objects.len() == 0 {
-    return Err(CoverageError.Failed(f"coverage: no instrumented objects found under ${debug_dir.display()}"))
+    return Err(CoverageError.Failed(f"coverage: no instrumented objects found under ${debug_dir}"))
   }
 
   fs.write(
@@ -172,7 +172,7 @@ proc main() [fs, process, env, error, io] {
   let llvm_args = cov_args(profdata, objects)
   run $llvm_cov report @llvm_args > report_file ?
   io.write_stdout(report_file.read_text()?)?
-  let html_output_arg = f"--output-dir=${html_dir.display()}"
+  let html_output_arg = f"--output-dir=${html_dir}"
   run $llvm_cov show @llvm_args --format=html $html_output_arg --show-instantiations --show-line-counts-or-regions ?
   run $llvm_cov export @llvm_args --format=lcov > lcov_file ?
   print ""

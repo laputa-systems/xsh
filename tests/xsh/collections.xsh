@@ -73,14 +73,14 @@ test test_compact_sugar_forms { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-let root = p"${root.display()}"
+let root = p"${root}"
 defer root.remove(missing_ok: true)?
 root.mkdir(parents: true)?
 fp"\${root}/a.txt".write("a")?
 fp"\${root}/b.log".write("b")?
 var total = 1
 total += 2
-let files = g"${root.display()}/*.txt"
+let files = g"${root}/*.txt"
 let label = if total == 3 { "three" } else { "other" }
 let value = match Ok(total) { Ok(count) => count, Err(_) => 0 }
 print \${label} \${value} \${files |> count()}

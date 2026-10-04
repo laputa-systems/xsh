@@ -22,7 +22,7 @@ pure verification_context_source(root: Path) -> Str {
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"""#!${xsh.display()}
+  tool_path.write(f"""#!${xsh}
 ${body}
 """)?
   fs.chmod(tool_path, 0o755)?

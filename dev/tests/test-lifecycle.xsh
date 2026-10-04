@@ -27,7 +27,7 @@ pure darwin_context_source(root: Path) -> Str {
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"""#!${xsh.display()}
+  tool_path.write(f"""#!${xsh}
 ${body}
 """)?
   fs.chmod(tool_path, 0o755)?
@@ -43,7 +43,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write("cargo")?
+    f"""p"${cargo_marker}".write("cargo")?
 abort(23)""",
   )?
   let inherited_path = env.get_or("PATH", "")?
@@ -62,7 +62,7 @@ match build.build(ctx) {
 """,
     [],
     {
-      PATH: f"${tools.display()}:${inherited_path}",
+      PATH: f"${tools}:${inherited_path}",
       XSH_MODULE_PATH: fp"${repository}/dev".display(),
     },
   )?
@@ -82,7 +82,7 @@ test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write(args.join("|"))?
+    f"""p"${cargo_marker}".write(args.join("|"))?
 abort(23)""",
   )?
   let result = test.run_script(
@@ -123,7 +123,7 @@ test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
     fp"${tools}/cargo",
     xsh,
     f"""if "--bin" in args and "xsh" in args {
-  p"${xsh_marker.display()}".write(args.join("|"))?
+  p"${xsh_marker}".write(args.join("|"))?
 }
 """,
   )?
@@ -162,10 +162,10 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write("cargo")?
+    f"""p"${cargo_marker}".write("cargo")?
 abort(23)""",
   )?
-  write_fake_tool(fp"${tools}/chown", xsh, f"""p"${cleanup_marker.display()}".write("cleanup")?""")?
+  write_fake_tool(fp"${tools}/chown", xsh, f"""p"${cleanup_marker}".write("cleanup")?""")?
   let result = test.run_script(
     ctx,
     f"""
@@ -204,7 +204,7 @@ test test_docker_image_and_container_failures_are_staged { |ctx|
   write_fake_tool(
     fp"${tools}/docker",
     xsh,
-    f"""p"${docker_marker.display()}".write(args.join("|"))?
+    f"""p"${docker_marker}".write(args.join("|"))?
 if "run" in args {
   abort(24)
 }
@@ -243,7 +243,7 @@ test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
   write_fake_tool(
     fp"${tools}/docker",
     xsh,
-    f"""p"${docker_marker.display()}".write(args.join("|"))?
+    f"""p"${docker_marker}".write(args.join("|"))?
 abort(24)""",
   )?
   let result = test.run_script(
@@ -364,13 +364,13 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write(args.join("|"))?
+    f"""p"${cargo_marker}".write(args.join("|"))?
 """,
   )?
   write_fake_tool(
     fp"${tools}/codesign",
     xsh,
-    f"""p"${codesign_marker.display()}".write("codesign")?
+    f"""p"${codesign_marker}".write("codesign")?
 abort(25)""",
   )?
   let result = test.run_script(
@@ -412,7 +412,7 @@ test test_darwin_install_rejects_linux_target_before_building { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write("cargo")?
+    f"""p"${cargo_marker}".write("cargo")?
 """,
   )?
   let result = test.run_script(
@@ -460,7 +460,7 @@ test test_linux_install_requires_native_musl_target { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write("cargo")?
+    f"""p"${cargo_marker}".write("cargo")?
 """,
   )?
   let cross = test.run_script(

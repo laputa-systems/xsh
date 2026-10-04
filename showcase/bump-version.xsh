@@ -31,7 +31,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   if ! opts.manifest.exists()? {
-    print f"error: ${opts.manifest.display()} not found"
+    print f"error: ${opts.manifest} not found"
     abort(1)
   }
 

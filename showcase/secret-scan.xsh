@@ -89,7 +89,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by .path
 
   if opts.verbose {
-    print f"scanning ${files.len()} files in ${root.display()}"
+    print f"scanning ${files.len()} files in ${root}"
   }
 
   let findings: List[Finding] = files

@@ -129,9 +129,9 @@ proc search_file(
       }
 
       if show_file and line_numbers {
-        print f"${file_path.display()}:${item.index + 1}:${out}"
+        print f"${file_path}:${item.index + 1}:${out}"
       } else if show_file {
-        print f"${file_path.display()}:${out}"
+        print f"${file_path}:${out}"
       } else if line_numbers {
         print f"${item.index + 1}:${out}"
       } else {
@@ -143,7 +143,7 @@ proc search_file(
   if count {
     if matches > 0 or show_file {
       if show_file {
-        print f"${file_path.display()}:${matches}"
+        print f"${file_path}:${matches}"
       } else {
         print $matches
       }

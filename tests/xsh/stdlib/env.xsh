@@ -262,7 +262,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert "yes|/tmp/xsh-stdlib-env|" in output
   } ?
 
-  env XSH_STDLIB_CUSTOM_PATH=f":${tool_dir.display()}::" {
+  env XSH_STDLIB_CUSTOM_PATH=f":${tool_dir}::" {
     let entries = env.path_entries("XSH_STDLIB_CUSTOM_PATH")?
     assert entries.len() == 4
     assert entries[0].empty
@@ -346,7 +346,7 @@ beta """.trim()
     assert lines[1] == "beta"
     assert b"abc".compare(b"abd").byte == 3
     let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
-    assert line == f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
+    assert line == f"${root}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
   }?
 }
 

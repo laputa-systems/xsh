@@ -121,7 +121,7 @@ const DEFAULT_COUNT = 2 + 2
 const DEFAULT_TAGS: Tags = [1, 2]
 ## Parse typed options without executing defaults.
 cli main(root: Path, worker_count: Count = DEFAULT_COUNT, tags: Tags = DEFAULT_TAGS, verbose: Bool = true, delay: Duration = 20ms) [] {
-  print ${root.display()} $worker_count ${[f"$tag" for tag in tags].join(",")} $verbose $delay
+  print ${root} $worker_count ${[f"$tag" for tag in tags].join(",")} $verbose $delay
 }
 """
   let defaults = test.run_script(ctx, source, ["nonexistent"], {}, b"", "signature-defaults.xsh")?

@@ -11,7 +11,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       stages.StageError.Failed(
         stage: "verify-binary",
         target: ctx.target.triple,
-        detail: f"missing artifact ${product.display()}",
+        detail: f"missing artifact ${product}",
       ),
     )
   }
@@ -23,7 +23,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       stages.StageError.Failed(
         stage: "verify-binary",
         target: ctx.target.triple,
-        detail: f"implausibly small artifact ${product.display()}",
+        detail: f"implausibly small artifact ${product}",
       ),
     )
   }
@@ -33,7 +33,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       stages.StageError.Failed(
         stage: "verify-binary",
         target: ctx.target.triple,
-        detail: f"artifact is not executable ${product.display()}",
+        detail: f"artifact is not executable ${product}",
       ),
     )
   }
@@ -46,7 +46,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-elf",
           target: ctx.target.triple,
-          detail: f"not an ELF executable ${product.display()}",
+          detail: f"not an ELF executable ${product}",
         ),
       )
     }
@@ -58,7 +58,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-elf-machine",
           target: ctx.target.triple,
-          detail: f"wrong ELF machine for ${product.display()}",
+          detail: f"wrong ELF machine for ${product}",
         ),
       )
     }
@@ -70,7 +70,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-static",
           target: ctx.target.triple,
-          detail: f"dynamic dependency found in ${product.display()}",
+          detail: f"dynamic dependency found in ${product}",
         ),
       )
     }
@@ -82,7 +82,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-format",
           target: ctx.target.triple,
-          detail: f"wrong executable format for ${product.display()}",
+          detail: f"wrong executable format for ${product}",
         ),
       )
     }

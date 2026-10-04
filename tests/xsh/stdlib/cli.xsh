@@ -647,25 +647,25 @@ test test_cli_command_option_path_constraints { |ctx|
       ["go", "--target", missing.display()],
       {go: {options: {target: {kind: "Path", exists: true}}}},
     ),
-  ) == f"option --target expects an existing path: ${missing.display()}"
+  ) == f"option --target expects an existing path: ${missing}"
   assert failure_message(
     cli.commands(
       ["go", "--target", root.display()],
       {go: {options: {target: {kind: "Path", file: true}}}},
     ),
-  ) == f"option --target expects a file path: ${root.display()}"
+  ) == f"option --target expects a file path: ${root}"
   assert failure_message(
     cli.commands(
       ["go", "--target", present.display()],
       {go: {options: {target: {kind: "Path", dir: true}}}},
     ),
-  ) == f"option --target expects a directory path: ${present.display()}"
+  ) == f"option --target expects a directory path: ${present}"
   assert failure_message(
     cli.commands(
       ["go", "--target", missing.display()],
       {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
     ),
-  ) == f"option --target expects an existing path: ${missing.display()}"
+  ) == f"option --target expects an existing path: ${missing}"
 
   # A present file and a present directory satisfy every spelling that asks for
   # them, and a symbolic link is resolved the way the baseline's probes resolve
@@ -698,7 +698,7 @@ test test_cli_command_option_path_constraints { |ctx|
       ["go", "--target", dangling.display()],
       {go: {options: {target: {kind: "Path", exists: true}}}},
     ),
-  ) == f"option --target expects an existing path: ${dangling.display()}"
+  ) == f"option --target expects an existing path: ${dangling}"
 }
 
 test test_cli_parse_returns_values_and_asks_for_help {

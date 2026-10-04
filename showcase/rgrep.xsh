@@ -45,7 +45,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if opts.verbose {
     print f"pattern: ${opts.pattern}"
-    print f"root: ${root.display()}"
+    print f"root: ${root}"
     print f"extensions: ${exts.join(" ")}"
     print f"limit: ${opts.limit}"
   }
