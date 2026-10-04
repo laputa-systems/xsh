@@ -56,7 +56,7 @@ match observed {
   _ => print "outer only"
 }
 print "constructed"
-translated?
+let _ = translated?
 """,
   )?
   assert output.status == 3

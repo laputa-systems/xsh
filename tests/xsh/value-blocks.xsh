@@ -245,6 +245,8 @@ test test_value_tails_reject_missing_else_and_incomplete_match { |ctx|
 }
 
 test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
+  # Branch values of top-level control flow are discarded statements, not the
+  # exit status, so each is rejected.
   let branch = test.run_script(
     ctx,
     """if true {
@@ -254,7 +256,8 @@ test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
 }
 """,
   )?
-  assert branch.success, branch.stderr
+  assert branch.status == 2, branch.stderr
+  assert branch.stderr.split("err[check.ignored-result]").len() == 3, branch.stderr
   let matched = test.run_script(
     ctx,
     """match 1 {
@@ -263,7 +266,8 @@ test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
 }
 """,
   )?
-  assert matched.success, matched.stderr
+  assert matched.status == 2, matched.stderr
+  assert matched.stderr.split("err[check.ignored-result]").len() == 3, matched.stderr
   let final = test.run_script(
     ctx,
     """3

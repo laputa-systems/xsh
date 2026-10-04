@@ -221,11 +221,12 @@ test test_redundant_result_unit_lint_keeps_branching_tails { |ctx|
   let branching = test.temp_file(
     ctx,
     name: "branching.xsh",
-    contents: b"proc count() [] -> Int { 1 }\nproc pick(flag: Bool) [] -> Result[Unit] { if flag { count() } else { count() } }\npick(true)\n",
+    contents: b"proc pick(flag: Bool) [process] -> Result[Unit] { if flag { run.status true } else { run.status false } }\npick(true)\n",
   )?
   let plain_output = lint_output(plain)?
   let branching_output = lint_output(branching)?
   assert "lint.redundant-result-unit" in plain_output, plain_output
+  assert "err[" not in branching_output, branching_output
   assert "lint.redundant-result-unit" not in branching_output, branching_output
 }
 

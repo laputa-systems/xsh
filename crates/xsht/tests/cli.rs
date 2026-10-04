@@ -815,6 +815,41 @@ fn lint_only_bool_statement_applies_only_its_assert_fix() {
     assert_eq!(fs::read_to_string(&script).expect("read fixed script"), "let name: Str = \"x\"\nassert name == \"x\"\n");
 }
 
+/// The discard fix prefixes the statement wherever it sits, including in an
+/// imported module checked as part of its importer, and leaves the
+/// diagnostics it cannot repair mechanically in place.
+#[test]
+fn lint_only_ignored_result_discards_values_with_let() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(root.path().join("main.xsh"), "use helper\nproc data() [io] -> Int { print data; 1 }\ndata()\nif true { data() }\nmatch 1 {\n  1 => data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n").expect("write script");
+    fs::write(root.path().join("helper.xsh"), "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  data()\n  print go\n}\n").expect("write module");
+    fs::write(root.path().join("rejected.xsh"), "var items = [1]\nitems.push(2)\nproc parse() [error] -> Result[Int] { 1 }\nparse()\nprint ${items.len()}\n").expect("write rejected script");
+    let xsht = |args: &[&str]| Command::new(release_bin!("xsht"))
+        .args(args).current_dir(root.path()).output().expect("run xsht");
+
+    // Each file is fixed by its own lint node; the importer's node may still
+    // report the module's diagnostic from before that node ran, so the exit
+    // status of the fixing run is not part of the contract. A rerun is clean.
+    let fixed = xsht(&["lint", "--only", "check.ignored-result", "--fix", "main.xsh", "helper.xsh"]);
+    assert!(matches!(fixed.status.code(), Some(0 | 2)), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
+    let rerun = xsht(&["lint", "--only", "check.ignored-result", "main.xsh", "helper.xsh"]);
+    assert_eq!(rerun.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&rerun.stderr));
+    assert_eq!(fs::read_to_string(root.path().join("main.xsh")).expect("read fixed script"),
+        "use helper\nproc data() [io] -> Int { print data; 1 }\nlet _ = data()\nif true { let _ = data() }\nmatch 1 {\n  1 => let _ = data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n");
+    assert_eq!(fs::read_to_string(root.path().join("helper.xsh")).expect("read fixed module"),
+        "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  let _ = data()\n  print go\n}\n");
+    let ran = xsht(&["trace", "main.xsh"]);
+    assert_eq!(ran.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&ran.stderr));
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "data\ndata\ndata\nhelper\ngo\ndone\n");
+
+    let rejected = xsht(&["lint", "--only", "check.ignored-result", "--fix", "rejected.xsh"]);
+    assert_eq!(rejected.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&rejected.stderr);
+    assert_eq!(stderr.matches("err[check.ignored-result]").count(), 2, "{stderr}");
+    assert!(stderr.contains("`.push` returns a new list"), "{stderr}");
+    assert!(!stderr.contains("help: discard"), "a copy update or Result is never discarded mechanically: {stderr}");
+}
+
 /// A scoped fix rewrites only its diagnosed spans; unformatted code elsewhere
 /// keeps its exact bytes.
 #[test]

@@ -102,7 +102,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
   let probe = process.command_argv(exe.display(), [exe.display(), "--startup"])
 
   for _ in range(3) {
-    time.measure(probe, quiet: true)?
+    let _ = time.measure(probe, quiet: true)?
   }
 
   var wall_total = 0
@@ -124,7 +124,7 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
   let command = build_command(text, opts)
 
   for _ in range(opts.warmup) {
-    time.measure(command, quiet: true)?
+    let _ = time.measure(command, quiet: true)?
   }
 
   var times_ns = []

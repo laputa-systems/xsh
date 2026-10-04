@@ -288,7 +288,7 @@ pub const LINT_CODES: &[(&str, &str)] = &[
 
 /// Checker diagnostic codes that carry a source fix and may be selected with
 /// `xsht lint --only`, for scoped migrations such as `--only check.bool-statement --fix`.
-pub const FIXABLE_CHECK_CODES: &[&str] = &["check.ambiguous-grouping", "check.bool-statement", "check.dynamic-boundary", "check.mixed-logical", "check.redundant-parens"];
+pub const FIXABLE_CHECK_CODES: &[&str] = &["check.ambiguous-grouping", "check.bool-statement", "check.dynamic-boundary", "check.ignored-result", "check.mixed-logical", "check.redundant-parens"];
 
 /// One-line summaries of `FIXABLE_CHECK_CODES` for `xsht lint --list`.
 pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[
@@ -298,6 +298,7 @@ pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[
         "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",
     ),
     ("check.dynamic-boundary", "Validate an `Any` value with `.require(T)?` where the context names its concrete type"),
+    ("check.ignored-result", "Discard a value a statement would otherwise drop silently with `let _ =`"),
     ("check.mixed-logical", "Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand"),
     ("check.redundant-parens", "Remove parentheses that do not change the parse"),
 ];

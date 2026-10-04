@@ -1622,7 +1622,7 @@ let command = process.command {
         &[
             "check.missing-return",
             "check.type-mismatch",
-            "check.non-tail-expression",
+            "check.ignored-result",
             "check.empty-list",
         ],
     );
@@ -1675,7 +1675,7 @@ pure bad() -> Int {
 }
 "#,
     );
-    assert!(has_code(&non_tail, "check.non-tail-expression"));
+    assert!(has_code(&non_tail, "check.ignored-result"));
     let non_tail_text = check_messages(
         r#"
 pure bad() -> Int {
@@ -1687,7 +1687,7 @@ pure bad() -> Int {
     assert!(
         non_tail_text
             .iter()
-            .any(|message| message.contains("expression has type `Int`"))
+            .any(|message| message.contains("ignored `Int` value"))
     );
 
     let bare_value_non_tail = check(
@@ -1986,21 +1986,21 @@ fn checker_rejects_stage_8_table_and_sort_contract_errors() {
 
 #[test]
 fn checker_accepts_sort_by_record_keys_and_record_sort_items() {
-    let output = check("[{name: \"a\", count: 1}] |> sort-by { |r| {c: r.count, n: r.name} }\n");
+    let output = check("let _ = [{name: \"a\", count: 1}] |> sort-by { |r| {c: r.count, n: r.name} }\n");
     assert!(output.is_empty(), "{:?}", output);
-    let nested = check("[{id: 1}] |> sort-by { |r| {outer: {inner: r.id}} }\n");
+    let nested = check("let _ = [{id: 1}] |> sort-by { |r| {outer: {inner: r.id}} }\n");
     assert!(nested.is_empty(), "{:?}", nested);
-    let record_sort = check("[{name: \"b\", count: 2}, {name: \"a\", count: 1}] |> sort\n");
+    let record_sort = check("let _ = [{name: \"b\", count: 2}, {name: \"a\", count: 1}] |> sort\n");
     assert!(record_sort.is_empty(), "{:?}", record_sort);
 }
 
 #[test]
 fn checker_accepts_group_by_key_sort_by_for_scalar_keys() {
     let cases = [
-        "[3, 1, 2, 1] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
-        "[\"b\", \"a\"] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
-        "[true, false] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
-        "[Path(\"b\"), Path(\"a\")] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "let _ = [3, 1, 2, 1] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "let _ = [\"b\", \"a\"] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "let _ = [true, false] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "let _ = [Path(\"b\"), Path(\"a\")] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
     ];
 
     for source in cases {
@@ -2014,9 +2014,9 @@ fn checker_accepts_group_by_key_sort_by_for_scalar_keys() {
 
 #[test]
 fn checker_accepts_sort_by_desc_named_argument() {
-    let output = check("[1, 2, 3] |> sort-by(desc: true) .\n");
+    let output = check("let _ = [1, 2, 3] |> sort-by(desc: true) .\n");
     assert!(output.is_empty(), "{:?}", output);
-    let output_bad = check("[1, 2, 3] |> sort-by(unknown: true) .\n");
+    let output_bad = check("let _ = [1, 2, 3] |> sort-by(unknown: true) .\n");
     assert!(
         has_code(&output_bad, "check.named-arg"),
         "expected check.named-arg in: {:?}",

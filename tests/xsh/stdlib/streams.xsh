@@ -2581,7 +2581,7 @@ count=1
 
   let adapter_trace = test.run_xsht_trace(
     ctx,
-    """"a\\nb\\n" |> text.lines()
+    """let _ = "a\\nb\\n" |> text.lines()
 """,
     ["--raw"],
   )?
@@ -2597,7 +2597,7 @@ count=1
 
   let batch_trace = test.run_xsht_trace(
     ctx,
-    """[1, 2, 3] |> batch(count: 2)
+    """let _ = [1, 2, 3] |> batch(count: 2)
 """,
     ["--raw"],
   )?

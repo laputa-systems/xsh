@@ -5,5 +5,5 @@ on USR1 [] {
   abort(0)
 }
 
-process.run(process.command_argv(helper, ["os-probe", "signal-parent-then-sleep", "USR1", "50"]))?
+let _ = process.run(process.command_argv(helper, ["os-probe", "signal-parent-then-sleep", "USR1", "50"]))?
 print "after"

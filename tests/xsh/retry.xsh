@@ -45,7 +45,7 @@ proc flaky() -> Result[Str] {
   return Err(RetryError.Transient(message: f"attempt {attempts}"))
 }
 
-retry [0ms, 0ms] {
+let _ = retry [0ms, 0ms] {
   flaky()?
 }?
 """,

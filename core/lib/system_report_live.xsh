@@ -6480,7 +6480,7 @@ export proc collect_from_root(
   }
 
   if selected != "" {
-    report.parse_report_section(selected)?
+    let _ = report.parse_report_section(selected)?
   }
 
   let started = time.now()

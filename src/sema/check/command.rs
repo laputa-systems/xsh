@@ -214,10 +214,12 @@ impl Checker {
             self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
             return;
         }
-        if stmt.propagate || command_ty_auto_propagates(&ty) {
-            self.check_propagation(&ty, span);
-        } else {
-            self.reject_ignored_result(&ty, span);
+        let value_ty = if stmt.propagate || command_ty_auto_propagates(&ty) { self.check_propagation(&ty, span) } else { ty };
+        // `run.status` discards its status in statement position. Only a run
+        // form is also valid as a `let` initializer, so only it gets the
+        // mechanical discard.
+        if value_ty != Type::Status {
+            self.reject_discarded_value(&value_ty, span, span, matches!(stmt.command, ArenaCommand::Run(_)), None);
         }
     }
 

@@ -32,7 +32,7 @@ fn sigterm_cancels_traced_par_map_process_work_without_losing_trace_context() {
     let source = format!(
         "\
 let ready = Path({})
-[\"one\", \"two\"] |> par-map(jobs: 2) {{ |item|
+let _ = [\"one\", \"two\"] |> par-map(jobs: 2) {{ |item|
   let _status = run sh -c {} sh (ready) ?
   item
 }}

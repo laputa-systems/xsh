@@ -3112,7 +3112,7 @@ print --flush ${{human == {human}}}
 let stored = process.command {{
   run (show) "--target=${{raw}}"
 }}
-process.run(stored)?
+let _ = process.run(stored)?
 "#,
         show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
         expected = xsh_string_literal(&(expected.clone() + "\n")),
@@ -3155,7 +3155,7 @@ let command = process.command {{
   stdout = fp"{{root}}/{{destination}}"
   run cat
 }}
-process.run(command)?
+let _ = process.run(command)?
 "#, root = xsh_string_literal(root.to_str().unwrap()));
     let output = run_temp_script("native-path-file-redirections", &script);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));

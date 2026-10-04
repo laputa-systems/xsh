@@ -335,7 +335,7 @@ print ${items.len()}
 items.push(2)
 print ${items.len()}
 """,
-      code: "check.non-tail-expression",
+      code: "check.ignored-result",
       cause: "`.push` returns a new list",
       fix: "",
     },

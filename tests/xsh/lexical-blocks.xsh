@@ -291,18 +291,16 @@ export let name = "invalid"
   let import_silent = "forbidden" not in imported.stdout
   let import_stdout = imported.stdout
   assert import_silent, import_stdout
+  # A bare block is a statement, so its Int is a discarded value rather than
+  # the script's exit status.
   let bare = test.run_script(
     ctx,
     """{ 7 }
 """,
   )?
-  let succeeded = bare.success
-  let failure_details = f"bare status={bare.status}: {bare.stderr}"
-  assert succeeded, failure_details
-  let status = bare.status
-  let expected_status = 0
   let status_details = f"bare status={bare.status}: {bare.stderr}"
-  assert status == expected_status, status_details
+  assert bare.status == 2, status_details
+  assert "check.ignored-result" in bare.stderr, status_details
 }
 
 test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
@@ -323,9 +321,18 @@ test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
     assert wrong_return, diagnostics
   }
 
-  let output = test.run_script(
+  let rejected = test.run_script(
     ctx,
     """proc value() [] { { 7 }; print retained }
+value()
+""",
+  )?
+  assert rejected.status == 2, rejected.stderr
+  assert "check.ignored-result" in rejected.stderr, rejected.stderr
+
+  let output = test.run_script(
+    ctx,
+    """proc value() [] { { let _ = 7 }; print retained }
 value()
 """,
   )?

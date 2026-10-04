@@ -274,8 +274,6 @@ type Predicate = Bool
 type PredicateResult = Result[Bool]
 pure value() -> Predicate { false }
 proc wrapped() -> PredicateResult { false }
-let dynamic: Any = false
-(dynamic)
 let _ = value()
 assert wrapped()? == false
 pure checked() -> Result[Int, AssertionError] { assert true; 7 }
@@ -288,6 +286,15 @@ print "done"
   assert output.success, output.stderr
   assert output.stdout == """done
 """
+  let dynamic = test.run_script(
+    ctx,
+    """let dynamic: Any = false
+(dynamic)
+""",
+  )?
+  assert dynamic.status == 2, dynamic.stderr
+  assert "check.ignored-result" in dynamic.stderr, dynamic.stderr
+  assert "check.bool-statement" not in dynamic.stderr, dynamic.stderr
   let integer = test.run_script(
     ctx,
     """7
@@ -475,18 +482,22 @@ print $yielded.len()
 }
 
 test test_status_and_optional_statements_have_no_truthiness { |ctx|
-  let output = test.run_script(
-    ctx,
+  for source in [
     """let failed = run.status false
 (failed)
-let absent: Bool? = false
+print "done"
+""",
+    """let absent: Bool? = false
 (absent)
 print "done"
 """,
-  )?
-  assert output.success, output.stderr
-  assert output.stdout == """done
-"""
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert output.status == 2, source
+    assert output.stdout == ""
+    assert "check.ignored-result" in output.stderr, output.stderr
+    assert "check.bool-statement" not in output.stderr, output.stderr
+  }
   let integer = test.run_script(
     ctx,
     """proc check() -> Result[Unit] { let code = 7; (code) }

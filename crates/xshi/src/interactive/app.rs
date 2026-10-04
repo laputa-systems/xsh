@@ -3559,8 +3559,11 @@ mod tests {
     fn shell_guidance_shims_do_not_shadow_xsh_list_expressions() {
         let mut session = Session::for_test();
 
+        // The XSH checker, not a `[` shell shim, judges the line: a bare list
+        // is a discarded value there.
         let list = execute_line(&mut session, "[1, 2]");
-        assert_eq!(list.status, 0);
+        assert_eq!(list.status, 2);
+        assert!(String::from_utf8_lossy(&list.stderr).contains("check.ignored-result"), "{}", String::from_utf8_lossy(&list.stderr));
     }
 
     #[test]
