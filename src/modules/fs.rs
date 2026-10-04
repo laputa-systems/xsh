@@ -66,6 +66,13 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use xsh_root::{OpenOptions as RootOpenOptions, Root};
 
+mod prims;
+pub(crate) use prims::chmod as chmod_path;
+pub(crate) use prims::{
+    CopyFile, Policy, SetTimes, copy_file as copy_file_with, data_ranges, dev_major, dev_minor,
+    link, makedev, mknod, rename_noreplace, set_owner, set_times, stat, statvfs_record, umask,
+};
+
 #[derive(Default)]
 pub(crate) struct CopyTreeStats {
     files: i64,
@@ -91,6 +98,7 @@ pub(crate) struct FsMount {
     pub(crate) filesystem: String,
     pub(crate) mounted_on: PathBuf,
     pub(crate) fstype: String,
+    pub(crate) device: u64,
     pub(crate) blocks_1k: u64,
     pub(crate) used_1k: u64,
     pub(crate) available_1k: u64,
@@ -945,6 +953,8 @@ struct MountSource {
     filesystem: String,
     mounted_on: PathBuf,
     fstype: String,
+    /// The `st_dev` of files on this mount.
+    device: u64,
 }
 
 fn df_capacity_percent(used_1k: u64, available_1k: u64) -> u64 {
@@ -1238,6 +1248,7 @@ fn fs_mount_value(mount: FsMount, span: Span) -> Result<Value, RuntimeError> {
         (Arc::from("filesystem"), Value::Str(mount.filesystem.into())),
         (Arc::from("mounted_on"), Value::Path(mounted_on)),
         (Arc::from("fstype"), Value::Str(mount.fstype.into())),
+        (Arc::from("device"), Value::Int(mount.device as i64)),
         (Arc::from("blocks_1k"), Value::Int(mount.blocks_1k as i64)),
         (Arc::from("used_1k"), Value::Int(mount.used_1k as i64)),
         (
@@ -1301,6 +1312,7 @@ fn mount_record(source: MountSource, span: Span) -> Result<FsMount, RuntimeError
         filesystem: source.filesystem,
         mounted_on: source.mounted_on,
         fstype: source.fstype,
+        device: source.device,
         blocks_1k,
         used_1k,
         available_1k,
@@ -1339,6 +1351,12 @@ fn parse_linux_mountinfo_line(line: &str) -> Option<MountSource> {
         filesystem: unescape_mount_text(right[1]),
         mounted_on: PathBuf::from(OsString::from_vec(unescape_mount_bytes(left[4]))),
         fstype: right[0].to_string(),
+        device: left[2]
+            .split_once(':')
+            .and_then(|(major, minor)| {
+                Some(rfs::makedev(major.parse().ok()?, minor.parse().ok()?))
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -1394,6 +1412,9 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
             filesystem: c_char_array_to_string(&entry.f_mntfromname),
             mounted_on: PathBuf::from(c_char_array_to_string(&entry.f_mntonname)),
             fstype: c_char_array_to_string(&entry.f_fstypename),
+            device: std::fs::metadata(c_char_array_to_string(&entry.f_mntonname))
+                .map(|metadata| metadata.dev())
+                .unwrap_or_default(),
         })
         .collect())
 }
@@ -1892,19 +1913,6 @@ pub(crate) fn install_file(
     }
 }
 
-pub(crate) fn chmod_path(path: PathBuf, mode: i64, span: Span) -> Result<(), RuntimeError> {
-    let shown = path.display().to_string();
-    name_error_path(&shown, chmod_path_unnamed(path, mode, span))
-}
-
-fn chmod_path_unnamed(path: PathBuf, mode: i64, span: Span) -> Result<(), RuntimeError> {
-    if !(0..=0o7777).contains(&mode) {
-        return Err(RuntimeError::new("fs-chmod", "mode is out of range").with_span(span));
-    }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode as u32))
-        .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))
-}
-
 pub(crate) fn chown_path(
     path: PathBuf,
     uid: i64,
@@ -1960,10 +1968,7 @@ pub(crate) fn mkfifo_path(path: PathBuf, mode: i64, span: Span) -> Result<(), Ru
     if result == 0 {
         Ok(())
     } else {
-        Err(
-            RuntimeError::new("fs-mkfifo", std::io::Error::last_os_error().to_string())
-                .with_span(span),
-        )
+        Err(RuntimeError::host("fs-mkfifo", &std::io::Error::last_os_error()).with_span(span))
     }
 }
 
@@ -1979,8 +1984,7 @@ pub(crate) fn sync_filesystems() {
 }
 
 pub(crate) fn hardlink(source: PathBuf, path: PathBuf, span: Span) -> Result<(), RuntimeError> {
-    std::fs::hard_link(source, path)
-        .map_err(|error| RuntimeError::host("fs-hardlink", &error).with_span(span))
+    link(source, path, false, span)
 }
 
 pub(crate) fn symlink_path(target: PathBuf, path: PathBuf, span: Span) -> Result<(), RuntimeError> {
@@ -2299,6 +2303,39 @@ fn uid_value(uid: i64, kind: &'static str, span: Span) -> Result<u32, RuntimeErr
 
 fn gid_value(gid: i64, kind: &'static str, span: Span) -> Result<u32, RuntimeError> {
     u32::try_from(gid).map_err(|_| RuntimeError::new(kind, "gid is out of range").with_span(span))
+}
+
+/// An optional id for `chown(2)`: `None` leaves it unchanged, and the all-ones
+/// value the kernel reads as "unchanged" is not a valid id.
+fn uid_value_opt(
+    uid: Option<i64>,
+    kind: &'static str,
+    span: Span,
+) -> Result<Option<rustix::process::Uid>, RuntimeError> {
+    id_value_opt(uid, "uid", kind, span).map(|id| id.map(rustix::process::Uid::from_raw))
+}
+
+fn gid_value_opt(
+    gid: Option<i64>,
+    kind: &'static str,
+    span: Span,
+) -> Result<Option<Gid>, RuntimeError> {
+    id_value_opt(gid, "gid", kind, span).map(|id| id.map(Gid::from_raw))
+}
+
+fn id_value_opt(
+    id: Option<i64>,
+    what: &str,
+    kind: &'static str,
+    span: Span,
+) -> Result<Option<u32>, RuntimeError> {
+    id.map(|id| {
+        u32::try_from(id)
+            .ok()
+            .filter(|id| *id != u32::MAX)
+            .ok_or_else(|| RuntimeError::new(kind, format!("{what} is out of range")).with_span(span))
+    })
+    .transpose()
 }
 
 fn pathbuf_from_path_value(path: &PathValue) -> PathBuf {

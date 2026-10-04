@@ -1581,7 +1581,11 @@ fn fs_module() -> ModuleSig {
         (
             "chmod",
             sig(
-                vec![param("path", Type::Path), param("mode", Type::Int)],
+                vec![
+                    param("path", Type::Path),
+                    param("mode", Type::Int),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
                 result(Type::Unit),
                 false,
                 RuntimeOp::FsChmod,
@@ -1620,6 +1624,140 @@ fn fs_module() -> ModuleSig {
                 result(Type::Unit),
                 false,
                 RuntimeOp::FsMkfifo,
+            ),
+        ),
+        (
+            "stat",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(crate::records::fs_stat_type()),
+                false,
+                RuntimeOp::FsStat,
+            ),
+        ),
+        (
+            "set_owner",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("uid", Type::Optional(Box::new(Type::Int))),
+                    default_param("gid", Type::Optional(Box::new(Type::Int))),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsSetOwner,
+            ),
+        ),
+        (
+            "set_times",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("atime_ns", Type::Optional(Box::new(Type::Int))),
+                    default_param("mtime_ns", Type::Optional(Box::new(Type::Int))),
+                    default_param("atime_now", Type::Bool),
+                    default_param("mtime_now", Type::Bool),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsSetTimes,
+            ),
+        ),
+        (
+            "mknod",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    param("kind", Type::Str),
+                    param("mode", Type::Int),
+                    default_param("major", Type::Int),
+                    default_param("minor", Type::Int),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsMknod,
+            ),
+        ),
+        (
+            "makedev",
+            sig(
+                vec![param("major", Type::Int), param("minor", Type::Int)],
+                Type::Int,
+                true,
+                RuntimeOp::FsMakedev,
+            ),
+        ),
+        (
+            "dev_major",
+            sig(vec![param("dev", Type::Int)], Type::Int, true, RuntimeOp::FsDevMajor),
+        ),
+        (
+            "dev_minor",
+            sig(vec![param("dev", Type::Int)], Type::Int, true, RuntimeOp::FsDevMinor),
+        ),
+        (
+            "link",
+            sig(
+                vec![
+                    param("source", Type::Path),
+                    param("dest", Type::Path),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsLink,
+            ),
+        ),
+        (
+            "umask",
+            sig(Vec::new(), result(Type::Int), false, RuntimeOp::FsUmask),
+        ),
+        (
+            "statvfs",
+            sig(
+                vec![param("path", Type::Path)],
+                result(crate::records::fs_statvfs_type()),
+                false,
+                RuntimeOp::FsStatvfs,
+            ),
+        ),
+        (
+            "rename_noreplace",
+            sig(
+                vec![param("source", Type::Path), param("dest", Type::Path)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsRenameNoreplace,
+            ),
+        ),
+        (
+            "data_ranges",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::List(Box::new(crate::records::fs_data_range_type()))),
+                false,
+                RuntimeOp::FsDataRanges,
+            ),
+        ),
+        (
+            "copy_file",
+            sig(
+                vec![
+                    param("source", Type::Path),
+                    param("dest", Type::Path),
+                    default_param("sparse", Type::Str),
+                    default_param("reflink", Type::Str),
+                    default_param("overwrite", Type::Bool),
+                    default_param("mode", Type::Optional(Box::new(Type::Int))),
+                ],
+                result(crate::records::fs_copy_file_result_type()),
+                false,
+                RuntimeOp::FsCopyFile,
             ),
         ),
         (
@@ -3807,6 +3945,26 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes one filesystem directory entry and its metadata.",
             "Metadata is a host snapshot; permission and timestamp fields can change after the record is read.",
             &["filesystem", "metadata", "record"],
+        ),
+        "FsCopyFileResult" => (
+            "Reports how fs.copy_file moved bytes into the destination.",
+            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination.",
+            &["filesystem", "copy", "record"],
+        ),
+        "FsDataRange" => (
+            "Describes one run of allocated data in a file.",
+            "Offsets and lengths are a point-in-time view; a concurrent writer can fill holes or extend the file after the read.",
+            &["filesystem", "sparse", "record"],
+        ),
+        "FsStat" => (
+            "Describes complete stat(2) or lstat(2) metadata for one path.",
+            "Times are nanoseconds since the Unix epoch; birth_ns is null where the filesystem reports none; dev and ino identify a file and its hard links; mode includes the file-type bits.",
+            &["filesystem", "metadata", "record"],
+        ),
+        "FsStatvfs" => (
+            "Reports raw statvfs(3) counters for the filesystem holding a path.",
+            "Block counts are in fragment_size units; type_magic is the statfs f_type value on Linux and null elsewhere.",
+            &["filesystem", "capacity", "record"],
         ),
         "FsFilesystemStats" => (
             "Reports capacity statistics for a filesystem.",

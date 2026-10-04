@@ -440,6 +440,19 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsChown
             | RuntimeOp::FsChgrp
             | RuntimeOp::FsMkfifo
+            | RuntimeOp::FsStat
+            | RuntimeOp::FsSetOwner
+            | RuntimeOp::FsSetTimes
+            | RuntimeOp::FsMknod
+            | RuntimeOp::FsMakedev
+            | RuntimeOp::FsDevMajor
+            | RuntimeOp::FsDevMinor
+            | RuntimeOp::FsLink
+            | RuntimeOp::FsUmask
+            | RuntimeOp::FsStatvfs
+            | RuntimeOp::FsRenameNoreplace
+            | RuntimeOp::FsDataRanges
+            | RuntimeOp::FsCopyFile
             | RuntimeOp::FsFsync
             | RuntimeOp::FsSync
             | RuntimeOp::FsSymlink

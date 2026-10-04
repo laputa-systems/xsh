@@ -776,7 +776,9 @@ Arguments evaluate once in source order, and the error is the same value
 whether a field was passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
-Every error has `.message`. Exact variant patterns expose payload fields;
+Every error has `.message`. A failed host operation also carries `.errno: Int?`,
+the raw OS error number (`null` for errors the kernel did not raise). Exact
+variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
 diagnostics only.
@@ -2657,7 +2659,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 
 | Module | Role |
 |---|---|
-| `fs` | filesystem walks, metadata, reads and writes, atomic writes, copies, installs, locks, temp files, and `FsRoot` confined directory capabilities |
+| `fs` | filesystem walks, metadata (`stat`, `statvfs`), ownership, mode and nanosecond timestamps, device nodes, hard links, sparse and reflink copies, no-clobber rename, reads and writes, atomic writes, installs, locks, temp files, and `FsRoot` confined directory capabilities |
 | `path` | absolute-path computation; most path operations are `Path` methods |
 | `env` | environment variables and the scoped `env.PATH` view |
 | `process` | process listing, `Command` plans, `process.run`/`process.spawn`, `which` |
@@ -2720,6 +2722,24 @@ Contracts worth knowing without consulting the reference:
   eager, so every failure happens at the call; `Path.lines()` is the lazy
   stream for a file read once, line by line. `read_lines` returns what
   `write_lines` wrote when no element contains `\n` or ends with `\r`.
+- File-utility primitives in `fs` report the kernel's view and never emulate
+  it. `fs.stat` returns every `lstat` field (`follow_symlinks: true` gives
+  `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,
+  `ino`, `rdev`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
+  one file when `dev` and `ino` match. `fs.set_owner`, `fs.set_times` (explicit
+  nanoseconds, kernel "now", or unchanged per field), `fs.chmod` and `fs.link`
+  take `follow_symlinks`. Linux cannot change a symlink's mode, so the
+  no-follow `fs.chmod` on a symlink fails with `EOPNOTSUPP`. `fs.mknod`
+  creates FIFOs, sockets, and device nodes under the umask (`fs.umask()`).
+  `fs.copy_file` creates the destination with the source's permission bits
+  (or `mode`), copies by `FICLONE`, `copy_file_range`, or read and write
+  (`reflink: "auto"|"always"|"never"`, default `never`), and preserves holes
+  (`sparse: "auto"|"always"|"never"`, default `auto`; `always` also turns
+  zero blocks into holes); it sets no other metadata, and `overwrite: false`
+  is `O_EXCL`. `fs.rename_noreplace` is `RENAME_NOREPLACE`; it never falls
+  back to a racy check on a filesystem that lacks it. A facility the host
+  or filesystem lacks fails with its errno (`failure.errno`), so callers
+  test for `EOPNOTSUPP`, `EXDEV`, or `EEXIST` rather than parse messages.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process.

@@ -1800,6 +1800,22 @@ fn lowered_flag_name(value: &LoweredValue) -> Option<String> {
     Some(flag.replace('-', "_"))
 }
 
+fn lowered_optional_int_arg(
+    value: Option<&LoweredValue>,
+    operation: &str,
+    span: Span,
+) -> Result<Option<i64>, RuntimeError> {
+    match value {
+        None | Some(LoweredValue::Null) => Ok(None),
+        Some(LoweredValue::Int(value)) => Ok(Some(*value)),
+        Some(other) => Err(RuntimeError::new(
+            "type-error",
+            format!("{operation} expected Int or null, found {}", other.type_name()),
+        )
+        .with_span(span)),
+    }
+}
+
 fn lowered_int_arg_or(
     value: Option<LoweredValue>,
     default: i64,
@@ -3289,6 +3305,7 @@ fn lowered_fs_mount_record(mount: fs_module::FsMount) -> Result<LoweredValue, Ru
         ),
         (Arc::from("mounted_on"), LoweredValue::Path(mounted_on)),
         (Arc::from("fstype"), LoweredValue::Str(mount.fstype.into())),
+        (Arc::from("device"), LoweredValue::Int(mount.device as i64)),
         (
             Arc::from("blocks_1k"),
             LoweredValue::Int(mount.blocks_1k as i64),
@@ -5264,14 +5281,21 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::truncate_path(self.host_path(&path), size, span))
             }
-            RuntimeOp::FsChmod if values.len() == 2 => {
-                let mode = lowered_int_arg(values.pop(), "fs.chmod", span)?;
+            RuntimeOp::FsChmod if values.len() == 2 || values.len() == 3 => {
+                let follow_symlinks =
+                    lowered_bool_arg_or(values.get(2).cloned(), true, "fs.chmod", span)?;
+                let mode = lowered_int_arg(values.get(1).cloned(), "fs.chmod", span)?;
                 let path = lowered_path_arg(
-                    values.pop().expect("checked value length"),
+                    values.first().cloned().expect("checked value length"),
                     "fs.chmod",
                     span,
                 )?;
-                lowered_unit_result(fs_module::chmod_path(self.host_path(&path), mode, span))
+                lowered_unit_result(fs_module::chmod_path(
+                    self.host_path(&path),
+                    mode,
+                    follow_symlinks,
+                    span,
+                ))
             }
             RuntimeOp::FsHardlink if values.len() == 2 => {
                 let path = lowered_path_arg(
@@ -5332,6 +5356,132 @@ impl Evaluator {
                     span,
                 )?;
                 lowered_unit_result(fs_module::mkfifo_path(self.host_path(&path), mode, span))
+            }
+            RuntimeOp::FsStat if (1..=2).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(1).cloned(), false, "fs.stat", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.stat", span)?;
+                lowered_runtime_result(fs_module::stat(self.host_path(&path), follow, span), span)?
+            }
+            RuntimeOp::FsSetOwner if (1..=4).contains(&values.len()) => {
+                let follow =
+                    lowered_bool_arg_or(values.get(3).cloned(), false, "fs.set_owner", span)?;
+                let gid = lowered_optional_int_arg(values.get(2), "fs.set_owner", span)?;
+                let uid = lowered_optional_int_arg(values.get(1), "fs.set_owner", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.set_owner", span)?;
+                lowered_unit_result(fs_module::set_owner(
+                    self.host_path(&path),
+                    uid,
+                    gid,
+                    follow,
+                    span,
+                ))
+            }
+            RuntimeOp::FsSetTimes if (1..=6).contains(&values.len()) => {
+                let operation = "fs.set_times";
+                let times = fs_module::SetTimes {
+                    atime_ns: lowered_optional_int_arg(values.get(1), operation, span)?,
+                    mtime_ns: lowered_optional_int_arg(values.get(2), operation, span)?,
+                    atime_now: lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?,
+                    mtime_now: lowered_bool_arg_or(values.get(4).cloned(), false, operation, span)?,
+                    follow_symlinks: lowered_bool_arg_or(
+                        values.get(5).cloned(),
+                        false,
+                        operation,
+                        span,
+                    )?,
+                };
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_unit_result(fs_module::set_times(self.host_path(&path), times, span))
+            }
+            RuntimeOp::FsMknod if (3..=5).contains(&values.len()) => {
+                let operation = "fs.mknod";
+                let minor = lowered_int_arg_or(values.get(4).cloned(), 0, operation, span)?;
+                let major = lowered_int_arg_or(values.get(3).cloned(), 0, operation, span)?;
+                let mode = lowered_int_arg(values.get(2).cloned(), operation, span)?;
+                let kind = lowered_str_arg_owned(values.get(1).cloned(), "", operation, span)?;
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_unit_result(fs_module::mknod(
+                    self.host_path(&path),
+                    &kind,
+                    mode,
+                    major,
+                    minor,
+                    span,
+                ))
+            }
+            RuntimeOp::FsMakedev if values.len() == 2 => {
+                let minor = lowered_int_arg(values.pop(), "fs.makedev", span)?;
+                let major = lowered_int_arg(values.pop(), "fs.makedev", span)?;
+                LoweredValue::Int(fs_module::makedev(major, minor))
+            }
+            RuntimeOp::FsDevMajor if values.len() == 1 => {
+                let dev = lowered_int_arg(values.pop(), "fs.dev_major", span)?;
+                LoweredValue::Int(fs_module::dev_major(dev))
+            }
+            RuntimeOp::FsDevMinor if values.len() == 1 => {
+                let dev = lowered_int_arg(values.pop(), "fs.dev_minor", span)?;
+                LoweredValue::Int(fs_module::dev_minor(dev))
+            }
+            RuntimeOp::FsLink if (2..=3).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(2).cloned(), false, "fs.link", span)?;
+                let dest = lowered_path_arg(values.remove(1), "fs.link", span)?;
+                let source = lowered_path_arg(values.remove(0), "fs.link", span)?;
+                lowered_unit_result(fs_module::link(
+                    self.host_path(&source),
+                    self.host_path(&dest),
+                    follow,
+                    span,
+                ))
+            }
+            RuntimeOp::FsUmask if values.is_empty() => {
+                lowered_result_ok(LoweredValue::Int(fs_module::umask()))
+            }
+            RuntimeOp::FsStatvfs if values.len() == 1 => {
+                let path = lowered_path_arg(values.remove(0), "fs.statvfs", span)?;
+                lowered_runtime_result(fs_module::statvfs_record(self.host_path(&path), span), span)?
+            }
+            RuntimeOp::FsRenameNoreplace if values.len() == 2 => {
+                let dest = lowered_path_arg(values.remove(1), "fs.rename_noreplace", span)?;
+                let source = lowered_path_arg(values.remove(0), "fs.rename_noreplace", span)?;
+                lowered_unit_result(fs_module::rename_noreplace(
+                    self.host_path(&source),
+                    self.host_path(&dest),
+                    span,
+                ))
+            }
+            RuntimeOp::FsDataRanges if values.len() == 1 => {
+                let path = lowered_path_arg(values.remove(0), "fs.data_ranges", span)?;
+                lowered_runtime_result(fs_module::data_ranges(self.host_path(&path), span), span)?
+            }
+            RuntimeOp::FsCopyFile if (2..=6).contains(&values.len()) => {
+                let operation = "fs.copy_file";
+                let mode = lowered_optional_int_arg(values.get(5), operation, span)?;
+                let overwrite = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
+                let reflink = lowered_str_arg_owned(values.get(3).cloned(), "never", operation, span)?;
+                let sparse = lowered_str_arg_owned(values.get(2).cloned(), "auto", operation, span)?;
+                let dest = lowered_path_arg(values.remove(1), operation, span)?;
+                let source = lowered_path_arg(values.remove(0), operation, span)?;
+                let policies = fs_module::Policy::parse(&sparse, "sparse", span).and_then(|sparse| {
+                    fs_module::Policy::parse(&reflink, "reflink", span)
+                        .map(|reflink| (sparse, reflink))
+                });
+                match policies {
+                    Err(error) => lowered_result_err_value(error),
+                    Ok((sparse, reflink)) => lowered_runtime_result(
+                        fs_module::copy_file_with(
+                            self.host_path(&source),
+                            self.host_path(&dest),
+                            fs_module::CopyFile {
+                                sparse,
+                                reflink,
+                                overwrite,
+                                mode,
+                            },
+                            span,
+                        ),
+                        span,
+                    )?,
+                }
             }
             RuntimeOp::FsFsync if values.len() == 1 => {
                 let path = lowered_path_arg(
@@ -11238,7 +11388,7 @@ impl Evaluator {
         {
             let mode = lowered_int_arg(values.pop(), "Path.chmod", *span)?;
             let value =
-                lowered_unit_result(fs_module::chmod_path(self.host_path(path), mode, *span));
+                lowered_unit_result(fs_module::chmod_path(self.host_path(path), mode, true, *span));
             return Ok(ControlFlow::Continue(value));
         }
         if let LoweredValue::Path(source) = &receiver

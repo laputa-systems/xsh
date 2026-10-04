@@ -25,10 +25,14 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("ElfInfo", elf_info_type()),
         ("EnvEntry", env_entry_type()),
         ("EnvPathEntry", env_path_entry_type()),
+        ("FsCopyFileResult", fs_copy_file_result_type()),
         ("FsCopyTreeResult", fs_copy_tree_result_type()),
+        ("FsDataRange", fs_data_range_type()),
         ("FsEntry", fs_entry_type()),
         ("FsFilesystemStats", fs_filesystem_stats_type()),
         ("FsRootFilesystemStats", fs_root_filesystem_stats_type()),
+        ("FsStat", fs_stat_type()),
+        ("FsStatvfs", fs_statvfs_type()),
         ("FsLock", fs_lock_type()),
         ("FsMount", fs_mount_type()),
         ("FsRemoveManifestResult", fs_remove_manifest_result_type()),
@@ -174,6 +178,7 @@ pub fn fs_mount_type() -> Type {
         ("filesystem".to_string(), Type::Str),
         ("mounted_on".to_string(), Type::Path),
         ("fstype".to_string(), Type::Str),
+        ("device".to_string(), Type::Int),
         ("blocks_1k".to_string(), Type::Int),
         ("used_1k".to_string(), Type::Int),
         ("available_1k".to_string(), Type::Int),
@@ -183,6 +188,62 @@ pub fn fs_mount_type() -> Type {
         ("files_free".to_string(), Type::Int),
         ("files_capacity_percent".to_string(), Type::Int),
         ("readonly".to_string(), Type::Bool),
+    ]))
+}
+
+pub fn fs_stat_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("kind", Type::Str),
+        ("mode", Type::Int),
+        ("size", Type::Int),
+        ("blocks_512", Type::Int),
+        ("blksize", Type::Int),
+        ("uid", Type::Int),
+        ("gid", Type::Int),
+        ("nlink", Type::Int),
+        ("dev", Type::Int),
+        ("ino", Type::Int),
+        ("rdev", Type::Int),
+        ("atime_ns", Type::Int),
+        ("mtime_ns", Type::Int),
+        ("ctime_ns", Type::Int),
+        ("birth_ns", Type::Optional(Box::new(Type::Int))),
+    ]))
+}
+
+pub fn fs_statvfs_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("block_size", Type::Int),
+        ("fragment_size", Type::Int),
+        ("blocks", Type::Int),
+        ("blocks_free", Type::Int),
+        ("blocks_available", Type::Int),
+        ("files", Type::Int),
+        ("files_free", Type::Int),
+        ("files_available", Type::Int),
+        ("fsid", Type::Int),
+        ("name_max", Type::Int),
+        ("type_magic", Type::Optional(Box::new(Type::Int))),
+        ("flags", Type::Int),
+        ("readonly", Type::Bool),
+        ("nosuid", Type::Bool),
+        ("nodev", Type::Bool),
+        ("noexec", Type::Bool),
+    ]))
+}
+
+pub fn fs_copy_file_result_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("bytes", Type::Int),
+        ("hole_bytes", Type::Int),
+        ("method", Type::Str),
+    ]))
+}
+
+pub fn fs_data_range_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("offset", Type::Int),
+        ("length", Type::Int),
     ]))
 }
 

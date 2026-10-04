@@ -9210,6 +9210,10 @@ impl Evaluator {
         }
         match base {
             LoweredValue::Error(value) => {
+                let errno = match value.as_ref() {
+                    Value::Error(error) => error.errno(),
+                    _ => None,
+                };
                 let (kind, message) = match value.as_ref() {
                     Value::Error(error) => (error.kind.clone(), error.message.clone()),
                     Value::RunError(error) => (error.kind.clone(), error.message.clone()),
@@ -9223,6 +9227,7 @@ impl Evaluator {
                 match name {
                     "kind" => Ok(LoweredValue::Str(kind.into())),
                     "message" => Ok(LoweredValue::Str(message.into())),
+                    "errno" => Ok(errno.map_or(LoweredValue::Null, LoweredValue::Int)),
                     _ => Err(RuntimeError::new("missing-field", name).with_span(span)),
                 }
             }

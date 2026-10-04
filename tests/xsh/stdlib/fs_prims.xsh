@@ -1,0 +1,536 @@
+test test_failed_host_operations_carry_errno { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-errno")?
+  let missing = fp"{root}/missing"
+  let source = fp"{root}/source"
+  source.write("x")?
+
+  let read = fs.read_text(missing)
+  assert read is Err(is NotFound)
+  if let Err(failure) = read {
+    assert failure.errno == 2
+  }
+
+  let linked = fs.link(source, source)
+  assert linked is Err(_)
+  if let Err(failure) = linked {
+    assert failure.errno == 17
+  }
+
+  let fifo = fs.mkfifo(fp"{root}/no-such-dir/fifo", 0o600)
+  assert fifo is Err(_)
+  if let Err(failure) = fifo {
+    assert failure.errno == 2
+  }
+
+  let refused = fs.copy(source, source)
+  assert refused is Err(_)
+  if let Err(failure) = refused {
+    assert failure.errno == null
+  }
+}
+
+test test_stat_reports_every_lstat_field { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-stat")?
+  let file = fp"{root}/file"
+  file.write("hello")?
+  let st = fs.stat(file)?
+  assert st.kind == "file"
+  assert st.size == 5
+  assert st.nlink == 1
+  assert st.mode.bit_and(0o170000) == 0o100000
+  assert st.mode.bit_and(0o7777) == 0o666.clear_bits(fs.umask()?)
+  assert st.uid == applet.current_euid()
+  assert st.blksize > 0
+  assert st.ino > 0
+  assert st.rdev == 0
+  assert st.mtime_ns > 1600000000000000000
+  assert st.ctime_ns >= st.mtime_ns
+  assert (st.birth_ns ?? st.mtime_ns) > 0
+
+  assert fs.stat(root)?.kind == "dir"
+  assert fs.stat(p"/dev/null")?.kind == "char"
+}
+
+test test_stat_follows_symlinks_only_when_asked { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-stat-link")?
+  let file = fp"{root}/file"
+  let link = fp"{root}/link"
+  let dangling = fp"{root}/dangling"
+  file.write("hello")?
+  fs.symlink(p"file", link)?
+  fs.symlink(p"nowhere", dangling)?
+
+  let lstat = fs.stat(link)?
+  assert lstat.kind == "symlink"
+  assert lstat.size == 4
+  assert lstat.ino != fs.stat(file)?.ino
+
+  let followed = fs.stat(link, follow_symlinks: true)?
+  assert followed.kind == "file"
+  assert followed.ino == fs.stat(file)?.ino
+
+  assert fs.stat(dangling)?.kind == "symlink"
+  let broken = fs.stat(dangling, follow_symlinks: true)
+  assert broken is Err(is NotFound)
+  if let Err(failure) = broken {
+    assert failure.errno == 2
+  }
+}
+
+test test_stat_names_fifo_socket_and_hard_link_identity { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-stat-kinds")?
+  let file = fp"{root}/file"
+  let hard = fp"{root}/hard"
+  file.write("x")?
+  fs.link(file, hard)?
+  let first = fs.stat(file)?
+  let second = fs.stat(hard)?
+  assert first.dev == second.dev
+  assert first.ino == second.ino
+  assert first.nlink == 2
+  assert second.nlink == 2
+
+  fs.mkfifo(fp"{root}/fifo", 0o600)?
+  assert fs.stat(fp"{root}/fifo")?.kind == "fifo"
+  fs.mknod(fp"{root}/socket", "socket", 0o600)?
+  assert fs.stat(fp"{root}/socket")?.kind == "socket"
+}
+
+test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-times")?
+  let file = fp"{root}/file"
+  file.write("x")?
+
+  fs.set_times(file, atime_ns: 1700000000123456789, mtime_ns: 1600000000987654321)?
+  let both = fs.stat(file)?
+  assert both.atime_ns == 1700000000123456789
+  assert both.mtime_ns == 1600000000987654321
+
+  fs.set_times(file, mtime_ns: 1500000000000000001)?
+  let mtime_only = fs.stat(file)?
+  assert mtime_only.atime_ns == 1700000000123456789
+  assert mtime_only.mtime_ns == 1500000000000000001
+
+  fs.set_times(file)?
+  assert fs.stat(file)?.mtime_ns == 1500000000000000001
+
+  fs.set_times(file, mtime_ns: -1500000000)?
+  assert fs.stat(file)?.mtime_ns == -1500000000
+}
+
+test test_set_times_now_uses_the_kernel_clock { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-times-now")?
+  let file = fp"{root}/file"
+  file.write("x")?
+  fs.set_times(file, atime_ns: 1000000000, mtime_ns: 2000000000)?
+
+  fs.set_times(file, mtime_now: true)?
+  let touched = fs.stat(file)?
+  assert touched.atime_ns == 1000000000
+  assert touched.mtime_ns > 1600000000000000000
+
+  fs.set_times(file, atime_now: true)?
+  assert fs.stat(file)?.atime_ns > 1600000000000000000
+
+  let both = fs.set_times(file, atime_ns: 1, atime_now: true)
+  assert both is Err(_)
+  test.error_kind(both, "fs-set-times")?
+}
+
+test test_set_times_nofollow_changes_the_link_not_its_target { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-times-link")?
+  let file = fp"{root}/file"
+  let link = fp"{root}/link"
+  file.write("x")?
+  fs.symlink(p"file", link)?
+  fs.set_times(file, atime_ns: 1000000000, mtime_ns: 1000000000)?
+
+  fs.set_times(link, atime_ns: 3000000000, mtime_ns: 3000000000)?
+  assert fs.stat(link)?.mtime_ns == 3000000000
+  assert fs.stat(file)?.mtime_ns == 1000000000
+
+  fs.set_times(link, mtime_ns: 4000000000, follow_symlinks: true)?
+  assert fs.stat(file)?.mtime_ns == 4000000000
+  assert fs.stat(link)?.mtime_ns == 3000000000
+}
+
+test test_set_owner_changes_both_ids_and_leaves_null_alone { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-owner")?
+  let file = fp"{root}/file"
+  let link = fp"{root}/link"
+  file.write("x")?
+  fs.symlink(p"file", link)?
+  let before = fs.stat(file)?
+
+  fs.set_owner(file)?
+  fs.set_owner(file, uid: before.uid, gid: before.gid)?
+  assert fs.stat(file)?.uid == before.uid
+
+  if applet.current_euid() == 0 {
+    fs.set_owner(file, uid: 12345, gid: 54321)?
+    let changed = fs.stat(file)?
+    assert changed.uid == 12345
+    assert changed.gid == 54321
+
+    fs.set_owner(file, gid: 777)?
+    assert fs.stat(file)?.uid == 12345
+    assert fs.stat(file)?.gid == 777
+
+    fs.set_owner(link, uid: 4242)?
+    assert fs.stat(link)?.uid == 4242
+    assert fs.stat(file)?.uid == 12345
+
+    fs.set_owner(link, uid: 4343, follow_symlinks: true)?
+    assert fs.stat(file)?.uid == 4343
+    assert fs.stat(link)?.uid == 4242
+  } else {
+    let denied = fs.set_owner(file, uid: 0)
+    assert denied is Err(is PermissionDenied)
+    if let Err(failure) = denied {
+      assert failure.errno == 1
+    }
+  }
+}
+
+test test_set_owner_rejects_ids_the_kernel_reads_as_unchanged { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-owner-range")?
+  let file = fp"{root}/file"
+  file.write("x")?
+  assert fs.set_owner(file, uid: -1) is Err(_)
+  assert fs.set_owner(file, gid: 4294967295) is Err(_)
+  assert fs.set_owner(file, uid: 4294967296) is Err(_)
+}
+
+test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-chmod-link")?
+  let file = fp"{root}/file"
+  let link = fp"{root}/link"
+  file.write("x")?
+  fs.symlink(p"file", link)?
+  fs.chmod(file, 0o600)?
+
+  fs.chmod(file, 0o640, follow_symlinks: false)?
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
+
+  fs.chmod(link, 0o604)?
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o604
+
+  if system.uname()?.sysname == "Linux" {
+    let refused = fs.chmod(link, 0o600, follow_symlinks: false)
+    assert refused is Err(_)
+    if let Err(failure) = refused {
+      assert failure.errno != null
+    }
+    assert fs.stat(file)?.mode.bit_and(0o7777) == 0o604
+  }
+  assert fs.chmod(file, 0o10000) is Err(_)
+}
+
+test test_mknod_creates_nodes_under_the_umask { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-mknod")?
+  let mask = fs.umask()?
+  assert mask >= 0 and mask <= 0o777
+
+  fs.mknod(fp"{root}/fifo", "fifo", 0o666)?
+  let fifo = fs.stat(fp"{root}/fifo")?
+  assert fifo.kind == "fifo"
+  assert fifo.mode.bit_and(0o777) == 0o666.clear_bits(mask)
+
+  fs.mknod(fp"{root}/regular", "file", 0o640)?
+  let regular = fs.stat(fp"{root}/regular")?
+  assert regular.kind == "file"
+  assert regular.size == 0
+
+  let again = fs.mknod(fp"{root}/fifo", "fifo", 0o600)
+  assert again is Err(_)
+  if let Err(failure) = again {
+    assert failure.errno == 17
+  }
+
+  assert fs.mknod(fp"{root}/bad", "pipe", 0o600) is Err(_)
+  assert fs.mknod(fp"{root}/bad", "fifo", 0o600, major: 1, minor: 3) is Err(_)
+  assert fs.mknod(fp"{root}/bad", "fifo", 0o20000) is Err(_)
+}
+
+test test_mknod_device_nodes_need_privilege_and_carry_device_numbers { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-mknod-dev")?
+  let node = fp"{root}/node"
+  if applet.current_euid() == 0 {
+    let made = fs.mknod(node, "char", 0o600, major: 1, minor: 3)
+    guard made is Ok(_) else {
+      test.skip("the environment forbids device nodes")
+      return
+    }
+    let st = fs.stat(node)?
+    assert st.kind == "char"
+    assert st.rdev == fs.makedev(1, 3)
+    assert fs.dev_major(st.rdev) == 1
+    assert fs.dev_minor(st.rdev) == 3
+  } else {
+    let denied = fs.mknod(node, "block", 0o600, major: 7, minor: 0)
+    assert denied is Err(is PermissionDenied)
+    if let Err(failure) = denied {
+      assert failure.errno == 1
+    }
+  }
+}
+
+test test_device_numbers_round_trip_extended_encodings { |ctx|
+  assert fs.dev_major(fs.makedev(1, 3)) == 1
+  assert fs.dev_minor(fs.makedev(1, 3)) == 3
+  assert fs.dev_major(fs.makedev(1234, 567890)) == 1234
+  assert fs.dev_minor(fs.makedev(1234, 567890)) == 567890
+}
+
+test test_link_follows_a_source_symlink_only_when_asked { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-link")?
+  let file = fp"{root}/file"
+  let link = fp"{root}/link"
+  file.write("x")?
+  fs.symlink(p"file", link)?
+
+  fs.link(link, fp"{root}/to-link")?
+  assert fs.stat(fp"{root}/to-link")?.kind == "symlink"
+  assert fs.stat(fp"{root}/to-link")?.ino == fs.stat(link)?.ino
+
+  fs.link(link, fp"{root}/to-file", follow_symlinks: true)?
+  assert fs.stat(fp"{root}/to-file")?.kind == "file"
+  assert fs.stat(fp"{root}/to-file")?.ino == fs.stat(file)?.ino
+  assert fs.stat(file)?.nlink == 2
+}
+
+test test_statvfs_reports_raw_counters_and_mount_identity { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-statvfs")?
+  let raw = fs.statvfs(root)?
+  assert raw.block_size > 0
+  assert raw.fragment_size > 0
+  assert raw.blocks > 0
+  assert raw.blocks_available <= raw.blocks_free
+  assert raw.blocks_free <= raw.blocks
+  assert raw.files_free <= raw.files or raw.files == 0
+  assert raw.name_max > 0
+  if system.uname()?.sysname == "Linux" {
+    assert raw.type_magic != null
+  }
+
+  let summary = fs.filesystem_stats(root)?
+  assert summary.blocks_1k == raw.blocks * raw.fragment_size / 1024
+  assert summary.available_1k == raw.blocks_available * raw.fragment_size / 1024
+
+  let mount = fs.mount_for(root)?
+  assert mount.device == fs.stat(mount.mounted_on)?.dev
+  assert mount.readonly == raw.readonly
+
+  let missing = fs.statvfs(fp"{root}/missing")
+  assert missing is Err(is NotFound)
+}
+
+test test_rename_noreplace_never_replaces_an_existing_destination { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-rename-noreplace")?
+  let source = fp"{root}/source"
+  let taken = fp"{root}/taken"
+  let free = fp"{root}/free"
+  source.write("source")?
+  taken.write("taken")?
+
+  let refused = fs.rename_noreplace(source, taken)
+  assert refused is Err(_)
+  if let Err(failure) = refused {
+    if failure.errno == 22 or failure.errno == 95 {
+      test.skip("the filesystem lacks RENAME_NOREPLACE")
+      return
+    }
+    assert failure.errno == 17
+  }
+  assert source.read_text()? == "source"
+  assert taken.read_text()? == "taken"
+
+  fs.rename_noreplace(source, free)?
+  assert ! source.exists()?
+  assert free.read_text()? == "source"
+
+  let missing = fs.rename_noreplace(source, fp"{root}/elsewhere")
+  assert missing is Err(is NotFound)
+}
+
+test test_data_ranges_lists_allocated_runs_of_a_sparse_file { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-data-ranges")?
+  let file = fp"{root}/sparse"
+  let size = 4194304
+  let _ = bytes.write_at(file, 0, b"head", create: true)?
+  let _ = bytes.write_at(file, size - 4, b"tail", create: true)?
+
+  let ranges = fs.data_ranges(file)?
+  assert ranges.len() >= 1
+  assert ranges[0].offset == 0
+  let last = ranges[ranges.len() - 1]
+  assert last.offset + last.length == size
+
+  var covered = 0
+  for range in ranges {
+    covered = covered + range.length
+  }
+  if ranges.len() == 1 {
+    test.skip("the filesystem reports no holes")
+    return
+  }
+  assert ranges.len() == 2
+  assert covered < size
+  assert fs.data_ranges(fp"{root}/never-created") is Err(is NotFound)
+}
+
+test test_data_ranges_of_empty_and_dense_files { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-data-ranges-dense")?
+  let empty = fp"{root}/empty"
+  let dense = fp"{root}/dense"
+  empty.write("")?
+  dense.write("0123456789")?
+  assert fs.data_ranges(empty)?.len() == 0
+  let ranges = fs.data_ranges(dense)?
+  assert ranges.len() == 1
+  assert ranges[0].offset == 0
+  assert ranges[0].length == 10
+}
+
+test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("hello world")?
+  fs.chmod(source, 0o640)?
+
+  let copied = fs.copy_file(source, dest)?
+  assert copied.bytes == 11
+  assert copied.hole_bytes == 0
+  assert copied.method == "copy_file_range" or copied.method == "read_write"
+  assert dest.read_text()? == "hello world"
+  assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o640.clear_bits(fs.umask()?)
+  assert fs.stat(dest)?.ino != fs.stat(source)?.ino
+
+  let explicit = fp"{root}/explicit"
+  let _ = fs.copy_file(source, explicit, mode: 0o600)?
+  assert fs.stat(explicit)?.mode.bit_and(0o7777) == 0o600.clear_bits(fs.umask()?)
+
+  let empty = fp"{root}/empty"
+  let empty_copy = fp"{root}/empty-copy"
+  empty.write("")?
+  assert fs.copy_file(empty, empty_copy)?.bytes == 0
+  assert fs.stat(empty_copy)?.size == 0
+}
+
+test test_copy_file_overwrite_truncates_and_exclusive_refuses { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file-overwrite")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("new")?
+  dest.write("a much longer previous content")?
+
+  let refused = fs.copy_file(source, dest, overwrite: false)
+  assert refused is Err(_)
+  if let Err(failure) = refused {
+    assert failure.errno == 17
+  }
+  assert dest.read_text()? == "a much longer previous content"
+
+  let _ = fs.copy_file(source, dest)?
+  assert dest.read_text()? == "new"
+}
+
+test test_copy_file_refuses_the_same_file_and_non_regular_sources { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file-refuse")?
+  let source = fp"{root}/source"
+  let alias = fp"{root}/alias"
+  source.write("keep")?
+  fs.link(source, alias)?
+
+  assert fs.copy_file(source, source) is Err(_)
+  assert fs.copy_file(source, alias) is Err(_)
+  assert source.read_text()? == "keep"
+
+  assert fs.copy_file(root, fp"{root}/dir-copy") is Err(_)
+  assert ! fs.exists(fp"{root}/dir-copy")?
+
+  let missing = fs.copy_file(fp"{root}/missing", fp"{root}/out")
+  assert missing is Err(is NotFound)
+  assert ! fs.exists(fp"{root}/out")?
+
+  assert fs.copy_file(source, fp"{root}/out", sparse: "sometimes") is Err(_)
+  assert fs.copy_file(source, fp"{root}/out", reflink: "yes") is Err(_)
+  assert ! fs.exists(fp"{root}/out")?
+}
+
+test test_copy_file_preserves_holes_unless_told_not_to { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file-sparse")?
+  let source = fp"{root}/source"
+  let size = 4194304
+  let _ = bytes.write_at(source, 0, b"head", create: true)?
+  let _ = bytes.write_at(source, size - 4, b"tail", create: true)?
+  if fs.data_ranges(source)?.len() < 2 {
+    test.skip("the filesystem reports no holes")
+    return
+  }
+
+  let kept = fp"{root}/kept"
+  let report = fs.copy_file(source, kept)?
+  assert report.bytes == size
+  assert report.hole_bytes > size / 2
+  assert fs.stat(kept)?.size == size
+  assert fs.data_ranges(kept)?.len() == 2
+  assert kept.read_bytes()? == source.read_bytes()?
+
+  let dense = fp"{root}/dense"
+  let dense_report = fs.copy_file(source, dense, sparse: "never")?
+  assert dense_report.hole_bytes == 0
+  assert fs.stat(dense)?.size == size
+  assert fs.stat(dense)?.blocks_512 * 512 >= size
+  assert dense.read_bytes()? == source.read_bytes()?
+}
+
+test test_copy_file_sparse_always_turns_zero_blocks_into_holes { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file-zeros")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  let zeros = bytes.zero(1048576)?
+  source.write(bytes.concat([zeros, b"data", zeros]))?
+  assert fs.stat(source)?.blocks_512 * 512 >= 2097152
+
+  let report = fs.copy_file(source, dest, sparse: "always")?
+  assert report.bytes == 2097156
+  assert report.hole_bytes >= 2097152 - 8192
+  assert dest.read_bytes()? == source.read_bytes()?
+  if fs.data_ranges(dest)?.len() == 1 {
+    test.skip("the filesystem does not keep holes")
+    return
+  }
+  assert fs.stat(dest)?.blocks_512 * 512 < 1048576
+}
+
+test test_copy_file_reflink_clones_or_fails_with_an_errno { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file-reflink")?
+  let source = fp"{root}/source"
+  let auto = fp"{root}/auto"
+  let strict = fp"{root}/strict"
+  source.write("reflink me")?
+
+  let fallback = fs.copy_file(source, auto, reflink: "auto")?
+  assert auto.read_text()? == "reflink me"
+  assert fallback.method == "clone" or fallback.method == "copy_file_range" or fallback.method == "read_write"
+
+  let always = fs.copy_file(source, strict, reflink: "always")
+  if let Ok(cloned) = always {
+    assert cloned.method == "clone"
+    assert strict.read_text()? == "reflink me"
+  } else if let Err(failure) = always {
+    assert failure.errno != null
+    assert ! fs.exists(strict)?
+    test.skip("the filesystem cannot clone files")
+  }
+}
+
+test test_copy_file_never_clones_by_default { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-file-never")?
+  let source = fp"{root}/source"
+  source.write("data")?
+  assert fs.copy_file(source, fp"{root}/dest")?.method != "clone"
+  assert fs.copy_file(source, fp"{root}/dest2", reflink: "never")?.method != "clone"
+}

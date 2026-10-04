@@ -736,6 +736,61 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Creation is host-global filesystem state and fails when the path already conflicts with the requested node.",
             &["filesystem", "fifo", "privileged"],
         )),
+        ("fs", "stat") => Some((
+            "Reads complete metadata for a path without following a final symlink unless asked.",
+            "The record is a point-in-time snapshot with nanosecond times, link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape.",
+            &["filesystem", "metadata", "inspection"],
+        )),
+        ("fs", "set_owner") => Some((
+            "Changes a path's owner and group by numeric ID in one call.",
+            "A null uid or gid is left unchanged; symlinks are not followed unless asked; the call is privilege-sensitive and failures carry their errno.",
+            &["filesystem", "ownership", "privileged"],
+        )),
+        ("fs", "set_times") => Some((
+            "Sets access and modification times with nanosecond precision.",
+            "Each time is set to an explicit nanosecond value, set to the kernel's current time, or left unchanged; symlinks are not followed unless asked.",
+            &["filesystem", "timestamps", "metadata"],
+        )),
+        ("fs", "mknod") => Some((
+            "Creates a file, FIFO, socket, or device node with an explicit mode.",
+            "The mode is subject to the process umask; char and block nodes need privilege; the call fails rather than replacing an existing path.",
+            &["filesystem", "device", "privileged"],
+        )),
+        ("fs", "makedev" | "dev_major" | "dev_minor") => Some((
+            "Converts between a device number and its major and minor parts.",
+            "The functions are pure arithmetic over the host's dev_t encoding.",
+            &["filesystem", "device", "pure"],
+        )),
+        ("fs", "link") => Some((
+            "Creates a hard link, optionally following a final symlink in the source.",
+            "By default the link names the symlink itself, as linkat(2) does without AT_SYMLINK_FOLLOW; an existing destination fails with EEXIST.",
+            &["filesystem", "hardlink", "mutation"],
+        )),
+        ("fs", "umask") => Some((
+            "Returns the process file-creation mask.",
+            "The mask is process-global state; reading it does not change it on Linux.",
+            &["filesystem", "permissions", "host-state"],
+        )),
+        ("fs", "statvfs") => Some((
+            "Reads raw filesystem counters for the filesystem holding a path.",
+            "The values are a point-in-time observation in fragment-size units; use fs.stat device identity to tell whether two paths share a filesystem.",
+            &["filesystem", "capacity", "inspection"],
+        )),
+        ("fs", "rename_noreplace") => Some((
+            "Renames a path atomically without replacing an existing destination.",
+            "An existing destination fails with EEXIST; a filesystem without RENAME_NOREPLACE fails with its errno and never falls back to a racy check.",
+            &["filesystem", "rename", "atomic"],
+        )),
+        ("fs", "data_ranges") => Some((
+            "Lists the runs of allocated data in a possibly sparse file.",
+            "Bytes outside the returned ranges, up to the file size, are holes; a filesystem without hole reporting yields one range.",
+            &["filesystem", "sparse", "inspection"],
+        )),
+        ("fs", "copy_file") => Some((
+            "Copies a regular file's bytes with sparse and reflink control.",
+            "The source's data is cloned, kernel-copied, or read and written; sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; the destination's metadata beyond its creation mode is the caller's to set.",
+            &["filesystem", "copy", "sparse"],
+        )),
         ("fs", "fsync" | "sync") => Some((
             "Flushes file or filesystem state to the host.",
             "The operation is a durability boundary; success reports the host call, not a cross-device durability guarantee.",
