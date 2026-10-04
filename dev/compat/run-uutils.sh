@@ -126,5 +126,5 @@ if { [ "$status" -ne 0 ] && [ "$status" -ne 100 ]; } || [ ! -s "$junit" ]; then
 	exit 1
 fi
 cp "$junit" "$results/uutils-integration.junit.xml"
-python3 "$repo/dev/compat/results.py" uutils "$junit" "$results/uutils-integration.json" ${1+"$@"}
+XSH_COMPAT_STAGE=$stage python3 "$repo/dev/compat/results.py" uutils "$junit" "$results/uutils-integration.json" ${1+"$@"}
 echo "nextest exit status $status (failures are expected until parity; see the JSON summary)"

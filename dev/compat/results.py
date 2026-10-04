@@ -17,6 +17,7 @@ against pinned uutils, one against XSH) into the four-cell differential. The
 from __future__ import annotations
 
 import json
+import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -27,6 +28,16 @@ EXCLUSIONS = REPO / "dev" / "compat" / "exclusions.json"
 
 def load(path: Path, default):
     return json.loads(path.read_text()) if path.exists() else default
+
+
+def staged_applets() -> set[str] | None:
+    """Names the stage under test provides (applets and aliases), or None when unknown."""
+    stage = os.environ.get("XSH_COMPAT_STAGE") or str(REPO / "target" / "compat-stage")
+    manifest = Path(stage) / "applets.json"
+    if not manifest.exists():
+        return None
+    data = json.loads(manifest.read_text())
+    return {a["name"] for a in data["applets"]} | {a["name"] for a in data["aliases"]}
 
 
 def uutils_mode(junit: Path, out: Path, only: list[str]) -> None:
@@ -48,8 +59,14 @@ def uutils_mode(junit: Path, out: Path, only: list[str]) -> None:
             entry["skip"] += 1
         else:
             entry["pass"] += 1
-    for entry in utilities.values():
+    provided = staged_applets()
+    for util, entry in utilities.items():
         entry["failing"].sort()
+        # A utility with no applet "passes" every test that expects failure
+        # (command not found is a failure); those passes are vacuous and must
+        # not count as regressions when the applet arrives.
+        if provided is not None:
+            entry["applet"] = util in provided
 
     report = load(out, {"suite": "uutils-integration", "utilities": {}})
     if only:

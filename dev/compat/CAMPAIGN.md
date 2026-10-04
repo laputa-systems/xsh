@@ -237,6 +237,17 @@ results, excluded test IDs, known semantic gaps.
   accidental: in the clean environment they come from XSH or are excluded
   with category `host-oracle`.
 
+Baseline against the current XSH (2026-10-04, pinned uutils `e7c9f31`, 5,978
+tests across 106 utilities, 22.6 minutes at 2 threads): **539 pass, 5,439 fail**
+(14 of those timed out; 9.0%). The 41 utilities that already have an applet pass
+483 of 3,277 tests. The other 56 passes belong to the 65 utilities without an
+applet: "command not found" satisfies every expects-failure test, so those are
+vacuous, and `results.py` records `"applet": false` for them so `compare.py`
+does not count them as regressions when the applet arrives. Dominant failure
+causes seen so far: unsupported GNU options (`unknown argument at argv[0]`),
+non-UTF-8 argv rejected by `xsh`, wording and exit-status mismatches, buffered
+stdout (no EPIPE or write-error behavior), and large-input throughput.
+
 ### B. GNU suite differential (Gate 4)
 
 [`run-gnu.sh`](run-gnu.sh) prepares one GNU 9.12 tree with uutils'

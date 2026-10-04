@@ -10,3 +10,4 @@ scripts/__pycache__
 lx-*
 .claude/worktrees/
 __pycache__/
+dev/compat/results/*.junit.xml

@@ -8,6 +8,8 @@ change. Exits 1 when any test that passed before fails now: a test is a
 regression when it appears in AFTER's `failing` list for a utility but not in
 BEFORE's. Both files come from the same pinned uutils commit, so the test set
 is identical and "not failing before" means "passed before" (or excluded).
+A utility whose BEFORE entry says `"applet": false` had no applet then; its
+failures now are not regressions.
 """
 
 from __future__ import annotations
@@ -31,14 +33,22 @@ def main() -> int:
           f"({a['pass'] - b['pass']:+d})")
 
     regressions: list[str] = []
+    vacuous: list[str] = []
     for util in sorted(set(before["utilities"]) | set(after["utilities"])):
         old = before["utilities"].get(util, {"pass": 0, "fail": 0, "failing": []})
         new = after["utilities"].get(util, {"pass": 0, "fail": 0, "failing": []})
         regressed = sorted(set(new["failing"]) - set(old["failing"]))
+        if regressed and old.get("applet") is False:
+            # The applet did not exist before: its earlier "passes" were
+            # vacuous (command not found satisfies every expects-failure test).
+            vacuous.extend(regressed)
+            regressed = []
         fixed = sorted(set(old["failing"]) - set(new["failing"]))
         if regressed or fixed or old["pass"] != new["pass"]:
             print(f"  {util}: {old['pass']} -> {new['pass']} pass ({len(fixed)} fixed, {len(regressed)} regressed)")
         regressions.extend(regressed)
+    if vacuous:
+        print(f"{len(vacuous)} vacuous pass(es) from newly provided applets are not counted as regressions")
     if regressions:
         print(f"REGRESSIONS: {len(regressions)} test(s) passed before and fail now:", file=sys.stderr)
         for test in regressions:
