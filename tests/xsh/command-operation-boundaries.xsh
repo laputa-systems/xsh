@@ -6,7 +6,6 @@ proc boolean(value: Bool) [] -> Unit { print $value }
 proc display_path(value: Path) [] -> Unit { print $value }
 proc duration(value: Duration) [] -> Unit { print $value }
 proc unsigned(value: UInt) [] -> Unit { print $value }
-proc erased(value: Any) [] -> Unit { print $value }
 text("word")
 integer(7)
 floating(1.5)
@@ -14,7 +13,6 @@ boolean(true)
 display_path(p"relative/../path")
 duration(1s)
 unsigned(7)
-erased("erased")
 eprint diagnostic
 """
   let result = test.run_script(ctx, source)?
@@ -27,7 +25,6 @@ true
 relative/../path
 1s
 7
-erased
 """
   assert diagnostics == """diagnostic
 """

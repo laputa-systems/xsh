@@ -264,7 +264,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms {
   let named = cli.commands(["build", "target/demo", "extra"], schema)?
   assert named.get("command")? == "build"
   assert named.get("action")? == "build"
-  assert f"{named.get("root") ?? null}" == "target/demo"
+  assert f"{named.get("root")?.require(Path)?}" == "target/demo"
   assert rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw")? == "extra"
   assert named.keys().join(",") == "action,command,raw,root"
 
@@ -366,7 +366,7 @@ test test_cli_commands_convert_positionals_and_collect_the_rest {
   # spelling, and a duration.
   let parsed = cli.commands(["t", "+12", "src/main.xsh"], basic)?
   assert (parsed.get("n") ?? null) == 12
-  assert f"{parsed.get("where") ?? null}" == "src/main.xsh"
+  assert f"{parsed.get("where")?.require(Path)?}" == "src/main.xsh"
   assert cli.commands(["t", "yes"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n")? == true
   assert cli.commands(["t", "0"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n")? == false
   assert cli.commands(["t", "250ms"], {t: {positionals: ["n"], types: {n: "Duration"}}})?.get("n")? == 250ms

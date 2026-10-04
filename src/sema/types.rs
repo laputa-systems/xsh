@@ -529,10 +529,9 @@ impl Type {
     pub fn can_display(&self) -> bool {
         matches!(
             self,
-            Self::Any
-                | Self::Str
+            Self::Str
                 | Self::Int
-            | Self::UInt
+                | Self::UInt
                 | Self::Bool
                 | Self::Path
                 | Self::Duration
@@ -543,7 +542,7 @@ impl Type {
     pub fn can_be_argv_item(&self) -> bool {
         matches!(
             self,
-            Self::Any | Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
+            Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
         )
     }
 

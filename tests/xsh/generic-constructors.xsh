@@ -283,7 +283,7 @@ test test_generic_constructor_explicit_any_and_null_are_authoritative { |ctx|
     r"""type Box[T] = {value: T}
 let dynamic: Box[Any] = Box(value: 7)
 let nothing: Box[Null] = Box(value: null)
-print $dynamic.value
+print ${dynamic.value.require(Int)?}
 print ${nothing.value == null}
 """,
   )?

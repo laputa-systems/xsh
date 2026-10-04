@@ -105,7 +105,8 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Any | Type::Unknown => Type::Unknown,
+            Type::Any => Type::Any,
+            Type::Unknown => Type::Unknown,
             _ => {
                 self.error(
                     span,
@@ -120,6 +121,7 @@ impl Checker {
     pub(super) fn index_type_for_value(&mut self, base_ty: Type, span: Span) -> Type {
         match base_ty {
             Type::List(item) => *item,
+            Type::Any => Type::Any,
             Type::Record(_) | Type::Unknown => Type::Unknown,
             _ => {
                 self.error(span, "indexing requires List or Record", "check.index-type");
@@ -145,7 +147,17 @@ impl Checker {
         self.expect_type(expected, actual, span);
     }
 
+    /// Command words, argv items, and printed values convert only known
+    /// scalars; an `Any` must be validated first. Reports and returns `true`
+    /// for an `Any`.
+    pub(super) fn reject_dynamic_word(&mut self, ty: &Type, span: Span) -> bool {
+        let dynamic = *ty == Type::Any || matches!(ty, Type::List(item) if **item == Type::Any);
+        if dynamic { self.reject_dynamic_use("a command word or printed value", None, span); }
+        dynamic
+    }
+
     pub(super) fn check_external_splice_type(&mut self, ty: &Type, span: Span) {
+        if self.reject_dynamic_word(ty, span) { return; }
         match ty {
             Type::List(item) if item.can_be_argv_item() => {}
             Type::List(_) => self.error(
@@ -560,7 +572,8 @@ impl Checker {
         arg: &ArenaCommandArg,
     ) {
         let ty = self.check_command_arg_arena(arena, source, arg, None);
-        if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
+        if self.reject_dynamic_word(&ty, arena.arena.span(arg.span)) {
+        } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
             let arg_span = arena.arena.span(arg.span);
             self.report_conversion(arg_span, &ty, "cannot be displayed by print", "check.display-conversion");
         }
@@ -783,7 +796,8 @@ impl Checker {
             }
             ArenaEnvAssignmentValue::Expr(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
+                if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
+                } else if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
                     self.error(
                         expr_span,
@@ -842,6 +856,10 @@ impl Checker {
                 {
                     let ty = self.check_expr_arena(arena, source, *expr_id, expected);
                     let expr_span = arena.arena.expr(*expr_id).span;
+                    // A `$name.field` word takes no `.require(T)?` suffix.
+                    if matches!(word_list.as_slice(), [ArenaWordPart::Shorthand(_)]) {
+                        self.dynamic_require_receivers.remove(&expr_span);
+                    }
                     if let Some(expected) = expected {
                         self.expect_command_value_conversion(expected, &ty, expr_span);
                         return expected.clone();
@@ -853,7 +871,8 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                        if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
+                        if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
+                        } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
                             let expr_span = arena.arena.expr(*expr_id).span;
                             self.report_conversion(expr_span, &ty, "cannot convert to one command word", "check.argv-conversion");
                         }
@@ -907,6 +926,7 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
+                        if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) { continue; }
                         let valid = if standalone_interpolation {
                             ty.can_be_argv_item()
                                 || matches!(&ty, Type::List(item) if item.can_be_argv_item())
@@ -922,7 +942,8 @@ impl Checker {
             }
             ArenaCommandArgKind::Typed(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
+                if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
+                } else if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
                     self.report_conversion(expr_span, &ty, "cannot be a command argument", "check.argv-conversion");
                 }

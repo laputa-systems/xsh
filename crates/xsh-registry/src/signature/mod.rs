@@ -8,7 +8,7 @@ use crate::records::{
     linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
     linux_interface_type, linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
     linux_module_type, linux_network_dump_type, linux_open_file_type, linux_partition_table_type,
-    linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type,
+    linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type, hash_check_line_type,
     mime_parse_type, net_pool_type, net_response_type, patch_result_type, process_entry_type,
     process_port_type, process_stats_type, process_thread_type, process_wait_any_type,
     regex_match_type, signal_record_type, spawn_record_type, system_execution_units_type,

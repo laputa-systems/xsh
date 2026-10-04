@@ -683,7 +683,7 @@ which here skips processes that vanished mid-scan instead of failing the run.
 
 `jq` is a second language you embed as strings inside the first. In XSH, JSON
 is just data, with one rule: decoded JSON has type `Any`, and you must check
-it against a schema before touching its fields.
+it against a schema before using its values.
 
 ```xsh
 type Service = {name: Str, port: Int, tags: List[Str]}

@@ -168,7 +168,7 @@ Digest calculation and checksum verification.
 - `hash.crc32(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
 - `hash.crc32c(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
 - `hash.md5(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
-- `hash.parse_check_line(line: Str) -> Result[Record, Error]` — Parses one checksum-file verification line.
+- `hash.parse_check_line(line: Str) -> Result[{binary: Bool, hex: Str, path: Str}, Error]` — Parses one checksum-file verification line.
 - `hash.sha1(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha256(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha512(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.

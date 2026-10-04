@@ -266,6 +266,15 @@ pub fn net_header_type() -> Type {
     ]))
 }
 
+/// One parsed checksum-file line from `hash.parse_check_line`.
+pub fn hash_check_line_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("hex".to_string(), Type::Str),
+        ("path".to_string(), Type::Str),
+        ("binary".to_string(), Type::Bool),
+    ]))
+}
+
 pub fn mime_info_type() -> Type {
     Type::Record(name_type_map(vec![
         ("mime".to_string(), Type::Str),

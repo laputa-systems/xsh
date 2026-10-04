@@ -185,7 +185,9 @@ impl Checker {
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
                 let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                if !is_sortable_key_type(&key_ty) {
+                if key_ty.contains_any() {
+                    self.reject_dynamic_use("a sort key", None, stage_span);
+                } else if !is_sortable_key_type(&key_ty) {
                     self.error(
                         stage_span,
                         "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
@@ -276,6 +278,7 @@ impl Checker {
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(stage_span, "min/max accept no arguments", "check.arity");
                 }
+                if item_ty == Type::Any { self.reject_dynamic_use("an ordering operand", None, stage_span); }
                 Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
             StreamStageKind::GroupBy => {
@@ -346,7 +349,9 @@ impl Checker {
                 }
                 if stage.block.is_some() {
                     let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                    if !matches!(key_ty, Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Any | Type::Unknown | Type::Invalid) {
+                    if key_ty == Type::Any {
+                        self.reject_dynamic_use("a count key", None, stage_span);
+                    } else if !matches!(key_ty, Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Unknown | Type::Invalid) {
                         self.error(stage_span, "count keys must be Str, Int, or Bool", "check.stream-count-key");
                     }
                     Type::Map(Box::new(Type::Str), Box::new(Type::Int))
@@ -616,7 +621,9 @@ impl Checker {
         for (slot, argument) in arguments.iter().enumerate().skip(1).filter_map(|(slot, argument)| argument.as_ref().map(|argument| (slot, argument))) {
             if slot == 2 && let crate::sema::arguments::ArgumentValueSource::Expression(expr) = argument.value
                 && matches!(arena.arena.expr(expr).kind, ArenaExprKind::Bool(false)) { continue; }
-            if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
+            if *item_ty == Type::Any {
+                self.reject_dynamic_use("a byte-bounded batch item", None, argument.span);
+            } else if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
                 self.error(argument.span, "byte-bounded batches require argv-compatible items", "check.stream-batch");
             }
         }
@@ -730,17 +737,11 @@ fn result_ok_or_self(ty: &Type) -> Type {
 /// Whether a projected `sort-by` key or `sort` item type has a defined
 /// ordering. Records are orderable when every field is itself orderable; the
 /// runtime comparator in `lowered_ops.rs` implements the same surface so a
-/// checked program and an unchecked `xsh` run agree on what can sort.
-///
-/// `Unknown` and `Any` are accepted to match the runtime: an `Any`-typed key
-/// (for example a record field produced by `Map.get(key, fallback)`) is the
-/// static view of a value that is a supported scalar (Int, Str, Bool, Path) at
-/// runtime. The runtime `lowered_sort_key_orderable` still fails loudly when the
-/// actual value is not orderable, so the checker and the runtime agree on every
-/// program that runs correctly.
+/// checked program and an unchecked `xsh` run agree on what can sort. An
+/// `Any` key is a dynamic boundary, rejected before this check.
 fn is_sortable_key_type(ty: &Type) -> bool {
     match ty {
-        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown | Type::Any => true,
+        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
         Type::Record(fields) => fields.values().all(is_sortable_key_type),
         _ => false,
     }

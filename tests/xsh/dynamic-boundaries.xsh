@@ -258,19 +258,16 @@ print \${count}
 """
 }
 
-test test_dynamic_boundary_keeps_dynamic_arithmetic_and_symmetric_equality { |ctx|
+test test_dynamic_boundary_keeps_symmetric_equality { |ctx|
   let output = test.run_xsh(
     ctx,
     """let raw: Any = 7
-let computed = raw + 1
-print \${json.encode(computed)?}
 print \${7 == raw}
 print \${raw == 7}
 """,
   )?
   assert output.status == 0
-  assert output.stdout == """8
-true
+  assert output.stdout == """true
 true
 """
 }
@@ -529,4 +526,140 @@ print row_path.read_text()?
   assert output.stdout == """{"name":"demo"}
 
 """
+}
+
+# Every operation that interprets an `Any` (a typed slot, an operator, a
+# condition, a display, or a command word) needs a validated type first.
+test test_dynamic_boundary_rejects_each_interpreting_use { |ctx|
+  let prelude = r"""let raw: Any = {a: 1, ok: true, xs: [1, 2], name: "n"}
+pure takes(count: Int) -> Int { count }
+"""
+  for snippet in [
+    "let count: Int = raw.a",
+    "let count: Int = raw[\"a\"]",
+    "let count: Int = raw.xs.len()",
+    "let count = takes(raw.a)",
+    "let next = raw.a + 1",
+    "let label = \"n=\" + raw.name",
+    "let negated = -raw.a",
+    "let small = raw.a < 2",
+    "let off = !raw.ok",
+    "let both = raw.ok and true",
+    "if raw.ok { print yes }",
+    "while raw.ok { break }",
+    "assert raw.ok",
+    "let kept = [x for x in [1] if raw.ok]",
+    r"""let text = f"{raw.a}" """,
+    "print $raw",
+    r"""run echo ${raw.a}""",
+    "let found = 1 in raw.xs",
+    "let found = raw.name in \"name\"",
+    "let picked = [1, 2][raw.a]",
+    "let trimmed = raw.name.trim(chars: \" \")",
+    "let sorted = [raw] |> sort-by .a",
+    "let counted = [raw] |> count { |row| row.name }",
+    "let largest = raw.xs |> max",
+  ] {
+    let output = test.run_script(ctx, prelude + snippet + "\n")?
+    assert output.status == 2, snippet
+    assert output.stdout == "", snippet
+    assert "check.dynamic-boundary" in output.stderr, snippet + ": " + output.stderr
+  }
+}
+
+# Navigation, `Any` destinations, equality, list membership, and validation
+# need no `.require`: each is defined for every value or yields `Any`.
+test test_dynamic_boundary_keeps_navigation_equality_and_validation { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""type Row = {a: Int, xs: List[Int]}
+let raw: Any = {a: 1, ok: true, xs: [1, 2], name: "n", nested: {b: 2}}
+pure keep(value: Any) -> Any { value }
+let field = raw.nested.b
+let item = raw.xs[0]
+let part = raw.xs[0..1]
+let size = raw.xs.len()
+let seen = [x for x in raw.xs]
+let same = raw.a == 1
+let listed = raw.a in [1, 2]
+let kept = keep(raw.nested)
+let groups = [raw, raw] |> group-by .name |> count()
+print ${json.encode([field, item, part, size, seen, same, listed, kept, groups])?}
+let count = raw.a.require(Int)? + 1
+print $count
+match raw.name {
+  name is Str => print $name
+  _ => print other
+}
+let row = raw.require(Row)?
+let back: Any = row
+print ${back == raw}
+print ${row.xs.len()}
+""",
+  )?
+  assert output.status == 0, output.stderr
+  assert output.stdout == """[2,1,[1],2,[1,2],true,true,{"b":2},1]
+2
+n
+true
+2
+"""
+}
+
+# The fix writes the target only where a bare `.require()` cannot infer it,
+# as `lint.inferred-require-target` asks.
+test test_dynamic_boundary_fix_inserts_require_for_the_contextual_type { |ctx|
+  let source = r"""let raw: Any = {a: 1, ok: true, name: "n", xs: [3]}
+pure takes(name: Str) -> Str { name }
+let count: Int = raw.a
+let next = raw.a + 1
+if raw.ok { print $next }
+print ${takes(raw.name)}
+let first = [raw.xs][0]
+let items: List[Int] = raw.xs
+print ${items.len() + count}
+"""
+  let candidate = test.temp_file(ctx, name: "dynamic-boundary-fix.xsh", contents: bytes.from_text(source))?
+  let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate ?
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert candidate.read_text()? == r"""let raw: Any = {a: 1, ok: true, name: "n", xs: [3]}
+pure takes(name: Str) -> Str { name }
+let count: Int = raw.a.require()?
+let next = raw.a.require(Int)? + 1
+if raw.ok.require(Bool)? { print $next }
+print ${takes(raw.name.require()?)}
+let first = [raw.xs][0]
+let items: List[Int] = raw.xs.require()?
+print ${items.len() + count}
+"""
+  let executed = test.run_script(ctx, candidate.read_text()?)?
+  assert executed.status == 0, executed.stderr
+  assert executed.stdout == """2
+n
+2
+"""
+}
+
+# Without one target type, or where `?` cannot propagate, the fix would
+# guess or add a new error, so the source is left for a hand edit.
+test test_dynamic_boundary_fix_leaves_untargeted_uses_unchanged { |ctx|
+  for source in [
+    r"""let raw: Any = {a: 1}
+let text = f"{raw.a}"
+""",
+    r"""let raw: Any = {a: 1, b: 2}
+let sum = raw.a + raw.b
+""",
+    r"""pure count(raw: Any) -> Int {
+  let value: Int = raw.a
+  value
+}
+""",
+  ] {
+    let candidate = test.temp_file(ctx, name: "dynamic-boundary-no-fix.xsh", contents: bytes.from_text(source))?
+    let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate ?
+    assert ! fixed.status.exited_with(0), source
+    assert "check.dynamic-boundary" in fixed.stderr, fixed.stderr
+    assert candidate.read_text()? == source
+  }
 }

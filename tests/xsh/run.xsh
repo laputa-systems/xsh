@@ -61,7 +61,7 @@ test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
   let output = test.run_script(
     ctx,
     """let value: Any = "abc"
-print $value.length()
+let _ = value.length()
 """,
   )?
   assert output.status == 3
