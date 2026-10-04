@@ -282,8 +282,14 @@ fn signal_number(signal: &str) -> Option<i32> {
     }
 }
 
+/// Tests poll these marker files with `exists()` and then read them, so a
+/// marker must appear with its full contents: write a sibling and rename it.
 fn write_file(path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|error| error.to_string())
+    let path = path.as_ref();
+    let mut staging = path.as_os_str().to_owned();
+    staging.push(".partial");
+    std::fs::write(&staging, bytes).map_err(|error| error.to_string())?;
+    std::fs::rename(&staging, path).map_err(|error| error.to_string())
 }
 
 fn install_trap(signal: i32) -> Result<(), String> {

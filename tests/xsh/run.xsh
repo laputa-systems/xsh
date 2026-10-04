@@ -181,8 +181,11 @@ export proc build() [process, error] {
 
   let output = test.run_script(
     ctx,
-    f"""let build_fn: Proc = module.load(p"{module_path}")?.get("build")?
-let _ = build_fn.call()?
+    f"""type Package = module {{
+  export proc build() [process, error]
+}}
+let package = module.load(p"{module_path}")?.require(Package)?
+package.build()?
 """,
   )?
   {

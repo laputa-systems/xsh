@@ -365,7 +365,7 @@ check()
 """,
   )?
   assert ! messaged.success, messaged.stderr
-  assert """assertion failed: 1 < 3 < 2: chain context
+  assert """err: AssertionError.Failed: assertion failed: 1 < 3 < 2: chain context
 ordering comparison failed: 3 < 2
-at """ in messaged.stderr, messaged.stderr
+""" in messaged.stderr, messaged.stderr
 }

@@ -129,7 +129,7 @@ let _encoded = json.encode(value) ?
   assert "kind=result.propagate" in output.stderr
   assert "json-compatible" in output.stderr
   assert "Path is not JSON-compatible" in output.stderr
-  assert "traceback" in output.stderr
+  assert "err: json-compatible: Path is not JSON-compatible" in output.stderr, output.stderr
 }
 
 # Reads the message out of a rejected `json.*` path entry.

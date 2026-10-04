@@ -206,7 +206,7 @@ if let 7 = subject()? { print selected } else { print unexpected }
   assert output.success == false
   assert output.stdout == ""
   assert "Finish.Done" in output.stderr
-  assert "result.propagate" in output.stderr
+  assert "err: Finish.Done" in output.stderr, output.stderr
 }
 
 test test_pattern_conditional_lint_and_formatter_fixes_are_stable { |ctx|

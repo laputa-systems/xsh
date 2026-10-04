@@ -53,7 +53,7 @@ let _ = retry [0ms, 0ms] {
 
   assert output.status == 3
   assert "attempt 3" in output.stderr
-  assert "traceback" in output.stderr
+  assert "err: RetryError.Transient: attempt 3" in output.stderr, output.stderr
 }
 
 test test_retry_attempt_defers_run_before_next_attempt { |ctx|
