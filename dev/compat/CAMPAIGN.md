@@ -271,6 +271,13 @@ cells globally and per test directory. `uutils pass / xsh fail` is the
 blocker list. GNU groups some tests under `misc/`; the per-utility rollup
 maps those by test name when the manifest ingests them.
 
+GNU baseline against the pinned uutils (2026-10-04, GNU 9.12 via uutils'
+`build-gnu.sh`, run unprivileged in a user namespace, 21 minutes): 719 tests,
+**571 pass, 46 fail, 101 skip, 1 error**
+([`results/gnu-uutils.json`](results/gnu-uutils.json)). The XSH side
+(`run-gnu.sh xsh`) is not run yet: with most applets absent nearly every test
+would fail, so the four-cell differential starts in Wave 2.
+
 ### C. BusyBox suite
 
 After A and B are green enough to be useful, adapt uutils' BusyBox route
