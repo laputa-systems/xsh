@@ -112,6 +112,8 @@ fn parents() -> Vec<String> {
         "while H {\n  w()\n}",
         "for x in H {\n  w()\n}",
         "print f\"{H}\"",
+        "print f\"{H:<3}\"",
+        "print fp\"{H:03}\"",
         "assert H, \"m\"",
         "assert H",
     ]
@@ -264,10 +266,10 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
             }
         }
     }
-    assert_eq!((parents.len(), children.len()), (75, 65));
+    assert_eq!((parents.len(), children.len()), (77, 65));
     assert_eq!(
         (cases, required, redundant, kept, ambiguous),
-        (4875, 1385, 3480, 10, 156)
+        (5005, 1409, 3586, 10, 156)
     );
 }
 

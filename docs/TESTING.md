@@ -163,7 +163,12 @@ and an output cap. Memory is bounded: at most `--jobs` workers (default half
 the CPUs, at most 4) each handle 500 seeds and exit. A worker above 384 MiB or
 a program above 256 MiB of sampled physical footprint is killed and reported
 (macOS enforces no data rlimit). Failures are written to
-`target/fuzz/failures/<seed>.xsh`; `xsh-fuzz reduce FILE` minimizes one.
+`target/fuzz/<sha256>/failures/<seed>.xsh` by `make fuzz`, where `<sha256>`
+hashes the tested `xsh-fuzz` executable (including its linked XSH frontend,
+runtime, and tooling). Repeated runs of the same binary share reproducers;
+changed binaries get separate directories, preserving earlier evidence.
+Direct `xsh-fuzz` campaigns default to `target/fuzz/failures` and accept
+`--out DIR`; `xsh-fuzz reduce FILE` minimizes a frontend failure.
 
 ## Linux
 

@@ -1700,6 +1700,10 @@ Live sources produce items on demand: `fs.walk`, `fs.files`, `fs.dirs`,
 and `range(start, n)`, and `stream` producers. `Str.lines()` and
 `Bytes.lines()` split an existing buffer.
 
+Range source bounds must be positional `Int` expressions. The checker validates
+each bound before execution, including bounds inside functions that are never
+called.
+
 `where`, `map`, `flat-map`, `tee`, `enumerate`, `take`, and `drop` process each
 live item before the next is pulled. So do the folding terminals (`count`,
 `sum`, `min`, `max`, `last`, `fold`, `reduce`, `reduce-by`, `each`, keyed

@@ -1,3 +1,40 @@
+test test_range_checks_integer_bounds_before_execution { |ctx|
+  for case in [
+    {source: "range(missing.end)", code: "check.unresolved-name"},
+    {source: "range(missing.end, 3)", code: "check.unresolved-name"},
+    {source: "range(0, missing.end)", code: "check.unresolved-name"},
+    {source: "range(\"three\")", code: "check.type-mismatch"},
+    {source: "range(false, 3)", code: "check.type-mismatch"},
+    {source: "range(0, 3.5)", code: "check.type-mismatch"},
+    {source: "range(end: 3)", code: "check.named-arg"},
+    {source: "range(@[3])", code: "check.call-splice"},
+    {source: "range()", code: "check.arity"},
+    {source: "range(0, 3, 1)", code: "check.arity"},
+  ] {
+    let output = test.run_script(
+      ctx,
+      "print \"started\"\nproc main() { for _ in " + case.source + " {} }\n",
+    )?
+    assert output.status == 2, output.stderr
+    assert case.code in output.stderr, output.stderr
+    assert "compact.indexed-build" not in output.stderr, output.stderr
+    assert output.stdout == "", output.stdout
+  }
+
+  let valid = test.run_script(
+    ctx,
+    r"""pure count() -> Int { 3 }
+pure start() -> Int { 1 }
+proc main() [io] {
+  for n in range(count()) { print $n }
+  for n in range(start(), count()) { print $n }
+}
+""",
+  )?
+  assert valid.success, valid.stderr
+  assert valid.stdout == "0\n1\n2\n1\n2\n", valid.stdout
+}
+
 test test_stream_adapters_and_transform_stages {
   let lines = """alpha
 beta

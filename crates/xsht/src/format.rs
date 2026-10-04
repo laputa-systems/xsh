@@ -15,7 +15,7 @@ use xsh::frontend::syntax::arena::{
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
 use xsh::frontend::syntax::grammar;
-use xsh::frontend::syntax::grouping::{self, Context, Follow};
+use xsh::frontend::syntax::grouping::{self, Context, Follow, FollowToken};
 use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
 use xsh::frontend::syntax::literal;
@@ -3016,7 +3016,14 @@ impl<'a> Writer<'a> {
                     // `{...}`: write the expression flat, or keep its source.
                     let line_width = self.line_width;
                     self.line_width = usize::MAX / 4;
-                    self.write_expr(*expr, END, output);
+                    // A format spec's adjacent colon must stay outside a
+                    // bare path or command expression.
+                    let context = if spec.is_some() {
+                        Context::open(Follow::adjacent(FollowToken::Colon))
+                    } else {
+                        END
+                    };
+                    self.write_expr(*expr, context, output);
                     self.line_width = line_width;
                     if output[start..].contains(['\n', '\r']) {
                         output.truncate(start);

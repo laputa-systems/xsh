@@ -48,6 +48,8 @@ contract stays in `docs/SPEC.md`.
 - Strings, paths, comments, and other indivisible tokens are never split;
   they may exceed `format.line-width` (from the nearest `xsht-config.ini`,
   default 120). Multi-line literal contents are never reindented.
+  A path before an interpolation format spec stays quoted so the spec's colon
+  does not become part of the path.
 - Width is measured in characters; there is no display-column policy and no
   second layout-preference setting until a real source case needs one.
 

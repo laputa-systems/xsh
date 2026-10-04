@@ -9,8 +9,8 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaExprKind, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, AstArena,
-    ExprId,
+    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind,
+    AstArena, ExprId,
 };
 use crate::syntax::grammar::{
     self, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence,
@@ -71,8 +71,11 @@ pub enum FollowToken {
     /// A newline, `;`, `}`, comment, or the end of input.
     End,
     RParen,
-    /// `]`, `,`, `:`, `=>`, or another delimiter that does not end a command.
+    /// `]`, `,`, `=>`, or another delimiter that does not end a command.
     Close,
+    /// A colon, which an unfinished pipeline stage would otherwise take as
+    /// the start of its callback expression.
+    Colon,
     /// `{` opening a block.
     Brace,
     /// `and`, `or`, `in`, `not`, or `is`.
@@ -156,6 +159,7 @@ impl Follow {
                 FollowToken::End
             }
             TokenTag::RParen => FollowToken::RParen,
+            TokenTag::Colon => FollowToken::Colon,
             TokenTag::LBrace => FollowToken::Brace,
             TokenTag::Keyword
                 if matches!(
@@ -965,7 +969,16 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         }
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
-        ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_) => open(Follow::END),
+        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
+            let has_spec = arena.fmt_parts(parts).any(|part| {
+                matches!(part, ArenaFmtPart::Expr(expr, Some(_)) if expr == child)
+            });
+            open(if has_spec {
+                Follow::adjacent(FollowToken::Colon)
+            } else {
+                Follow::END
+            })
+        }
         _ => open(Follow::CLOSE),
     }
 }
