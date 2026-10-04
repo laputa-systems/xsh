@@ -331,6 +331,15 @@ stay packages.
 
 ## Performance
 
+Cold start, measured on the 4-core reference host with the release `xsh`
+(2026-10-04, 50 sequential invocations, wall time per invocation): empty
+script 9.5 ms, `print "x"` 10.6 ms, staged `core/cat` 13.6 ms, staged
+`core/basename` 19 ms, host `/bin/cat` 3 ms. A suite of 6,000 invocations
+therefore spends about 1-2 minutes in startup; cold start does not bound suite
+runtime or make per-applet scripts non-viable, so no native multicall applet
+entry is needed for startup. Throughput on large inputs is the real risk: the
+uutils `cat` tests drove `core/cat` to 100% CPU and over 1 GB RSS and timed out.
+
 Measure hot utilities (`cat`, `cp`, `dd`, `grep`, `sort`, `wc`, `head`,
 `tail`, `find`, `xargs`, `ls`, `du`, checksums, `base64`, compression)
 against uutils with the existing `bench/` infrastructure. Revised: measure
