@@ -166,6 +166,29 @@ documentation only; no code reads it.
 - **The hand-written parser stays,** with its error recovery and its
   diagnostics.
 
+## Single sources of truth (queued)
+
+The same kind of fix as the grammar work: each fact is defined once, and
+everything else is generated from it or checked against it.
+
+- **SPEC examples:**
+  - SPEC's 42 `xsh` blocks move to `docs/snippets/spec/*.xsh`. Fragments are
+    checked inside a wrapper.
+  - The snippets go through check, lint and `fmt --check`, and portable ones
+    run.
+  - `make docs` renders SPEC.md from a template, as it does the tour, and
+    `docs-check` fails on drift.
+- **xsht CLI:** one typed command and option table drives both argument
+  parsing (`app.rs`) and `--help` (`help.rs`). The generated CLI reference
+  follows from it.
+- **Error facets:** a typed facet enum in the registry replaces the copies in
+  `xsh-registry/src/errors.rs`, `value.rs::host_facet` and the SPEC table.
+  - The runtime maps OS errors onto it.
+  - The checker validates `is Facet` against it.
+  - The SPEC facet table is generated from it.
+- **Diagnostic codes:** the `DiagnosticCode` work also checks that every code
+  SPEC prose mentions exists in the enum.
+
 ## Formatter (remaining)
 
 - Keep short single-line blocks and records that fit the line width.
