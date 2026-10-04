@@ -191,23 +191,6 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       {},
     ),
   )?
-  stages.execute(
-    stages.command(
-      "check-runnable-corpus",
-      ctx.target.triple,
-      "cargo",
-      [
-        "cargo",
-        "test",
-        "--release",
-        "--test",
-        "integration",
-        "runtime::coverage::runnable_xsh_corpus_is_formatted_and_lints_without_warnings",
-      ],
-      ctx.root,
-      {},
-    ),
-  )?
   check_docs(ctx, documentation.release_tools(ctx))?
   check_libxsh_imports(ctx)?
   stages.execute(

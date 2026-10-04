@@ -532,56 +532,6 @@ fn xsht_fmt_check_accepts_stable_examples() {
 }
 
 #[test]
-fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
-    let tracked = Command::new("git")
-        .args(["ls-files", "*.xsh"])
-        .output()
-        .expect("list tracked XSH files");
-    assert_ok(&tracked);
-    let tracked_files = stdout_text(&tracked);
-    let files = tracked_files
-        .lines()
-        .filter(|path| {
-            // Fixtures and API snippets are intentionally non-runnable source:
-            // the former exercise parser/runtime edge cases, while the latter
-            // may use illustrative placeholders. The catalog-owned embedded
-            // implementations are not user programs either: user-source rules
-            // reject their helper spellings on purpose, and the catalog gate in
-            // `src/stdlib.rs` validates them against implementation rules
-            // instead. Benchmark scripts are host tooling for measurement, not
-            // part of the language corpus. Both are excluded from discovery by
-            // the same policy in `xsht-config.ini`.
-            !path.starts_with("tests/fixtures/")
-                && !path.starts_with("docs/snippets/")
-                && !path.starts_with("stdlib/")
-                && !path.starts_with("bench/")
-                // `git ls-files` deliberately retains unstaged deletions. The
-                // runnable corpus must represent files available to `xsht` in
-                // this worktree, including while a migration removes scripts.
-                && std::path::Path::new(path).is_file()
-        })
-        .collect::<Vec<_>>();
-
-    let formatted = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["fmt", "--check"])
-        .args(&files)
-        .output()
-        .expect("run xsht fmt");
-    assert_ok(&formatted);
-    assert_eq!(stdout_text(&formatted), "");
-    assert_eq!(stderr_text(&formatted), "");
-
-    let linted = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .arg("lint")
-        .args(files)
-        .output()
-        .expect("run xsht lint");
-    assert_ok(&linted);
-    assert_eq!(stdout_text(&linted), "");
-    assert_eq!(stderr_text(&linted), "");
-}
-
-#[test]
 fn xsht_fmt_writes_canonical_source() {
     let path = temp_xsh_path("fmt-writes");
     std::fs::write(

@@ -89,7 +89,7 @@ Repository gates (owner-run unless the task asks for them):
 
 | Command | Runs |
 |---|---|
-| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the runnable-corpus test, `check-docs` (with release binaries), `git diff --check` |
+| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, `check-docs` (with release binaries), `git diff --check` |
 | `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | the root integration targets with `cargo test --release`, then the unit tests with debug `cargo test --lib` |
 | `cargo dev test xsh` | build release `xsh` and `xsht`, then the native suite through `target/release/xsht test` |
