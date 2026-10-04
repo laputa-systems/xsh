@@ -23,5 +23,5 @@ proc main(...argv: List[Str]) [io, error] {
   } else {
     abort(2)
   }
-  print f"value=${value}"
+  print f"value={value}"
 }

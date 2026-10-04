@@ -244,11 +244,11 @@ fn linux_real_read_only_surfaces_work_in_container() {
     let output = run_temp_script(
         "linux-real-read-only",
         r#"
-let root = fp"/tmp/xsh-linux-real-${process.current_pid()?}"
+let root = fp"/tmp/xsh-linux-real-{process.current_pid()?}"
 fs.mkdir(root)?
-let source = fp"${root}/source.bin"
-let dest = fp"${root}/dest.bin"
-let copy = fp"${root}/copy.bin"
+let source = fp"{root}/source.bin"
+let dest = fp"{root}/dest.bin"
+let copy = fp"{root}/copy.bin"
 defer root.remove_dir()
 defer fs.remove(copy, missing_ok: true)
 defer fs.remove(dest, missing_ok: true)
@@ -332,7 +332,7 @@ fn linux_real_chroot_reports_real_error() {
     let output = run_temp_script(
         "linux-real-chroot-error",
         r#"
-let missing = fp"/tmp/xsh-missing-chroot-${process.current_pid()?}"
+let missing = fp"/tmp/xsh-missing-chroot-{process.current_pid()?}"
   test.error_kind(linux.chroot(missing), "linux-chroot")?
 "#,
     );
@@ -510,7 +510,7 @@ fn unix_spawn_logged_process_group_pipes_stdout_and_stderr() {
         "\
 let log = Path({})
 let command = process.command_argv(\"sh\", [\"sh\", \"-c\", \"printf service-out; printf service-err >&2\"])
-let logger = process.command_argv(\"sh\", [\"sh\", \"-c\", f\"cat > ${{log.display()}}\"] )
+let logger = process.command_argv(\"sh\", [\"sh\", \"-c\", f\"cat > {{log.display()}}\"] )
 let child = unix.spawn_logged_process_group(command, logger)?
 var events = unix.reap_child_events()?.collect()
 var tries = 0

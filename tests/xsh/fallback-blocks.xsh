@@ -37,12 +37,12 @@ test test_error_fallback_evaluates_result_once_before_handler { |ctx|
     ctx,
     r"""error LoadError = Missing(message: Str)
 proc load(found: Bool) [io] -> Result[Str, LoadError] {
-  print f"load ${found}"
+  print f"load {found}"
   return Ok("loaded") when found
   return Err(LoadError.Missing(message: "missing"))
 }
 let loaded = load(true) ?? { |_| print "unexpected"; "fallback" }
-let recovered = load(false) ?? { |failure| print f"handler ${failure.message}"; "fallback" }
+let recovered = load(false) ?? { |failure| print f"handler {failure.message}"; "fallback" }
 print $loaded $recovered
 """,
   )?

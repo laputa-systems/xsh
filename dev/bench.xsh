@@ -13,7 +13,7 @@ export proc command_prefix(ctx: context.Context) [process, env, error] -> Result
     "run",
     "--quiet",
     "--manifest-path",
-    fp"${ctx.root}/../../rustybench/Cargo.toml".display(),
+    fp"{ctx.root}/../../rustybench/Cargo.toml".display(),
     "--",
   ]
 }
@@ -22,9 +22,9 @@ export proc command_prefix(ctx: context.Context) [process, env, error] -> Result
 export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io] -> Result[Unit] {
   let prefix = command_prefix(ctx)?
   let baseline = if fast {
-    fp"${ctx.root}/crates/xshi/benches/fast-baseline.json"
+    fp"{ctx.root}/crates/xshi/benches/fast-baseline.json"
   } else {
-    fp"${ctx.root}/crates/xshi/benches/baseline.json"
+    fp"{ctx.root}/crates/xshi/benches/baseline.json"
   }
   var argv = prefix.extend(["baseline", "--root", ctx.root.display(), "--baseline", baseline.display()])
 

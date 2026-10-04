@@ -79,7 +79,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let has_key = opts.key != ""
   let key_field = if has_key { key_index(opts.key) } else { 0 }
   let has_output = opts.output != ""
-  let output = if has_output { fp"${opts.output}" } else { p"" }
+  let output = if has_output { fp"{opts.output}" } else { p"" }
   let {delimiter, paths, ..} = opts
 
   let input = text_input.read_text(paths)?
@@ -119,7 +119,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let text = if lines.len() == 0 {
     ""
   } else {
-    f"""${lines.join("\n")}
+    f"""{lines.join("\n")}
 """
   }
 

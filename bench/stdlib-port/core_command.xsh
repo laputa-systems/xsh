@@ -18,5 +18,5 @@ proc main() [io, fs, error] {
     sink = sink + parsed.lines + parsed.script.name().byte_len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

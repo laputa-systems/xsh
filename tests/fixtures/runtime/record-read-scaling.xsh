@@ -9,7 +9,7 @@ proc main() [env, error, io] {
   var index = 0
   while index < size {
     if index > 0 { source = source + "," }
-    source = source + f"\"k${index}\":${index}"
+    source = source + f"\"k{index}\":{index}"
     index = index + 1
   }
   source = source + "}"
@@ -25,5 +25,5 @@ proc main() [env, error, io] {
     pass = pass + 1
   }
 
-  print f"${size} ${passes} ${total}"
+  print f"{size} {passes} {total}"
 }

@@ -66,7 +66,7 @@ let failure: Result[Unit, Error] = try {
 match success { Ok(_) => print "passed"; Err(_) => print "unexpected" }
 match failure {
   Err(MessageError.Failed {message}) => print $message
-  Err(AssertionError.Failed {message}) => print f"unexpected assertion: $message"
+  Err(AssertionError.Failed {message}) => print f"unexpected assertion: {message}"
   _ => print "unexpected"
 }
 """,
@@ -126,7 +126,7 @@ values.has(1)
 }
 
 test test_membership_assertions_accept_checked_module_exports { |ctx|
-  fp"${ctx.temp_root}/membership_merge.xsh".write("""##! Provides a checked export.
+  fp"{ctx.temp_root}/membership_merge.xsh".write("""##! Provides a checked export.
 ## A public field.
 export let present = 1
 """)?

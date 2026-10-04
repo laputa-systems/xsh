@@ -50,10 +50,10 @@ proc main(...argv: List[Str]) [fs, process, error] {
       var out: WebpResult = WebpResult(converted: false)
       let rel = entry.path.relative_to(opts.root)
       let safe = rel.display().replace("/", "_")
-      let webp_name = safe.replace(f".${entry.ext}", ".webp")
-      let tmp_out = fp"${tmp_dir}/${webp_name}"
-      let dest = fp"${entry.path.parent()}/${entry.name.replace(f".${entry.ext}", ".webp")}"
-      let quality = f"${opts.quality}"
+      let webp_name = safe.replace(f".{entry.ext}", ".webp")
+      let tmp_out = fp"{tmp_dir}/{webp_name}"
+      let dest = fp"{entry.path.parent()}/{entry.name.replace(f".{entry.ext}", ".webp")}"
+      let quality = f"{opts.quality}"
 
       if opts.apply {
         match run.capture --text cwebp -quiet -q $quality $entry.path -o $tmp_out {
@@ -68,11 +68,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
             if ok {
               if let Ok(meta) = tmp_out.metadata() {
                 if meta.size == 0 {
-                  print f"cwebp: empty output for ${entry.path}"
+                  print f"cwebp: empty output for {entry.path}"
                   ok = false
                 }
               } else {
-                print f"cwebp: cannot stat output for ${entry.path}"
+                print f"cwebp: cannot stat output for {entry.path}"
                 ok = false
               }
             }
@@ -82,17 +82,17 @@ proc main(...argv: List[Str]) [fs, process, error] {
 
               if trash_status.ok {
                 tmp_out.rename(dest, overwrite: true)?
-                print f"${entry.path} -> ${dest}"
+                print f"{entry.path} -> {dest}"
                 out = {converted: true}
               } else {
-                print f"trash failed: ${entry.path}"
+                print f"trash failed: {entry.path}"
               }
             }
           }
-          Err(e) => print f"cwebp spawn: ${e.message}"
+          Err(e) => print f"cwebp spawn: {e.message}"
         }
       } else {
-        print f"would convert: ${entry.path} -> ${dest}"
+        print f"would convert: {entry.path} -> {dest}"
         out = {converted: true}
       }
 
@@ -111,5 +111,5 @@ proc main(...argv: List[Str]) [fs, process, error] {
   }
 
   let verb = if opts.apply { "converted" } else { "would be converted" }
-  print f"${converted} ${verb}  ${skipped} skipped/errored"
+  print f"{converted} {verb}  {skipped} skipped/errored"
 }

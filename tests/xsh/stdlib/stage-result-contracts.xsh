@@ -193,11 +193,11 @@ test test_par_map_result_data_retains_materialization_and_cleanup_order { |ctx|
     r"""error ItemError = Stop(item: Int)
 stream numbers() [io] -> Stream[Int] {
   defer { print "source closed" }
-  for item in [1, 2, 3] { print f"pull ${item}"; yield item }
+  for item in [1, 2, 3] { print f"pull {item}"; yield item }
 }
 proc classify(item: Int) [io] -> Result[Int, ItemError] {
-  defer { print f"callback closed ${item}" }
-  print f"callback ${item}"
+  defer { print f"callback closed {item}" }
+  print f"callback {item}"
   if item == 2 { Err(ItemError.Stop(item)) } else { item }
 }
 let values = numbers() |> par-map(jobs: 1) { |item| classify(item) }

@@ -101,7 +101,7 @@ print $text
 test test_accept_invalid_policy_is_rejected_before_spawn { |ctx|
   for policy in ["[]", "[0,0]", "[-1]", "[256]", "[true]", "0"] {
     let source = f"""
-      run --accept=${policy} sh -c \"printf spawned\"
+      run --accept={policy} sh -c \"printf spawned\"
 
       """
     let output = test.run_script(ctx, source)?
@@ -202,7 +202,7 @@ test test_accept_direct_status_capture_keeps_nominal_error_and_actual_zero {
       assert child_status.ok
       assert child_status.exit_code()? == 0
     }
-    Err(error) => test.fail(f"unexpected error: ${error.message}")?
+    Err(error) => test.fail(f"unexpected error: {error.message}")?
     Ok(_) => test.fail("direct status validation succeeded")?
   }
 }

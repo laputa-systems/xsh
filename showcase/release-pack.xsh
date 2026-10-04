@@ -31,16 +31,16 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if opts.dry_run {
     let preview = fs.files(absolute_source) |> sort-by .path
-    print f"would stage ${preview.len()} files from ${absolute_source}"
-    print f"would write to ${opts.output} (dry run)"
+    print f"would stage {preview.len()} files from {absolute_source}"
+    print f"would write to {opts.output} (dry run)"
     return
   }
 
   let output_parent = opts.output.parent
   let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
-  let output = fp"${parent}/${opts.output.name()}"
+  let output = fp"{parent}/{opts.output.name()}"
   if output.exists()? {
-    print f"output already exists: ${output}"
+    print f"output already exists: {output}"
     abort(1)
   }
 
@@ -52,11 +52,11 @@ proc main(...argv: List[Str]) [fs, error] {
     Err(_) => {}
   }
 
-  let pending = fp"${parent}/.${opts.output.name()}.xsh-stage"
+  let pending = fp"{parent}/.{opts.output.name()}.xsh-stage"
   pending.mkdir(parents: false)?
   defer pending.remove(missing_ok: true)?
-  let stage = fp"${pending}/stage"
-  let payload = fp"${stage}/payload"
+  let stage = fp"{pending}/stage"
+  let payload = fp"{stage}/payload"
   let copied = fs.copy_tree(absolute_source, payload)?
   let payload_root = payload.resolve()?
 
@@ -67,14 +67,14 @@ proc main(...argv: List[Str]) [fs, error] {
       {path: rel.display(), size: entry.size, sha256: entry.path.read_bytes()?.sha256().hex()}
     }
 
-  let manifest = fp"${stage}/MANIFEST.json"
+  let manifest = fp"{stage}/MANIFEST.json"
   json.write(manifest, {source: absolute_source.display(), files: entries})?
-  let staged_tarball = fp"${pending}/release.tar"
+  let staged_tarball = fp"{pending}/release.tar"
   archive.tar_create(staged_tarball, stage, [p"."], "auto")?
   let listed = archive.tar_list(staged_tarball)?.collect()
   let digest = staged_tarball.read_bytes()?.sha256().hex()
   pending.rename(output)?
-  let tarball = fp"${output}/release.tar"
-  print f"staged ${copied.files} files ${copied.dirs} dirs"
-  print f"archive ${tarball} entries ${listed.len()} sha256 ${digest}"
+  let tarball = fp"{output}/release.tar"
+  print f"staged {copied.files} files {copied.dirs} dirs"
+  print f"archive {tarball} entries {listed.len()} sha256 {digest}"
 }

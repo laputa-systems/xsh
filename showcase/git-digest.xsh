@@ -15,7 +15,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     {base: {form: "--base BRANCH", default: "main"}, limit: {form: "--limit N", kind: "UInt", default: 10, min: 1}},
   )?
 
-  let range = f"${opts.base}..HEAD"
+  let range = f"{opts.base}..HEAD"
 
   # Commit summary
   let log_out = run.text "git" "log" "--oneline" $range ?
@@ -23,11 +23,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let commit_count = commits.len()
 
   if commit_count == 0 {
-    print f"no commits ahead of ${opts.base}"
+    print f"no commits ahead of {opts.base}"
     return
   }
 
-  print f"${commit_count} commit(s) ahead of ${opts.base}"
+  print f"{commit_count} commit(s) ahead of {opts.base}"
   print ""
 
   # Author breakdown
@@ -40,7 +40,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print "authors:"
 
   for a in authors {
-    print f"  ${a}"
+    print f"  {a}"
   }
 
   print ""
@@ -67,17 +67,17 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> map .removed
     |> sum
 
-  print f"${file_stats.len()} file(s) changed  +${total_added} -${total_removed}"
+  print f"{file_stats.len()} file(s) changed  +{total_added} -{total_removed}"
   print ""
 
   let top = file_stats
     |> sort-by(desc: true) .total
     |> take(opts.limit)
 
-  print f"top ${top.len()} file(s) by change volume:"
-  print f"  ${"file":<60} ${"added":>6} ${"removed":>8}"
+  print f"top {top.len()} file(s) by change volume:"
+  print f"  {"file":<60} {"added":>6} {"removed":>8}"
 
   for f in top {
-    print f"  ${f.path:<60} ${f.added:>6} ${f.removed:>8}"
+    print f"  {f.path:<60} {f.added:>6} {f.removed:>8}"
   }
 }

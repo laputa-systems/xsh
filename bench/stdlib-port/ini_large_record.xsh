@@ -30,5 +30,5 @@ proc main() [io, error] {
     sink = sink + (ini.encode(document)?).byte_len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

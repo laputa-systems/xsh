@@ -21,13 +21,13 @@ test test_system_report_bounded_text_reader_withholds_truncated_prefix {
   defer root.close()?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"source",
     f"""42
-${padding}""",
+{padding}""",
   )?
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let read = parser.read_source_text(root, p"source", 4096, false)

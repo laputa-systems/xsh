@@ -75,7 +75,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     let report = live_collector.collect_live(options.section, options.sensitive)?
     if options.json {
       let output = system_report.encode_report_json(report, options.sensitive, false)?
-      io.write_stdout(f"""${output}
+      io.write_stdout(f"""{output}
 """)?
     } else {
       io.write_stdout(system_report.render_text(report, options.full, options.sensitive)?)?
@@ -84,24 +84,24 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     return
   }
 
-  let input_path = fp"${options.from_report}"
+  let input_path = fp"{options.from_report}"
   guard let input_root = fs.open_root(input_path.parent()) else { |error|
-    return Err(SystemReportCliError.InvalidInput(f"system-report: cannot open replay file parent: ${error.message}"))
+    return Err(SystemReportCliError.InvalidInput(f"system-report: cannot open replay file parent: {error.message}"))
   }
 
   defer input_root.close()?
   guard let input = input_root.read_result(
-    fp"${input_path.name()}",
+    fp"{input_path.name()}",
     max_bytes: 16777216,
   ) else { |error|
-    return Err(SystemReportCliError.InvalidInput(f"system-report: cannot read replay file: ${error.message}"))
+    return Err(SystemReportCliError.InvalidInput(f"system-report: cannot read replay file: {error.message}"))
   }
 
   if input.state != "observed" {
-    let errno = if input.errno == null { "unknown" } else { f"${input.errno ?? -1}" }
+    let errno = if input.errno == null { "unknown" } else { f"{input.errno ?? -1}" }
     return Err(
       SystemReportCliError.InvalidInput(
-        f"system-report: cannot read replay file (${input.state}, errno=${errno})",
+        f"system-report: cannot read replay file ({input.state}, errno={errno})",
       ),
     )
   }
@@ -119,11 +119,11 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   }
 
   guard let source = input.data.utf8() else { |error|
-    return Err(SystemReportCliError.InvalidInput(f"system-report: replay file is not valid UTF-8: ${error.message}"))
+    return Err(SystemReportCliError.InvalidInput(f"system-report: replay file is not valid UTF-8: {error.message}"))
   }
 
   guard let report = system_report.decode_report_json(source) else { |error|
-    return Err(SystemReportCliError.InvalidInput(f"system-report: invalid replay report: ${error.message}"))
+    return Err(SystemReportCliError.InvalidInput(f"system-report: invalid replay report: {error.message}"))
   }
 
   var selected: Record = report
@@ -137,7 +137,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
 
   if options.json {
     let output = system_report.encode_report_json(selected, options.sensitive, false)?
-    io.write_stdout(f"""${output}
+    io.write_stdout(f"""{output}
 """)?
   } else {
     io.write_stdout(system_report.render_text(selected, options.full, options.sensitive)?)?

@@ -66,13 +66,13 @@ pure combine(acc: Int, item: Int) -> Result[Int, CombineError] {
 stream numbers() [io] -> Stream[Int] {
   defer { print "source closed" }
   for item in [1, 2, 3] {
-    print f"pull ${item}"
+    print f"pull {item}"
     yield item
   }
 }
 let outcome = try {
   numbers() |> fold(0) { |acc, item|
-    defer { print f"callback closed ${item}" }
+    defer { print f"callback closed {item}" }
     combine(acc, item)?
   }
 }

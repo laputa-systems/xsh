@@ -45,14 +45,14 @@ proc default_interfaces_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
     "/etc/network/interfaces"
   }
-  fp"${raw}"
+  fp"{raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_STATE") ?? { |_|
     "/run/network/ifstate"
   }
-  fp"${raw}"
+  fp"{raw}"
 }
 
 pure first_word(line: Str) -> Str {
@@ -100,7 +100,7 @@ pure append_current(config: Config, current: Interface) -> Config {
 }
 
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
-  let path_value = fp"${source}"
+  let path_value = fp"{source}"
 
   return parse_interfaces_file(path_value, config)? unless "*" in source
 
@@ -139,7 +139,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfdownError.Config(f"${path_value}: source expects one path"))
+          return Err(IfdownError.Config(f"{path_value}: source expects one path"))
         }
 
         result = parse_source_path(fields[1], result)?
@@ -149,10 +149,10 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfdownError.Config(f"${path_value}: source-directory expects one path"))
+          return Err(IfdownError.Config(f"{path_value}: source-directory expects one path"))
         }
 
-        let dir = fp"${fields[1]}"
+        let dir = fp"{fields[1]}"
 
         if dir.exists()? {
           for entry in fs.children(dir)?
@@ -171,28 +171,28 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         result = append_current(result, current)
 
         if fields.len() < 4 {
-          return Err(IfdownError.Config(f"${path_value}: iface expects name, address family, and method"))
+          return Err(IfdownError.Config(f"{path_value}: iface expects name, address family, and method"))
         }
 
         current = {...empty_interface(), logical: fields[1], family: fields[2], method: fields[3]}
       }
       "pre-down" => {
         if current.logical == "" {
-          return Err(IfdownError.Config(f"${path_value}: pre-down outside iface stanza"))
+          return Err(IfdownError.Config(f"{path_value}: pre-down outside iface stanza"))
         }
 
         current = {...current, pre_down: current.pre_down.push(rest_after_word(line))}
       }
       "down" => {
         if current.logical == "" {
-          return Err(IfdownError.Config(f"${path_value}: down outside iface stanza"))
+          return Err(IfdownError.Config(f"{path_value}: down outside iface stanza"))
         }
 
         current = {...current, down: current.down.push(rest_after_word(line))}
       }
       "post-down" => {
         if current.logical == "" {
-          return Err(IfdownError.Config(f"${path_value}: post-down outside iface stanza"))
+          return Err(IfdownError.Config(f"{path_value}: post-down outside iface stanza"))
         }
 
         current = {...current, post_down: current.post_down.push(rest_after_word(line))}
@@ -226,7 +226,7 @@ proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
     return stanza when stanza.logical == logical
   }
 
-  Err(IfdownError.Config(f"unknown interface ${logical}"))
+  Err(IfdownError.Config(f"unknown interface {logical}"))
 }
 
 proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [process, error] {
@@ -248,7 +248,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
   let status = process.run(process.command_argv("/bin/sh", ["sh", "-c", command], env: env_record))?
 
   if ! status.ok {
-    return Err(IfdownError.Hook(f"${phase} command failed for ${physical}: ${command}"))
+    return Err(IfdownError.Hook(f"{phase} command failed for {physical}: {command}"))
   }
 }
 
@@ -275,7 +275,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 
     let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
 
-    return Err(IfdownError.Hook(f"${entry.path} failed for ${physical}")) unless status.ok
+    return Err(IfdownError.Hook(f"{entry.path} failed for {physical}")) unless status.ok
   }
 }
 
@@ -357,7 +357,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
   for line in state_text.lines() {
     let fields = line.words()
 
-    if fields.len() >= 1 and fields[0] == f"${physical}=${logical}" {
+    if fields.len() >= 1 and fields[0] == f"{physical}={logical}" {
       found = true
     }
   }
@@ -367,7 +367,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
   let stanza = find_stanza(config, logical)?
 
   if stanza.family != "inet" {
-    return Err(IfdownError.Config(f"${stanza.logical}: unsupported address family ${stanza.family}"))
+    return Err(IfdownError.Config(f"{stanza.logical}: unsupported address family {stanza.family}"))
   }
 
   for command in stanza.pre_down {
@@ -380,7 +380,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
     "loopback" | "manual" => linux.link_down(physical)?
     "static" => teardown_static(physical, stanza)?
     "dhcp" => teardown_dhcp(physical)?
-    _ => return Err(IfdownError.Config(f"${stanza.logical}: unsupported method ${stanza.method}"))
+    _ => return Err(IfdownError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.down {

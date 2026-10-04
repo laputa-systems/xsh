@@ -2401,16 +2401,35 @@ impl<'a> Writer<'a> {
                     let text = self.text_value(text).to_string();
                     if prefix == "f" && index == 0 && text.starts_with('\n') {
                         output.push_str("\\n");
-                        write_triple_text(&text[1..], index + 1 == len, output);
-                    } else { write_triple_text(&text, index + 1 == len, output); }
+                        write_triple_text(&text[1..], index + 1 == len, true, output);
+                    } else { write_triple_text(&text, index + 1 == len, true, output); }
                 }
                 ArenaFmtPart::Text(text) => {
                     let text = self.text_value(text).to_string();
                     write_fmt_text(&text, output);
                 }
                 ArenaFmtPart::Expr(expr, spec) => {
-                    output.push_str("${");
+                    output.push('{');
+                    let start = output.len();
+                    // A single-line f-string cannot hold a line break inside
+                    // `{...}`: write the expression flat, or keep its source.
+                    let line_width = self.line_width;
+                    if !multiline {
+                        self.line_width = usize::MAX / 4;
+                    }
                     self.write_expr(*expr, END, output);
+                    self.line_width = line_width;
+                    if !multiline && output[start..].contains(['\n', '\r']) {
+                        output.truncate(start);
+                        let span = self.arena.expr(*expr).span;
+                        output.push_str(&self.source[span.range()]);
+                    }
+                    // `{{` is always a brace escape, so an expression that
+                    // begins with `{` is set off by spaces: `{ {a: 1}.a }`.
+                    if output[start..].starts_with('{') {
+                        output.insert(start, ' ');
+                        output.push(' ');
+                    }
                     if let Some(spec) = spec {
                         output.push(':');
                         match spec.kind {
@@ -3615,8 +3634,8 @@ fn write_str_literal(value: &str, output: &mut String) {
         // An explicit first break keeps leading newlines from becoming source layout.
         if let Some(rest) = value.strip_prefix('\n') {
             output.push_str("\\n");
-            write_triple_text(rest, true, output);
-        } else { write_triple_text(value, true, output); }
+            write_triple_text(rest, true, false, output);
+        } else { write_triple_text(value, true, false, output); }
         output.push_str("\"\"\"");
     } else {
         write_quoted(value, output);
@@ -3662,7 +3681,9 @@ fn is_invisible_format_char(ch: char) -> bool {
     matches!(ch, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 }
 
-fn write_triple_text(value: &str, trailing: bool, output: &mut String) {
+/// `fmt` text doubles braces and escapes a `$` before an identifier, which
+/// would otherwise read as a mistaken shell-style interpolation.
+fn write_triple_text(value: &str, trailing: bool, fmt: bool, output: &mut String) {
     let mut chars = value.chars().peekable();
     while let Some(ch) = chars.next() {
         match ch {
@@ -3688,7 +3709,10 @@ fn write_triple_text(value: &str, trailing: bool, output: &mut String) {
             '\r' => output.push_str("\\r"),
             '\t' => output.push('\t'),
             '\0' => output.push_str("\\0"),
-            '$' if should_escape_dollar(chars.peek().copied(), false) => output.push_str("\\$"),
+            '{' if fmt => output.push_str("{{"),
+            '}' if fmt => output.push_str("}}"),
+            '$' if fmt && chars.peek().copied().is_some_and(is_identifier_start) => output.push_str("\\$"),
+            '$' if !fmt && should_escape_dollar(chars.peek().copied(), false) => output.push_str("\\$"),
             ch => output.push(ch),
         }
     }
@@ -3704,7 +3728,9 @@ fn write_fmt_text(value: &str, output: &mut String) {
             '\r' => output.push_str("\\r"),
             '\t' => output.push_str("\\t"),
             '\0' => output.push_str("\\0"),
-            '$' if should_escape_dollar(chars.peek().copied(), false) => output.push_str("\\$"),
+            '{' => output.push_str("{{"),
+            '}' => output.push_str("}}"),
+            '$' if chars.peek().copied().is_some_and(is_identifier_start) => output.push_str("\\$"),
             ch => output.push(ch),
         }
     }
@@ -3819,8 +3845,8 @@ mod tests {
 
     #[test]
     fn control_flow_expanded_to_multiple_lines_is_followed_by_one_blank_line() {
-        let source = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" { return fp\"${configured}\" }\n  process.which(\"xsh\")?\n}\n";
-        let expected = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" {\n    return fp\"${configured}\"\n  }\n\n  process.which(\"xsh\")?\n}\n";
+        let source = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" { return fp\"{configured}\" }\n  process.which(\"xsh\")?\n}\n";
+        let expected = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" {\n    return fp\"{configured}\"\n  }\n\n  process.which(\"xsh\")?\n}\n";
         let formatted = Formatter::new().format_source(SourceId::new(0), source);
         assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
         assert_eq!(formatted.formatted, expected);

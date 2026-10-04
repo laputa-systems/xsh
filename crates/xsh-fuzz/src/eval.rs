@@ -649,6 +649,18 @@ impl<'a> Evaluator<'a> {
                     match part {
                         FmtPart::Lit(literal) => text.push_str(literal),
                         FmtPart::Interp(value) => text.push_str(&display(&self.expr(value)?)),
+                        FmtPart::Width(value, align, width) => {
+                            let shown = display(&self.expr(value)?);
+                            let pad = width.saturating_sub(shown.chars().count());
+                            match align {
+                                '>' => text.push_str(&format!("{}{shown}", " ".repeat(pad))),
+                                '<' => text.push_str(&format!("{shown}{}", " ".repeat(pad))),
+                                _ => match shown.strip_prefix('-') {
+                                    Some(rest) => text.push_str(&format!("-{}{rest}", "0".repeat(pad))),
+                                    None => text.push_str(&format!("{}{shown}", "0".repeat(pad))),
+                                },
+                            }
+                        }
                     }
                 }
                 Val::Str(text)

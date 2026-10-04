@@ -12,12 +12,12 @@ test appends_missing_key {
 
 test harden_script_edits_file_and_keeps_backup { |ctx|
   let dir = test.temp_dir(ctx)?
-  let config = fp"${dir}/sshd_config"
+  let config = fp"{dir}/sshd_config"
   config.write("#PermitRootLogin yes\n")?
 
   let source = p"bin/harden.xsh".read_text()?
   let result = test.run_script(ctx, source, args: ["--config", config.display()])?
   assert result.success, result.stderr
   assert config.read_text()? == "PermitRootLogin no\n"
-  assert fp"${config}.bak".exists()?
+  assert fp"{config}.bak".exists()?
 }

@@ -225,28 +225,28 @@ test test_fold_and_reduce_run_direct_effects_in_item_order { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc after_item(n: Int) [io] {
-  print f"defer ${n}"
+  print f"defer {n}"
 }
 
 proc main() [io, process, error] {
   let total = numbers() |> fold(0) { |acc, n|
     defer after_item(n)
     run true ?
-    print f"fold ${n}"
+    print f"fold {n}"
     acc + n
   }
-  print f"total=${total}"
+  print f"total={total}"
   let reduced = [1, 2] |> reduce(0) { |acc, n|
-    print f"reduce ${n}"
+    print f"reduce {n}"
     acc + n
   }
-  print f"reduced=${reduced}"
+  print f"reduced={reduced}"
 }
 """,
   )?
@@ -276,19 +276,19 @@ test test_fold_error_stops_and_closes_live_source { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
+stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {{
   defer closed.write("closed")?
-  for n in range(5) {
-    pulled.write(f"pull \${n}")?
+  for n in range(5) {{
+    pulled.write(f"pull {{n}}")?
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, error] {
-  let total = numbers(Path("${pulled}"), Path("${closed}"))
-    |> fold(0) { |acc, n| acc + 10 / (1 - n) }
-  print \${total}
-}
+proc main() [fs, error] {{
+  let total = numbers(Path("{pulled}"), Path("{closed}"))
+    |> fold(0) {{ |acc, n| acc + 10 / (1 - n) }}
+  print ${{total}}
+}}
 """,
   )?
   {
@@ -316,7 +316,7 @@ stream numbers() [io] -> Stream[Any] {
 
 proc main() [io] {
   let total = numbers() |> sum()
-  print f"total=${total}"
+  print f"total={total}"
 }
 """,
   )?
@@ -327,19 +327,19 @@ proc main() [io] {
 
 test test_keyed_stages_errors_stop_live_source { |ctx|
   for terminal in ["group-by", "count", "unique-by"] {
-    let source = f"""\nproc close() [io] { print "closed" }
+    let source = f"""\nproc close() [io] {{ print "closed" }}
 
-stream numbers() [io, error] -> Stream[Int] {
+stream numbers() [io, error] -> Stream[Int] {{
   defer close()
-  for n in range(3) {
-    print f"pull \${n}"
+  for n in range(3) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [io, error] {
-  let _result = numbers() |> ${terminal} { |n| 1 / (1 - n) }
-}
+proc main() [io, error] {{
+  let _result = numbers() |> {terminal} {{ |n| 1 / (1 - n) }}
+}}
 """
     let output = test.run_script(ctx, source)?
     {
@@ -360,23 +360,23 @@ test test_keyed_stages_project_before_next_live_pull { |ctx|
     r"""
 stream numbers(label: Str) [io] -> Stream[Int] {
   for n in [2, 1, 2] {
-    print f"${label} pull ${n}"
+    print f"{label} pull {n}"
     yield n
   }
 }
 
 proc key(n: Int) [io] -> Int {
-  print f"key ${n}"
+  print f"key {n}"
   return n
 }
 
 proc main() [io, error] {
   let groups = numbers("group") |> group-by { |n| key(n) }
-  print f"groups=${groups[0].key}:${groups[0].items.len()},${groups[1].key}:${groups[1].items.len()}"
+  print f"groups={groups[0].key}:{groups[0].items.len()},{groups[1].key}:{groups[1].items.len()}"
   let counts = numbers("count") |> count { |n| key(n) }
-  print f"counts=${counts.get("1") ?? 0},${counts.get("2") ?? 0}"
+  print f"counts={counts.get("1") ?? 0},{counts.get("2") ?? 0}"
   let unique = numbers("unique") |> unique-by { |n| key(n) }
-  print f"unique=${unique[0]},${unique[1]}"
+  print f"unique={unique[0]},{unique[1]}"
 }
 """,
   )?
@@ -417,7 +417,7 @@ proc close() [io] { print "closed" }
 stream numbers() [io, error] -> Stream[Int] {
   defer close()
   for n in range(4) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
@@ -429,7 +429,7 @@ proc right() [io] -> List[Int] {
 
 proc main() [io, error] {
   let pairs = numbers() |> zip(right())
-  print f"pairs=${pairs[0].left}:${pairs[0].right},${pairs[1].left}:${pairs[1].right}"
+  print f"pairs={pairs[0].left}:{pairs[0].right},{pairs[1].left}:{pairs[1].right}"
 }
 """,
   )?
@@ -479,21 +479,21 @@ test test_zip_collects_right_stream_before_pulling_left { |ctx|
     r"""
 stream left() [io] -> Stream[Int] {
   for n in [1, 2, 3] {
-    print f"left ${n}"
+    print f"left {n}"
     yield n
   }
 }
 
 stream right() [io] -> Stream[Int] {
   for n in [10, 20] {
-    print f"right ${n}"
+    print f"right {n}"
     yield n
   }
 }
 
 proc main() [io, error] {
   let pairs = left() |> zip(right())
-  print f"pairs=${pairs[0].left}:${pairs[0].right},${pairs[1].left}:${pairs[1].right}"
+  print f"pairs={pairs[0].left}:{pairs[0].right},{pairs[1].left}:{pairs[1].right}"
 }
 """,
   )?
@@ -517,7 +517,7 @@ stream numbers() [] -> Stream[Int] { yield 1 }
 
 proc main() [io, error] {
   let pairs = numbers() |> zip([10])
-  print f"pairs=${pairs.len()}"
+  print f"pairs={pairs.len()}"
 }
 """,
   )?
@@ -533,23 +533,23 @@ test test_last_min_max_live_terminals_finish_and_close_producers { |ctx|
   let output = test.run_script(
     ctx,
     r"""
-proc close(name: Str) [io] { print f"closed ${name}" }
+proc close(name: Str) [io] { print f"closed {name}" }
 
 stream numbers(name: Str) [io, error] -> Stream[Int] {
   defer close(name)
   for n in [3, 1, 2] {
-    print f"${name} ${n}"
+    print f"{name} {n}"
     yield n
   }
 }
 
 proc main() [io, error] {
   let last = numbers("last") |> last()?
-  print f"last=${last}"
+  print f"last={last}"
   let min = numbers("min") |> min()?
-  print f"min=${min}"
+  print f"min={min}"
   let max = numbers("max") |> max()?
-  print f"max=${max}"
+  print f"max={max}"
 }
 """,
   )?
@@ -604,13 +604,13 @@ test test_each_live_source_runs_body_before_next_pull { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc main() [io] {
-  numbers() |> each { |n| print f"each ${n}" }
+  numbers() |> each { |n| print f"each {n}" }
 }
 """,
   )?
@@ -633,18 +633,18 @@ test test_each_error_stops_and_closes_live_source { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
+stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {{
   defer closed.write("closed")?
-  for n in range(5) {
-    pulled.write(f"pull \${n}")?
+  for n in range(5) {{
+    pulled.write(f"pull {{n}}")?
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, error] {
-  numbers(Path("${pulled}"), Path("${closed}"))
-    |> each { |n| let _ = 10 / (1 - n) }
-}
+proc main() [fs, error] {{
+  numbers(Path("{pulled}"), Path("{closed}"))
+    |> each {{ |n| let _ = 10 / (1 - n) }}
+}}
 """,
   )?
   {
@@ -756,13 +756,13 @@ test test_implicit_standard_read_helpers_and_pipe_shorthand { |ctx|
 
 test test_core_commands_and_byte_pipeline { |ctx|
   let root = test.temp_dir(ctx, name: "core-byte-pipeline")?
-  let output = fp"${root}/out.txt"
+  let output = fp"{root}/out.txt"
 
   cd root {
     fs.write(p"inside.txt", "cwd")?
   }
 
-  assert fp"${root}/inside.txt".read_text()? == "cwd"
+  assert fp"{root}/inside.txt".read_text()? == "cwd"
   eprint "covered stderr"
   run printf "%s" "abc" | run tr a-z A-Z > output ?
   assert output.read_text()? == "ABC"
@@ -799,13 +799,13 @@ test test_reduce_by_live_source_folds_each_item_before_next_pull { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc observed(n: Int) [io] -> Int {
-  print f"reduce ${n}"
+  print f"reduce {n}"
   return n
 }
 
@@ -814,7 +814,7 @@ proc main() [io, error] {
     |> reduce-by(sum: true, jobs: 1) { |n|
       {key: "all", value: observed(n)}
     }
-  print f"total=${groups.get("all") ?? 0}"
+  print f"total={groups.get("all") ?? 0}"
 }
 """,
   )?
@@ -838,21 +838,21 @@ test test_reduce_by_error_stops_and_closes_live_source { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
+stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {{
   defer closed.write("closed")?
-  for n in range(5) {
-    pulled.write(f"pull \${n}")?
+  for n in range(5) {{
+    pulled.write(f"pull {{n}}")?
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, error] {
-  let groups = numbers(Path("${pulled}"), Path("${closed}"))
-    |> reduce-by(sum: true) { |n|
-      {key: "all", value: 10 / (1 - n)}
-    }
-  print \${groups.get("all") ?? 0}
-}
+proc main() [fs, error] {{
+  let groups = numbers(Path("{pulled}"), Path("{closed}"))
+    |> reduce-by(sum: true) {{ |n|
+      {{key: "all", value: 10 / (1 - n)}}
+    }}
+  print ${{groups.get("all") ?? 0}}
+}}
 """,
   )?
   {
@@ -907,11 +907,11 @@ proc jobs(label: Str) [io] -> Int {
 proc main() [io, error] {
   let reduced = [1, 2]
     |> reduce-by(sum: true, jobs: jobs("reduce")) { |n| {key: "all", value: n} }
-  print f"total=${reduced.get("all") ?? 0}"
+  print f"total={reduced.get("all") ?? 0}"
   let from_workers = [1, 2]
     |> par-map(jobs: 2) { |n| n }
     |> reduce-by(sum: true, jobs: jobs("after-map")) { |n| {key: "all", value: n} }
-  print f"worker-total=${from_workers.get("all") ?? 0}"
+  print f"worker-total={from_workers.get("all") ?? 0}"
   print "done"
 }
 """,
@@ -955,21 +955,21 @@ test test_reduce_by_jobs_rejects_dynamic_zero_before_pulling_source { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-proc zero_jobs(evaluated: Path) [fs, error] -> Int {
+proc zero_jobs(evaluated: Path) [fs, error] -> Int {{
   evaluated.write("evaluated")?
   return 0
-}
+}}
 
-stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
+stream numbers(pulled: Path) [fs, error] -> Stream[Int] {{
   pulled.write("pulled")?
   yield 1
-}
+}}
 
-proc main() [fs, error] {
-  let totals = numbers(Path("${pulled}"))
-    |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated}"))) { |n| {key: "all", value: n} }
-  print \${totals.get("all") ?? 0}
-}
+proc main() [fs, error] {{
+  let totals = numbers(Path("{pulled}"))
+    |> reduce-by(sum: true, jobs: zero_jobs(Path("{evaluated}"))) {{ |n| {{key: "all", value: n}} }}
+  print ${{totals.get("all") ?? 0}}
+}}
 """,
   )?
   {
@@ -1095,10 +1095,10 @@ test test_flat_map_identity_reduce_by_matches_direct_rows {
 
 test test_live_files_flat_map_reduce_by_matches_collected_rows { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-flat-map-reduce")?
-  fp"${root}/nested".mkdir()?
-  fp"${root}/a.txt".write("abc")?
-  fp"${root}/nested/b.txt".write("de")?
-  fp"${root}/nested/c.md".write("fghi")?
+  fp"{root}/nested".mkdir()?
+  fp"{root}/a.txt".write("abc")?
+  fp"{root}/nested/b.txt".write("de")?
+  fp"{root}/nested/c.md".write("fghi")?
 
   let streamed = fs.files(root)
     |> par-map(jobs: 4) { |entry|
@@ -1125,10 +1125,10 @@ test test_live_files_flat_map_reduce_by_matches_collected_rows { |ctx|
 
 test test_live_files_par_map_for_matches_collected_rows { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-par-map-for")?
-  fp"${root}/nested".mkdir()?
-  fp"${root}/a.txt".write("abc")?
-  fp"${root}/nested/b.txt".write("de")?
-  fp"${root}/nested/c.md".write("fghi")?
+  fp"{root}/nested".mkdir()?
+  fp"{root}/a.txt".write("abc")?
+  fp"{root}/nested/b.txt".write("de")?
+  fp"{root}/nested/c.md".write("fghi")?
 
   var streamed_txt_count = 0
   var streamed_txt_size = 0
@@ -1169,7 +1169,7 @@ test test_live_files_par_map_for_matches_collected_rows { |ctx|
 test test_par_map_filesystem_reads_preserve_all_results { |ctx|
   let root = test.temp_dir(ctx, name: "par-map-filesystem-reads")?
   for index in range(32) {
-    fp"${root}/entry-${index}.txt".write(f"""${index}
+    fp"{root}/entry-{index}.txt".write(f"""{index}
 """)?
   }
 
@@ -1196,7 +1196,7 @@ let reduced = rows
     {key: row.key, value: {x: row.a, y: row.b}}
   }
 let g = reduced.get("g") ?? {x: 0, y: 0}
-print f"x=\${g.x}"
+print f"x={g.x}"
 """,
   )?
   {
@@ -1213,22 +1213,22 @@ test test_stream_producers_are_lazy_and_run_defers_on_stop { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream nums(marker: Path, rows: Path) [fs, error] -> Stream[Int] {
+stream nums(marker: Path, rows: Path) [fs, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(5) {
-    rows.write(f"row \${n}")?
+  for n in range(5) {{
+    rows.write(f"row {{n}}")?
     yield n
-  }
-}
+  }}
+}}
 
-let numbers = nums(Path("${marker}"), Path("${rows}"))
+let numbers = nums(Path("{marker}"), Path("{rows}"))
 # The call did not run the body, so no row has been written yet, and the first
 # pull stops at the first row: the defer runs and the later rows never do.
-print \${Path("${rows}").exists() ?}
+print ${{Path("{rows}").exists() ?}}
 let first = numbers |> first()?
-print \${first}
-print \${Path("${rows}").read_text() ?}
-print \${Path("${marker}").read_text() ?}
+print ${{first}}
+print ${{Path("{rows}").read_text() ?}}
+print ${{Path("{marker}").read_text() ?}}
 """,
   )?
   {
@@ -1247,34 +1247,34 @@ test test_any_and_all_stop_live_producer_after_decisive_item { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(5) {
-    print f"pull \${n}"
+  for n in range(5) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, io, error] {
-  print f"any=\${numbers(Path("${marker}")) |> any . == 0}"
-  print Path("${marker}").read_text()?
-  print f"all=\${numbers(Path("${marker}")) |> all . < 0}"
-  print Path("${marker}").read_text()?
-  let any_block = numbers(Path("${marker}")) |> any { |n|
+proc main() [fs, io, error] {{
+  print f"any={{numbers(Path("{marker}")) |> any . == 0}}"
+  print Path("{marker}").read_text()?
+  print f"all={{numbers(Path("{marker}")) |> all . < 0}}"
+  print Path("{marker}").read_text()?
+  let any_block = numbers(Path("{marker}")) |> any {{ |n|
     let matched = n == 0
     matched
-  }
-  print f"any_block=\${any_block}"
-  print Path("${marker}").read_text()?
-  let all_block = numbers(Path("${marker}")) |> all { |n|
+  }}
+  print f"any_block={{any_block}}"
+  print Path("{marker}").read_text()?
+  let all_block = numbers(Path("{marker}")) |> all {{ |n|
     let matched = n < 0
     matched
-  }
-  print f"all_block=\${all_block}"
-  print Path("${marker}").read_text()?
-  print f"none=\${numbers(Path("${marker}")) |> any . == 99}"
-  print f"all_true=\${numbers(Path("${marker}")) |> all . < 5}"
-}
+  }}
+  print f"all_block={{all_block}}"
+  print Path("{marker}").read_text()?
+  print f"none={{numbers(Path("{marker}")) |> any . == 99}}"
+  print f"all_true={{numbers(Path("{marker}")) |> all . < 5}}"
+}}
 """,
   )?
   {
@@ -1313,28 +1313,28 @@ test test_live_tee_where_take_stops_upstream_and_closes_producer { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(5) {
-    print f"pull \${n}"
+  for n in range(5) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc amount() [io] -> Int {
+proc amount() [io] -> Int {{
   print "count"
   return 2
-}
+}}
 
-proc main() [fs, io, error] {
-  let taken = numbers(Path("${marker}"))
-    |> tee { |n| print f"tee \${n}" }
+proc main() [fs, io, error] {{
+  let taken = numbers(Path("{marker}"))
+    |> tee {{ |n| print f"tee {{n}}" }}
     |> where . % 2 == 0
     |> take(amount())
     |> collect()
-  print f"rows=\${taken.len()} \${taken[0]} \${taken[1]}"
-  print Path("${marker}").read_text()?
-}
+  print f"rows={{taken.len()}} {{taken[0]}} {{taken[1]}}"
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1359,17 +1359,17 @@ test test_live_serial_collect_runs_stages_in_item_order { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc main() [io] {
   let rows = numbers()
-    |> tee { |n| print f"first ${n}" }
-    |> tee { |n| print f"second ${n}" }
+    |> tee { |n| print f"first {n}" }
+    |> tee { |n| print f"second {n}" }
     |> collect()
-  print f"rows=${rows.len()}"
+  print f"rows={rows.len()}"
 }
 """,
   )?
@@ -1396,16 +1396,16 @@ test test_live_serial_expression_boundary_runs_stages_in_item_order { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(2) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc main() [io] {
   let rows = numbers()
-    |> tee { |n| print f"first ${n}" }
-    |> tee { |n| print f"second ${n}" }
-  for n in rows { print f"row ${n}" }
+    |> tee { |n| print f"first {n}" }
+    |> tee { |n| print f"second {n}" }
+  for n in rows { print f"row {n}" }
 }
 """,
   )?
@@ -1429,23 +1429,23 @@ test test_live_serial_for_interleaves_body_and_stops_producer { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(5) {
-    print f"pull \${n}"
+  for n in range(5) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, io, error] {
-  for n in numbers(Path("${marker}"))
-    |> tee { |value| print f"tee \${value}" }
-    |> where . % 2 == 0 {
-    print f"row \${n}"
-    if n == 2 { break }
-  }
-  print Path("${marker}").read_text()?
-}
+proc main() [fs, io, error] {{
+  for n in numbers(Path("{marker}"))
+    |> tee {{ |value| print f"tee {{value}}" }}
+    |> where . % 2 == 0 {{
+    print f"row {{n}}"
+    if n == 2 {{ break }}
+  }}
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1479,9 +1479,9 @@ proc main() [io] {
     |> flat-map { |n| [n, n + 10] }
     |> enumerate
     |> take(3) {
-    print f"row ${row.index}:${row.value}"
+    print f"row {row.index}:{row.value}"
     if row.index == 1 { continue }
-    print f"kept ${row.value}"
+    print f"kept {row.value}"
   }
 }
 """,
@@ -1504,20 +1504,20 @@ test test_live_serial_for_take_closes_producer { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(4) {
-    print f"pull \${n}"
+  for n in range(4) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, io, error] {
-  for n in numbers(Path("${marker}")) |> take(2) {
-    print f"row \${n}"
-  }
-  print Path("${marker}").read_text()?
-}
+proc main() [fs, io, error] {{
+  for n in numbers(Path("{marker}")) |> take(2) {{
+    print f"row {{n}}"
+  }}
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1538,7 +1538,7 @@ test test_raw_stream_for_continue_reaches_next_item { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
@@ -1546,7 +1546,7 @@ stream numbers() [io] -> Stream[Int] {
 proc main() [io] {
   for n in numbers() {
     if n == 1 { continue }
-    print f"row ${n}"
+    print f"row {n}"
   }
 }
 """,
@@ -1568,26 +1568,26 @@ test test_returned_stream_delegates_rows_and_cleanup { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(4) {
-    print f"pull \${n}"
+  for n in range(4) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc source(marker: Path) [fs, io, error] -> Stream[Int] {
+proc source(marker: Path) [fs, io, error] -> Stream[Int] {{
   print "source"
   return numbers(marker)
-}
+}}
 
-proc main() [fs, io, error] {
-  for n in source(Path("${marker}")) {
-    print f"row \${n}"
-    if n == 1 { break }
-  }
-  print Path("${marker}").read_text()?
-}
+proc main() [fs, io, error] {{
+  for n in source(Path("{marker}")) {{
+    print f"row {{n}}"
+    if n == 1 {{ break }}
+  }}
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1608,17 +1608,17 @@ test test_live_serial_for_error_closes_trace_and_producer { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     f"""
-stream words(marker: Path) [fs, error] -> Stream[Str] {
+stream words(marker: Path) [fs, error] -> Stream[Str] {{
   defer marker.write("closed")?
   yield "1"
   yield "bad"
-}
+}}
 
-proc main() [fs, io, error] {
-  for n in words(Path("${marker}")) |> map .parse_int_decimal()? {
-    print f"row \${n}"
-  }
-}
+proc main() [fs, io, error] {{
+  for n in words(Path("{marker}")) |> map .parse_int_decimal()? {{
+    print f"row {{n}}"
+  }}
+}}
 """,
     ["--trace", "--raw"],
   )?
@@ -1634,26 +1634,26 @@ test test_live_flat_map_take_stops_within_expanded_row { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(4) {
-    print f"pull \${n}"
+  for n in range(4) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, io, error] {
-  let rows = numbers(Path("${marker}"))
-    |> flat-map { |n|
-      print f"expand \${n}"
+proc main() [fs, io, error] {{
+  let rows = numbers(Path("{marker}"))
+    |> flat-map {{ |n|
+      print f"expand {{n}}"
       [n, n + 10]
-    }
-    |> tee { |n| print f"expanded \${n}" }
+    }}
+    |> tee {{ |n| print f"expanded {{n}}" }}
     |> take(3)
     |> collect()
-  print f"rows=\${rows[0]} \${rows[1]} \${rows[2]}"
-  print Path("${marker}").read_text()?
-}
+  print f"rows={{rows[0]}} {{rows[1]}} {{rows[2]}}"
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1677,40 +1677,40 @@ test test_live_map_drop_and_where_block_keep_take_bounded { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(5) {
-    print f"pull \${n}"
+  for n in range(5) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [fs, io, error] {
-  let mapped = numbers(Path("${marker}"))
-    |> map { |n| n + 1 }
+proc main() [fs, io, error] {{
+  let mapped = numbers(Path("{marker}"))
+    |> map {{ |n| n + 1 }}
     |> drop(1)
     |> take(2)
     |> collect()
-  print f"mapped=\${mapped[0]} \${mapped[1]}"
-  let filtered = numbers(Path("${marker}"))
-    |> where { |n|
+  print f"mapped={{mapped[0]}} {{mapped[1]}}"
+  let filtered = numbers(Path("{marker}"))
+    |> where {{ |n|
       let even = n % 2 == 0
       even
-    }
+    }}
     |> take(2)
     |> collect()
-  print f"filtered=\${filtered[0]} \${filtered[1]}"
-  let enumerated = numbers(Path("${marker}"))
-    |> map { |n|
+  print f"filtered={{filtered[0]}} {{filtered[1]}}"
+  let enumerated = numbers(Path("{marker}"))
+    |> map {{ |n|
       let next = n + 1
       next
-    }
+    }}
     |> enumerate
     |> take(2)
     |> collect()
-  print f"enumerated=\${enumerated[0].index}:\${enumerated[0].value} \${enumerated[1].index}:\${enumerated[1].value}"
-  print Path("${marker}").read_text()?
-}
+  print f"enumerated={{enumerated[0].index}}:{{enumerated[0].value}} {{enumerated[1].index}}:{{enumerated[1].value}}"
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1737,19 +1737,19 @@ test test_live_bounded_map_error_closes_producer { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, error] -> Stream[Int] {{
   defer marker.write("closed")?
   yield 1
   yield 2
-}
+}}
 
-proc main() [io, fs, error] {
-  let taken = numbers(Path("${marker}"))
-    |> map { |n| "bad".parse_int()? + n }
+proc main() [io, fs, error] {{
+  let taken = numbers(Path("{marker}"))
+    |> map {{ |n| "bad".parse_int()? + n }}
     |> take(1)
     |> collect()
-  print f"rows=\${taken.len()}"
-}
+  print f"rows={{taken.len()}}"
+}}
 """,
   )?
   assert ! output.success
@@ -1762,34 +1762,34 @@ test test_live_tee_any_and_where_first_stop_upstream { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {{
   defer marker.write("closed")?
-  for n in range(5) {
-    print f"pull \${n}"
+  for n in range(5) {{
+    print f"pull {{n}}"
     yield n
-  }
-}
+  }}
+}}
 
-proc main() [io, fs, error] {
-  let found = numbers(Path("${marker}"))
-    |> tee { |n| print f"tee \${n}" }
+proc main() [io, fs, error] {{
+  let found = numbers(Path("{marker}"))
+    |> tee {{ |n| print f"tee {{n}}" }}
     |> any . == 0
-  print f"found=\${found}"
-  print Path("${marker}").read_text()?
-  let block_found = numbers(Path("${marker}"))
-    |> tee { |n| print f"tee \${n}" }
-    |> any { |n|
+  print f"found={{found}}"
+  print Path("{marker}").read_text()?
+  let block_found = numbers(Path("{marker}"))
+    |> tee {{ |n| print f"tee {{n}}" }}
+    |> any {{ |n|
       let matched = n == 0
       matched
-    }
-  print f"block_found=\${block_found}"
-  print Path("${marker}").read_text()?
-  let first = numbers(Path("${marker}"))
+    }}
+  print f"block_found={{block_found}}"
+  print Path("{marker}").read_text()?
+  let first = numbers(Path("{marker}"))
     |> where . % 2 == 1
     |> first()?
-  print f"first=\${first}"
-  print Path("${marker}").read_text()?
-}
+  print f"first={{first}}"
+  print Path("{marker}").read_text()?
+}}
 """,
   )?
   {
@@ -1816,15 +1816,15 @@ test test_live_where_first_empty_preserves_error_and_cleanup { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream numbers(marker: Path) [fs, error] -> Stream[Int] {
+stream numbers(marker: Path) [fs, error] -> Stream[Int] {{
   defer marker.write("closed")?
   yield 1
   yield 2
-}
-proc main() [fs, io, error] {
-  let first = numbers(Path("${marker}")) |> where . > 10 |> first()?
-  print f"first=\${first}"
-}
+}}
+proc main() [fs, io, error] {{
+  let first = numbers(Path("{marker}")) |> where . > 10 |> first()?
+  print f"first={{first}}"
+}}
 """,
   )?
   assert ! output.success
@@ -1841,39 +1841,39 @@ test test_zero_argument_stream_producers_run_from_every_call_position { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-stream once() [] -> Stream[Int] {
+stream once() [] -> Stream[Int] {{
   yield 1
   yield 2
-}
+}}
 
-stream twice() [] -> Stream[Int] {
-  for item in once() {
+stream twice() [] -> Stream[Int] {{
+  for item in once() {{
     yield item * 2
-  }
-}
+  }}
+}}
 
-proc total() [error] -> Int {
+proc total() [error] -> Int {{
   var sum = 0
-  for item in once() {
+  for item in once() {{
     sum = sum + item
-  }
+  }}
   return sum
-}
+}}
 
 var direct = 0
-for item in once() {
+for item in once() {{
   direct = direct + item
-}
-print f"direct=\${direct}"
+}}
+print f"direct={{direct}}"
 let bound = once().collect()
-print f"bound=\${bound.len()}"
-print f"total=\${total()}"
+print f"bound={{bound.len()}}"
+print f"total={{total()}}"
 let doubled = twice().collect()
-print f"doubled=\${doubled.len()}"
-let mapped = once() |> map { |item| item + 1 } |> collect()
-print f"mapped=\${mapped.len()}"
+print f"doubled={{doubled.len()}}"
+let mapped = once() |> map {{ |item| item + 1 }} |> collect()
+print f"mapped={{mapped.len()}}"
 let first = once() |> first()
-print f"first=\${first ?? -1}"
+print f"first={{first ?? -1}}"
 """,
   )?
   {
@@ -1932,7 +1932,7 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
   let paths = captured
     |> text.lines
     |> map { |line|
-      fp"${line}"
+      fp"{line}"
     }
 
   let chunks = b"abcde" |> bytes.chunks(2)
@@ -1959,7 +1959,7 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
 
 test test_line_methods_and_adapters_are_lazy_sources { |ctx|
   let root = test.temp_dir(ctx, name: "stream-lines")?
-  let input = fp"${root}/input.txt"
+  let input = fp"{root}/input.txt"
 
   input.write("""alpha\r
 beta
@@ -1996,7 +1996,7 @@ b
   .collect()
 
   assert lines == ["a", "b"]
-  assert f"""${lines.join("\n")}
+  assert f"""{lines.join("\n")}
 """ == """a
 b
 """
@@ -2004,8 +2004,8 @@ b
 
 test test_flat_map_consumes_live_streams_returned_by_blocks { |ctx|
   let root = test.temp_dir(ctx, name: "flat-map-live-stream")?
-  let left = fp"${root}/left.txt"
-  let right = fp"${root}/right.txt"
+  let left = fp"{root}/left.txt"
+  let right = fp"{root}/right.txt"
 
   left.write("""a
 b
@@ -2029,21 +2029,21 @@ test test_flat_map_drains_one_nested_stream_before_next_outer_pull { |ctx|
     r"""
 stream outer() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"outer ${n}"
+    print f"outer {n}"
     yield n
   }
 }
 
 stream inner(n: Int) [io] -> Stream[Int] {
   for offset in range(3) {
-    print f"inner ${n}:${offset}"
+    print f"inner {n}:{offset}"
     yield n * 10 + offset
   }
 }
 
 proc main() [io, error] {
   let first = outer() |> flat-map { |n| inner(n) } |> first()?
-  print f"first=${first}"
+  print f"first={first}"
 }
 """,
   )?
@@ -2065,23 +2065,23 @@ test test_sort_boundary_materializes_serial_prefix_before_key_projection { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in [2, 1, 3] {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc key(n: Int) [io] -> Int {
-  print f"key ${n}"
+  print f"key {n}"
   return n
 }
 
 proc main() [io, error] {
   let rows = numbers()
-    |> tee { |n| print f"tee ${n}" }
+    |> tee { |n| print f"tee {n}" }
     |> sort-by { |n| key(n) }
     |> take(1)
     |> collect()
-  print f"row=${rows[0]}"
+  print f"row={rows[0]}"
 }
 """,
   )?
@@ -2309,7 +2309,7 @@ proc close() [io] { print "closed" }
 stream paths() [io, error] -> Stream[Path] {
   defer close()
   for value in ["ok", "oversized", "after"] {
-    print f"pull ${value}"
+    print f"pull {value}"
     yield Path(value)
   }
 }
@@ -2336,14 +2336,14 @@ test test_repeat_zero_does_not_pull_live_source { |ctx|
     r"""
 stream numbers() [io] -> Stream[Int] {
   for n in range(3) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
 
 proc main() [io, error] {
   let rows = numbers() |> repeat(0)
-  print f"rows=${rows.len()}"
+  print f"rows={rows.len()}"
 }
 """,
   )?
@@ -2369,7 +2369,7 @@ stream numbers() [io, error] -> Stream[Int] {
 
 proc main() [io, error] {
   let counted = numbers() |> count()
-  print f"counted=${counted}"
+  print f"counted={counted}"
 }
 """,
     ["--raw"],
@@ -2395,7 +2395,7 @@ stream numbers() [io, error] -> Stream[Int] {
 
 proc main() [io, error] {
   let counted = numbers() |> map { |n| n + 1 } |> where . > 0 |> count()
-  print f"counted=${counted}"
+  print f"counted={counted}"
 }
 """,
     ["--raw"],
@@ -2405,8 +2405,8 @@ proc main() [io, error] {
 """
   assert "invalid integer `bad`" in output.stderr
   for name in ["map", "where", "count"] {
-    assert f"kind=stream.stage.enter name=\"${name}\"" in output.stderr
-    assert f"kind=stream.stage.exit name=\"${name}\"" in output.stderr
+    assert f"kind=stream.stage.enter name=\"{name}\"" in output.stderr
+    assert f"kind=stream.stage.exit name=\"{name}\"" in output.stderr
   }
 }
 
@@ -2444,7 +2444,7 @@ test test_each_trace_reports_serial_execution { |ctx|
     ctx,
     r"""
 proc main() [io] {
-  [1, 2] |> each { |n| print f"item=${n}" }
+  [1, 2] |> each { |n| print f"item={n}" }
 }
 """,
     ["--trace", "--raw"],
@@ -2472,10 +2472,10 @@ test test_parallel_stream_preserves_filtered_order {
 
 test test_structured_streams_walk_filter_map_collect_and_count { |ctx|
   let root = test.temp_dir(ctx, name: "stream-walk")?
-  let nested = fp"${root}/nested"
+  let nested = fp"{root}/nested"
   nested.mkdir()?
-  fp"${root}/a.txt".write("a")?
-  fp"${nested}/b.txt".write("b")?
+  fp"{root}/a.txt".write("a")?
+  fp"{nested}/b.txt".write("b")?
   let entries = fs.files(root) |> collect()
 
   let names = entries
@@ -2489,9 +2489,9 @@ test test_structured_streams_walk_filter_map_collect_and_count { |ctx|
 
 test test_direct_collect_of_lazy_module_stream_is_a_list { |ctx|
   let root = test.temp_dir(ctx, name: "stream-direct-collect")?
-  fp"${root}/a.txt".write("a")?
-  fp"${root}/b.txt".write("b")?
-  fp"${root}/c.txt".write("c")?
+  fp"{root}/a.txt".write("a")?
+  fp"{root}/b.txt".write("b")?
+  fp"{root}/c.txt".write("c")?
 
   # A module-produced lazy stream piped straight into the collect terminal, with
   # no intervening transformation stage, must lower and run as a materialized
@@ -2561,8 +2561,8 @@ stream numbers() [] -> Stream[Int] {
   yield 2
 }
 proc main() [io, error] {
-  let taken = numbers() |> tee { |n| print f"seen=${n}" } |> where . > 0 |> take(1) |> collect()
-  print f"count=${taken.len()}"
+  let taken = numbers() |> tee { |n| print f"seen={n}" } |> where . > 0 |> take(1) |> collect()
+  print f"count={taken.len()}"
 }
 """,
     ["--trace", "--raw"],
@@ -2575,8 +2575,8 @@ proc main() [io, error] {
 count=1
 """
   for name in ["tee", "where", "take"] {
-    assert f"name=\"${name}\"" in bounded_trace.stderr
-    assert f"stage=b\"${name}\"" in bounded_trace.stderr
+    assert f"name=\"{name}\"" in bounded_trace.stderr
+    assert f"stage=b\"{name}\"" in bounded_trace.stderr
   }
 
   let adapter_trace = test.run_xsht_trace(
@@ -2679,9 +2679,9 @@ let values = [1, 2, 3] |> par-map(jobs: 8) { |index| xs[index] }
 test test_fs_files_lazy_folding_terminals_match_eager_results { |ctx|
   # count/sum/min/max/fold drive the live stream by folding one item at a time.
   let root = test.temp_dir(ctx, name: "fs-walk-fold")?
-  fp"${root}/a.txt".write("a")?
-  fp"${root}/bb.txt".write("bb")?
-  fp"${root}/ccc.txt".write("ccc")?
+  fp"{root}/a.txt".write("a")?
+  fp"{root}/bb.txt".write("bb")?
+  fp"{root}/ccc.txt".write("ccc")?
   assert (fs.files(root) |> count()) == 3
 
   assert (fs.files(root)
@@ -2711,7 +2711,7 @@ let stats = ["rs", "md", "rs"] |> count { |ext| ext }
 let counts = stats.keys()
   |> map { |ext| {count: stats.get(ext) ?? 0, ext: ext} }
   |> sort-by .count
-for row in counts { print f"${row.ext}:${row.count}" }
+for row in counts { print f"{row.ext}:{row.count}" }
 """,
   )?
   {
@@ -2732,7 +2732,7 @@ proc summarize() [error] {
   let grouped = ["a", "a"] |> group-by { |value| value }
   let sizes = grouped |> map { |row| row.items.len() }
   let batched = [1, 2] |> batch(count: 2) |> map { |items| items.len() }
-  print f"${folded.float()}:${sizes[0]}:${batched[0]}"
+  print f"{folded.float()}:{sizes[0]}:{batched[0]}"
 }
 summarize()
 """,

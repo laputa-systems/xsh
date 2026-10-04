@@ -113,7 +113,7 @@ test test_duration_arithmetic_evaluates_operands_once_left_to_right { |ctx|
 proc count(value: Int) [io] -> Int { print "count"; value }
 let scaled = count(3) * duration(250ms)
 let quantized = duration(5ms) / count(2)
-print f"${scaled} ${quantized}"
+print f"{scaled} {quantized}"
 """,
   )?
   assert output.success, output.stderr

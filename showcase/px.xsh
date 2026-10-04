@@ -133,7 +133,7 @@ proc macos_stats() [process, error] -> Result[Map[ProcessStats]] {
     let pid = fields[0].parse_int() ?? -1
     continue when pid <= 0
 
-    stats[f"${pid}"] = {
+    stats[f"{pid}"] = {
       cpu: fields[1],
       vsz_kb: fields[2].parse_int() ?? -1,
       rss_kb: fields[3].parse_int() ?? -1,
@@ -174,7 +174,7 @@ proc stats_map_for(pids: List[Int], os_name: Str) [process, error] -> Result[Map
   var needs_fallback = false
 
   for row in rows {
-    stats_by_pid[f"${row.pid}"] = row.stats
+    stats_by_pid[f"{row.pid}"] = row.stats
 
     if row.stats.rss_kb < 0 and os_name == "Darwin" {
       needs_fallback = true
@@ -186,9 +186,9 @@ proc stats_map_for(pids: List[Int], os_name: Str) [process, error] -> Result[Map
 
     for row in rows {
       if row.stats.rss_kb < 0 {
-        stats_by_pid[f"${row.pid}"] = {
+        stats_by_pid[f"{row.pid}"] = {
           let lookup_receiver_3 = fallback
-          let lookup_index_3 = f"${row.pid}"
+          let lookup_index_3 = f"{row.pid}"
           let lookup_fallback_3 = empty_stats()
           lookup_receiver_3.get(lookup_index_3) ?? lookup_fallback_3
         }
@@ -268,14 +268,14 @@ pure display_command(row: Row) -> Str {
   let command = command_text(row)
 
   if row.thread_name != "" and row.thread_name != row.command {
-    return f"${command} [${row.thread_name}]"
+    return f"{command} [{row.thread_name}]"
   }
 
   command
 }
 
 pure paint(text: Str, color: Str) -> Str {
-  f"${color}${text}${tui.reset()}"
+  f"{color}{text}{tui.reset()}"
 }
 
 pure process_matches_pattern(row: Process, pattern: Query, full: Bool, own_pid: Int) -> Bool {
@@ -341,16 +341,16 @@ pure label(name: Str) -> Str {
 }
 
 pure port_label(row: PortProcess) -> Str {
-  return f"${row.protocol}:${row.local}" when row.state == "LISTEN"
+  return f"{row.protocol}:{row.local}" when row.state == "LISTEN"
 
-  f"${row.protocol}:${row.local}"
+  f"{row.protocol}:{row.local}"
 }
 
 pure port_summary(ports: List[PortProcess]) -> Str {
   return "" when ports.len() == 0
 
   let labels = ports
-    |> group-by f"${.protocol}:${.local}"
+    |> group-by f"{.protocol}:{.local}"
     |> sort-by .key
     |> map { |bucket|
       port_label(bucket.items[0])
@@ -364,20 +364,20 @@ proc print_row(row: Row, stats: ProcessStats, ports: List[PortProcess]) [time, e
   let rss = paint(bytes.human(stats.rss_kb * 1024), tui.yellow())
   let vsz = paint(bytes.human(stats.vsz_kb * 1024), tui.magenta())
   let port_text = port_summary(ports)
-  print f"  ${label("pid")}${paint(f"${row.pid}", tui.cyan())}"
-  print f"  ${label("user")}${paint(row.user, tui.blue())}"
-  print f"  ${label("alive")}${paint(elapsed, tui.gray())}"
-  print f"  ${label("mem")}rss ${rss}  vsz ${vsz}"
+  print f"  {label("pid")}{paint(f"{row.pid}", tui.cyan())}"
+  print f"  {label("user")}{paint(row.user, tui.blue())}"
+  print f"  {label("alive")}{paint(elapsed, tui.gray())}"
+  print f"  {label("mem")}rss {rss}  vsz {vsz}"
 
   if port_text != "" {
-    print f"  ${label("ports")}${paint(port_text, tui.green())}"
+    print f"  {label("ports")}{paint(port_text, tui.green())}"
   }
 }
 
 pure thread_label(name: Str, count: Int) -> Str {
   let display = if name == "" { "(unnamed)" } else { name }
 
-  return f"${display} x${count}" when count > 1
+  return f"{display} x{count}" when count > 1
 
   display
 }
@@ -391,7 +391,7 @@ pure connector(last: Bool) -> Str {
 }
 
 pure lineage_text(row: Row) -> Str {
-  f"${display_command(row)} (${row.pid})"
+  f"{display_command(row)} ({row.pid})"
 }
 
 pure lineage_indent(depth: Int) -> Str {
@@ -399,7 +399,7 @@ pure lineage_indent(depth: Int) -> Str {
   var index = 0
 
   while index < depth {
-    text = f"${text}  "
+    text = f"{text}  "
     index += 1
   }
 
@@ -409,7 +409,7 @@ pure lineage_indent(depth: Int) -> Str {
 pure lineage_marker(depth: Int) -> Str {
   return "" when depth == 0
 
-  f"${lineage_indent(depth - 1)}${connector(true)}"
+  f"{lineage_indent(depth - 1)}{connector(true)}"
 }
 
 pure parent_lineage(row: Row, rows_by_pid: Map[Row]) -> List[Row] {
@@ -418,7 +418,7 @@ pure parent_lineage(row: Row, rows_by_pid: Map[Row]) -> List[Row] {
   var depth = 0
 
   while parent_pid > 0 and depth < 128 {
-    if let Ok(parent) = rows_by_pid.get(f"${parent_pid}") {
+    if let Ok(parent) = rows_by_pid.get(f"{parent_pid}") {
       rows += [parent]
       parent_pid = parent.parent_pid
     } else {
@@ -439,14 +439,14 @@ proc print_lineage(row: Row, rows_by_pid: Map[Row]) [error] {
   while index >= 0 {
     let parent = parents[index]
     let name = if depth == 0 { "tree" } else { "" }
-    print f"  ${label(name)}${paint(lineage_marker(depth), tui.gray())}${paint(lineage_text(parent), tui.dim())}"
+    print f"  {label(name)}{paint(lineage_marker(depth), tui.gray())}{paint(lineage_text(parent), tui.dim())}"
     index -= 1
     depth += 1
   }
 
   let name = if depth == 0 { "tree" } else { "" }
   let state_suffix = if row.status == "Z" or row.status == "zombie" { " <defunct>" } else { "" }
-  print f"  ${label(name)}${paint(lineage_marker(depth), tui.gray())}${paint(display_command(row), tui.bold())}${state_suffix}"
+  print f"  {label(name)}{paint(lineage_marker(depth), tui.gray())}{paint(display_command(row), tui.bold())}{state_suffix}"
 }
 
 proc print_thread_names(threads: List[Row], depth: Int) [error] {
@@ -461,20 +461,17 @@ proc print_thread_names(threads: List[Row], depth: Int) [error] {
     let last = item.index + 1 == count
     let name = if item.index == 0 { "thread" } else { "" }
 
-    print f"  ${label(name)}${paint(lineage_indent(depth), tui.gray())}${paint(connector(last), tui.gray())}${paint(
-      thread_label(bucket.key, bucket.items.len()),
-      tui.dim(),
-    )}"
+    print f"  {label(name)}{paint(lineage_indent(depth), tui.gray())}{paint(connector(last), tui.gray())}{paint(thread_label(bucket.key, bucket.items.len()), tui.dim())}"
   }
 }
 
 proc signal_matched_pids(pids: List[Int], signal: Int, own_pid: Int) [process, error] -> Result[Int] {
-  let info = process.signal(f"${signal}")?
+  let info = process.signal(f"{signal}")?
   var signaled = 0
 
   for pid in unique_ints(pids) {
     continue when pid == own_pid
-    process.kill(pid, signal: f"${info.number}")?
+    process.kill(pid, signal: f"{info.number}")?
     signaled += 1
   }
 
@@ -547,7 +544,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
 
   for proc_row in process.list()? {
     let row = process_row(proc_row)
-    rows_by_pid[f"${row.pid}"] = row
+    rows_by_pid[f"{row.pid}"] = row
     continue when ! process_has_port(row.pid, matching_ports, opts.port)
 
     if ! opts.show_threads and process_matches_any(proc_row, query_items, opts.full, own_pid) {
@@ -572,14 +569,14 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
       }
 
       for thread_group in thread_groups {
-        matched_threads_by_pid[f"${thread_group.pid}"] = thread_group.rows
+        matched_threads_by_pid[f"{thread_group.pid}"] = thread_group.rows
       }
     } else {
       for thread in process.threads()? {
         continue when ! thread_matches_any(thread, query_items, opts.full, own_pid)
         continue when ! process_has_port(thread.owner_pid, matching_ports, opts.port)
         let row = thread_row(thread)
-        let key = f"${row.owner_pid}"
+        let key = f"{row.owner_pid}"
 
         if key not in matched_threads_by_pid {
           matched_owner_pids = matched_owner_pids.push(row.owner_pid)
@@ -601,7 +598,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   if kill_signal != null {
     let kill_pids = if opts.show_threads { matched_owner_pids } else { [row.owner_pid for row in matched_rows] }
     let signaled = signal_matched_pids(kill_pids, kill_signal, own_pid)?
-    print f"signaled ${signaled} process(es) with signal ${kill_signal}"
+    print f"signaled {signaled} process(es) with signal {kill_signal}"
     return
   }
 
@@ -615,14 +612,14 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
     process.ports()? |> sort-by .pid * 1000 + .fd
   }
 
-  let ports_by_pid = {[f"${bucket.key}"]: bucket.items for bucket in display_ports |> group-by .pid}
+  let ports_by_pid = {[f"{bucket.key}"]: bucket.items for bucket in display_ports |> group-by .pid}
 
   let stats_by_pid = stats_map_for(stats_pids, os.sysname)?
   var printed = 0
 
   if opts.show_threads {
     for owner_pid in matched_owner_pids {
-      let items = matched_threads_by_pid.get(f"${owner_pid}") ?? empty_rows
+      let items = matched_threads_by_pid.get(f"{owner_pid}") ?? empty_rows
 
       if printed > 0 {
         print ""
@@ -633,13 +630,13 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
       let stat_pid = row.owner_pid
       let stats = {
         let lookup_receiver_4 = stats_by_pid
-        let lookup_index_4 = f"${stat_pid}"
+        let lookup_index_4 = f"{stat_pid}"
         let lookup_fallback_4 = empty_stats()
         lookup_receiver_4.get(lookup_index_4) ?? lookup_fallback_4
       }
       let tree_depth = parent_lineage(row, rows_by_pid).len()
       print_lineage(row, rows_by_pid)?
-      print_row(row, stats, ports_by_pid.get(f"${stat_pid}") ?? empty_ports)?
+      print_row(row, stats, ports_by_pid.get(f"{stat_pid}") ?? empty_ports)?
       print_thread_names(items, tree_depth + 1)?
     }
   } else {
@@ -652,12 +649,12 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
       let stat_pid = row.owner_pid
       let stats = {
         let lookup_receiver_5 = stats_by_pid
-        let lookup_index_5 = f"${stat_pid}"
+        let lookup_index_5 = f"{stat_pid}"
         let lookup_fallback_5 = empty_stats()
         lookup_receiver_5.get(lookup_index_5) ?? lookup_fallback_5
       }
       print_lineage(row, rows_by_pid)?
-      print_row(row, stats, ports_by_pid.get(f"${stat_pid}") ?? empty_ports)?
+      print_row(row, stats, ports_by_pid.get(f"{stat_pid}") ?? empty_ports)?
     }
   }
 }

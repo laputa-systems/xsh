@@ -11,7 +11,7 @@ type SourceMap = Map[Source]
 error CompileError = Failed(message: Str)
 
 pure object_path(src: Str) -> Path {
-  return fp"${src}.o"
+  return fp"{src}.o"
 }
 
 proc compile(src: Path, obj: Path, mode: Str = "opt", ...labels: List[Str]) {

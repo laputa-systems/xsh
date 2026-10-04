@@ -24,9 +24,9 @@ proc main(...argv: List[Str]) [process, error] {
   let format = if format_arg.starts_with("+") { format_arg.replace("+", "") } else { format_arg }
   let host_format = format.replace("%:z", "%z")
   let date_argv = if opts.utc {
-    ["date", "-u", f"+${host_format}"]
+    ["date", "-u", f"+{host_format}"]
   } else {
-    ["date", f"+${host_format}"]
+    ["date", f"+{host_format}"]
   }
   let status = process.run(process.command_argv("date", date_argv))?
 

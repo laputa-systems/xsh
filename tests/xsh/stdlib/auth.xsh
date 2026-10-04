@@ -34,9 +34,9 @@ raw-line
 
 test test_applet_auth_helpers_and_sessions { |ctx|
   let root = test.temp_dir(ctx, name: "applet-auth")?
-  let home = fp"${root}/home"
+  let home = fp"{root}/home"
   fs.mkdir(home)?
-  let shell = fp"${root}/session-shell"
+  let shell = fp"{root}/session-shell"
 
   fs.write(
     shell,
@@ -79,10 +79,10 @@ test test_applet_mdev_scans_empty_roots { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "mdev")?
-  let dev = fp"${root}/dev"
-  let sys = fp"${root}/sys"
-  let sys_dev = fp"${sys}/dev"
-  let conf = fp"${root}/mdev.conf"
+  let dev = fp"{root}/dev"
+  let sys = fp"{root}/sys"
+  let sys_dev = fp"{sys}/dev"
+  let conf = fp"{root}/mdev.conf"
   fs.mkdir(dev)?
   fs.mkdir(sys)?
   fs.mkdir(sys_dev)?

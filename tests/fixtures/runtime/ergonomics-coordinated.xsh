@@ -2,7 +2,7 @@ pure label(code: Int) -> Str {
   match code {
     0 => "ok"
     _ => {
-      let detail = f"exit ${code}"
+      let detail = f"exit {code}"
       detail
     }
   }
@@ -20,7 +20,7 @@ pure configured_name(name: Str?) -> Str {
 let config = {root: "src", build: {jobs: [1, 2, 3], target: "native"}}
 let {root, build: {jobs, target: target_name, ..}, ..} = config
 let rows = [
-  f"${root}:${target_name}:${job}:${part}"
+  f"{root}:{target_name}:{job}:{part}"
   for job in jobs
   if 1 < job <= 3
   for part in ["a", "b"]

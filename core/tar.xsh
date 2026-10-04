@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -10,13 +10,13 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 }
 
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
+  AppletError.Usage(f"{applet_name}: unsupported option '{flag}'")
 }
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
+    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 
@@ -39,19 +39,19 @@ proc main(...argv: List[Str]) [fs, error] {
           "z" => compression = "gz"
           "j" => compression = "bz2"
           "J" => compression = "xz"
-          "f" => archive_path = fp"${token.value}"
-          "C" => root = fp"${token.value}"
-          _ => return Err(reject_unsupported("tar", f"-${token.name}"))
+          "f" => archive_path = fp"{token.value}"
+          "C" => root = fp"{token.value}"
+          _ => return Err(reject_unsupported("tar", f"-{token.name}"))
         }
       }
       "long" => {
         match token.name {
           "overwrite" => overwrite = true
           "strip-components" => strip = common_int(token.value, "strip components")?
-          _ => return Err(reject_unsupported("tar", f"--${token.name}"))
+          _ => return Err(reject_unsupported("tar", f"--{token.name}"))
         }
       }
-      "operand" => operands = operands.push(fp"${token.name}")
+      "operand" => operands = operands.push(fp"{token.name}")
       _ => {}
     }
   }

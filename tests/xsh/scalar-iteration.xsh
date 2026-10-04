@@ -39,7 +39,7 @@ test scalar_iteration_retains_sources_across_reassignment {
 
 test scalar_comprehensions_keep_types_nested_order_and_guards {
   let pairs = [
-    f"${character}:${octet}"
+    f"{character}:{octet}"
     for character in "éx"
     for octet in b"\x01\x02"
     if octet == 2
@@ -96,13 +96,13 @@ test scalar_iteration_evaluates_source_once_and_keeps_cleanup_transfers { |ctx|
     ctx,
     r"""proc source() [error] -> Str { print "source"; "abc" }
 for character in source() {
-  defer { print f"cleanup:$character" }
+  defer { print f"cleanup:{character}" }
   continue when character == "a"
   print $character
   break
 }
 stream octets() [error] -> Stream[Int] {
-  for octet in b"\x01\x02" { defer { print f"octet:$octet" }; yield octet }
+  for octet in b"\x01\x02" { defer { print f"octet:{octet}" }; yield octet }
 }
 for octet in octets() { print $octet; break }
 """,
@@ -130,7 +130,7 @@ test scalar_iteration_bindings_remain_immutable_and_protocols_stay_bounded { |ct
     let output = test.run_script(ctx, source)?
     {
       let assertion_condition = ! output.success
-      let assertion_message = f"expected rejection: ${source}"
+      let assertion_message = f"expected rejection: {source}"
       assert assertion_condition, assertion_message
     }
   }
@@ -162,7 +162,7 @@ test scalar_result_sources_keep_error_effect_checks { |ctx|
     let output = test.run_script(ctx, source)?
     {
       let assertion_condition = ! output.success
-      let assertion_message = f"expected error effect rejection: ${source}"
+      let assertion_message = f"expected error effect rejection: {source}"
       assert assertion_condition, assertion_message
     }
     assert "effect" in output.stderr
@@ -181,7 +181,7 @@ test scalar_iteration_returns_and_string_producer_cancellation_keep_cleanup { |c
 }
 stream characters() [] -> Stream[Str] {
   for character in "é🙂" {
-    defer { print f"cleanup:$character" }
+    defer { print f"cleanup:{character}" }
     yield character
   }
 }
@@ -207,7 +207,7 @@ test scalar_iteration_body_failure_stops_before_later_items_and_finishes_defers 
     r"""ctx "characters" {
   defer { print "outer" }
   for character in "éx🙂" {
-    defer { print f"cleanup:$character" }
+    defer { print f"cleanup:{character}" }
     print $character
     assert character != "x"
   }

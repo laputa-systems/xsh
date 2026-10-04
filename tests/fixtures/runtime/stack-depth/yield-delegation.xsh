@@ -1,5 +1,5 @@
 proc close_depth(depth: Int) [io] {
-  if depth == 0 or depth == 3000 { print f"closed ${depth}" }
+  if depth == 0 or depth == 3000 { print f"closed {depth}" }
 }
 
 stream descend(depth: Int) [error, io] -> Stream[Int] {
@@ -12,9 +12,9 @@ stream descend(depth: Int) [error, io] -> Stream[Int] {
 }
 
 proc main() [error, io] {
-  for n in descend(3000) { print f"full ${n}" }
+  for n in descend(3000) { print f"full {n}" }
   for n in descend(3000) {
-    print f"early ${n}"
+    print f"early {n}"
     break
   }
 }

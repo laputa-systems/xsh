@@ -6,7 +6,7 @@ use verify
 
 ## Returns the exact SHA-256 sidecar content using the repository-relative artifact path.
 export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result[Str] {
-  f"""${hash.sha256(artifact_path)?.hex()}  ${artifact_path.relative_to(root)}
+  f"""{hash.sha256(artifact_path)?.hex()}  {artifact_path.relative_to(root)}
 """
 }
 
@@ -23,18 +23,18 @@ export proc package_binaries(ctx: context.Context, tag: Str) [fs, process, error
   stages.ensure_dir(ctx.artifact_dir)?
 
   for product in targets.products {
-    let source = fp"${ctx.target_dir}/${ctx.target.triple}/dist/${product}"
-    let artifact = fp"${ctx.artifact_dir}/${product}-${tag}-${suffix}"
+    let source = fp"{ctx.target_dir}/{ctx.target.triple}/dist/{product}"
+    let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
     fs.install(source, artifact, 0o755, parents: true, overwrite: true)?
-    fp"${artifact}.sha256".write(checksum_line(artifact, ctx.root)?)?
+    fp"{artifact}.sha256".write(checksum_line(artifact, ctx.root)?)?
   }
 }
 
 ## Runs the release product smoke contract after the distribution build is complete.
 export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit] {
   verify.verify_all(ctx, true)?
-  let xsh = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xsh"
-  let xshi = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xshi"
+  let xsh = fp"{ctx.target_dir}/{ctx.target.triple}/dist/xsh"
+  let xshi = fp"{ctx.target_dir}/{ctx.target.triple}/dist/xshi"
   stages.execute(
     stages.command(
       "release-xsh-startup",
@@ -60,7 +60,7 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
 ## Commands install without `.xsh`; library modules keep it so `use lib.*`
 ## resolves beside packaged commands through the normal module loader.
 export pure core_install_path(relative_source: Path) -> Path {
-  return fp"core/${relative_source}" when relative_source.display().starts_with("lib/")
+  return fp"core/{relative_source}" when relative_source.display().starts_with("lib/")
 
   let relative = relative_source.display()
   let command = if relative.ends_with(".xsh") {
@@ -68,12 +68,12 @@ export pure core_install_path(relative_source: Path) -> Path {
   } else {
     relative
   }
-  fp"core/${command}"
+  fp"core/{command}"
 }
 
 ## Collects core script sources deterministically while excluding the native test subtree.
 export proc core_sources(ctx: context.Context) [fs, error] -> Result[List[Path]] {
-  let core = fp"${ctx.root}/core"
+  let core = fp"{ctx.root}/core"
   var sources: List[Path] = []
 
   for entry in fs.walk(core, hidden: true)? {
@@ -98,14 +98,14 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   }
 
   stages.ensure_dir(ctx.artifact_dir)?
-  let core_archive = fp"${ctx.artifact_dir}/core-${tag}.tar.xz"
+  let core_archive = fp"{ctx.artifact_dir}/core-{tag}.tar.xz"
   for entry in fs.files(ctx.artifact_dir, hidden: true)? {
     if entry.ext == "xz" and entry.path != core_archive {
       return Err(
         stages.StageError.Failed(
           stage: "release-core",
           target: ctx.target.triple,
-          detail: f"unexpected compressed artifact ${entry.path}",
+          detail: f"unexpected compressed artifact {entry.path}",
         ),
       )
     }
@@ -114,7 +114,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   let root_handle = fs.tempdir()?
   defer root_handle.close()?
   let stage = root_handle.host_path()?
-  let core = fp"${ctx.root}/core"
+  let core = fp"{ctx.root}/core"
   let sources = core_sources(ctx)?
   var archive_entries: List[Path] = []
 
@@ -122,8 +122,8 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     let installed = core_install_path(relative)
     let mode = if relative.display().starts_with("lib/") { 0o644 } else { 0o755 }
     fs.install(
-      fp"${core}/${relative}",
-      fp"${stage}/${installed}",
+      fp"{core}/{relative}",
+      fp"{stage}/{installed}",
       mode,
       parents: true,
       overwrite: true,
@@ -139,7 +139,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     )
   }
 
-  fp"${ctx.artifact_dir}/core-${tag}.sha256".write(checksum_line(core_archive, ctx.root)?)?
+  fp"{ctx.artifact_dir}/core-{tag}.sha256".write(checksum_line(core_archive, ctx.root)?)?
 }
 
 ## Validates the full nine-product release artifact set and checksum sidecars.
@@ -156,8 +156,8 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
     let suffix = targets.release_suffix(triple)?
 
     for product in targets.products {
-      let artifact = fp"${ctx.artifact_dir}/${product}-${tag}-${suffix}"
-      expected_files = expected_files.extend([artifact.name, f"${artifact.name}.sha256"])
+      let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
+      expected_files = expected_files.extend([artifact.name, f"{artifact.name}.sha256"])
       if artifact.exists()? {
         fs.chmod(artifact, 0o755)?
       }
@@ -167,18 +167,18 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
           stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
-            detail: f"missing artifact ${artifact}",
+            detail: f"missing artifact {artifact}",
           ),
         )
       }
 
-      let checksum = fp"${artifact}.sha256"
+      let checksum = fp"{artifact}.sha256"
       if ! checksum.exists()? {
         return Err(
           stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
-            detail: f"missing checksum ${artifact}.sha256",
+            detail: f"missing checksum {artifact}.sha256",
           ),
         )
       }
@@ -188,7 +188,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
           stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
-            detail: f"invalid checksum ${checksum}",
+            detail: f"invalid checksum {checksum}",
           ),
         )
       }
@@ -201,7 +201,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
         stages.StageError.Failed(
           stage: "release-validate",
           target: ctx.target.triple,
-          detail: f"unexpected artifact ${entry.path}",
+          detail: f"unexpected artifact {entry.path}",
         ),
       )
     }

@@ -57,7 +57,7 @@ let wrong = Item("wrong")
 
 test test_enum_module_constructor_namespace_and_labels { |ctx|
   let root = test.temp_dir(ctx, name: "enum-module")?
-  fp"${root}/choice.xsh".write_atomic("""##! Nominal choices.
+  fp"{root}/choice.xsh".write_atomic("""##! Nominal choices.
 ## A singleton payload.
 export enum Choice { Chosen(Int) }
 ## The same nominal type.
@@ -109,7 +109,7 @@ test test_enum_multiline_payload_equality_and_exhaustive_matches { |ctx|
   match mode {
     Fast => "fast"
     Thorough => "thorough"
-    Custom(level) => f"custom:$level"
+    Custom(level) => f"custom:{level}"
   }
 }
 print ${describe(Fast)} ${describe(Custom(3))} ${Custom(3) == Custom(3)} ${Custom(3) == Custom(4)}
@@ -123,7 +123,7 @@ print ${describe(Fast)} ${describe(Custom(3))} ${Custom(3) == Custom(3)} ${Custo
     declaration + r"""pure describe(mode: Mode) -> Str {
   match mode {
     Fast => "fast"
-    Custom(level) => f"custom:$level"
+    Custom(level) => f"custom:{level}"
   }
 }
 """,

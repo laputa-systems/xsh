@@ -12,7 +12,7 @@ pure delimiter(raw: Str) -> Str {
 proc read_input(input_path: Str) [fs, error, io] -> Result[List[Str]] {
   return io.stdin_text()?.lines().collect() when input_path == "-"
 
-  fp"${input_path}".lines()?.collect()
+  fp"{input_path}".lines()?.collect()
 }
 
 proc paste_serial(paths: List[Str], delim: Str) [fs, error, io] {

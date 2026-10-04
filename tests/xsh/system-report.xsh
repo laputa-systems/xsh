@@ -212,23 +212,23 @@ test test_system_report_device_classes_reject_truncated_names_and_attributes {
   root.mkdir(p"sys/class/drm/card0", parents: true)?
   var padding = " "
   while padding.count_chars() < 16384 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"sys/class/input/input0/name",
     f"""private keyboard
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/sound/card0/id",
     f"""private card
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/drm/card0/status",
     f"""connected
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/drm/card0/enabled",
@@ -305,9 +305,9 @@ test test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   let root = fs.tempdir()?
   defer root.close()?
   for entry in ["card0", "card1"] {
-    root.mkdir(fp"sys/class/sound/${entry}", parents: true)?
+    root.mkdir(fp"sys/class/sound/{entry}", parents: true)?
     root.write(
-      fp"sys/class/sound/${entry}/id",
+      fp"sys/class/sound/{entry}/id",
       """Shared card label
 """,
     )?
@@ -795,25 +795,25 @@ test test_system_report_identity_rejects_truncated_source_prefixes {
   )?
   var padding = " "
   while padding.count_chars() < 65536 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"etc/os-release",
     f"""ID=partial
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"proc/uptime",
     f"""73.5 12.0
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/dmi/id/sys_vendor",
     f"""Acme
-${padding}""",
+{padding}""",
   )?
-  root.write(p"sys/firmware/devicetree/base/compatible", f"acme,board\0${padding}")?
+  root.write(p"sys/firmware/devicetree/base/compatible", f"acme,board\0{padding}")?
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let partial = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
@@ -912,7 +912,7 @@ test test_system_report_scope_keeps_all_process_visible_namespace_identities {
       target: "time:[108]",
     },
   ] {
-    root.symlink(fp"${namespace.target}", fp"proc/self/ns/${namespace.name}")?
+    root.symlink(fp"{namespace.target}", fp"proc/self/ns/{namespace.name}")?
   }
 
   root.write(
@@ -1571,7 +1571,7 @@ test test_system_report_cpu_collection_preserves_128_present_ids {
   defer root.close()?
   root.mkdir(p"sys/devices/system/cpu", parents: true)?
   for cpu_id in range(128) {
-    root.mkdir(fp"sys/devices/system/cpu/cpu${cpu_id}")?
+    root.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}")?
   }
 
   root.write(
@@ -1859,32 +1859,32 @@ test test_system_report_pci_collection_links_a_child_to_its_bridge {
   root.symlink(../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, p"sys/bus/pci/devices/0001:02:03.0")?
   for device_path in [parent_path, child_path] {
     root.write(
-      fp"${device_path}/vendor",
+      fp"{device_path}/vendor",
       """0x1234
 """,
     )?
     root.write(
-      fp"${device_path}/device",
+      fp"{device_path}/device",
       """0xabcd
 """,
     )?
     root.write(
-      fp"${device_path}/subsystem_vendor",
+      fp"{device_path}/subsystem_vendor",
       """0x1234
 """,
     )?
     root.write(
-      fp"${device_path}/subsystem_device",
+      fp"{device_path}/subsystem_device",
       """0x0001
 """,
     )?
     root.write(
-      fp"${device_path}/class",
+      fp"{device_path}/class",
       """0x060400
 """,
     )?
     root.write(
-      fp"${device_path}/revision",
+      fp"{device_path}/revision",
       """0x01
 """,
     )?
@@ -1917,7 +1917,7 @@ test test_system_report_pci_collection_reports_non_utf8_names_without_losing_val
   root.mkdir(invalid, parents: true)?
   for source in ["vendor", "device", "subsystem_vendor", "subsystem_device", "class", "revision"] {
     root.write(
-      fp"${valid}/${source}",
+      fp"{valid}/{source}",
       """0x0001
 """,
     )?
@@ -1943,32 +1943,32 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
   for source_path in [first_path, second_path] {
     root.mkdir(source_path, parents: true)?
     root.write(
-      fp"${source_path}/vendor",
+      fp"{source_path}/vendor",
       """0x1234
 """,
     )?
     root.write(
-      fp"${source_path}/device",
+      fp"{source_path}/device",
       """0xabcd
 """,
     )?
     root.write(
-      fp"${source_path}/subsystem_vendor",
+      fp"{source_path}/subsystem_vendor",
       """0x1234
 """,
     )?
     root.write(
-      fp"${source_path}/subsystem_device",
+      fp"{source_path}/subsystem_device",
       """0x0001
 """,
     )?
     root.write(
-      fp"${source_path}/class",
+      fp"{source_path}/class",
       """0x020000
 """,
     )?
     root.write(
-      fp"${source_path}/revision",
+      fp"{source_path}/revision",
       """0x01
 """,
     )?
@@ -1977,27 +1977,27 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
   root.symlink(../../../devices/pci0000:01/0000:01:02.0, p"sys/bus/pci/devices/0000:01:02.0")?
   root.symlink(../../../devices/pci0000:01/0000:01:02.1, p"sys/bus/pci/devices/0000:01:02.1")?
   root.write(
-    fp"${first_path}/current_link_speed",
+    fp"{first_path}/current_link_speed",
     """8.0 GT/s PCIe
 """,
   )?
   root.write(
-    fp"${first_path}/current_link_width",
+    fp"{first_path}/current_link_width",
     """8
 """,
   )?
   root.write(
-    fp"${first_path}/max_link_speed",
+    fp"{first_path}/max_link_speed",
     """16.0 GT/s PCIe
 """,
   )?
   root.write(
-    fp"${first_path}/max_link_width",
+    fp"{first_path}/max_link_width",
     """16
 """,
   )?
   root.write(
-    fp"${first_path}/numa_node",
+    fp"{first_path}/numa_node",
     """-1
 """,
   )?
@@ -2023,7 +2023,7 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
   assert ! (collection.issues |> any .field.starts_with("functions.0000:01:02.1.maximum_link"))
 
   root.write(
-    fp"${second_path}/current_link_width",
+    fp"{second_path}/current_link_width",
     """invalid
 """,
   )?
@@ -2033,33 +2033,33 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
     |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed
   assert malformed.functions[1].current_link_width == null
   root.write(
-    fp"${second_path}/current_link_width",
+    fp"{second_path}/current_link_width",
     """0x8
 """,
   )?
   let radix = collectors.collect_pci(root)
   assert radix.issues |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed
   assert radix.functions[1].current_link_width == null
-  root.write(fp"${first_path}/driver", "not-a-symlink")?
-  root.write(fp"${first_path}/iommu_group", "not-a-symlink")?
+  root.write(fp"{first_path}/driver", "not-a-symlink")?
+  root.write(fp"{first_path}/iommu_group", "not-a-symlink")?
   let failed_links = collectors.collect_pci(root)
   assert failed_links.issues |> any .field == "functions.0000:01:02.0.driver" and .state == report_model.ReadFailure
   assert failed_links.issues
     |> any .field == "functions.0000:01:02.0.iommu_group" and .state == report_model.ReadFailure
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
-    fp"${first_path}/current_link_speed",
+    fp"{first_path}/current_link_speed",
     f"""8.0 GT/s PCIe
-${padding}""",
+{padding}""",
   )?
   root.write(
-    fp"${first_path}/max_link_speed",
+    fp"{first_path}/max_link_speed",
     f"""16.0 GT/s PCIe
-${padding}""",
+{padding}""",
   )?
   let truncated_links = collectors.collect_pci(root)
   assert truncated_links.functions[0].current_link_speed == null
@@ -2249,7 +2249,7 @@ test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
   root.mkdir(p"sys/bus/usb/devices/1-2/power", parents: true)?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   for field in [
@@ -2275,9 +2275,9 @@ test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
     },
   ] {
     root.write(
-      fp"${device}/${field.name}",
-      f"""${field.prefix}
-${padding}""",
+      fp"{device}/{field.name}",
+      f"""{field.prefix}
+{padding}""",
     )?
   }
 
@@ -2299,7 +2299,7 @@ ${padding}""",
   assert observed.runtime_status == null
   for field in ["vendor_id", "bus_number", "speed_mbps", "power_control", "runtime_status"] {
     assert value.issues
-      |> any .section == "usb" and .field == f"devices.1-2.${field}" and .state == report_model.Truncated
+      |> any .section == "usb" and .field == f"devices.1-2.{field}" and .state == report_model.Truncated
   }
 }
 
@@ -3128,40 +3128,40 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
   let report_path = test.temp_path(ctx, name: "system-report-v1.json")
   report_path.write(json.encode(json_report_fixture())?)?
 
-  let projected = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json ?
+  let projected = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json ?
   let decoded = json.decode(projected)?
   assert decoded.schema_version == 1
   assert decoded.identity.hostname.state == "redacted"
   assert decoded.cpu.status.state == "complete"
   assert decoded.memory.status.state == "not_requested"
   assert "workstation-name" not in projected
-  let json_full = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json --full ?
+  let json_full = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json --full ?
   assert json_full == projected
 
-  let sensitive = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --sensitive --json ?
+  let sensitive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --sensitive --json ?
   assert "workstation-name" in sensitive
-  let default_json = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --json ?
+  let default_json = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --json ?
   assert "/private/host/snapshot" not in default_json
   assert "mount-secret" not in default_json
   assert "private-sensor-label" not in default_json
 
-  let overview = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path ?
+  let overview = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path ?
   assert "XSH system report v1" in overview
   assert "2 identical policy group on CPUs 0,1" in overview
   assert "1 identical policy group on CPUs 2" in overview
   assert "3 identical policy group" not in overview
 
-  let version = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --version ?
+  let version = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --version ?
   assert version == """system-report schema v1
 """
 
-  let help = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --help ?
+  let help = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --help ?
   assert "--from FILE" in help
   assert "--section NAME" in help
 }
 
 test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
-  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
+  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
   assert outcome.status.exited_with(3)
   assert outcome.stdout == ""
   assert "error: SystemReportCliError.Usage:" in outcome.stderr
@@ -3172,13 +3172,13 @@ test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
 test test_system_report_command_rejects_malformed_replay { |ctx|
   let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path 2> $stderr
   assert ! status.exited_with(0)
   assert "invalid replay report" in stderr.read_text()?
 
   let invalid_utf8 = test.temp_file(ctx, name: "system-report-invalid-utf8.json", contents: b"\xff")?
   let utf8_stderr = test.temp_path(ctx, name: "system-report-invalid-utf8.stderr")
-  let utf8_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $invalid_utf8 2> $utf8_stderr
+  let utf8_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $invalid_utf8 2> $utf8_stderr
   assert ! utf8_status.exited_with(0)
   assert "not valid UTF-8" in utf8_stderr.read_text()?
 
@@ -3187,12 +3187,12 @@ test test_system_report_command_rejects_malformed_replay { |ctx|
     json.encode({...json_report_fixture().require(report_model.SystemReportJson)?, schema_version: 99})?,
   )?
   let unsupported_stderr = test.temp_path(ctx, name: "system-report-unsupported-schema.stderr")
-  let unsupported_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $unsupported_path 2> $unsupported_stderr
+  let unsupported_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $unsupported_path 2> $unsupported_stderr
   assert ! unsupported_status.exited_with(0)
   assert "unsupported schema version" in unsupported_stderr.read_text()?
 
   let section_stderr = test.temp_path(ctx, name: "system-report-invalid-section.stderr")
-  let section_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware 2> $section_stderr
+  let section_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware 2> $section_stderr
   assert ! section_status.exited_with(0)
   assert section_stderr.read_text()?.trim() != ""
 }
@@ -3300,10 +3300,10 @@ test test_system_report_cpu_enumeration_requires_a_valid_present_list {
 
   var padding = " "
   while padding.count_chars() < 65536 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"sys/devices/system/cpu/present", f"0${padding}")?
+  root.write(p"sys/devices/system/cpu/present", f"0{padding}")?
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert truncated.cpu.present == []
   assert ! truncated.cpu.status.enumeration_succeeded
@@ -3330,7 +3330,7 @@ test test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_r
 
   root.remove(p"sys/devices/system/cpu/present")?
   let outside_path = outside.host_path()?
-  root.symlink(fp"${outside_path}/present", p"sys/devices/system/cpu/present")?
+  root.symlink(fp"{outside_path}/present", p"sys/devices/system/cpu/present")?
   let escaped = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert escaped.cpu.present == []
   assert ! escaped.cpu.status.enumeration_succeeded
@@ -3408,7 +3408,7 @@ test test_system_report_cpu_vulnerability_read_failures_keep_named_issues {
   root.symlink(p"missing", p"sys/devices/system/cpu/vulnerabilities/spectre_v1")?
   var oversized = "x"
   while oversized.count_chars() <= 16384 {
-    oversized = f"${oversized}${oversized}"
+    oversized = f"{oversized}{oversized}"
   }
 
   root.write(p"sys/devices/system/cpu/vulnerabilities/mmio_stale_data", oversized)?
@@ -3453,10 +3453,10 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
   root.write(p"sys/devices/system/cpu/offline", "")?
   var padding = " "
   while padding.count_chars() < 65536 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"sys/fs/cgroup/cpuset.cpus.effective", f"0${padding}")?
+  root.write(p"sys/fs/cgroup/cpuset.cpus.effective", f"0{padding}")?
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
@@ -3506,7 +3506,7 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
     """31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw
 """,
   )?
-  root.write(p"proc/self/cgroup", f"0::/${padding}")?
+  root.write(p"proc/self/cgroup", f"0::/{padding}")?
   let truncated_membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert truncated_membership.cpu.effective_cpuset == []
   let membership_issues = truncated_membership.issues |> where .section == "cpu" and .field == "cgroup.effective_cpuset"
@@ -3666,32 +3666,32 @@ Features: fp asimd
   )?
   for cpu_path in [p"sys/devices/system/cpu/cpu0/cache/index7", p"sys/devices/system/cpu/cpu2/cache/index7"] {
     root.write(
-      fp"${cpu_path}/level",
+      fp"{cpu_path}/level",
       """2
 """,
     )?
     root.write(
-      fp"${cpu_path}/type",
+      fp"{cpu_path}/type",
       """Unified
 """,
     )?
     root.write(
-      fp"${cpu_path}/size",
+      fp"{cpu_path}/size",
       """1M
 """,
     )?
     root.write(
-      fp"${cpu_path}/coherency_line_size",
+      fp"{cpu_path}/coherency_line_size",
       """64
 """,
     )?
     root.write(
-      fp"${cpu_path}/number_of_sets",
+      fp"{cpu_path}/number_of_sets",
       """16384
 """,
     )?
     root.write(
-      fp"${cpu_path}/shared_cpu_list",
+      fp"{cpu_path}/shared_cpu_list",
       """0,2
 """,
     )?
@@ -3714,57 +3714,57 @@ Features: fp asimd
     },
   ] {
     root.write(
-      fp"${policy.path}/related_cpus",
-      f"""${policy.related}
+      fp"{policy.path}/related_cpus",
+      f"""{policy.related}
 """,
     )?
     root.write(
-      fp"${policy.path}/affected_cpus",
-      f"""${policy.affected}
+      fp"{policy.path}/affected_cpus",
+      f"""{policy.affected}
 """,
     )?
     root.write(
-      fp"${policy.path}/scaling_driver",
-      f"""${policy.driver}
+      fp"{policy.path}/scaling_driver",
+      f"""{policy.driver}
 """,
     )?
     root.write(
-      fp"${policy.path}/scaling_governor",
-      f"""${policy.governor}
+      fp"{policy.path}/scaling_governor",
+      f"""{policy.governor}
 """,
     )?
     root.write(
-      fp"${policy.path}/scaling_available_governors",
+      fp"{policy.path}/scaling_available_governors",
       """powersave performance
 """,
     )?
     root.write(
-      fp"${policy.path}/cpuinfo_min_freq",
+      fp"{policy.path}/cpuinfo_min_freq",
       """800000
 """,
     )?
     root.write(
-      fp"${policy.path}/cpuinfo_max_freq",
+      fp"{policy.path}/cpuinfo_max_freq",
       """4000000
 """,
     )?
     root.write(
-      fp"${policy.path}/scaling_min_freq",
+      fp"{policy.path}/scaling_min_freq",
       """1000000
 """,
     )?
     root.write(
-      fp"${policy.path}/scaling_max_freq",
+      fp"{policy.path}/scaling_max_freq",
       """3000000
 """,
     )?
     root.write(
-      fp"${policy.path}/energy_performance_preference",
+      fp"{policy.path}/energy_performance_preference",
       """balance_performance
 """,
     )?
     root.write(
-      fp"${policy.path}/energy_performance_available_preferences",
+      fp"{policy.path}/energy_performance_available_preferences",
       """performance balance_performance power
 """,
     )?
@@ -3872,12 +3872,12 @@ test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes {
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   var long_padding = padding
   while long_padding.count_chars() < 65536 {
-    long_padding = f"${long_padding}${long_padding}"
+    long_padding = f"{long_padding}{long_padding}"
   }
 
   for field in [
@@ -3912,16 +3912,16 @@ test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes {
   ] {
     let suffix = if field.name == "scaling_available_frequencies" { long_padding } else { padding }
     root.write(
-      fp"${policy_path}/${field.name}",
-      f"""${field.prefix}
-${suffix}""",
+      fp"{policy_path}/{field.name}",
+      f"""{field.prefix}
+{suffix}""",
     )?
   }
 
   root.write(
     p"sys/devices/system/cpu/cpufreq/boost",
     f"""1
-${padding}""",
+{padding}""",
   )?
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -3952,8 +3952,8 @@ ${padding}""",
     assert truncated_fields |> any .field == field
   }
 
-  root.remove(fp"${policy_path}/scaling_min_freq")?
-  root.mkdir(fp"${policy_path}/scaling_min_freq")?
+  root.remove(fp"{policy_path}/scaling_min_freq")?
+  root.mkdir(fp"{policy_path}/scaling_min_freq")?
   let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert unreadable.cpu.frequency_policies[0].scaling_min_khz == null
   let failed_minimum = unreadable.issues |> where .section == "cpu" and .field == "policy0.scaling_min_freq"
@@ -4065,13 +4065,13 @@ test test_system_report_idle_and_affinity_reject_truncated_prefixes {
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   var padding = " "
   while padding.count_chars() < 65536 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"proc/self/status",
     f"""Cpus_allowed_list:	0
-${padding}""",
+{padding}""",
   )?
   for source_path in [
     p"sys/devices/system/cpu/cpuidle/current_driver",
@@ -4083,7 +4083,7 @@ ${padding}""",
     root.write(
       source_path,
       f"""complete-looking prefix
-${padding}""",
+{padding}""",
     )?
   }
 
@@ -4095,7 +4095,7 @@ ${padding}""",
   root.write(
     p"sys/devices/system/cpu/cpu0/cpuidle/state0/latency",
     f"""12
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/devices/system/cpu/cpu0/cpuidle/state0/residency",
@@ -4110,7 +4110,7 @@ ${padding}""",
   root.write(
     p"sys/devices/system/cpu/cpu0/cpuidle/state0/time",
     f"""8
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/devices/system/cpu/cpu0/cpuidle/state1/name",
@@ -4205,14 +4205,14 @@ test test_system_report_cpuinfo_rejects_a_truncated_complete_looking_prefix {
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   var padding = " "
   while padding.count_chars() < 8388608 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"proc/cpuinfo",
     f"""processor: 0
 model name: complete-looking prefix
-${padding}""",
+{padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
@@ -4246,7 +4246,7 @@ test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes {
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   for field in [
@@ -4268,9 +4268,9 @@ test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes {
     },
   ] {
     root.write(
-      fp"${topology}/${field.name}",
-      f"""${field.prefix}
-${padding}""",
+      fp"{topology}/{field.name}",
+      f"""{field.prefix}
+{padding}""",
     )?
   }
 
@@ -4284,11 +4284,11 @@ ${padding}""",
   assert cpu_item.thread_siblings == []
   for field in ["physical_package_id", "die_id", "core_id", "thread_siblings_list"] {
     assert collected.issues
-      |> any .section == "cpu" and .field == f"cpu0.topology.${field}" and .state == report_model.Truncated
+      |> any .section == "cpu" and .field == f"cpu0.topology.{field}" and .state == report_model.Truncated
   }
 
   root.write(
-    fp"${topology}/core_id",
+    fp"{topology}/core_id",
     """9007199254740992
 """,
   )?
@@ -4345,10 +4345,10 @@ test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation {
   )?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"sys/devices/system/cpu/cpu0/cache/index8/size", f"512K${padding}")?
+  root.write(p"sys/devices/system/cpu/cpu0/cache/index8/size", f"512K{padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert value.cpu.caches.len() == 2
@@ -4365,29 +4365,29 @@ test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation {
   let incomplete_cache = p"sys/devices/system/cpu/cpu0/cache/index9"
   root.mkdir(incomplete_cache, parents: true)?
   root.write(
-    fp"${incomplete_cache}/level",
+    fp"{incomplete_cache}/level",
     f"""4
-${padding}""",
+{padding}""",
   )?
   root.write(
-    fp"${incomplete_cache}/type",
+    fp"{incomplete_cache}/type",
     """Unified
 """,
   )?
   root.write(
-    fp"${incomplete_cache}/size",
+    fp"{incomplete_cache}/size",
     """1024K
 """,
   )?
   root.write(
     p"sys/devices/system/cpu/cpu0/cache/index7/coherency_line_size",
     f"""64
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/devices/system/cpu/cpu0/cache/index7/number_of_sets",
     f"""1024
-${padding}""",
+{padding}""",
   )?
   let incomplete = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert incomplete.cpu.caches.len() == 2
@@ -4399,14 +4399,14 @@ ${padding}""",
   assert incomplete.issues |> any .field == "cpu0.cache.index7.coherency_line_size" and .state == report_model.Truncated
   assert incomplete.issues |> any .field == "cpu0.cache.index7.number_of_sets" and .state == report_model.Truncated
   root.write(
-    fp"${incomplete_cache}/level",
+    fp"{incomplete_cache}/level",
     """4
 """,
   )?
   root.write(
-    fp"${incomplete_cache}/type",
+    fp"{incomplete_cache}/type",
     f"""Unified
-${padding}""",
+{padding}""",
   )?
   let incomplete_kind = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert incomplete_kind.cpu.caches.len() == 2
@@ -4439,22 +4439,22 @@ test test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list {
 """,
   )?
   root.write(
-    fp"${cache_path}/level",
+    fp"{cache_path}/level",
     """2
 """,
   )?
   root.write(
-    fp"${cache_path}/type",
+    fp"{cache_path}/type",
     """Unified
 """,
   )?
   root.write(
-    fp"${cache_path}/size",
+    fp"{cache_path}/size",
     """1M
 """,
   )?
   root.write(
-    fp"${cache_path}/shared_cpu_list",
+    fp"{cache_path}/shared_cpu_list",
     """0,,1
 """,
   )?
@@ -4488,30 +4488,30 @@ test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing {
   )?
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   for entry in [{index: 7, kernel_id: 9}, {index: 8, kernel_id: 10}] {
-    let base = fp"sys/devices/system/cpu/cpu0/cache/index${entry.index}"
+    let base = fp"sys/devices/system/cpu/cpu0/cache/index{entry.index}"
     root.mkdir(base)?
     root.write(
-      fp"${base}/id",
-      f"""${entry.kernel_id}
+      fp"{base}/id",
+      f"""{entry.kernel_id}
 """,
     )?
     root.write(
-      fp"${base}/level",
+      fp"{base}/level",
       """2
 """,
     )?
     root.write(
-      fp"${base}/type",
+      fp"{base}/type",
       """Unified
 """,
     )?
     root.write(
-      fp"${base}/size",
+      fp"{base}/size",
       """1M
 """,
     )?
     root.write(
-      fp"${base}/shared_cpu_list",
+      fp"{base}/shared_cpu_list",
       """0
 """,
     )?
@@ -4820,43 +4820,43 @@ test test_system_report_storage_rejects_invalid_block_source_fields {
   root.mkdir(p"sys/class/block/loop0/device", parents: true)?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"sys/class/block/loop0/dev",
     f"""7:0
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/size",
     f"""16
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/queue/logical_block_size",
     f"""512
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/removable",
     f"""1
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/queue/scheduler",
     f"""[none] mq-deadline
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/device/model",
     f"""fixture-model
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/device/firmware_rev",
     f"""fixture-revision
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/class/block/loop0/device/rev",
@@ -4866,7 +4866,7 @@ ${padding}""",
   root.write(
     p"sys/class/block/loop0/stat",
     f"""1 0 8 1 2 0 16 2 0 3 4
-${padding}""",
+{padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
@@ -4894,7 +4894,7 @@ ${padding}""",
     "model",
     "firmware",
   ] {
-    let matches = value.issues |> where .section == "storage" and .field == f"devices.loop0.${field}"
+    let matches = value.issues |> where .section == "storage" and .field == f"devices.loop0.{field}"
     assert matches.len() == 1
     assert matches[0].state == report_model.Truncated
   }
@@ -4996,7 +4996,7 @@ ${padding}""",
       state: report_model.RangeFailure,
     },
   ] {
-    let matches = invalid_queue.issues |> where .section == "storage" and .field == f"devices.loop0.${expected.field}"
+    let matches = invalid_queue.issues |> where .section == "storage" and .field == f"devices.loop0.{expected.field}"
     assert matches.len() == 1
     assert matches[0].state == expected.state
   }
@@ -5132,10 +5132,10 @@ test test_system_report_storage_links_layered_block_devices_by_identity {
   let root = fs.tempdir()?
   defer root.close()?
   for name in ["sda", "dm-0"] {
-    root.mkdir(fp"sys/class/block/${name}/holders", parents: true)?
-    root.mkdir(fp"sys/class/block/${name}/slaves", parents: true)?
+    root.mkdir(fp"sys/class/block/{name}/holders", parents: true)?
+    root.mkdir(fp"sys/class/block/{name}/slaves", parents: true)?
     root.write(
-      fp"sys/class/block/${name}/size",
+      fp"sys/class/block/{name}/size",
       """16
 """,
     )?
@@ -5177,39 +5177,39 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
   defer root.close()?
   root.mkdir(p"sys/class/block", parents: true)?
   let disk_path = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
-  root.mkdir(fp"${disk_path}/holders", parents: true)?
-  root.mkdir(fp"${disk_path}/slaves", parents: true)?
+  root.mkdir(fp"{disk_path}/holders", parents: true)?
+  root.mkdir(fp"{disk_path}/slaves", parents: true)?
   root.write(
-    fp"${disk_path}/dev",
+    fp"{disk_path}/dev",
     """8:0
 """,
   )?
   root.write(
-    fp"${disk_path}/size",
+    fp"{disk_path}/size",
     """1024
 """,
   )?
   root.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda, p"sys/class/block/sda")?
   for number in [1, 3] {
-    let name = f"sda${number}"
-    let partition_path = fp"${disk_path}/${name}"
-    root.mkdir(fp"${partition_path}/holders", parents: true)?
+    let name = f"sda{number}"
+    let partition_path = fp"{disk_path}/{name}"
+    root.mkdir(fp"{partition_path}/holders", parents: true)?
     root.write(
-      fp"${partition_path}/partition",
-      f"""${number}
+      fp"{partition_path}/partition",
+      f"""{number}
 """,
     )?
     root.write(
-      fp"${partition_path}/dev",
-      f"""8:${number}
+      fp"{partition_path}/dev",
+      f"""8:{number}
 """,
     )?
     root.write(
-      fp"${partition_path}/size",
+      fp"{partition_path}/size",
       """128
 """,
     )?
-    root.symlink(fp"../../devices/pci0000:00/0000:00:01.0/block/sda/${name}", fp"sys/class/block/${name}")?
+    root.symlink(fp"../../devices/pci0000:00/0000:00:01.0/block/sda/{name}", fp"sys/class/block/{name}")?
   }
 
   root.mkdir(p"proc/self", parents: true)?
@@ -5559,10 +5559,10 @@ test test_system_report_process_collection_rejects_truncated_stat_and_field_pref
 """
   var padding = " "
   while padding.count_chars() < 16384 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"proc/123/stat", f"${stat}${padding}")?
+  root.write(p"proc/123/stat", f"{stat}{padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let truncated_stat = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
   assert truncated_stat.processes.processes == []
@@ -5574,17 +5574,17 @@ test test_system_report_process_collection_rejects_truncated_stat_and_field_pref
   root.write(
     p"proc/123/statm",
     f"""9 8 0 0 0 0 0
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"proc/123/status",
     f"""Uid:	1234	1234	1234	1234
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"proc/123/cgroup",
     f"""0::/partial
-${padding}""",
+{padding}""",
   )?
   let truncated_fields = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
   assert truncated_fields.processes.processes.len() == 1
@@ -6013,13 +6013,13 @@ test test_system_report_huge_page_pools_reject_unsafe_sizes_and_partial_counts {
   )?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"sys/kernel/mm/hugepages/hugepages-1024kB/nr_hugepages",
     f"""1
-${padding}""",
+{padding}""",
   )?
   root.mkdir(p"sys/devices/system/node/node0/hugepages/hugepages-2048kB", parents: true)?
   root.write(
@@ -6086,13 +6086,13 @@ Node 0 Broken: 0x10 kB
   )?
   var padding = " "
   while padding.count_chars() < 65536 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"sys/devices/system/node/node1/meminfo",
     f"""Node 1 MemTotal: 4 kB
-${padding}""",
+{padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
@@ -6131,13 +6131,13 @@ full avg10=0.10 avg60=0.20 avg300=0.30 total=5
   )?
   var padding = " "
   while padding.count_chars() < 16384 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"proc/pressure/io",
     f"""some avg10=0.00 avg60=0.00 avg300=0.00 total=1
-${padding}""",
+{padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
@@ -6169,7 +6169,7 @@ ${padding}""",
   let unavailable = collector.collect_from_root(unavailable_root, "fixture-arch", 4096, 100, "memory", true)?
   assert unavailable.memory.pressure.len() == 0
   for resource in ["cpu", "memory", "io"] {
-    assert unavailable.issues |> any .field == f"pressure.${resource}" and .state == report_model.Absent
+    assert unavailable.issues |> any .field == f"pressure.{resource}" and .state == report_model.Absent
   }
 }
 
@@ -6226,13 +6226,13 @@ test test_system_report_transparent_huge_page_policy_preserves_unknown_selection
 
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"sys/kernel/mm/transparent_hugepage/enabled",
     f"""always [future_policy] never
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/kernel/mm/transparent_hugepage/defrag",
@@ -6249,14 +6249,14 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let root = fs.tempdir()?
   defer root.close()?
   for entry in ["hwmon0", "hwmon1"] {
-    root.mkdir(fp"sys/class/hwmon/${entry}", parents: true)?
+    root.mkdir(fp"sys/class/hwmon/{entry}", parents: true)?
     root.write(
-      fp"sys/class/hwmon/${entry}/name",
+      fp"sys/class/hwmon/{entry}/name",
       """same_chip
 """,
     )?
     root.write(
-      fp"sys/class/hwmon/${entry}/temp1_input",
+      fp"sys/class/hwmon/{entry}/temp1_input",
       """42000
 """,
     )?
@@ -6298,7 +6298,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
 """,
     },
   ] {
-    root.write(fp"${pci_path}/${field.name}", field.value)?
+    root.write(fp"{pci_path}/{field.name}", field.value)?
   }
 
   root.symlink(../../../devices/pci0000:00/0000:00:1f.3, p"sys/class/hwmon/hwmon0/device")?
@@ -6683,19 +6683,19 @@ test test_system_report_thermal_and_battery_reads_reject_truncated_prefixes {
   )?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"sys/class/hwmon/hwmon0/name", f"chip-prefix${padding}")?
-  root.write(p"sys/class/thermal/thermal_zone0/temp", f"41000${padding}")?
-  root.write(p"sys/class/thermal/thermal_zone0/type", f"zone-prefix${padding}")?
+  root.write(p"sys/class/hwmon/hwmon0/name", f"chip-prefix{padding}")?
+  root.write(p"sys/class/thermal/thermal_zone0/temp", f"41000{padding}")?
+  root.write(p"sys/class/thermal/thermal_zone0/type", f"zone-prefix{padding}")?
   root.write(
     p"sys/class/thermal/thermal_zone0/trip_point_0_temp",
     """95000
 """,
   )?
-  root.write(p"sys/class/thermal/thermal_zone0/trip_point_0_type", f"critical${padding}")?
-  root.write(p"sys/class/power_supply/BAT0/capacity", f"68${padding}")?
+  root.write(p"sys/class/thermal/thermal_zone0/trip_point_0_type", f"critical{padding}")?
+  root.write(p"sys/class/power_supply/BAT0/capacity", f"68{padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
   assert sensors.sensors.channels[0].value == -5000
@@ -6773,16 +6773,16 @@ test test_system_report_powercap_rejects_truncated_names {
   root.mkdir(p"sys/class/powercap/intel-rapl:0", parents: true)?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"sys/class/powercap/intel-rapl:0/name", f"package-prefix${padding}")?
+  root.write(p"sys/class/powercap/intel-rapl:0/name", f"package-prefix{padding}")?
   root.write(
     p"sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw",
     """45000000
 """,
   )?
-  root.write(p"sys/class/powercap/intel-rapl:0/constraint_0_name", f"limit-prefix${padding}")?
+  root.write(p"sys/class/powercap/intel-rapl:0/constraint_0_name", f"limit-prefix{padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
   assert value.power.cap_zones.len() == 1
@@ -6803,12 +6803,12 @@ test test_system_report_power_supply_rejects_truncated_text_attributes {
   root.mkdir(p"sys/class/power_supply/BAT0", parents: true)?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
-  root.write(p"sys/class/power_supply/BAT0/type", f"Battery${padding}")?
-  root.write(p"sys/class/power_supply/BAT0/status", f"Charging${padding}")?
-  root.write(p"sys/class/power_supply/BAT0/health", f"Good${padding}")?
+  root.write(p"sys/class/power_supply/BAT0/type", f"Battery{padding}")?
+  root.write(p"sys/class/power_supply/BAT0/status", f"Charging{padding}")?
+  root.write(p"sys/class/power_supply/BAT0/health", f"Good{padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
   assert value.power.supplies.len() == 1
@@ -6925,13 +6925,13 @@ test test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts {
   )?
   var membership_padding = " "
   while membership_padding.count_chars() < 65536 {
-    membership_padding = f"${membership_padding}${membership_padding}"
+    membership_padding = f"{membership_padding}{membership_padding}"
   }
 
   root.write(
     p"proc/self/cgroup",
     f"""0::/group
-${membership_padding}""",
+{membership_padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
@@ -6946,13 +6946,13 @@ ${membership_padding}""",
   )?
   var mount_padding = " "
   while mount_padding.count_chars() < 4194304 {
-    mount_padding = f"${mount_padding}${mount_padding}"
+    mount_padding = f"{mount_padding}{mount_padding}"
   }
 
   root.write(
     p"proc/self/mountinfo",
     f"""31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw
-${mount_padding}""",
+{mount_padding}""",
   )?
   let mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   assert mount.memory.cgroup.len() == 0
@@ -6986,13 +6986,13 @@ test test_system_report_cgroup_limits_keep_source_and_numeric_failures {
   )?
   var padding = " "
   while padding.count_chars() < 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"sys/fs/cgroup/group/memory.current",
     f"""512
-${padding}""",
+{padding}""",
   )?
   root.write(
     p"sys/fs/cgroup/group/memory.swap.max",
@@ -7077,13 +7077,13 @@ user_usec 3
   )?
   var cpuset_padding = " "
   while cpuset_padding.count_chars() < 65536 {
-    cpuset_padding = f"${cpuset_padding}${cpuset_padding}"
+    cpuset_padding = f"{cpuset_padding}{cpuset_padding}"
   }
 
   root.write(
     p"sys/fs/cgroup/group/cpuset.cpus.effective",
     f"""0-1
-${cpuset_padding}""",
+{cpuset_padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
@@ -7146,13 +7146,13 @@ user_usec 3
 
   var cpu_padding = " "
   while cpu_padding.count_chars() < 4096 {
-    cpu_padding = f"${cpu_padding}${cpu_padding}"
+    cpu_padding = f"{cpu_padding}{cpu_padding}"
   }
 
   root.write(
     p"sys/fs/cgroup/group/cpu.max",
     f"""50000 100000
-${cpu_padding}""",
+{cpu_padding}""",
   )?
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   assert ! (truncated.memory.cgroup |> any .resource == "cpu.max")
@@ -7160,23 +7160,23 @@ ${cpu_padding}""",
 
   var cpu_stat_padding = " "
   while cpu_stat_padding.count_chars() < 16384 {
-    cpu_stat_padding = f"${cpu_stat_padding}${cpu_stat_padding}"
+    cpu_stat_padding = f"{cpu_stat_padding}{cpu_stat_padding}"
   }
 
   var io_padding = " "
   while io_padding.count_chars() < 262144 {
-    io_padding = f"${io_padding}${io_padding}"
+    io_padding = f"{io_padding}{io_padding}"
   }
 
   root.write(
     p"sys/fs/cgroup/group/cpu.stat",
     f"""user_usec 3
-${cpu_stat_padding}""",
+{cpu_stat_padding}""",
   )?
   root.write(
     p"sys/fs/cgroup/group/io.stat",
     f"""8:0 wbytes=1024
-${io_padding}""",
+{io_padding}""",
   )?
   let incomplete_counters = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   assert ! (incomplete_counters.memory.cgroup |> any .resource == "cpu.stat.user_usec")
@@ -7255,13 +7255,13 @@ test test_system_report_memory_does_not_parse_truncated_meminfo_prefix {
   root.mkdir(p"proc", parents: true)?
   var padding = " "
   while padding.count_chars() < 1048576 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"proc/meminfo",
     f"""MemTotal: 16 kB
-${padding}""",
+{padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
@@ -7312,14 +7312,14 @@ test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources
 
   var padding = " "
   while padding.count_chars() < 262144 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"proc/swaps",
     f"""Filename Type Size Used Priority
 /dev/zram0 partition 4 1 42
-${padding}""",
+{padding}""",
   )?
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   assert truncated.memory.swaps.len() == 0
@@ -7380,13 +7380,13 @@ test test_system_report_kernel_modules_reject_truncated_source_prefix {
   )?
   var padding = " "
   while padding.count_chars() < 1048576 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   root.write(
     p"proc/modules",
     f"""example 4096 0 - Live 0x0
-${padding}""",
+{padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?

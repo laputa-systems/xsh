@@ -30,7 +30,7 @@ test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
   let selected = match values {
     [{name, count} as entry] as all => {
       let names: List[Str] = [entry.name, all[0].name, name]
-      f"${names.join(":")}:${count}"
+      f"{names.join(":")}:{count}"
     }
     _ => "other"
   }

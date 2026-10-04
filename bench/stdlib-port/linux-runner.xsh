@@ -3,7 +3,7 @@
 proc measure(binary: Str, script: Str, name: Str, phase: Str, index: Int, side: Str, expected: Int) [process, time, io, error] {
   let measured = time.measure(process.command_argv(binary, [binary, script]), quiet: true)?
   if ! measured.status.exited_with(expected) { abort(1) }
-  print f"${name}\t${phase}\t${index}\t${side}\t${measured.wall_ns}"
+  print f"{name}\t{phase}\t{index}\t{side}\t{measured.wall_ns}"
 }
 
 proc main(...argv: List[Str]) [process, time, io, error] {
@@ -15,7 +15,7 @@ proc main(...argv: List[Str]) [process, time, io, error] {
     let name = argv[offset]
     let samples = argv[offset + 1].parse_int()?
     let expected = argv[offset + 2].parse_int()?
-    let script = f"/work/bench/stdlib-port/${name}.xsh"
+    let script = f"/work/bench/stdlib-port/{name}.xsh"
     if round % 2 == 0 {
       measure(reference, script, name, "warmup", 0, "reference", expected)?
       measure(candidate, script, name, "warmup", 0, "candidate", expected)?

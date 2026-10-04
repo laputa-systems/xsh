@@ -26,8 +26,8 @@ composition model and replaces its semantics.
 
 - **Explicit boundaries.** Nothing crosses into a subprocess, the filesystem,
   or the environment without a visible form. `run` starts a process, `@xs`
-  splices a list into argv, `${expr}` interpolates one value, `?` propagates an
-  error. Command words are never split, globbed, or expanded.
+  splices a list into argv, `${expr}` interpolates one value into a command
+  word, `?` propagates an error. Command words are never split, globbed, or expanded.
 - **Types without ceremony.** Every value has a type. Locals infer their types;
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
@@ -152,10 +152,34 @@ let ready = config.enabled
 literal text (`lint.dollar-in-expression-string` warns when it names a
 binding).
 
-**Display strings.** `f"..."` interpolates `${expr}` and the shorthand
-`$name` / `$name.field`, using display conversion. Interpolation scans
-balanced brackets and nested strings, so `f"${if ok { "yes" } else { "no" }}"`
-works. `\${` writes a literal `${`.
+**Display strings.** `f"..."`, `f"""..."""`, and `fp"..."` interpolate
+`{expr}` using display conversion. The ordinary expression parser reads each
+interpolation up to its matching `}`, so nested strings and f-strings (even
+with the same quote), record and map literals, blocks, named arguments, and
+slices all work inside: `f"{if ok { "yes" } else { "no" }}"`,
+`f"{m["k"]}"`, `f"{f(width: 4)}"`. Command words keep `${expr}` and `$name`.
+
+- **Braces.** `{{` and `}}` write literal braces; `\{` is not an escape. A
+  lone `}` in text, an unclosed `{`, and an empty or whitespace-only `{}` are
+  errors. Because `{{` is always an escape, an expression that begins with
+  `{` is set off by a space: `f"{ {a: 1}.a }"`. Inside an expression `}}` is
+  just two closing braces.
+- **Width.** `{expr:>N}` right-aligns, `{expr:<N}` left-aligns, and
+  `{expr:0N}` zero-pads to at least `N` characters (`N >= 1`). An expression
+  never contains a bare top-level `:` (named arguments and entries are
+  bracketed, slices use `..`), so the spec starts exactly where the
+  expression ends; anything else after that `:` is an error. There are no
+  other format specs, conversions, or debug forms.
+- **Dollar signs.** `$` is ordinary text: `f"costs $5"`. `${` is an error
+  (write `{expr}`, or `${{` for a literal `${`), and so is `$name` when `name`
+  is a binding in scope (write `{name}`, or `\$` for a literal dollar sign).
+- **Restrictions.** An interpolation contains no comments, and in a
+  single-line `f"..."` no line breaks; a block `f"""..."""` may break lines
+  inside braces.
+
+A plain `"..."` or `p"..."` whose `{name}` or `{name.field}` names a binding in
+scope is probably missing its prefix; `lint.missing-f-prefix` warns and adds
+`f` or `fp`.
 
 **Triple-quoted strings.** `"""..."""`, `r"""..."""`, and `f"""..."""` may
 span lines. When the opening delimiter is immediately followed by a line break
@@ -171,7 +195,7 @@ literal keeps its text exactly.
 ```xsh
 let unit = f"""
   [Unit]
-  Description=${name}
+  Description={name}
   """
 ```
 
@@ -186,8 +210,8 @@ patterns built at runtime.
 
 **Paths.** `p"..."` produces a `Path` and supports string escapes but no
 interpolation; an unescaped `${` in a `p` literal is an error. `fp"..."`
-interpolates: `Path` fragments contribute their native bytes and other values
-their UTF-8 display text. A token that begins with `/`, `./`, or `../` and
+interpolates `{expr}` like `f"..."`: `Path` fragments contribute their native
+bytes and other values their UTF-8 display text. A token that begins with `/`, `./`, or `../` and
 contains no whitespace or delimiters is also a path literal:
 
 ```xsh
@@ -245,7 +269,7 @@ entry instead:
 ```xsh
 ## Copy a build artifact.
 cli main(source: Path, dest: Path, jobs: UInt = 4, verbose: Bool = false) {
-  print f"copying ${source} with ${jobs} jobs"
+  print f"copying {source} with {jobs} jobs"
 }
 ```
 
@@ -470,7 +494,7 @@ let level = Fault("disk full")
 match level {
   Info => print "info"
   Warn => print "warn"
-  Fault(reason) => print f"fault: ${reason}"
+  Fault(reason) => print f"fault: {reason}"
 }
 ```
 
@@ -772,7 +796,7 @@ filesystem ancestry), and entry membership in `env.PATH`. A present key or
 field whose value is `null` is still present. Operands evaluate once, left to
 right.
 
-`/` on paths is not path joining; build paths with `fp"${root}/child"`. `//`
+`/` on paths is not path joining; build paths with `fp"{root}/child"`. `//`
 and `div` do not exist.
 
 ### 6.3 Calls
@@ -824,9 +848,9 @@ let merged = {...defaults, ...overrides}
 ### 6.5 Comprehensions
 
 ```xsh
-let objects = [fp"${src}.o" for src in sources if src.ext == "c"]
+let objects = [fp"{src}.o" for src in sources if src.ext == "c"]
 let sizes = {[e.path]: e.size for e in entries}
-let pairs = [f"${a}-${b}" for a in left for b in right if a != b]
+let pairs = [f"{a}-{b}" for a in left for b in right if a != b]
 ```
 
 Clauses run like nested `for` loops with `if` filters: each inner iterable is
@@ -875,7 +899,7 @@ let mode = if release { "release" } else { "debug" }
 let label = match level {
   Info => "info"
   Warn => "warn"
-  Fault(reason) => f"fault: ${reason}"
+  Fault(reason) => f"fault: {reason}"
 }
 ```
 
@@ -939,7 +963,7 @@ destructure records:
 ```xsh
 let {name, version: v, build: {jobs, ..}, ..} = manifest
 for {path, size} in entries {
-  print f"${path}: ${size}"
+  print f"{path}: {size}"
 }
 ```
 
@@ -996,7 +1020,7 @@ including `false`; a `Result` tail is returned as a value, not unwrapped.
 
 ```xsh
 assert actual == expected
-assert entries.len() > 0, f"no entries under ${root}"
+assert entries.len() > 0, f"no entries under {root}"
 ```
 
 `assert condition[, message]` is the only assertion form. It is a `Unit`
@@ -1043,7 +1067,7 @@ An error handler block receives the error:
 
 ```xsh
 let config = load_config(path) ?? { |failure|
-  eprint f"using defaults: ${failure.message}"
+  eprint f"using defaults: {failure.message}"
   default_config()
 }
 ```
@@ -1115,7 +1139,7 @@ selected branch or iteration. Irrefutable patterns are rejected.
 with config = read_config()?, db = connect(config)? {
   serve(db)
 } else { |failure|
-  eprint f"setup failed: ${failure.message}"
+  eprint f"setup failed: {failure.message}"
 }
 ```
 
@@ -1190,7 +1214,7 @@ one. A non-empty delay list requires the `time` effect. Each attempt emits a
 `ctx description { ... }` labels failures that leave its body:
 
 ```xsh
-ctx f"installing ${package.name}" {
+ctx f"installing {package.name}" {
   fs.copy(source, dest)?
 }
 ```
@@ -1876,7 +1900,7 @@ type Package = {name: Str, version: Str, files: List[Str]}
 
 let package = json.read(manifest_path)?.require(Package)?
 for file in package.files {
-  print f"${package.name}-${package.version}: ${file}"
+  print f"{package.name}-{package.version}: {file}"
 }
 ```
 
@@ -1912,9 +1936,9 @@ pure scalar_label(v: Any) -> Result[Str, JsonShape] {
   match v {
     _ is Null => "null"
     b is Bool => if b { "true" } else { "false" }
-    i is Int => f"integer ${i}"
-    f is Float => f"float ${f}"
-    s is Str => f"string of ${s.count_chars()} characters"
+    i is Int => f"integer {i}"
+    f is Float => f"float {f}"
+    s is Str => f"string of {s.count_chars()} characters"
     _ => Err(JsonShape.NotScalar(message: "expected a scalar"))
   }
 }
@@ -2124,7 +2148,7 @@ use version
 test parses_semver { |ctx|
   let v = version.parse("1.2.3")?
   assert v.major == 1
-  assert v.minor == 2, f"minor of ${ctx.name}"
+  assert v.minor == 2, f"minor of {ctx.name}"
 }
 
 test runs_script [fs, process, error] { |ctx|

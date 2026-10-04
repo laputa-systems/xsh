@@ -126,12 +126,12 @@ test test_net_job_progresses_while_synchronous_request_waits {
   # evaluator is checkpoint-waiting in `net.request`.
   let job = net.start({
     method: "GET",
-    url: f"${url}/job",
+    url: f"{url}/job",
     headers: [{name: "Connection", value: "close"}],
   })?
   let foreground = net.request({
     method: "GET",
-    url: f"${url}/sync",
+    url: f"{url}/sync",
     headers: [{name: "Connection", value: "close"}],
   })?
 
@@ -336,7 +336,7 @@ test test_net_runtime_descriptors_do_not_survive_exec { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "net-runtime-fds")?
-  let output = fp"${root}/fds.txt"
+  let output = fp"{root}/fds.txt"
   run ${helper} > output ?
   let inherited = output.read_text()?
   let job = net.start({method: "GET", url: url + "/hello"})?
@@ -353,45 +353,45 @@ test test_net_transport_http_contracts { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "net-http")?
-  let upload_source = fp"${root}/upload.txt"
-  let download_dest = fp"${root}/download.txt"
-  let missing_ca = fp"${root}/missing-ca.pem"
+  let upload_source = fp"{root}/upload.txt"
+  let download_dest = fp"{root}/download.txt"
+  let missing_ca = fp"{root}/missing-ca.pem"
   fs.write(upload_source, "upload-body")?
 
   let pool = net.pool("fixture", 4, 1s)?
-  let first = net.request({method: "GET", url: f"${url}/hello", pool: "fixture"})?
-  let second = net.request({method: "GET", url: f"${url}/hello", pool: "fixture"})?
-  let headed = net.request({method: "HEAD", url: f"${url}/hello", pool: "fixture"})?
-  let redirected = net.request({method: "GET", url: f"${url}/redirect", redirects: 1, pool: "fixture"})?
+  let first = net.request({method: "GET", url: f"{url}/hello", pool: "fixture"})?
+  let second = net.request({method: "GET", url: f"{url}/hello", pool: "fixture"})?
+  let headed = net.request({method: "HEAD", url: f"{url}/hello", pool: "fixture"})?
+  let redirected = net.request({method: "GET", url: f"{url}/redirect", redirects: 1, pool: "fixture"})?
   let posted = net.request({
     method: "POST",
-    url: f"${url}/echo",
+    url: f"{url}/echo",
     headers: [{name: "X-Test", value: "one"}],
     body_text: "payload",
     pool: "fixture",
   })?
   let posted_file = net.request({
     method: "POST",
-    url: f"${url}/echo",
+    url: f"{url}/echo",
     body_file: upload_source,
     pool: "fixture",
   })?
   let posted_bytes = net.request({
     method: "POST",
-    url: f"${url}/echo",
+    url: f"{url}/echo",
     body: b"bytes",
     pool: "fixture",
   })?
-  let status = net.request({method: "GET", url: f"${url}/status", pool: "fixture"})?
+  let status = net.request({method: "GET", url: f"{url}/status", pool: "fixture"})?
   let downloaded = net.download({
-    url: f"${url}/header-file",
+    url: f"{url}/header-file",
     dest: download_dest,
     headers: [{name: "X-Download", value: "yes"}],
     overwrite: true,
     pool: "fixture",
   })?
   let uploaded = net.upload({
-    url: f"${url}/upload",
+    url: f"{url}/upload",
     source: upload_source,
     headers: [{name: "Authorization", value: "Bearer secret-token"}],
     pool: "fixture",
@@ -400,7 +400,7 @@ test test_net_transport_http_contracts { |ctx|
   assert pool.max_idle_per_host == 4
   assert pool.idle_timeout_ms == 1000
   assert first.reason == "OK"
-  assert first.url == f"${url}/hello"
+  assert first.url == f"{url}/hello"
   assert first.body.utf8()? == "hello"
   assert second.body.utf8()? == "hello"
   assert headed.status == 200
@@ -417,12 +417,12 @@ test test_net_transport_http_contracts { |ctx|
   assert uploaded.status == 201
   assert uploaded.reason == "Created"
   assert uploaded.bytes == 20
-  assert uploaded.url == f"${url}/upload"
+  assert uploaded.url == f"{url}/upload"
   assert first.headers[0].name == "Date"
   assert first.headers[1].value == "5"
   test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/file"}), "net-scheme")?
   test.error_kind(
-    net.request({method: "GET", url: f"${url}/hello", ca_certificate: missing_ca}),
+    net.request({method: "GET", url: f"{url}/hello", ca_certificate: missing_ca}),
     "net-ca-certificate",
   )?
   net.close_pool("fixture")?
@@ -437,28 +437,28 @@ test test_net_transport_error_contracts { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "net-errors")?
-  let existing = fp"${root}/existing.txt"
-  let limited = fp"${root}/limited.txt"
-  let in_place = fp"${root}/in-place.txt"
+  let existing = fp"{root}/existing.txt"
+  let limited = fp"{root}/limited.txt"
+  let in_place = fp"{root}/in-place.txt"
   fs.write(existing, "previous")?
   fs.write(limited, "limited before")?
   fs.write(in_place, "old")?
 
-  let redirect_limit = net.request({method: "GET", url: f"${url}/redirect", redirects: 0})
-  let missing_location = net.request({method: "GET", url: f"${url}/redirect-missing", redirects: 1})
-  let redirect_loop = net.request({method: "GET", url: f"${url}/redirect-loop", redirects: 1})
-  let body_limit = net.request({method: "GET", url: f"${url}/hello", max_body_bytes: 4})
-  let status = net.request({method: "GET", url: f"${url}/status", fail_status: true})
-  let existing_result = net.download({url: f"${url}/file", dest: existing})
+  let redirect_limit = net.request({method: "GET", url: f"{url}/redirect", redirects: 0})
+  let missing_location = net.request({method: "GET", url: f"{url}/redirect-missing", redirects: 1})
+  let redirect_loop = net.request({method: "GET", url: f"{url}/redirect-loop", redirects: 1})
+  let body_limit = net.request({method: "GET", url: f"{url}/hello", max_body_bytes: 4})
+  let status = net.request({method: "GET", url: f"{url}/status", fail_status: true})
+  let existing_result = net.download({url: f"{url}/file", dest: existing})
   let limited_result = net.download({
-    url: f"${url}/hello",
+    url: f"{url}/hello",
     dest: limited,
     atomic: true,
     overwrite: true,
     max_body_bytes: 4,
   })
   let in_place_result = net.download({
-    url: f"${url}/file",
+    url: f"{url}/file",
     dest: in_place,
     atomic: false,
     overwrite: true,
@@ -486,7 +486,7 @@ proc assert_invalid_net_input(ctx: TestContext, source: Str, kind: Str) [error] 
 
 test test_net_transport_rejects_invalid_shapes { |ctx|
   let root = test.temp_dir(ctx, name: "net-invalid")?
-  let missing_source = fp"${root}/missing.txt"
+  let missing_source = fp"{root}/missing.txt"
 
   test.error_kind(net.request({method: "TRACE", url: "http://127.0.0.1:9/"}), "net-method")?
   test.error_kind(net.request({method: "GET", url: "ftp://example.test/"}), "net-scheme")?
@@ -546,21 +546,21 @@ test test_net_transport_timeout_contracts { |ctx|
     return
   }
 
-  test.error_kind(net.request({method: "GET", url: f"${url}/slow", timeout: 50ms}), "net-timeout")?
-  let response = net.request({method: "GET", url: f"${url}/slow", connect_timeout: 50ms})?
+  test.error_kind(net.request({method: "GET", url: f"{url}/slow", timeout: 50ms}), "net-timeout")?
+  let response = net.request({method: "GET", url: f"{url}/slow", connect_timeout: 50ms})?
   assert response.body.utf8()? == "slow"
   test.error_kind(
-    net.request({method: "GET", url: f"${url}/slow", headers_timeout: 50ms}),
+    net.request({method: "GET", url: f"{url}/slow", headers_timeout: 50ms}),
     "net-headers-timeout",
   )?
   test.error_kind(
-    net.request({method: "GET", url: f"${url}/slow-body", body_idle_timeout: 50ms}),
+    net.request({method: "GET", url: f"{url}/slow-body", body_idle_timeout: 50ms}),
     "net-body-idle-timeout",
   )?
   let root = test.temp_dir(ctx, name: "net-total-timeout")?
-  let destination = fp"${root}/download.txt"
+  let destination = fp"{root}/download.txt"
   test.error_kind(
-    net.download({url: f"${url}/slow-body", dest: destination, timeout: 50ms}),
+    net.download({url: f"{url}/slow-body", dest: destination, timeout: 50ms}),
     "net-timeout",
   )?
   assert ! destination.exists()?
@@ -582,12 +582,12 @@ test test_net_transport_batch_contracts { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "net-batch")?
-  let first = fp"${root}/first.txt"
-  let second = fp"${root}/second.txt"
+  let first = fp"{root}/first.txt"
+  let second = fp"{root}/second.txt"
   let request_items = [
     {
       method: "GET",
-      url: f"${url}/hello",
+      url: f"{url}/hello",
       headers: [
         {
           name: "Connection",
@@ -601,7 +601,7 @@ test test_net_transport_batch_contracts { |ctx|
     },
     {
       method: "GET",
-      url: f"${url}/status",
+      url: f"{url}/status",
       headers: [
         {
           name: "Connection",
@@ -612,7 +612,7 @@ test test_net_transport_batch_contracts { |ctx|
     },
     {
       method: "GET",
-      url: f"${url}/hello",
+      url: f"{url}/hello",
       headers: [
         {
           name: "Connection",
@@ -623,12 +623,12 @@ test test_net_transport_batch_contracts { |ctx|
   ]
   let download_items = [
     {
-      url: f"${url}/hello",
+      url: f"{url}/hello",
       dest: first,
       overwrite: true,
     },
     {
-      url: f"${url}/hello",
+      url: f"{url}/hello",
       dest: second,
       overwrite: true,
     },
@@ -647,7 +647,7 @@ test test_net_transport_batch_contracts { |ctx|
   # A batch item is admitted only when its sliding-window slot opens. Its
   # total deadline must therefore not elapse while the preceding item runs.
   let queued_timeout_requests = net.request_many({
-    requests: [{method: "GET", url: f"${url}/slow"}, {method: "GET", url: f"${url}/hello", timeout: 50ms}],
+    requests: [{method: "GET", url: f"{url}/slow"}, {method: "GET", url: f"{url}/hello", timeout: 50ms}],
     concurrency: 1,
     pool: "batch-queued-timeout",
   })?
@@ -672,12 +672,12 @@ test test_net_transport_batch_download_error_contract { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "net-batch-errors")?
-  let redirected = fp"${root}/redirected.txt"
-  let limited = fp"${root}/limited.txt"
+  let redirected = fp"{root}/redirected.txt"
+  let limited = fp"{root}/limited.txt"
   fs.write(limited, "previous")?
   let download_items = [
     {
-      url: f"${url}/redirect",
+      url: f"{url}/redirect",
       dest: redirected,
       atomic: true,
       overwrite: true,
@@ -685,7 +685,7 @@ test test_net_transport_batch_download_error_contract { |ctx|
       max_body_bytes: 1024,
     },
     {
-      url: f"${url}/hello",
+      url: f"{url}/hello",
       dest: limited,
       atomic: true,
       overwrite: true,
@@ -713,16 +713,16 @@ test test_net_transport_tls_contracts {
     return
   }
 
-  let rejected = net.request({method: "GET", url: f"${url}/secure"})
+  let rejected = net.request({method: "GET", url: f"{url}/secure"})
   let unverified = net.request({
     method: "GET",
-    url: f"${url}/secure",
+    url: f"{url}/secure",
     tls_verify: false,
   })?
   let verified = net.request({
     method: "GET",
-    url: f"${url}/secure",
-    ca_certificate: fp"${ca}",
+    url: f"{url}/secure",
+    ca_certificate: fp"{ca}",
   })?
 
   test.error_kind(rejected, "net-tls")?
@@ -740,8 +740,8 @@ test test_net_transport_https_http1_contract {
 
   let response = net.request({
     method: "GET",
-    url: f"${url}/secure",
-    ca_certificate: fp"${ca}",
+    url: f"{url}/secure",
+    ca_certificate: fp"{ca}",
     pool: "h1-alpn",
   })?
 
@@ -759,17 +759,17 @@ test test_net_transport_request_many_https_h2_contract {
   let request_items = [
     {
       method: "GET",
-      url: f"${url}/h2",
+      url: f"{url}/h2",
     },
     {
       method: "GET",
-      url: f"${url}/h2",
+      url: f"{url}/h2",
     },
   ]
   let batch = {
     requests: request_items,
     concurrency: 1,
-    ca_certificate: fp"${ca}",
+    ca_certificate: fp"{ca}",
     pool: "h2",
   }
   let requests = net.request_many(batch)?
@@ -788,23 +788,23 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
 
   let pool = "h2-cancel"
   let warmed = net.request_many({
-    requests: [{method: "GET", url: f"${url}/warm"}],
+    requests: [{method: "GET", url: f"{url}/warm"}],
     concurrency: 1,
-    ca_certificate: fp"${ca}",
+    ca_certificate: fp"{ca}",
     pool: pool,
   })?
   assert warmed[0]?.body.utf8()? == "warm"
 
   let stalled = net.start({
     method: "GET",
-    url: f"${url}/slow",
-    ca_certificate: fp"${ca}",
+    url: f"{url}/slow",
+    ca_certificate: fp"{ca}",
     pool: pool,
   })?
   let sibling = net.start({
     method: "GET",
-    url: f"${url}/fast",
-    ca_certificate: fp"${ca}",
+    url: f"{url}/fast",
+    ca_certificate: fp"{ca}",
     pool: pool,
   })?
   let fast = sibling.wait()?
@@ -812,9 +812,9 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
   stalled.cancel()?
 
   let later = net.request_many({
-    requests: [{method: "GET", url: f"${url}/later"}],
+    requests: [{method: "GET", url: f"{url}/later"}],
     concurrency: 1,
-    ca_certificate: fp"${ca}",
+    ca_certificate: fp"{ca}",
     pool: pool,
   })?
   assert later[0]?.body.utf8()? == "later"
@@ -829,11 +829,11 @@ test test_net_transport_download_many_https_h2_contract { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "net-h2")?
-  let dest = fp"${root}/h2.txt"
-  let download_items = [{url: f"${url}/h2", dest: dest, overwrite: true}]
+  let dest = fp"{root}/h2.txt"
+  let download_items = [{url: f"{url}/h2", dest: dest, overwrite: true}]
   let batch = {
     downloads: download_items,
-    ca_certificate: fp"${ca}",
+    ca_certificate: fp"{ca}",
     pool: "h2-download",
   }
   let downloads = net.download_many(batch)?
@@ -849,7 +849,7 @@ test test_net_transport_linux_system_ca_dir {
     return
   }
 
-  let response = net.request({method: "GET", url: f"${url}/secure"})?
+  let response = net.request({method: "GET", url: f"{url}/secure"})?
   assert response.status == 200
   assert response.body.utf8()? == "secure"
 }

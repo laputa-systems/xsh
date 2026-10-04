@@ -1,5 +1,5 @@
 pure passes() -> Result[Int] {
-  assert 2 == 2, f"${1 / 0}"
+  assert 2 == 2, f"{1 / 0}"
   7
 }
 

@@ -166,7 +166,7 @@ fn unix_spawn_logged_process_group_pipes_stdout_and_stderr() {
         "\
 let log = Path({})
 let command = process.command_argv(\"sh\", [\"sh\", \"-c\", \"printf service-out; printf service-err >&2\"])
-let logger = process.command_argv(\"sh\", [\"sh\", \"-c\", f\"cat > ${{log.display()}}\"] )
+let logger = process.command_argv(\"sh\", [\"sh\", \"-c\", f\"cat > {{log.display()}}\"] )
 let child = unix.spawn_logged_process_group(command, logger)?
 var events = unix.reap_child_events()?.collect()
 var tries = 0

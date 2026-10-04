@@ -50,7 +50,7 @@ const TOKENS: &[&str] = &[
     "*", "/", "%", "==", "!=", "<", ">=", "!", "and", "or", "in", "not in", "is", "let", "var", "if", "else",
     "match", "for", "while", "return", "break", "continue", "try", "pure", "proc", "stream", "type", "enum",
     "error", "yield", "defer", "assert", "guard", "with", "ctx", "cd", "env", "run", "spawn", "wait", "null",
-    "true", "0", "-1", "9223372036854775807", "1.5", "\"s\"", "p\"x\"", "b\"\\xff\"", "rx\"(\"", "f\"${", "\"\"\"",
+    "true", "0", "-1", "9223372036854775807", "1.5", "\"s\"", "p\"x\"", "b\"\\xff\"", "rx\"(\"", "f\"{", "f\"}", "\"\"\"",
     "Ok(", "Err(", "Int", "Str", "List[", "Map[", "Result[", "?.", "?[", "=>", "_", "{ |x| ", "#", "`",
 ];
 

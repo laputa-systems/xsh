@@ -7,5 +7,5 @@ proc main() [io, error] {
     sink = sink + by_ext.mime.byte_len() + by_path.mime.byte_len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

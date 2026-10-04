@@ -18,5 +18,5 @@ proc main() [io, error] {
       verbose: "Bool",
     },
   )?
-  print f"${parsed.count}"
+  print f"{parsed.count}"
 }

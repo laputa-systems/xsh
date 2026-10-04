@@ -233,7 +233,7 @@ print done
 
 test test_pattern_predicates_resolve_qualified_constructor_type_and_facet_names { |ctx|
   let root = test.temp_dir(ctx, name: "predicate-module")?
-  fp"${root}/predicate.xsh".write("""
+  fp"{root}/predicate.xsh".write("""
 ##! Pattern predicate fixture module.
 ## Choice constructors.
 export enum Choice { Ready, Payload(Int) }
@@ -514,7 +514,7 @@ print (shadows(1))
 
 test test_error_variant_patterns_match_errors_raised_in_another_module { |ctx|
   let root = test.temp_dir(ctx, name: "error-identity-module")?
-  fp"${root}/raiser.xsh".write(r"""
+  fp"{root}/raiser.xsh".write(r"""
 ##! Error identity fixture module.
 ## Fixture errors.
 export error Failure = Missing(detail: Str) | Busy
@@ -525,7 +525,7 @@ export pure fail_broad() -> Result[Int] { return Err(Failure.Missing(detail: "br
 ## Matches inside the module.
 export pure describe(result: Result[Int, Failure]) -> Str {
   match result {
-    Err(Failure.Missing {detail}) => f"missing ${detail}"
+    Err(Failure.Missing {detail}) => f"missing {detail}"
     _ => "other"
   }
 }

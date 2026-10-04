@@ -32,7 +32,7 @@ rejected
 
 test test_schema_validation_keeps_the_declaring_private_schema { |ctx|
   let root = test.temp_dir(ctx, name: "schema-validation-owner")?
-  fp"${root}/model.xsh".write_atomic(r"""##! Schema declarations with private owners.
+  fp"{root}/model.xsh".write_atomic(r"""##! Schema declarations with private owners.
 type Private = {count: UInt}
 ## A public schema with a private field type.
 export type Box[T] = {value: T, owner: Private}

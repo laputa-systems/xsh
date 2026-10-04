@@ -79,8 +79,8 @@ pure variant_name(line: Str) -> Str {
 }
 
 pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
-  let public_marker = f"pub enum ${enum_name}"
-  let private_marker = f"enum ${enum_name}"
+  let public_marker = f"pub enum {enum_name}"
+  let private_marker = f"enum {enum_name}"
   var variants = []
   var in_enum = false
   var depth = 0
@@ -330,7 +330,7 @@ pure qualified_names(namespace: Str, names: List[Str]) -> List[Str] {
     values += [name]
 
     if namespace != "" {
-      values += [f"${namespace}.${name}"]
+      values += [f"{namespace}.{name}"]
     }
   }
 
@@ -423,11 +423,11 @@ pure signature_reasons(signature: Str, record_types: List[Str]) -> List[Str] {
     let next = tokens.get(index + 1) ?? ""
 
     if token.ends_with(":") and next != "" and ! lowerable_type(next, false, record_types) {
-      reasons = add_reason(reasons, f"type.param.${next}")
+      reasons = add_reason(reasons, f"type.param.{next}")
     }
 
     if token == "->" and next != "" and ! lowerable_type(next, true, record_types) {
-      reasons = add_reason(reasons, f"type.return.${next}")
+      reasons = add_reason(reasons, f"type.return.{next}")
     }
 
     index += 1
@@ -452,10 +452,10 @@ pure method_reasons(
     if "(" in part {
       let method = (part.split("(").get(0) ?? "").trim()
       let receiver = receiver_name(parts.get(index - 1) ?? "")
-      let qualified = f"${receiver}.${method}"
+      let qualified = f"{receiver}.{method}"
 
       if ! known_module_receiver(receiver) and plausible_field_call_name(method) and ! (method in lowered_methods) and ! (method in error_variants) and ! (qualified in pure_functions) {
-        reasons = add_reason(reasons, f"method.${method}")
+        reasons = add_reason(reasons, f"method.{method}")
       }
     }
 
@@ -665,7 +665,7 @@ pure proc_scan(
   var reasons = signature_reasons(signature, record_types)
 
   if ! lowerable_proc_effect_set(effects) {
-    reasons = add_reason(reasons, f"effect.${effects.join("+")}")
+    reasons = add_reason(reasons, f"effect.{effects.join("+")}")
   }
 
   for body_line in body.lines() {
@@ -759,14 +759,14 @@ proc scan_pures_in_file(
         continue
       }
 
-      signature = f"${signature} ${line}"
+      signature = f"{signature} {line}"
       seen_body = "{" in line
 
       if seen_body {
         body = line
       }
     } else {
-      body = f"${body}${newline}${line}"
+      body = f"{body}{newline}{line}"
     }
 
     depth += line_scan.brace_delta
@@ -863,14 +863,14 @@ proc scan_procs_in_file(
         continue
       }
 
-      signature = f"${signature} ${line}"
+      signature = f"{signature} {line}"
       seen_body = "{" in line
 
       if seen_body {
         body = line
       }
     } else {
-      body = f"${body}${newline}${line}"
+      body = f"{body}{newline}{line}"
     }
 
     depth += line_scan.brace_delta
@@ -1085,7 +1085,7 @@ pure append_scan_line(text: Str, line: Str) -> Str {
   return line when text == ""
 
   let newline = "\n"
-  f"${text}${newline}${line}"
+  f"{text}{newline}{line}"
 }
 
 pure script_supported_shape(shape: Str) -> Bool {
@@ -1104,7 +1104,7 @@ pure script_region_reasons(
   return reasons when shape == ""
 
   if ! script_supported_shape(shape) {
-    reasons = add_reason(reasons, f"stmt.${shape}")
+    reasons = add_reason(reasons, f"stmt.{shape}")
   }
 
   if "run " in text or " run." in text {
@@ -1154,12 +1154,12 @@ pure script_report(roots: List[Str], scans: List[ScriptScan]) -> ScriptReport {
 
 pure default_corpus_roots(root: Path) -> List[Path] {
   let parent = root.parent()
-  [root, fp"${parent}/packages", fp"${parent}/laputa"]
+  [root, fp"{parent}/packages", fp"{parent}/laputa"]
 }
 
 proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[CorpusReport] {
   let display_root = root.parent()
-  let records_path = fp"${root}/src/sema/records.rs"
+  let records_path = fp"{root}/src/sema/records.rs"
   let standard_records = standard_record_names(fs.read_text(records_path)?)
   var roots = []
   var files = []
@@ -1212,7 +1212,7 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
 
 proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[ProcReport] {
   let display_root = root.parent()
-  let records_path = fp"${root}/src/sema/records.rs"
+  let records_path = fp"{root}/src/sema/records.rs"
   let standard_records = standard_record_names(fs.read_text(records_path)?)
   var roots = []
   var files = []
@@ -1441,13 +1441,13 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
 }
 
 pure render_row(row: CoverageRow) -> List[Str] {
-  var lines = [f"${row.name}: ${row.covered}/${row.total} (${row.percent}%)"]
-  lines = lines.push(f"  supported: ${row.supported.join(", ")}")
+  var lines = [f"{row.name}: {row.covered}/{row.total} ({row.percent}%)"]
+  lines = lines.push(f"  supported: {row.supported.join(", ")}")
 
   if row.unsupported.len() == 0 {
     lines += ["  unsupported: none"]
   } else {
-    lines = lines.push(f"  unsupported: ${row.unsupported.join(", ")}")
+    lines = lines.push(f"  unsupported: {row.unsupported.join(", ")}")
   }
 
   lines
@@ -1461,7 +1461,7 @@ pure render_reason_groups(groups: List[ReasonGroup]) -> List[Str] {
   lines += ["  fallback groups:"]
 
   for bucket in groups {
-    lines = lines.push(f"    ${bucket.group}: ${bucket.total}")
+    lines = lines.push(f"    {bucket.group}: {bucket.total}")
   }
 
   lines
@@ -1476,17 +1476,17 @@ pure render_report(report: CoverageReport) -> Str {
   }
 
   lines += ["lowered IR nodes"]
-  lines = lines.push(f"  statements: ${report.lowered_nodes.statements}")
-  lines = lines.push(f"  expressions: ${report.lowered_nodes.expressions}")
-  lines = lines.push(f"  pipeline stages: ${report.lowered_nodes.pipeline_stages}")
-  lines = lines.push(f"  types: ${report.lowered_nodes.types}")
+  lines = lines.push(f"  statements: {report.lowered_nodes.statements}")
+  lines = lines.push(f"  expressions: {report.lowered_nodes.expressions}")
+  lines = lines.push(f"  pipeline stages: {report.lowered_nodes.pipeline_stages}")
+  lines = lines.push(f"  types: {report.lowered_nodes.types}")
   lines += [""]
-  lines = lines.push(f"lowered method whitelist: ${report.lowered_methods.len()}")
-  lines = lines.push(f"  ${report.lowered_methods.join(", ")}")
+  lines = lines.push(f"lowered method whitelist: {report.lowered_methods.len()}")
+  lines = lines.push(f"  {report.lowered_methods.join(", ")}")
   lines += [""]
   lines += ["corpus pure-function lowerability"]
-  lines = lines.push(f"  roots: ${report.corpus.roots.join(", ")}")
-  lines = lines.push(f"  lowerable: ${report.corpus.lowerable}/${report.corpus.total} (${report.corpus.percent}%)")
+  lines = lines.push(f"  roots: {report.corpus.roots.join(", ")}")
+  lines = lines.push(f"  lowerable: {report.corpus.lowerable}/{report.corpus.total} ({report.corpus.percent}%)")
 
   if report.corpus.reasons.len() == 0 {
     lines += ["  fallback reasons: none"]
@@ -1494,7 +1494,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  fallback reasons:"]
 
     for row in report.corpus.reasons {
-      lines = lines.push(f"    ${row.reason}: ${row.count}")
+      lines = lines.push(f"    {row.reason}: {row.count}")
     }
   }
 
@@ -1504,14 +1504,14 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.corpus.samples {
-      lines = lines.push(f"    ${scan.path}:${scan.line} ${scan.name} -> ${scan.reasons.join(", ")}")
+      lines = lines.push(f"    {scan.path}:{scan.line} {scan.name} -> {scan.reasons.join(", ")}")
     }
   }
 
   lines += [""]
   lines += ["corpus effect-free proc-body lowerability"]
-  lines = lines.push(f"  roots: ${report.procs.roots.join(", ")}")
-  lines = lines.push(f"  lowerable: ${report.procs.lowerable}/${report.procs.total} (${report.procs.percent}%)")
+  lines = lines.push(f"  roots: {report.procs.roots.join(", ")}")
+  lines = lines.push(f"  lowerable: {report.procs.lowerable}/{report.procs.total} ({report.procs.percent}%)")
 
   if report.procs.reasons.len() == 0 {
     lines += ["  fallback reasons: none"]
@@ -1519,7 +1519,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  fallback reasons:"]
 
     for row in report.procs.reasons {
-      lines = lines.push(f"    ${row.reason}: ${row.count}")
+      lines = lines.push(f"    {row.reason}: {row.count}")
     }
   }
 
@@ -1530,15 +1530,15 @@ pure render_report(report: CoverageReport) -> Str {
 
     for scan in report.procs.samples {
       lines = lines.push(
-        f"    ${scan.path}:${scan.line} ${scan.name} [${scan.effects.join(", ")}] -> ${scan.reasons.join(", ")}",
+        f"    {scan.path}:{scan.line} {scan.name} [{scan.effects.join(", ")}] -> {scan.reasons.join(", ")}",
       )
     }
   }
 
   lines += [""]
   lines += ["corpus top-level script lowerability"]
-  lines = lines.push(f"  roots: ${report.script.roots.join(", ")}")
-  lines = lines.push(f"  lowerable: ${report.script.lowerable}/${report.script.total} (${report.script.percent}%)")
+  lines = lines.push(f"  roots: {report.script.roots.join(", ")}")
+  lines = lines.push(f"  lowerable: {report.script.lowerable}/{report.script.total} ({report.script.percent}%)")
 
   if report.script.reasons.len() == 0 {
     lines += ["  fallback reasons: none"]
@@ -1546,7 +1546,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  fallback reasons:"]
 
     for row in report.script.reasons {
-      lines = lines.push(f"    ${row.reason}: ${row.count}")
+      lines = lines.push(f"    {row.reason}: {row.count}")
     }
   }
 
@@ -1556,7 +1556,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.script.samples {
-      lines = lines.push(f"    ${scan.path}:${scan.line} ${scan.shape} -> ${scan.reasons.join(", ")}")
+      lines = lines.push(f"    {scan.path}:{scan.line} {scan.shape} -> {scan.reasons.join(", ")}")
     }
   }
 
@@ -1581,10 +1581,10 @@ let opts: Options = cli.parse(
 )?
 
 let root = opts.root.resolve()?
-let arena_path = fp"${root}/src/syntax/arena.rs"
-let node_path = fp"${root}/src/syntax/node.rs"
-let eval_path = fp"${root}/src/runtime/eval.rs"
-let indexed_path = fp"${root}/src/runtime/eval/indexed/full.rs"
+let arena_path = fp"{root}/src/syntax/arena.rs"
+let node_path = fp"{root}/src/syntax/node.rs"
+let eval_path = fp"{root}/src/runtime/eval.rs"
+let indexed_path = fp"{root}/src/runtime/eval/indexed/full.rs"
 let arena_source = fs.read_text(arena_path)?
 let node_source = fs.read_text(node_path)?
 let eval_source = fs.read_text(eval_path)?
@@ -1694,7 +1694,7 @@ let text = render_report(report)
 print $text
 
 if opts.json != "" {
-  let json_path = fp"${opts.json}"
+  let json_path = fp"{opts.json}"
   json_path.parent().mkdir()?
   json.write(json_path, report)?
 }

@@ -70,33 +70,33 @@ b""")
   hash.verify_file(p"parity.txt", sha256: digest.hex())?
   match hash.verify_file(p"parity.txt", sha256: "00") {
     Ok(_) => { print "unexpected" }
-    Err(failure) => { print f"${failure.message}" }
+    Err(failure) => { print f"{failure.message}" }
   }
-  let line = hash.parse_check_line(f"${digest.hex()}  build/out.bin")?
-  print f"${line.hex} ${line.path} ${line.binary}"
+  let line = hash.parse_check_line(f"{digest.hex()}  build/out.bin")?
+  print f"{line.hex} {line.path} {line.binary}"
   match hash.parse_check_line("nope") {
     Ok(_) => { print "unexpected" }
-    Err(failure) => { print f"${failure.message}" }
+    Err(failure) => { print f"{failure.message}" }
   }
   let txt = mime.lookup_ext("txt") ?? {mime: "none", exts: []}
-  print f"${txt.mime}"
+  print f"{txt.mime}"
   let unknown = mime.lookup_ext("nope") ?? {mime: "none", exts: []}
-  print f"${unknown.mime}"
+  print f"{unknown.mime}"
   match ini.encode({section: {key: "value"}}) {
-    Ok(text) => { print f"${text}" }
-    Err(failure) => { print f"${failure.message}" }
+    Ok(text) => { print f"{text}" }
+    Err(failure) => { print f"{failure.message}" }
   }
   match json.get({a: {b: 1}}, ["a", "b"]) {
-    Ok(found) => { print f"${found}" }
-    Err(failure) => { print f"${failure.message}" }
+    Ok(found) => { print f"{found}" }
+    Err(failure) => { print f"{failure.message}" }
   }
   match json.get({a: 1}, ["missing"]) {
     Ok(_) => { print "unexpected" }
-    Err(failure) => { print f"${failure.message}" }
+    Err(failure) => { print f"{failure.message}" }
   }
   match json.encode_lines([{a: 1}, "two words"]) {
-    Ok(text) => { print f"${text}" }
-    Err(failure) => { print f"${failure.message}" }
+    Ok(text) => { print f"{text}" }
+    Err(failure) => { print f"{failure.message}" }
   }
   print env.get_or("XSH_PARITY_UNSET_VARIABLE", "fallback")?
   fs.remove(p"parity.txt")?

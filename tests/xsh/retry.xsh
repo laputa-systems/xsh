@@ -9,7 +9,7 @@ error RetryError = Transient(message: Str)
 proc flaky() -> Result[Str] {
   attempts += 1
   if attempts < 3 {
-    return Err(RetryError.Transient(message: f"attempt \${attempts}"))
+    return Err(RetryError.Transient(message: f"attempt {attempts}"))
   }
   return Ok("done")
 }
@@ -17,7 +17,7 @@ proc flaky() -> Result[Str] {
 let value = retry [1ms / 2, 0ms * 2] {
   flaky()?
 }?
-print f"\${value} \${attempts}"
+print f"{value} {attempts}"
 """,
   )?
 
@@ -42,7 +42,7 @@ error RetryError = Transient(message: Str)
 
 proc flaky() -> Result[Str] {
   attempts += 1
-  return Err(RetryError.Transient(message: f"attempt \${attempts}"))
+  return Err(RetryError.Transient(message: f"attempt {attempts}"))
 }
 
 retry [0ms, 0ms] {
@@ -81,7 +81,7 @@ let value = retry [0ms] {
   defer mark_cleaned()?
   flaky()?
 }?
-print f"\${value} \${attempts} \${cleaned}"
+print f"{value} {attempts} {cleaned}"
 """,
   )?
 
@@ -215,7 +215,7 @@ match result {
   Err(FetchError.Fatal {message}) => print \${message}
   _ => print "wrong"
 }
-print f"\${attempts} \${delays} \${cleaned}"
+print f"{attempts} {delays} {cleaned}"
 """,
   )?
   {
@@ -235,7 +235,7 @@ error FetchError = Busy(message: Str) | Timeout(message: Str) | Fatal(message: S
 var attempts = 0
 proc exhausted() -> Result[Str, FetchError] {
   attempts += 1
-  Err(FetchError.Busy(message: f"attempt \${attempts}"))
+  Err(FetchError.Busy(message: f"attempt {attempts}"))
 }
 let last = retry [0ms, 0ms] on (FetchError.Busy | FetchError.Timeout) { exhausted()? }
 match last {
@@ -365,7 +365,7 @@ let result = retry [0ms] on (NotFound) {
   attempt()?
 }
 match result { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
-print f"\${attempts} \${cleaned}"
+print f"{attempts} {cleaned}"
 """,
   )?
   {

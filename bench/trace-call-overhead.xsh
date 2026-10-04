@@ -10,5 +10,5 @@ proc main(...argv: List[Str]) [io, error] {
   while value < count {
     value = increment(value)
   }
-  print f"value=${value}"
+  print f"value={value}"
 }

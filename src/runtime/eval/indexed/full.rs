@@ -8270,7 +8270,7 @@ run true
         run_with_large_stack(|| {
             let program = Arc::new(fixture(
                 "indexed-list-reuse.xsh",
-                "proc main() [io] {\n  var index = 0\n  while index < 200 {\n    index = index + 1\n  }\n  print f\"index=${index}\"\n}\n",
+                "proc main() [io] {\n  var index = 0\n  while index < 200 {\n    index = index + 1\n  }\n  print f\"index={index}\"\n}\n",
             ));
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
@@ -8958,7 +8958,7 @@ pure selected() -> Str {
     #[test]
     fn native_path_interpolation_executes_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/${value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command { stdin = fp\"before/${value}\"; stdout = fp\"${value}/after\"; run true \"--target=$value\" } }\n";
+            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/{value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command { stdin = fp\"before/{value}\"; stdout = fp\"{value}/after\"; run true \"--target=$value\" } }\n";
             let program = Arc::new(fixture("native-path-interpolation.xsh", source));
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));

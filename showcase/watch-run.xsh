@@ -55,7 +55,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let root = opts.root.resolve()?
   let exts = opts.ext
   let interval = if opts.interval < 1 { 1 } else { opts.interval }
-  print f"watching ${root}  interval=${interval}s  command=${opts.cmd.join(" ")}"
+  print f"watching {root}  interval={interval}s  command={opts.cmd.join(" ")}"
   var last_stamp = stamp(root, exts)
   var run_count = 0
   var trigger = true
@@ -63,15 +63,15 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   while true {
     if trigger {
       run_count += 1
-      print f"[run ${run_count}]"
+      print f"[run {run_count}]"
       let cmd = process.command_argv(opts.cmd[0], opts.cmd)
       let status = process.run(cmd)?
 
       if ! status.exited_with(0) {
         if status.exited() {
-          print f"  exit ${status.exit_code()?}"
+          print f"  exit {status.exit_code()?}"
         } else if status.signaled() {
-          print f"  signal ${status.signal_number()?}"
+          print f"  signal {status.signal_number()?}"
         } else {
           print "  child failed"
         }

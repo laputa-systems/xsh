@@ -27,23 +27,23 @@ proc main(...argv: List[Str]) [net, error] {
 
   if query_type != "" {
     for item in dns.lookup(name, query_type, server)? {
-      print f"${item.name} has ${item.record} ${item.value}"
+      print f"{item.name} has {item.record} {item.value}"
     }
   } else if "." in name and name.split(".").len() == 4 {
     for item in dns.reverse(name)? {
-      print f"${name} domain name pointer ${item}"
+      print f"{name} domain name pointer {item}"
     }
   } else if server != "" {
     for item in dns.lookup(name, "A", server)? {
-      print f"${item.name} ${item.record} ${item.value}"
+      print f"{item.name} {item.record} {item.value}"
     }
 
     for item in dns.lookup(name, "AAAA", server)? {
-      print f"${item.name} ${item.record} ${item.value}"
+      print f"{item.name} {item.record} {item.value}"
     }
   } else {
     for item in dns.resolve_host(name)? {
-      print f"${item.name} ${item.family} ${item.addr}"
+      print f"{item.name} {item.family} {item.addr}"
     }
   }
 }

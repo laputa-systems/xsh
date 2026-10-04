@@ -24,5 +24,5 @@ proc main() [io, error] {
     sink = sink + parsed.count + parsed.define.len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

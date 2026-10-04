@@ -44,7 +44,7 @@ pure failure_message(result: Result[Record]) -> Str {
 # `kind:name:value`, or `rejected` when the call was refused.
 pure token_spellings(result: Result[List[TokenRecord]]) -> Str {
   if let Ok(items) = result {
-    let rendered = [f"${token.kind}:${token.name}:${token.value}" for token in items]
+    let rendered = [f"{token.kind}:{token.name}:{token.value}" for token in items]
     rendered.join(",")
   } else {
     "rejected"
@@ -264,7 +264,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms {
   let named = cli.commands(["build", "target/demo", "extra"], schema)?
   assert named.get("command")? == "build"
   assert named.get("action")? == "build"
-  assert f"${named.get("root") ?? null}" == "target/demo"
+  assert f"{named.get("root") ?? null}" == "target/demo"
   assert rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw")? == "extra"
   assert named.keys().join(",") == "action,command,raw,root"
 
@@ -366,7 +366,7 @@ test test_cli_commands_convert_positionals_and_collect_the_rest {
   # spelling, and a duration.
   let parsed = cli.commands(["t", "+12", "src/main.xsh"], basic)?
   assert (parsed.get("n") ?? null) == 12
-  assert f"${parsed.get("where") ?? null}" == "src/main.xsh"
+  assert f"{parsed.get("where") ?? null}" == "src/main.xsh"
   assert cli.commands(["t", "yes"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n")? == true
   assert cli.commands(["t", "0"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n")? == false
   assert cli.commands(["t", "250ms"], {t: {positionals: ["n"], types: {n: "Duration"}}})?.get("n")? == 250ms
@@ -647,25 +647,25 @@ test test_cli_command_option_path_constraints { |ctx|
       ["go", "--target", missing.display()],
       {go: {options: {target: {kind: "Path", exists: true}}}},
     ),
-  ) == f"option --target expects an existing path: ${missing}"
+  ) == f"option --target expects an existing path: {missing}"
   assert failure_message(
     cli.commands(
       ["go", "--target", root.display()],
       {go: {options: {target: {kind: "Path", file: true}}}},
     ),
-  ) == f"option --target expects a file path: ${root}"
+  ) == f"option --target expects a file path: {root}"
   assert failure_message(
     cli.commands(
       ["go", "--target", present.display()],
       {go: {options: {target: {kind: "Path", dir: true}}}},
     ),
-  ) == f"option --target expects a directory path: ${present}"
+  ) == f"option --target expects a directory path: {present}"
   assert failure_message(
     cli.commands(
       ["go", "--target", missing.display()],
       {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
     ),
-  ) == f"option --target expects an existing path: ${missing}"
+  ) == f"option --target expects an existing path: {missing}"
 
   # A present file and a present directory satisfy every spelling that asks for
   # them, and a symbolic link is resolved the way the baseline's probes resolve
@@ -698,7 +698,7 @@ test test_cli_command_option_path_constraints { |ctx|
       ["go", "--target", dangling.display()],
       {go: {options: {target: {kind: "Path", exists: true}}}},
     ),
-  ) == f"option --target expects an existing path: ${dangling}"
+  ) == f"option --target expects an existing path: {dangling}"
 }
 
 test test_cli_parse_returns_values_and_asks_for_help {

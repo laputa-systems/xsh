@@ -4,14 +4,14 @@ use stage as stages
 
 ## Verifies one final distribution binary at its typed output location.
 export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process, error, io] -> Result[Unit] {
-  let product = fp"${ctx.target_dir}/${ctx.target.triple}/dist/${name}"
+  let product = fp"{ctx.target_dir}/{ctx.target.triple}/dist/{name}"
 
   if ! product.exists()? {
     return Err(
       stages.StageError.Failed(
         stage: "verify-binary",
         target: ctx.target.triple,
-        detail: f"missing artifact ${product}",
+        detail: f"missing artifact {product}",
       ),
     )
   }
@@ -23,7 +23,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       stages.StageError.Failed(
         stage: "verify-binary",
         target: ctx.target.triple,
-        detail: f"implausibly small artifact ${product}",
+        detail: f"implausibly small artifact {product}",
       ),
     )
   }
@@ -33,7 +33,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       stages.StageError.Failed(
         stage: "verify-binary",
         target: ctx.target.triple,
-        detail: f"artifact is not executable ${product}",
+        detail: f"artifact is not executable {product}",
       ),
     )
   }
@@ -46,7 +46,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-elf",
           target: ctx.target.triple,
-          detail: f"not an ELF executable ${product}",
+          detail: f"not an ELF executable {product}",
         ),
       )
     }
@@ -58,7 +58,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-elf-machine",
           target: ctx.target.triple,
-          detail: f"wrong ELF machine for ${product}",
+          detail: f"wrong ELF machine for {product}",
         ),
       )
     }
@@ -70,7 +70,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-static",
           target: ctx.target.triple,
-          detail: f"dynamic dependency found in ${product}",
+          detail: f"dynamic dependency found in {product}",
         ),
       )
     }
@@ -82,7 +82,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         stages.StageError.Failed(
           stage: "verify-format",
           target: ctx.target.triple,
-          detail: f"wrong executable format for ${product}",
+          detail: f"wrong executable format for {product}",
         ),
       )
     }

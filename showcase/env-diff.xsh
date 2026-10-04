@@ -53,23 +53,23 @@ proc main(...argv: List[Str]) [fs, error] {
 
   for k in keys_a {
     if k not in env_b {
-      print f"- ${k}=${env_a.get(k) ?? ""}"
+      print f"- {k}={env_a.get(k) ?? ""}"
       only_a += 1
     }
   }
 
   for k in keys_b {
     if k not in env_a {
-      print f"+ ${k}=${env_b.get(k) ?? ""}"
+      print f"+ {k}={env_b.get(k) ?? ""}"
       only_b += 1
     }
   }
 
   for k in keys_a {
     if k in env_b and (env_a.get(k) ?? "") != (env_b.get(k) ?? "") {
-      print f"~ ${k}"
-      print f"  - ${env_a.get(k) ?? ""}"
-      print f"  + ${env_b.get(k) ?? ""}"
+      print f"~ {k}"
+      print f"  - {env_a.get(k) ?? ""}"
+      print f"  + {env_b.get(k) ?? ""}"
       changed += 1
     }
   }
@@ -81,5 +81,5 @@ proc main(...argv: List[Str]) [fs, error] {
     |> count()
 
   print ""
-  print f"${only_a} removed  ${only_b} added  ${changed} changed  ${unchanged} unchanged"
+  print f"{only_a} removed  {only_b} added  {changed} changed  {unchanged} unchanged"
 }

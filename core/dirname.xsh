@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -16,6 +16,6 @@ proc main(...argv: List[Str]) [error] {
   return Err(usage_error("dirname", "PATH...")) when opts.paths.len() == 0
 
   for arg in opts.paths {
-    print fp"${arg}".parent()
+    print fp"{arg}".parent()
   }
 }

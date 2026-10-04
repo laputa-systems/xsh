@@ -65,7 +65,7 @@ test test_stage_functions_cover_keys_sinks_named_configuration_and_results { |ct
     r"""
 pure key(item: Int) -> Int { 0 - item }
 pure bucket(item: Int) -> Str { if item > 1 { "large" } else { "small" } }
-proc observe(item: Int) [] { print f"seen:${item}" }
+proc observe(item: Int) [] { print f"seen:{item}" }
 proc direction() [] -> Bool { print "direction"; return true }
 pure result(item: Int) -> Result[Int] { Ok(item) }
 proc main() [] {
@@ -115,7 +115,7 @@ stream numbers() [error] -> Stream[Int] {
   print "pull:3"
   yield 3
 }
-proc predicate(item: Int) [] -> Bool { print f"test:${item}"; return item == 2 }
+proc predicate(item: Int) [] -> Bool { print f"test:{item}"; return item == 2 }
 proc main() [error] {
   print ${numbers() |> any(predicate)}
   print ${numbers() |> all(predicate)}
@@ -176,7 +176,7 @@ test test_stage_functions_side_effect_failure_and_late_source_failure { |ctx|
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] { defer cleanup(); yield 1; yield 2; print "unreached"; yield 3 }
 proc observe(item: Int) [] -> Result[Unit] {
-  print f"seen:${item}"
+  print f"seen:{item}"
   if item == 2 { return error.fail("sink failed") }
   return Ok()
 }
@@ -204,7 +204,7 @@ cleanup
     r"""
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] { defer cleanup(); yield 1; let _ = "late failure".parse_int()? }
-proc observe(item: Int) [] -> Int { print f"seen:${item}"; return item }
+proc observe(item: Int) [] -> Int { print f"seen:{item}"; return item }
 proc main() [error] { let _ = numbers() |> map(observe) }
 """,
   )?
@@ -262,13 +262,13 @@ proc main() [] { let _ = [1] |> map(f) }""",
 
 test test_stage_functions_keep_qualified_import_identity_and_defaults { |ctx|
   let directory = test.temp_dir(ctx, name: "stage-call-import")?
-  fp"${directory}/helpers.xsh".write(r"""##! Named stage functions.
+  fp"{directory}/helpers.xsh".write(r"""##! Named stage functions.
 ## Add a default amount to the item.
 export pure add(item: Int, amount: Int = 4) -> Int { item + amount }
 ## A default amount is applied to strings too.
 export pure surround(item: Str, prefix: Str = "[") -> Str { prefix + item }
 """)?
-  let script = fp"${directory}/main.xsh"
+  let script = fp"{directory}/main.xsh"
   script.write(r"""use helpers as helpers
 let values = [1, 2] |> map(helpers.add)
 print values[0]

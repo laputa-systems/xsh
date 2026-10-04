@@ -9,5 +9,5 @@ proc main() [io, fs, error] {
     sink = sink + text.fields().len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

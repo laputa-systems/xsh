@@ -139,19 +139,19 @@ export pure compare_sensors_json(
   var candidate_counts: Map[Int] = {}
   var candidate_indices: Map[Int] = {}
   for reading in before {
-    let key = f"${reading.chip}:${reading.subfeature}"
+    let key = f"{reading.chip}:{reading.subfeature}"
     before_chip_counts = before_chip_counts.set(key, (before_chip_counts.get(key) ?? 0) + 1)
   }
 
   for reading in after {
-    let key = f"${reading.chip_key}:${reading.subfeature}"
+    let key = f"{reading.chip_key}:{reading.subfeature}"
     after_counts = after_counts.set(key, (after_counts.get(key) ?? 0) + 1)
     after_values = after_values.set(key, reading.value)
   }
 
   for index in range(candidate.channels.len()) {
     let item = candidate.channels[index]
-    let key = f"${item.chip}:${item.channel}"
+    let key = f"{item.chip}:{item.channel}"
     candidate_counts = candidate_counts.set(key, (candidate_counts.get(key) ?? 0) + 1)
     candidate_indices = candidate_indices.set(key, index)
   }
@@ -162,11 +162,11 @@ export pure compare_sensors_json(
     let scale = sensors_json_scale(channel)
     continue when scale == null
     reference_count += 1
-    let key = f"${reading.chip_key}:${reading.subfeature}"
-    let before_chip_matches = before_chip_counts.get(f"${reading.chip}:${reading.subfeature}") ?? 0
+    let key = f"{reading.chip_key}:{reading.subfeature}"
+    let before_chip_matches = before_chip_counts.get(f"{reading.chip}:{reading.subfeature}") ?? 0
     let after_matches = after_counts.get(key) ?? 0
     let following = after_values.get(key) ?? reading.value
-    let candidate_key = f"${reading.chip}:${channel}"
+    let candidate_key = f"{reading.chip}:{channel}"
     let candidate_matches = candidate_counts.get(candidate_key) ?? 0
     var raw: Int? = null
     if candidate_matches == 1 {
@@ -217,7 +217,7 @@ export proc compare_live_sensors_json(
   let scratch = fs.tempdir()?
   defer scratch.close()?
   for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
-    scratch.write(fp"${name}", "")?
+    scratch.write(fp"{name}", "")?
   }
 
   let scratch_path = scratch.host_path()?
@@ -227,8 +227,8 @@ export proc compare_live_sensors_json(
       [executable, "-v"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/version",
-      stderr: fp"${scratch_path}/version-error",
+      stdout: fp"{scratch_path}/version",
+      stderr: fp"{scratch_path}/version-error",
     ),
   )?
   if ! version_status.exited_with(0) {
@@ -253,8 +253,8 @@ export proc compare_live_sensors_json(
       argv,
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/before",
-      stderr: fp"${scratch_path}/before-error",
+      stdout: fp"{scratch_path}/before",
+      stderr: fp"{scratch_path}/before-error",
     ),
   )?
   let candidate_started = time.now()
@@ -264,7 +264,7 @@ export proc compare_live_sensors_json(
       [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let after_status = process.run(
@@ -273,8 +273,8 @@ export proc compare_live_sensors_json(
       argv,
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/after",
-      stderr: fp"${scratch_path}/after-error",
+      stdout: fp"{scratch_path}/after",
+      stderr: fp"{scratch_path}/after-error",
     ),
   )?
   let ended = time.now()

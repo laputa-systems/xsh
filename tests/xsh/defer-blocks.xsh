@@ -9,7 +9,7 @@ proc exercise() [error] {
   defer log("first")
   defer {
     let local = "block"
-    print f"${local}:${value}:${snapshot}"
+    print f"{local}:{value}:{snapshot}"
     assert true
   }
   value = "cleanup"
@@ -45,9 +45,9 @@ proc exercise() [] {
         continue when count == 1
         break
       }
-      print f"cleanup:${item}:${count}"
+      print f"cleanup:{item}:{count}"
     }
-    print f"body:${item}"
+    print f"body:{item}"
     continue when item == 1
     break
   }
@@ -149,7 +149,7 @@ test test_defer_blocks_unwind_started_stream_on_early_consumer_exit { |ctx|
 stream values() [] -> Stream[Int] {
   defer { print "outer" }
   for item in [1, 2] {
-    defer { print f"inner:${item}" }
+    defer { print f"inner:{item}" }
     yield item
   }
 }
@@ -218,7 +218,7 @@ last
 
 test test_defer_blocks_unwind_failed_module_procedure { |ctx|
   let root = test.temp_dir(ctx, name: "defer-module")?
-  fp"${root}/cleanup.xsh".write(r"""
+  fp"{root}/cleanup.xsh".write(r"""
 ##! Cleanup module witness.
 ## Runs lexical cleanup after failure.
 export proc exercise() [error] {

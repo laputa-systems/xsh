@@ -50,7 +50,7 @@ pure verify_digest(digest: Digest, algorithm: Str, expected: Str) -> Result[Unit
   if expected.byte_len() != actual.byte_len() {
     return Err(
       format_error(
-        f"${algorithm} checksum must be ${actual.byte_len()} hex characters",
+        f"{algorithm} checksum must be {actual.byte_len()} hex characters",
       ),
     )
   }
@@ -61,7 +61,7 @@ pure verify_digest(digest: Digest, algorithm: Str, expected: Str) -> Result[Unit
     return Ok()
   }
   return Err(
-    mismatch_error(f"${algorithm} digest mismatch: expected ${expected}, got ${actual}"),
+    mismatch_error(f"{algorithm} digest mismatch: expected {expected}, got {actual}"),
   )
 }
 
@@ -91,7 +91,7 @@ export proc verify_file(file: Path, checksum: Str, algorithm: Str) [error] -> Re
     "sha256" => return verify_digest(hash.sha256(file)?, algorithm, checksum)
     "sha512" => return verify_digest(hash.sha512(file)?, algorithm, checksum)
     _ => return Err(
-      format_error(f"unsupported checksum algorithm `${algorithm}`"),
+      format_error(f"unsupported checksum algorithm `{algorithm}`"),
     )
   }
 }

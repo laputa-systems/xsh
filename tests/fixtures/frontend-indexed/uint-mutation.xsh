@@ -238,5 +238,5 @@ pure builtin_creation_failure(n: Int) -> Int {
 
 pure branch_creation_failure(n: Int) -> Str {
   let good: UInt = 1
-  return f"${if false { good } else { n }}"
+  return f"{if false { good } else { n }}"
 }

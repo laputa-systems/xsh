@@ -1,5 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
+use crate::syntax::lexer::{InterpolationEnd, interpolation_end};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum QuotedLiteralKind {
     Str,
@@ -95,7 +97,19 @@ pub(crate) fn scan_quoted_literal(
                 end: offset + 1,
             }));
         }
-        if literal_interpolates(prefix.kind, prefix.raw)
+        if fmt_interpolates(prefix.kind, prefix.raw) && matches!(bytes[offset], b'{' | b'}') {
+            offset += if bytes.get(offset + 1) == Some(&bytes[offset]) {
+                2
+            } else if bytes[offset] == b'{'
+                && let InterpolationEnd::Close(close) = interpolation_end(source, offset + 1)
+            {
+                close + 1 - offset
+            } else {
+                1
+            };
+            continue;
+        }
+        if command_string_interpolates(prefix.kind, prefix.raw)
             && bytes[offset] == b'$'
             && bytes.get(offset + 1) == Some(&b'{')
         {
@@ -110,10 +124,7 @@ pub(crate) fn scan_quoted_literal(
             return Some(QuotedScan::Unterminated { end: offset });
         }
         if bytes[offset] == b'\\' && !prefix.raw {
-            offset += 1;
-            if offset < bytes.len() {
-                offset += 1;
-            }
+            offset = escape_end(bytes, offset);
         } else {
             offset += 1;
         }
@@ -213,6 +224,178 @@ pub(crate) fn interpolation_chunks(
         });
     }
     Some(chunks)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FmtIssueKind {
+    /// A `}` in text that is not part of a `}}` escape.
+    LoneCloseBrace,
+    /// A `{` whose interpolation never closes.
+    Unclosed,
+    /// A `#` comment inside `{...}`.
+    Comment,
+    /// A line break inside `{...}` of a single-line f-string.
+    LineBreak,
+    /// `{}` with nothing but whitespace inside.
+    Empty,
+    /// `${`, the command-word interpolation marker, in f-string text.
+    DollarBrace,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FmtIssue {
+    pub kind: FmtIssueKind,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Splits the body of an `f"..."` or `fp"..."` literal into text and `{expr}`
+/// chunks with source offsets. Text chunks are exact source slices: a `{{` or
+/// `}}` escape ends one chunk after its first brace and starts the next after
+/// its second, so escape decoding and diagnostic columns stay byte-exact.
+/// An expression chunk is everything between `{` and its closing `}`,
+/// including any `:spec`. After a comment or an unclosed `{`, the rest of the
+/// literal is text so one mistake reports once.
+pub(crate) fn fmt_chunks(
+    source: &str,
+    literal: QuotedLiteral,
+) -> (Vec<InterpolationChunk<'_>>, Vec<FmtIssue>) {
+    let bytes = source.as_bytes();
+    let end = literal.content_end;
+    let mut chunks = Vec::new();
+    let mut issues = Vec::new();
+    let mut text_start = literal.content_start;
+    let mut offset = text_start;
+    let push_text = |chunks: &mut Vec<_>, from: usize, to: usize| {
+        if to > from {
+            chunks.push(InterpolationChunk::Text { source: &source[from..to], offset: from });
+        }
+    };
+    while offset < end {
+        match bytes[offset] {
+            b'\\' => offset = escape_end(bytes, offset).min(end),
+            brace @ (b'{' | b'}') if offset + 1 < end && bytes[offset + 1] == brace => {
+                push_text(&mut chunks, text_start, offset + 1);
+                offset += 2;
+                text_start = offset;
+            }
+            b'}' => {
+                issues.push(FmtIssue { kind: FmtIssueKind::LoneCloseBrace, start: offset, end: offset + 1 });
+                offset += 1;
+            }
+            b'$' if bytes.get(offset + 1) == Some(&b'{') && bytes.get(offset + 2) != Some(&b'{') => {
+                issues.push(FmtIssue { kind: FmtIssueKind::DollarBrace, start: offset, end: offset + 2 });
+                push_text(&mut chunks, text_start, offset);
+                offset += 1;
+                text_start = offset;
+            }
+            b'{' => {
+                let open = offset;
+                match interpolation_end(source, open + 1) {
+                    InterpolationEnd::Close(close) if close < end => {
+                        push_text(&mut chunks, text_start, open);
+                        let expression = &source[open + 1..close];
+                        if expression.trim().is_empty() {
+                            issues.push(FmtIssue { kind: FmtIssueKind::Empty, start: open, end: close + 1 });
+                        } else {
+                            if literal.delimiter_len == 1
+                                && let Some(at) = expression.find(['\n', '\r'])
+                            {
+                                issues.push(FmtIssue { kind: FmtIssueKind::LineBreak, start: open + 1 + at, end: open + 2 + at });
+                            }
+                            chunks.push(InterpolationChunk::Expr { source: expression, offset: open + 1 });
+                        }
+                        offset = close + 1;
+                        text_start = offset;
+                    }
+                    InterpolationEnd::Comment(at) if at < end => {
+                        let line_end = source[at..end].find(['\n', '\r']).map_or(end, |relative| at + relative);
+                        issues.push(FmtIssue { kind: FmtIssueKind::Comment, start: at, end: line_end });
+                        break;
+                    }
+                    _ => {
+                        issues.push(FmtIssue { kind: FmtIssueKind::Unclosed, start: open, end: open + 1 });
+                        break;
+                    }
+                }
+            }
+            _ => offset += 1,
+        }
+    }
+    push_text(&mut chunks, text_start, end);
+    (chunks, issues)
+}
+
+/// The `{name}` and `{name.field}` interpolations a plain `"..."` or
+/// `p"..."` literal would have with an `f` prefix, as `(name, byte range in
+/// literal_source)`. `None` unless the literal would then be a valid f-string
+/// whose every interpolation is such a dotted name, so adding the prefix
+/// never changes any other text.
+pub fn dotted_names_if_formatted(literal_source: &str) -> Option<Vec<(&str, std::ops::Range<usize>)>> {
+    let Some(QuotedScan::Terminated(literal)) = scan_quoted_literal(literal_source, 0, false) else {
+        return None;
+    };
+    if literal.raw
+        || literal.end != literal_source.len()
+        || !matches!(literal.kind, QuotedLiteralKind::Str | QuotedLiteralKind::Path)
+    {
+        return None;
+    }
+    let (chunks, issues) = fmt_chunks(literal_source, literal);
+    if !issues.is_empty() {
+        return None;
+    }
+    let mut names = Vec::new();
+    for chunk in chunks {
+        let InterpolationChunk::Expr { source, offset } = chunk else { continue };
+        let dotted = source.split('.').all(|part| {
+            part.bytes().next().is_some_and(is_ident_start) && part.bytes().all(is_ident_continue)
+        });
+        if !dotted {
+            return None;
+        }
+        let name = source.split('.').next().unwrap_or(source);
+        names.push((name, offset..offset + source.len()));
+    }
+    (!names.is_empty()).then_some(names)
+}
+
+/// The offset just past the escape starting with the backslash at `offset`.
+/// A `\u{HEX}` escape is one unit, so its braces never read as f-string
+/// interpolation.
+fn escape_end(bytes: &[u8], offset: usize) -> usize {
+    if bytes.get(offset + 1) == Some(&b'u') && bytes.get(offset + 2) == Some(&b'{') {
+        let digits = bytes[offset + 3..].iter().take_while(|byte| byte.is_ascii_hexdigit()).count();
+        let close = offset + 3 + digits;
+        return if bytes.get(close) == Some(&b'}') { close + 1 } else { close };
+    }
+    (offset + 2).min(bytes.len())
+}
+
+/// Byte ranges of each unescaped `$name` in the text of an f-string body,
+/// covering the `$` and the identifier.
+pub(crate) fn fmt_text_dollar_names(source: &str, literal: QuotedLiteral) -> Vec<std::ops::Range<usize>> {
+    let mut names = Vec::new();
+    for chunk in fmt_chunks(source, literal).0 {
+        let InterpolationChunk::Text { source: text, offset } = chunk else { continue };
+        let bytes = text.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'\\' => index += 2,
+                b'$' if bytes.get(index + 1).is_some_and(|byte| is_ident_start(*byte)) => {
+                    let mut name_end = index + 2;
+                    while bytes.get(name_end).is_some_and(|byte| is_ident_continue(*byte)) {
+                        name_end += 1;
+                    }
+                    names.push(offset + index..offset + name_end);
+                    index = name_end;
+                }
+                _ => index += 1,
+            }
+        }
+    }
+    names
 }
 
 fn shorthand_end(bytes: &[u8], start: usize) -> usize {
@@ -439,11 +622,13 @@ fn quote_prefix_at(bytes: &[u8], start: usize) -> Option<QuotePrefix> {
     }
 }
 
-fn literal_interpolates(kind: QuotedLiteralKind, raw: bool) -> bool {
-    !raw && matches!(
-        kind,
-        QuotedLiteralKind::Str | QuotedLiteralKind::Fmt | QuotedLiteralKind::PathFmt
-    )
+// A quoted command word interpolates `${expr}` and `$name`.
+fn command_string_interpolates(kind: QuotedLiteralKind, raw: bool) -> bool {
+    !raw && kind == QuotedLiteralKind::Str
+}
+
+fn fmt_interpolates(kind: QuotedLiteralKind, raw: bool) -> bool {
+    !raw && matches!(kind, QuotedLiteralKind::Fmt | QuotedLiteralKind::PathFmt)
 }
 
 fn push_utf8(ch: char, output: &mut Vec<u8>) {
@@ -501,8 +686,16 @@ pub(crate) fn block_string_chunks<'a>(
     let end = closing_break.max(start);
     let expressions: Vec<_> = chunks.iter().filter_map(|chunk| match chunk {
         InterpolationChunk::Expr { source: expression, offset } => {
-            let braced = source[..*offset].ends_with("${");
-            Some(offset - if braced { 2 } else { 1 }..offset + expression.len() + usize::from(braced))
+            // An f-string expression sits between `{` and `}`; a quoted
+            // command word writes `${expr}` or `$name`.
+            let (open, close) = if literal.kind == QuotedLiteralKind::Fmt {
+                (1, 1)
+            } else if source[..*offset].ends_with("${") {
+                (2, 1)
+            } else {
+                (1, 0)
+            };
+            Some(offset - open..offset + expression.len() + close)
         }
         _ => None,
     }).collect();
@@ -574,7 +767,9 @@ mod block_string_tests {
         let Some(QuotedScan::Terminated(quoted)) = scan_quoted_literal(source, 0, false) else { panic!("quoted literal"); };
         let raw = &source[quoted.content_start..quoted.content_end];
         let chunks = if quoted.kind == QuotedLiteralKind::Fmt {
-            interpolation_chunks(raw, quoted.content_start).unwrap()
+            let (chunks, issues) = fmt_chunks(source, quoted);
+            assert!(issues.is_empty(), "{issues:?}");
+            chunks
         } else { vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }] };
         block_string_chunks(source, quoted, chunks)
     }
@@ -611,12 +806,12 @@ mod block_string_tests {
 
     #[test]
     fn block_string_layout_never_rewrites_interpolation_code_or_nested_literals() {
-        let source = "f\"\"\"\n  ${if true {\n# } inside comment\nr\"\"\"nested\n unindented\"\"\"\n} else { \"\" }}\n  after\n  \"\"\"";
+        let source = "f\"\"\"\n  {if true {\n\"}\"\nr\"\"\"nested\n unindented\"\"\"\n} else { \"\" }}\n  after\n  \"\"\"";
         let (parts, issues) = chunks(source);
         assert!(issues.is_empty(), "{issues:?}");
         let expressions: Vec<_> = parts.iter().filter_map(|part| match part { InterpolationChunk::Expr { source, offset } => Some((*source, *offset)), _ => None }).collect();
         assert_eq!(expressions.len(), 1);
-        assert_eq!(expressions[0].0, "if true {\n# } inside comment\nr\"\"\"nested\n unindented\"\"\"\n} else { \"\" }");
+        assert_eq!(expressions[0].0, "if true {\n\"}\"\nr\"\"\"nested\n unindented\"\"\"\n} else { \"\" }");
         assert_eq!(&source[expressions[0].1..expressions[0].1 + expressions[0].0.len()], expressions[0].0);
         assert_eq!(text(source), "\nafter");
         for part in parts { if let InterpolationChunk::Text { source: piece, offset } = part { assert_eq!(&source[offset..offset + piece.len()], piece); } }
@@ -678,5 +873,36 @@ mod block_string_migration_tests {
             count += 1;
         }
         assert_eq!(count, 8);
+    }
+}
+
+#[cfg(test)]
+mod fmt_chunk_tests {
+    use super::*;
+
+    fn scan(source: &str) -> (QuotedLiteral, Vec<FmtIssueKind>) {
+        let Some(QuotedScan::Terminated(literal)) = scan_quoted_literal(source, 0, true) else { panic!("terminated literal in {source:?}") };
+        (literal, fmt_chunks(source, literal).1.into_iter().map(|issue| issue.kind).collect())
+    }
+
+    // The literal's end is the token boundary that every later lexer and
+    // parser stage relies on, so it is pinned below the parser.
+    #[test]
+    fn fmt_literal_ends_after_nested_same_quote_strings_and_braces() {
+        for source in ["f\"{f\"{\"}\"}\"}\" tail", "f\"{ {a: \"}\"}.a }\" tail", "f\"\\u{7b}{1}\" tail", "fp\"{{\" tail"] {
+            let (literal, issues) = scan(source);
+            assert_eq!(literal.end, source.find(" tail").unwrap(), "{source:?}");
+            assert!(issues.is_empty(), "{source:?}: {issues:?}");
+        }
+    }
+
+    #[test]
+    fn fmt_chunks_report_one_issue_per_malformed_brace() {
+        assert_eq!(scan("f\"a } b\"").1, [FmtIssueKind::LoneCloseBrace]);
+        assert_eq!(scan("f\"a { b\"").1, [FmtIssueKind::Unclosed]);
+        assert_eq!(scan("f\"{ }\"").1, [FmtIssueKind::Empty]);
+        assert_eq!(scan("f\"{x # }\"").1, [FmtIssueKind::Comment]);
+        assert_eq!(scan("f\"${x}\"").1, [FmtIssueKind::DollarBrace]);
+        assert_eq!(scan("f\"${{x}}\"").1, []);
     }
 }

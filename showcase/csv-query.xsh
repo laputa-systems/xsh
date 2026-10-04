@@ -50,7 +50,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let header = lines[0].split(",") |> map .trim()
   let col_count = header.len()
-  print f"columns (${col_count}): ${header.join(", ")}"
+  print f"columns ({col_count}): {header.join(", ")}"
   var rows = []
 
   for item in lines |> enumerate() {
@@ -66,7 +66,7 @@ proc main(...argv: List[Str]) [fs, error] {
     rows += [row]
   }
 
-  print f"${rows.len()} row(s) loaded"
+  print f"{rows.len()} row(s) loaded"
 
   if opts.filter != "" {
     let parts = opts.filter.split("=", maxsplit: 1)
@@ -82,13 +82,13 @@ proc main(...argv: List[Str]) [fs, error] {
       |> where {
         (.get(filter_col) ?? "") == filter_val
       }
-    print f"  ${rows.len()} row(s) match ${filter_col}=${filter_val}"
+    print f"  {rows.len()} row(s) match {filter_col}={filter_val}"
   }
 
   if opts.sort != "" {
     let sort_col = opts.sort
     rows = rows |> sort-by .get(sort_col) ?? ""
-    print f"  sorted by ${sort_col}"
+    print f"  sorted by {sort_col}"
   }
 
   if opts.group != "" {
@@ -98,10 +98,10 @@ proc main(...argv: List[Str]) [fs, error] {
       |> group-by .get(group_col) ?? ""
       |> sort-by(desc: true) .items.len()
 
-    print f"  ${groups.len()} group(s) by ${group_col}"
+    print f"  {groups.len()} group(s) by {group_col}"
 
     for grp in groups {
-      print f"    ${grp.key}  ${grp.items.len()}"
+      print f"    {grp.key}  {grp.items.len()}"
     }
 
     return
@@ -109,11 +109,11 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if opts.limit > 0 {
     rows = rows |> take(opts.limit)
-    print f"  limited to ${rows.len()} row(s)"
+    print f"  limited to {rows.len()} row(s)"
   }
 
   if opts.count {
-    print f"total: ${rows.len()} row(s)"
+    print f"total: {rows.len()} row(s)"
     return
   }
 

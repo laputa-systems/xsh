@@ -230,7 +230,7 @@ type SpreadModule = module {
 
 test test_named_argument_spreads_bind_checked_loaded_module_contracts { |ctx|
   let root = test.temp_dir(ctx, name: "named-spread-module")?
-  let source_path = fp"${root}/math.xsh"
+  let source_path = fp"{root}/math.xsh"
   source_path.write("""##! Checked static argument fixture.
 ## Adds supplied values and lexical defaults.
 export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int { first + second + third }
@@ -249,9 +249,9 @@ test test_named_argument_spreads_native_method_signatures {
 
 test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = fp"${root}/payload.txt"
-  let compressed = fp"${root}/payload.gz"
-  let restored = fp"${root}/restored.txt"
+  let source = fp"{root}/payload.txt"
+  let compressed = fp"{root}/payload.gz"
+  let restored = fp"{root}/restored.txt"
   source.write("spread defaults")?
   compressed.write("replace this")?
   restored.write("replace this")?

@@ -1,7 +1,7 @@
 test test_patch_apply { |ctx|
   let root = test.temp_dir(ctx, name: "patch")?
 
-  fp"${root}/original.txt".write("""alpha
+  fp"{root}/original.txt".write("""alpha
 beta
 """)?
 
@@ -17,7 +17,7 @@ beta
   let applied = patch.apply(root, patch_text)?
   assert applied.files == 1
   assert applied.hunks == 1
-  assert "gamma" in fp"${root}/original.txt".read_text()?
+  assert "gamma" in fp"{root}/original.txt".read_text()?
 
   let escape_patch = """--- /dev/null
 +++ ../escape.txt

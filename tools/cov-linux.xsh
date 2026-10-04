@@ -5,9 +5,9 @@ pure join_path(entries: List[Path]) -> Str {
 }
 
 pure repo_path(root: Path, value: Str) -> Path {
-  return fp"${value}" when value.starts_with("/")
+  return fp"{value}" when value.starts_with("/")
 
-  fp"${root}/${value}"
+  fp"{root}/{value}"
 }
 
 proc env_path(root: Path, name: Str, default: Path) [env, error] -> Result[Path] {
@@ -42,9 +42,9 @@ proc rust_host() [process, error] -> Result[Str] {
 
 proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
   let sysroot_raw: Str = run.text rustc --print sysroot ?
-  let sysroot = fp"${sysroot_raw.trim()}"
+  let sysroot = fp"{sysroot_raw.trim()}"
   let host = rust_host()?
-  let candidates = [fp"${sysroot}/lib/rustlib/${host}/bin/${tool}", fp"${sysroot}/bin/${tool}"]
+  let candidates = [fp"{sysroot}/lib/rustlib/{host}/bin/{tool}", fp"{sysroot}/bin/{tool}"]
 
   for candidate in candidates {
     return candidate when candidate.exists()? and fs.executable(candidate)?
@@ -54,7 +54,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
     return entry.path when entry.kind == "file" and entry.name == tool and entry.executable
   }
 
-  Err(CoverageError.Failed(f"coverage: could not find ${tool}; install rustup component llvm-tools-preview"))
+  Err(CoverageError.Failed(f"coverage: could not find {tool}; install rustup component llvm-tools-preview"))
 }
 
 proc remove_dir(target: Path) [fs, error] {
@@ -70,7 +70,7 @@ proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
   ]
 
   if paths.len() == 0 {
-    return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in ${raw_dir}"))
+    return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in {raw_dir}"))
   }
 
   paths
@@ -108,25 +108,25 @@ pure cov_args(profdata: Path, objects: List[Str]) -> List[Str] {
 
 proc main() [fs, process, env, error, io] {
   let root = fs.cwd()?
-  let target_dir = env_path(root, "CARGO_TARGET_DIR", fp"${root}/target")?
-  let out_dir = env_path(root, "XSH_COV_OUT_DIR", fp"${root}/target/cov")?
-  let raw_dir = fp"${out_dir}/raw"
-  let api_dir = fp"${out_dir}/xsh-api"
-  let html_dir = fp"${out_dir}/html"
-  let shim_dir = fp"${out_dir}/bin"
-  let profdata = fp"${out_dir}/xsh.profdata"
-  let objects_file = fp"${out_dir}/objects.txt"
-  let report_file = fp"${out_dir}/llvm-report.txt"
-  let lcov_file = fp"${out_dir}/lcov.info"
+  let target_dir = env_path(root, "CARGO_TARGET_DIR", fp"{root}/target")?
+  let out_dir = env_path(root, "XSH_COV_OUT_DIR", fp"{root}/target/cov")?
+  let raw_dir = fp"{out_dir}/raw"
+  let api_dir = fp"{out_dir}/xsh-api"
+  let html_dir = fp"{out_dir}/html"
+  let shim_dir = fp"{out_dir}/bin"
+  let profdata = fp"{out_dir}/xsh.profdata"
+  let objects_file = fp"{out_dir}/objects.txt"
+  let report_file = fp"{out_dir}/llvm-report.txt"
+  let lcov_file = fp"{out_dir}/lcov.info"
 
   # Tests spawn release binaries only, so the integration targets and products
   # are instrumented in the release profile; unit tests spawn nothing and stay
   # in debug, as `cargo dev test` runs them.
-  let release_dir = fp"${target_dir}/release"
-  let debug_dir = fp"${target_dir}/debug"
-  let xsh = fp"${release_dir}/xsh"
-  let xsht = fp"${release_dir}/xsht"
-  let xshi = fp"${release_dir}/xshi"
+  let release_dir = fp"{target_dir}/release"
+  let debug_dir = fp"{target_dir}/debug"
+  let xsh = fp"{release_dir}/xsh"
+  let xsht = fp"{release_dir}/xsht"
+  let xshi = fp"{release_dir}/xshi"
   let llvm_profdata = find_llvm_tool("llvm-profdata")?
   let llvm_cov = find_llvm_tool("llvm-cov")?
   let cargo_bin = cargo_bin_dir(root)?
@@ -137,33 +137,33 @@ proc main() [fs, process, env, error, io] {
   raw_dir.mkdir()?
   api_dir.mkdir()?
   shim_dir.mkdir()?
-  fs.symlink(xsh, fp"${shim_dir}/xsh")?
-  fs.symlink(xsht, fp"${shim_dir}/xsht")?
-  fs.symlink(xshi, fp"${shim_dir}/xshi")?
+  fs.symlink(xsh, fp"{shim_dir}/xsh")?
+  fs.symlink(xsht, fp"{shim_dir}/xsht")?
+  fs.symlink(xshi, fp"{shim_dir}/xshi")?
   let existing_rustflags = env.get_or("RUSTFLAGS", "")?.trim()
 
   let rustflags = if existing_rustflags == "" {
     "-C instrument-coverage"
   } else {
-    f"${existing_rustflags} -C instrument-coverage"
+    f"{existing_rustflags} -C instrument-coverage"
   }
 
   let child_path = join_path([shim_dir, cargo_bin, /root/.cargo/bin, /bin, /usr/bin, /usr/local/bin, /sbin])
 
-  env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"${raw_dir}/%m-%p.profraw" PATH=$child_path RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
+  env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
     run cargo test --release --test integration --test ambient_fs_policy --test symbol_plateau -- --test-threads=1 ?
     run cargo test --lib -- --test-threads=1 ?
     run cargo test --release --features linux-priv-tests --test linux_priv -- --test-threads=1 ?
     run cargo build --release --bin xsh ?
     run cargo build --release -p xsht ?
     run cargo build --release -p xshi ?
-    run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"${api_dir}/coverage.json" XSH_COV_REPORT=fp"${api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
+    run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
   } ?
 
   let profraws = collect_profraw(raw_dir)?
   run $llvm_profdata merge -sparse -o $profdata @profraws ?
   var objects = []
-  for dir in [release_dir, fp"${release_dir}/deps", debug_dir, fp"${debug_dir}/deps"] {
+  for dir in [release_dir, fp"{release_dir}/deps", debug_dir, fp"{debug_dir}/deps"] {
     objects = objects.extend(collect_objects(dir)?)
   }
 
@@ -172,27 +172,27 @@ proc main() [fs, process, env, error, io] {
   if objects.len() == 0 {
     return Err(
       CoverageError.Failed(
-        f"coverage: no instrumented objects found under ${release_dir} or ${debug_dir}",
+        f"coverage: no instrumented objects found under {release_dir} or {debug_dir}",
       ),
     )
   }
 
   fs.write(
     objects_file,
-    f"""${objects.join("\n")}
+    f"""{objects.join("\n")}
 """,
   )?
 
   let llvm_args = cov_args(profdata, objects)
   run $llvm_cov report @llvm_args > report_file ?
   io.write_stdout(report_file.read_text()?)?
-  let html_output_arg = f"--output-dir=${html_dir}"
+  let html_output_arg = f"--output-dir={html_dir}"
   run $llvm_cov show @llvm_args --format=html $html_output_arg --show-instantiations --show-line-counts-or-regions ?
   run $llvm_cov export @llvm_args --format=lcov > lcov_file ?
   print ""
   print "coverage reports:"
-  print f"  LLVM summary: ${report_file.strip_prefix(root)?.display()}"
-  print f"  LLVM HTML: ${fp"${html_dir}/index.html".strip_prefix(root)?.display()}"
-  print f"  LLVM lcov: ${lcov_file.strip_prefix(root)?.display()}"
-  print f"  XSH API: ${fp"${api_dir}/coverage.txt".strip_prefix(root)?.display()}"
+  print f"  LLVM summary: {report_file.strip_prefix(root)?.display()}"
+  print f"  LLVM HTML: {fp"{html_dir}/index.html".strip_prefix(root)?.display()}"
+  print f"  LLVM lcov: {lcov_file.strip_prefix(root)?.display()}"
+  print f"  XSH API: {fp"{api_dir}/coverage.txt".strip_prefix(root)?.display()}"
 }

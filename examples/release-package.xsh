@@ -1,11 +1,11 @@
 let root_handle = fs.tempdir()?
 defer root_handle.close()?
 let root = root_handle.host_path()?
-let source = fp"${root}/source"
-let bin = fp"${source}/usr/bin"
+let source = fp"{root}/source"
+let bin = fp"{source}/usr/bin"
 bin.mkdir()
-let tool = fp"${bin}/tool"
-let config = fp"${source}/config"
+let tool = fp"{bin}/tool"
+let config = fp"{source}/config"
 
 tool.write("""demo
 """)
@@ -14,10 +14,10 @@ config.write("""name=demo
 enabled=false
 """)
 
-let tarball = fp"${root}/demo.tar.gz"
+let tarball = fp"{root}/demo.tar.gz"
 archive.tar_create(tarball, source, [p"."])
 let entries = archive.tar_list(tarball)?.collect()
-let destination = fp"${root}/destination"
+let destination = fp"{root}/destination"
 archive.tar_extract(tarball, destination)
 
 const patch_text = """--- config
@@ -29,9 +29,9 @@ const patch_text = """--- config
 """
 
 let patch_report = patch.apply(destination, patch_text)?
-let extracted_tool = fp"${destination}/usr/bin/tool"
-let extracted_config = fp"${destination}/config".read_text()?.trim()
-let compressed = fp"${root}/tool.gz"
+let extracted_tool = fp"{destination}/usr/bin/tool"
+let extracted_config = fp"{destination}/config".read_text()?.trim()
+let compressed = fp"{root}/tool.gz"
 archive.compress(extracted_tool, compressed, format: "gzip")
 let decoded = archive.decompress_bytes(compressed)?.utf8()?.trim()
 let tool_text = extracted_tool.read_text()?.trim()

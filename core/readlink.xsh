@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -29,7 +29,7 @@ proc main(...argv: List[Str]) [fs, error] {
   return Err(usage_error("readlink", "[-f] PATH...")) when paths.len() == 0
 
   for item in paths {
-    let target = fp"${item}"
+    let target = fp"{item}"
 
     if canonicalize {
       print (target.resolve()?)

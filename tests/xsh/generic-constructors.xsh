@@ -252,7 +252,7 @@ let wrapped = Wrap(marker: marker)
 
 test test_generic_constructor_qualified_aliases_keep_private_schema_owners { |ctx|
   let root = test.temp_dir(ctx, name: "generic-constructor-module")?
-  fp"${root}/model.xsh".write_atomic("""##! Schemas retain private field ownership.
+  fp"{root}/model.xsh".write_atomic("""##! Schemas retain private field ownership.
 type Local = {name: Str}
 ## A generic record with a private dependency.
 export type Box[T] = {value: T, owner: Local}

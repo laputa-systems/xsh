@@ -35,8 +35,8 @@ true"""
 
 test test_jq_rejects_misspelled_json_literals { |ctx|
   for invalid in ["noll", "trux", "falsx"] {
-    let input = test.temp_file(ctx, name: f"${invalid}.json", contents: bytes.from_text(invalid))?
-    let diagnostic = test.temp_path(ctx, name: f"${invalid}.err")
+    let input = test.temp_file(ctx, name: f"{invalid}.json", contents: bytes.from_text(invalid))?
+    let diagnostic = test.temp_path(ctx, name: f"{invalid}.err")
     let status = run.status xsh showcase/jq.xsh -- -c . < $input 2> $diagnostic
     assert ! status.exited_with(0)
     assert "Invalid JSON value" in diagnostic.read_text()?

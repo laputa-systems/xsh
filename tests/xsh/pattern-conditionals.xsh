@@ -10,7 +10,7 @@ pure pattern_loop_subject(index: Int) -> Result[Int] {
 
 pure pattern_conditional_label(outcome: Result[Int]) -> Str {
   if let Ok(value) = outcome {
-    let label = f"${value}"
+    let label = f"{value}"
     label
   } else {
     "missing"
@@ -362,7 +362,7 @@ enum PatternSiblingValue { SiblingWord(Str), SiblingNumber(Int) }
 pure pattern_sibling_label(subject: PatternSiblingValue) -> Str {
   match subject {
     SiblingWord(value) => value
-    SiblingNumber(value) => f"${value}"
+    SiblingNumber(value) => f"{value}"
   }
 }
 
@@ -392,16 +392,16 @@ test test_pattern_conditionals_yield_from_stream_producers { |ctx|
     r"""stream pairs(lines: List[Str]) -> Stream[Str] {
   for line in lines {
     if let [key, value] = line.split("=") {
-      yield f"${key}:${value}"
+      yield f"{key}:{value}"
     } else if let [single] = line.split("=") {
       if single == "stop" { break }
-      yield f"${single}:-"
+      yield f"{single}:-"
     }
   }
   var remaining = [1, 2]
   while let [head, ..rest] = remaining {
     remaining = rest
-    yield f"rest:${head}"
+    yield f"rest:{head}"
   }
 }
 let all = pairs(["a=1", "b", "c=3"]) |> collect

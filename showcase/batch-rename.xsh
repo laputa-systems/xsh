@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if files.len() == 0 {
-    print f"no files found in ${root}"
+    print f"no files found in {root}"
     return
   }
 
@@ -72,37 +72,37 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     if opts.prefix != "" {
-      new_stem = f"${opts.prefix}${new_stem}"
+      new_stem = f"{opts.prefix}{new_stem}"
     }
 
     if opts.suffix != "" {
-      new_stem = f"${new_stem}${opts.suffix}"
+      new_stem = f"{new_stem}{opts.suffix}"
     }
 
     if opts.number {
       let n = item.index + 1
       let seq = if n < 10 {
-        f"00${n}"
+        f"00{n}"
       } else {
         if n < 100 {
-          f"0${n}"
+          f"0{n}"
         } else {
-          f"${n}"
+          f"{n}"
         }
       }
-      new_stem = f"${seq}_${new_stem}"
+      new_stem = f"{seq}_{new_stem}"
     }
 
-    let new_name = if file_ext == "" { new_stem } else { f"${new_stem}.${file_ext}" }
+    let new_name = if file_ext == "" { new_stem } else { f"{new_stem}.{file_ext}" }
 
     if new_name == old_name {
       skipped += 1
       continue
     }
 
-    let dest = fp"${src.parent()}/${new_name}"
+    let dest = fp"{src.parent()}/{new_name}"
     let action = if opts.dry_run { "would rename" } else { "rename" }
-    print f"${action}: ${old_name} → ${new_name}"
+    print f"{action}: {old_name} → {new_name}"
 
     if ! opts.dry_run {
       src.rename(dest)?
@@ -114,8 +114,8 @@ proc main(...argv: List[Str]) [fs, error] {
   print ""
 
   if opts.dry_run {
-    print f"${renamed} files would be renamed  ${skipped} unchanged (dry run)"
+    print f"{renamed} files would be renamed  {skipped} unchanged (dry run)"
   } else {
-    print f"${renamed} files renamed  ${skipped} unchanged"
+    print f"{renamed} files renamed  {skipped} unchanged"
   }
 }

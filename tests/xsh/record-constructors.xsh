@@ -115,7 +115,7 @@ let config: Config = {}
 
 test test_record_constructors_resolve_defaults_in_defining_module { |ctx|
   let root = test.temp_dir(ctx, name: "record-constructor-module")?
-  fp"${root}/config.xsh".write_atomic("""##! Constructor defaults and aliases.
+  fp"{root}/config.xsh".write_atomic("""##! Constructor defaults and aliases.
 let name = "module"
 ## A configuration with lexical immutable defaults.
 export type Config = {name: Str = name, nested: List[Int] = [1, 2]}
@@ -124,7 +124,7 @@ export type Alias = Config
 ## Uses the owning schema in parameter checks.
 export pure render(value: Config) -> Str { value.name.upper() }
 """)?
-  fp"${root}/other.xsh".write_atomic("""##! Another schema with the same local name.
+  fp"{root}/other.xsh".write_atomic("""##! Another schema with the same local name.
 ## Defaults belong to this schema.
 export type Config = {name: Int = 5, values: List[Str] = ["other"]}
 """)?

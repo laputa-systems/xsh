@@ -2,7 +2,7 @@ type FakeChildEvent = {pid: Int, status: Status}
 
 test test_unix_fake_covers_module_surface { |ctx|
   let root = test.temp_dir(ctx, name: "unix")?
-  let log = fp"${root}/unix.jsonl"
+  let log = fp"{root}/unix.jsonl"
   let command = process.command_argv("demo", ["demo", "arg"])
 
   test.unix_fake(ctx, {signal: "USR1", log: log})?
@@ -25,7 +25,7 @@ test test_unix_fake_covers_module_surface { |ctx|
   assert unix.notify_ready(notify_child.notify_fd)?
   unix.notify_close(notify_child.notify_fd)?
   assert ! unix.notify_ready(child.notify_fd)?
-  let logged = unix.spawn_process_group_log(command, fp"${root}/child.log")?
+  let logged = unix.spawn_process_group_log(command, fp"{root}/child.log")?
   let logged_pair = unix.spawn_logged_process_group(command, command)?
   let tty_child = unix.spawn_with_tty(command, tty: "tty1")?
   assert child.pid == 1000
@@ -69,7 +69,7 @@ test test_unix_fake_rejects_unknown_settings { |ctx|
 
 test test_unix_fake_covers_scripts_the_test_runs { |ctx|
   let root = test.temp_dir(ctx, name: "unix-fake-script")?
-  let log = fp"${root}/unix.jsonl"
+  let log = fp"{root}/unix.jsonl"
   test.unix_fake(ctx, {tty: "/dev/fake-tty", log: log})?
   let result = test.run_script(
     ctx,
@@ -82,9 +82,9 @@ print (unix.tty()?)""",
   assert "\"op\":\"set_hostname\"" in log.read_text()?
 
   # A log that cannot be written raises the fake's own logging error.
-  let blocked = fp"${root}/file"
+  let blocked = fp"{root}/file"
   fs.write(blocked, "not a directory")?
-  test.unix_fake(ctx, {log: fp"${blocked}/unix.jsonl"})?
+  test.unix_fake(ctx, {log: fp"{blocked}/unix.jsonl"})?
   let failed = test.run_script(ctx, "unix.set_hostname(\"xsh\")?")?
   assert ! failed.success
   assert "unix-fake-log" in failed.stderr
@@ -104,7 +104,7 @@ test test_unix_set_hostname_reaches_the_host_without_a_fake {
   # unprivileged hosts refuse first, privileged ones reject the length.
   match unix.set_hostname(name) {
     Err(is PermissionDenied) | Err(is HostIo) => {}
-    Err(error) => test.fail(f"unexpected facet for ${error.message}")?
+    Err(error) => test.fail(f"unexpected facet for {error.message}")?
     Ok(_) => test.fail("an over-long hostname was accepted")?
   }
 }

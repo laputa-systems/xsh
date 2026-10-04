@@ -7,9 +7,9 @@ type Summary = {name: Str, events: Int, complete: Bool}
 let root_handle = fs.tempdir()?
 defer root_handle.close()?
 let root = root_handle.host_path()?
-let out = fp"${root}/metadata.json"
-let lines = fp"${root}/events.jsonl"
-let summary_path = fp"${root}/summary.json"
+let out = fp"{root}/metadata.json"
+let lines = fp"{root}/events.jsonl"
+let summary_path = fp"{root}/summary.json"
 let status = run.status false
 const error_message = "shown"
 let metadata = {
@@ -30,6 +30,6 @@ let summary = {name: decoded.name, events: decoded_events.len(), complete: secon
 json.write(summary_path, summary, pretty: true)?
 let checked_summary = json.read(summary_path)?.require(Summary)?
 
-print f"metadata ${decoded.name} ${decoded.root} ${decoded.digest} ${decoded.ok} ${decoded.error}"
-print f"events ${first.event},${second.event} ${decoded_events.len()}"
-print f"summary ${checked_summary.name} ${checked_summary.events} ${checked_summary.complete}"
+print f"metadata {decoded.name} {decoded.root} {decoded.digest} {decoded.ok} {decoded.error}"
+print f"events {first.event},{second.event} {decoded_events.len()}"
+print f"summary {checked_summary.name} {checked_summary.events} {checked_summary.complete}"

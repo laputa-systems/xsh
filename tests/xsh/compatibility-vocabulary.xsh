@@ -26,10 +26,10 @@ test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |c
   assert "é🍃".byte_len() == 6
   assert "é🍃".count_chars() == 2
   let root = test.temp_dir(ctx, name: "canonical-children")?
-  fs.mkdir(fp"${root}/nested")?
-  fs.write(fp"${root}/z.txt", "z")?
-  fs.write(fp"${root}/a.txt", "a")?
-  fs.write(fp"${root}/nested/child.txt", "child")?
+  fs.mkdir(fp"{root}/nested")?
+  fs.write(fp"{root}/z.txt", "z")?
+  fs.write(fp"{root}/a.txt", "a")?
+  fs.write(fp"{root}/nested/child.txt", "child")?
   assert (fs.children(root)? |> map .name) == ["a.txt", "nested", "z.txt"]
   let absent = test.temp_path(ctx, name: "canonical-missing")
   assert fs.children(absent) is Err(_)
@@ -37,11 +37,11 @@ test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |c
 
 test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks { |ctx|
   let root = test.temp_dir(ctx, name: "vocabulary-migration")?
-  fs.write(fp"${root}/entry", "data")?
+  fs.write(fp"{root}/entry", "data")?
   let source = f"""# café ARGV fs.ls run.builtin count_bytes
 let input = ARGV
 let byte_count = "é🍃".count_bytes() # keep bytes
-let children = fs.ls(p"${root}", stat: false, ordered: true)? |> map .name
+let children = fs.ls(p"{root}", stat: false, ordered: true)? |> map .name
 let capture = run.builtin.capture --text printf "%s" "external ARGV run.builtin fs.ls count_bytes" ?
 let input_count = input.len()
 let child_count = children.len()
@@ -197,7 +197,7 @@ test test_compatibility_vocabulary_public_inventory_is_canonical {
 
 test test_compatibility_vocabulary_migration_keeps_imported_user_methods { |ctx|
   let root = test.temp_dir(ctx, name: "compatibility-import")?
-  let library = fp"${root}/custom.xsh"
+  let library = fp"{root}/custom.xsh"
   library.write("""##! Custom fixture.
 ## Returns a user-defined count.
 export pure count_bytes() -> Int { 7 }
@@ -208,7 +208,7 @@ let value: Str? = "é"
 let byte_count = value?.count_bytes()
 print \${byte_count == 2}
 """
-  let candidate = fp"${root}/entry.xsh"
+  let candidate = fp"{root}/entry.xsh"
   candidate.write(source)?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
   let applied_succeeded = applied.status.exited_with(0)

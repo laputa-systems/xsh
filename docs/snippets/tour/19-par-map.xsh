@@ -12,7 +12,7 @@ for file in [
   "srv/www/style.css",
   "srv/README",
 ] {
-  let target = fp"${root}/${file}"
+  let target = fp"{root}/{file}"
   target.parent().mkdir()?
   target.write("x\n")?
 }
@@ -34,5 +34,5 @@ let totals = per_dir |> fold(map.empty()) { |acc, part|
 
 for {key, value} in totals {
   let ext = if key == "" { "(none)" } else { key }
-  print f"${value:>3} ${ext}"
+  print f"{value:>3} {ext}"
 }

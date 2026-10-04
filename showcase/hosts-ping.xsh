@@ -37,19 +37,19 @@ proc main(...argv: List[Str]) [process, error] {
         let caps = ms_re.captures(output)
 
         if caps.len() >= 2 {
-          result = {host: host, avg: f"${caps[1]}ms", ok: true}
+          result = {host: host, avg: f"{caps[1]}ms", ok: true}
         }
       }
 
       result
     }
 
-  print f"${"host":<40} ${"avg rtt":>10}  status"
-  print f"${"----":<40} ${"-------":>10}  ------"
+  print f"{"host":<40} {"avg rtt":>10}  status"
+  print f"{"----":<40} {"-------":>10}  ------"
 
   for r in results {
     let status = if r.ok { "ok" } else { "unreachable" }
-    print f"${r.host:<40} ${r.avg:>10}  ${status}"
+    print f"{r.host:<40} {r.avg:>10}  {status}"
   }
 
   let ok_n = results
@@ -57,5 +57,5 @@ proc main(...argv: List[Str]) [process, error] {
     |> count()
 
   print f"""
-${ok_n}/${results.len()} hosts reachable"""
+{ok_n}/{results.len()} hosts reachable"""
 }

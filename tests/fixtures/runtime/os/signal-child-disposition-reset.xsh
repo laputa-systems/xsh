@@ -1,5 +1,5 @@
-let helper = fp"${args[0]}"
-let marker = fp"${args[1]}"
+let helper = fp"{args[0]}"
+let marker = fp"{args[1]}"
 
 on USR1 [] {
   abort(99)

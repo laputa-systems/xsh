@@ -16,5 +16,5 @@ proc main() [io, error] {
     },
     "demo",
   )
-  print f"${text.byte_len()}"
+  print f"{text.byte_len()}"
 }

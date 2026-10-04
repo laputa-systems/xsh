@@ -14,7 +14,7 @@ type Check = {check: Str, ok: Bool, detail: Str}
 const pseudo_filesystems = ["devfs", "devtmpfs", "tmpfs", "overlay", "squashfs", "proc", "sysfs"]
 
 proc load_config(file: Path) [fs, error] -> Result[Config] {
-  ctx f"loading ${file}" {
+  ctx f"loading {file}" {
     # The return type supplies the schema: this is `.require(Config)`.
     json.read(file)?.require()?
   }
@@ -23,13 +23,13 @@ proc load_config(file: Path) [fs, error] -> Result[Config] {
 proc listening(svc: Service) [process, error] -> Result[Check] {
   let owners = process.port(svc.port)? |> where .state == "LISTEN" |> map .command
   let detail = if owners.len() > 0 { owners[0] } else { "nothing listening" }
-  Check(check: f"port ${svc.port} (${svc.name})", ok: owners.len() > 0, detail:)
+  Check(check: f"port {svc.port} ({svc.name})", ok: owners.len() > 0, detail:)
 }
 
 proc healthy(svc: Service, url: Str) [net] -> Check {
-  let label = f"health ${svc.name}"
+  let label = f"health {svc.name}"
   match net.request({method: "GET", url, timeout: 3s, fail_status: false}) {
-    Ok(response) => Check(check: label, ok: response.status == 200, detail: f"HTTP ${response.status}")
+    Ok(response) => Check(check: label, ok: response.status == 200, detail: f"HTTP {response.status}")
     Err(error) => Check(check: label, ok: false, detail: error.message)
   }
 }
@@ -39,9 +39,9 @@ proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
     |> where { |m| ! m.readonly and m.blocks_1k > 0 and m.fstype not in pseudo_filesystems }
     |> map { |m|
       Check(
-        check: f"disk ${m.mounted_on}",
+        check: f"disk {m.mounted_on}",
         ok: m.capacity_percent < threshold,
-        detail: f"${m.capacity_percent}% used",
+        detail: f"{m.capacity_percent}% used",
       )
     }
 }
@@ -49,8 +49,8 @@ proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
 proc files(names: List[Str]) [fs, error] -> Result[List[Check]] {
   var checks: List[Check] = []
   for name in names {
-    let present = fp"${name}".exists()?
-    checks += [Check(check: f"file ${name}", ok: present, detail: if present { "present" } else { "missing" })]
+    let present = fp"{name}".exists()?
+    checks += [Check(check: f"file {name}", ok: present, detail: if present { "present" } else { "missing" })]
   }
 
   checks
@@ -77,12 +77,12 @@ cli main(config: Path, emit_json = false) {
   } else {
     for c in all {
       let mark = if c.ok { "ok  " } else { "FAIL" }
-      print f"${mark} ${c.check:<32} ${c.detail}"
+      print f"{mark} {c.check:<32} {c.detail}"
     }
   }
 
   if failed > 0 {
-    eprint f"${failed} check(s) failed"
+    eprint f"{failed} check(s) failed"
     abort(1)
   }
 }

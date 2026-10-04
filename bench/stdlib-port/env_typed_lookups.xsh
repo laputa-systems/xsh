@@ -17,5 +17,5 @@ proc main() [env, error, io] {
     round = round + 1
   }
 
-  print f"${sink}"
+  print f"{sink}"
 }

@@ -45,13 +45,13 @@ type AliasApi = module {
 
 test test_callable_alias_exports_preserve_module_contracts { |ctx|
   let root = test.temp_dir(ctx, name: "callable-alias-exports")?
-  fp"${root}/implementation.xsh".write("""
+  fp"{root}/implementation.xsh".write("""
 ##! Callable implementation.
 let captured = "private:"
 ## Formats a value.
 export pure render(value: Str, prefix: Str = "label:") -> Str { captured + prefix + value }
 """)?
-  let api = fp"${root}/api.xsh"
+  let api = fp"{root}/api.xsh"
   api.write("""
 ##! Callable aliases.
 use implementation
@@ -60,7 +60,7 @@ export let format = implementation.render
 """)?
   let loaded = module.load(api)?.require(AliasApi)?
   assert loaded.format(value: "one") == "private:label:one"
-  let entry = fp"${root}/entry.xsh"
+  let entry = fp"{root}/entry.xsh"
   entry.write("""
 use api
 let format = api.format
@@ -146,15 +146,15 @@ config
 
 test test_callable_alias_retains_checked_module_projection_signature { |ctx|
   let root = test.temp_dir(ctx, name: "callable-alias-projection")?
-  fp"${root}/plugin.xsh".write("""
+  fp"{root}/plugin.xsh".write("""
 ##! Callable plugin.
 let prefix = "captured:"
 ## Formats an exported value.
 export pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
 """)?
   let script = f"""
-type Plugin = module { export pure render(value: Str, suffix: Str = "!") -> Str }
-let plugin = module.load(p"${root}/plugin.xsh")?.require(Plugin)?
+type Plugin = module {{ export pure render(value: Str, suffix: Str = "!") -> Str }}
+let plugin = module.load(p"{root}/plugin.xsh")?.require(Plugin)?
 let format = plugin.get("render")?
 let again = format
 print format(value: "one") again.call(suffix: "?", value: "two")

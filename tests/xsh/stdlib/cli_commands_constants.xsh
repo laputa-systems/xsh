@@ -73,7 +73,7 @@ demo
 
 test cli_commands_constants_import_projection_and_named_spread { |ctx|
   let root = test.temp_dir(ctx, name: "cli-command-descriptors")?
-  fp"${root}/config.xsh".write(r"""##! Command descriptor configuration.
+  fp"{root}/config.xsh".write(r"""##! Command descriptor configuration.
 ## Prepared command records.
 export const descriptor = {commands: {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}}
 """)?

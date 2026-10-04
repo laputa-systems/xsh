@@ -155,7 +155,7 @@ proc validate() [] { guard name != null else { return }; mutate(); let value: St
     },
   ] {
     let output = test.run_script(ctx, source)?
-    assert ! output.success, f"accepted invalid guard: ${source}"
+    assert ! output.success, f"accepted invalid guard: {source}"
     assert code in output.stderr
   }
 }

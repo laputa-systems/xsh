@@ -285,7 +285,7 @@ pure rule(glyph: Str, n: Int) -> Str {
   var i = 0
 
   while i < n {
-    out = f"${out}${glyph}"
+    out = f"{out}{glyph}"
     i += 1
   }
 
@@ -297,12 +297,12 @@ pure rule(glyph: Str, n: Int) -> Str {
 # tokei byte-for-byte. The five values are pre-formatted strings so callers can pass
 # "" for the blank Files cell of a `(Total)` row.
 pure fmt_row(name: Str, files: Str, lines: Str, code: Str, comments: Str, blanks: Str) -> Str {
-  var line = f" ${name}"
-  line = f"${line}${tui.left_pad(files, 28 - line.byte_len())}"
-  line = f"${line}${tui.left_pad(lines, 41 - line.byte_len())}"
-  line = f"${line}${tui.left_pad(code, 54 - line.byte_len())}"
-  line = f"${line}${tui.left_pad(comments, 67 - line.byte_len())}"
-  line = f"${line}${tui.left_pad(blanks, 80 - line.byte_len())}"
+  var line = f" {name}"
+  line = f"{line}{tui.left_pad(files, 28 - line.byte_len())}"
+  line = f"{line}{tui.left_pad(lines, 41 - line.byte_len())}"
+  line = f"{line}{tui.left_pad(code, 54 - line.byte_len())}"
+  line = f"{line}{tui.left_pad(comments, 67 - line.byte_len())}"
+  line = f"{line}{tui.left_pad(blanks, 80 - line.byte_len())}"
   line
 }
 
@@ -1163,7 +1163,7 @@ pure ignored_by_patterns(rel: Str, patterns: List[Str]) -> Bool {
     let pattern = raw.trim()
 
     if pattern != "" and ! pattern.starts_with("#") {
-      return true when rel == pattern or rel.starts_with(f"${pattern}/")
+      return true when rel == pattern or rel.starts_with(f"{pattern}/")
     }
   }
 
@@ -1171,7 +1171,7 @@ pure ignored_by_patterns(rel: Str, patterns: List[Str]) -> Bool {
 }
 
 proc ignored_patterns(root: Path) [fs, error] -> Result[List[Str]] {
-  let ignore_file = fp"${root}/.tokeignore"
+  let ignore_file = fp"{root}/.tokeignore"
 
   return ignore_file.lines()?.collect() when ignore_file.exists()?
 
@@ -1393,7 +1393,7 @@ proc main(...argv: List[Str]) [fs, error] {
               let cs = blob_deep(blob)
 
               out = out.push({
-                key: f"${label}\t${child}",
+                key: f"{label}\t{child}",
                 files: 1,
                 blanks: cs.blanks,
                 code: cs.code,
@@ -1445,18 +1445,18 @@ proc main(...argv: List[Str]) [fs, error] {
 
       for child in sorted_languages() {
         let clabel = language_label(child)
-        let cagg = summary.get(f"${label}\t${clabel}") ?? zero_summary
+        let cagg = summary.get(f"{label}\t{clabel}") ?? zero_summary
         continue when cagg.files == 0
         let clines = cagg.blanks + cagg.code + cagg.comments
 
         child_rows = child_rows.push(
           fmt_row(
-            f"|- ${clabel}",
-            f"${cagg.files}",
-            f"${clines}",
-            f"${cagg.code}",
-            f"${cagg.comments}",
-            f"${cagg.blanks}",
+            f"|- {clabel}",
+            f"{cagg.files}",
+            f"{clines}",
+            f"{cagg.code}",
+            f"{cagg.comments}",
+            f"{cagg.blanks}",
           ),
         )
       }
@@ -1465,11 +1465,11 @@ proc main(...argv: List[Str]) [fs, error] {
 
       let lang_row = fmt_row(
         label,
-        f"${totals.files}",
-        f"${lines}",
-        f"${totals.code}",
-        f"${totals.comments}",
-        f"${totals.blanks}",
+        f"{totals.files}",
+        f"{lines}",
+        f"{totals.code}",
+        f"{totals.comments}",
+        f"{totals.blanks}",
       )
 
       if child_rows.len() == 0 {
@@ -1480,10 +1480,10 @@ proc main(...argv: List[Str]) [fs, error] {
         let subtotal = fmt_row(
           "(Total)",
           "",
-          f"${deep_lines}",
-          f"${totals.total_code}",
-          f"${totals.total_comments}",
-          f"${totals.total_blanks}",
+          f"{deep_lines}",
+          f"{totals.total_code}",
+          f"{totals.total_comments}",
+          f"{totals.total_blanks}",
         )
 
         var block = [lang_row]
@@ -1522,11 +1522,11 @@ proc main(...argv: List[Str]) [fs, error] {
 
     print fmt_row(
       "Total",
-      f"${total_files}",
-      f"${grand_lines}",
-      f"${total_code}",
-      f"${total_comments}",
-      f"${total_blanks}",
+      f"{total_files}",
+      f"{grand_lines}",
+      f"{total_code}",
+      f"{total_comments}",
+      f"{total_blanks}",
     )
 
     print $heavy

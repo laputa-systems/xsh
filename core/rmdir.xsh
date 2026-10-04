@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -29,7 +29,7 @@ proc main(...argv: List[Str]) [fs, error] {
   return Err(usage_error("rmdir", "[-p] DIR...")) when targets.len() == 0
 
   for item in targets {
-    var current = fp"${item}"
+    var current = fp"{item}"
     current.remove_dir()?
 
     if parents {

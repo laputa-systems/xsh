@@ -3,7 +3,7 @@ type TemplateService = {name: Str, exec: Str, user: Str, after: List[Str], env: 
 # The error message of a failed render, or the rendered text prefixed with `ok:`.
 pure render_outcome(result: Result[Str]) -> Str {
   match result {
-    Ok(text) => f"ok:${text}"
+    Ok(text) => f"ok:{text}"
     Err(error) => error.message
   }
 }
@@ -29,11 +29,11 @@ test test_template_fields_and_dot {
 test test_template_if_truthiness_and_else_chains {
   let falsy = {f: false, n: null, zero: 0, real: 0.0, text: "", list: [], map: {}}
   for key in falsy.keys() {
-    assert template.render(f"{{if .${key}}}T{{else}}F{{end}}", falsy)? == "F", key
+    assert template.render(f"{{{{if .{key}}}}}T{{{{else}}}}F{{{{end}}}}", falsy)? == "F", key
   }
   let truthy = {t: true, one: -1, real: 0.1, text: " ", list: [0], map: {a: null}}
   for key in truthy.keys() {
-    assert template.render(f"{{if .${key}}}T{{else}}F{{end}}", truthy)? == "T", key
+    assert template.render(f"{{{{if .{key}}}}}T{{{{else}}}}F{{{{end}}}}", truthy)? == "T", key
   }
   let source = "{{if .a}}A{{else if .b}}B{{else if .c}}C{{else}}none{{end}}"
   assert template.render(source, {a: 1, b: 1, c: 1})? == "A"

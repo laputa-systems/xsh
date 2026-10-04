@@ -707,6 +707,20 @@ impl<'c> Gen<'c> {
         text
     }
 
+    /// F-string text that also exercises brace escapes, `$`, and `#`.
+    fn fmt_text(&mut self) -> String {
+        let len = self.rng.below(5);
+        let mut text = String::new();
+        for _ in 0..len {
+            if self.rng.chance(30) {
+                text.push_str(self.rng.pick(&["{", "}", "$", "$5", "#", "\"", "${", "}{"]));
+            } else {
+                text.push_str(self.rng.pick(ALPHABET));
+            }
+        }
+        text
+    }
+
     fn path_text(&mut self) -> String {
         let segments = 1 + self.rng.below(3);
         let mut parts = Vec::new();
@@ -1173,10 +1187,19 @@ impl<'c> Gen<'c> {
                     let mut parts = Vec::new();
                     for _ in 0..1 + self.rng.below(3) {
                         if self.rng.chance(40) {
-                            parts.push(FmtPart::Lit(self.string()));
+                            parts.push(FmtPart::Lit(self.fmt_text()));
                         }
                         let display = self.rng.pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Float, Ty::Path]).clone();
-                        parts.push(FmtPart::Interp(self.expr_or_literal(&display, false, next)));
+                        let value = self.expr_or_literal(&display, false, next);
+                        parts.push(if self.rng.chance(20) {
+                            let align = *self.rng.pick(&['>', '<', '0']);
+                            FmtPart::Width(value, align, 1 + self.rng.below(8))
+                        } else {
+                            FmtPart::Interp(value)
+                        });
+                    }
+                    if self.rng.chance(30) {
+                        parts.push(FmtPart::Lit(self.fmt_text()));
                     }
                     Expr::Fmt(parts)
                 }

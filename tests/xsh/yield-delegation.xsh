@@ -16,9 +16,9 @@ stream nested() [] -> Stream[List[Int]] {
 }
 proc main() [io, error] {
   let values = rows() |> collect()
-  for n in values { print f"${n}" }
+  for n in values { print f"{n}" }
   let lists = nested() |> collect()
-  print f"${lists.len()} ${lists[0].len()} ${lists[2].len()}"
+  print f"{lists.len()} {lists[0].len()} {lists[2].len()}"
 }
 """,
   )?
@@ -44,7 +44,7 @@ proc close(message: Str) [io] { print $message }
 stream child() [io, error] -> Stream[Int] {
   defer close("child-close")
   for n in range(4) {
-    print f"pull ${n}"
+    print f"pull {n}"
     yield n
   }
 }
@@ -59,7 +59,7 @@ proc main() [io, error] {
   let source = parent()
   print "created"
   for n in source {
-    print f"row ${n}"
+    print f"row {n}"
     if n == 1 { break }
   }
   print "consumer-after"
@@ -103,7 +103,7 @@ stream parent() [io, error] -> Stream[Int] {
   print "after"
 }
 proc main() [io, error] {
-  for n in parent() { print f"row ${n}" }
+  for n in parent() { print f"row {n}" }
 }
 """,
   )?
@@ -142,7 +142,7 @@ stream parent() [io, error] -> Stream[Int] {
   print "unreachable"
 }
 proc main() [io, error] {
-  for row in parent() { print f"row ${row}" }
+  for row in parent() { print f"row {row}" }
   print "consumer-after"
 }
 """,
@@ -167,9 +167,9 @@ stream parent(source: Stream[Int]) [] -> Stream[Int] { yield @source }
 proc main() [io, error] {
   let source = child()
   let wrapped = parent(source)
-  for n in wrapped { print f"${n}"; break }
+  for n in wrapped { print f"{n}"; break }
   let remaining = source |> collect()
-  print f"remaining ${remaining.len()}"
+  print f"remaining {remaining.len()}"
 }
 """,
   )?
@@ -185,7 +185,7 @@ remaining 0
 test test_yield_delegation_requires_explicit_list_or_stream { |ctx|
   for value in ["1", "\"text\"", "b\"bytes\"", "{name: 1}", "Ok([1])"] {
     let source = f"""
-      stream bad() -> Stream[Int] { yield @${value} }
+      stream bad() -> Stream[Int] {{ yield @{value} }}
 
       """
     let output = test.run_script(ctx, source)?
@@ -214,8 +214,8 @@ stream rows() [io] -> Stream[Int] {
 }
 proc main() [io] {
   let empty = rows() |> take(0) |> collect()
-  print f"empty ${empty.len()}"
-  for row in rows() { print f"row ${row}" }
+  print f"empty {empty.len()}"
+  for row in rows() { print f"row {row}" }
 }
 """,
   )?
@@ -238,21 +238,21 @@ second
   let output = test.run_script(
     ctx,
     f"""
-stream lines(file: Path) [fs, error] -> Stream[Str] {
+stream lines(file: Path) [fs, error] -> Stream[Str] {{
   yield @file.lines()?
   yield "last"
-}
-stream rows(values: List[Int]) [] -> Stream[Int] { yield @values }
-proc main() [io, fs, error] {
-  for line in lines(Path("${file_path}")) { print f"\${line}" }
+}}
+stream rows(values: List[Int]) [] -> Stream[Int] {{ yield @values }}
+proc main() [io, fs, error] {{
+  for line in lines(Path("{file_path}")) {{ print f"{{line}}" }}
   var values = [1, 2, 3]
   let source = rows(values)
-  for number in source {
-    print f"\${number}"
+  for number in source {{
+    print f"{{number}}"
     values = [99]
-  }
-  print f"original \${values[0]}"
-}
+  }}
+  print f"original {{values[0]}}"
+}}
 """,
   )?
   {
@@ -291,7 +291,7 @@ stream parent() [io, error] -> Stream[Int] {
   yield @child()
 }
 proc main() [io, error] {
-  for row in parent() { print f"row ${row}"; break }
+  for row in parent() { print f"row {row}"; break }
 }
 """,
   )?

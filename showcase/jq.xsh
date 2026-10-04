@@ -299,9 +299,9 @@ pure parse_stream(s: Str) -> Result[List[Json]] {
 pure render_num(n: Float) -> Str {
   let i = n.floor() ?? 0
 
-  return f"${i}" when i.float() == n
+  return f"{i}" when i.float() == n
 
-  f"${n}"
+  f"{n}"
 }
 
 pure encode_str(s: Str) -> Str {
@@ -4656,7 +4656,7 @@ pure eval_call(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result
     Pass => {}
   }
 
-  Err(jq_err(name + "/" + f"${callargs.len()}" + " is not defined"))
+  Err(jq_err(name + "/" + f"{callargs.len()}" + " is not defined"))
 }
 
 # ---------------------------------------------------------------------------

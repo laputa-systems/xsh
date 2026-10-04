@@ -965,40 +965,40 @@ let named_group = group.lookup(current_group.name)?
 let usage = p.du() ?
 let meta = fs.metadata(p) ?
 let cwd = fs.cwd()?
-let file = fp"${p}/file"
-let copy = fp"${p}/copy"
-let renamed_path = fp"${p}/renamed"
+let file = fp"{p}/file"
+let copy = fp"{p}/copy"
+let renamed_path = fp"{p}/renamed"
 let _atomic = fs.write_atomic(file, "data") ?
 let _copy = fs.copy(file, copy) ?
-let copied_tree = fs.copy_tree(p, fp"${p}/tree", parents: true)?
+let copied_tree = fs.copy_tree(p, fp"{p}/tree", parents: true)?
 let copied_files: Int = copied_tree.files
 let _renamed = fs.rename(copy, renamed_path, overwrite: true) ?
-let _touched = fp"${p}/stamp".touch() ?
+let _touched = fp"{p}/stamp".touch() ?
 let _truncated = renamed_path.truncate(0) ?
-let _installed = fs.install(file, fp"${p}/bin/tool", 0o755, parents: true) ?
-let _installed_as = fs.install_as(file, fp"${p}/bin/owned", 0o755, me, current_group, parents: true) ?
+let _installed = fs.install(file, fp"{p}/bin/tool", 0o755, parents: true) ?
+let _installed_as = fs.install_as(file, fp"{p}/bin/owned", 0o755, me, current_group, parents: true) ?
 let _mode = fs.chmod(file, 384) ?
 let _owner = fs.chown(file, me) ?
 let _group = fs.chgrp(file, current_group) ?
-let lock = fs.lock(fp"${p}/pm.lock") ?
+let lock = fs.lock(fp"{p}/pm.lock") ?
 let _unlock = fs.unlock(lock) ?
 let removed = fs.remove_manifest(p, [Path("bin/tool")], missing_ok: true) ?
 let removed_count: Int = removed.removed
-let _fifo = fs.mkfifo(fp"${p}/control", 0o600) ?
+let _fifo = fs.mkfifo(fp"{p}/control", 0o600) ?
 let _synced_file = fs.fsync(file) ?
 let _synced_all = fs.sync() ?
-let _link = fs.symlink(file, fp"${p}/link") ?
-let _hard = file.hardlink(fp"${p}/hard") ?
-let target = fp"${p}/link".readlink() ?
-let _unlinked = fp"${p}/hard".unlink() ?
-let _rmdir = fp"${p}/empty".remove_dir() ?
-let diffed = diff.unified(fp"${p}/old", fp"${p}/new", context: 1) ?
+let _link = fs.symlink(file, fp"{p}/link") ?
+let _hard = file.hardlink(fp"{p}/hard") ?
+let target = fp"{p}/link".readlink() ?
+let _unlinked = fp"{p}/hard".unlink() ?
+let _rmdir = fp"{p}/empty".remove_dir() ?
+let diffed = diff.unified(fp"{p}/old", fp"{p}/new", context: 1) ?
 let patched = patch.apply(p, diffed.text, strip_components: 0, overwrite: true) ?
 let patched_files: Int = patched.files
 let child_events = unix.reap_child_events()?.collect()
 let _child_pid: Int = child_events[0].pid
-let _device_write = linux.write_device(/dev/urandom, fp"${p}/seed")?
-let _device_read = linux.read_device(/dev/urandom, fp"${p}/seed", bytes: 512)?
+let _device_write = linux.write_device(/dev/urandom, fp"{p}/seed")?
+let _device_read = linux.read_device(/dev/urandom, fp"{p}/seed", bytes: 512)?
 let uevents = linux.uevent_stream()?
 type Uevent = {action: Str, subsystem: Str, devname: Str, devpath: Str}
 for event in uevents {
@@ -1104,14 +1104,14 @@ let parent = file.parent
 let renamed = file.with_ext("log")
 let stripped = renamed.strip_prefix(p) ?
 let path_meta = file.metadata()?
-let _path_copy = file.copy(fp"${p}/copy2")?
-let _path_rename = fp"${p}/copy2".rename(fp"${p}/renamed2", overwrite: true)?
-let _path_touch = fp"${p}/stamp2".touch()?
-let _path_truncate = fp"${p}/renamed2".truncate(0)?
-let _path_hard = file.hardlink(fp"${p}/hard2")?
-let path_target = fp"${p}/link".readlink()?
-let _path_unlink = fp"${p}/hard2".unlink()?
-let _path_rmdir = fp"${p}/empty2".remove_dir()?
+let _path_copy = file.copy(fp"{p}/copy2")?
+let _path_rename = fp"{p}/copy2".rename(fp"{p}/renamed2", overwrite: true)?
+let _path_touch = fp"{p}/stamp2".touch()?
+let _path_truncate = fp"{p}/renamed2".truncate(0)?
+let _path_hard = file.hardlink(fp"{p}/hard2")?
+let path_target = fp"{p}/link".readlink()?
+let _path_unlink = fp"{p}/hard2".unlink()?
+let _path_rmdir = fp"{p}/empty2".remove_dir()?
 let display = p.display()
 let home = env.Path.HOME ?
 let home_text = env.Str.HOME ?
@@ -1420,7 +1420,7 @@ let hex = digest.hex()
 let encoded = digest.base64()
 let file_digest = hash.sha256(Path("archive.tar"))?
 hash.verify_file(Path("archive.tar"), sha256: hex)?
-let parsed = hash.parse_check_line(f"${hex}  archive.tar")?
+let parsed = hash.parse_check_line(f"{hex}  archive.tar")?
 "#,
     );
 
@@ -1555,9 +1555,9 @@ fn checker_handles_path_literals_methods_and_expr_env_blocks() {
     let ok = check(
         r#"
 let root = p"src"
-let child = fp"${root}/main.c"
+let child = fp"{root}/main.c"
 let child_suffix = "include/main.h"
-let formatted_child = fp"${root}/${child_suffix}"
+let formatted_child = fp"{root}/{child_suffix}"
 let trimmed = "  warn ".trim()
 let lines = "a\nb\n".lines()
 let collected = lines.collect()
@@ -1900,7 +1900,7 @@ fn checker_rejects_foundation_contract_errors() {
             "check.type-mismatch",
         ),
         (
-            "let message = f\"bad ${[1, 2]}\"\n",
+            "let message = f\"bad {[1, 2]}\"\n",
             "check.display-conversion",
         ),
         (
@@ -3087,7 +3087,7 @@ fn checker_accepts_list_comprehensions() {
 let nums: List[Int] = [1, 2, 3]
 let doubled = [x * 2 for x in nums]
 let filtered = [x for x in nums if x > 1]
-let strs = [f"{x}" for x in nums]
+let strs = [f"{{x}}" for x in nums]
 "#,
     );
     assert_no_codes(

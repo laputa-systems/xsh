@@ -23,18 +23,18 @@ proc run_attempt(argv: List[Str], try_num: Int, max_tries: Int) [process, error]
     let code = status.exit_code()?
 
     if code == 0 {
-      print f"ok (try ${try_num})"
+      print f"ok (try {try_num})"
       return
     }
 
-    print f"exit ${code} (try ${try_num}/${max_tries})"
+    print f"exit {code} (try {try_num}/{max_tries})"
   } else if status.signaled() {
-    print f"signal ${status.signal_number()?} (try ${try_num}/${max_tries})"
+    print f"signal {status.signal_number()?} (try {try_num}/{max_tries})"
   } else {
-    print f"failed (try ${try_num}/${max_tries})"
+    print f"failed (try {try_num}/{max_tries})"
   }
 
-  Err(RetryRunError.CommandFailed(message: f"command failed on try ${try_num}"))
+  Err(RetryRunError.CommandFailed(message: f"command failed on try {try_num}"))
 }
 
 proc main(...cmd: List[Str]) [process, time, error] {
@@ -62,7 +62,7 @@ proc main(...cmd: List[Str]) [process, time, error] {
   } {
     Ok(_) => {}
     Err(_) => {
-      print f"command failed after ${max_tries} tries"
+      print f"command failed after {max_tries} tries"
       abort(1)
     }
   }

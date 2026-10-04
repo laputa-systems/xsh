@@ -137,7 +137,7 @@ cli main(root: Path, limit: UInt = 5, hidden = false) {
     |> take(limit)
 
   for entry in largest {
-    print f"${entry.size:>12} ${entry.path}"
+    print f"{entry.size:>12} {entry.path}"
   }
 }
 ```
@@ -157,12 +157,12 @@ const conf = /etc/postgresql/postgresql.conf
 const replicas = ["db-02", "db-03"]
 const limits = {cpu: 2, memory_mb: 4096}
 const owner: Str? = null
-let data = fp"/srv/${host}/data"
+let data = fp"/srv/{host}/data"
 
-print f"${host}:${port} load=${load} grace=${grace} doubled=${grace * 2}"
-print f"${conf.name()} in ${conf.parent()} (.${conf.ext()})"
-print f"data=${data} replicas=${replicas.join(",")}"
-print f"cpu=${limits.cpu} owner=${owner ?? "nobody"}"
+print f"{host}:{port} load={load} grace={grace} doubled={grace * 2}"
+print f"{conf.name()} in {conf.parent()} (.{conf.ext()})"
+print f"data={data} replicas={replicas.join(",")}"
+print f"cpu={limits.cpu} owner={owner ?? "nobody"}"
 ```
 
 <!-- expected-output -->
@@ -178,8 +178,7 @@ Every value has a type, and the checker infers most of them: `Str`, `Int`,
 `Float`, `Duration`, `Path`, `List[Str]`, a record `{cpu: Int, memory_mb: Int}`,
 and an optional `Str?`. `const` is data fixed when the script is checked, `let`
 is an immutable runtime binding, and `var` is mutable. `f"..."`
-interpolates; plain `"..."` never does, so a stray `$` in a string literal is
-just a dollar sign.
+interpolates `{expr}`; plain `"..."` never interpolates.
 
 There are no implicit conversions. `"8080" + 1` is a check error, and
 `"8080".parse_int()` returns `Result[Int]` because parsing can fail. You will
@@ -246,16 +245,16 @@ let dir = scratch.host_path()?
 cd $dir {
   p"notes.txt".write("hi\n")?
   let listing = run.text ls ?
-  print f"inside: ${listing.trim()}"
+  print f"inside: {listing.trim()}"
 }
 
 env LC_ALL=C GREETING="hello world" {
   let said = run.text printenv GREETING ?
-  print f"child saw: ${said.trim()}"
+  print f"child saw: {said.trim()}"
 }
 
 let outside = env.Str.GREETING ?? "(unset)"
-print f"after the block: ${outside}"
+print f"after the block: {outside}"
 ```
 
 <!-- expected-output -->
@@ -275,11 +274,11 @@ untouched.
 ```xsh
 const log_dir = /var/log/nginx
 const today = p"access.log"
-let rotated = fp"${log_dir}/${today}.1"
+let rotated = fp"{log_dir}/{today}.1"
 
 print $rotated
-print f"name=${rotated.name()} ext=${rotated.ext()} parent=${rotated.parent()}"
-print f"as gzip: ${rotated.with_ext("gz")}"
+print f"name={rotated.name()} ext={rotated.ext()} parent={rotated.parent()}"
+print f"as gzip: {rotated.with_ext("gz")}"
 ```
 
 <!-- expected-output -->
@@ -341,12 +340,12 @@ acceptable. `grep` exits 1 for "no matches":
 ```xsh
 let scratch = fs.tempdir()?
 defer scratch.close()?
-let log = fp"${scratch.host_path()?}/app.log"
+let log = fp"{scratch.host_path()?}/app.log"
 log.write("ok\nERROR disk full\nok\nERROR link down\n")?
 
 let errors = run.text --accept=[0, 1] grep -c ERROR $log ?
 let panics = run.text --accept=[0, 1] grep -c PANIC $log ?
-print f"errors=${errors.trim()} panics=${panics.trim()}"
+print f"errors={errors.trim()} panics={panics.trim()}"
 ```
 
 <!-- expected-output -->
@@ -380,16 +379,16 @@ proc read_port(file: Path) [fs, error] -> Result[Int] {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let dir = scratch.host_path()?
-fp"${dir}/good".write("8080\n")?
-fp"${dir}/bad".write("eighty\n")?
+fp"{dir}/good".write("8080\n")?
+fp"{dir}/bad".write("eighty\n")?
 
-print f"good: ${read_port(fp"${dir}/good")?}"
-print f"missing, with default: ${read_port(fp"${dir}/none") ?? 80}"
+print f"good: {read_port(fp"{dir}/good")?}"
+print f"missing, with default: {read_port(fp"{dir}/none") ?? 80}"
 
-match read_port(fp"${dir}/bad") {
-  Ok(port) => print f"port ${port}"
-  Err(PortError.Invalid {text}) => print f"not a port: ${text}"
-  Err(error) => print f"unreadable: ${error.message}"
+match read_port(fp"{dir}/bad") {
+  Ok(port) => print f"port {port}"
+  Err(PortError.Invalid {text}) => print f"not a port: {text}"
+  Err(error) => print f"unreadable: {error.message}"
 }
 ```
 
@@ -426,21 +425,21 @@ const fleet: List[Host] = [
 
 let web = [h.name for h in fleet if h.role == "web"]
 let cores_by_name = {h.name: h.cores for h in fleet}
-print f"web: ${web.join(" ")}; db-1 has ${cores_by_name.get("db-1") ?? 0} cores"
+print f"web: {web.join(" ")}; db-1 has {cores_by_name.get("db-1") ?? 0} cores"
 
 for {name, cores, ..} in fleet {
-  print f"${name}=${cores}"
+  print f"{name}={cores}"
 }
 
 let upgraded = {...fleet[0], cores: 32}
-print f"${upgraded.name}: ${fleet[0].cores} -> ${upgraded.cores}"
+print f"{upgraded.name}: {fleet[0].cores} -> {upgraded.cores}"
 
 for role in fleet |> group-by .role {
-  print f"${role.key}: ${[h.name for h in role.items].join(",")}"
+  print f"{role.key}: {[h.name for h in role.items].join(",")}"
 }
 
 match "deploy web-2 --force".fields() {
-  ["deploy", target, ..flags] => print f"deploy ${target} with ${flags.len()} flag(s)"
+  ["deploy", target, ..flags] => print f"deploy {target} with {flags.len()} flag(s)"
   ["status"] => print "status"
   _ => print "usage: deploy TARGET | status"
 }
@@ -510,7 +509,7 @@ const sample = """
 
 let scratch = fs.tempdir()?
 defer scratch.close()?
-let log = fp"${scratch.host_path()?}/access.log"
+let log = fp"{scratch.host_path()?}/access.log"
 log.write(sample)?
 
 let failures = hits(log)
@@ -518,11 +517,11 @@ let failures = hits(log)
   |> count { |hit| hit.url }
 
 for {key, value} in failures {
-  print f"${value} ${key}"
+  print f"{value} {key}"
 }
 
 let heaviest = hits(log) |> sort-by(desc: true) .size |> take(2) |> map .client
-print f"heaviest clients: ${heaviest.join(" ")}"
+print f"heaviest clients: {heaviest.join(" ")}"
 ```
 
 <!-- expected-output -->
@@ -573,11 +572,11 @@ let oldest = process.list()?
   |> take(3)
 
 for p in oldest {
-  print f"${p.pid:>7} ${p.runtime_seconds:>9}s ${p.command}"
+  print f"{p.pid:>7} {p.runtime_seconds:>9}s {p.command}"
 }
 
 for m in fs.mounts()? |> where .capacity_percent >= 90 {
-  print f"${m.mounted_on} is ${m.capacity_percent}% full (${m.fstype})"
+  print f"{m.mounted_on} is {m.capacity_percent}% full ({m.fstype})"
 }
 
 let listeners = process.ports()?
@@ -586,7 +585,7 @@ let listeners = process.ports()?
   |> sort-by .local_port
 
 for l in listeners {
-  print f"${l.protocol} ${l.local_port:>5} ${l.command} (pid ${l.pid})"
+  print f"{l.protocol} {l.local_port:>5} {l.command} (pid {l.pid})"
 }
 ```
 
@@ -603,8 +602,8 @@ type Link = {ifname: Str, operstate: Str, addr_info: List[Address]}
 let links = json.decode(run.text ip -j addr show ?)?.require(List[Link])?
 
 for link in links |> sort-by .ifname {
-  let v4 = [f"${a.local}/${a.prefixlen}" for a in link.addr_info if a.family == "inet"]
-  print f"${link.ifname:<12} ${link.operstate.lower():<8} ${v4.join(", ")}"
+  let v4 = [f"{a.local}/{a.prefixlen}" for a in link.addr_info if a.family == "inet"]
+  print f"{link.ifname:<12} {link.operstate.lower():<8} {v4.join(", ")}"
 }
 ```
 
@@ -646,7 +645,7 @@ proc snapshot() [fs, process, error] -> Result[Map[Int, Sample]] {
 
   for entry in process.list()? {
     # A process can exit between listing and reading; skip it.
-    guard let text = fp"/proc/${entry.pid}/stat".read_text() else {
+    guard let text = fp"/proc/{entry.pid}/stat".read_text() else {
       continue
     }
 
@@ -672,7 +671,7 @@ let busiest = after.values()
   |> take(5)
 
 for {now, delta} in busiest {
-  print f"${now.pid:>7} ${delta:>4}% ${now.comm}"
+  print f"{now.pid:>7} {delta:>4}% {now.comm}"
 }
 ```
 
@@ -696,13 +695,13 @@ const raw = """
 
 let services = json.decode(raw)?.require(List[Service])?
 for svc in services {
-  print f"${svc.name} -> ${svc.port} [${svc.tags.join(",")}]"
+  print f"{svc.name} -> {svc.port} [{svc.tags.join(",")}]"
 }
 
 let wrong = json.decode("""{"name": "cache", "port": "6379", "tags": []}""")?
 match wrong.require(Service) {
-  Ok(svc) => print f"unexpected: ${svc.name}"
-  Err(error) => print f"rejected: ${error.message}"
+  Ok(svc) => print f"unexpected: {svc.name}"
+  Err(error) => print f"rejected: {error.message}"
 }
 
 let report = {count: services.len(), public: [s.name for s in services if "public" in s.tags]}
@@ -735,7 +734,7 @@ When the shape is genuinely open, match on it with type patterns instead:
 ```xsh
 let doc = json.decode("""{"version": 3, "features": ["ipv6"]}""")?
 let version = if let {version: v is Int, ..} = doc { v } else { 0 }
-print f"config version ${version}"
+print f"config version {version}"
 ```
 
 <!-- expected-output -->
@@ -766,9 +765,9 @@ pure percent(part: Int, whole: Int) -> Int {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let dir = scratch.host_path()?
-fp"${dir}/data".write("hello\n")?
+fp"{dir}/data".write("hello\n")?
 
-print f"measured: ${disk_used_kb(dir)? > 0}; 3 of 4 is ${percent(3, 4)}%"
+print f"measured: {disk_used_kb(dir)? > 0}; 3 of 4 is {percent(3, 4)}%"
 ```
 
 <!-- expected-output -->
@@ -824,9 +823,9 @@ proc mount_of(target: Path) {
 }
 
 let worst = hottest(inventory)?
-print f"${worst.mount} at ${usage(worst)}%"
-print f"anything at 100%: ${hottest(inventory, over: 100) is Ok(_)}"
-print f"root has capacity: ${mount_of(/)?.size > 0}"
+print f"{worst.mount} at {usage(worst)}%"
+print f"anything at 100%: {hottest(inventory, over: 100) is Ok(_)}"
+print f"root has capacity: {mount_of(/)?.size > 0}"
 ```
 
 <!-- expected-output -->
@@ -873,7 +872,7 @@ for file in [
   "srv/www/style.css",
   "srv/README",
 ] {
-  let target = fp"${root}/${file}"
+  let target = fp"{root}/{file}"
   target.parent().mkdir()?
   target.write("x\n")?
 }
@@ -895,7 +894,7 @@ let totals = per_dir |> fold(map.empty()) { |acc, part|
 
 for {key, value} in totals {
   let ext = if key == "" { "(none)" } else { key }
-  print f"${value:>3} ${ext}"
+  print f"{value:>3} {ext}"
 }
 ```
 
@@ -929,7 +928,7 @@ for host in hosts {
 let statuses = wait probes?
 for i in range(hosts.len()) {
   let state = if statuses[i].ok { "up" } else { "down" }
-  print f"${hosts[i]} ${state}"
+  print f"{hosts[i]} {state}"
 }
 ```
 
@@ -955,14 +954,14 @@ reverse order when the block exits for any reason: normal completion,
 
 ```xsh
 proc rotate(dir: Path) [fs, error] {
-  let lock = fp"${dir}/.rotate.lock"
+  let lock = fp"{dir}/.rotate.lock"
   lock.write("locked\n")?
   defer {
     lock.remove()?
     print "released lock"
   }
 
-  let staging = fp"${dir}/staging"
+  let staging = fp"{dir}/staging"
   staging.mkdir()?
   defer {
     staging.remove_dir()?
@@ -970,7 +969,7 @@ proc rotate(dir: Path) [fs, error] {
   }
 
   print "rotating"
-  let _ = fp"${dir}/missing.log".read_text()?
+  let _ = fp"{dir}/missing.log".read_text()?
   print "never reached"
 }
 
@@ -983,7 +982,7 @@ match rotate(dir) {
   Err(_) => print "rotate failed"
 }
 
-print f"left behind: ${fs.children(dir)? |> count()}"
+print f"left behind: {fs.children(dir)? |> count()}"
 ```
 
 <!-- expected-output -->
@@ -1012,7 +1011,7 @@ pure set_option(text: Str, key: Str, value: Str) -> Str {
   for line in text.lines() {
     let words = line.replace("#", " ").fields()
     if ! done and words.len() > 0 and words[0] == key {
-      out += [f"${key} ${value}"]
+      out += [f"{key} {value}"]
       done = true
     } else {
       out += [line]
@@ -1020,7 +1019,7 @@ pure set_option(text: Str, key: Str, value: Str) -> Str {
   }
 
   if ! done {
-    out += [f"${key} ${value}"]
+    out += [f"{key} {value}"]
   }
 
   out.join("\n") + "\n"
@@ -1030,11 +1029,11 @@ proc edit_config(file: Path, key: Str, value: Str) [fs, error] {
   let before = file.read_text()?
   let after = set_option(before, key, value)
   if after == before {
-    print f"${file.name()}: ${key} is already ${value}"
+    print f"{file.name()}: {key} is already {value}"
     return
   }
 
-  let backup = fp"${file}.bak"
+  let backup = fp"{file}.bak"
   fs.copy(file, backup, overwrite: true)?
   file.write_atomic(after)?
   print diff.unified(backup, file)?.text.trim()
@@ -1042,7 +1041,7 @@ proc edit_config(file: Path, key: Str, value: Str) [fs, error] {
 
 let scratch = fs.tempdir()?
 defer scratch.close()?
-let config = fp"${scratch.host_path()?}/sshd_config"
+let config = fp"{scratch.host_path()?}/sshd_config"
 config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")?
 
 edit_config(config, "PermitRootLogin", "no")?
@@ -1076,9 +1075,9 @@ not exit status 124 that you have to remember:
 let slow = run.capture --text --timeout=200ms sleep 5
 
 match slow {
-  Ok(out) => print f"finished: ${out.status.ok}"
+  Ok(out) => print f"finished: {out.status.ok}"
   Err(ProcessError.Timeout {..}) => print "timed out; process group killed"
-  Err(error) => print f"failed: ${error.message}"
+  Err(error) => print f"failed: {error.message}"
 }
 ```
 
@@ -1100,7 +1099,7 @@ var attempts = 0
 proc fetch_index() [error] -> Result[Str] {
   attempts += 1
   if attempts < 3 {
-    return Err(FetchError.Transient(message: f"attempt ${attempts}: connection reset"))
+    return Err(FetchError.Transient(message: f"attempt {attempts}: connection reset"))
   }
 
   "index-v42"
@@ -1110,7 +1109,7 @@ let index = retry [100ms, 200ms, 400ms] on (is Transient) {
   fetch_index()?
 }?
 
-print f"${index} after ${attempts} attempts"
+print f"{index} after {attempts} attempts"
 ```
 
 <!-- expected-output -->
@@ -1129,8 +1128,8 @@ let body = retry [1s, 2s, 4s] {
 }
 
 match body {
-  Ok(text) => print f"fetched ${text.byte_len()} bytes"
-  Err(error) => print f"mirror unavailable: ${error.message}"
+  Ok(text) => print f"fetched {text.byte_len()} bytes"
+  Err(error) => print f"mirror unavailable: {error.message}"
 }
 ```
 
@@ -1199,7 +1198,7 @@ type Check = {check: Str, ok: Bool, detail: Str}
 const pseudo_filesystems = ["devfs", "devtmpfs", "tmpfs", "overlay", "squashfs", "proc", "sysfs"]
 
 proc load_config(file: Path) [fs, error] -> Result[Config] {
-  ctx f"loading ${file}" {
+  ctx f"loading {file}" {
     # The return type supplies the schema: this is `.require(Config)`.
     json.read(file)?.require()?
   }
@@ -1208,13 +1207,13 @@ proc load_config(file: Path) [fs, error] -> Result[Config] {
 proc listening(svc: Service) [process, error] -> Result[Check] {
   let owners = process.port(svc.port)? |> where .state == "LISTEN" |> map .command
   let detail = if owners.len() > 0 { owners[0] } else { "nothing listening" }
-  Check(check: f"port ${svc.port} (${svc.name})", ok: owners.len() > 0, detail:)
+  Check(check: f"port {svc.port} ({svc.name})", ok: owners.len() > 0, detail:)
 }
 
 proc healthy(svc: Service, url: Str) [net] -> Check {
-  let label = f"health ${svc.name}"
+  let label = f"health {svc.name}"
   match net.request({method: "GET", url, timeout: 3s, fail_status: false}) {
-    Ok(response) => Check(check: label, ok: response.status == 200, detail: f"HTTP ${response.status}")
+    Ok(response) => Check(check: label, ok: response.status == 200, detail: f"HTTP {response.status}")
     Err(error) => Check(check: label, ok: false, detail: error.message)
   }
 }
@@ -1224,9 +1223,9 @@ proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
     |> where { |m| ! m.readonly and m.blocks_1k > 0 and m.fstype not in pseudo_filesystems }
     |> map { |m|
       Check(
-        check: f"disk ${m.mounted_on}",
+        check: f"disk {m.mounted_on}",
         ok: m.capacity_percent < threshold,
-        detail: f"${m.capacity_percent}% used",
+        detail: f"{m.capacity_percent}% used",
       )
     }
 }
@@ -1234,8 +1233,8 @@ proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
 proc files(names: List[Str]) [fs, error] -> Result[List[Check]] {
   var checks: List[Check] = []
   for name in names {
-    let present = fp"${name}".exists()?
-    checks += [Check(check: f"file ${name}", ok: present, detail: if present { "present" } else { "missing" })]
+    let present = fp"{name}".exists()?
+    checks += [Check(check: f"file {name}", ok: present, detail: if present { "present" } else { "missing" })]
   }
 
   checks
@@ -1262,12 +1261,12 @@ cli main(config: Path, emit_json = false) {
   } else {
     for c in all {
       let mark = if c.ok { "ok  " } else { "FAIL" }
-      print f"${mark} ${c.check:<32} ${c.detail}"
+      print f"{mark} {c.check:<32} {c.detail}"
     }
   }
 
   if failed > 0 {
-    eprint f"${failed} check(s) failed"
+    eprint f"{failed} check(s) failed"
     abort(1)
   }
 }
@@ -1338,7 +1337,7 @@ export pure set_option(text: Str, key: Str, value: Str) -> Str {
   for line in text.lines() {
     let words = line.replace("#", " ").fields()
     if ! done and words.len() > 0 and words[0] == key {
-      out += [f"${key} ${value}"]
+      out += [f"{key} {value}"]
       done = true
     } else {
       out += [line]
@@ -1346,7 +1345,7 @@ export pure set_option(text: Str, key: Str, value: Str) -> Str {
   }
 
   if ! done {
-    out += [f"${key} ${value}"]
+    out += [f"{key} {value}"]
   }
 
   out.join("\n") + "\n"
@@ -1361,9 +1360,9 @@ cli main(config: Path = /etc/ssh/sshd_config) {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {
-    fs.copy(config, fp"${config}.bak", overwrite: true)?
+    fs.copy(config, fp"{config}.bak", overwrite: true)?
     config.write_atomic(after)?
-    print f"updated ${config}"
+    print f"updated {config}"
   }
 }
 ```
@@ -1384,14 +1383,14 @@ test appends_missing_key {
 
 test harden_script_edits_file_and_keeps_backup { |ctx|
   let dir = test.temp_dir(ctx)?
-  let config = fp"${dir}/sshd_config"
+  let config = fp"{dir}/sshd_config"
   config.write("#PermitRootLogin yes\n")?
 
   let source = p"bin/harden.xsh".read_text()?
   let result = test.run_script(ctx, source, args: ["--config", config.display()])?
   assert result.success, result.stderr
   assert config.read_text()? == "PermitRootLogin no\n"
-  assert fp"${config}.bak".exists()?
+  assert fp"{config}.bak".exists()?
 }
 ```
 

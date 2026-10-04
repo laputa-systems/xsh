@@ -1,14 +1,14 @@
 type CheckResult = {ok: Bool, out: Str}
 
 proc run_check(src: Path) [fs, process, error] -> Result[CheckResult] {
-  let err = fp"${src}.err"
+  let err = fp"{src}.err"
   let status: Status = run.status "xsht" check $src 2> $err
   let out = err.read_text()?
   {ok: status.exited_with(0), out}
 }
 
 proc run_lint(src: Path) [fs, process] -> Result[Str] {
-  let err = fp"${src}.err"
+  let err = fp"{src}.err"
   run.status "xsht" lint $src 2> $err
   err.read_text()
 }

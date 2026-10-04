@@ -17,7 +17,7 @@ export proc repair_target(ctx: context.Context) [process, env, error, io] -> Res
       "container-ownership-repair",
       ctx.target.triple,
       "chown",
-      ["chown", "-R", f"${uid}:${gid}", ctx.target_dir.display()],
+      ["chown", "-R", f"{uid}:{gid}", ctx.target_dir.display()],
       ctx.root,
       {},
     ),
@@ -70,7 +70,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
     ),
   )?
   fs.remove(/bin/xsh, missing_ok: true)?
-  fs.symlink(fp"${ctx.target_dir}/release/xsh", /bin/xsh)?
+  fs.symlink(fp"{ctx.target_dir}/release/xsh", /bin/xsh)?
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
   stages.execute(
     stages.command(
@@ -106,7 +106,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       {},
     ),
   )?
-  let xsht = fp"${ctx.target_dir}/release/xsht"
+  let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
       "linux-native-tests",
@@ -114,7 +114,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       xsht.display(),
       [xsht.display(), "test"],
       ctx.root,
-      {CARGO_BIN_EXE_xsh_test_sleeper: fp"${ctx.target_dir}/release/xsh-test-sleeper".display()},
+      {CARGO_BIN_EXE_xsh_test_sleeper: fp"{ctx.target_dir}/release/xsh-test-sleeper".display()},
     ),
   )?
 }
@@ -165,11 +165,11 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
     ),
   )?
   if ctx.profile == "dev" {
-    let debug = fp"${ctx.target_dir}/debug"
+    let debug = fp"{ctx.target_dir}/debug"
     stages.ensure_dir(debug)?
     for product in targets.products {
-      let destination = fp"${debug}/${product}"
-      let source = fp"${ctx.target_dir}/${ctx.target.triple}/debug/${product}"
+      let destination = fp"{debug}/{product}"
+      let source = fp"{ctx.target_dir}/{ctx.target.triple}/debug/{product}"
       if destination != source {
         fs.remove(destination, missing_ok: true)?
         fs.symlink(source, destination)?
@@ -213,7 +213,7 @@ export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> R
       "coverage-ownership-repair",
       ctx.target.triple,
       "chown",
-      ["chown", "-R", f"${uid}:${gid}", ctx.coverage_dir.display()],
+      ["chown", "-R", f"{uid}:{gid}", ctx.coverage_dir.display()],
       ctx.root,
       {},
     ),

@@ -11,19 +11,19 @@ print json.encode(report)?
 test test_combined_coverage_report_includes_standard_api_hits { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "combined-coverage")?.resolve()?
-  let tests = fp"${root}/tests/xsh"
+  let tests = fp"{root}/tests/xsh"
   tests.mkdir()?
-  fp"${tests}/smoke.xsh".write("""test test_cpu_count [error] { test.ok(cpu.count() > 0)? }
+  fp"{tests}/smoke.xsh".write("""test test_cpu_count [error] { test.ok(cpu.count() > 0)? }
 """)?
 
-  let out_dir = fp"${root}/coverage"
-  let report_path = fp"${out_dir}/coverage.json"
-  let text_path = fp"${out_dir}/coverage.txt"
-  let stdout = fp"${root}/stdout.txt"
-  let stderr = fp"${root}/stderr.txt"
+  let out_dir = fp"{root}/coverage"
+  let report_path = fp"{out_dir}/coverage.json"
+  let text_path = fp"{out_dir}/coverage.txt"
+  let stdout = fp"{root}/stdout.txt"
+  let stderr = fp"{root}/stderr.txt"
   let xsh = ctx.xsh_bin
-  let xsht = fp"${ctx.xsh_bin.parent()}/xsht"
-  let tool = fp"${repo}/tools/xsh-cov.xsh"
+  let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
+  let tool = fp"{repo}/tools/xsh-cov.xsh"
   let command = process.command {
     cwd = root
     stdout = stdout
@@ -48,8 +48,8 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
 test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_values { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "coverage-wire")?.resolve()?
-  let input = fp"${root}/input.json"
-  let source = fp"${repo}/tools/xsh-cov.xsh".read_text()?
+  let input = fp"{root}/input.json"
+  let source = fp"{repo}/tools/xsh-cov.xsh".read_text()?
   let script = coverage_merge_script(source, root)?
 
   for example in [

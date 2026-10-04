@@ -344,7 +344,7 @@ proc main(argv: List[Str]) {
   let root = Path(\"target/lint\")
   let unused = 1
   let p = Path(src)
-  fs.mkdir(fp\"${root}/src/lib\", parents: true)?
+  fs.mkdir(fp\"{root}/src/lib\", parents: true)?
   run grep ${input} haystack ?
 
   if true {
@@ -604,7 +604,7 @@ fn linter_marks_display_string_interpolation_as_used() {
 proc main() {
   let dir = \"tmp\"
   let unused = \"never read\"
-  print f\"dir=$dir\"
+  print f\"dir={dir}\"
 }
 ";
     let parsed = parse_lint_source(source);
@@ -977,12 +977,12 @@ let newline = \"\"\"
 fn linter_path_constructor_owns_display_roundtrips_without_utf8_proof() {
     let source = "\
 proc parsed(root: Path, value: Str) -> Path {
-  return Path(fp\"${root}/${value}\".display())
+  return Path(fp\"{root}/{value}\".display())
 }
 
 proc main(root: Path, value: Str) [error] {
-  let direct = Path(fp\"${root}/${value}\".display())
-  let nested = Path(fp\"${root}/${value}\".display())
+  let direct = Path(fp\"{root}/{value}\".display())
+  let nested = Path(fp\"{root}/{value}\".display())
   print ${direct} ${nested}
 }
 ";
@@ -1010,7 +1010,7 @@ proc main(root: Path, value: Str) [error] {
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .map(|hint| hint.replacement.as_deref().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(constructor_fixes, ["fp\"${root}/${value}\""; 3], "diagnostics: {diagnostics:?}");
+    assert_eq!(constructor_fixes, ["fp\"{root}/{value}\""; 3], "diagnostics: {diagnostics:?}");
 }
 
 #[test]
@@ -1020,15 +1020,15 @@ type Row = {name: Str}
 
 proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
   let parsed_literal = Path(\"tmp/out\")
-  let parsed_fmt = Path(f\"${root}/${name}\")
-  let constructed_fmt = Path(f\"${root}/${name}\")
-  let same_path = fp\"${root}\"
-  let same_name = f\"${name}\"
+  let parsed_fmt = Path(f\"{root}/{name}\")
+  let constructed_fmt = Path(f\"{root}/{name}\")
+  let same_path = fp\"{root}\"
+  let same_name = f\"{name}\"
   let same_row = row.require(Row)?
   let raw: Any = {name}
   let checked_row = raw.require(Row)?
-  let same_count = f\"${count}\".parse_int()?
-  let same_ratio = f\"${ratio}\".parse_float()?
+  let same_count = f\"{count}\".parse_int()?
+  let same_ratio = f\"{ratio}\".parse_float()?
   print ${parsed_literal} ${parsed_fmt} ${constructed_fmt} ${same_path} ${same_name} ${same_row.name} ${checked_row.name} ${same_count} ${same_ratio}
 }
 ";
@@ -1062,7 +1062,7 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
 
     assert_eq!(
         fixes_for("lint.path-constructor"),
-        ["p\"tmp/out\"", "fp\"${root}/${name}\"", "fp\"${root}/${name}\""]
+        ["p\"tmp/out\"", "fp\"{root}/{name}\"", "fp\"{root}/{name}\""]
     );
     assert_eq!(fixes_for("lint.redundant-path-interpolation"), ["root"]);
     assert_eq!(fixes_for("lint.redundant-string-interpolation"), ["name"]);
@@ -1077,8 +1077,8 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
 fn linter_autofixes_single_value_command_fstrings() {
     let source = "\
 proc main(manifest: Path, name: Str) {
-  print f\"${manifest.display()}\"
-  print f\"${name}\"
+  print f\"{manifest.display()}\"
+  print f\"{name}\"
 }
 ";
     let parsed = parse_lint_source(source);
@@ -1602,8 +1602,8 @@ fn linter_command_path_display_fixes_pass_native_bytes() {
 run printf "%s" "--target=${raw.display()}" ?
 run printf "%s" ${raw.display()} ?
 run printf "%s" (raw.display()) ?
-run printf "%s" f"${raw.display()}" ?
-run printf "%s" f"${raw}" ?
+run printf "%s" f"{raw.display()}" ?
+run printf "%s" f"{raw}" ?
 "#;
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -1629,8 +1629,8 @@ run printf "%s" f"${raw}" ?
 fn linter_path_constructor_turns_displayed_path_text_into_native_pieces() {
     let source = r#"let raw = Path.parse_bytes(b"raw\xff name")?
 let displayed = Path(raw.display())
-let formatted = Path(f"${raw}")
-let compound = Path(f"${raw}/child")
+let formatted = Path(f"{raw}")
+let compound = Path(f"{raw}/child")
 print $displayed $formatted $compound
 "#;
     let parsed = parse_lint_source(source);
@@ -1645,12 +1645,12 @@ print $displayed $formatted $compound
         .flat_map(|diagnostic| &diagnostic.fix_hints)
         .map(|hint| hint.replacement.as_deref().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(fixes, ["raw", "raw", "fp\"${raw}/child\""], "{diagnostics:?}");
+    assert_eq!(fixes, ["raw", "raw", "fp\"{raw}/child\""], "{diagnostics:?}");
 }
 
 #[test]
 fn linter_path_constructor_utf8_text_fix_rechecks_and_converges() {
-    let source = "pure known(name: Str, count: Int) -> Path { Path(f\"${name}/${count}\") }\npure dynamic(raw: Any) -> Path { Path(f\"${raw}\") }\nlet literal = Path(p\"known\".display())\nprint known(\"name\", 2) $literal\n";
+    let source = "pure known(name: Str, count: Int) -> Path { Path(f\"{name}/{count}\") }\npure dynamic(raw: Any) -> Path { Path(f\"{raw}\") }\nlet literal = Path(p\"known\".display())\nprint known(\"name\", 2) $literal\n";
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -1666,8 +1666,8 @@ fn linter_path_constructor_utf8_text_fix_rechecks_and_converges() {
     assert_eq!(fixes.len(), 2, "{diagnostics:?}");
     let mut fixed = source.to_owned();
     for hint in fixes { fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap()); }
-    assert!(fixed.contains("fp\"${name}/${count}\""));
-    assert!(fixed.contains("Path(f\"${raw}\")"));
+    assert!(fixed.contains("fp\"{name}/{count}\""));
+    assert!(fixed.contains("Path(f\"{raw}\")"));
     assert_parse_check_standalone("UTF-8 path construction", &fixed);
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
@@ -2239,7 +2239,7 @@ fn linter_migrates_package_nested_assertions_and_multiline_match_membership() {
     Ok(_) => test.fail("unexpected success")?
     Err(problem) => test.contains(
       problem.message,
-      f"repeats ${expected}",
+      f"repeats {expected}",
     )?
   }
   match result {
@@ -2252,7 +2252,7 @@ fn linter_migrates_package_nested_assertions_and_multiline_match_membership() {
     assert!(fixed.contains("\"menucmd\" in configured"), "{fixed}");
     assert!(fixed.contains("\"termcmd\" in configured"), "{fixed}");
     assert!(fixed.contains("problem.message"), "{fixed}");
-    assert!(fixed.contains("repeats ${expected}"), "{fixed}");
+    assert!(fixed.contains("repeats {expected}"), "{fixed}");
 }
 
 #[test]
@@ -2415,7 +2415,7 @@ fn linter_skips_interpolating_string_and_literal_dollar_contexts() {
 let body = \"hello\"
 let escaped = \"literal \\$body\"
 let raw = r\"$body\"
-let fmt = f\"tags: ${body}\"
+let fmt = f\"tags: {body}\"
 print \"tags: $body\" $escaped $raw $fmt
 ";
     let parsed = parse_lint_source(source);
@@ -2853,7 +2853,7 @@ proc main() {
 
 #[test]
 fn linter_removes_checked_tail_returns_in_value_branches() {
-    let source = "pure label(code: Int) -> Str {\n  match code {\n    0 => return \"ok\"\n    _ => {\n      let detail: Str = f\"exit $code\"\n      return detail # retain this comment\n    }\n  }\n}\n";
+    let source = "pure label(code: Int) -> Str {\n  match code {\n    0 => return \"ok\"\n    _ => {\n      let detail: Str = f\"exit {code}\"\n      return detail # retain this comment\n    }\n  }\n}\n";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -3429,7 +3429,7 @@ fn formatter_retains_guarded_postfix_and_unicode_spans() {
 
 #[test]
 fn linter_map_entry_iteration_fix_preserves_spans_and_converges() {
-    let source = "# 源\nproc render(counts: Map[Int]) [error] -> List[Str] {\n  var output: List[Str] = []\n  for key in counts.keys() {\n    let count = counts.get(key)?\n    output += [f\"${key}=${count}\"]\n  }\n\n  return output\n}\n";
+    let source = "# 源\nproc render(counts: Map[Int]) [error] -> List[Str] {\n  var output: List[Str] = []\n  for key in counts.keys() {\n    let count = counts.get(key)?\n    output += [f\"{key}={count}\"]\n  }\n\n  return output\n}\n";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -3470,7 +3470,7 @@ fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_me
 
 #[test]
 fn linter_map_entry_iteration_preserves_mutation_inside_value_blocks() {
-    let source = "var counts: Map[Int] = {a: 1, b: 2}\nfor key in counts.keys() {\n  let count = counts.get(key)?\n  let changed = if true { counts[\"b\"] = 9; 0 } else { 0 }\n  print f\"$key=$count\"\n  let _ = changed\n}\n";
+    let source = "var counts: Map[Int] = {a: 1, b: 2}\nfor key in counts.keys() {\n  let count = counts.get(key)?\n  let changed = if true { counts[\"b\"] = 9; 0 } else { 0 }\n  print f\"{key}={count}\"\n  let _ = changed\n}\n";
     let snapshot = source.replace("for key in counts.keys() {\n  let count = counts.get(key)?", "for {key, value: count} in counts {");
     let temp = TempDir::new().unwrap();
     for (name, script, expected) in [("original", source, b"a=1\nb=9\n".as_slice()), ("snapshot", snapshot.as_str(), b"a=1\nb=2\n".as_slice())] {
@@ -4216,7 +4216,7 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
 
 #[test]
 fn core_assert_formatter_retains_statement_and_message_comments() {
-    let source = "proc check(value: Int) [error] {\n  # café context\n  assert value == 2, f\"value ${value}\" # useful context\n}\n";
+    let source = "proc check(value: Int) [error] {\n  # café context\n  assert value == 2, f\"value {value}\" # useful context\n}\n";
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
     assert_eq!(formatted.formatted, source);
@@ -4440,7 +4440,7 @@ fn block_string_concatenation_fix_rechecks_exact_bytes_and_converges() {
 fn block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_and_consumers() {
     for source in [
         "let value = \"first\\n\" + dynamic\n",
-        "let value = \"first\\n\" + f\"${dynamic}\"\n",
+        "let value = \"first\\n\" + f\"{dynamic}\"\n",
         "let value = \"first\\r\\n\" + \"second\"\n",
     ] {
         let parsed = parse_lint_source(source);
@@ -4549,10 +4549,10 @@ fn linter_named_argument_spread_requires_checked_record_facts() {
 
 #[test]
 fn lexical_ctx_formatter_preserves_value_and_label_and_converges() {
-    let source = "let value = ctx f\"operation ${1 + 2}\" {\n  # retain region explanation\n  7\n}\nprint $value\n";
+    let source = "let value = ctx f\"operation {1 + 2}\" {\n  # retain region explanation\n  7\n}\nprint $value\n";
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
-    assert!(formatted.formatted.contains("ctx f\"operation ${1 + 2}\""));
+    assert!(formatted.formatted.contains("ctx f\"operation {1 + 2}\""));
     assert!(formatted.formatted.contains("# retain region explanation"));
     assert_parse_check_standalone("context block", &formatted.formatted);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);

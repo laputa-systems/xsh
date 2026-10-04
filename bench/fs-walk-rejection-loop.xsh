@@ -11,5 +11,5 @@ proc main(...argv: List[Str]) [fs, io, error] {
     rejected += count
     index += 1
   }
-  print f"${rejected}"
+  print f"{rejected}"
 }

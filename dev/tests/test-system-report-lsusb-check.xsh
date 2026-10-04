@@ -107,9 +107,9 @@ printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_nu
   tools_root.chmod(p"xsh", 0o700)?
   let root_path = tools_root.host_path()?
   let result = lsusb_reference.compare_live_lsusb(
-    fp"${root_path}/xsh".display(),
-    fp"${root_path}/script".display(),
-    fp"${root_path}/lsusb".display(),
+    fp"{root_path}/xsh".display(),
+    fp"{root_path}/script".display(),
+    fp"{root_path}/lsusb".display(),
   )?
   assert result.comparison.matched_devices == 1
   assert result.comparison.matched_tree_rows == 1

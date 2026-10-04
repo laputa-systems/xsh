@@ -8,7 +8,7 @@ stream scoped(root: Path) [fs, env, process, error] -> Stream[Str] {
     let directory = cd (root) {
       defer {
         test.eq(fs.cwd()?, root)?
-        print f"cleanup:${env.get("XSH_ACCEPT_SCOPE")?}"
+        print f"cleanup:{env.get("XSH_ACCEPT_SCOPE")?}"
       }
       let rows = run.stream --text --accept=[0] sh -c "printf yes > entered; printenv XSH_ACCEPT_SCOPE; sleep 1; printf leaked > leaked" ?
       yield @ rows
@@ -29,8 +29,8 @@ proc main(...argv: List[Str]) [fs, env, process, time, error] {
   test.eq(fs.cwd()?, original)?
   test.eq(env.get("XSH_ACCEPT_SCOPE")?, "consumer")?
   time.sleep(1200ms)?
-  test.eq(fp"${root}/entered".read_text()?, "yes")?
-  print ${fp"${root}/leaked".exists()?}
+  test.eq(fp"{root}/entered".read_text()?, "yes")?
+  print ${fp"{root}/leaked".exists()?}
 }
 """,
     [root.display()],
@@ -56,7 +56,7 @@ stream scoped(root: Path) [fs, env, process, error] -> Stream[Str] {
     let directory = cd (root) {
       defer {
         test.eq(fs.cwd()?, root)?
-        print f"cleanup:${env.get("XSH_ACCEPT_SCOPE")?}"
+        print f"cleanup:{env.get("XSH_ACCEPT_SCOPE")?}"
       }
       let rows = run.stream --text --accept=[1] sh -c "printenv XSH_ACCEPT_SCOPE; exit 0" ?
       yield @ rows
@@ -106,7 +106,7 @@ test test_accept_named_stage_direct_rejection_stops_before_next_item { |ctx|
     ctx,
     r"""
 proc validate(item: Int) [process, error] -> Int {
-  print f"seen:${item}"
+  print f"seen:{item}"
   let status = run.status --accept=[1] sh -c "exit 0"
   item
 }
@@ -134,7 +134,7 @@ rejected zero
 test test_accept_named_stage_result_data_and_sink_propagation_stay_distinct { |ctx|
   let callback = r"""
 proc validate(item: Int) [process] -> Result[Unit, ProcessError] {
-  print f"seen:${item}"
+  print f"seen:{item}"
   try { let status = run.status --accept=[1] sh -c "exit 0" }
 }
 """
@@ -258,16 +258,16 @@ proc codes(marker: Path, accepted: List[Int] = [0, 1]) [fs, error] -> List[Int] 
   marker.write("child")?
   var copy = accepted
   copy += [2]
-  print f"policy:${copy.len()}"
+  print f"policy:{copy.len()}"
   copy
 }
 let select = codes
 let again = select
 proc main(...argv: List[Str]) [fs, process, error] {
   let root = Path(argv[0])
-  let one = fp"${root}/one"
-  let two = fp"${root}/two"
-  let three = fp"${root}/three"
+  let one = fp"{root}/one"
+  let two = fp"{root}/two"
+  let three = fp"{root}/three"
   print "created"
   let first = run.text --accept=again(marker: one) cat (one) ?
   print $first

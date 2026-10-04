@@ -59,7 +59,7 @@ fn prepared_path_literals_and_exported_data_preserve_comments_and_converge() {
 
 #[test]
 fn literal_migrations_retain_runtime_initialization_and_computed_arguments() {
-    let source = "let root = Path(\"out\")\nlet copied = root\nlet joined = fp\"${root}/file\"\nproc paths() -> Path { let local = p\"out\"; local }\nproc delays() -> List[Duration] {\n  var values = [1s]\n  values = values.push(time.millis(2))\n  values\n}\n";
+    let source = "let root = Path(\"out\")\nlet copied = root\nlet joined = fp\"{root}/file\"\nproc paths() -> Path { let local = p\"out\"; local }\nproc delays() -> List[Duration] {\n  var values = [1s]\n  values = values.push(time.millis(2))\n  values\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);

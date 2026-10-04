@@ -6,6 +6,6 @@ cli main(root: Path, limit: UInt = 5, hidden = false) {
     |> take(limit)
 
   for entry in largest {
-    print f"${entry.size:>12} ${entry.path}"
+    print f"{entry.size:>12} {entry.path}"
   }
 }

@@ -28,29 +28,29 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   let file_arg = opts.file.get(0) ?? ""
-  let fp = fp"${file_arg}"
+  let fp = fp"{file_arg}"
   let data = fp.read_bytes()?
   let size = data.len()
-  print f"file:   ${fp.name()}"
-  print f"size:   ${size} bytes"
-  print f"sha1:   ${data.sha1().hex()}"
-  print f"sha256: ${data.sha256().hex()}"
-  print f"sha512: ${data.sha512().hex()}"
-  print f"md5:    ${data.md5().hex()}"
-  print f"base64: ${data.base64()}"
-  print f"base32: ${data.base32()}"
+  print f"file:   {fp.name()}"
+  print f"size:   {size} bytes"
+  print f"sha1:   {data.sha1().hex()}"
+  print f"sha256: {data.sha256().hex()}"
+  print f"sha512: {data.sha512().hex()}"
+  print f"md5:    {data.md5().hex()}"
+  print f"base64: {data.base64()}"
+  print f"base32: {data.base32()}"
 
   if size > 0 {
     let preview_len = if size < 32 { size } else { 32 }
     let preview = data[..preview_len]
-    print f"hex:    ${preview.dump("hex-u8")}"
+    print f"hex:    {preview.dump("hex-u8")}"
   }
 
   if let Ok(decoded) = data.utf8() {
-    print f"text:   ${decoded.count_lines()} lines"
+    print f"text:   {decoded.count_lines()} lines"
   } else {
     let strings = data.strings(4)
-    print f"binary: ${strings.len()} printable strings"
+    print f"binary: {strings.len()} printable strings"
   }
 
   var chunk_count = 0
@@ -59,17 +59,17 @@ proc main(...argv: List[Str]) [fs, error] {
     chunk_count += 1
   }
 
-  print f"chunks: ${chunk_count} x ${opts.chunk_size} bytes"
+  print f"chunks: {chunk_count} x {opts.chunk_size} bytes"
 
   if opts.compare != "" {
-    let other_fp = fp"${opts.compare}"
+    let other_fp = fp"{opts.compare}"
     let other = other_fp.read_bytes()?
     let cmp = data.compare(other)
 
     if cmp.equal {
       print "compare: identical"
     } else {
-      print f"compare: differ at byte ${cmp.byte}"
+      print f"compare: differ at byte {cmp.byte}"
     }
   }
 }

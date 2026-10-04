@@ -24,7 +24,7 @@ export pure parse_request(value: Str) -> Result[CoverageRequest] {
       stages.StageError.Failed(
         stage: "coverage",
         target: "",
-        detail: f"unsupported backend ${value}",
+        detail: f"unsupported backend {value}",
       ),
     )
   }
@@ -86,7 +86,7 @@ export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Resu
 export proc native_linker() [process, env, error] -> Result[Path] {
   let configured = env.get_or("COV_NATIVE_LINKER", "")?.trim()
 
-  return fp"${configured}" when configured != ""
+  return fp"{configured}" when configured != ""
 
   for name in ["cc", "clang", "gcc"] {
     if let Ok(found) = process.which(name) {
@@ -104,7 +104,7 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
   let cargo = if cargo_value == "" { process.which("cargo")?.display() } else { cargo_value }
   let configured_bin = env.get_or("COV_CARGO_BIN", "")?.trim()
   let cargo_bin = if configured_bin == "" {
-    fp"${cargo}".parent().display()
+    fp"{cargo}".parent().display()
   } else {
     configured_bin
   }
@@ -145,21 +145,21 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
     "--rm",
     "--privileged",
     "-v",
-    f"${ctx.root}:/work",
+    f"{ctx.root}:/work",
     "-v",
     "xsh-test-cov-target:/work/target",
     "-v",
-    f"${ctx.coverage_dir}:/work/target/cov",
+    f"{ctx.coverage_dir}:/work/target/cov",
     "-w",
     "/work",
     "-e",
-    f"TARGET=${ctx.target.triple}",
+    f"TARGET={ctx.target.triple}",
     "-e",
     "CARGO_TARGET_DIR=/work/target",
     "-e",
-    f"HOST_UID=${identity.uid}",
+    f"HOST_UID={identity.uid}",
     "-e",
-    f"HOST_GID=${identity.gid}",
+    f"HOST_GID={identity.gid}",
     image,
     "cargo",
     "run",

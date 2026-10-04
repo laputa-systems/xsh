@@ -65,7 +65,7 @@ pure one_prefixed_line(output: Str, prefix: Str) -> Result[Str] {
   }
 
   if values.len() != 1 or values[0] == "" {
-    return Err(cpupower_failure(f"cpupower output lacks one ${prefix} line"))
+    return Err(cpupower_failure(f"cpupower output lacks one {prefix} line"))
   }
 
   values[0]
@@ -220,17 +220,17 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
       argv,
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
-      stderr: fp"${scratch_path}/${name}-error",
+      stdout: fp"{scratch_path}/{name}",
+      stderr: fp"{scratch_path}/{name}-error",
     ),
   )?
   if ! status.exited_with(0) {
-    return Err(cpupower_failure(f"cpupower ${name} command failed"))
+    return Err(cpupower_failure(f"cpupower {name} command failed"))
   }
 
-  let raw = root.read_result(fp"${name}", max_bytes: 65536)?
+  let raw = root.read_result(fp"{name}", max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(cpupower_failure(f"cpupower ${name} output is incomplete"))
+    return Err(cpupower_failure(f"cpupower {name} output is incomplete"))
   }
 
   raw.data.utf8()?
@@ -286,8 +286,8 @@ export proc compare_live_cpupower(
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   if ! candidate_status.exited_with(0) {
@@ -310,8 +310,8 @@ export proc compare_live_cpupower(
     comparison: compare_cpupower(candidate, reference)?,
     reference_started_unix_ms: started,
     candidate_started_unix_ms: candidate_started,
-    driver_sha256_hex: hash.sha256(fp"${scratch_path}/driver")?.hex(),
-    limits_sha256_hex: hash.sha256(fp"${scratch_path}/limits")?.hex(),
-    idle_sha256_hex: hash.sha256(fp"${scratch_path}/idle")?.hex(),
+    driver_sha256_hex: hash.sha256(fp"{scratch_path}/driver")?.hex(),
+    limits_sha256_hex: hash.sha256(fp"{scratch_path}/limits")?.hex(),
+    idle_sha256_hex: hash.sha256(fp"{scratch_path}/idle")?.hex(),
   }
 }

@@ -67,7 +67,7 @@ test test_float_negation_keeps_float_and_signed_zero {
   # a body, and the sign of a negated zero was lost.
   assert negated_floats([2.5, 0.5 - 0.5]) == [-2.5, -0.0]
   let zero = 0.5 - 0.5
-  assert f"${-zero} ${-negated_floats([1.25])[0]}" == "-0 1.25"
+  assert f"{-zero} {-negated_floats([1.25])[0]}" == "-0 1.25"
 }
 
 pure concatenations_ordered(left: Str, right: Str) -> Bool {
@@ -199,14 +199,14 @@ pure language_sugar_returned(value: Str) -> Result[Str] {
 
 test test_language_sugar_edge_cases { |ctx|
   let root = test.temp_dir(ctx, name: "language-sugar")?
-  let file = fp"${root}/note.txt"
+  let file = fp"{root}/note.txt"
   file.write("""alpha
 beta
 """)?
   let content = file.read_text()?
   let raw = r"\n ${literal}"
-  let nested = f"""${{name: "demo"}.name}:${if true { "x}" } else { "y" }}:${f"${1}"}"""
-  let escaped = f"\${not_interp}:${"ok"}:ca"
+  let nested = f"""{ {name: "demo"}.name }:{if true { "x}" } else { "y" }}:{f"{1}"}"""
+  let escaped = f"${{not_interp}}:{"ok"}:ca"
   let names = fs.children(root) |> map .name
 
   assert language_sugar_label("ok")? == "ok"

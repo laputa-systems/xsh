@@ -1233,23 +1233,23 @@ fn archive_module_roundtrips_compression_and_rejects_escape_paths() {
         "\
 let src = Path({})
 let out = Path({})
-let tgz = fp\"${{out}}/pkg.tar.gz\"
-let tbz = fp\"${{out}}/pkg.tar.bz2\"
-let txz = fp\"${{out}}/pkg.tar.xz\"
-let plain = fp\"${{out}}/pkg.tar\"
-let inferred = fp\"${{out}}/inferred.tgz\"
+let tgz = fp\"{{out}}/pkg.tar.gz\"
+let tbz = fp\"{{out}}/pkg.tar.bz2\"
+let txz = fp\"{{out}}/pkg.tar.xz\"
+let plain = fp\"{{out}}/pkg.tar\"
+let inferred = fp\"{{out}}/inferred.tgz\"
 archive.tar_create(tgz, src, [Path(\".\")], compression: \"gz\")?
 archive.tar_create(tbz, src, [Path(\".\")], compression: \"bz2\")?
 archive.tar_create(txz, src, [Path(\".\")], compression: \"xz\")?
 archive.tar_create(plain, src, [Path(\".\")])?
 archive.tar_create(inferred, src, [Path(\".\")])?
 let entries = archive.tar_list(tgz)?.collect()
-let dest = fp\"${{out}}/dest\"
+let dest = fp\"{{out}}/dest\"
 archive.tar_extract(tgz, dest)?
-let data = fp\"${{dest}}/dir/a.txt\".read_text()?.trim()
-let stripped = fp\"${{out}}/stripped\"
+let data = fp\"{{dest}}/dir/a.txt\".read_text()?.trim()
+let stripped = fp\"{{out}}/stripped\"
 archive.tar_extract(tgz, stripped, strip_components: 1)?
-let stripped_data = fp\"${{stripped}}/a.txt\".read_text()?.trim()
+let stripped_data = fp\"{{stripped}}/a.txt\".read_text()?.trim()
 match archive.tar_extract(tgz, dest) {{
   Err(e) => {{
     test.error_kind(e, \"archive-extract\")?
@@ -1259,83 +1259,83 @@ match archive.tar_extract(tgz, dest) {{
 print ${{stripped_data}}
 print ${{archive.tar_list(tbz)?.collect().len()}} ${{archive.tar_list(txz)?.collect().len()}} ${{archive.tar_list(plain)?.collect().len()}}
 print ${{archive.tar_list(inferred)?.collect().len()}}
-let cpio = fp\"${{out}}/pkg.cpio\"
+let cpio = fp\"{{out}}/pkg.cpio\"
 archive.cpio_create(cpio, src, [Path(\".\")])?
 let cpio_entries = archive.cpio_list(cpio)?.collect()
-let cpio_dest = fp\"${{out}}/cpio\"
+let cpio_dest = fp\"{{out}}/cpio\"
 archive.cpio_extract(cpio, cpio_dest)?
-print ${{cpio_entries.len()}} ${{fp\"${{cpio_dest}}/dir/a.txt\".read_text()?.trim()}}
-let payload = fp\"${{src}}/dir/a.txt\"
-let gz = fp\"${{out}}/a.txt.gz\"
-let bz2 = fp\"${{out}}/a.txt.bz2\"
-let xz = fp\"${{out}}/a.txt.xz\"
-let lzma = fp\"${{out}}/a.txt.lzma\"
+print ${{cpio_entries.len()}} ${{fp\"{{cpio_dest}}/dir/a.txt\".read_text()?.trim()}}
+let payload = fp\"{{src}}/dir/a.txt\"
+let gz = fp\"{{out}}/a.txt.gz\"
+let bz2 = fp\"{{out}}/a.txt.bz2\"
+let xz = fp\"{{out}}/a.txt.xz\"
+let lzma = fp\"{{out}}/a.txt.lzma\"
 archive.compress(payload, gz, format: \"gzip\")?
 archive.compress(payload, bz2, format: \"bzip2\")?
 archive.compress(payload, xz, format: \"xz\")?
 archive.compress(payload, lzma, format: \"lzma\")?
-let auto_gz = fp\"${{out}}/auto.gz\"
-let auto_bz2 = fp\"${{out}}/auto.bz2\"
-let auto_xz = fp\"${{out}}/auto.xz\"
-let auto_lzma = fp\"${{out}}/auto.lzma\"
+let auto_gz = fp\"{{out}}/auto.gz\"
+let auto_bz2 = fp\"{{out}}/auto.bz2\"
+let auto_xz = fp\"{{out}}/auto.xz\"
+let auto_lzma = fp\"{{out}}/auto.lzma\"
 archive.compress(payload, auto_gz)?
 archive.compress(payload, auto_bz2)?
 archive.compress(payload, auto_xz)?
 archive.compress(payload, auto_lzma)?
-let gz_probe = fp\"${{out}}/gzip.probe\"
-let bz2_probe = fp\"${{out}}/bzip2.probe\"
-let xz_probe = fp\"${{out}}/xz.probe\"
+let gz_probe = fp\"{{out}}/gzip.probe\"
+let bz2_probe = fp\"{{out}}/bzip2.probe\"
+let xz_probe = fp\"{{out}}/xz.probe\"
 auto_gz.copy(gz_probe)?
 auto_bz2.copy(bz2_probe)?
 auto_xz.copy(xz_probe)?
 let gz_data = archive.decompress_bytes(gz)?.utf8()?.trim()
-archive.decompress(bz2, fp\"${{out}}/a.bz2.out\")?
-archive.decompress(xz, fp\"${{out}}/a.xz.out\")?
-archive.decompress(lzma, fp\"${{out}}/a.lzma.out\")?
-print ${{gz_data}} ${{fp\"${{out}}/a.bz2.out\".read_text()?.trim()}} ${{fp\"${{out}}/a.xz.out\".read_text()?.trim()}} ${{fp\"${{out}}/a.lzma.out\".read_text()?.trim()}}
+archive.decompress(bz2, fp\"{{out}}/a.bz2.out\")?
+archive.decompress(xz, fp\"{{out}}/a.xz.out\")?
+archive.decompress(lzma, fp\"{{out}}/a.lzma.out\")?
+print ${{gz_data}} ${{fp\"{{out}}/a.bz2.out\".read_text()?.trim()}} ${{fp\"{{out}}/a.xz.out\".read_text()?.trim()}} ${{fp\"{{out}}/a.lzma.out\".read_text()?.trim()}}
 print ${{archive.decompress_bytes(gz_probe)?.utf8()?.trim()}} ${{archive.decompress_bytes(bz2_probe)?.utf8()?.trim()}} ${{archive.decompress_bytes(xz_probe)?.utf8()?.trim()}} ${{archive.decompress_bytes(auto_lzma)?.utf8()?.trim()}}
-match archive.compress(payload, fp\"${{out}}/bad.zz\", format: \"zip\") {{
+match archive.compress(payload, fp\"{{out}}/bad.zz\", format: \"zip\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-compression\")?
     print \"archive-compression\"
   }}
 }}
-match archive.compress(payload, fp\"${{out}}/bad.gz\", format: \"auto\", level: 10) {{
+match archive.compress(payload, fp\"{{out}}/bad.gz\", format: \"auto\", level: 10) {{
   Err(e) => {{
     test.error_kind(e, \"archive-compression\")?
     print \"archive-compression\"
   }}
 }}
-let unknown = fp\"${{out}}/unknown.bin\"
+let unknown = fp\"{{out}}/unknown.bin\"
 payload.copy(unknown)?
-match archive.decompress(unknown, fp\"${{out}}/unknown.out\") {{
+match archive.decompress(unknown, fp\"{{out}}/unknown.out\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-compression\")?
     print \"archive-compression\"
   }}
 }}
 let zip_entries = archive.zip_list(Path({}))?.collect()
-archive.zip_extract(Path({}), fp\"${{out}}/zip\")?
-print ${{zip_entries.len()}} ${{fp\"${{out}}/zip/zip/note.txt\".read_text()?.trim()}}
-match archive.tar_extract(Path({}), fp\"${{out}}/bad-parent\") {{
+archive.zip_extract(Path({}), fp\"{{out}}/zip\")?
+print ${{zip_entries.len()}} ${{fp\"{{out}}/zip/zip/note.txt\".read_text()?.trim()}}
+match archive.tar_extract(Path({}), fp\"{{out}}/bad-parent\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-path\")?
     print \"archive-path\"
   }}
 }}
-match archive.tar_extract(Path({}), fp\"${{out}}/bad-absolute\") {{
+match archive.tar_extract(Path({}), fp\"{{out}}/bad-absolute\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-path\")?
     print \"archive-path\"
   }}
 }}
-match archive.tar_extract(Path({}), fp\"${{out}}/bad-symlink\") {{
+match archive.tar_extract(Path({}), fp\"{{out}}/bad-symlink\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-escape\")?
     print \"archive-escape\"
   }}
 }}
-match archive.zip_extract(Path({}), fp\"${{out}}/bad-zip\") {{
+match archive.zip_extract(Path({}), fp\"{{out}}/bad-zip\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-path\")?
     print \"archive-path\"
@@ -1407,14 +1407,14 @@ let zip = Path({})
 let out = Path({})
 let entries = archive.zip_list(zip)?.collect()
 print ${{entries.len()}}
-match archive.zip_extract(zip, fp\"${{out}}/extract\") {{
+match archive.zip_extract(zip, fp\"{{out}}/extract\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-zip-extract\")?
     print \"archive-zip-extract\"
   }}
 }}
-archive.zip_extract(zip, fp\"${{out}}/extract\", overwrite: true)?
-print ${{fp\"${{out}}/extract/many/file-00.txt\".read_text()?.trim()}}
+archive.zip_extract(zip, fp\"{{out}}/extract\", overwrite: true)?
+print ${{fp\"{{out}}/extract/many/file-00.txt\".read_text()?.trim()}}
 let not_zip = Path({})
 match archive.zip_list(not_zip) {{
   Err(e) => {{
@@ -1422,7 +1422,7 @@ match archive.zip_list(not_zip) {{
     print \"archive-zip-open\"
   }}
 }}
-match archive.zip_extract(not_zip, fp\"${{out}}/bad-open\") {{
+match archive.zip_extract(not_zip, fp\"{{out}}/bad-open\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-zip-open\")?
     print \"archive-zip-open\"
@@ -1562,7 +1562,7 @@ fn archive_module_preserves_tar_metadata_filters_and_overwrites() {
         "\
 let src = Path({})
 let out = Path({})
-let tarball = fp\"${{out}}/pkg.tar\"
+let tarball = fp\"{{out}}/pkg.tar\"
 archive.tar_create(tarball, src, [p\".\"])?
 let entries = archive.tar_list(tarball)?
 var entry_count = 0
@@ -1585,19 +1585,19 @@ for entry in entries {{
 }}
 print ${{entry_count}} ${{file_kind}} ${{file_mode}} ${{file_size}} ${{link_kind}} ${{link_name}}
 print ${{archive.tar_list(tarball, \"\", [p\"dir\"])?.collect().len()}}
-let dest = fp\"${{out}}/dest\"
+let dest = fp\"{{out}}/dest\"
 archive.tar_extract(tarball, dest)?
-print ${{fp\"${{dest}}/dir/a.txt\".read_text()?.trim()}} ${{fp\"${{dest}}/dir/a.txt\".metadata()?.mode % 512}} ${{fp\"${{dest}}/link\".metadata()?.kind}} ${{fp\"${{dest}}/link\".readlink()?.display()}}
-fp\"${{dest}}/dir/a.txt\".write(\"stale\")?
+print ${{fp\"{{dest}}/dir/a.txt\".read_text()?.trim()}} ${{fp\"{{dest}}/dir/a.txt\".metadata()?.mode % 512}} ${{fp\"{{dest}}/link\".metadata()?.kind}} ${{fp\"{{dest}}/link\".readlink()?.display()}}
+fp\"{{dest}}/dir/a.txt\".write(\"stale\")?
 archive.tar_extract(tarball, dest, 0, \"\", true, [p\"dir/a.txt\"])?
-print ${{fp\"${{dest}}/dir/a.txt\".read_text()?.trim()}}
-let selected = fp\"${{out}}/selected\"
+print ${{fp\"{{dest}}/dir/a.txt\".read_text()?.trim()}}
+let selected = fp\"{{out}}/selected\"
 archive.tar_extract(tarball, selected, 0, \"\", false, [p\"dir\"])?
-print ${{fp\"${{selected}}/dir/a.txt\".exists()?}} ${{fp\"${{selected}}/dir/other.txt\".exists()?}} ${{fp\"${{selected}}/link\".exists()?}}
-let stripped = fp\"${{out}}/stripped\"
+print ${{fp\"{{selected}}/dir/a.txt\".exists()?}} ${{fp\"{{selected}}/dir/other.txt\".exists()?}} ${{fp\"{{selected}}/link\".exists()?}}
+let stripped = fp\"{{out}}/stripped\"
 archive.tar_extract(tarball, stripped, 2)?
-print ${{fp\"${{stripped}}/a.txt\".exists()?}}
-match archive.tar_extract(tarball, fp\"${{out}}/negative\", -1) {{
+print ${{fp\"{{stripped}}/a.txt\".exists()?}}
+match archive.tar_extract(tarball, fp\"{{out}}/negative\", -1) {{
   Err(e) => {{
     test.error_kind(e, \"archive-extract\")?
     print \"archive-extract\"
@@ -1642,15 +1642,15 @@ fn archive_module_roundtrips_long_tar_paths_and_link_targets() {
         "\
 let src = Path({})
 let out = Path({})
-let tarball = fp\"${{out}}/pkg.tar\"
+let tarball = fp\"{{out}}/pkg.tar\"
 archive.tar_create(tarball, src, [p\".\"])?
 let path_entries = archive.tar_list(tarball, \"\", [Path({})])?.collect()
 let link_entries = archive.tar_list(tarball, \"\", [p\"long-link\"])?.collect()
 print path_entries[0].path.display()
 print link_entries[0].link_name
-let dest = fp\"${{out}}/dest\"
+let dest = fp\"{{out}}/dest\"
 archive.tar_extract(tarball, dest)?
-print fp\"${{dest}}/long-link\".readlink()?.display()
+print fp\"{{dest}}/long-link\".readlink()?.display()
 ",
         xsh_string_literal(src.to_str().unwrap()),
         xsh_string_literal(out.to_str().unwrap()),
@@ -1731,7 +1731,7 @@ fn archive_module_extracts_tar_hardlinks_as_hardlinks() {
 let tar_path = Path({})
 let out = Path({})
 archive.tar_extract(tar_path, out)?
-print ${{fp\"${{out}}/dir/source.txt\".read_text()?.trim()}} ${{fp\"${{out}}/dir/copy.txt\".read_text()?.trim()}}
+print ${{fp\"{{out}}/dir/source.txt\".read_text()?.trim()}} ${{fp\"{{out}}/dir/copy.txt\".read_text()?.trim()}}
 ",
         xsh_string_literal(archive.to_str().unwrap()),
         xsh_string_literal(out.to_str().unwrap()),
@@ -3101,13 +3101,13 @@ fn path_interpolation_preserves_native_bytes_in_literals_and_compound_argv() {
     let source = format!(r#"
 let show = Path({show})
 let raw = Path.parse_bytes(b"raw\xff name/'\"")?
-let composed = fp"prefix/${{raw}}/../end"
+let composed = fp"prefix/{{raw}}/../end"
 print --flush ${{composed == Path.parse_bytes(b"prefix/raw\xff name/'\"/../end")?}}
 let direct = run.text (show) "--target=$raw" ?
 print --flush ${{direct == {expected}}}
 let spliced = run.text (show) @([raw, p""]) ?
 print --flush ${{spliced == {spliced}}}
-let human = run.text (show) (f"--target=$raw") ?
+let human = run.text (show) (f"--target={{raw}}") ?
 print --flush ${{human == {human}}}
 let stored = process.command {{
   run (show) "--target=${{raw}}"
@@ -3146,13 +3146,13 @@ fn path_interpolation_preserves_real_native_filename_and_redirection_bytes() {
 let root = Path({root})
 let name = Path.parse_bytes(b"source\xff name")?
 let destination = Path.parse_bytes(b"output\xff name")?
-let composed = fp"${{root}}/${{name}}"
+let composed = fp"{{root}}/{{name}}"
 print ${{composed.read_bytes()? == b"native contents"}}
 let direct = run.bytes cat < "$root/$name" ?
 print ${{direct == b"native contents"}}
 let command = process.command {{
-  stdin = fp"${{root}}/${{name}}"
-  stdout = fp"${{root}}/${{destination}}"
+  stdin = fp"{{root}}/{{name}}"
+  stdout = fp"{{root}}/{{destination}}"
   run cat
 }}
 process.run(command)?

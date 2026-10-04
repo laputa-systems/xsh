@@ -10,7 +10,7 @@ proc measure(binary: Str, name: Str, phase: Str, index: Int, side: Str) [process
   }
   let measured = time.measure(process.command_argv(binary, command), quiet: true)?
   if ! measured.status.exited_with(0) { abort(1) }
-  print f"${name}\t${phase}\t${index}\t${side}\t${measured.wall_ns}"
+  print f"{name}\t{phase}\t{index}\t{side}\t{measured.wall_ns}"
 }
 
 proc main(...argv: List[Str]) [process, time, io, error] {

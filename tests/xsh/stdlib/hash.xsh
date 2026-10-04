@@ -11,7 +11,7 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
 
   assert hash.crc32(b"123456789") == 3421780262
   assert hash.crc32c(b"123456789") == 3808858755
-  let check = hash.parse_check_line(f"${digest.hex()}  ${data_path.name()}")?
+  let check = hash.parse_check_line(f"{digest.hex()}  {data_path.name()}")?
   assert check.hex == digest.hex()
   assert check.path == data_path.name()
   hash.verify_file(data_path, sha256: digest.hex())?
@@ -73,16 +73,14 @@ test test_hash_verify_file_policy { |ctx|
   # A well-formed checksum of something else reports both spellings, with the
   # expected one as the caller wrote it.
   let zeros64 = "0000000000000000000000000000000000000000000000000000000000000000"
-  assert verify_message(hash.verify_file(data_path, sha256: zeros64)) == f"sha256 digest mismatch: expected ${zeros64}, got ${digest.hex()}"
+  assert verify_message(hash.verify_file(data_path, sha256: zeros64)) == f"sha256 digest mismatch: expected {zeros64}, got {digest.hex()}"
 
   # Each named algorithm selects its own digest, and the failure names it.
   assert verify_message(hash.verify_file(data_path, md5: hash.md5(data_path)?.hex())) == ""
   assert verify_message(hash.verify_file(data_path, sha1: hash.sha1(data_path)?.hex())) == ""
   assert verify_message(hash.verify_file(data_path, sha512: hash.sha512(data_path)?.hex())) == ""
   let zeros32 = "00000000000000000000000000000000"
-  assert verify_message(hash.verify_file(data_path, md5: zeros32)) == f"md5 digest mismatch: expected ${zeros32}, got ${hash.md5(
-    data_path,
-  )?.hex()}"
+  assert verify_message(hash.verify_file(data_path, md5: zeros32)) == f"md5 digest mismatch: expected {zeros32}, got {hash.md5(data_path)?.hex()}"
 
   # The file is hashed before the checksum is validated, so a path that cannot
   # be read reports its read failure even when the checksum is malformed.
@@ -129,8 +127,8 @@ test test_hash_verify_file_policy { |ctx|
   var previous_digest = ""
   var index = 0
   while index < 32 {
-    let batch_path = test.temp_path(ctx, name: f"hash-verify-batch-${index}.txt")
-    fs.write(batch_path, f"batch ${index}")?
+    let batch_path = test.temp_path(ctx, name: f"hash-verify-batch-{index}.txt")
+    fs.write(batch_path, f"batch {index}")?
     let batch_digest = hash.sha256(batch_path)?.hex()
     assert verify_message(hash.verify_file(batch_path, sha256: batch_digest)) == ""
     if index > 0 {
@@ -163,19 +161,19 @@ pure check_line_message(result: Result[Record]) -> Str {
 test test_parse_check_line_reads_both_gnu_separators {
   let digest = "900150983cd24fb0d6963f7d28e17f72"
 
-  let two_space = hash.parse_check_line(f"${digest}  docs/readme.txt")?
+  let two_space = hash.parse_check_line(f"{digest}  docs/readme.txt")?
   assert two_space.hex == digest
   assert two_space.path == "docs/readme.txt"
   assert two_space.binary == false
 
-  let space_star = hash.parse_check_line(f"${digest} *readme.bin")?
+  let space_star = hash.parse_check_line(f"{digest} *readme.bin")?
   assert space_star.hex == digest
   assert space_star.path == "readme.bin"
   assert space_star.binary == true
 
   # A path may contain spaces: everything after the separator is kept, and
   # only trailing carriage returns are trimmed.
-  let spaced = hash.parse_check_line(f"${digest}  my file.txt ")?
+  let spaced = hash.parse_check_line(f"{digest}  my file.txt ")?
   assert spaced.path == "my file.txt "
 }
 
@@ -184,12 +182,12 @@ test test_parse_check_line_handles_path_star_and_marker {
 
   # The marker comes from the separator, so a star that begins a double-space
   # path is stripped as part of the path and does not set the marker.
-  let starred = hash.parse_check_line(f"${digest}  *readme.bin")?
+  let starred = hash.parse_check_line(f"{digest}  *readme.bin")?
   assert starred.path == "readme.bin"
   assert starred.binary == false
 
   # Exactly one leading star is dropped; a second one stays in the path.
-  let twice = hash.parse_check_line(f"${digest}  **readme.bin")?
+  let twice = hash.parse_check_line(f"{digest}  **readme.bin")?
   assert twice.path == "*readme.bin"
   assert twice.binary == false
 }

@@ -22,11 +22,11 @@ proc main(...argv: List[Str]) [fs, error, io] {
     },
   )?
 
-  let data = if parsed.input == "" { io.stdin_bytes()? } else { fp"${parsed.input}".read_bytes()? }
+  let data = if parsed.input == "" { io.stdin_bytes()? } else { fp"{parsed.input}".read_bytes()? }
   io.write_stdout_bytes(data)?
 
   for out in parsed.outputs {
-    let target = fp"${out}"
+    let target = fp"{out}"
     let existing = if parsed.append and target.exists()? { target.read_bytes()? } else { b"" }
     target.write(bytes.concat([existing, data]))?
   }

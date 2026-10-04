@@ -54,7 +54,7 @@ let _ = cli.parse([], schema)
 
 test cli_constants_import_projection_and_composition_keep_types { |ctx|
   let root = test.temp_dir(ctx, name: "cli-constant-module")?
-  fp"${root}/config.xsh".write_atomic(r"""##! CLI configuration.
+  fp"{root}/config.xsh".write_atomic(r"""##! CLI configuration.
 ## Prepared descriptor fields.
 export const descriptors = {schema: {jobs: {default: 4}, root: {kind: "Path", required: true}}}
 """)?
@@ -104,7 +104,7 @@ test cli_constants_dynamic_descriptors_keep_runtime_validation {
 
 test cli_constants_invalid_imported_composition_reports_original_descriptor { |ctx|
   let root = test.temp_dir(ctx, name: "cli-invalid-module")?
-  fp"${root}/invalid_config.xsh".write_atomic(r"""##! Invalid descriptor fixture.
+  fp"{root}/invalid_config.xsh".write_atomic(r"""##! Invalid descriptor fixture.
 ## Known malformed option.
 export const descriptors = {count: {kind: "Nope"}}
 """)?

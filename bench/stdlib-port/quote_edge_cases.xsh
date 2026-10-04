@@ -10,5 +10,5 @@ words""", "h\u{e9}llo", "_@%+=:,./-", "a/b_c-1.2", "日本"],
     )
     index = index + 1
   }
-  print f"${shlex.join(words).byte_len()}"
+  print f"{shlex.join(words).byte_len()}"
 }

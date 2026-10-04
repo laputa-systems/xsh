@@ -2,7 +2,7 @@
 proc main(...names: List[Str]) [env, error] {
   if names.len() == 0 {
     for item in env.list() |> sort-by .name {
-      print f"${item.name}=${item.value}"
+      print f"{item.name}={item.value}"
     }
 
     return

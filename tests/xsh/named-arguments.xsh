@@ -149,10 +149,10 @@ test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent { |ctx
 
 test test_named_argument_pun_fixes_shared_import_once { |ctx|
   let root = test.temp_dir(ctx, name: "named-pun-shared")?
-  let helper = fp"${root}/helper.xsh"
+  let helper = fp"{root}/helper.xsh"
   helper.write_atomic(p"tests/fixtures/syntax/valid/named-argument-pun-module.xsh".read_text()?)?
-  let first_entry = fp"${root}/first.xsh"
-  let second_entry = fp"${root}/second.xsh"
+  let first_entry = fp"{root}/first.xsh"
+  let second_entry = fp"{root}/second.xsh"
   first_entry.write_atomic(r"""use helper
 print ${helper.relay(1)}
 """)?

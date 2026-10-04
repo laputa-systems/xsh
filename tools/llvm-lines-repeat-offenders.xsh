@@ -85,7 +85,7 @@ pure is_decimal(text: Str) -> Bool {
 pure normalize_function_name(name: Str) -> Str {
   let parts = name.split("::<")
 
-  return f"${parts[0]}::<_>" when parts.len() > 1
+  return f"{parts[0]}::<_>" when parts.len() > 1
 
   name
 }
@@ -302,9 +302,9 @@ pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {
     }
   }
 
-  output = output.push(f"# truncated: kept top ${max_rows} individual llvm-lines rows from ${rows} rows")
+  output = output.push(f"# truncated: kept top {max_rows} individual llvm-lines rows from {rows} rows")
 
-  f"""${output.join("\n")}
+  f"""{output.join("\n")}
 """
 }
 
@@ -321,15 +321,15 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
 
   if artifact == "" {
     let pid = process.current_pid()?
-    let dir = fp"/tmp/xsh-llvm-lines-${pid}"
+    let dir = fp"/tmp/xsh-llvm-lines-{pid}"
 
     if ! dir.exists()? {
       dir.mkdir()?
     }
 
-    artifact_path = fp"${dir}/xsh-llvm-lines.txt"
+    artifact_path = fp"{dir}/xsh-llvm-lines.txt"
   } else {
-    artifact_path = fp"${artifact}"
+    artifact_path = fp"{artifact}"
   }
 
   artifact_path.parent().mkdir()?
@@ -340,7 +340,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
 proc read_input(input: Str) [fs, error, io] -> Result[InputText] {
   return Ok({text: io.stdin_text()?, artifact: ""}) when input == "-"
 
-  let input_path = fp"${input}"
+  let input_path = fp"{input}"
   Ok({text: fs.read_text(input_path)?, artifact: input_path.display()})
 }
 
@@ -348,18 +348,18 @@ proc print_text(rows: List[Offender], limit: Int, artifact: Str) [io] {
   let shown = if limit <= 0 or limit > rows.len() { rows.len() } else { limit }
 
   if artifact != "" {
-    print f"llvm-lines artifact: ${artifact}"
+    print f"llvm-lines artifact: {artifact}"
   }
 
-  print f"top ${shown} llvm-lines repeat offenders"
-  print f"  ${"duplicated":>10} ${"total":>10} ${"inst":>5} ${"max":>8}  function"
+  print f"top {shown} llvm-lines repeat offenders"
+  print f"  {"duplicated":>10} {"total":>10} {"inst":>5} {"max":>8}  function"
 
   for row in rows |> take(shown) {
-    print f"  ${row.duplicated_lines:>10} ${row.total_lines:>10} ${row.instances:>5} ${row.max_instance_lines:>8}  ${row.name}"
+    print f"  {row.duplicated_lines:>10} {row.total_lines:>10} {row.instances:>5} {row.max_instance_lines:>8}  {row.name}"
 
     for example in row.examples {
       if example != row.name {
-        print f"      ${example}"
+        print f"      {example}"
       }
     }
   }
@@ -401,9 +401,9 @@ proc print_summary(
       )?,
     )?
   } else if g > 0 {
-    print f"scope=${scope} filter=\"${filter}\" offenders=${rows.len()} instances=${instances} duplicated=${duplicated} (${pct}% of ${grand})"
+    print f"scope={scope} filter=\"{filter}\" offenders={rows.len()} instances={instances} duplicated={duplicated} ({pct}% of {grand})"
   } else {
-    print f"scope=${scope} filter=\"${filter}\" offenders=${rows.len()} instances=${instances} duplicated=${duplicated}"
+    print f"scope={scope} filter=\"{filter}\" offenders={rows.len()} instances={instances} duplicated={duplicated}"
   }
 }
 

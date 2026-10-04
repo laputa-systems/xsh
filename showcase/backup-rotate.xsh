@@ -44,12 +44,12 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by(desc: true) .path
 
   if all_files.len() == 0 {
-    print f"no files found in ${dir}"
+    print f"no files found in {dir}"
     return
   }
 
   if opts.verbose {
-    print f"${all_files.len()} files found, keeping ${opts.keep}"
+    print f"{all_files.len()} files found, keeping {opts.keep}"
   }
 
   var kept = 0
@@ -61,7 +61,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     if item.index < opts.keep {
       if opts.verbose {
-        print f"keep: ${name}"
+        print f"keep: {name}"
       }
 
       kept += 1
@@ -69,10 +69,10 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     if opts.dry_run {
-      print f"would delete: ${name}"
+      print f"would delete: {name}"
     } else {
       entry.path.remove()?
-      print f"delete: ${name}"
+      print f"delete: {name}"
     }
 
     deleted += 1
@@ -81,8 +81,8 @@ proc main(...argv: List[Str]) [fs, error] {
   print ""
 
   if opts.dry_run {
-    print f"kept ${kept}  would delete ${deleted} (dry run)"
+    print f"kept {kept}  would delete {deleted} (dry run)"
   } else {
-    print f"kept ${kept}  deleted ${deleted}"
+    print f"kept {kept}  deleted {deleted}"
   }
 }

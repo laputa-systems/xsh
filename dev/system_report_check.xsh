@@ -2571,11 +2571,11 @@ export pure summary(assertions: List[CoverageAssertion]) -> Str {
       }
     }
 
-    lines = f"""${lines}  ${domain_group.key}: ${group_mandatory} mandatory, ${group_supplemental} supplemental
+    lines = f"""{lines}  {domain_group.key}: {group_mandatory} mandatory, {group_supplemental} supplemental
 """
   }
 
-  f"${lines}total: ${mandatory} mandatory, ${supplemental} supplemental"
+  f"{lines}total: {mandatory} mandatory, {supplemental} supplemental"
 }
 
 ## Reads CPU identities from util-linux's explicit-column JSON output.
@@ -2616,7 +2616,7 @@ export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu]] 
   var seen = set.empty()
   var rows: List[LscpuTopologyCpu] = []
   for item in data.cpus {
-    let key = f"${item.cpu}"
+    let key = f"{item.cpu}"
     if item.cpu < 0 or key in seen or (item.socket != null and (item.socket ?? -1) < 0) or (item.core != null and (item.core ?? -1) < 0) or (item.node != null and (item.node ?? -1) < 0) {
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
     }
@@ -2637,7 +2637,7 @@ export pure select_present_lscpu_topology(
 ) -> Result[List[LscpuTopologyCpu]] {
   var present_set = set.empty()
   for id in present {
-    let key = f"${id}"
+    let key = f"{id}"
     if id < 0 or key in present_set {
       return Err(check_failure("CPU present reference has an invalid or duplicate ID"))
     }
@@ -2648,7 +2648,7 @@ export pure select_present_lscpu_topology(
   var selected: List[LscpuTopologyCpu] = []
   var seen = set.empty()
   for item in rows {
-    let key = f"${item.cpu}"
+    let key = f"{item.cpu}"
     if item.cpu < 0 or key in seen {
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU ID"))
     }
@@ -2670,7 +2670,7 @@ pure topology_group_signatures(groups: Map[List[Int]]) -> List[Str] {
   var signatures: List[Str] = []
   for {value: group_members, ..} in groups {
     let members = group_members |> sort-by .
-    var parts = [f"${member}" for member in members]
+    var parts = [f"{member}" for member in members]
     signatures = signatures.push(parts.join(","))
   }
 
@@ -2691,13 +2691,13 @@ pure topology_group_difference(reference: List[Str], candidate: List[Str]) -> Li
 
   for item in reference {
     if item not in candidate_set {
-      mismatches = mismatches.push(f"missing:${item}")
+      mismatches = mismatches.push(f"missing:{item}")
     }
   }
 
   for item in candidate {
     if item not in reference_set {
-      mismatches = mismatches.push(f"unexpected:${item}")
+      mismatches = mismatches.push(f"unexpected:{item}")
     }
   }
 
@@ -2726,7 +2726,7 @@ export pure compare_lscpu_topology(
   var eligible = before.len() > 0
   for index in range(before.len()) {
     let item = before[index]
-    let key = f"${item.cpu}"
+    let key = f"{item.cpu}"
     if item.cpu < 0 or key in reference_by_id {
       return Err(check_failure("lscpu topology reference has an invalid or duplicate CPU"))
     }
@@ -2737,23 +2737,23 @@ export pure compare_lscpu_topology(
       continue
     }
 
-    let package_key = f"${item.socket ?? -1}"
-    let core_key = f"${package_key}/${item.core ?? -1}"
+    let package_key = f"{item.socket ?? -1}"
+    let core_key = f"{package_key}/{item.core ?? -1}"
     reference_packages = reference_packages.set(package_key, (reference_packages.get(package_key) ?? []).push(item.cpu))
     reference_cores = reference_cores.set(core_key, (reference_cores.get(core_key) ?? []).push(item.cpu))
   }
 
   for index in range(candidate.len()) {
     let item = candidate[index]
-    let key = f"${item.id}"
+    let key = f"{item.id}"
     if item.id < 0 or key in candidate_by_id {
       return Err(check_failure("candidate topology has an invalid or duplicate CPU"))
     }
 
     candidate_by_id = candidate_by_id.set(key, index)
     continue when item.package_id == null or item.core_id == null or (item.package_id ?? -1) < 0 or (item.core_id ?? -1) < 0
-    let package_key = f"${item.package_id ?? -1}"
-    let core_key = f"${package_key}/${item.core_id ?? -1}"
+    let package_key = f"{item.package_id ?? -1}"
+    let core_key = f"{package_key}/{item.core_id ?? -1}"
     candidate_packages = candidate_packages.set(package_key, (candidate_packages.get(package_key) ?? []).push(item.id))
     candidate_cores = candidate_cores.set(core_key, (candidate_cores.get(core_key) ?? []).push(item.id))
   }
@@ -2765,7 +2765,7 @@ export pure compare_lscpu_topology(
   var field_missing: List[Str] = []
   var matched_count = 0
   for item in before {
-    let key = f"${item.cpu}"
+    let key = f"{item.cpu}"
     if key not in candidate_by_id {
       missing_ids = missing_ids.push(item.cpu)
       continue
@@ -2774,34 +2774,34 @@ export pure compare_lscpu_topology(
     matched_count += 1
     let actual = candidate[candidate_by_id.get(key)?]
     if ! actual.present or actual.online != item.online {
-      field_missing = field_missing.push(f"${item.cpu}.presence_or_online")
+      field_missing = field_missing.push(f"{item.cpu}.presence_or_online")
     }
 
     if actual.package_id == null or (actual.package_id ?? -1) < 0 {
-      field_missing = field_missing.push(f"${item.cpu}.package_id")
+      field_missing = field_missing.push(f"{item.cpu}.package_id")
     }
 
     if actual.core_id == null or (actual.core_id ?? -1) < 0 {
-      field_missing = field_missing.push(f"${item.cpu}.core_id")
+      field_missing = field_missing.push(f"{item.cpu}.core_id")
     }
 
     if item.node != null and actual.numa_node == null {
-      field_missing = field_missing.push(f"${item.cpu}.numa_node")
+      field_missing = field_missing.push(f"{item.cpu}.numa_node")
     } else if item.node != null and actual.numa_node != item.node {
-      node_mismatches = node_mismatches.push(f"${item.cpu}.numa_node")
+      node_mismatches = node_mismatches.push(f"{item.cpu}.numa_node")
     }
 
     if item.socket != null and item.core != null {
-      let core_key = f"${item.socket ?? -1}/${item.core ?? -1}"
+      let core_key = f"{item.socket ?? -1}/{item.core ?? -1}"
       let expected_siblings = reference_cores.get(core_key) ?? [] |> sort-by .
       if actual.thread_siblings != expected_siblings {
-        sibling_mismatches = sibling_mismatches.push(f"${item.cpu}.thread_siblings")
+        sibling_mismatches = sibling_mismatches.push(f"{item.cpu}.thread_siblings")
       }
     }
   }
 
   for item in candidate {
-    if f"${item.id}" not in reference_by_id {
+    if f"{item.id}" not in reference_by_id {
       unexpected_ids = unexpected_ids.push(item.id)
     }
   }
@@ -2833,11 +2833,11 @@ export pure compare_lscpu_topology(
 
 pure cache_instance_key(source: CpuCacheReference) -> Str {
   guard source.kernel_id == null else {
-    return f"kernel:${source.level}:${source.kind.count_chars()}:${source.kind}:${source.kernel_id ?? -1}"
+    return f"kernel:{source.level}:{source.kind.count_chars()}:{source.kind}:{source.kernel_id ?? -1}"
   }
 
-  var ids = [f"${cpu_id}" for cpu_id in source.shared_cpus]
-  f"fallback:${source.level}:${source.kind.count_chars()}:${source.kind}:${source.sysfs_index}:${ids.join(",")}"
+  var ids = [f"{cpu_id}" for cpu_id in source.shared_cpus]
+  f"fallback:{source.level}:{source.kind.count_chars()}:{source.kind}:{source.sysfs_index}:{ids.join(",")}"
 }
 
 pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCacheReference]] {
@@ -2850,7 +2850,7 @@ pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCac
 
     var seen = set.empty()
     for cpu_id in row.shared_cpus {
-      let key = f"${cpu_id}"
+      let key = f"{cpu_id}"
       if cpu_id < 0 or key in seen {
         return Err(check_failure("cache reference repeats a shared CPU"))
       }
@@ -2858,7 +2858,7 @@ pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCac
       seen = set.add(seen, key)
     }
 
-    let source_key = f"${row.owner_cpu_id}:${row.sysfs_index}"
+    let source_key = f"{row.owner_cpu_id}:{row.sysfs_index}"
     if source_key in sources {
       return Err(check_failure("cache reference repeats a CPU cache index"))
     }
@@ -2912,7 +2912,7 @@ export pure compare_cpu_cache_sharing(
   var reference_by_key: Map[CpuCacheReference] = {}
   for instance_key in instances.keys() {
     let source = instances.get(instance_key)?
-    let key = f"${source.owner_cpu_id}:${source.sysfs_index}"
+    let key = f"{source.owner_cpu_id}:{source.sysfs_index}"
     if key in reference_by_key {
       return Err(check_failure("distinct cache instances share one owner index"))
     }
@@ -2927,8 +2927,8 @@ export pure compare_cpu_cache_sharing(
   var candidate_by_key: Map[CandidateCpuCache] = {}
   var candidate_key_by_id: Map[Str] = {}
   for cache in candidate {
-    let key = f"${cache.owner_cpu_id}:${cache.sysfs_index}"
-    let id_key = f"${cache.id}"
+    let key = f"{cache.owner_cpu_id}:{cache.sysfs_index}"
+    let id_key = f"{cache.id}"
     if cache.id < 0 or cache.owner_cpu_id < 0 or cache.sysfs_index < 0 or cache.level <= 0 or cache.kind == "" or key in candidate_by_key or id_key in candidate_key_by_id {
       return Err(check_failure("candidate cache inventory has an invalid or duplicate identity"))
     }
@@ -2944,7 +2944,7 @@ export pure compare_cpu_cache_sharing(
   var expected_by_cpu: Map[List[Str]] = {}
   for {key, value: source} in reference_by_key {
     for cpu_id in source.shared_cpus {
-      let cpu_key = f"${cpu_id}"
+      let cpu_key = f"{cpu_id}"
       expected_by_cpu = expected_by_cpu.set(cpu_key, (expected_by_cpu.get(cpu_key) ?? []).push(key))
     }
 
@@ -2956,35 +2956,35 @@ export pure compare_cpu_cache_sharing(
     matched_count += 1
     let actual = candidate_by_key.get(key)?
     if actual.level != source.level {
-      field_mismatches = field_mismatches.push(f"${key}.level")
+      field_mismatches = field_mismatches.push(f"{key}.level")
     }
 
     if actual.kind != source.kind {
-      field_mismatches = field_mismatches.push(f"${key}.kind")
+      field_mismatches = field_mismatches.push(f"{key}.kind")
     }
 
     if actual.shared_cpus != source.shared_cpus {
-      field_mismatches = field_mismatches.push(f"${key}.shared_cpus")
+      field_mismatches = field_mismatches.push(f"{key}.shared_cpus")
     }
 
     if actual.size_bytes != source.size_bytes {
-      field_mismatches = field_mismatches.push(f"${key}.size_bytes")
+      field_mismatches = field_mismatches.push(f"{key}.size_bytes")
     }
 
     if actual.line_size_bytes != source.line_size_bytes {
-      field_mismatches = field_mismatches.push(f"${key}.line_size_bytes")
+      field_mismatches = field_mismatches.push(f"{key}.line_size_bytes")
     }
 
     if actual.sets != source.sets {
-      field_mismatches = field_mismatches.push(f"${key}.sets")
+      field_mismatches = field_mismatches.push(f"{key}.sets")
     }
 
     if actual.owner_cpu_id != source.owner_cpu_id {
-      field_mismatches = field_mismatches.push(f"${key}.owner_cpu_id")
+      field_mismatches = field_mismatches.push(f"{key}.owner_cpu_id")
     }
 
     if actual.sysfs_index != source.sysfs_index {
-      field_mismatches = field_mismatches.push(f"${key}.sysfs_index")
+      field_mismatches = field_mismatches.push(f"{key}.sysfs_index")
     }
   }
 
@@ -2998,7 +2998,7 @@ export pure compare_cpu_cache_sharing(
   var seen_cpu = set.empty()
   var relationship_mismatches: List[Str] = []
   for cpu_item in cpus {
-    let cpu_key = f"${cpu_item.id}"
+    let cpu_key = f"{cpu_item.id}"
     if cpu_item.id < 0 or cpu_key in seen_cpu {
       return Err(check_failure("candidate cache membership repeats a CPU"))
     }
@@ -3007,12 +3007,12 @@ export pure compare_cpu_cache_sharing(
     var keys: List[Str] = []
     var seen_id = set.empty()
     for cache_id in cpu_item.cache_ids {
-      let id_key = f"${cache_id}"
+      let id_key = f"{cache_id}"
       return Err(check_failure("candidate CPU repeats a cache link")) when id_key in seen_id
 
       seen_id = set.add(seen_id, id_key)
       if id_key not in candidate_key_by_id {
-        relationship_mismatches = relationship_mismatches.push(f"${cpu_item.id}.unknown_cache_id")
+        relationship_mismatches = relationship_mismatches.push(f"{cpu_item.id}.unknown_cache_id")
       } else {
         keys = keys.push(candidate_key_by_id.get(id_key)?)
       }
@@ -3025,13 +3025,13 @@ export pure compare_cpu_cache_sharing(
     let expected = expected_by_cpu.get(cpu_key) ?? [] |> sort-by .
     let actual = actual_by_cpu.get(cpu_key) ?? [] |> sort-by .
     if expected != actual {
-      relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
+      relationship_mismatches = relationship_mismatches.push(f"{cpu_key}.cache_ids")
     }
   }
 
   for cpu_key in actual_by_cpu.keys() {
     if cpu_key not in expected_by_cpu and (actual_by_cpu.get(cpu_key) ?? []).len() > 0 {
-      relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
+      relationship_mismatches = relationship_mismatches.push(f"{cpu_key}.cache_ids")
     }
   }
 
@@ -3091,13 +3091,13 @@ proc reference_cache_text(
   return Ok(null) when raw.state == "absent" and ! required
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"cache reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"cache reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
-    Err(check_failure(f"cache reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"cache reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -3109,7 +3109,7 @@ proc reference_cache_optional_number(root: FsRoot, source_path: Path) [fs, error
 
   let parsed = reference_cpu_number(raw)?
   if parsed > 9007199254740991 {
-    return Err(check_failure(f"cache reference source ${source_path} exceeds exact integer range"))
+    return Err(check_failure(f"cache reference source {source_path} exceeds exact integer range"))
   }
 
   parsed
@@ -3121,11 +3121,11 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
   let present = parse_reference_cpu_list(present_text ?? "", false)?
   var rows: List[CpuCacheReference] = []
   for cpu_id in present {
-    let cache_directory = fp"sys/devices/system/cpu/cpu${cpu_id}/cache"
+    let cache_directory = fp"sys/devices/system/cpu/cpu{cpu_id}/cache"
     let listing = root.children(cache_directory, max_entries: 64)?
     continue when listing.state == "absent"
     if listing.state != "complete" {
-      return Err(check_failure(f"cache reference enumeration failed for CPU ${cpu_id}"))
+      return Err(check_failure(f"cache reference enumeration failed for CPU {cpu_id}"))
     }
 
     for entry in listing.children {
@@ -3133,17 +3133,17 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
       continue unless name.starts_with("index")
       let index_text = name.split("") |> drop(5).join("")
       let index = reference_cpu_number(index_text)?
-      let level_text = reference_cache_text(root, fp"${entry}/level", true)?
+      let level_text = reference_cache_text(root, fp"{entry}/level", true)?
       let level = reference_cpu_number(level_text ?? "")?
       return Err(check_failure("cache reference has a nonpositive level")) when level <= 0
 
-      let kind = reference_cache_text(root, fp"${entry}/type", true)?
+      let kind = reference_cache_text(root, fp"{entry}/type", true)?
       if kind == null or kind == "" {
         return Err(check_failure("cache reference has an empty type"))
       }
 
-      let size_text = reference_cache_text(root, fp"${entry}/size", true)?
-      let shared_text = reference_cache_text(root, fp"${entry}/shared_cpu_list", true)?
+      let size_text = reference_cache_text(root, fp"{entry}/size", true)?
+      let shared_text = reference_cache_text(root, fp"{entry}/shared_cpu_list", true)?
       let shared_cpus = parse_reference_cpu_list(shared_text ?? "", false)?
       if cpu_id not in shared_cpus {
         return Err(check_failure("cache reference omits its owner CPU"))
@@ -3152,12 +3152,12 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
       rows = rows.push({
         owner_cpu_id: cpu_id,
         sysfs_index: index,
-        kernel_id: reference_cache_optional_number(root, fp"${entry}/id")?,
+        kernel_id: reference_cache_optional_number(root, fp"{entry}/id")?,
         level: level,
         kind: kind,
         size_bytes: parse_cpu_cache_size_reference(size_text ?? "")?,
-        line_size_bytes: reference_cache_optional_number(root, fp"${entry}/coherency_line_size")?,
-        sets: reference_cache_optional_number(root, fp"${entry}/number_of_sets")?,
+        line_size_bytes: reference_cache_optional_number(root, fp"{entry}/coherency_line_size")?,
+        sets: reference_cache_optional_number(root, fp"{entry}/number_of_sets")?,
         shared_cpus: shared_cpus,
       })
     }
@@ -3210,7 +3210,7 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
 
     var id = first
     while id <= last {
-      let key = f"${id}"
+      let key = f"{id}"
       return Err(check_failure("CPU set contains a duplicate identifier")) when key in seen
 
       seen = set.add(seen, key)
@@ -3291,19 +3291,19 @@ export pure compare_cpufreq_policies(
     matched_count += 1
     let actual = candidate[candidate_by_name.get(item.name)?]
     if actual.related_cpus != item.related_cpus {
-      policy_mismatches = policy_mismatches.push(f"${item.name}.related_cpus")
+      policy_mismatches = policy_mismatches.push(f"{item.name}.related_cpus")
     }
 
     if actual.affected_cpus != item.affected_cpus {
-      policy_mismatches = policy_mismatches.push(f"${item.name}.affected_cpus")
+      policy_mismatches = policy_mismatches.push(f"{item.name}.affected_cpus")
     }
 
     if actual.driver != item.driver {
-      policy_mismatches = policy_mismatches.push(f"${item.name}.driver")
+      policy_mismatches = policy_mismatches.push(f"{item.name}.driver")
     }
 
     if actual.governor != item.governor {
-      policy_mismatches = policy_mismatches.push(f"${item.name}.governor")
+      policy_mismatches = policy_mismatches.push(f"{item.name}.governor")
     }
 
     let later = after[after_by_name.get(item.name)?]
@@ -3338,9 +3338,9 @@ export pure compare_cpufreq_policies(
       },
     ] {
       if field.before != field.after {
-        unstable_bounds = unstable_bounds.push(f"${item.name}.${field.name}")
+        unstable_bounds = unstable_bounds.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before {
-        bound_mismatches = bound_mismatches.push(f"${item.name}.${field.name}")
+        bound_mismatches = bound_mismatches.push(f"{item.name}.{field.name}")
       }
     }
 
@@ -3376,15 +3376,15 @@ export pure compare_cpufreq_policies(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "cpu" and issue.field == f"${item.name}.${gauge.source}" {
+        if issue.section == "cpu" and issue.field == f"{item.name}.{gauge.source}" {
           candidate_incomplete = true
         }
       }
 
       if ! gauge.before.complete or ! gauge.after.complete or gauge.before.value != gauge.after.value or (gauge.candidate != null and gauge.candidate != gauge.before.value) or candidate_incomplete {
-        unstable_gauges = unstable_gauges.push(f"${item.name}.${gauge.name}")
+        unstable_gauges = unstable_gauges.push(f"{item.name}.{gauge.name}")
       } else if gauge.candidate != gauge.before.value {
-        gauge_mismatches = gauge_mismatches.push(f"${item.name}.${gauge.name}")
+        gauge_mismatches = gauge_mismatches.push(f"{item.name}.{gauge.name}")
       }
     }
 
@@ -3393,39 +3393,39 @@ export pure compare_cpufreq_policies(
     }
 
     if item.energy_performance_preference != later.energy_performance_preference {
-      unstable_controls = unstable_controls.push(f"${item.name}.energy_performance_preference")
+      unstable_controls = unstable_controls.push(f"{item.name}.energy_performance_preference")
     } else if actual.energy_performance_preference != item.energy_performance_preference {
-      control_mismatches = control_mismatches.push(f"${item.name}.energy_performance_preference")
+      control_mismatches = control_mismatches.push(f"{item.name}.energy_performance_preference")
     }
 
     if item.available_energy_performance_preferences != later.available_energy_performance_preferences {
-      unstable_controls = unstable_controls.push(f"${item.name}.available_energy_performance_preferences")
+      unstable_controls = unstable_controls.push(f"{item.name}.available_energy_performance_preferences")
     } else if actual.available_energy_performance_preferences != item.available_energy_performance_preferences {
-      control_mismatches = control_mismatches.push(f"${item.name}.available_energy_performance_preferences")
+      control_mismatches = control_mismatches.push(f"{item.name}.available_energy_performance_preferences")
     }
 
     if item.boost_supported != later.boost_supported {
-      unstable_controls = unstable_controls.push(f"${item.name}.boost_supported")
+      unstable_controls = unstable_controls.push(f"{item.name}.boost_supported")
     } else if actual.boost_supported != item.boost_supported {
-      control_mismatches = control_mismatches.push(f"${item.name}.boost_supported")
+      control_mismatches = control_mismatches.push(f"{item.name}.boost_supported")
     }
 
     if item.boost_allowed != later.boost_allowed {
-      unstable_controls = unstable_controls.push(f"${item.name}.boost_allowed")
+      unstable_controls = unstable_controls.push(f"{item.name}.boost_allowed")
     } else if actual.boost_allowed != item.boost_allowed {
-      control_mismatches = control_mismatches.push(f"${item.name}.boost_allowed")
+      control_mismatches = control_mismatches.push(f"{item.name}.boost_allowed")
     }
 
     if item.boost_active != later.boost_active {
-      unstable_controls = unstable_controls.push(f"${item.name}.boost_active")
+      unstable_controls = unstable_controls.push(f"{item.name}.boost_active")
     } else if actual.boost_active != item.boost_active {
-      control_mismatches = control_mismatches.push(f"${item.name}.boost_active")
+      control_mismatches = control_mismatches.push(f"{item.name}.boost_active")
     }
 
     if item.boost_scope != later.boost_scope {
-      unstable_controls = unstable_controls.push(f"${item.name}.boost_scope")
+      unstable_controls = unstable_controls.push(f"{item.name}.boost_scope")
     } else if actual.boost_scope != item.boost_scope {
-      control_mismatches = control_mismatches.push(f"${item.name}.boost_scope")
+      control_mismatches = control_mismatches.push(f"{item.name}.boost_scope")
     }
   }
 
@@ -3495,7 +3495,7 @@ export pure parse_usb_topology_name(name: Str) -> Result[UsbTopologyName] {
     let _ = usb_topology_decimal(port)?
   }
 
-  let parent = if ports.len() == 1 { f"usb${bus}" } else { f"${bus}-${ports |> take(ports.len() - 1).join(".")}" }
+  let parent = if ports.len() == 1 { f"usb{bus}" } else { f"{bus}-{ports |> take(ports.len() - 1).join(".")}" }
   {parent_name: parent, port_path: parts[1], bus_number: bus, is_root_hub: false}
 }
 
@@ -3547,7 +3547,7 @@ export pure compare_usb_topology(
   var matched_count = 0
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
       continue
     }
 
@@ -3587,15 +3587,15 @@ export pure compare_usb_topology(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {
+        if issue.section == "usb" and issue.field == f"devices.{item.name}.{field.name}" {
           candidate_incomplete = true
         }
       }
 
       if field.before != field.after or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
 
@@ -3615,28 +3615,28 @@ export pure compare_usb_topology(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {
+        if issue.section == "usb" and issue.field == f"devices.{item.name}.{field.name}" {
           candidate_incomplete = true
         }
       }
 
       if field.before != field.after or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
 
     if item.is_root_hub != later.is_root_hub {
-      unstable_fields = unstable_fields.push(f"${item.name}.is_root_hub")
+      unstable_fields = unstable_fields.push(f"{item.name}.is_root_hub")
     } else if actual.is_root_hub != item.is_root_hub {
-      field_mismatches = field_mismatches.push(f"${item.name}.is_root_hub")
+      field_mismatches = field_mismatches.push(f"{item.name}.is_root_hub")
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
     }
   }
 
@@ -3668,12 +3668,12 @@ proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[S
   return Ok(null) when raw.state == "absent"
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"USB topology reference ${source_path} is incomplete"))
+    return Err(check_failure(f"USB topology reference {source_path} is incomplete"))
   }
 
   let value = raw.data.utf8()?.trim()
   if value == "" {
-    return Err(check_failure(f"USB topology reference ${source_path} is empty"))
+    return Err(check_failure(f"USB topology reference {source_path} is empty"))
   }
 
   value
@@ -3708,9 +3708,9 @@ export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List
 
     names += [name]
     let identity = parse_usb_topology_name(name)?
-    let bus_number = reference_usb_number(root, fp"${device_path}/busnum")?
+    let bus_number = reference_usb_number(root, fp"{device_path}/busnum")?
     if bus_number != null and bus_number != identity.bus_number {
-      return Err(check_failure(f"USB device ${name} bus number disagrees with its sysfs name"))
+      return Err(check_failure(f"USB device {name} bus number disagrees with its sysfs name"))
     }
 
     devices = devices.push({
@@ -3718,8 +3718,8 @@ export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List
       parent_name: identity.parent_name,
       port_path: identity.port_path,
       bus_number: bus_number,
-      device_number: reference_usb_number(root, fp"${device_path}/devnum")?,
-      speed_mbps: reference_usb_text(root, fp"${device_path}/speed")?,
+      device_number: reference_usb_number(root, fp"{device_path}/devnum")?,
+      speed_mbps: reference_usb_text(root, fp"{device_path}/speed")?,
       is_root_hub: identity.is_root_hub,
     })
   }
@@ -3786,7 +3786,7 @@ export pure compare_usb_ids(
     }
 
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
       continue
     }
 
@@ -3832,15 +3832,15 @@ export pure compare_usb_ids(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {
+        if issue.section == "usb" and issue.field == f"devices.{item.name}.{field.name}" {
           candidate_incomplete = true
         }
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
 
@@ -3869,17 +3869,17 @@ export pure compare_usb_ids(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {
+        if issue.section == "usb" and issue.field == f"devices.{item.name}.{field.name}" {
           candidate_incomplete = true
         }
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else {
         let expected_state = if field.before.value == null { "absent" } else { "observed" }
         if field.candidate.state != expected_state or field.candidate.value != field.before.value {
-          field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+          field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
         }
       }
     }
@@ -3887,7 +3887,7 @@ export pure compare_usb_ids(
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
     }
   }
 
@@ -3924,7 +3924,7 @@ pure usb_reference_hex(value: Str, width: Int) -> Result[Int] {
     }
   }
 
-  f"0x${value}".parse_int()
+  f"0x{value}".parse_int()
 }
 
 proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Result[UsbTextReference] {
@@ -3937,7 +3937,7 @@ proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Res
 
   let value = raw.data.utf8()?.trim()
   if value == "" {
-    return Err(check_failure(f"USB identity reference ${source_path} is empty"))
+    return Err(check_failure(f"USB identity reference {source_path} is empty"))
   }
 
   {value: value, complete: true}
@@ -3976,21 +3976,21 @@ export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbI
     }
 
     names += [name]
-    let version = reference_usb_attribute(root, fp"${device_path}/bcdDevice")?
+    let version = reference_usb_attribute(root, fp"{device_path}/bcdDevice")?
     if version.value != null {
       let _ = usb_reference_hex(version.value, 4)?
     }
 
     devices = devices.push({
       name: name,
-      vendor_id: reference_usb_hex_attribute(root, fp"${device_path}/idVendor", 4)?,
-      product_id: reference_usb_hex_attribute(root, fp"${device_path}/idProduct", 4)?,
+      vendor_id: reference_usb_hex_attribute(root, fp"{device_path}/idVendor", 4)?,
+      product_id: reference_usb_hex_attribute(root, fp"{device_path}/idProduct", 4)?,
       device_version: version,
-      class_code: reference_usb_hex_attribute(root, fp"${device_path}/bDeviceClass", 2)?,
-      subclass: reference_usb_hex_attribute(root, fp"${device_path}/bDeviceSubClass", 2)?,
-      protocol: reference_usb_hex_attribute(root, fp"${device_path}/bDeviceProtocol", 2)?,
-      manufacturer: reference_usb_attribute(root, fp"${device_path}/manufacturer")?,
-      product: reference_usb_attribute(root, fp"${device_path}/product")?,
+      class_code: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceClass", 2)?,
+      subclass: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceSubClass", 2)?,
+      protocol: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceProtocol", 2)?,
+      manufacturer: reference_usb_attribute(root, fp"{device_path}/manufacturer")?,
+      product: reference_usb_attribute(root, fp"{device_path}/product")?,
     })
   }
 
@@ -4059,11 +4059,11 @@ export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[Us
     names += [name]
     devices = devices.push({
       name: name,
-      power_control: reference_usb_attribute(root, fp"${device_path}/power/control")?,
-      autosuspend_delay_ms: reference_usb_power_number(root, fp"${device_path}/power/autosuspend_delay_ms", true)?,
-      runtime_status: reference_usb_attribute(root, fp"${device_path}/power/runtime_status")?,
-      configuration_count: reference_usb_power_number(root, fp"${device_path}/bNumConfigurations", false)?,
-      active_configuration: reference_usb_power_number(root, fp"${device_path}/bConfigurationValue", true)?,
+      power_control: reference_usb_attribute(root, fp"{device_path}/power/control")?,
+      autosuspend_delay_ms: reference_usb_power_number(root, fp"{device_path}/power/autosuspend_delay_ms", true)?,
+      runtime_status: reference_usb_attribute(root, fp"{device_path}/power/runtime_status")?,
+      configuration_count: reference_usb_power_number(root, fp"{device_path}/bNumConfigurations", false)?,
+      active_configuration: reference_usb_power_number(root, fp"{device_path}/bConfigurationValue", true)?,
     })
   }
 
@@ -4232,7 +4232,7 @@ proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, err
 
   for entry in listing.children {
     if entry.name() == "driver" {
-      if let Ok(target) = root.readlink(fp"${interface_path}/driver") {
+      if let Ok(target) = root.readlink(fp"{interface_path}/driver") {
         let name = target.name()
         if name == "" {
           return Err(check_failure("USB interface driver link has an empty target"))
@@ -4263,7 +4263,7 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
     let device_name = device_path.name()
     continue when ":" in device_name
     let _ = parse_usb_topology_name(device_name)?
-    let raw = root.read_result(fp"${device_path}/descriptors", max_bytes: 1048576)?
+    let raw = root.read_result(fp"{device_path}/descriptors", max_bytes: 1048576)?
     var descriptor_settings: List[UsbInterfaceSettingReference] = []
     var descriptors_complete = false
     if raw.state == "observed" and ! raw.truncated and raw.data != null {
@@ -4275,19 +4275,19 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
 
     for interface_path in listing.children {
       let name = interface_path.name()
-      continue unless name.starts_with(f"${device_name}:")
+      continue unless name.starts_with(f"{device_name}:")
       let identity = parse_usb_interface_name(name)?
       if identity.device_name != device_name or name in seen {
         return Err(check_failure("USB interface reference repeats or misnames an interface"))
       }
 
       seen += [name]
-      let interface_number = reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceNumber", 2)?
+      let interface_number = reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceNumber", 2)?
       if interface_number.value != null and interface_number.value != identity.number {
         return Err(check_failure("USB interface number disagrees with its sysfs name"))
       }
 
-      let active = reference_usb_power_number(root, fp"${interface_path}/bAlternateSetting", false)?
+      let active = reference_usb_power_number(root, fp"{interface_path}/bAlternateSetting", false)?
       var owned = [setting for setting in descriptor_settings if setting.interface_number == identity.number]
       rows = rows.push({
         device_name: device_name,
@@ -4295,10 +4295,10 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
         number: identity.number,
         driver: reference_usb_interface_driver(root, interface_path)?,
         active_alternate: active,
-        active_class: reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceClass", 2)?,
-        active_subclass: reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceSubClass", 2)?,
-        active_protocol: reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceProtocol", 2)?,
-        active_endpoint_count: reference_usb_hex_attribute(root, fp"${interface_path}/bNumEndpoints", 2)?,
+        active_class: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceClass", 2)?,
+        active_subclass: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceSubClass", 2)?,
+        active_protocol: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceProtocol", 2)?,
+        active_endpoint_count: reference_usb_hex_attribute(root, fp"{interface_path}/bNumEndpoints", 2)?,
         settings: owned,
         descriptors_complete: descriptors_complete,
       })
@@ -4327,7 +4327,7 @@ pure usb_interface_settings_match(
 
   var matched = set.empty()
   for expected in reference {
-    let key = f"${expected.configuration_value ?? -1}:${expected.number}"
+    let key = f"{expected.configuration_value ?? -1}:{expected.number}"
     return false when key in matched
 
     var found = false
@@ -4408,7 +4408,7 @@ export pure compare_usb_interfaces(
   let eligible = before.len() > 0 or after.len() > 0
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
       continue
     }
 
@@ -4416,7 +4416,7 @@ export pure compare_usb_interfaces(
       if section.status.enumeration_succeeded {
         missing_names = missing_names.push(item.name)
       } else {
-        unstable_fields = unstable_fields.push(f"${item.name}.presence")
+        unstable_fields = unstable_fields.push(f"{item.name}.presence")
       }
 
       continue
@@ -4427,29 +4427,29 @@ export pure compare_usb_interfaces(
     let actual = candidate_interfaces[candidate_by_name.get(item.name)?]
     if ! item.driver.complete or ! later.driver.complete or item.driver.value != later.driver.value or usb_interface_has_issue(
       issues,
-      f"devices.${item.device_name}.interfaces.${item.name}.driver",
+      f"devices.{item.device_name}.interfaces.{item.name}.driver",
     ) {
-      unstable_fields = unstable_fields.push(f"${item.name}.driver")
+      unstable_fields = unstable_fields.push(f"{item.name}.driver")
     } else if actual.driver != item.driver.value {
-      field_mismatches = field_mismatches.push(f"${item.name}.driver")
+      field_mismatches = field_mismatches.push(f"{item.name}.driver")
     }
 
     if ! item.active_alternate.complete or ! later.active_alternate.complete or item.active_alternate.value != later.active_alternate.value or usb_interface_has_issue(
       issues,
-      f"devices.${item.device_name}.interfaces.${item.name}.active_alternate",
+      f"devices.{item.device_name}.interfaces.{item.name}.active_alternate",
     ) {
-      unstable_fields = unstable_fields.push(f"${item.name}.active_alternate")
+      unstable_fields = unstable_fields.push(f"{item.name}.active_alternate")
     } else if actual.active_alternate != item.active_alternate.value {
-      field_mismatches = field_mismatches.push(f"${item.name}.active_alternate")
+      field_mismatches = field_mismatches.push(f"{item.name}.active_alternate")
     }
 
     if ! item.descriptors_complete or ! later.descriptors_complete or item.settings != later.settings or usb_interface_has_issue(
       issues,
-      f"devices.${item.device_name}.descriptors",
+      f"devices.{item.device_name}.descriptors",
     ) {
-      unstable_fields = unstable_fields.push(f"${item.name}.alternate_settings")
+      unstable_fields = unstable_fields.push(f"{item.name}.alternate_settings")
     } else if ! usb_interface_settings_match(item.settings, actual.alternate_settings, item.number) {
-      field_mismatches = field_mismatches.push(f"${item.name}.alternate_settings")
+      field_mismatches = field_mismatches.push(f"{item.name}.alternate_settings")
     }
 
     let identity = parse_usb_interface_name(item.name)?
@@ -4509,16 +4509,16 @@ export pure compare_usb_interfaces(
     ] {
       continue when field.before.value == null and field.after.value == null
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or ! item.descriptors_complete or ! later.descriptors_complete or item.settings != later.settings or item.active_alternate.value != later.active_alternate.value {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
     }
   }
 
@@ -4581,7 +4581,7 @@ proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result
 
   let value = raw.data.utf8()?.trim()
   if value == "" {
-    return Err(check_failure(f"power supply attribute ${source_path} is empty"))
+    return Err(check_failure(f"power supply attribute {source_path} is empty"))
   }
 
   {value: value, complete: true}
@@ -4626,17 +4626,17 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
     seen += [name]
     supplies = supplies.push({
       name: name,
-      kind: reference_power_text(root, fp"${supply_path}/type")?,
-      status: reference_power_text(root, fp"${supply_path}/status")?,
-      health: reference_power_text(root, fp"${supply_path}/health")?,
-      capacity_percent: reference_power_number(root, fp"${supply_path}/capacity", false, true)?,
-      energy_now_uwh: reference_power_number(root, fp"${supply_path}/energy_now", false, false)?,
-      energy_full_uwh: reference_power_number(root, fp"${supply_path}/energy_full", false, false)?,
-      charge_now_uah: reference_power_number(root, fp"${supply_path}/charge_now", false, false)?,
-      charge_full_uah: reference_power_number(root, fp"${supply_path}/charge_full", false, false)?,
-      voltage_now_uv: reference_power_number(root, fp"${supply_path}/voltage_now", false, false)?,
-      current_now_ua: reference_power_number(root, fp"${supply_path}/current_now", true, false)?,
-      cycle_count: reference_power_number(root, fp"${supply_path}/cycle_count", false, false)?,
+      kind: reference_power_text(root, fp"{supply_path}/type")?,
+      status: reference_power_text(root, fp"{supply_path}/status")?,
+      health: reference_power_text(root, fp"{supply_path}/health")?,
+      capacity_percent: reference_power_number(root, fp"{supply_path}/capacity", false, true)?,
+      energy_now_uwh: reference_power_number(root, fp"{supply_path}/energy_now", false, false)?,
+      energy_full_uwh: reference_power_number(root, fp"{supply_path}/energy_full", false, false)?,
+      charge_now_uah: reference_power_number(root, fp"{supply_path}/charge_now", false, false)?,
+      charge_full_uah: reference_power_number(root, fp"{supply_path}/charge_full", false, false)?,
+      voltage_now_uv: reference_power_number(root, fp"{supply_path}/voltage_now", false, false)?,
+      current_now_ua: reference_power_number(root, fp"{supply_path}/current_now", true, false)?,
+      cycle_count: reference_power_number(root, fp"{supply_path}/cycle_count", false, false)?,
     })
   }
 
@@ -4735,7 +4735,7 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
         changing: true,
       },
     ] {
-      paths = paths.push({path: f"${storage}/${attribute.name}", changing: attribute.changing})
+      paths = paths.push({path: f"{storage}/{attribute.name}", changing: attribute.changing})
     }
 
     if paths.len() > 11264 {
@@ -4765,13 +4765,13 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/power_supply", mode: 0o700, parents: true)?
     for entry in layout.entries {
-      let storage = fp"${entry.storage_path}"
+      let storage = fp"{entry.storage_path}"
       if ! bundle.exists(storage)? {
         bundle.mkdir(storage, mode: 0o700, parents: true)?
       }
 
       if entry.class_target != null {
-        bundle.symlink(fp"${entry.class_target}", fp"sys/class/power_supply/${entry.name}")?
+        bundle.symlink(fp"{entry.class_target}", fp"sys/class/power_supply/{entry.name}")?
       }
     }
   }
@@ -4780,12 +4780,12 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for item in layout.paths {
-    let raw = source.read_result(fp"${item.path}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${item.path}", data)?
+      bundle.write(fp"{item.path}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -4811,7 +4811,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   var changing_sources: List[Str] = []
   for index in range(layout.paths.len()) {
     let item = layout.paths[index]
-    let raw = source.read_result(fp"${item.path}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if item.changing {
@@ -4882,17 +4882,17 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
       return Err(check_failure("power supply source identity differs"))
     }
 
-    let relative = fp"${item.path}"
+    let relative = fp"{item.path}"
     if expected.state == "absent" {
       if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
-        return Err(check_failure(f"power supply absent source ${item.path} differs"))
+        return Err(check_failure(f"power supply absent source {item.path} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"power supply capture cannot score ${item.path}"))
+      return Err(check_failure(f"power supply capture cannot score {item.path}"))
     }
 
     let raw = bundle.read_result(relative, max_bytes: 4096)?
@@ -4900,7 +4900,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"power supply capture ${item.path} bytes differ"))
+      return Err(check_failure(f"power supply capture {item.path} bytes differ"))
     }
   }
 
@@ -4982,7 +4982,7 @@ export pure compare_power_supplies(
   var matched_count = 0
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
       continue
     }
 
@@ -4990,7 +4990,7 @@ export pure compare_power_supplies(
       if supply_enumeration_complete {
         missing_names = missing_names.push(item.name)
       } else {
-        unstable_fields = unstable_fields.push(f"${item.name}.presence")
+        unstable_fields = unstable_fields.push(f"{item.name}.presence")
       }
 
       continue
@@ -5024,11 +5024,11 @@ export pure compare_power_supplies(
     ] {
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or power_supply_has_issue(
         issues,
-        f"supplies.${item.name}.${field.source}",
+        f"supplies.{item.name}.{field.source}",
       ) {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
 
@@ -5092,18 +5092,18 @@ export pure compare_power_supplies(
     ] {
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or power_supply_has_issue(
         issues,
-        f"supplies.${item.name}.${field.source}",
+        f"supplies.{item.name}.{field.source}",
       ) {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
     }
   }
 
@@ -5140,7 +5140,7 @@ pure powercap_constraint_index(name: Str) -> Result[Int?] {
   }
 
   let index = parse_power_supply_number(parts[1], false)?
-  if parts[1] != f"${index}" {
+  if parts[1] != f"{index}" {
     return Err(check_failure("powercap constraint index is not canonical"))
   }
 
@@ -5162,7 +5162,7 @@ proc reference_powercap_parent(
     Ok({value: parent_value, complete: true})
   } else {
     for candidate in zone_names {
-      if candidate != name and name.starts_with(f"${candidate}:") {
+      if candidate != name and name.starts_with(f"{candidate}:") {
         return Ok({value: null, complete: false})
       }
     }
@@ -5184,7 +5184,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
   var zone_names: List[Str] = []
   var names: List[PowerTextReference] = []
   for entry in listing.children {
-    let name = reference_power_text(root, fp"${entry}/name")?
+    let name = reference_power_text(root, fp"{entry}/name")?
     continue when name.value == null and name.complete
     if entry.name() == "" or entry.name() in zone_names {
       return Err(check_failure("powercap reference has an empty or duplicate zone name"))
@@ -5214,11 +5214,11 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
         indices += [constraint_index]
         constraints = constraints.push({
           index: constraint_index,
-          name: reference_power_text(root, fp"${zone_path}/constraint_${constraint_index}_name")?,
+          name: reference_power_text(root, fp"{zone_path}/constraint_{constraint_index}_name")?,
           power_limit_uw: reference_power_number(root, attribute, false, false)?,
           time_window_us: reference_power_number(
             root,
-            fp"${zone_path}/constraint_${constraint_index}_time_window_us",
+            fp"{zone_path}/constraint_{constraint_index}_time_window_us",
             false,
             false,
           )?,
@@ -5230,8 +5230,8 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
       entry_name: entry_name,
       name: names[index],
       parent: reference_powercap_parent(root, zone_path, zone_names)?,
-      energy_uj: reference_power_number(root, fp"${zone_path}/energy_uj", false, false)?,
-      maximum_energy_range_uj: reference_power_number(root, fp"${zone_path}/max_energy_range_uj", false, false)?,
+      energy_uj: reference_power_number(root, fp"{zone_path}/energy_uj", false, false)?,
+      maximum_energy_range_uj: reference_power_number(root, fp"{zone_path}/max_energy_range_uj", false, false)?,
       constraints: constraints |> sort-by .index,
       constraints_complete: attributes.state == "complete",
     })
@@ -5243,7 +5243,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
 # Resolves only class-local and sysfs device links without following arbitrary source paths.
 pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] {
   guard target != null else {
-    return Ok(f"sys/class/powercap/${entry_name}")
+    return Ok(f"sys/class/powercap/{entry_name}")
   }
 
   let raw = target
@@ -5286,7 +5286,7 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
   }
 
   for entry in listing.children {
-    let name = reference_power_text(root, fp"${entry}/name")?
+    let name = reference_power_text(root, fp"{entry}/name")?
     continue when name.value == null and name.complete
     if ! name.complete {
       complete = false
@@ -5303,7 +5303,7 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
     let storage = powercap_bundle_storage_path(entry.name(), target)?
     zones = zones.push({entry_name: entry.name(), class_target: target, storage_path: storage})
     let prefix = entry.display()
-    source_paths = source_paths.extend([f"${prefix}/name", f"${prefix}/energy_uj", f"${prefix}/max_energy_range_uj"])
+    source_paths = source_paths.extend([f"{prefix}/name", f"{prefix}/energy_uj", f"{prefix}/max_energy_range_uj"])
     let attributes = root.children(entry, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
@@ -5322,9 +5322,9 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
       indices += [index]
       source_paths = source_paths.extend(
         [
-          f"${prefix}/constraint_${index}_power_limit_uw",
-          f"${prefix}/constraint_${index}_name",
-          f"${prefix}/constraint_${index}_time_window_us",
+          f"{prefix}/constraint_{index}_power_limit_uw",
+          f"{prefix}/constraint_{index}_name",
+          f"{prefix}/constraint_{index}_time_window_us",
         ],
       )
     }
@@ -5356,12 +5356,12 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/powercap", mode: 0o700, parents: true)?
     for zone in layout.zones {
-      bundle.mkdir(fp"${zone.storage_path}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"{zone.storage_path}", mode: 0o700, parents: true)?
     }
 
     for zone in layout.zones {
       if zone.class_target != null {
-        bundle.symlink(fp"${zone.class_target}", fp"sys/class/powercap/${zone.entry_name}")?
+        bundle.symlink(fp"{zone.class_target}", fp"sys/class/powercap/{zone.entry_name}")?
       }
     }
   }
@@ -5370,12 +5370,12 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -5403,7 +5403,7 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
     continue when relative.ends_with("/energy_uj")
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     let first = observations[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -5454,23 +5454,23 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"powercap capture absent source ${relative} differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"powercap capture absent source {relative} differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"powercap capture cannot score ${relative} source"))
+      return Err(check_failure(f"powercap capture cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"powercap capture ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"powercap capture {relative} bytes differ from metadata"))
     }
   }
 
@@ -5497,9 +5497,9 @@ export proc replay_powercap_bundle(bundle: FsRoot) [fs, time, error] -> Result[P
 }
 
 pure powercap_constraint_issue(issues: List[CandidateIssueField], entry_name: Str) -> Bool {
-  let prefix = f"cap_zones.${entry_name}.constraint_"
+  let prefix = f"cap_zones.{entry_name}.constraint_"
   for issue in issues {
-    if issue.section == "power" and (issue.field == f"cap_zones.${entry_name}.attributes" or issue.field.starts_with(
+    if issue.section == "power" and (issue.field == f"cap_zones.{entry_name}.attributes" or issue.field.starts_with(
       prefix,
     )) {
       return true
@@ -5557,7 +5557,7 @@ export pure compare_powercap(
   for zone in before {
     let name = zone.entry_name
     if name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"${name}.presence")
+      unstable_fields = unstable_fields.push(f"{name}.presence")
       continue
     }
 
@@ -5565,7 +5565,7 @@ export pure compare_powercap(
       if enumeration_complete {
         missing_names += [name]
       } else {
-        unstable_fields = unstable_fields.push(f"${name}.presence")
+        unstable_fields = unstable_fields.push(f"{name}.presence")
       }
 
       continue
@@ -5590,11 +5590,11 @@ export pure compare_powercap(
     ] {
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or power_supply_has_issue(
         issues,
-        f"cap_zones.${name}.${field.name}",
+        f"cap_zones.{name}.{field.name}",
       ) {
-        unstable_fields = unstable_fields.push(f"${name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{name}.{field.name}")
       }
     }
 
@@ -5602,44 +5602,44 @@ export pure compare_powercap(
     let range_after = later.maximum_energy_range_uj
     if ! range_before.complete or ! range_after.complete or range_before.value != range_after.value or power_supply_has_issue(
       issues,
-      f"cap_zones.${name}.max_energy_range_uj",
+      f"cap_zones.{name}.max_energy_range_uj",
     ) {
-      unstable_fields = unstable_fields.push(f"${name}.maximum_energy_range_uj")
+      unstable_fields = unstable_fields.push(f"{name}.maximum_energy_range_uj")
     } else if actual.maximum_energy_range_uj != range_before.value {
-      field_mismatches = field_mismatches.push(f"${name}.maximum_energy_range_uj")
+      field_mismatches = field_mismatches.push(f"{name}.maximum_energy_range_uj")
     }
 
     let energy_before = zone.energy_uj
     let energy_after = later.energy_uj
     if ! energy_before.complete or ! energy_after.complete or power_supply_has_issue(
       issues,
-      f"cap_zones.${name}.energy_uj",
+      f"cap_zones.{name}.energy_uj",
     ) {
-      unstable_fields = unstable_fields.push(f"${name}.energy_uj")
+      unstable_fields = unstable_fields.push(f"{name}.energy_uj")
     } else if energy_before.value == null and energy_after.value == null {
       if actual.energy_uj != null {
-        field_mismatches = field_mismatches.push(f"${name}.energy_uj")
+        field_mismatches = field_mismatches.push(f"{name}.energy_uj")
       }
     } else if energy_before.value == null or energy_after.value == null or range_before.value != range_after.value {
-      unstable_fields = unstable_fields.push(f"${name}.energy_uj")
+      unstable_fields = unstable_fields.push(f"{name}.energy_uj")
     } else {
       let first = energy_before.value
       let last = energy_after.value
       let observed = actual.energy_uj
       if first > last or ! range_before.complete or range_before.value == null {
-        unstable_fields = unstable_fields.push(f"${name}.energy_uj")
+        unstable_fields = unstable_fields.push(f"{name}.energy_uj")
       } else if observed == null {
-        field_mismatches = field_mismatches.push(f"${name}.energy_uj")
+        field_mismatches = field_mismatches.push(f"{name}.energy_uj")
       } else {
         let candidate_energy = observed
         if candidate_energy < first or candidate_energy > last {
-          field_mismatches = field_mismatches.push(f"${name}.energy_uj")
+          field_mismatches = field_mismatches.push(f"{name}.energy_uj")
         }
       }
     }
 
     if ! zone.constraints_complete or ! later.constraints_complete or powercap_constraint_issue(issues, name) {
-      unstable_fields = unstable_fields.push(f"${name}.constraints")
+      unstable_fields = unstable_fields.push(f"{name}.constraints")
       continue
     }
 
@@ -5648,50 +5648,50 @@ export pure compare_powercap(
     var candidate_by_index: Map[Int] = {}
     for index in range(zone.constraints.len()) {
       let key = zone.constraints[index].index
-      if key < 0 or key > 9007199254740991 or f"${key}" in before_by_index {
+      if key < 0 or key > 9007199254740991 or f"{key}" in before_by_index {
         return Err(check_failure("powercap before reference has an invalid constraint index"))
       }
 
-      before_by_index = before_by_index.set(f"${key}", index)
+      before_by_index = before_by_index.set(f"{key}", index)
     }
 
     for index in range(later.constraints.len()) {
       let key = later.constraints[index].index
-      if key < 0 or key > 9007199254740991 or f"${key}" in after_by_index {
+      if key < 0 or key > 9007199254740991 or f"{key}" in after_by_index {
         return Err(check_failure("powercap after reference has an invalid constraint index"))
       }
 
-      after_by_index = after_by_index.set(f"${key}", index)
+      after_by_index = after_by_index.set(f"{key}", index)
     }
 
     for index in range(actual.constraints.len()) {
       let key = actual.constraints[index].index
-      if key < 0 or key > 9007199254740991 or f"${key}" in candidate_by_index {
+      if key < 0 or key > 9007199254740991 or f"{key}" in candidate_by_index {
         return Err(check_failure("candidate powercap zone has an invalid constraint index"))
       }
 
-      candidate_by_index = candidate_by_index.set(f"${key}", index)
+      candidate_by_index = candidate_by_index.set(f"{key}", index)
     }
 
     for constraint in zone.constraints {
-      let key = f"${constraint.index}"
-      let prefix = f"${name}.constraint_${constraint.index}"
+      let key = f"{constraint.index}"
+      let prefix = f"{name}.constraint_{constraint.index}"
       if key not in after_by_index {
-        unstable_fields = unstable_fields.push(f"${prefix}.presence")
+        unstable_fields = unstable_fields.push(f"{prefix}.presence")
         continue
       }
 
       if key not in candidate_by_index {
-        field_mismatches = field_mismatches.push(f"${prefix}.presence")
+        field_mismatches = field_mismatches.push(f"{prefix}.presence")
         continue
       }
 
       let following = later.constraints[after_by_index.get(key)?]
       let candidate = actual.constraints[candidate_by_index.get(key)?]
       if ! constraint.name.complete or ! following.name.complete or constraint.name.value != following.name.value {
-        unstable_fields = unstable_fields.push(f"${prefix}.name")
+        unstable_fields = unstable_fields.push(f"{prefix}.name")
       } else if candidate.name != constraint.name.value {
-        field_mismatches = field_mismatches.push(f"${prefix}.name")
+        field_mismatches = field_mismatches.push(f"{prefix}.name")
       }
 
       for field in [
@@ -5709,30 +5709,30 @@ export pure compare_powercap(
         },
       ] {
         if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value {
-          unstable_fields = unstable_fields.push(f"${prefix}.${field.name}")
+          unstable_fields = unstable_fields.push(f"{prefix}.{field.name}")
         } else if field.candidate != field.before.value {
-          field_mismatches = field_mismatches.push(f"${prefix}.${field.name}")
+          field_mismatches = field_mismatches.push(f"{prefix}.{field.name}")
         }
       }
     }
 
     for constraint in later.constraints {
-      if f"${constraint.index}" not in before_by_index {
-        unstable_fields = unstable_fields.push(f"${name}.constraint_${constraint.index}.presence")
+      if f"{constraint.index}" not in before_by_index {
+        unstable_fields = unstable_fields.push(f"{name}.constraint_{constraint.index}.presence")
       }
     }
 
     for constraint in actual.constraints {
-      let key = f"${constraint.index}"
+      let key = f"{constraint.index}"
       if key not in before_by_index and key not in after_by_index {
-        field_mismatches = field_mismatches.push(f"${name}.constraint_${constraint.index}.presence")
+        field_mismatches = field_mismatches.push(f"{name}.constraint_{constraint.index}.presence")
       }
     }
   }
 
   for zone in after {
     if zone.entry_name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"${zone.entry_name}.presence")
+      unstable_fields = unstable_fields.push(f"{zone.entry_name}.presence")
     }
   }
 
@@ -5766,7 +5766,7 @@ proc device_class_reference_name(
   return Ok({value: entry.name(), complete: true}) when class_name == "drm"
 
   let field = if class_name == "sound" { "id" } else { "name" }
-  let source = root.read_result(fp"${entry}/${field}", max_bytes: 4096)?
+  let source = root.read_result(fp"{entry}/{field}", max_bytes: 4096)?
   return Ok({value: entry.name(), complete: true}) when source.state == "absent"
 
   if source.state != "observed" or source.truncated or source.data == null {
@@ -5781,7 +5781,7 @@ proc device_class_reference_name(
 }
 
 proc device_class_reference_parent(root: FsRoot, entry: Path) [fs, error] -> Result[DeviceClassParentRead] {
-  if let Ok(target) = root.readlink(fp"${entry}/device") {
+  if let Ok(target) = root.readlink(fp"{entry}/device") {
     return Ok({target: target.display(), complete: true})
   }
 
@@ -5816,7 +5816,7 @@ export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List
     let listing = root.children(source.path, max_entries: 4096)?
     continue when listing.state == "absent"
     if listing.state != "complete" {
-      return Err(check_failure(f"${source.class_name} reference enumeration is incomplete"))
+      return Err(check_failure(f"{source.class_name} reference enumeration is incomplete"))
     }
 
     for entry in listing.children {
@@ -5930,7 +5930,7 @@ export pure compare_device_classes(
   var after_by_key: Map[Int] = {}
   var candidate_by_key: Map[Int] = {}
   for index in range(before.len()) {
-    let key = f"${before[index].class}:${before[index].entry_name}"
+    let key = f"{before[index].class}:{before[index].entry_name}"
     if key in before_by_key {
       return Err(check_failure("device-class before reference repeats an entry"))
     }
@@ -5939,7 +5939,7 @@ export pure compare_device_classes(
   }
 
   for index in range(after.len()) {
-    let key = f"${after[index].class}:${after[index].entry_name}"
+    let key = f"{after[index].class}:{after[index].entry_name}"
     if key in after_by_key {
       return Err(check_failure("device-class after reference repeats an entry"))
     }
@@ -5953,7 +5953,7 @@ export pure compare_device_classes(
       return Err(check_failure("candidate device-class entry identity is unavailable"))
     }
 
-    let key = f"${item.class}:${item.entry_name.value}"
+    let key = f"{item.class}:{item.entry_name.value}"
     if key in candidate_by_key {
       return Err(check_failure("candidate device-class entries repeat an identity"))
     }
@@ -5968,9 +5968,9 @@ export pure compare_device_classes(
   var matched_count = 0
   let enumeration_complete = section.status.enumeration_succeeded and section.status.state != "not_requested"
   for item in before {
-    let key = f"${item.class}:${item.entry_name}"
+    let key = f"{item.class}:{item.entry_name}"
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
       continue
     }
 
@@ -5978,7 +5978,7 @@ export pure compare_device_classes(
       if enumeration_complete {
         missing_names += [key]
       } else {
-        unstable_fields = unstable_fields.push(f"${key}.presence")
+        unstable_fields = unstable_fields.push(f"{key}.presence")
       }
 
       continue
@@ -5990,18 +5990,18 @@ export pure compare_device_classes(
     let display_name: Str? = if actual.name.state == "observed" { actual.name.value } else { null }
     if ! item.name_complete or ! later.name_complete or item.name != later.name or device_class_has_issue(
       issues,
-      f"${item.class}.${item.entry_name}.${if item.class == "sound" { "id" } else { "name" }}",
+      f"{item.class}.{item.entry_name}.{if item.class == "sound" { "id" } else { "name" }}",
     ) {
-      unstable_fields = unstable_fields.push(f"${key}.name")
+      unstable_fields = unstable_fields.push(f"{key}.name")
     } else if display_name != item.name {
-      field_mismatches = field_mismatches.push(f"${key}.name")
+      field_mismatches = field_mismatches.push(f"{key}.name")
     }
 
     if ! item.parent_complete or ! later.parent_complete or item.parent_target != later.parent_target or device_class_has_issue(
       issues,
-      f"${item.class}.${item.entry_name}.parent",
+      f"{item.class}.{item.entry_name}.parent",
     ) {
-      unstable_fields = unstable_fields.push(f"${key}.parent")
+      unstable_fields = unstable_fields.push(f"{key}.parent")
     } else {
       let parents = device_class_parent_ids(item.parent_target)
       var pci_address: Str? = null
@@ -6009,7 +6009,7 @@ export pure compare_device_classes(
       if actual.parent_pci_function_index != null {
         let index = actual.parent_pci_function_index ?? -1
         if index < 0 or index >= pci.functions.len() {
-          field_mismatches = field_mismatches.push(f"${key}.pci_parent")
+          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
           pci_index_valid = false
         } else {
           pci_address = pci.functions[index].address
@@ -6018,9 +6018,9 @@ export pure compare_device_classes(
 
       if pci_index_valid and pci_address != parents.pci {
         if actual.parent_pci_function_index == null and parents.pci != null and ! pci_enumerated {
-          unstable_fields = unstable_fields.push(f"${key}.pci_parent")
+          unstable_fields = unstable_fields.push(f"{key}.pci_parent")
         } else {
-          field_mismatches = field_mismatches.push(f"${key}.pci_parent")
+          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
         }
       }
 
@@ -6029,7 +6029,7 @@ export pure compare_device_classes(
       if actual.parent_usb_device_index != null {
         let index = actual.parent_usb_device_index ?? -1
         if index < 0 or index >= usb.devices.len() {
-          field_mismatches = field_mismatches.push(f"${key}.usb_parent")
+          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
           usb_index_valid = false
         } else {
           usb_name = usb.devices[index].sysfs_name
@@ -6038,23 +6038,23 @@ export pure compare_device_classes(
 
       if usb_index_valid and usb_name != parents.usb {
         if actual.parent_usb_device_index == null and parents.usb != null and ! usb_enumerated {
-          unstable_fields = unstable_fields.push(f"${key}.usb_parent")
+          unstable_fields = unstable_fields.push(f"{key}.usb_parent")
         } else {
-          field_mismatches = field_mismatches.push(f"${key}.usb_parent")
+          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
         }
       }
     }
   }
 
   for item in after {
-    let key = f"${item.class}:${item.entry_name}"
+    let key = f"{item.class}:{item.entry_name}"
     if key not in before_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
     }
   }
 
   for item in section.devices {
-    let key = f"${item.class}:${item.entry_name.value ?? ""}"
+    let key = f"{item.class}:{item.entry_name.value ?? ""}"
     if key not in before_by_key and key not in after_by_key {
       unexpected_names += [key]
     }
@@ -6182,7 +6182,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
   var channels: List[HwmonReference] = []
   for chip_path in chips.children {
     continue unless chip_path.name().starts_with("hwmon")
-    let chip_name = reference_hwmon_text(root, fp"${chip_path}/name")?
+    let chip_name = reference_hwmon_text(root, fp"{chip_path}/name")?
     let parent = device_class_reference_parent(root, chip_path)?
     let attributes = root.children(chip_path, max_entries: 1024)?
     if attributes.state != "complete" {
@@ -6201,11 +6201,11 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
         kind: shape.kind,
         unit: shape.unit,
         value: reference_hwmon_number(root, attribute, false)?,
-        label: reference_hwmon_text(root, fp"${chip_path}/${channel}_label")?,
-        minimum: reference_hwmon_number(root, fp"${chip_path}/${channel}_min", false)?,
-        maximum: reference_hwmon_number(root, fp"${chip_path}/${channel}_max", false)?,
-        critical: reference_hwmon_number(root, fp"${chip_path}/${channel}_crit", false)?,
-        alarm: reference_hwmon_number(root, fp"${chip_path}/${channel}_alarm", true, true)?,
+        label: reference_hwmon_text(root, fp"{chip_path}/{channel}_label")?,
+        minimum: reference_hwmon_number(root, fp"{chip_path}/{channel}_min", false)?,
+        maximum: reference_hwmon_number(root, fp"{chip_path}/{channel}_max", false)?,
+        critical: reference_hwmon_number(root, fp"{chip_path}/{channel}_crit", false)?,
+        alarm: reference_hwmon_number(root, fp"{chip_path}/{channel}_alarm", true, true)?,
         parent_target: parent.target,
         parent_complete: parent.complete,
       })
@@ -6278,7 +6278,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
     continue unless name.starts_with("hwmon")
     let suffix = name.split("") |> drop(5).join("")
     let index = reference_thermal_index(suffix)?
-    if name != f"hwmon${index}" {
+    if name != f"hwmon{index}" {
       return Err(check_failure("hwmon class identity is noncanonical"))
     }
 
@@ -6292,7 +6292,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
       complete = false
     }
 
-    let device_link = root.readlink_result(fp"${entry}/device")?
+    let device_link = root.readlink_result(fp"{entry}/device")?
     var device_target: Str? = null
     if device_link.state == "observed" {
       device_target = device_link.target.require(Path)?.display()
@@ -6314,13 +6314,13 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
       storage_path: storage,
       device_target: device_target,
     })
-    source_paths = source_paths.push(f"${storage}/name")
+    source_paths = source_paths.push(f"{storage}/name")
     for attribute in attributes.children {
       let attribute_name = attribute.name()
       continue unless attribute_name.ends_with("_input")
       let channel = attribute_name.split("") |> take(attribute_name.count_chars() - 6).join("")
       for attribute_suffix in ["input", "label", "min", "max", "crit", "alarm"] {
-        source_paths = source_paths.push(f"${storage}/${channel}_${attribute_suffix}")
+        source_paths = source_paths.push(f"{storage}/{channel}_{attribute_suffix}")
       }
     }
 
@@ -6351,16 +6351,16 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/hwmon", mode: 0o700, parents: true)?
     for chip in layout.chips {
-      if ! bundle.exists(fp"${chip.storage_path}")? {
-        bundle.mkdir(fp"${chip.storage_path}", mode: 0o700, parents: true)?
+      if ! bundle.exists(fp"{chip.storage_path}")? {
+        bundle.mkdir(fp"{chip.storage_path}", mode: 0o700, parents: true)?
       }
 
       if chip.device_target != null {
-        bundle.symlink(fp"${chip.device_target}", fp"${chip.storage_path}/device")?
+        bundle.symlink(fp"{chip.device_target}", fp"{chip.storage_path}/device")?
       }
 
       if chip.class_target != null {
-        bundle.symlink(fp"${chip.class_target}", fp"sys/class/hwmon/${chip.name}")?
+        bundle.symlink(fp"{chip.class_target}", fp"sys/class/hwmon/{chip.name}")?
       }
     }
   }
@@ -6369,12 +6369,12 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -6400,7 +6400,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var changing_gauges: List[Str] = []
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if hwmon_bundle_gauge(relative) {
@@ -6472,23 +6472,23 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"hwmon absent source ${relative} differs"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"hwmon absent source {relative} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"hwmon capture cannot score ${relative}"))
+      return Err(check_failure(f"hwmon capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"hwmon capture ${relative} bytes differ"))
+      return Err(check_failure(f"hwmon capture {relative} bytes differ"))
     }
   }
 
@@ -6551,7 +6551,7 @@ export pure compare_hwmon(
   var after_by_key: Map[Int] = {}
   var candidate_by_key: Map[Int] = {}
   for index in range(before.len()) {
-    let key = f"${before[index].chip_entry_name}:${before[index].channel}"
+    let key = f"{before[index].chip_entry_name}:{before[index].channel}"
     if key in before_by_key {
       return Err(check_failure("hwmon before reference repeats a channel"))
     }
@@ -6560,7 +6560,7 @@ export pure compare_hwmon(
   }
 
   for index in range(after.len()) {
-    let key = f"${after[index].chip_entry_name}:${after[index].channel}"
+    let key = f"{after[index].chip_entry_name}:{after[index].channel}"
     if key in after_by_key {
       return Err(check_failure("hwmon after reference repeats a channel"))
     }
@@ -6574,7 +6574,7 @@ export pure compare_hwmon(
       return Err(check_failure("candidate hwmon channel lacks a class entry identity"))
     }
 
-    let key = f"${item.chip_entry_name}:${item.channel}"
+    let key = f"{item.chip_entry_name}:{item.channel}"
     if key in candidate_by_key {
       return Err(check_failure("candidate hwmon report repeats a channel"))
     }
@@ -6591,9 +6591,9 @@ export pure compare_hwmon(
     issues,
   )
   for channel in before {
-    let key = f"${channel.chip_entry_name}:${channel.channel}"
+    let key = f"{channel.chip_entry_name}:{channel.channel}"
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
       continue
     }
 
@@ -6601,7 +6601,7 @@ export pure compare_hwmon(
       if enumeration_complete {
         missing_names += [key]
       } else {
-        unstable_fields = unstable_fields.push(f"${key}.presence")
+        unstable_fields = unstable_fields.push(f"{key}.presence")
       }
 
       continue
@@ -6612,26 +6612,26 @@ export pure compare_hwmon(
     let actual = section.channels[candidate_by_key.get(key)?]
     if ! channel.chip.complete or ! following.chip.complete or channel.chip.value != following.chip.value or hwmon_has_issue(
       issues,
-      f"hwmon.${channel.chip_entry_name}.name",
+      f"hwmon.{channel.chip_entry_name}.name",
     ) {
-      unstable_fields = unstable_fields.push(f"${key}.chip")
+      unstable_fields = unstable_fields.push(f"{key}.chip")
     } else if actual.chip != (channel.chip.value ?? channel.chip_entry_name) {
-      field_mismatches = field_mismatches.push(f"${key}.chip")
+      field_mismatches = field_mismatches.push(f"{key}.chip")
     }
 
     if actual.kind != channel.kind {
-      field_mismatches = field_mismatches.push(f"${key}.kind")
+      field_mismatches = field_mismatches.push(f"{key}.kind")
     }
 
     if actual.unit != channel.unit {
-      field_mismatches = field_mismatches.push(f"${key}.unit")
+      field_mismatches = field_mismatches.push(f"{key}.unit")
     }
 
     if ! channel.parent_complete or ! following.parent_complete or channel.parent_target != following.parent_target or hwmon_has_issue(
       issues,
-      f"hwmon.${channel.chip_entry_name}.parent",
+      f"hwmon.{channel.chip_entry_name}.parent",
     ) {
-      unstable_fields = unstable_fields.push(f"${key}.parent")
+      unstable_fields = unstable_fields.push(f"{key}.parent")
     } else {
       let parents = device_class_parent_ids(channel.parent_target)
       var pci_address: Str? = null
@@ -6639,7 +6639,7 @@ export pure compare_hwmon(
       if actual.parent_pci_function_index != null {
         let index = actual.parent_pci_function_index ?? -1
         if index < 0 or index >= pci.functions.len() {
-          field_mismatches = field_mismatches.push(f"${key}.pci_parent")
+          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
           pci_index_valid = false
         } else {
           pci_address = pci.functions[index].address
@@ -6648,9 +6648,9 @@ export pure compare_hwmon(
 
       if pci_index_valid and pci_address != parents.pci {
         if actual.parent_pci_function_index == null and parents.pci != null and ! pci_enumerated {
-          unstable_fields = unstable_fields.push(f"${key}.pci_parent")
+          unstable_fields = unstable_fields.push(f"{key}.pci_parent")
         } else {
-          field_mismatches = field_mismatches.push(f"${key}.pci_parent")
+          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
         }
       }
 
@@ -6659,7 +6659,7 @@ export pure compare_hwmon(
       if actual.parent_usb_device_index != null {
         let index = actual.parent_usb_device_index ?? -1
         if index < 0 or index >= usb.devices.len() {
-          field_mismatches = field_mismatches.push(f"${key}.usb_parent")
+          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
           usb_index_valid = false
         } else {
           usb_name = usb.devices[index].sysfs_name
@@ -6668,9 +6668,9 @@ export pure compare_hwmon(
 
       if usb_index_valid and usb_name != parents.usb {
         if actual.parent_usb_device_index == null and parents.usb != null and ! usb_enumerated {
-          unstable_fields = unstable_fields.push(f"${key}.usb_parent")
+          unstable_fields = unstable_fields.push(f"{key}.usb_parent")
         } else {
-          field_mismatches = field_mismatches.push(f"${key}.usb_parent")
+          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
         }
       }
     }
@@ -6678,11 +6678,11 @@ export pure compare_hwmon(
     let label: Str? = if actual.label.state == "observed" { actual.label.value } else { null }
     if ! channel.label.complete or ! following.label.complete or channel.label.value != following.label.value or hwmon_has_issue(
       issues,
-      f"hwmon.${channel.chip_entry_name}.${channel.channel}_label",
+      f"hwmon.{channel.chip_entry_name}.{channel.channel}_label",
     ) {
-      unstable_fields = unstable_fields.push(f"${key}.label")
+      unstable_fields = unstable_fields.push(f"{key}.label")
     } else if label != channel.label.value {
-      field_mismatches = field_mismatches.push(f"${key}.label")
+      field_mismatches = field_mismatches.push(f"{key}.label")
     }
 
     for field in [
@@ -6717,14 +6717,14 @@ export pure compare_hwmon(
     ] {
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or hwmon_has_issue(
         issues,
-        f"hwmon.${channel.chip_entry_name}.${channel.channel}_${field.suffix}",
+        f"hwmon.{channel.chip_entry_name}.{channel.channel}_{field.suffix}",
       ) {
-        unstable_fields = unstable_fields.push(f"${key}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{key}.{field.name}")
       } else if field.candidate != field.before.value {
         if field.name == "value" {
-          unstable_fields = unstable_fields.push(f"${key}.${field.name}")
+          unstable_fields = unstable_fields.push(f"{key}.{field.name}")
         } else {
-          field_mismatches = field_mismatches.push(f"${key}.${field.name}")
+          field_mismatches = field_mismatches.push(f"{key}.{field.name}")
         }
       }
     }
@@ -6732,23 +6732,23 @@ export pure compare_hwmon(
     let alarm: Int? = if actual.alarm == null { null } else if actual.alarm ?? false { 1 } else { 0 }
     if ! channel.alarm.complete or ! following.alarm.complete or channel.alarm.value != following.alarm.value or hwmon_has_issue(
       issues,
-      f"hwmon.${channel.chip_entry_name}.${channel.channel}_alarm",
+      f"hwmon.{channel.chip_entry_name}.{channel.channel}_alarm",
     ) {
-      unstable_fields = unstable_fields.push(f"${key}.alarm")
+      unstable_fields = unstable_fields.push(f"{key}.alarm")
     } else if alarm != channel.alarm.value {
-      field_mismatches = field_mismatches.push(f"${key}.alarm")
+      field_mismatches = field_mismatches.push(f"{key}.alarm")
     }
   }
 
   for channel in after {
-    let key = f"${channel.chip_entry_name}:${channel.channel}"
+    let key = f"{channel.chip_entry_name}:{channel.channel}"
     if key not in before_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
     }
   }
 
   for channel in section.channels {
-    let key = f"${channel.chip_entry_name ?? ""}:${channel.channel}"
+    let key = f"{channel.chip_entry_name ?? ""}:{channel.channel}"
     if key not in before_by_key and key not in after_by_key {
       unexpected_names += [key]
     }
@@ -6825,7 +6825,7 @@ export pure compare_usb_power(
 
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
       continue
     }
 
@@ -6853,15 +6853,15 @@ export pure compare_usb_power(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {
+        if issue.section == "usb" and issue.field == f"devices.{item.name}.{field.name}" {
           candidate_incomplete = true
         }
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
 
@@ -6887,22 +6887,22 @@ export pure compare_usb_power(
     ] {
       var candidate_incomplete = false
       for issue in issues {
-        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {
+        if issue.section == "usb" and issue.field == f"devices.{item.name}.{field.name}" {
           candidate_incomplete = true
         }
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
       }
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      unstable_fields = unstable_fields.push(f"{item.name}.presence")
     }
   }
 
@@ -6942,7 +6942,7 @@ export pure compare_cpuidle(
       return Err(check_failure("CPUIdle reference has a negative state identity"))
     }
 
-    let key = f"${state.cpu_id}:${state.state_index}"
+    let key = f"{state.cpu_id}:{state.state_index}"
     if key in before_by_key {
       return Err(check_failure("CPUIdle reference repeats a state identity"))
     }
@@ -6956,7 +6956,7 @@ export pure compare_cpuidle(
       return Err(check_failure("CPUIdle reference has a negative state identity"))
     }
 
-    let key = f"${state.cpu_id}:${state.state_index}"
+    let key = f"{state.cpu_id}:{state.state_index}"
     if key in after_by_key {
       return Err(check_failure("CPUIdle after reference repeats a state identity"))
     }
@@ -6978,7 +6978,7 @@ export pure compare_cpuidle(
       return Err(check_failure("candidate CPUIdle state has an invalid identity"))
     }
 
-    let key = f"${cpu_id}:${state.state_index}"
+    let key = f"{cpu_id}:{state.state_index}"
     if key in candidate_by_key {
       return Err(check_failure("candidate CPUIdle states repeat an identity"))
     }
@@ -7011,9 +7011,9 @@ export pure compare_cpuidle(
 
   var matched_count = 0
   for expected in before.states {
-    let key = f"${expected.cpu_id}:${expected.state_index}"
+    let key = f"{expected.cpu_id}:{expected.state_index}"
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
       continue
     }
 
@@ -7026,15 +7026,15 @@ export pure compare_cpuidle(
     let actual = states[candidate_by_key.get(key)?]
     let later = after.states[after_by_key.get(key)?]
     if expected.name != later.name {
-      unstable_fields = unstable_fields.push(f"${key}.name")
+      unstable_fields = unstable_fields.push(f"{key}.name")
     } else if actual.name != expected.name {
-      field_mismatches = field_mismatches.push(f"${key}.name")
+      field_mismatches = field_mismatches.push(f"{key}.name")
     }
 
     if expected.description != later.description {
-      unstable_fields = unstable_fields.push(f"${key}.description")
+      unstable_fields = unstable_fields.push(f"{key}.description")
     } else if actual.description != expected.description {
-      field_mismatches = field_mismatches.push(f"${key}.description")
+      field_mismatches = field_mismatches.push(f"{key}.description")
     }
 
     for field in [
@@ -7058,9 +7058,9 @@ export pure compare_cpuidle(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"${key}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{key}.{field.name}")
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"${key}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{key}.{field.name}")
       }
     }
 
@@ -7082,26 +7082,26 @@ export pure compare_cpuidle(
       let upper = counter.after ?? -1
       let observed = counter.candidate ?? -1
       if counter.before == null != (counter.after == null) or upper < lower {
-        unstable_fields = unstable_fields.push(f"${key}.${counter.name}")
+        unstable_fields = unstable_fields.push(f"{key}.{counter.name}")
       } else if counter.before == null {
         if counter.candidate != null {
-          counter_mismatches = counter_mismatches.push(f"${key}.${counter.name}")
+          counter_mismatches = counter_mismatches.push(f"{key}.{counter.name}")
         }
       } else if observed < lower or observed > upper {
-        counter_mismatches = counter_mismatches.push(f"${key}.${counter.name}")
+        counter_mismatches = counter_mismatches.push(f"{key}.{counter.name}")
       }
     }
   }
 
   for state in after.states {
-    let key = f"${state.cpu_id}:${state.state_index}"
+    let key = f"{state.cpu_id}:{state.state_index}"
     if key not in before_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
     }
   }
 
   for state in states {
-    let key = f"${state.cpu_id ?? -1}:${state.state_index}"
+    let key = f"{state.cpu_id ?? -1}:{state.state_index}"
     if key not in before_by_key and key not in after_by_key {
       unexpected_keys += [key]
     }
@@ -7134,13 +7134,13 @@ proc reference_cpuidle_text(
   return Ok(null) when raw.state == "absent" and ! required
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"CPUIdle reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"CPUIdle reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
-    Err(check_failure(f"CPUIdle reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"CPUIdle reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -7152,7 +7152,7 @@ proc reference_cpuidle_number(root: FsRoot, source_path: Path) [fs, error] -> Re
 
   let parsed = reference_cpu_number(raw)?
   if parsed > 9007199254740991 {
-    return Err(check_failure(f"CPUIdle reference source ${source_path} exceeds exact integer range"))
+    return Err(check_failure(f"CPUIdle reference source {source_path} exceeds exact integer range"))
   }
 
   parsed
@@ -7175,11 +7175,11 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
   let available = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/available_governors", false)?
   var states: List[CpuIdleStateReference] = []
   for cpu_id in present {
-    let idle_path = fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle"
+    let idle_path = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle"
     let listing = root.children(idle_path, max_entries: 256)?
     continue when listing.state == "absent"
     if listing.state != "complete" {
-      return Err(check_failure(f"CPUIdle state enumeration failed for CPU ${cpu_id}"))
+      return Err(check_failure(f"CPUIdle state enumeration failed for CPU {cpu_id}"))
     }
 
     for state_path in listing.children {
@@ -7187,16 +7187,16 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
       continue unless name.starts_with("state")
       let suffix = name.split("") |> drop(5).join("")
       let index = reference_cpu_number(suffix)?
-      if index > 9007199254740991 or f"state${index}" != name {
+      if index > 9007199254740991 or f"state{index}" != name {
         return Err(check_failure("CPUIdle reference state has a noncanonical or inexact directory index"))
       }
 
-      let state_name = reference_cpuidle_text(root, fp"${state_path}/name", true)?
+      let state_name = reference_cpuidle_text(root, fp"{state_path}/name", true)?
       if state_name == null or state_name == "" {
         return Err(check_failure("CPUIdle reference state has an empty name"))
       }
 
-      let disable = reference_cpuidle_number(root, fp"${state_path}/disable")?
+      let disable = reference_cpuidle_number(root, fp"{state_path}/disable")?
       if disable != null and disable != 0 and disable != 1 {
         return Err(check_failure("CPUIdle reference state has an invalid disable control"))
       }
@@ -7205,12 +7205,12 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
         cpu_id: cpu_id,
         state_index: index,
         name: state_name,
-        description: reference_cpuidle_text(root, fp"${state_path}/desc", false)?,
+        description: reference_cpuidle_text(root, fp"{state_path}/desc", false)?,
         disable_setting: disable,
-        latency_us: reference_cpuidle_number(root, fp"${state_path}/latency")?,
-        residency_us: reference_cpuidle_number(root, fp"${state_path}/residency")?,
-        usage_count: reference_cpuidle_number(root, fp"${state_path}/usage")?,
-        time_us: reference_cpuidle_number(root, fp"${state_path}/time")?,
+        latency_us: reference_cpuidle_number(root, fp"{state_path}/latency")?,
+        residency_us: reference_cpuidle_number(root, fp"{state_path}/residency")?,
+        usage_count: reference_cpuidle_number(root, fp"{state_path}/usage")?,
+        time_us: reference_cpuidle_number(root, fp"{state_path}/time")?,
       })
     }
   }
@@ -7226,7 +7226,7 @@ pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
   for word in output.trim().replace("\t", " ").split(" ") {
     continue when word == ""
     let id = reference_cpu_number(word)?
-    let key = f"${id}"
+    let key = f"{id}"
     if key in seen {
       return Err(check_failure("CPUFreq CPU membership repeats an identifier"))
     }
@@ -7274,13 +7274,13 @@ proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs
   return Ok(null) when raw.state == "absent" and ! required
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"CPUFreq reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"CPUFreq reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
-    Err(check_failure(f"CPUFreq reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"CPUFreq reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -7293,7 +7293,7 @@ proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Re
   let value = source
   let number = reference_cpu_number(value)?
   if number < 0 or number > 9007199254740991 {
-    return Err(check_failure(f"CPUFreq reference source ${source_path} exceeds the exact integer range"))
+    return Err(check_failure(f"CPUFreq reference source {source_path} exceeds the exact integer range"))
   }
 
   number
@@ -7308,13 +7308,13 @@ proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Res
   }
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"CPUFreq gauge ${source_path} is incomplete"))
+    return Err(check_failure(f"CPUFreq gauge {source_path} is incomplete"))
   }
 
   let value = raw.data.utf8()?.trim()
   let number = reference_cpu_number(value)?
   if number < 0 or number > 9007199254740991 {
-    return Err(check_failure(f"CPUFreq gauge ${source_path} exceeds the exact integer range"))
+    return Err(check_failure(f"CPUFreq gauge {source_path} exceeds the exact integer range"))
   }
 
   {value: number, complete: true}
@@ -7344,33 +7344,33 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
     }
 
     names += [name]
-    let related = reference_cpufreq_text(root, fp"${policy_path}/related_cpus", true)?
-    let affected = reference_cpufreq_text(root, fp"${policy_path}/affected_cpus", true)?
-    let governor = reference_cpufreq_text(root, fp"${policy_path}/scaling_governor", false)?
-    let available_epp = reference_cpufreq_text(root, fp"${policy_path}/energy_performance_available_preferences", false)?
+    let related = reference_cpufreq_text(root, fp"{policy_path}/related_cpus", true)?
+    let affected = reference_cpufreq_text(root, fp"{policy_path}/affected_cpus", true)?
+    let governor = reference_cpufreq_text(root, fp"{policy_path}/scaling_governor", false)?
+    let available_epp = reference_cpufreq_text(root, fp"{policy_path}/energy_performance_available_preferences", false)?
     policies = policies.push(
       {
         name: name,
         related_cpus: reference_cpufreq_members(related ?? "")?,
         affected_cpus: reference_cpufreq_members(affected ?? "")?,
-        driver: reference_cpufreq_text(root, fp"${policy_path}/scaling_driver", false)?,
+        driver: reference_cpufreq_text(root, fp"{policy_path}/scaling_driver", false)?,
         governor: governor,
-        hardware_min_khz: reference_cpufreq_number(root, fp"${policy_path}/cpuinfo_min_freq")?,
-        hardware_max_khz: reference_cpufreq_number(root, fp"${policy_path}/cpuinfo_max_freq")?,
-        scaling_min_khz: reference_cpufreq_number(root, fp"${policy_path}/scaling_min_freq")?,
-        scaling_max_khz: reference_cpufreq_number(root, fp"${policy_path}/scaling_max_freq")?,
-        hardware_current: reference_cpufreq_gauge(root, fp"${policy_path}/cpuinfo_cur_freq")?,
-        scaling_current: reference_cpufreq_gauge(root, fp"${policy_path}/scaling_cur_freq")?,
-        average_current: reference_cpufreq_gauge(root, fp"${policy_path}/cpuinfo_avg_freq")?,
+        hardware_min_khz: reference_cpufreq_number(root, fp"{policy_path}/cpuinfo_min_freq")?,
+        hardware_max_khz: reference_cpufreq_number(root, fp"{policy_path}/cpuinfo_max_freq")?,
+        scaling_min_khz: reference_cpufreq_number(root, fp"{policy_path}/scaling_min_freq")?,
+        scaling_max_khz: reference_cpufreq_number(root, fp"{policy_path}/scaling_max_freq")?,
+        hardware_current: reference_cpufreq_gauge(root, fp"{policy_path}/cpuinfo_cur_freq")?,
+        scaling_current: reference_cpufreq_gauge(root, fp"{policy_path}/scaling_cur_freq")?,
+        average_current: reference_cpufreq_gauge(root, fp"{policy_path}/cpuinfo_avg_freq")?,
         governor_requested: if governor == "userspace" {
-          reference_cpufreq_gauge(root, fp"${policy_path}/scaling_setspeed")?
+          reference_cpufreq_gauge(root, fp"{policy_path}/scaling_setspeed")?
         } else {
           {
             value: null,
             complete: true,
           }
         },
-        energy_performance_preference: reference_cpufreq_text(root, fp"${policy_path}/energy_performance_preference", false)?,
+        energy_performance_preference: reference_cpufreq_text(root, fp"{policy_path}/energy_performance_preference", false)?,
         available_energy_performance_preferences: reference_cpufreq_words(available_epp ?? ""),
         boost_supported: boost.supported,
         boost_allowed: boost.allowed,
@@ -7404,15 +7404,15 @@ export pure parse_proc_status_affinity(output: Str) -> Result[List[Int]] {
 }
 
 proc captured_cpu_set_text(root: FsRoot, name: Str) [fs, error] -> Result[Str] {
-  let raw = root.read_result(fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
+  let raw = root.read_result(fp"sys/devices/system/cpu/{name}", max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"CPU set capture has no complete ${name} source"))
+    return Err(check_failure(f"CPU set capture has no complete {name} source"))
   }
 
   if let Ok(value) = raw.data.utf8() {
     Ok(value)
   } else {
-    Err(check_failure(f"CPU set capture has non-UTF-8 ${name} source"))
+    Err(check_failure(f"CPU set capture has non-UTF-8 {name} source"))
   }
 }
 
@@ -7436,7 +7436,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   }
 
   for name in ["possible", "present", "online", "offline"] {
-    if bundle.exists(fp"sys/devices/system/cpu/${name}")? {
+    if bundle.exists(fp"sys/devices/system/cpu/{name}")? {
       return Err(check_failure("CPU set capture destination contains a source file"))
     }
   }
@@ -7446,7 +7446,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var complete = true
   var saved_bytes: List[Bytes?] = []
   for name in ["possible", "present", "online", "offline"] {
-    let relative = fp"sys/devices/system/cpu/${name}"
+    let relative = fp"sys/devices/system/cpu/{name}"
     let raw = source.read_result(relative, max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       complete = false
@@ -7477,7 +7477,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var stable = true
   let names = ["possible", "present", "online", "offline"]
   for index in range(4) {
-    let again = source.read_result(fp"sys/devices/system/cpu/${names[index]}", max_bytes: 65536)?
+    let again = source.read_result(fp"sys/devices/system/cpu/{names[index]}", max_bytes: 65536)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -7526,15 +7526,15 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
     let expected = capture.sources[index]
     let name = names[index]
     if expected.name != name or expected.state != "observed" or expected.truncated or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"CPU set capture cannot score ${name} source"))
+      return Err(check_failure(f"CPU set capture cannot score {name} source"))
     }
 
-    let raw = bundle.read_result(fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
+    let raw = bundle.read_result(fp"sys/devices/system/cpu/{name}", max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or expected.sha256_hex == null or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"CPU set capture ${name} bytes differ from metadata"))
+      return Err(check_failure(f"CPU set capture {name} bytes differ from metadata"))
     }
   }
 
@@ -7589,7 +7589,7 @@ pure cpufreq_bundle_source_limit(relative: Str) -> Int {
 
 pure cpufreq_bundle_is_gauge(relative: Str) -> Bool {
   for name in ["cpuinfo_cur_freq", "scaling_cur_freq", "cpuinfo_avg_freq", "scaling_setspeed"] {
-    return true when relative.ends_with(f"/${name}")
+    return true when relative.ends_with(f"/{name}")
   }
 
   false
@@ -7620,7 +7620,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
     continue unless name.starts_with("policy")
     let suffix = name.split("") |> drop(6).join("")
     let index = reference_cpu_number(suffix)?
-    if name != f"policy${index}" {
+    if name != f"policy{index}" {
       return Err(check_failure("CPUFreq capture has a noncanonical policy name"))
     }
 
@@ -7650,7 +7650,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
       "energy_performance_available_preferences",
       "scaling_available_frequencies",
     ] {
-      source_paths = source_paths.push(f"${prefix}/${attribute}")
+      source_paths = source_paths.push(f"{prefix}/{attribute}")
     }
   }
 
@@ -7682,7 +7682,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)?
     for policy in layout.policies {
-      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/${policy}", mode: 0o700)?
+      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/{policy}", mode: 0o700)?
     }
   }
 
@@ -7690,12 +7690,12 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -7726,7 +7726,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var changing_gauges: List[Str] = []
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if cpufreq_bundle_is_gauge(relative) {
@@ -7799,23 +7799,23 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"CPUFreq absent source ${relative} differs"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"CPUFreq absent source {relative} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"CPUFreq capture cannot score ${relative}"))
+      return Err(check_failure(f"CPUFreq capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"CPUFreq capture ${relative} bytes differ"))
+      return Err(check_failure(f"CPUFreq capture {relative} bytes differ"))
     }
   }
 
@@ -7867,7 +7867,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
 
   var node_links: List[CpuTopologyNodeLink] = []
   for cpu_id in cpu_ids {
-    let cpu_path = fp"sys/devices/system/cpu/cpu${cpu_id}"
+    let cpu_path = fp"sys/devices/system/cpu/cpu{cpu_id}"
     let listing = root.children(cpu_path, max_entries: 256)?
     if listing.state != "complete" {
       complete = false
@@ -7879,12 +7879,12 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
       continue unless name.starts_with("node")
       let suffix = name.split("") |> drop(4).join("")
       let node_id = reference_cpu_number(suffix)?
-      if name != f"node${node_id}" or found_node {
+      if name != f"node{node_id}" or found_node {
         return Err(check_failure("CPU topology capture has an invalid or repeated NUMA node link"))
       }
 
       let target = root.readlink(entry)?.display()
-      if target != f"../../node/${name}" {
+      if target != f"../../node/{name}" {
         return Err(check_failure("CPU topology NUMA link has an invalid target"))
       }
 
@@ -7893,7 +7893,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
     }
 
     for attribute in ["physical_package_id", "die_id", "core_id", "thread_siblings_list"] {
-      source_paths = source_paths.push(f"${cpu_path}/topology/${attribute}")
+      source_paths = source_paths.push(f"{cpu_path}/topology/{attribute}")
     }
   }
 
@@ -7906,15 +7906,15 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
 }
 
 proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Str?] {
-  let raw = root.read_result(fp"${relative}", max_bytes: 4096)?
+  let raw = root.read_result(fp"{relative}", max_bytes: 4096)?
   return Ok(null) when raw.state == "absent" and ! required
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"CPU topology source ${relative} is incomplete"))
+    return Err(check_failure(f"CPU topology source {relative} is incomplete"))
   }
 
   let value = raw.data.utf8()?.trim()
-  return Err(check_failure(f"CPU topology source ${relative} is empty")) when value == ""
+  return Err(check_failure(f"CPU topology source {relative} is empty")) when value == ""
 
   value
 }
@@ -7938,10 +7938,10 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
 
   var rows: List[CpuTopologyRawReference] = []
   for cpu_id in sets.present {
-    let prefix = f"sys/devices/system/cpu/cpu${cpu_id}/topology"
-    let package = cpu_topology_reference_number(root, f"${prefix}/physical_package_id", true)?
-    let core = cpu_topology_reference_number(root, f"${prefix}/core_id", true)?
-    let sibling_text = cpu_topology_reference_text(root, f"${prefix}/thread_siblings_list", true)?
+    let prefix = f"sys/devices/system/cpu/cpu{cpu_id}/topology"
+    let package = cpu_topology_reference_number(root, f"{prefix}/physical_package_id", true)?
+    let core = cpu_topology_reference_number(root, f"{prefix}/core_id", true)?
+    let sibling_text = cpu_topology_reference_text(root, f"{prefix}/thread_siblings_list", true)?
     let siblings = parse_reference_cpu_list(sibling_text ?? "", false)?
     if cpu_id not in siblings {
       return Err(check_failure("CPU topology siblings omit their owner"))
@@ -7958,7 +7958,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
       id: cpu_id,
       online: cpu_id in sets.online,
       package_id: package ?? -1,
-      die_id: cpu_topology_reference_number(root, f"${prefix}/die_id", false)?,
+      die_id: cpu_topology_reference_number(root, f"{prefix}/die_id", false)?,
       core_id: core ?? -1,
       siblings: siblings,
       node_id: node_id,
@@ -7979,7 +7979,7 @@ export pure compare_cpu_topology_raw(
   var by_id: Map[Int] = {}
   for index in range(candidate.len()) {
     let id = candidate[index].id
-    let key = f"${id}"
+    let key = f"{id}"
     if id < 0 or key in by_id {
       return Err(check_failure("candidate CPU topology repeats an ID"))
     }
@@ -7992,7 +7992,7 @@ export pure compare_cpu_topology_raw(
   var field_mismatches: List[Str] = []
   var matched_count = 0
   for item in reference {
-    let key = f"${item.id}"
+    let key = f"{item.id}"
     if item.id < 0 or key in seen {
       return Err(check_failure("CPU topology reference repeats an ID"))
     }
@@ -8006,35 +8006,35 @@ export pure compare_cpu_topology_raw(
     matched_count += 1
     let actual = candidate[by_id.get(key)?]
     if ! actual.present {
-      field_mismatches = field_mismatches.push(f"${item.id}.present")
+      field_mismatches = field_mismatches.push(f"{item.id}.present")
     }
 
     if actual.online != item.online {
-      field_mismatches = field_mismatches.push(f"${item.id}.online")
+      field_mismatches = field_mismatches.push(f"{item.id}.online")
     }
 
     if actual.package_id != item.package_id {
-      field_mismatches = field_mismatches.push(f"${item.id}.package_id")
+      field_mismatches = field_mismatches.push(f"{item.id}.package_id")
     }
 
     if actual.die_id != item.die_id {
-      field_mismatches = field_mismatches.push(f"${item.id}.die_id")
+      field_mismatches = field_mismatches.push(f"{item.id}.die_id")
     }
 
     if actual.core_id != item.core_id {
-      field_mismatches = field_mismatches.push(f"${item.id}.core_id")
+      field_mismatches = field_mismatches.push(f"{item.id}.core_id")
     }
 
     if actual.thread_siblings != item.siblings {
-      field_mismatches = field_mismatches.push(f"${item.id}.siblings")
+      field_mismatches = field_mismatches.push(f"{item.id}.siblings")
     }
 
     if actual.numa_node != item.node_id {
-      field_mismatches = field_mismatches.push(f"${item.id}.node_id")
+      field_mismatches = field_mismatches.push(f"{item.id}.node_id")
     }
   }
 
-  var unexpected_ids = [item.id for item in candidate if f"${item.id}" not in seen]
+  var unexpected_ids = [item.id for item in candidate if f"{item.id}" not in seen]
   let eligible = reference.len() > 0
   {
     reference_count: reference.len(),
@@ -8061,11 +8061,11 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
   let layout = cpu_topology_bundle_layout(source)?
   bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
   for cpu_id in layout.cpu_ids {
-    bundle.mkdir(fp"sys/devices/system/cpu/cpu${cpu_id}/topology", mode: 0o700, parents: true)?
+    bundle.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}/topology", mode: 0o700, parents: true)?
   }
 
   for link in layout.node_links {
-    bundle.symlink(fp"${link.target}", fp"sys/devices/system/cpu/cpu${link.cpu_id}/${link.name}")?
+    bundle.symlink(fp"{link.target}", fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}")?
   }
 
   var sources: List[CpuTopologySourceObservation] = []
@@ -8079,12 +8079,12 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     } else {
       4096
     }
-    let raw = source.read_result(fp"${relative}", max_bytes: limit)?
+    let raw = source.read_result(fp"{relative}", max_bytes: limit)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8116,7 +8116,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     } else {
       4096
     }
-    let raw = source.read_result(fp"${relative}", max_bytes: limit)?
+    let raw = source.read_result(fp"{relative}", max_bytes: limit)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -8175,15 +8175,15 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"CPU topology absent source ${relative} differs"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"CPU topology absent source {relative} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"CPU topology capture cannot score ${relative}"))
+      return Err(check_failure(f"CPU topology capture cannot score {relative}"))
     }
 
     let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or relative.ends_with("/online") or relative.ends_with(
@@ -8193,12 +8193,12 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
     } else {
       4096
     }
-    let raw = bundle.read_result(fp"${relative}", max_bytes: limit)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: limit)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"CPU topology capture ${relative} bytes differ"))
+      return Err(check_failure(f"CPU topology capture {relative} bytes differ"))
     }
   }
 
@@ -8238,15 +8238,15 @@ pure memory_bundle_paths() -> List[Str] {
 }
 
 proc memory_bundle_text(bundle: FsRoot, relative: Str, bound: Int) [fs, error] -> Result[Str] {
-  let raw = bundle.read_result(fp"${relative}", max_bytes: bound)?
+  let raw = bundle.read_result(fp"{relative}", max_bytes: bound)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"memory bundle has no complete ${relative} source"))
+    return Err(check_failure(f"memory bundle has no complete {relative} source"))
   }
 
   if let Ok(value) = raw.data.utf8() {
     Ok(value)
   } else {
-    Err(check_failure(f"memory bundle ${relative} source is not UTF-8"))
+    Err(check_failure(f"memory bundle {relative} source is not UTF-8"))
   }
 }
 
@@ -8254,8 +8254,8 @@ proc memory_bundle_reference(bundle: FsRoot) [fs, error] -> Result[MemoryBundleR
   let meminfo = parse_meminfo_reference(memory_bundle_text(bundle, "proc/meminfo", 1048576)?)?
   var thp: List[ThpReferencePolicy] = []
   for name in ["enabled", "defrag"] {
-    let relative = f"sys/kernel/mm/transparent_hugepage/${name}"
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let relative = f"sys/kernel/mm/transparent_hugepage/{name}"
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     continue when raw.state == "absent"
     thp = thp.push({name: name, value: parse_thp_reference(memory_bundle_text(bundle, relative, 4096)?)?})
   }
@@ -8275,7 +8275,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
 
   let paths = memory_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"${relative}")? {
+    if bundle.exists(fp"{relative}")? {
       return Err(check_failure("memory capture destination contains a source file"))
     }
   }
@@ -8288,7 +8288,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
   for index in range(paths.len()) {
     let relative = paths[index]
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let raw = source.read_result(fp"${relative}", max_bytes: bound)?
+    let raw = source.read_result(fp"{relative}", max_bytes: bound)?
     if raw.state != "observed" and (index == 0 or raw.state != "absent") {
       complete = false
     }
@@ -8301,7 +8301,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8321,7 +8321,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
   var stable = true
   for index in range(paths.len()) {
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let again = source.read_result(fp"${paths[index]}", max_bytes: bound)?
+    let again = source.read_result(fp"{paths[index]}", max_bytes: bound)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -8369,24 +8369,24 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     }
 
     if expected.state == "absent" and index > 0 {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"memory capture ${relative} absent source differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"memory capture {relative} absent source differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"memory capture cannot score ${relative} source"))
+      return Err(check_failure(f"memory capture cannot score {relative} source"))
     }
 
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let raw = bundle.read_result(fp"${relative}", max_bytes: bound)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: bound)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"memory capture ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"memory capture {relative} bytes differ from metadata"))
     }
   }
 
@@ -8423,7 +8423,7 @@ export proc replay_memory_bundle(bundle: FsRoot) [fs, time, error] -> Result[Mem
 pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[CpuIdSetComparison] {
   var reference_seen = set.empty()
   for cpu_id in reference {
-    let key = f"${cpu_id}"
+    let key = f"{cpu_id}"
     if cpu_id < 0 or key in reference_seen {
       return Err(check_failure("reference CPU set has a negative or duplicate ID"))
     }
@@ -8435,7 +8435,7 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
   var matched_count = 0
   var unexpected_ids: List[Int] = []
   for cpu_id in candidate {
-    let key = f"${cpu_id}"
+    let key = f"{cpu_id}"
     if cpu_id < 0 or key in candidate_seen {
       return Err(check_failure("candidate report has a negative or duplicate CPU ID"))
     }
@@ -8448,7 +8448,7 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
     }
   }
 
-  var missing_ids = [cpu_id for cpu_id in reference if f"${cpu_id}" not in candidate_seen]
+  var missing_ids = [cpu_id for cpu_id in reference if f"{cpu_id}" not in candidate_seen]
   {
     reference_count: reference.len(),
     candidate_count: candidate.len(),
@@ -8985,7 +8985,7 @@ export proc capture_vulnerabilities_bundle(
     |> sort-by .) == (second_names |> sort-by .)
   if first.state == "complete" {
     for item in sources {
-      let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
+      let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}"
       let later = source.read_result(relative, max_bytes: 16384)?
       let saved = bundle.read_result(relative, max_bytes: 16384)?
       if later.state != item.state or later.truncated != item.truncated or later.errno != item.errno or later.error_kind != item.error_kind or later.data != saved.data {
@@ -9042,13 +9042,13 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     }
 
     expected_names = expected_names.push(item.name)
-    let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
+    let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}"
     let raw = bundle.read_result(relative, max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != item.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != item.sha256_hex {
-      return Err(check_failure(f"vulnerability capture ${item.name} bytes differ from metadata"))
+      return Err(check_failure(f"vulnerability capture {item.name} bytes differ from metadata"))
     }
 
     captured_bytes += raw.data.len()
@@ -9059,7 +9059,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     if let Ok(value) = raw.data.utf8() {
       reference = reference.push({name: item.name, description: value.trim()})
     } else {
-      return Err(check_failure(f"vulnerability capture ${item.name} is not UTF-8"))
+      return Err(check_failure(f"vulnerability capture {item.name} is not UTF-8"))
     }
   }
 
@@ -9088,8 +9088,8 @@ export proc replay_vulnerabilities_bundle(
 }
 
 pure huge_page_pool_key(pool: HugePageReferencePool) -> Str {
-  let scope = if pool.node_id == null { "global" } else { f"node${pool.node_id ?? -1}" }
-  f"${scope}:${pool.page_size_bytes}"
+  let scope = if pool.node_id == null { "global" } else { f"node{pool.node_id ?? -1}" }
+  f"{scope}:{pool.page_size_bytes}"
 }
 
 pure valid_huge_page_reference(pool: HugePageReferencePool) -> Bool {
@@ -9189,9 +9189,9 @@ export pure compare_huge_pages(
     ]
     for field in fields {
       if field.before != field.after {
-        changed_fields = changed_fields.push(f"${key}.${field.name}")
+        changed_fields = changed_fields.push(f"{key}.{field.name}")
       } else if field.candidate != field.before {
-        mismatched_fields = mismatched_fields.push(f"${key}.${field.name}")
+        mismatched_fields = mismatched_fields.push(f"{key}.{field.name}")
       }
     }
   }
@@ -9329,7 +9329,7 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
 }
 
 pure psi_reference_key(resource: Str, kind: Str) -> Str {
-  f"${resource}.${kind}"
+  f"{resource}.{kind}"
 }
 
 pure valid_psi_reference_row(row: PsiReferenceRow) -> Bool {
@@ -9407,7 +9407,7 @@ export pure compare_psi(
     let candidate = candidates[candidate_by_key.get(key) ?? -1]
     let total = candidate.total_us ?? -1
     if total < first.total_us or total > last.total_us {
-      mismatched_fields = mismatched_fields.push(f"${key}.total_us")
+      mismatched_fields = mismatched_fields.push(f"{key}.total_us")
     }
 
     for field in [
@@ -9431,11 +9431,11 @@ export pure compare_psi(
       },
     ] {
       if field.candidate == null or ! psi_reference_average(field.candidate) {
-        mismatched_fields = mismatched_fields.push(f"${key}.${field.name}")
+        mismatched_fields = mismatched_fields.push(f"{key}.{field.name}")
       } else if field.before != field.after {
-        changing_averages = changing_averages.push(f"${key}.${field.name}")
+        changing_averages = changing_averages.push(f"{key}.{field.name}")
       } else if field.candidate != field.before {
-        mismatched_fields = mismatched_fields.push(f"${key}.${field.name}")
+        mismatched_fields = mismatched_fields.push(f"{key}.{field.name}")
       }
     }
   }
@@ -9463,17 +9463,17 @@ export pure compare_psi(
 proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
   var rows: List[PsiReferenceRow] = []
   for resource in ["cpu", "memory", "io"] {
-    let raw = bundle.read_result(fp"proc/pressure/${resource}", max_bytes: 16384)?
+    let raw = bundle.read_result(fp"proc/pressure/{resource}", max_bytes: 16384)?
     continue when raw.state == "absent"
     if raw.state != "observed" or raw.truncated or raw.data == null {
-      return Err(check_failure(f"pressure capture ${resource} source is incomplete"))
+      return Err(check_failure(f"pressure capture {resource} source is incomplete"))
     }
 
     var source_text = ""
     if let Ok(value) = raw.data.utf8() {
       source_text = value
     } else {
-      return Err(check_failure(f"pressure capture ${resource} source is not UTF-8"))
+      return Err(check_failure(f"pressure capture {resource} source is not UTF-8"))
     }
 
     rows = rows.extend(parse_psi_reference(source_text, resource)?)
@@ -9495,7 +9495,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   }
 
   for resource in ["cpu", "memory", "io"] {
-    if bundle.exists(fp"proc/pressure/${resource}")? {
+    if bundle.exists(fp"proc/pressure/{resource}")? {
       return Err(check_failure("pressure capture destination contains a source file"))
     }
   }
@@ -9504,7 +9504,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   var sources: List[PressureSourceObservation] = []
   var complete = true
   for resource in ["cpu", "memory", "io"] {
-    let relative = fp"proc/pressure/${resource}"
+    let relative = fp"proc/pressure/{resource}"
     let raw = source.read_result(relative, max_bytes: 16384)?
     if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
       complete = false
@@ -9564,29 +9564,29 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
   let resources = ["cpu", "memory", "io"]
   for index in range(3) {
     let expected = capture.sources[index]
-    let relative = f"proc/pressure/${resources[index]}"
+    let relative = f"proc/pressure/{resources[index]}"
     if expected.path != relative or expected.truncated {
       return Err(check_failure("pressure capture source identity or completeness differs from metadata"))
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"pressure capture ${relative} absent source differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"pressure capture {relative} absent source differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.errno != null or expected.error_kind != null or expected.sha256_hex == null {
-      return Err(check_failure(f"pressure capture cannot score ${relative} source"))
+      return Err(check_failure(f"pressure capture cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 16384)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"pressure capture ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"pressure capture {relative} bytes differ from metadata"))
     }
   }
 
@@ -9616,14 +9616,14 @@ export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[P
   let resources = ["cpu", "memory", "io"]
   for index in range(3) {
     let resource = resources[index]
-    let field = f"pressure.${resource}"
-    let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"${field}."))
+    let field = f"pressure.{resource}"
+    let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"{field}."))
     if capture.sources[index].state == "observed" {
       if matching.len() > 0 {
-        return Err(check_failure(f"pressure collector reported a ${resource} source issue"))
+        return Err(check_failure(f"pressure collector reported a {resource} source issue"))
       }
     } else if (matching |> where .field == field and .state == "absent").len() != 1 {
-      return Err(check_failure(f"pressure collector did not preserve absent ${resource} source"))
+      return Err(check_failure(f"pressure collector did not preserve absent {resource} source"))
     }
   }
 
@@ -9966,7 +9966,7 @@ pure pci_reference_hex(value: Str, width: Int) -> Result[Int] {
     }
   }
 
-  f"0x${value}".parse_int()
+  f"0x{value}".parse_int()
 }
 
 pure pci_reference_bdf(value: Str) -> Result[PciReferenceBdf] {
@@ -10163,62 +10163,62 @@ export pure compare_lspci_identity(
     }
 
     if function.domain != item.domain {
-      field_mismatches = field_mismatches.push(f"${item.address}.domain")
+      field_mismatches = field_mismatches.push(f"{item.address}.domain")
     }
 
     if function.bus != item.bus {
-      field_mismatches = field_mismatches.push(f"${item.address}.bus")
+      field_mismatches = field_mismatches.push(f"{item.address}.bus")
     }
 
     if function.device != item.device {
-      field_mismatches = field_mismatches.push(f"${item.address}.device")
+      field_mismatches = field_mismatches.push(f"{item.address}.device")
     }
 
     if function.function != item.function {
-      field_mismatches = field_mismatches.push(f"${item.address}.function")
+      field_mismatches = field_mismatches.push(f"{item.address}.function")
     }
 
     if function.vendor_id != item.vendor_id {
-      field_mismatches = field_mismatches.push(f"${item.address}.vendor_id")
+      field_mismatches = field_mismatches.push(f"{item.address}.vendor_id")
     }
 
     if function.device_id != item.device_id {
-      field_mismatches = field_mismatches.push(f"${item.address}.device_id")
+      field_mismatches = field_mismatches.push(f"{item.address}.device_id")
     }
 
     let candidate_class = function.class_code ?? -1
     if function.class_code == null or candidate_class - candidate_class.bit_and(255) != item.class_code - item.class_code.bit_and(
       255,
     ) {
-      field_mismatches = field_mismatches.push(f"${item.address}.class_code")
+      field_mismatches = field_mismatches.push(f"{item.address}.class_code")
     }
 
     if item.prog_if != null and candidate_class.bit_and(255) != (item.prog_if ?? -1) {
-      field_mismatches = field_mismatches.push(f"${item.address}.prog_if")
+      field_mismatches = field_mismatches.push(f"{item.address}.prog_if")
     }
 
     if item.revision != null and function.revision != item.revision {
-      field_mismatches = field_mismatches.push(f"${item.address}.revision")
+      field_mismatches = field_mismatches.push(f"{item.address}.revision")
     }
 
     if item.subsystem_vendor_id != null and function.subsystem_vendor_id != item.subsystem_vendor_id {
-      field_mismatches = field_mismatches.push(f"${item.address}.subsystem_vendor_id")
+      field_mismatches = field_mismatches.push(f"{item.address}.subsystem_vendor_id")
     }
 
     if item.subsystem_device_id != null and function.subsystem_device_id != item.subsystem_device_id {
-      field_mismatches = field_mismatches.push(f"${item.address}.subsystem_device_id")
+      field_mismatches = field_mismatches.push(f"{item.address}.subsystem_device_id")
     }
 
     if function.driver != item.driver {
-      field_mismatches = field_mismatches.push(f"${item.address}.driver")
+      field_mismatches = field_mismatches.push(f"{item.address}.driver")
     }
 
     if item.numa_node != null and function.numa_node != item.numa_node {
-      field_mismatches = field_mismatches.push(f"${item.address}.numa_node")
+      field_mismatches = field_mismatches.push(f"{item.address}.numa_node")
     }
 
     if item.iommu_group != null and function.iommu_group != item.iommu_group {
-      field_mismatches = field_mismatches.push(f"${item.address}.iommu_group")
+      field_mismatches = field_mismatches.push(f"{item.address}.iommu_group")
     }
   }
 
@@ -10293,7 +10293,7 @@ export pure compare_pci_links(
     }
 
     if address not in after_by_address {
-      unstable_fields = unstable_fields.push(f"${address}.presence")
+      unstable_fields = unstable_fields.push(f"{address}.presence")
       continue
     }
 
@@ -10324,9 +10324,9 @@ export pure compare_pci_links(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"${address}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{address}.{field.name}")
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"${address}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{address}.{field.name}")
       }
     }
 
@@ -10345,9 +10345,9 @@ export pure compare_pci_links(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"${address}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{address}.{field.name}")
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"${address}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{address}.{field.name}")
       }
     }
   }
@@ -10358,7 +10358,7 @@ export pure compare_pci_links(
     }
 
     if item.address not in before_by_address {
-      unstable_fields = unstable_fields.push(f"${item.address}.presence")
+      unstable_fields = unstable_fields.push(f"{item.address}.presence")
     }
   }
 
@@ -10436,7 +10436,7 @@ export pure compare_pci_bindings(
   for item in before {
     let address = item.address
     if address not in after_by_address {
-      unstable_fields = unstable_fields.push(f"${address}.presence")
+      unstable_fields = unstable_fields.push(f"{address}.presence")
       continue
     }
 
@@ -10463,42 +10463,42 @@ export pure compare_pci_bindings(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"${address}.${field.name}")
+        unstable_fields = unstable_fields.push(f"{address}.{field.name}")
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"${address}.${field.name}")
+        field_mismatches = field_mismatches.push(f"{address}.{field.name}")
       }
     }
 
     if item.numa_node != later.numa_node {
-      unstable_fields = unstable_fields.push(f"${address}.numa_node")
+      unstable_fields = unstable_fields.push(f"{address}.numa_node")
     } else if actual.numa_node != item.numa_node {
-      field_mismatches = field_mismatches.push(f"${address}.numa_node")
+      field_mismatches = field_mismatches.push(f"{address}.numa_node")
     }
 
     var actual_parent: Str? = null
     let parent_index = actual.parent_function_index
     if parent_index != null {
       if parent_index < 0 or parent_index >= candidate.len() {
-        field_mismatches = field_mismatches.push(f"${address}.parent_function_index")
+        field_mismatches = field_mismatches.push(f"{address}.parent_function_index")
       } else {
         actual_parent = candidate[parent_index].address
         if actual_parent == null or actual_parent == "" {
-          field_mismatches = field_mismatches.push(f"${address}.parent_function_index")
+          field_mismatches = field_mismatches.push(f"{address}.parent_function_index")
         }
       }
     }
 
     if item.parent_address != later.parent_address {
-      unstable_fields = unstable_fields.push(f"${address}.parent_function_index")
+      unstable_fields = unstable_fields.push(f"{address}.parent_function_index")
     } else if actual_parent != item.parent_address and ! (field_mismatches
-      |> any . == f"${address}.parent_function_index") {
-      field_mismatches = field_mismatches.push(f"${address}.parent_function_index")
+      |> any . == f"{address}.parent_function_index") {
+      field_mismatches = field_mismatches.push(f"{address}.parent_function_index")
     }
   }
 
   for item in after {
     if item.address not in before_by_address {
-      unstable_fields = unstable_fields.push(f"${item.address}.presence")
+      unstable_fields = unstable_fields.push(f"{item.address}.presence")
     }
   }
 
@@ -10544,7 +10544,7 @@ export pure compare_thermal_zones(
   var after_by_id: Map[Int] = {}
   var candidate_by_id: Map[Int] = {}
   for index in range(before.len()) {
-    let key = f"${before[index].id}"
+    let key = f"{before[index].id}"
     if before[index].id < 0 or key in before_by_id {
       return Err(check_failure("thermal before reference has duplicate or invalid zone IDs"))
     }
@@ -10553,7 +10553,7 @@ export pure compare_thermal_zones(
   }
 
   for index in range(after.len()) {
-    let key = f"${after[index].id}"
+    let key = f"{after[index].id}"
     if after[index].id < 0 or key in after_by_id {
       return Err(check_failure("thermal after reference has duplicate or invalid zone IDs"))
     }
@@ -10562,7 +10562,7 @@ export pure compare_thermal_zones(
   }
 
   for index in range(section.thermal_zones.len()) {
-    let key = f"${section.thermal_zones[index].id}"
+    let key = f"{section.thermal_zones[index].id}"
     if section.thermal_zones[index].id < 0 or key in candidate_by_id {
       return Err(check_failure("candidate thermal zones repeat or invalidate an ID"))
     }
@@ -10573,36 +10573,36 @@ export pure compare_thermal_zones(
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   for zone in before {
-    let zone_key = f"${zone.id}"
+    let zone_key = f"{zone.id}"
     if zone_key not in after_by_id {
-      unstable_fields = unstable_fields.push(f"zone.${zone.id}.presence")
+      unstable_fields = unstable_fields.push(f"zone.{zone.id}.presence")
       continue
     }
 
     if zone_key not in candidate_by_id {
-      field_mismatches = field_mismatches.push(f"zone.${zone.id}.presence")
+      field_mismatches = field_mismatches.push(f"zone.{zone.id}.presence")
       continue
     }
 
     let later = after[after_by_id.get(zone_key)?]
     let actual = section.thermal_zones[candidate_by_id.get(zone_key)?]
     if zone.kind != later.kind {
-      unstable_fields = unstable_fields.push(f"zone.${zone.id}.kind")
+      unstable_fields = unstable_fields.push(f"zone.{zone.id}.kind")
     } else if zone.kind != actual.kind {
-      field_mismatches = field_mismatches.push(f"zone.${zone.id}.kind")
+      field_mismatches = field_mismatches.push(f"zone.{zone.id}.kind")
     }
 
     if zone.temperature_millidegrees != later.temperature_millidegrees {
-      unstable_fields = unstable_fields.push(f"zone.${zone.id}.temperature_millidegrees")
+      unstable_fields = unstable_fields.push(f"zone.{zone.id}.temperature_millidegrees")
     } else if zone.temperature_millidegrees != actual.temperature_millidegrees {
-      field_mismatches = field_mismatches.push(f"zone.${zone.id}.temperature_millidegrees")
+      field_mismatches = field_mismatches.push(f"zone.{zone.id}.temperature_millidegrees")
     }
 
     var before_trips: Map[Int] = {}
     var after_trips: Map[Int] = {}
     var candidate_trips: Map[Int] = {}
     for index in range(zone.trips.len()) {
-      let key = f"${zone.trips[index].index}"
+      let key = f"{zone.trips[index].index}"
       if zone.trips[index].index < 0 or key in before_trips {
         return Err(check_failure("thermal before reference repeats a trip index"))
       }
@@ -10611,7 +10611,7 @@ export pure compare_thermal_zones(
     }
 
     for index in range(later.trips.len()) {
-      let key = f"${later.trips[index].index}"
+      let key = f"{later.trips[index].index}"
       if later.trips[index].index < 0 or key in after_trips {
         return Err(check_failure("thermal after reference repeats a trip index"))
       }
@@ -10627,7 +10627,7 @@ export pure compare_thermal_zones(
       }
 
       let known_index = trip_index ?? -1
-      let key = f"${known_index}"
+      let key = f"{known_index}"
       if known_index < 0 or key in candidate_trips {
         return Err(check_failure("candidate thermal zone repeats a trip index"))
       }
@@ -10636,64 +10636,64 @@ export pure compare_thermal_zones(
     }
 
     for trip in zone.trips {
-      let key = f"${trip.index}"
-      let field = f"zone.${zone.id}.trip.${trip.index}"
+      let key = f"{trip.index}"
+      let field = f"zone.{zone.id}.trip.{trip.index}"
       if key not in after_trips {
-        unstable_fields = unstable_fields.push(f"${field}.presence")
+        unstable_fields = unstable_fields.push(f"{field}.presence")
         continue
       }
 
       if key not in candidate_trips {
-        field_mismatches = field_mismatches.push(f"${field}.presence")
+        field_mismatches = field_mismatches.push(f"{field}.presence")
         continue
       }
 
       let later_trip = later.trips[after_trips.get(key)?]
       let actual_trip = actual.trips[candidate_trips.get(key)?]
       if trip.kind != later_trip.kind {
-        unstable_fields = unstable_fields.push(f"${field}.kind")
+        unstable_fields = unstable_fields.push(f"{field}.kind")
       } else if trip.kind != actual_trip.kind {
-        field_mismatches = field_mismatches.push(f"${field}.kind")
+        field_mismatches = field_mismatches.push(f"{field}.kind")
       }
 
       if trip.temperature_millidegrees != later_trip.temperature_millidegrees {
-        unstable_fields = unstable_fields.push(f"${field}.temperature_millidegrees")
+        unstable_fields = unstable_fields.push(f"{field}.temperature_millidegrees")
       } else if trip.temperature_millidegrees != actual_trip.temperature_millidegrees {
-        field_mismatches = field_mismatches.push(f"${field}.temperature_millidegrees")
+        field_mismatches = field_mismatches.push(f"{field}.temperature_millidegrees")
       }
 
       if trip.hysteresis_millidegrees != later_trip.hysteresis_millidegrees {
-        unstable_fields = unstable_fields.push(f"${field}.hysteresis_millidegrees")
+        unstable_fields = unstable_fields.push(f"{field}.hysteresis_millidegrees")
       } else if trip.hysteresis_millidegrees != actual_trip.hysteresis_millidegrees {
-        field_mismatches = field_mismatches.push(f"${field}.hysteresis_millidegrees")
+        field_mismatches = field_mismatches.push(f"{field}.hysteresis_millidegrees")
       }
     }
 
     for trip in later.trips {
-      if f"${trip.index}" not in before_trips {
-        unstable_fields = unstable_fields.push(f"zone.${zone.id}.trip.${trip.index}.presence")
+      if f"{trip.index}" not in before_trips {
+        unstable_fields = unstable_fields.push(f"zone.{zone.id}.trip.{trip.index}.presence")
       }
     }
 
     for trip in actual.trips {
       if trip.index != null {
         let known_index = trip.index ?? -1
-        if f"${known_index}" not in before_trips and f"${known_index}" not in after_trips {
-          field_mismatches = field_mismatches.push(f"zone.${zone.id}.trip.${known_index}.presence")
+        if f"{known_index}" not in before_trips and f"{known_index}" not in after_trips {
+          field_mismatches = field_mismatches.push(f"zone.{zone.id}.trip.{known_index}.presence")
         }
       }
     }
   }
 
   for zone in after {
-    if f"${zone.id}" not in before_by_id {
-      unstable_fields = unstable_fields.push(f"zone.${zone.id}.presence")
+    if f"{zone.id}" not in before_by_id {
+      unstable_fields = unstable_fields.push(f"zone.{zone.id}.presence")
     }
   }
 
   for zone in section.thermal_zones {
-    if f"${zone.id}" not in before_by_id and f"${zone.id}" not in after_by_id {
-      field_mismatches = field_mismatches.push(f"zone.${zone.id}.presence")
+    if f"{zone.id}" not in before_by_id and f"{zone.id}" not in after_by_id {
+      field_mismatches = field_mismatches.push(f"zone.{zone.id}.presence")
     }
   }
 
@@ -10714,13 +10714,13 @@ proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Resu
   return Ok(null) when raw.state == "absent"
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"thermal reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"thermal reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = raw.data.require(Bytes)?.utf8() {
     Ok(value.trim())
   } else {
-    Err(check_failure(f"thermal reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"thermal reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -10758,7 +10758,7 @@ pure reference_thermal_index(value: Str) -> Result[Int] {
   }
 
   let parsed = value.parse_int()?
-  if parsed > 9007199254740991 or f"${parsed}" != value {
+  if parsed > 9007199254740991 or f"{parsed}" != value {
     return Err(check_failure("thermal reference index is noncanonical or exceeds exact JSON range"))
   }
 
@@ -10781,14 +10781,14 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
     continue unless zone_name.starts_with("thermal_zone")
     let suffix = zone_name.split("") |> drop("thermal_zone".count_chars()).join("")
     let id = reference_thermal_index(suffix)?
-    if zone_name != f"thermal_zone${id}" or f"${id}" in seen_zones {
+    if zone_name != f"thermal_zone{id}" or f"{id}" in seen_zones {
       return Err(check_failure("thermal reference has a noncanonical or duplicate zone ID"))
     }
 
-    seen_zones = set.add(seen_zones, f"${id}")
+    seen_zones = set.add(seen_zones, f"{id}")
     let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
-      return Err(check_failure(f"thermal reference attributes for ${zone_name} are incomplete"))
+      return Err(check_failure(f"thermal reference attributes for {zone_name} are incomplete"))
     }
 
     var trip_indices: List[Int] = []
@@ -10802,27 +10802,27 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
       }
 
       let trip_index = reference_thermal_index(parts[2])?
-      if name != f"trip_point_${trip_index}_temp" or f"${trip_index}" in seen_trips {
+      if name != f"trip_point_{trip_index}_temp" or f"{trip_index}" in seen_trips {
         return Err(check_failure("thermal reference has a noncanonical or duplicate trip index"))
       }
 
-      seen_trips = set.add(seen_trips, f"${trip_index}")
+      seen_trips = set.add(seen_trips, f"{trip_index}")
       trip_indices += [trip_index]
     }
 
     var trips = [
       {
         index: trip_index,
-        kind: reference_thermal_text(root, fp"${zone_path}/trip_point_${trip_index}_type")? ?? "unknown",
-        temperature_millidegrees: reference_thermal_number(root, fp"${zone_path}/trip_point_${trip_index}_temp")?,
-        hysteresis_millidegrees: reference_thermal_number(root, fp"${zone_path}/trip_point_${trip_index}_hyst")?,
+        kind: reference_thermal_text(root, fp"{zone_path}/trip_point_{trip_index}_type")? ?? "unknown",
+        temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/trip_point_{trip_index}_temp")?,
+        hysteresis_millidegrees: reference_thermal_number(root, fp"{zone_path}/trip_point_{trip_index}_hyst")?,
       }
       for trip_index in trip_indices |> sort-by .
     ]
     zones = zones.push({
       id: id,
-      kind: reference_thermal_text(root, fp"${zone_path}/type")?,
-      temperature_millidegrees: reference_thermal_number(root, fp"${zone_path}/temp")?,
+      kind: reference_thermal_text(root, fp"{zone_path}/type")?,
+      temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/temp")?,
       trips: trips,
     })
   }
@@ -10848,7 +10848,7 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
     continue unless zone_path.name().starts_with("thermal_zone")
     let zone = zone_path.display()
     zone_paths += [zone]
-    source_paths = source_paths.extend([f"${zone}/type", f"${zone}/temp"])
+    source_paths = source_paths.extend([f"{zone}/type", f"{zone}/temp"])
     let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
@@ -10859,7 +10859,7 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
       let name = attribute.name()
       continue unless thermal_bundle_trip_source(name)
       let stem = name.split("") |> take(name.count_chars() - 5).join("")
-      source_paths = source_paths.extend([f"${zone}/${name}", f"${zone}/${stem}_type", f"${zone}/${stem}_hyst"])
+      source_paths = source_paths.extend([f"{zone}/{name}", f"{zone}/{stem}_type", f"{zone}/{stem}_hyst"])
     }
 
     if source_paths.len() > 4096 {
@@ -10889,7 +10889,7 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/thermal", mode: 0o700, parents: true)?
     for zone in layout.zone_paths {
-      bundle.mkdir(fp"${zone}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"{zone}", mode: 0o700, parents: true)?
     }
   }
 
@@ -10897,12 +10897,12 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -10928,7 +10928,7 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   let later_layout = thermal_bundle_layout(source)?
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
-    let raw = source.read_result(fp"${layout.source_paths[index]}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{layout.source_paths[index]}", max_bytes: 4096)?
     let first = observations[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -10983,23 +10983,23 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"thermal capture absent source ${relative} differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"thermal capture absent source {relative} differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"thermal capture cannot score ${relative} source"))
+      return Err(check_failure(f"thermal capture cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"thermal capture ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"thermal capture {relative} bytes differ from metadata"))
     }
   }
 
@@ -11050,7 +11050,7 @@ proc reference_pci_link_name(root: FsRoot, source_path: Path, present: Bool) [fs
 
   let name = root.readlink(source_path)?.name()
   if name == "" {
-    return Err(check_failure(f"PCI binding reference link ${source_path} has an empty target"))
+    return Err(check_failure(f"PCI binding reference link {source_path} has an empty target"))
   }
 
   name
@@ -11089,7 +11089,7 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
     let entry = root.readlink(device_path)?
     let attributes = root.children(device_path, max_entries: 4096)?
     if attributes.state != "complete" {
-      return Err(check_failure(f"PCI binding reference attributes for ${device_path} are incomplete"))
+      return Err(check_failure(f"PCI binding reference attributes for {device_path} are incomplete"))
     }
 
     var driver_present = false
@@ -11106,10 +11106,10 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
 
     rows = rows.push({
       address: address,
-      driver: reference_pci_link_name(root, fp"${device_path}/driver", driver_present)?,
+      driver: reference_pci_link_name(root, fp"{device_path}/driver", driver_present)?,
       parent_address: pci_binding_parent_from_target(entry, address)?,
-      numa_node: reference_pci_numa_node(root, fp"${device_path}/numa_node")?,
-      iommu_group: reference_pci_link_name(root, fp"${device_path}/iommu_group", iommu_present)?,
+      numa_node: reference_pci_numa_node(root, fp"{device_path}/numa_node")?,
+      iommu_group: reference_pci_link_name(root, fp"{device_path}/iommu_group", iommu_present)?,
     })
   }
 
@@ -11121,13 +11121,13 @@ proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Res
   return Ok(null) when raw.state == "absent"
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"PCI link reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"PCI link reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
-    Err(check_failure(f"PCI link reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"PCI link reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -11139,7 +11139,7 @@ proc reference_pci_link_width(root: FsRoot, source_path: Path) [fs, error] -> Re
 
   let value = reference_cpu_number(raw)?
   if value > 9007199254740991 {
-    return Err(check_failure(f"PCI link width at ${source_path} exceeds exact JSON range"))
+    return Err(check_failure(f"PCI link width at {source_path} exceeds exact JSON range"))
   }
 
   value
@@ -11163,10 +11163,10 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
     seen = set.add(seen, address)
     rows = rows.push({
       address: address,
-      current_speed: reference_pci_link_text(root, fp"${device_path}/current_link_speed")?,
-      current_width: reference_pci_link_width(root, fp"${device_path}/current_link_width")?,
-      maximum_speed: reference_pci_link_text(root, fp"${device_path}/max_link_speed")?,
-      maximum_width: reference_pci_link_width(root, fp"${device_path}/max_link_width")?,
+      current_speed: reference_pci_link_text(root, fp"{device_path}/current_link_speed")?,
+      current_width: reference_pci_link_width(root, fp"{device_path}/current_link_width")?,
+      maximum_speed: reference_pci_link_text(root, fp"{device_path}/max_link_speed")?,
+      maximum_width: reference_pci_link_width(root, fp"{device_path}/max_link_width")?,
     })
   }
 
@@ -11176,7 +11176,7 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
 proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Result[Int] {
   let raw = reference_pci_link_text(root, source_path)?
   if raw == null or ! raw.starts_with("0x") {
-    return Err(check_failure(f"PCI raw identity ${source_path} is absent or lacks a hex prefix"))
+    return Err(check_failure(f"PCI raw identity {source_path} is absent or lacks a hex prefix"))
   }
 
   pci_reference_hex(raw.replace("0x", ""), width)
@@ -11189,21 +11189,21 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
   for binding in bindings {
     let address = binding.address
     let bdf = pci_reference_bdf(address)?
-    let prefix = f"sys/bus/pci/devices/${address}"
-    let class_code = pci_raw_hex(root, fp"${prefix}/class", 6)?
+    let prefix = f"sys/bus/pci/devices/{address}"
+    let class_code = pci_raw_hex(root, fp"{prefix}/class", 6)?
     rows = rows.push({
       address: address,
       domain: bdf.domain,
       bus: bdf.bus,
       device: bdf.device,
       function: bdf.function,
-      vendor_id: pci_raw_hex(root, fp"${prefix}/vendor", 4)?,
-      device_id: pci_raw_hex(root, fp"${prefix}/device", 4)?,
+      vendor_id: pci_raw_hex(root, fp"{prefix}/vendor", 4)?,
+      device_id: pci_raw_hex(root, fp"{prefix}/device", 4)?,
       class_code: class_code,
       prog_if: class_code.bit_and(255),
-      revision: pci_raw_hex(root, fp"${prefix}/revision", 2)?,
-      subsystem_vendor_id: pci_raw_hex(root, fp"${prefix}/subsystem_vendor", 4)?,
-      subsystem_device_id: pci_raw_hex(root, fp"${prefix}/subsystem_device", 4)?,
+      revision: pci_raw_hex(root, fp"{prefix}/revision", 2)?,
+      subsystem_vendor_id: pci_raw_hex(root, fp"{prefix}/subsystem_vendor", 4)?,
+      subsystem_device_id: pci_raw_hex(root, fp"{prefix}/subsystem_device", 4)?,
       driver: binding.driver,
       numa_node: binding.numa_node,
       iommu_group: binding.iommu_group,
@@ -11289,7 +11289,7 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
       "max_link_speed",
       "max_link_width",
     ] {
-      source_paths = source_paths.push(f"${prefix}/${name}")
+      source_paths = source_paths.push(f"{prefix}/{name}")
     }
   }
 
@@ -11319,16 +11319,16 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/bus/pci/devices", mode: 0o700, parents: true)?
     for function in layout.functions {
-      bundle.mkdir(fp"${function.storage_path}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"{function.storage_path}", mode: 0o700, parents: true)?
       if function.driver_target != null {
-        bundle.symlink(fp"${function.driver_target}", fp"${function.storage_path}/driver")?
+        bundle.symlink(fp"{function.driver_target}", fp"{function.storage_path}/driver")?
       }
 
       if function.iommu_target != null {
-        bundle.symlink(fp"${function.iommu_target}", fp"${function.storage_path}/iommu_group")?
+        bundle.symlink(fp"{function.iommu_target}", fp"{function.storage_path}/iommu_group")?
       }
 
-      bundle.symlink(fp"${function.class_target}", fp"sys/bus/pci/devices/${function.address}")?
+      bundle.symlink(fp"{function.class_target}", fp"sys/bus/pci/devices/{function.address}")?
     }
   }
 
@@ -11336,12 +11336,12 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11369,7 +11369,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   let later_layout = pci_bundle_layout(source)?
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
-    let raw = source.read_result(fp"${layout.source_paths[index]}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{layout.source_paths[index]}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -11434,24 +11434,24 @@ export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"PCI absent source ${relative} differs"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"PCI absent source {relative} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"PCI capture cannot score ${relative}"))
+      return Err(check_failure(f"PCI capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
-      return Err(check_failure(f"PCI capture ${relative} read is incomplete: ${raw.state}"))
+      return Err(check_failure(f"PCI capture {relative} read is incomplete: {raw.state}"))
     }
 
     if raw.data.len() != expected.byte_count or hash.sha256(raw.data).hex() != expected.sha256_hex {
-      return Err(check_failure(f"PCI capture ${relative} bytes differ"))
+      return Err(check_failure(f"PCI capture {relative} bytes differ"))
     }
   }
 
@@ -11587,7 +11587,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         "bInterfaceProtocol",
         "bNumEndpoints",
       ] {
-        source_paths = source_paths.push(f"${prefix}/${attribute}")
+        source_paths = source_paths.push(f"{prefix}/{attribute}")
       }
     } else {
       for attribute in [
@@ -11610,7 +11610,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         "power/autosuspend_delay_ms",
         "power/runtime_status",
       ] {
-        source_paths = source_paths.push(f"${prefix}/${attribute}")
+        source_paths = source_paths.push(f"{prefix}/{attribute}")
       }
     }
   }
@@ -11641,23 +11641,23 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/bus/usb/devices", mode: 0o700, parents: true)?
     for entry in layout.entries {
-      if ! bundle.exists(fp"${entry.storage_path}")? {
-        bundle.mkdir(fp"${entry.storage_path}", mode: 0o700, parents: true)?
+      if ! bundle.exists(fp"{entry.storage_path}")? {
+        bundle.mkdir(fp"{entry.storage_path}", mode: 0o700, parents: true)?
       }
 
       if ":" not in entry.name {
-        if ! bundle.exists(fp"${entry.storage_path}/power")? {
-          bundle.mkdir(fp"${entry.storage_path}/power", mode: 0o700, parents: true)?
+        if ! bundle.exists(fp"{entry.storage_path}/power")? {
+          bundle.mkdir(fp"{entry.storage_path}/power", mode: 0o700, parents: true)?
         }
       }
     }
 
     for entry in layout.entries {
       if entry.driver_target != null {
-        bundle.symlink(fp"${entry.driver_target}", fp"${entry.storage_path}/driver")?
+        bundle.symlink(fp"{entry.driver_target}", fp"{entry.storage_path}/driver")?
       }
 
-      bundle.symlink(fp"${entry.class_target}", fp"sys/bus/usb/devices/${entry.name}")?
+      bundle.symlink(fp"{entry.class_target}", fp"sys/bus/usb/devices/{entry.name}")?
     }
   }
 
@@ -11665,12 +11665,12 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11697,7 +11697,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -11768,23 +11768,23 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"USB absent source ${relative} differs"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"USB absent source {relative} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"USB capture cannot score ${relative}"))
+      return Err(check_failure(f"USB capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: usb_bundle_source_limit(relative))?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"USB capture ${relative} bytes differ"))
+      return Err(check_failure(f"USB capture {relative} bytes differ"))
     }
   }
 
@@ -11855,7 +11855,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
       return Err(check_failure("ip link reference has an invalid identity or state"))
     }
 
-    let id_key = f"${ifindex}"
+    let id_key = f"{ifindex}"
     if id_key in ids or name in names {
       return Err(check_failure("ip link reference has a duplicate interface identity"))
     }
@@ -11879,7 +11879,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
         return Err(check_failure("ip link reference has an invalid operational state index"))
       }
 
-      operstate = f"operstate_${state_index}"
+      operstate = f"operstate_{state_index}"
     }
 
     links = links.push({
@@ -11917,11 +11917,11 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
   var position = 0
   while position < candidate.len() {
     let ifindex = candidate[position].ifindex
-    if ifindex <= 0 or ifindex > 9007199254740991 or f"${ifindex}" in candidate_by_id {
+    if ifindex <= 0 or ifindex > 9007199254740991 or f"{ifindex}" in candidate_by_id {
       return Err(check_failure("candidate network links have an invalid or duplicate interface index"))
     }
 
-    candidate_by_id = candidate_by_id.set(f"${ifindex}", position)
+    candidate_by_id = candidate_by_id.set(f"{ifindex}", position)
     position += 1
   }
 
@@ -11939,7 +11939,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
   var field_mismatches: List[Str] = []
   var matched_count = 0
   for link in reference {
-    let id_key = f"${link.ifindex}"
+    let id_key = f"{link.ifindex}"
     if id_key in reference_ids {
       return Err(check_failure("ip link reference has a duplicate interface index"))
     }
@@ -11953,23 +11953,23 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     matched_count += 1
     let observed = candidate[candidate_by_id.get(id_key) ?? 0]
     if observed.name.state != "observed" or observed.name.value != link.name {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.name")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.name")
     }
 
     if observed.mtu != link.mtu {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.mtu")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.mtu")
     }
 
     if observed.admin_up != link.admin_up {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.admin_up")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.admin_up")
     }
 
     if observed.operational_state != link.operstate {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.operational_state")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.operational_state")
     }
 
     if observed.kind != link.kind {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.kind")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.kind")
     }
 
     var expected_master: Int? = null
@@ -11983,7 +11983,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     if observed.master_ifindex != expected_master {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.master_ifindex")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.master_ifindex")
     }
 
     var expected_lower = link.lower_index
@@ -11997,11 +11997,11 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     if observed.lower_ifindex != expected_lower {
-      field_mismatches = field_mismatches.push(f"${link.ifindex}.lower_ifindex")
+      field_mismatches = field_mismatches.push(f"{link.ifindex}.lower_ifindex")
     }
   }
 
-  var unexpected_ids = [link.ifindex for link in candidate if f"${link.ifindex}" not in reference_ids]
+  var unexpected_ids = [link.ifindex for link in candidate if f"{link.ifindex}" not in reference_ids]
   let candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   {
     reference_count: reference.len(),
@@ -12058,7 +12058,7 @@ pure network_link_raw_flags(bits: Int) -> List[Str] {
     ]
     if bits.bit_and(spec.bit) != 0
   ]
-  names.push(f"raw_bits=${bits}") |> sort-by .
+  names.push(f"raw_bits={bits}") |> sort-by .
 }
 
 pure network_link_candidate_bits(flags: List[Str]) -> Int? {
@@ -12069,7 +12069,7 @@ pure network_link_candidate_bits(flags: List[Str]) -> Int? {
 
     let raw = flag.split("") |> drop(9).join("")
     let parsed = raw.parse_int() ?? -1
-    return null when parsed < 0 or parsed > 4294967295 or f"${parsed}" != raw
+    return null when parsed < 0 or parsed > 4294967295 or f"{parsed}" != raw
 
     bits = parsed
   }
@@ -12141,21 +12141,21 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
     }
 
     seen_names = set.add(seen_names, name)
-    let ifindex = network_raw_number(root, fp"${entry}/ifindex", false, 9007199254740991)?
+    let ifindex = network_raw_number(root, fp"{entry}/ifindex", false, 9007199254740991)?
     if ! ifindex.complete or (ifindex.value ?? 0) <= 0 {
-      return Err(check_failure(f"network link reference lacks an exact interface index for ${name}"))
+      return Err(check_failure(f"network link reference lacks an exact interface index for {name}"))
     }
 
     let index = ifindex.value ?? 0
-    if f"${index}" in seen_indices {
+    if f"{index}" in seen_indices {
       return Err(check_failure("network link reference repeats an interface index"))
     }
 
-    seen_indices = set.add(seen_indices, f"${index}")
-    let hardware_type = network_raw_number(root, fp"${entry}/type", false, 65535)?
-    let flags = network_raw_number(root, fp"${entry}/flags", true, 4294967295)?
-    let rx_bytes = network_raw_number(root, fp"${entry}/statistics/rx_bytes", false, 9007199254740991)?
-    let tx_bytes = network_raw_number(root, fp"${entry}/statistics/tx_bytes", false, 9007199254740991)?
+    seen_indices = set.add(seen_indices, f"{index}")
+    let hardware_type = network_raw_number(root, fp"{entry}/type", false, 65535)?
+    let flags = network_raw_number(root, fp"{entry}/flags", true, 4294967295)?
+    let rx_bytes = network_raw_number(root, fp"{entry}/statistics/rx_bytes", false, 9007199254740991)?
+    let tx_bytes = network_raw_number(root, fp"{entry}/statistics/tx_bytes", false, 9007199254740991)?
     links = links.push({
       ifindex: index,
       name: name,
@@ -12183,7 +12183,7 @@ export pure compare_network_link_raw(
   var candidate_by_index: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    let key = f"${item.ifindex}"
+    let key = f"{item.ifindex}"
     if item.ifindex <= 0 or item.name == "" or key in before_by_index {
       return Err(check_failure("network raw before reference has an invalid link identity"))
     }
@@ -12193,7 +12193,7 @@ export pure compare_network_link_raw(
 
   for index in range(after.len()) {
     let item = after[index]
-    let key = f"${item.ifindex}"
+    let key = f"{item.ifindex}"
     if item.ifindex <= 0 or item.name == "" or key in after_by_index {
       return Err(check_failure("network raw after reference has an invalid link identity"))
     }
@@ -12203,7 +12203,7 @@ export pure compare_network_link_raw(
 
   for index in range(section.links.len()) {
     let item = section.links[index]
-    let key = f"${item.ifindex}"
+    let key = f"{item.ifindex}"
     if item.ifindex <= 0 or key in candidate_by_index {
       return Err(check_failure("candidate network report repeats or invalidates a link index"))
     }
@@ -12216,17 +12216,17 @@ export pure compare_network_link_raw(
   var matched_count = 0
   let enumerated = network_candidate_enumerated(section.status.state, section.status.enumeration_succeeded)
   for item in before {
-    let key = f"${item.ifindex}"
+    let key = f"{item.ifindex}"
     if key not in after_by_index or item.name != after[after_by_index.get(key)?].name {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
       continue
     }
 
     if key not in candidate_by_index {
       if enumerated {
-        field_mismatches = field_mismatches.push(f"${key}.presence")
+        field_mismatches = field_mismatches.push(f"{key}.presence")
       } else {
-        unstable_fields = unstable_fields.push(f"${key}.presence")
+        unstable_fields = unstable_fields.push(f"{key}.presence")
       }
 
       continue
@@ -12236,28 +12236,28 @@ export pure compare_network_link_raw(
     let later = after[after_by_index.get(key)?]
     let observed = section.links[candidate_by_index.get(key)?]
     if observed.name.state != "observed" or observed.name.value != item.name {
-      field_mismatches = field_mismatches.push(f"${key}.name")
+      field_mismatches = field_mismatches.push(f"{key}.name")
     }
 
     if ! item.complete or ! later.complete {
-      unstable_fields = unstable_fields.push(f"${key}.source")
+      unstable_fields = unstable_fields.push(f"{key}.source")
       continue
     }
 
     if item.hardware_type != later.hardware_type {
-      unstable_fields = unstable_fields.push(f"${key}.hardware_type")
+      unstable_fields = unstable_fields.push(f"{key}.hardware_type")
     } else if item.hardware_type != observed.hardware_type {
-      field_mismatches = field_mismatches.push(f"${key}.hardware_type")
+      field_mismatches = field_mismatches.push(f"{key}.hardware_type")
     }
 
     if item.flags != later.flags {
-      unstable_fields = unstable_fields.push(f"${key}.flags")
+      unstable_fields = unstable_fields.push(f"{key}.flags")
     } else {
       let candidate_bits = network_link_candidate_bits(observed.flags)
       if candidate_bits == null or (observed.flags |> sort-by .) != network_link_raw_flags(candidate_bits) or network_link_sysfs_comparable_flags(
         candidate_bits,
       ) != network_link_sysfs_comparable_flags(item.flags ?? 0) {
-        field_mismatches = field_mismatches.push(f"${key}.flags")
+        field_mismatches = field_mismatches.push(f"{key}.flags")
       }
     }
 
@@ -12283,7 +12283,7 @@ export pure compare_network_link_raw(
         last: later.tx_bytes,
       },
     ] {
-      let field = f"${key}.${spec.name}"
+      let field = f"{key}.{spec.name}"
       if spec.first == null or spec.last == null or spec.last < spec.first {
         unstable_fields += [field]
       } else if spec.name not in counter_by_name {
@@ -12298,15 +12298,15 @@ export pure compare_network_link_raw(
   }
 
   for item in after {
-    if f"${item.ifindex}" not in before_by_index {
-      unstable_fields = unstable_fields.push(f"${item.ifindex}.presence")
+    if f"{item.ifindex}" not in before_by_index {
+      unstable_fields = unstable_fields.push(f"{item.ifindex}.presence")
     }
   }
 
   for item in section.links {
-    let key = f"${item.ifindex}"
+    let key = f"{item.ifindex}"
     if key not in before_by_index and key not in after_by_index {
-      field_mismatches = field_mismatches.push(f"${key}.presence")
+      field_mismatches = field_mismatches.push(f"{key}.presence")
     }
   }
 
@@ -12338,11 +12338,11 @@ pure ip_address_scope(value: Str) -> Result[Str] {
     return Err(check_failure("ip address reference has an invalid scope number"))
   }
 
-  f"scope_${number}"
+  f"scope_{number}"
 }
 
 pure ip_address_key(ifindex: Int, family: Str, address: Str, prefix_length: Int) -> Str {
-  f"${ifindex}|${family}|${address}|${prefix_length}"
+  f"{ifindex}|{family}|{address}|{prefix_length}"
 }
 
 ## Parses the interface-indexed IPv4 and IPv6 address inventory from iproute2 JSON.
@@ -12358,7 +12358,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
   for row in rows {
     let ifindex = json.get(row, ["ifindex"])?.require(Int)?
     let name = json.get(row, ["ifname"])?.require(Str)?
-    let id_key = f"${ifindex}"
+    let id_key = f"{ifindex}"
     if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or id_key in interfaces {
       return Err(check_failure("ip address reference has an invalid or duplicate interface identity"))
     }
@@ -12427,14 +12427,14 @@ export pure ip_address_reference_stable(before: List[IpAddressReference], after:
   for address in before {
     let broadcast = address.broadcast ?? ""
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    before_static = before_static.push(f"${key}|${address.scope}|${broadcast}")
+    before_static = before_static.push(f"{key}|{address.scope}|{broadcast}")
   }
 
   var after_static: List[Str] = []
   for address in after {
     let broadcast = address.broadcast ?? ""
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    after_static = after_static.push(f"${key}|${address.scope}|${broadcast}")
+    after_static = after_static.push(f"{key}|{address.scope}|{broadcast}")
   }
 
   (before_static |> sort-by .) == (after_static |> sort-by .)
@@ -12454,7 +12454,7 @@ export pure compare_ip_addresses(
   var candidate_count = 0
   var candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   for link in candidate_links {
-    let link_key = f"${link.ifindex}"
+    let link_key = f"{link.ifindex}"
     if link.ifindex <= 0 or link.ifindex > 9007199254740991 or link_key in candidate_links_seen {
       return Err(check_failure("candidate network addresses have an invalid or duplicate interface index"))
     }
@@ -12495,15 +12495,15 @@ export pure compare_ip_addresses(
     matched_count += 1
     let observed = candidate_by_key.get(key)?
     if observed.scope != address.scope {
-      field_mismatches = field_mismatches.push(f"${key}.scope")
+      field_mismatches = field_mismatches.push(f"{key}.scope")
     }
 
     if address.broadcast == null {
       if observed.broadcast.state != "absent" or observed.broadcast.value != null {
-        field_mismatches = field_mismatches.push(f"${key}.broadcast")
+        field_mismatches = field_mismatches.push(f"{key}.broadcast")
       }
     } else if observed.broadcast.state != "observed" or observed.broadcast.value != address.broadcast {
-      field_mismatches = field_mismatches.push(f"${key}.broadcast")
+      field_mismatches = field_mismatches.push(f"{key}.broadcast")
     }
   }
 
@@ -12534,7 +12534,7 @@ export pure compare_ip_address_lifetimes(
   var seen_links = set.empty()
   var candidate_count = 0
   for link in links {
-    let link_key = f"${link.ifindex}"
+    let link_key = f"{link.ifindex}"
     if link.ifindex <= 0 or link_key in seen_links {
       return Err(check_failure("candidate address lifetime comparison has a duplicate link identity"))
     }
@@ -12573,12 +12573,12 @@ export pure compare_ip_address_lifetimes(
 
     seen_before = set.add(seen_before, key)
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
       continue
     }
 
     if key not in observed_by_key {
-      field_mismatches = field_mismatches.push(f"${key}.presence")
+      field_mismatches = field_mismatches.push(f"{key}.presence")
       continue
     }
 
@@ -12598,7 +12598,7 @@ export pure compare_ip_address_lifetimes(
         candidate: observed.preferred_lifetime_seconds,
       },
     ] {
-      let field_key = f"${key}.${field.name}"
+      let field_key = f"{key}.{field.name}"
       if field.first == null or field.last == null or field.last > field.first {
         unstable_fields += [field_key]
       } else if field.candidate == null or (field.candidate ?? -1) < field.last or (field.candidate ?? -1) > field.first {
@@ -12610,7 +12610,7 @@ export pure compare_ip_address_lifetimes(
   for address in after {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
     if key not in seen_before {
-      unstable_fields = unstable_fields.push(f"${key}.presence")
+      unstable_fields = unstable_fields.push(f"{key}.presence")
     }
   }
 
@@ -12721,7 +12721,7 @@ pure ip_rule_action(value: Str) -> Result[Str] {
     6 => Ok("blackhole")
     7 => Ok("unreachable")
     8 => Ok("prohibit")
-    _ => Ok(f"action_${number}")
+    _ => Ok(f"action_{number}")
   }
 }
 
@@ -12729,16 +12729,16 @@ pure ip_rule_key(rule: IpRuleReference) -> Result[Str] {
   json.encode(
     [
       rule.family,
-      f"${rule.priority}",
+      f"{rule.priority}",
       rule.source ?? "",
-      f"${rule.source_prefix_length}",
+      f"{rule.source_prefix_length}",
       rule.destination ?? "",
-      f"${rule.destination_prefix_length}",
-      f"${rule.fwmark ?? -1}",
-      f"${rule.fwmask ?? -1}",
-      f"${rule.table}",
+      f"{rule.destination_prefix_length}",
+      f"{rule.fwmark ?? -1}",
+      f"{rule.fwmask ?? -1}",
+      f"{rule.table}",
       rule.action,
-      f"${rule.goto_target ?? -1}",
+      f"{rule.goto_target ?? -1}",
       rule.input_name ?? "",
       rule.output_name ?? "",
     ],
@@ -12886,12 +12886,12 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   }
 
   for link in links {
-    if link.ifindex <= 0 or f"${link.ifindex}" in names_by_index {
+    if link.ifindex <= 0 or f"{link.ifindex}" in names_by_index {
       return Err(check_failure("candidate network rules have an invalid or duplicate link index"))
     }
 
     if link.name.state == "observed" and link.name.value != null {
-      names_by_index = names_by_index.set(f"${link.ifindex}", link.name.value)
+      names_by_index = names_by_index.set(f"{link.ifindex}", link.name.value)
     } else {
       candidate_field_missing = true
     }
@@ -12951,7 +12951,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
 
     let input_index = rule.input_ifindex ?? 0
     let output_index = rule.output_ifindex ?? 0
-    if (input_index != 0 and f"${input_index}" not in names_by_index) or (output_index != 0 and f"${output_index}" not in names_by_index) {
+    if (input_index != 0 and f"{input_index}" not in names_by_index) or (output_index != 0 and f"{output_index}" not in names_by_index) {
       candidate_field_missing = true
       continue
     }
@@ -12959,11 +12959,11 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
     var input_name: Str? = null
     var output_name: Str? = null
     if input_index != 0 {
-      input_name = names_by_index.get(f"${input_index}")?
+      input_name = names_by_index.get(f"{input_index}")?
     }
 
     if output_index != 0 {
-      output_name = names_by_index.get(f"${output_index}")?
+      output_name = names_by_index.get(f"{output_index}")?
     }
 
     if (rule.input_ifindex != null and input_name == null) or (rule.output_ifindex != null and output_name == null) or rule.table == null {
@@ -13087,7 +13087,7 @@ pure ip_route_destination(value: Str, family: Str) -> Result[List[Str]] {
     return Err(check_failure("ip route reference has an out-of-range prefix length"))
   }
 
-  [parts[0], f"${length}"]
+  [parts[0], f"{length}"]
 }
 
 pure ip_route_numeric_enum(value: Str) -> Result[Int?] {
@@ -13117,7 +13117,7 @@ pure ip_route_protocol(value: Str) -> Result[Str] {
       8 => return Ok("gated")
       9 => return Ok("router_advertisement")
       16 => return Ok("dhcp")
-      _ => return Ok(f"protocol_${number}")
+      _ => return Ok(f"protocol_{number}")
     }
   }
 
@@ -13143,7 +13143,7 @@ pure ip_route_type(value: Str) -> Result[Str] {
       9 => return Ok("throw")
       10 => return Ok("nat")
       11 => return Ok("external_resolve")
-      _ => return Ok(f"route_type_${number}")
+      _ => return Ok(f"route_type_{number}")
     }
   }
 
@@ -13163,7 +13163,7 @@ pure ip_route_scope(value: Str) -> Result[Str] {
       253 => return Ok("link")
       254 => return Ok("host")
       255 => return Ok("nowhere")
-      _ => return Ok(f"scope_${number}")
+      _ => return Ok(f"scope_{number}")
     }
   }
 
@@ -13277,7 +13277,7 @@ pure route_multipath_representable(raw: Bytes) -> Result[Bool] {
 }
 
 pure ip_route_nexthop_key(hop: IpRouteNexthopReference) -> Result[Str] {
-  json.encode([hop.output_name, hop.gateway ?? "", f"${hop.weight}", f"${hop.flags}"])
+  json.encode([hop.output_name, hop.gateway ?? "", f"{hop.weight}", f"{hop.flags}"])
 }
 
 pure ip_route_key(route: IpRouteReference) -> Result[Str] {
@@ -13287,18 +13287,18 @@ pure ip_route_key(route: IpRouteReference) -> Result[Str] {
     [
       route.family,
       route.destination,
-      f"${route.prefix_length}",
-      f"${route.table}",
-      f"${route.metric ?? -1}",
+      f"{route.prefix_length}",
+      f"{route.table}",
+      f"{route.metric ?? -1}",
       route.route_type,
       route.scope,
       route.protocol,
       route.gateway ?? "",
       route.output_name ?? "",
       route.source ?? "",
-      f"${route.source_prefix_length}",
+      f"{route.source_prefix_length}",
       route.preferred_source ?? "",
-      f"${route.flags}",
+      f"{route.flags}",
       hops_key,
     ],
   )
@@ -13382,7 +13382,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
     for hop_row in hop_rows {
       for field in hop_row.keys() {
         if field not in ["dev", "gateway", "weight", "flags"] {
-          unscored_fields = unscored_fields.push(f"nexthops.${field}")
+          unscored_fields = unscored_fields.push(f"nexthops.{field}")
         }
       }
 
@@ -13460,12 +13460,12 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
   }
 
   for link in links {
-    if link.ifindex <= 0 or f"${link.ifindex}" in names_by_index {
+    if link.ifindex <= 0 or f"{link.ifindex}" in names_by_index {
       return Err(check_failure("candidate network routes have an invalid or duplicate link index"))
     }
 
     if link.name.state == "observed" and link.name.value != null {
-      names_by_index = names_by_index.set(f"${link.ifindex}", link.name.value)
+      names_by_index = names_by_index.set(f"{link.ifindex}", link.name.value)
     } else {
       candidate_field_missing = true
     }
@@ -13525,21 +13525,21 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
     }
 
     let output_index = route.output_ifindex ?? 0
-    if output_index != 0 and f"${output_index}" not in names_by_index {
+    if output_index != 0 and f"{output_index}" not in names_by_index {
       candidate_field_missing = true
       continue
     }
 
     var output_name: Str? = null
     if output_index != 0 {
-      output_name = names_by_index.get(f"${output_index}")?
+      output_name = names_by_index.get(f"{output_index}")?
     }
 
     var nexthops: List[IpRouteNexthopReference] = []
     var hop_missing = false
     for hop in route.nexthops {
       let hop_index = hop.ifindex
-      if hop_index <= 0 or f"${hop_index}" not in names_by_index or hop.hops < 0 or hop.hops > 255 or hop.flags < 0 or hop.flags > 255 or (hop.gateway.state == "observed" and hop.gateway.value == null) or (hop.gateway.state == "absent" and hop.gateway.value != null) or hop.gateway.state not in [
+      if hop_index <= 0 or f"{hop_index}" not in names_by_index or hop.hops < 0 or hop.hops > 255 or hop.flags < 0 or hop.flags > 255 or (hop.gateway.state == "observed" and hop.gateway.value == null) or (hop.gateway.state == "absent" and hop.gateway.value != null) or hop.gateway.state not in [
         "observed",
         "absent",
       ] {
@@ -13552,7 +13552,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
       }
 
       nexthops = nexthops.push({
-        output_name: names_by_index.get(f"${hop_index}")?,
+        output_name: names_by_index.get(f"{hop_index}")?,
         gateway: hop.gateway.value,
         weight: hop.hops + 1,
         flags: hop.flags.bit_and(127),
@@ -13625,24 +13625,24 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
 pure parse_major_minor_reference(value: Str, adapter: Str) -> Result[List[Int]] {
   let parts = value.split(":")
   if parts.len() != 2 {
-    return Err(check_failure(f"${adapter} reference has an invalid major:minor identity"))
+    return Err(check_failure(f"{adapter} reference has an invalid major:minor identity"))
   }
 
   var numbers: List[Int] = []
   for part in parts {
     if part == "" {
-      return Err(check_failure(f"${adapter} reference has an empty major:minor component"))
+      return Err(check_failure(f"{adapter} reference has an empty major:minor component"))
     }
 
     for character in part {
       if character not in "0123456789" {
-        return Err(check_failure(f"${adapter} reference has a nondecimal major:minor component"))
+        return Err(check_failure(f"{adapter} reference has a nondecimal major:minor component"))
       }
     }
 
     let number = part.parse_int()?
     if number > 9007199254740991 {
-      return Err(check_failure(f"${adapter} reference has a JSON-unsafe major:minor component"))
+      return Err(check_failure(f"{adapter} reference has a JSON-unsafe major:minor component"))
     }
 
     numbers += [number]
@@ -13652,7 +13652,7 @@ pure parse_major_minor_reference(value: Str, adapter: Str) -> Result[List[Int]] 
 }
 
 pure block_edge_key(edge: BlockReferenceEdge) -> Str {
-  f"${edge.parent_name.count_chars()}:${edge.parent_name}${edge.child_name.count_chars()}:${edge.child_name}:${edge.partition}"
+  f"{edge.parent_name.count_chars()}:{edge.parent_name}{edge.child_name.count_chars()}:{edge.child_name}:{edge.partition}"
 }
 
 ## Parses explicit-column lsblk JSON without losing repeated tree nodes or their relationships.
@@ -13691,7 +13691,7 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
       "phy-sec",
     ] {
       guard json.get(node, [field], null) != null else {
-        return Err(check_failure(f"lsblk reference lacks ${field}"))
+        return Err(check_failure(f"lsblk reference lacks {field}"))
       }
     }
 
@@ -13723,7 +13723,7 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
       rotational:,
       read_only:,
     )
-    let numeric_identity = f"${numbers[0]}:${numbers[1]}"
+    let numeric_identity = f"{numbers[0]}:{numbers[1]}"
     if name in by_name {
       guard devices[by_name.get(name)?] == device else {
         return Err(check_failure("lsblk reference has conflicting duplicate device facts"))
@@ -13894,7 +13894,7 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
     }
 
     for parent_index in child.slave_indices {
-      let index_key = f"${parent_index}"
+      let index_key = f"{parent_index}"
       if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null or index_key in slave_seen {
         return Err(check_failure("candidate block report has an invalid slave index"))
       }
@@ -13909,7 +13909,7 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
     }
 
     for holder_index in child.holder_indices {
-      let index_key = f"${holder_index}"
+      let index_key = f"{holder_index}"
       if holder_index < 0 or holder_index >= candidates.len() or holder_index == child_index or candidates[holder_index].name == null or index_key in holder_seen {
         return Err(check_failure("candidate block report has an invalid holder index"))
       }
@@ -14214,13 +14214,13 @@ proc bounded_block_reference_text(root: FsRoot, source_path: Path) [fs, error] -
   return null when source.state == "absent"
 
   if source.state != "observed" or source.truncated or source.data == null {
-    return Err(check_failure(f"block reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"block reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = source.data.utf8() {
     value.trim()
   } else {
-    Err(check_failure(f"block reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"block reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -14238,13 +14238,13 @@ export proc read_block_queue_sources(
     }
 
     seen = set.add(seen, name)
-    let firmware_primary = bounded_block_reference_text(root, fp"sys/class/block/${name}/device/firmware_rev")?
+    let firmware_primary = bounded_block_reference_text(root, fp"sys/class/block/{name}/device/firmware_rev")?
     let firmware = if firmware_primary == null {
-      bounded_block_reference_text(root, fp"sys/class/block/${name}/device/rev")?
+      bounded_block_reference_text(root, fp"sys/class/block/{name}/device/rev")?
     } else {
       firmware_primary
     }
-    let stat = bounded_block_reference_text(root, fp"sys/class/block/${name}/stat")?
+    let stat = bounded_block_reference_text(root, fp"sys/class/block/{name}/stat")?
     sources = sources.push({
       name: name,
       firmware: firmware,
@@ -14277,7 +14277,7 @@ pure block_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
 pure block_bundle_link_path(storage: Str, directory: Str, target: Str) -> Str? {
   return null when target == "" or target.starts_with("/")
 
-  var components = f"${storage}/${directory}".split("/")
+  var components = f"{storage}/{directory}".split("/")
   for part in target.split("/") {
     if part == ".." {
       guard components.len() > 1 else {
@@ -14325,9 +14325,9 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       complete = false
     }
 
-    let partition = root.exists(fp"${entry}/partition")?
-    let holders_listing = root.children(fp"${entry}/holders", max_entries: 4096)?
-    let slaves_listing = root.children(fp"${entry}/slaves", max_entries: 4096)?
+    let partition = root.exists(fp"{entry}/partition")?
+    let holders_listing = root.children(fp"{entry}/holders", max_entries: 4096)?
+    let slaves_listing = root.children(fp"{entry}/slaves", max_entries: 4096)?
     if holders_listing.state != "complete" or (slaves_listing.state != "complete" and ! (partition and slaves_listing.state == "absent")) {
       complete = false
     }
@@ -14401,7 +14401,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       "device/rev",
       "stat",
     ] {
-      source_paths = source_paths.push(f"${storage}/${attribute}")
+      source_paths = source_paths.push(f"{storage}/{attribute}")
     }
 
     if source_paths.len() > 8192 {
@@ -14448,17 +14448,17 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
 }
 
 pure block_raw_decimal(raw: Str, label: Str) -> Result[Int] {
-  return Err(check_failure(f"block ${label} source is empty")) when raw == ""
+  return Err(check_failure(f"block {label} source is empty")) when raw == ""
 
   for digit in raw {
     if digit not in "0123456789" {
-      return Err(check_failure(f"block ${label} source is not decimal"))
+      return Err(check_failure(f"block {label} source is not decimal"))
     }
   }
 
   let value = raw.parse_int()?
   if value > 9007199254740991 {
-    return Err(check_failure(f"block ${label} source exceeds exact JSON range"))
+    return Err(check_failure(f"block {label} source exceeds exact JSON range"))
   }
 
   value
@@ -14481,7 +14481,7 @@ pure block_raw_optional_bool(raw: Str?, label: Str) -> Result[Bool?] {
 
   return true when raw == "1"
 
-  Err(check_failure(f"block ${label} source is not zero or one"))
+  Err(check_failure(f"block {label} source is not zero or one"))
 }
 
 pure block_raw_scheduler(raw: Str?) -> Result[Str?] {
@@ -14530,11 +14530,11 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
   var queue: List[BlockQueueReference] = []
   for entry in layout.entries {
     let name = entry.name
-    let source_path = fp"${entry.storage_path}"
-    let dev = bounded_block_reference_text(root, fp"${source_path}/dev")?
-    let size = bounded_block_reference_text(root, fp"${source_path}/size")?
+    let source_path = fp"{entry.storage_path}"
+    let dev = bounded_block_reference_text(root, fp"{source_path}/dev")?
+    let size = bounded_block_reference_text(root, fp"{source_path}/size")?
     if dev == null or size == null {
-      return Err(check_failure(f"block ${name} identity or size is absent"))
+      return Err(check_failure(f"block {name} identity or size is absent"))
     }
 
     let numbers = parse_major_minor_reference(dev, "block-sysfs")?
@@ -14543,7 +14543,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       return Err(check_failure("block byte size exceeds exact JSON range"))
     }
 
-    let partition_source = bounded_block_reference_text(root, fp"${source_path}/partition")?
+    let partition_source = bounded_block_reference_text(root, fp"{source_path}/partition")?
     let partition = partition_source != null
     if partition {
       let number = block_raw_decimal(partition_source, "partition")?
@@ -14551,11 +14551,11 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
     }
 
     let logical = block_raw_optional_number(
-      bounded_block_reference_text(root, fp"${source_path}/queue/logical_block_size")?,
+      bounded_block_reference_text(root, fp"{source_path}/queue/logical_block_size")?,
       "logical sector",
     )?
     let physical = block_raw_optional_number(
-      bounded_block_reference_text(root, fp"${source_path}/queue/physical_block_size")?,
+      bounded_block_reference_text(root, fp"{source_path}/queue/physical_block_size")?,
       "physical sector",
     )?
     if (logical != null and logical == 0) or (physical != null and physical == 0) {
@@ -14563,14 +14563,14 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
     }
 
     let removable = block_raw_optional_bool(
-      bounded_block_reference_text(root, fp"${source_path}/removable")?,
+      bounded_block_reference_text(root, fp"{source_path}/removable")?,
       "removable",
     )?
     let rotational = block_raw_optional_bool(
-      bounded_block_reference_text(root, fp"${source_path}/queue/rotational")?,
+      bounded_block_reference_text(root, fp"{source_path}/queue/rotational")?,
       "rotational",
     )?
-    let read_only = block_raw_optional_bool(bounded_block_reference_text(root, fp"${source_path}/ro")?, "read-only")?
+    let read_only = block_raw_optional_bool(bounded_block_reference_text(root, fp"{source_path}/ro")?, "read-only")?
     let class_target = entry.class_target ?? ""
     let kind = if partition {
       "partition"
@@ -14650,20 +14650,20 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
     queue = queue.push({
       name: name,
       kind: if partition { "part" } else { kind },
-      scheduler: block_raw_scheduler(bounded_block_reference_text(root, fp"${source_path}/queue/scheduler")?)?,
+      scheduler: block_raw_scheduler(bounded_block_reference_text(root, fp"{source_path}/queue/scheduler")?)?,
       read_ahead_kb: block_raw_optional_number(
-        bounded_block_reference_text(root, fp"${source_path}/queue/read_ahead_kb")?,
+        bounded_block_reference_text(root, fp"{source_path}/queue/read_ahead_kb")?,
         "read ahead",
       )?,
       discard_granularity_bytes: block_raw_optional_number(
-        bounded_block_reference_text(root, fp"${source_path}/queue/discard_granularity")?,
+        bounded_block_reference_text(root, fp"{source_path}/queue/discard_granularity")?,
         "discard granularity",
       )?,
       discard_max_bytes: block_raw_optional_number(
-        bounded_block_reference_text(root, fp"${source_path}/queue/discard_max_bytes")?,
+        bounded_block_reference_text(root, fp"{source_path}/queue/discard_max_bytes")?,
         "discard maximum",
       )?,
-      model: bounded_block_reference_text(root, fp"${source_path}/device/model")?,
+      model: bounded_block_reference_text(root, fp"{source_path}/device/model")?,
       revision_hint: null,
     })
   }
@@ -14732,35 +14732,35 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     matched_count += 1
     let expected = reference.devices[reference_by_name.get(name)?]
     if device.major != expected.major or device.minor != expected.minor {
-      field_mismatches = field_mismatches.push(f"${name}.major_minor")
+      field_mismatches = field_mismatches.push(f"{name}.major_minor")
     }
 
     if device.size_bytes != expected.size_bytes {
-      field_mismatches = field_mismatches.push(f"${name}.size_bytes")
+      field_mismatches = field_mismatches.push(f"{name}.size_bytes")
     }
 
     if device.kind != expected.kind {
-      field_mismatches = field_mismatches.push(f"${name}.kind")
+      field_mismatches = field_mismatches.push(f"{name}.kind")
     }
 
     if device.logical_sector_bytes != expected.logical_sector_bytes {
-      field_mismatches = field_mismatches.push(f"${name}.logical_sector_bytes")
+      field_mismatches = field_mismatches.push(f"{name}.logical_sector_bytes")
     }
 
     if device.physical_sector_bytes != expected.physical_sector_bytes {
-      field_mismatches = field_mismatches.push(f"${name}.physical_sector_bytes")
+      field_mismatches = field_mismatches.push(f"{name}.physical_sector_bytes")
     }
 
     if device.removable != expected.removable {
-      field_mismatches = field_mismatches.push(f"${name}.removable")
+      field_mismatches = field_mismatches.push(f"{name}.removable")
     }
 
     if device.rotational != expected.rotational {
-      field_mismatches = field_mismatches.push(f"${name}.rotational")
+      field_mismatches = field_mismatches.push(f"{name}.rotational")
     }
 
     if device.read_only != expected.read_only {
-      field_mismatches = field_mismatches.push(f"${name}.read_only")
+      field_mismatches = field_mismatches.push(f"{name}.read_only")
     }
 
     var holders: List[Str] = []
@@ -14782,11 +14782,11 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     }
 
     if (holders |> sort-by .) != expected.holders {
-      field_mismatches = field_mismatches.push(f"${name}.holders")
+      field_mismatches = field_mismatches.push(f"{name}.holders")
     }
 
     if (slaves |> sort-by .) != expected.slaves {
-      field_mismatches = field_mismatches.push(f"${name}.slaves")
+      field_mismatches = field_mismatches.push(f"{name}.slaves")
     }
   }
 
@@ -14894,14 +14894,14 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/block", mode: 0o700, parents: true)?
     for entry in layout.entries {
-      let storage = fp"${entry.storage_path}"
+      let storage = fp"{entry.storage_path}"
       if ! bundle.exists(storage)? {
         bundle.mkdir(storage, mode: 0o700, parents: true)?
       }
 
       for nested in ["queue", "device"] {
-        if ! bundle.exists(fp"${storage}/${nested}")? {
-          bundle.mkdir(fp"${storage}/${nested}", mode: 0o700, parents: true)?
+        if ! bundle.exists(fp"{storage}/{nested}")? {
+          bundle.mkdir(fp"{storage}/{nested}", mode: 0o700, parents: true)?
         }
       }
 
@@ -14918,20 +14918,20 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
         },
       ] {
         continue when relation.state != "complete"
-        let directory = fp"${storage}/${relation.kind}"
+        let directory = fp"{storage}/{relation.kind}"
         bundle.mkdir(directory, mode: 0o700)?
         for link in relation.links {
-          let destination = fp"${directory}/${link.name}"
+          let destination = fp"{directory}/{link.name}"
           if link.target == null {
             bundle.mkdir(destination, mode: 0o700)?
           } else {
-            bundle.symlink(fp"${link.target}", destination)?
+            bundle.symlink(fp"{link.target}", destination)?
           }
         }
       }
 
       if entry.class_target != null {
-        bundle.symlink(fp"${entry.class_target}", fp"sys/class/block/${entry.name}")?
+        bundle.symlink(fp"{entry.class_target}", fp"sys/class/block/{entry.name}")?
       }
     }
   }
@@ -14940,12 +14940,12 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -14973,7 +14973,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var changing_stats: List[Str] = []
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if relative.ends_with("/stat") {
@@ -15050,23 +15050,23 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"block absent source ${relative} differs"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"block absent source {relative} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"block capture cannot score ${relative}"))
+      return Err(check_failure(f"block capture cannot score {relative}"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"block capture ${relative} bytes differ"))
+      return Err(check_failure(f"block capture {relative} bytes differ"))
     }
   }
 
@@ -15403,7 +15403,7 @@ pure decode_mountinfo_reference_field(value: Str) -> Result[Str] {
     } else {
       "\\"
     }
-    decoded = f"${decoded}${character}${fragment.byte_slice(3)}"
+    decoded = f"{decoded}{character}{fragment.byte_slice(3)}"
   }
 
   decoded
@@ -15447,7 +15447,7 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
     let mount_id = fields[0].parse_int()?
     let parent_id = fields[1].parse_int()?
     let device = parse_major_minor_reference(fields[2], "mountinfo")?
-    let key = f"${mount_id}"
+    let key = f"{mount_id}"
     if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or key in seen {
       return Err(check_failure("mountinfo reference has an invalid or duplicate mount ID"))
     }
@@ -15612,7 +15612,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
       "propagation",
     ] {
       guard json.get(row, [field], null) != null else {
-        return Err(check_failure(f"findmnt reference lacks ${field}"))
+        return Err(check_failure(f"findmnt reference lacks {field}"))
       }
     }
 
@@ -15626,7 +15626,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
     let vfs_options = json.get(row, ["vfs-options"])?.require(Str)?
     let fs_options = json.get(row, ["fs-options"])?.require(Str)?
     let propagation = json.get(row, ["propagation"])?.require(Str)?
-    let identity = f"${mount_id}"
+    let identity = f"{mount_id}"
     if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or identity in seen or root == "" or ! target.starts_with(
       "/",
     ) or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
@@ -15689,7 +15689,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
   var reference_by_id: Map[Int] = {}
   for index in range(reference.len()) {
     let id = reference[index].mount_id
-    let key = f"${id}"
+    let key = f"{id}"
     if id <= 0 or key in reference_by_id {
       return Err(check_failure("mount reference has invalid or duplicate ID"))
     }
@@ -15709,7 +15709,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
   var option_mismatches = 0
   var propagation_mismatches = 0
   for mount in candidates {
-    let key = f"${mount.mount_id}"
+    let key = f"{mount.mount_id}"
     if mount.mount_id <= 0 or key in candidate_seen {
       return Err(check_failure("candidate mount report has invalid or duplicate ID"))
     }
@@ -15768,7 +15768,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     }
   }
 
-  var missing_ids = [mount.mount_id for mount in reference if f"${mount.mount_id}" not in candidate_seen]
+  var missing_ids = [mount.mount_id for mount in reference if f"{mount.mount_id}" not in candidate_seen]
   {
     reference_count: reference.len(),
     candidate_count: candidates.len(),
@@ -15816,7 +15816,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
   var target_counts: Map[Int] = {}
   for index in range(mounts.len()) {
     let mount = mounts[index]
-    by_id = by_id.set(f"${mount.mount_id}", index)
+    by_id = by_id.set(f"{mount.mount_id}", index)
     target_counts = target_counts.set(mount.target, (target_counts.get(mount.target) ?? 0) + 1)
   }
 
@@ -15827,7 +15827,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
     var safe = true
     var depth = 0
     while depth < mounts.len() {
-      let key = f"${current_id}"
+      let key = f"{current_id}"
       if key in seen or key not in by_id {
         safe = false
         break
@@ -15840,7 +15840,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
         break
       }
 
-      break when current.parent_id == 0 or f"${current.parent_id}" not in by_id
+      break when current.parent_id == 0 or f"{current.parent_id}" not in by_id
       if current.parent_id == current_id {
         safe = false
         break
@@ -15912,14 +15912,14 @@ export pure compare_mount_usage(
   var before_by_id: Map[Int] = {}
   var after_by_id: Map[Int] = {}
   for index in range(before.len()) {
-    let key = f"${before[index].mount_id}"
+    let key = f"{before[index].mount_id}"
     return Err(check_failure("duplicate before mount usage ID")) when key in before_by_id
 
     before_by_id = before_by_id.set(key, index)
   }
 
   for index in range(after.len()) {
-    let key = f"${after[index].mount_id}"
+    let key = f"{after[index].mount_id}"
     return Err(check_failure("duplicate after mount usage ID")) when key in after_by_id
 
     after_by_id = after_by_id.set(key, index)
@@ -15930,7 +15930,7 @@ export pure compare_mount_usage(
   }
 
   for id in eligible {
-    if f"${id}" not in before_by_id or f"${id}" not in after_by_id {
+    if f"{id}" not in before_by_id or f"{id}" not in after_by_id {
       return Err(check_failure("mount usage reference lacks an eligible mount"))
     }
   }
@@ -15939,7 +15939,7 @@ export pure compare_mount_usage(
   let candidates = json.get(data, ["storage", "mounts"])?.require(List[CandidateMountUsage])?
   var expected_ids = set.empty()
   for mount in mounts {
-    expected_ids = set.add(expected_ids, f"${mount.mount_id}")
+    expected_ids = set.add(expected_ids, f"{mount.mount_id}")
   }
 
   var seen = set.empty()
@@ -15947,7 +15947,7 @@ export pure compare_mount_usage(
   var matched_count = 0
   var unstable = false
   for candidate in candidates {
-    let key = f"${candidate.mount_id}"
+    let key = f"{candidate.mount_id}"
     if key not in expected_ids or key in seen {
       return Err(check_failure("candidate mount usage has unexpected or duplicate ID"))
     }
@@ -15988,7 +15988,7 @@ export pure compare_mount_usage(
   }
 
   for mount in mounts {
-    if f"${mount.mount_id}" not in seen {
+    if f"{mount.mount_id}" not in seen {
       mismatched_ids = mismatched_ids.push(mount.mount_id)
     }
   }
@@ -16450,7 +16450,7 @@ export pure compare_kernel_parameters(
   var reference_by_key: Map[Int] = {}
   for index in range(reference.len()) {
     let source = reference[index]
-    let key = f"${source.source}:${source.name}"
+    let key = f"{source.source}:{source.name}"
     let observed = source.state == "observed" and source.value != null and source.raw_bytes_base64 == null
     let absent = source.state == "absent" and source.value == null and source.raw_bytes_base64 == null
     let malformed = source.state == "malformed" and source.value == null and source.raw_bytes_base64 != null
@@ -16494,7 +16494,7 @@ export pure compare_kernel_parameters(
   var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   for candidate in candidates {
-    let key = f"${candidate.source}:${candidate.name}"
+    let key = f"{candidate.source}:{candidate.name}"
     if candidate.name == "" or key in seen {
       return Err(check_failure("candidate kernel parameters contain an empty or duplicate identity"))
     }
@@ -16514,7 +16514,7 @@ export pure compare_kernel_parameters(
 
   var missing_names: List[Str] = []
   for source in reference {
-    let key = f"${source.source}:${source.name}"
+    let key = f"{source.source}:{source.name}"
     if key not in seen {
       missing_names += [key]
     }
@@ -16549,7 +16549,7 @@ proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[Lis
     }
 
     if raw.state != "observed" or raw.truncated or raw.data == null {
-      return Err(check_failure(f"kernel parameter bundle has no complete ${source.name} source"))
+      return Err(check_failure(f"kernel parameter bundle has no complete {source.name} source"))
     }
 
     let data = raw.data
@@ -16684,14 +16684,14 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
 
     if expected.state == "absent" {
       if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
-        return Err(check_failure(f"kernel parameter capture absent ${sources[index].name} differs from metadata"))
+        return Err(check_failure(f"kernel parameter capture absent {sources[index].name} differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"kernel parameter capture cannot score ${sources[index].name} source"))
+      return Err(check_failure(f"kernel parameter capture cannot score {sources[index].name} source"))
     }
 
     let raw = bundle.read_result(relative, max_bytes: 4096)?
@@ -16699,7 +16699,7 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"kernel parameter capture ${sources[index].name} bytes differ from metadata"))
+      return Err(check_failure(f"kernel parameter capture {sources[index].name} bytes differ from metadata"))
     }
   }
 
@@ -16891,7 +16891,7 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
 
   let paths = os_release_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"${relative}")? {
+    if bundle.exists(fp"{relative}")? {
       return Err(check_failure("os-release capture destination contains a source file"))
     }
   }
@@ -16901,12 +16901,12 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
   var observations: List[OsReleaseSourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   for relative in paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 65536)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 65536)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -16925,7 +16925,7 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
 
   var stable = true
   for index in range(paths.len()) {
-    let again = source.read_result(fp"${paths[index]}", max_bytes: 65536)?
+    let again = source.read_result(fp"{paths[index]}", max_bytes: 65536)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -16987,23 +16987,23 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       "read_failure",
       "permission_denied",
     ] and expected.sha256_hex == null) {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"os-release unavailable source ${relative} differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"os-release unavailable source {relative} differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"os-release cannot score ${relative} source"))
+      return Err(check_failure(f"os-release cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 65536)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"os-release ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"os-release {relative} bytes differ from metadata"))
     }
   }
 
@@ -17018,7 +17018,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release capture has no usable reference"))
   }
 
-  let selected = bundle.read_result(fp"${selected_path}", max_bytes: 65536)?
+  let selected = bundle.read_result(fp"{selected_path}", max_bytes: 65536)?
   let index = if selected_path == paths[0] { 0 } else { 1 }
   if selected.state != "observed" or selected.truncated or selected.data == null or hash.sha256(selected.data)
     .hex() != (capture.sources[index].sha256_hex ?? "") {
@@ -17093,7 +17093,7 @@ export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Byte
       }
     }
 
-    values = values.push(f"0x${token}".parse_int()?)
+    values = values.push(f"0x{token}".parse_int()?)
   }
 
   bytes.from_ints(values)?
@@ -17224,7 +17224,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
 
   let paths = device_tree_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"${relative}")? {
+    if bundle.exists(fp"{relative}")? {
       return Err(check_failure("device-tree capture destination contains a source file"))
     }
   }
@@ -17236,7 +17236,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
   for index in range(paths.len()) {
     let relative = paths[index]
     let limit = if index == 0 { 4096 } else { 16384 }
-    let raw = source.read_result(fp"${relative}", max_bytes: limit)?
+    let raw = source.read_result(fp"{relative}", max_bytes: limit)?
     if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
@@ -17245,7 +17245,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17265,7 +17265,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
   var stable = true
   for index in range(paths.len()) {
     let limit = if index == 0 { 4096 } else { 16384 }
-    let again = source.read_result(fp"${paths[index]}", max_bytes: limit)?
+    let again = source.read_result(fp"{paths[index]}", max_bytes: limit)?
     let first = sources[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17314,8 +17314,8 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"device-tree absent source ${relative} differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"device-tree absent source {relative} differs from metadata"))
       }
 
       raw_values += [null]
@@ -17323,16 +17323,16 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     }
 
     if expected.state != "observed" or expected.errno != null or expected.error_kind != null or expected.sha256_hex == null {
-      return Err(check_failure(f"device-tree cannot score ${relative} source"))
+      return Err(check_failure(f"device-tree cannot score {relative} source"))
     }
 
     let limit = if index == 0 { 4096 } else { 16384 }
-    let raw = bundle.read_result(fp"${relative}", max_bytes: limit)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: limit)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"device-tree ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"device-tree {relative} bytes differ from metadata"))
     }
 
     raw_values = raw_values.push(raw.data)
@@ -17418,7 +17418,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
 
   let paths = dmi_identity_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"${relative}")? {
+    if bundle.exists(fp"{relative}")? {
       return Err(check_failure("DMI identity capture destination contains a source file"))
     }
   }
@@ -17428,7 +17428,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
   var saved_bytes: List[Bytes?] = []
   var complete = true
   for relative in paths {
-    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
@@ -17437,7 +17437,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"${relative}", data)?
+      bundle.write(fp"{relative}", data)?
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17456,7 +17456,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
 
   var stable = true
   for index in range(paths.len()) {
-    let again = source.read_result(fp"${paths[index]}", max_bytes: 4096)?
+    let again = source.read_result(fp"{paths[index]}", max_bytes: 4096)?
     let first = sources[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17505,23 +17505,23 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
-        return Err(check_failure(f"DMI identity absent source ${relative} differs from metadata"))
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+        return Err(check_failure(f"DMI identity absent source {relative} differs from metadata"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.errno != null or expected.error_kind != null or expected.sha256_hex == null {
-      return Err(check_failure(f"DMI identity cannot score ${relative} source"))
+      return Err(check_failure(f"DMI identity cannot score {relative} source"))
     }
 
-    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"DMI identity ${relative} bytes differ from metadata"))
+      return Err(check_failure(f"DMI identity {relative} bytes differ from metadata"))
     }
   }
 
@@ -17552,7 +17552,7 @@ export proc replay_dmi_identity_bundle(bundle: FsRoot) [fs, time, error] -> Resu
 
 pure dmi_reference_has_issue(issues: List[CandidateIssueField], name: Str) -> Bool {
   for issue in issues {
-    return true when issue.section == "identity" and issue.field == f"firmware.${name}"
+    return true when issue.section == "identity" and issue.field == f"firmware.{name}"
   }
 
   false
@@ -18168,7 +18168,7 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
       return Err(check_failure("cgroup2 reference has an unsafe mount path"))
     }
 
-    continue when root != "/" and group_path != root and ! group_path.starts_with(f"${root}/")
+    continue when root != "/" and group_path != root and ! group_path.starts_with(f"{root}/")
     let root_length = root.count_chars()
     if root_length > chosen_root_length {
       chosen_root = root
@@ -18198,7 +18198,7 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
   } else if mount_relative == "" {
     relative
   } else {
-    f"${mount_relative}/${relative}"
+    f"{mount_relative}/{relative}"
   }
   {
     group_path: group_path,
@@ -18334,7 +18334,7 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
 
     seen = set.add(seen, name)
     counters = counters.push({
-      resource: f"cpu.stat.${name}",
+      resource: f"cpu.stat.{name}",
       value: cgroup2_reference_number(fields[1])?,
       unit: if name.starts_with("nr_") { "count" } else { "microseconds" },
     })
@@ -18378,7 +18378,7 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
 
       seen_fields = set.add(seen_fields, pair[0])
       counters = counters.push({
-        resource: f"io.stat.${device}.${pair[0]}",
+        resource: f"io.stat.{device}.{pair[0]}",
         value: cgroup2_reference_number(pair[1])?,
         unit: if pair[0].ends_with("bytes") { "bytes" } else { "requests" },
       })
@@ -18426,13 +18426,13 @@ proc cgroup2_reference_text(
   return Ok(null) when read.state == "absent" and ! required
 
   if read.state != "observed" or read.truncated or read.data == null {
-    return Err(check_failure(f"cgroup2 reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"cgroup2 reference source {source_path} is incomplete"))
   }
 
   if let Ok(value) = read.data.utf8() {
     Ok(value)
   } else {
-    Err(check_failure(f"cgroup2 reference source ${source_path} is not UTF-8"))
+    Err(check_failure(f"cgroup2 reference source {source_path} is not UTF-8"))
   }
 }
 
@@ -18512,11 +18512,11 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
         current_file: "pids.current",
       },
     ] {
-      let maximum_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/${family.maximum_file}", 4096, false)?
-      let current_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/${family.current_file}", 4096, false)?
+      let maximum_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/{family.maximum_file}", 4096, false)?
+      let current_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/{family.current_file}", 4096, false)?
       continue when maximum_raw == null and current_raw == null
       if maximum_raw == null or current_raw == null {
-        return Err(check_failure(f"cgroup2 ${family.resource} reference has an incomplete limit pair"))
+        return Err(check_failure(f"cgroup2 {family.resource} reference has an incomplete limit pair"))
       }
 
       let maximum = parse_cgroup2_limit(maximum_raw)?
@@ -18538,7 +18538,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
       )
     }
 
-    let quota_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.max", 4096, false)?
+    let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
     if quota_raw != null {
       let quota = parse_cpu_scope_quota(quota_raw)?
       resources = resources.push(
@@ -18558,7 +18558,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
       )
     }
 
-    let cpu_stat_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.stat", 16384, false)?
+    let cpu_stat_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.stat", 16384, false)?
     if cpu_stat_raw != null {
       for counter in parse_cgroup2_cpu_stat(cpu_stat_raw)? {
         resources = resources.push(
@@ -18579,7 +18579,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
       }
     }
 
-    let cpuset_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpuset.cpus.effective", 65536, false)?
+    let cpuset_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpuset.cpus.effective", 65536, false)?
     if cpuset_raw != null {
       resources = resources.push(
         cgroup2_reference_resource(
@@ -18598,7 +18598,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
       )
     }
 
-    let io_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/io.stat", 262144, false)?
+    let io_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/io.stat", 262144, false)?
     if io_raw != null {
       for counter in parse_cgroup2_io_stat(io_raw)? {
         resources = resources.push(
@@ -18707,7 +18707,7 @@ proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayo
         changing: true,
       },
     ] {
-      let relative = if source == "." { attribute.name } else { f"${source}/${attribute.name}" }
+      let relative = if source == "." { attribute.name } else { f"{source}/{attribute.name}" }
       paths = paths.push({path: relative, max_bytes: attribute.max_bytes, changing: attribute.changing})
     }
   }
@@ -18734,7 +18734,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var saved_bytes: List[Bytes?] = []
   var complete = true
   for item in layout.paths {
-    let relative = fp"${item.path}"
+    let relative = fp"{item.path}"
     let raw = source.read_result(relative, max_bytes: item.max_bytes)?
     var sha256_hex: Str? = null
     var byte_count = 0
@@ -18774,7 +18774,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var changing_sources: List[Str] = []
   for index in range(layout.paths.len()) {
     let item = layout.paths[index]
-    let raw = source.read_result(fp"${item.path}", max_bytes: item.max_bytes)?
+    let raw = source.read_result(fp"{item.path}", max_bytes: item.max_bytes)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if item.changing {
@@ -18850,17 +18850,17 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
       return Err(check_failure("cgroup2 source identity differs"))
     }
 
-    let relative = fp"${item.path}"
+    let relative = fp"{item.path}"
     if expected.state == "absent" {
       if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
-        return Err(check_failure(f"cgroup2 absent source ${item.path} differs"))
+        return Err(check_failure(f"cgroup2 absent source {item.path} differs"))
       }
 
       continue
     }
 
     if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
-      return Err(check_failure(f"cgroup2 capture cannot score ${item.path}"))
+      return Err(check_failure(f"cgroup2 capture cannot score {item.path}"))
     }
 
     let raw = bundle.read_result(relative, max_bytes: item.max_bytes)?
@@ -18868,7 +18868,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
       raw.data,
     )
       .hex() != expected.sha256_hex {
-      return Err(check_failure(f"cgroup2 capture ${item.path} bytes differ"))
+      return Err(check_failure(f"cgroup2 capture {item.path} bytes differ"))
     }
   }
 
@@ -18914,7 +18914,7 @@ export pure compare_cgroup2_resources(
   var before_by_key: Map[Cgroup2ResourceReference] = {}
   var after_by_key: Map[Cgroup2ResourceReference] = {}
   for resource in before.resources {
-    let key = f"${resource.hierarchy_level}:${resource.resource}"
+    let key = f"{resource.hierarchy_level}:{resource.resource}"
     if key in before_by_key {
       return Err(check_failure("cgroup2 reference repeats a resource identity"))
     }
@@ -18923,7 +18923,7 @@ export pure compare_cgroup2_resources(
   }
 
   for resource in after.resources {
-    let key = f"${resource.hierarchy_level}:${resource.resource}"
+    let key = f"{resource.hierarchy_level}:{resource.resource}"
     if key in after_by_key or key not in before_by_key {
       return Err(check_failure("cgroup2 resource identities changed around collection"))
     }
@@ -18951,7 +18951,7 @@ export pure compare_cgroup2_resources(
   var field_mismatches: List[Str] = []
   var unscored_gauges: List[Str] = []
   for candidate in candidates {
-    let key = f"${candidate.hierarchy_level}:${candidate.resource}"
+    let key = f"{candidate.hierarchy_level}:{candidate.resource}"
     if key in seen {
       return Err(check_failure("candidate cgroup2 resources repeat an identity"))
     }
@@ -18989,7 +18989,7 @@ export pure compare_cgroup2_resources(
 
   var missing: List[Str] = []
   for resource in before.resources {
-    let key = f"${resource.hierarchy_level}:${resource.resource}"
+    let key = f"{resource.hierarchy_level}:{resource.resource}"
     if key not in seen {
       missing += [key]
     }
@@ -19017,8 +19017,8 @@ export proc read_cpu_scope_cgroup_reference(root: FsRoot) [fs, time, error] -> R
   let paths = visible_cgroup2_reference_paths(root)?
   var ancestors: List[CpuScopeAncestorReference] = []
   for path_item in paths {
-    let cpuset_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpuset.cpus.effective", 65536, false)?
-    let quota_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.max", 4096, false)?
+    let cpuset_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpuset.cpus.effective", 65536, false)?
+    let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
     let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw, true)? }
     let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw)? }
     ancestors = ancestors.push(
@@ -19044,7 +19044,7 @@ export pure compare_cpu_scope_cgroup(
   let candidate_cpuset = json.get(data, ["cpu", "effective_cpuset"])?.require(List[Int])?
   var by_level: Map[CpuScopeAncestorReference] = {}
   for ancestor in before.ancestors {
-    let key = f"${ancestor.hierarchy_level}"
+    let key = f"{ancestor.hierarchy_level}"
     if ancestor.hierarchy_level < 0 or key in by_level {
       return Err(check_failure("CPU scope reference has a duplicate ancestor level"))
     }
@@ -19057,14 +19057,14 @@ export pure compare_cpu_scope_cgroup(
   var checked = 0
   for candidate in candidates {
     continue when candidate.resource not in ["cpu.max", "cpuset.cpus.effective"]
-    let key = f"${candidate.hierarchy_level}:${candidate.resource}"
+    let key = f"{candidate.hierarchy_level}:{candidate.resource}"
     if key in seen {
       return Err(check_failure("candidate CPU scope has duplicate resource identities"))
     }
 
     seen = set.add(seen, key)
     checked += 1
-    let level = f"${candidate.hierarchy_level}"
+    let level = f"{candidate.hierarchy_level}"
     if level not in by_level {
       mismatches += [key]
       continue
@@ -19097,7 +19097,7 @@ export pure compare_cpu_scope_cgroup(
 
   for ancestor in before.ancestors {
     for resource in ["cpu.max", "cpuset.cpus.effective"] {
-      let key = f"${ancestor.hierarchy_level}:${resource}"
+      let key = f"{ancestor.hierarchy_level}:{resource}"
       let observed = if resource == "cpu.max" { ancestor.quota != null } else { ancestor.effective_cpus != null }
       if observed and key not in seen {
         mismatches += [key]
@@ -19169,7 +19169,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    let first_source = process_reference_text(root, fp"${process_path}/stat", 16384)?
+    let first_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
     if first_source == null {
       skipped_count += 1
       continue
@@ -19180,7 +19180,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    let status_source = process_reference_text(root, fp"${process_path}/status", 16384)?
+    let status_source = process_reference_text(root, fp"{process_path}/status", 16384)?
     if status_source == null {
       skipped_count += 1
       continue
@@ -19191,7 +19191,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    let last_source = process_reference_text(root, fp"${process_path}/stat", 16384)?
+    let last_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
     if last_source == null {
       skipped_count += 1
       continue
@@ -19257,7 +19257,7 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    let first_source = process_reference_text(root, fp"${process_path}/stat", 16384)?
+    let first_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
     if first_source == null {
       skipped_count += 1
       continue
@@ -19268,8 +19268,8 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    let statm_source = process_reference_text(root, fp"${process_path}/statm", 4096)?
-    let cgroup_source = process_reference_text(root, fp"${process_path}/cgroup", 16384)?
+    let statm_source = process_reference_text(root, fp"{process_path}/statm", 4096)?
+    let cgroup_source = process_reference_text(root, fp"{process_path}/cgroup", 16384)?
     if statm_source == null or cgroup_source == null {
       skipped_count += 1
       continue
@@ -19285,7 +19285,7 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    let last_source = process_reference_text(root, fp"${process_path}/stat", 16384)?
+    let last_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
     if last_source == null {
       skipped_count += 1
       continue
@@ -19362,7 +19362,7 @@ export proc capture_process_bundle(
         continue
       }
 
-      if pid <= 0 or pid_text != f"${pid}" {
+      if pid <= 0 or pid_text != f"{pid}" {
         skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
         continue
       }
@@ -19372,7 +19372,7 @@ export proc capture_process_bundle(
         continue
       }
 
-      let first = source.read_result(fp"${process_path}/stat", max_bytes: 16384)?
+      let first = source.read_result(fp"{process_path}/stat", max_bytes: 16384)?
       if first.state != "observed" or first.truncated or first.data == null {
         skipped = skipped.push({
           name: pid_text,
@@ -19401,7 +19401,7 @@ export proc capture_process_bundle(
           max_bytes: 16384,
         },
       ] {
-        let raw = source.read_result(fp"${process_path}/${field.name}", max_bytes: field.max_bytes)?
+        let raw = source.read_result(fp"{process_path}/{field.name}", max_bytes: field.max_bytes)?
         if raw.state != "observed" or raw.truncated or raw.data == null {
           skipped = skipped.push({
             name: pid_text,
@@ -19419,7 +19419,7 @@ export proc capture_process_bundle(
       }
 
       continue unless complete
-      let last = source.read_result(fp"${process_path}/stat", max_bytes: 16384)?
+      let last = source.read_result(fp"{process_path}/stat", max_bytes: 16384)?
       if last.state != "observed" or last.truncated or last.data == null {
         skipped = skipped.push({
           name: pid_text,
@@ -19516,10 +19516,10 @@ export proc capture_process_bundle(
       }
 
       total_bytes += selected_bytes
-      bundle.mkdir(fp"proc/${pid}", mode: 0o700)?
+      bundle.mkdir(fp"proc/{pid}", mode: 0o700)?
       for field in raw_fields {
-        let relative = f"proc/${pid}/${field.name}"
-        bundle.write(fp"${relative}", field.data)?
+        let relative = f"proc/{pid}/{field.name}"
+        bundle.write(fp"{relative}", field.data)?
         sources = sources.push({
           path: relative,
           max_bytes: field.max_bytes,
@@ -19591,7 +19591,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
     |> sort-by .
   let expected_names = capture.pids
     |> map { |pid|
-      f"${pid}"
+      f"{pid}"
     }
     |> sort-by .
   if listed != expected_names {
@@ -19626,7 +19626,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
 
   var seen_pids = set.empty()
   for pid in capture.pids {
-    let pid_key = f"${pid}"
+    let pid_key = f"{pid}"
     if pid <= 0 or pid > 9007199254740991 or pid_key in seen_pids {
       return Err(check_failure("process bundle has an invalid or duplicate PID"))
     }
@@ -19650,7 +19650,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
         max_bytes: 16384,
       },
     ] {
-      let relative = f"proc/${pid}/${field.name}"
+      let relative = f"proc/{pid}/{field.name}"
       if relative not in source_by_path {
         return Err(check_failure("process bundle source is missing"))
       }
@@ -19660,12 +19660,12 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
         return Err(check_failure("process bundle source identity differs"))
       }
 
-      let raw = bundle.read_result(fp"${relative}", max_bytes: field.max_bytes)?
+      let raw = bundle.read_result(fp"{relative}", max_bytes: field.max_bytes)?
       if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
         raw.data,
       )
         .hex() != expected.sha256_hex {
-        return Err(check_failure(f"process bundle source ${relative} bytes differ"))
+        return Err(check_failure(f"process bundle source {relative} bytes differ"))
       }
     }
   }
@@ -19721,7 +19721,7 @@ export pure compare_process_identity(
   var candidate_by_pid: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    let key = f"${item.pid}"
+    let key = f"{item.pid}"
     if item.pid <= 0 or item.pid > 9007199254740991 or item.parent_pid < 0 or item.parent_pid > 9007199254740991 or item.start_ticks < 0 or item.start_ticks > 9007199254740991 or item.uid < 0 or item.uid > 9007199254740991 or key in before_by_pid {
       return Err(check_failure("before process reference contains an invalid or duplicate identity"))
     }
@@ -19731,7 +19731,7 @@ export pure compare_process_identity(
 
   for index in range(after.len()) {
     let item = after[index]
-    let key = f"${item.pid}"
+    let key = f"{item.pid}"
     if item.pid <= 0 or item.pid > 9007199254740991 or item.parent_pid < 0 or item.parent_pid > 9007199254740991 or item.start_ticks < 0 or item.start_ticks > 9007199254740991 or item.uid < 0 or item.uid > 9007199254740991 or key in after_by_pid {
       return Err(check_failure("after process reference contains an invalid or duplicate identity"))
     }
@@ -19740,7 +19740,7 @@ export pure compare_process_identity(
   }
 
   for index in range(candidates.len()) {
-    let key = f"${candidates[index].pid}"
+    let key = f"{candidates[index].pid}"
     if candidates[index].pid <= 0 or key in candidate_by_pid {
       return Err(check_failure("candidate process report contains an invalid or duplicate PID"))
     }
@@ -19754,7 +19754,7 @@ export pure compare_process_identity(
   var missing_pids: List[Int] = []
   var mismatched_pids: List[Int] = []
   for first in before {
-    let key = f"${first.pid}"
+    let key = f"{first.pid}"
     if key not in after_by_pid {
       unstable_count += 1
       continue
@@ -19815,7 +19815,7 @@ export pure compare_process_resources(
   var candidate_by_pid: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    let key = f"${item.pid}"
+    let key = f"{item.pid}"
     if ! valid_process_resource_reference(item) or key in before_by_pid {
       return Err(check_failure("before process resource reference has an invalid or duplicate identity"))
     }
@@ -19825,7 +19825,7 @@ export pure compare_process_resources(
 
   for index in range(after.len()) {
     let item = after[index]
-    let key = f"${item.pid}"
+    let key = f"{item.pid}"
     if ! valid_process_resource_reference(item) or key in after_by_pid {
       return Err(check_failure("after process resource reference has an invalid or duplicate identity"))
     }
@@ -19834,7 +19834,7 @@ export pure compare_process_resources(
   }
 
   for index in range(candidates.len()) {
-    let key = f"${candidates[index].pid}"
+    let key = f"{candidates[index].pid}"
     if candidates[index].pid <= 0 or key in candidate_by_pid {
       return Err(check_failure("candidate process resource report has an invalid or duplicate PID"))
     }
@@ -19850,7 +19850,7 @@ export pure compare_process_resources(
   var unscored_fields: List[Str] = []
   var mismatched_fields: List[Str] = []
   for first in before {
-    let key = f"${first.pid}"
+    let key = f"{first.pid}"
     if key not in after_by_pid or after[after_by_pid.get(key) ?? -1].start_ticks != first.start_ticks {
       unstable_count += 1
       continue
@@ -19868,38 +19868,38 @@ export pure compare_process_resources(
     if first.thread_count == last.thread_count {
       scored_fields += 1
       if candidate.thread_count != first.thread_count {
-        mismatched_fields = mismatched_fields.push(f"${first.pid}.thread_count")
+        mismatched_fields = mismatched_fields.push(f"{first.pid}.thread_count")
       }
     } else {
-      unscored_fields = unscored_fields.push(f"${first.pid}.thread_count")
+      unscored_fields = unscored_fields.push(f"{first.pid}.thread_count")
     }
 
     if first.resident_bytes == last.resident_bytes {
       scored_fields += 1
       if candidate.resident_bytes != first.resident_bytes {
-        mismatched_fields = mismatched_fields.push(f"${first.pid}.resident_bytes")
+        mismatched_fields = mismatched_fields.push(f"{first.pid}.resident_bytes")
       }
     } else {
-      unscored_fields = unscored_fields.push(f"${first.pid}.resident_bytes")
+      unscored_fields = unscored_fields.push(f"{first.pid}.resident_bytes")
     }
 
     if first.virtual_bytes == last.virtual_bytes {
       scored_fields += 1
       if candidate.virtual_bytes != first.virtual_bytes {
-        mismatched_fields = mismatched_fields.push(f"${first.pid}.virtual_bytes")
+        mismatched_fields = mismatched_fields.push(f"{first.pid}.virtual_bytes")
       }
     } else {
-      unscored_fields = unscored_fields.push(f"${first.pid}.virtual_bytes")
+      unscored_fields = unscored_fields.push(f"{first.pid}.virtual_bytes")
     }
 
     if first.cgroup == last.cgroup {
       scored_fields += 1
       let expected_state = if first.cgroup == null { "unsupported" } else { "observed" }
       if candidate.cgroup.state != expected_state or candidate.cgroup.value != first.cgroup {
-        mismatched_fields = mismatched_fields.push(f"${first.pid}.cgroup")
+        mismatched_fields = mismatched_fields.push(f"{first.pid}.cgroup")
       }
     } else {
-      unscored_fields = unscored_fields.push(f"${first.pid}.cgroup")
+      unscored_fields = unscored_fields.push(f"{first.pid}.cgroup")
     }
   }
 
@@ -20021,7 +20021,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     }
 
     if assertion.tier != "mandatory" and assertion.tier != "supplemental" {
-      return Err(check_failure(f"unsupported tier for '${assertion.id}'"))
+      return Err(check_failure(f"unsupported tier for '{assertion.id}'"))
     }
 
     if assertion.tier == "mandatory" {
@@ -20182,18 +20182,18 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     }
 
     if assertion.source_abi.trim() == "" or assertion.reference_adapter.trim() == "" or (assertion.reference_commands.len() == 0 and ! rooted_reference) or (rooted_reference and assertion.reference_commands.len() != 0) or rooted_binding_invalid {
-      return Err(check_failure(f"assertion '${assertion.id}' has an invalid source ABI or reference invocation"))
+      return Err(check_failure(f"assertion '{assertion.id}' has an invalid source ABI or reference invocation"))
     }
 
     var seen_commands: List[List[Str]] = []
     for command in assertion.reference_commands {
       if command.len() == 0 or command[0].trim() == "" or command in seen_commands {
-        return Err(check_failure(f"assertion '${assertion.id}' has an empty or duplicate reference command"))
+        return Err(check_failure(f"assertion '{assertion.id}' has an empty or duplicate reference command"))
       }
 
       for argument in command {
         if argument == "" {
-          return Err(check_failure(f"assertion '${assertion.id}' has an empty reference argument"))
+          return Err(check_failure(f"assertion '{assertion.id}' has an empty reference argument"))
         }
       }
 
@@ -20268,15 +20268,15 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     ])) or (assertion.id in ["privacy.no-process-data", "safety.no-child", "safety.no-mutation"] and (assertion.reference_adapter != "strace" or assertion.reference_commands != [
       trace_audit_argv("strace", "<trace file>", "<xsh binary>", "<system-report script>", ["--json"]),
     ])) {
-      return Err(check_failure(f"assertion '${assertion.id}' must declare the executed reference commands"))
+      return Err(check_failure(f"assertion '{assertion.id}' must declare the executed reference commands"))
     }
 
     if assertion.eligibility.trim() == "" or assertion.equality_rule.trim() == "" or assertion.fixture_scenarios.len() == 0 {
-      return Err(check_failure(f"assertion '${assertion.id}' is missing eligibility, comparison, or fixture policy"))
+      return Err(check_failure(f"assertion '{assertion.id}' is missing eligibility, comparison, or fixture policy"))
     }
 
     if assertion.id in seen {
-      return Err(check_failure(f"duplicate assertion id '${assertion.id}'"))
+      return Err(check_failure(f"duplicate assertion id '{assertion.id}'"))
     }
 
     seen = seen.push(assertion.id)
@@ -20293,7 +20293,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     }
 
     if scenario in seen_scenarios {
-      return Err(check_failure(f"duplicate fixture scenario '${scenario}'"))
+      return Err(check_failure(f"duplicate fixture scenario '{scenario}'"))
     }
 
     seen_scenarios += [scenario]
@@ -20302,7 +20302,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
   for assertion in manifest.assertions {
     for scenario in assertion.fixture_scenarios {
       if scenario not in manifest.fixture_scenarios {
-        return Err(check_failure(f"assertion '${assertion.id}' references undeclared fixture scenario '${scenario}'"))
+        return Err(check_failure(f"assertion '{assertion.id}' references undeclared fixture scenario '{scenario}'"))
       }
     }
   }
@@ -20310,7 +20310,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
   var covered_scenarios: List[Str] = []
   for fixture_case in manifest.fixture_cases.extend(manifest.macos_fixture_cases) {
     if fixture_case.scenario not in manifest.fixture_scenarios {
-      return Err(check_failure(f"fixture case '${fixture_case.scenario}' is not declared"))
+      return Err(check_failure(f"fixture case '{fixture_case.scenario}' is not declared"))
     }
 
     var required_by_assertion = false
@@ -20321,16 +20321,16 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     }
 
     if ! required_by_assertion {
-      return Err(check_failure(f"fixture case '${fixture_case.scenario}' is not required by an assertion"))
+      return Err(check_failure(f"fixture case '{fixture_case.scenario}' is not required by an assertion"))
     }
 
     if fixture_case.scenario in covered_scenarios {
-      return Err(check_failure(f"duplicate executable fixture case '${fixture_case.scenario}'"))
+      return Err(check_failure(f"duplicate executable fixture case '{fixture_case.scenario}'"))
     }
 
     covered_scenarios = covered_scenarios.push(fixture_case.scenario)
     if fixture_case.tests.len() == 0 {
-      return Err(check_failure(f"fixture case '${fixture_case.scenario}' has no tests"))
+      return Err(check_failure(f"fixture case '{fixture_case.scenario}' has no tests"))
     }
 
     var seen_tests: List[Str] = []
@@ -20353,7 +20353,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
         "::",
       )
         .len() != 2 or test_name in seen_tests {
-        return Err(check_failure(f"fixture case '${fixture_case.scenario}' has an invalid or duplicate test"))
+        return Err(check_failure(f"fixture case '{fixture_case.scenario}' has an invalid or duplicate test"))
       }
 
       seen_tests += [test_name]
@@ -20363,12 +20363,12 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
 
 ## Requires a fixture name to match an explicit test declaration in its source.
 export pure fixture_test_definition_exists(source: Str, test_name: Str) -> Bool {
-  let declaration = f"test ${test_name}"
+  let declaration = f"test {test_name}"
   for line in source.lines() {
     let trimmed = line.trim()
-    if trimmed.starts_with(f"${declaration} ") or trimmed.starts_with(f"${declaration}\t") or trimmed.starts_with(
-      f"${declaration}{",
-    ) or trimmed.starts_with(f"${declaration}[") {
+    if trimmed.starts_with(f"{declaration} ") or trimmed.starts_with(f"{declaration}\t") or trimmed.starts_with(
+      f"{declaration}{{",
+    ) or trimmed.starts_with(f"{declaration}[") {
       return true
     }
   }
@@ -20378,7 +20378,7 @@ export pure fixture_test_definition_exists(source: Str, test_name: Str) -> Bool 
 
 ## Requires a Rust fixture to name a function with a test attribute in its owner source.
 export pure rust_fixture_test_definition_exists(source: Str, test_name: Str) -> Bool {
-  let declaration = f"fn ${test_name}("
+  let declaration = f"fn {test_name}("
   var test_attribute = false
   var block_comment = false
   for line in source.lines() {
@@ -20445,7 +20445,7 @@ proc validate_fixture_test_definitions(root: Path, fixture_cases: List[FixtureCa
       }
 
       if ! exists {
-        return Err(check_failure(f"fixture case '${fixture_case.scenario}' names missing test '${test_name}'"))
+        return Err(check_failure(f"fixture case '{fixture_case.scenario}' names missing test '{test_name}'"))
       }
     }
   }
@@ -20491,12 +20491,12 @@ pure traced_syscall(line: Str, name: Str) -> Bool {
   return false when parts.len() != 2
 
   let before_call = parts[0].trim()
-  before_call == name or before_call.ends_with(f" ${name}")
+  before_call == name or before_call.ends_with(f" {name}")
 }
 
 # Extracts syscall arguments without splitting inside payloads, strings, or descriptor paths.
 pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
-  let call = line.split(f"${name}(", maxsplit: 1)
+  let call = line.split(f"{name}(", maxsplit: 1)
   return [] when call.len() != 2
 
   var arguments: List[Str] = []
@@ -20742,7 +20742,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
       "adjtimex",
     ] {
       if traced_syscall(line, name) {
-        violations = violations.push(f"system mutation syscall ${name}")
+        violations = violations.push(f"system mutation syscall {name}")
       }
     }
 
@@ -20770,7 +20770,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     for name in ["write", "writev"] {
       if traced_syscall(line, name) {
-        let descriptor = (((line.split(f"${name}(", maxsplit: 1)
+        let descriptor = (((line.split(f"{name}(", maxsplit: 1)
           .get(1) ?? "").split(",")
             .get(0) ?? "").split("<")
               .get(0) ?? "").trim()
@@ -20945,7 +20945,7 @@ pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[
   let directory = descriptor_parts[1].split(">", maxsplit: 1).get(0) ?? ""
   return normalized_traced_path(argument) unless directory.starts_with("/")
 
-  normalized_traced_path(f"\"${directory}/${traced_path}\"")
+  normalized_traced_path(f"\"{directory}/{traced_path}\"")
 }
 
 ## Rejects reads of per-process environments, command lines, memory, and open paths.
@@ -20991,7 +20991,7 @@ export pure forbidden_process_field_violations(candidate_json: Str) -> Result[Li
   let data = json.decode(candidate_json)?
   let processes = json.get(data, ["processes", "processes"])?.require(List[Record])?
   let violations = [
-    f"forbidden process output field ${field}"
+    f"forbidden process output field {field}"
     for process_item in processes
     for field in process_item.keys()
     if field in [
@@ -21051,7 +21051,7 @@ pure replay_host_read_keys(trace: Str) -> List[Str] {
         }
         let source_path = normalized_traced_call_path(line, name, path_index)
         if replay_live_source_path(source_path) {
-          keys = keys.push(f"${name}:${source_path.join("/")}")
+          keys = keys.push(f"{name}:{source_path.join("/")}")
         }
       }
     }
@@ -21094,16 +21094,16 @@ proc audit_no_subprocess_case(
   label: Str,
   scratch: FsRoot,
 ) [fs, process, error] {
-  let trace_name = fp"trace-${label}"
-  let stdout_name = fp"stdout-${label}"
-  let stderr_name = fp"stderr-${label}"
+  let trace_name = fp"trace-{label}"
+  let stdout_name = fp"stdout-{label}"
+  let stderr_name = fp"stderr-{label}"
   scratch.write(trace_name, "")?
   scratch.write(stdout_name, "")?
   scratch.write(stderr_name, "")?
   let scratch_path = scratch.host_path()?
-  let trace_path = fp"${scratch_path}/${trace_name}"
-  let stdout_path = fp"${scratch_path}/${stdout_name}"
-  let stderr_path = fp"${scratch_path}/${stderr_name}"
+  let trace_path = fp"{scratch_path}/{trace_name}"
+  let stdout_path = fp"{scratch_path}/{stdout_name}"
+  let stderr_path = fp"{scratch_path}/{stderr_name}"
   let strace = "/usr/bin/strace"
   let argv = trace_audit_argv(strace, trace_path.display(), xsh_bin, script, applet_args)
   let command = process.command_argv(
@@ -21131,13 +21131,13 @@ proc audit_no_subprocess_case(
   ]
 
   if status.exited_with(0) != expected_success {
-    return Err(check_failure(f"${label} command had unexpected exit status: ${candidate_error.trim()}"))
+    return Err(check_failure(f"{label} command had unexpected exit status: {candidate_error.trim()}"))
   }
 
   return Err(check_failure(violations.join(", "))) when violations.len() > 0
 
   if expected_success and output.trim() == "" {
-    return Err(check_failure(f"${label} emitted no output"))
+    return Err(check_failure(f"{label} emitted no output"))
   }
 
   if expected_success and "--json" in applet_args {
@@ -21146,7 +21146,7 @@ proc audit_no_subprocess_case(
   }
 
   if ! expected_success and output.trim() != "" {
-    return Err(check_failure(f"${label} wrote stdout before failing"))
+    return Err(check_failure(f"{label} wrote stdout before failing"))
   }
 }
 
@@ -21162,17 +21162,17 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   scratch.write(p"unsupported.json", "{\"schema_version\":2}")?
   scratch.write(p"invalid-utf8.json", b"\xff")?
   let scratch_path = scratch.host_path()?
-  let malformed_path = fp"${scratch_path}/malformed.json"
-  let unsupported_path = fp"${scratch_path}/unsupported.json"
-  let invalid_utf8_path = fp"${scratch_path}/invalid-utf8.json"
-  let missing_path = fp"${scratch_path}/missing.json"
+  let malformed_path = fp"{scratch_path}/malformed.json"
+  let unsupported_path = fp"{scratch_path}/unsupported.json"
+  let invalid_utf8_path = fp"{scratch_path}/invalid-utf8.json"
+  let missing_path = fp"{scratch_path}/missing.json"
 
   audit_no_subprocess_case(xsh_bin, script, ["--json"], true, "live-json", scratch)?
   audit_no_subprocess_case(xsh_bin, script, [], true, "overview-text", scratch)?
   audit_no_subprocess_case(xsh_bin, script, ["--full"], true, "full-text", scratch)?
   audit_no_subprocess_case(xsh_bin, script, ["--section", "cpu", "--json"], true, "cpu-json", scratch)?
   audit_no_subprocess_case(xsh_bin, script, ["--sensitive", "--json"], true, "sensitive-json", scratch)?
-  let saved_path = fp"${scratch_path}/stdout-live-json"
+  let saved_path = fp"{scratch_path}/stdout-live-json"
   audit_no_subprocess_case(xsh_bin, script, ["--from", saved_path.display(), "--json"], true, "offline-replay", scratch)?
   let live_json = scratch.read_text(p"stdout-live-json")?
   let replay_json = scratch.read_text(p"stdout-offline-replay")?
@@ -21202,11 +21202,11 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   audit_no_subprocess_case(xsh_bin, script, ["--from", missing_path.display()], false, "missing-replay", scratch)?
   let startup_trace = scratch.read_text(p"trace-version")?
   for label in ["offline-replay", "malformed-replay", "unsupported-schema", "invalid-utf8-replay", "missing-replay"] {
-    let replay_trace = scratch.read_text(fp"trace-${label}")?
+    let replay_trace = scratch.read_text(fp"trace-{label}")?
     let replay_reads = replay_host_read_violations_after_baseline(replay_trace, startup_trace)
     if replay_reads.len() > 0 {
       let reasons = replay_reads.join(", ")
-      return Err(check_failure(f"${label}: ${reasons}"))
+      return Err(check_failure(f"{label}: {reasons}"))
     }
   }
 }
@@ -21226,8 +21226,8 @@ proc read_uname_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
   let scratch_path = scratch.host_path()?
-  let output_path = fp"${scratch_path}/${name}"
-  scratch.write(fp"${name}", "")?
+  let output_path = fp"{scratch_path}/{name}"
+  scratch.write(fp"{name}", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21240,12 +21240,12 @@ proc read_uname_reference(
   )?
   let ended = time.now()
   if ! status.exited_with(0) {
-    return Err(check_failure(f"uname ${flag} reference command failed"))
+    return Err(check_failure(f"uname {flag} reference command failed"))
   }
 
-  let value = scratch.read_text(fp"${name}")?.trim()
+  let value = scratch.read_text(fp"{name}")?.trim()
   if value == "" {
-    return Err(check_failure(f"uname ${flag} reference command returned an empty value"))
+    return Err(check_failure(f"uname {flag} reference command returned an empty value"))
   }
 
   {value: value, started: started, ended: ended}
@@ -21256,7 +21256,7 @@ proc read_uptime_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UptimeReferenceObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"${name}", "")?
+  scratch.write(fp"{name}", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21264,7 +21264,7 @@ proc read_uptime_reference(
       ["cat", "/proc/uptime"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
+      stdout: fp"{scratch_path}/{name}",
     ),
   )?
   let ended = time.now()
@@ -21272,7 +21272,7 @@ proc read_uptime_reference(
     return Err(check_failure("cat /proc/uptime reference command failed"))
   }
 
-  let output = scratch.read_text(fp"${name}")?
+  let output = scratch.read_text(fp"{name}")?
   {seconds: parse_reference_uptime_seconds(output)?, started: started, ended: ended}
 }
 
@@ -21282,7 +21282,7 @@ proc read_os_release_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"${name}", "")?
+  scratch.write(fp"{name}", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21290,15 +21290,15 @@ proc read_os_release_reference(
       ["cat", source_path],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
+      stdout: fp"{scratch_path}/{name}",
     ),
   )?
   let ended = time.now()
   if ! status.exited_with(0) {
-    return Err(check_failure(f"cat ${source_path} reference command failed"))
+    return Err(check_failure(f"cat {source_path} reference command failed"))
   }
 
-  let value = scratch.read_text(fp"${name}")?
+  let value = scratch.read_text(fp"{name}")?
   {value: value, started: started, ended: ended}
 }
 
@@ -21319,24 +21319,24 @@ export proc read_device_tree_raw_reference(
   }
 
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"${name}", "")?
+  scratch.write(fp"{name}", "")?
   let status = process.run(
     process.command_argv(
       "/usr/bin/od",
-      ["od", "-An", "-tx1", "-v", "-N", f"${max_bytes + 1}", source_path.display()],
+      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path.display()],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
+      stdout: fp"{scratch_path}/{name}",
     ),
   )?
   let ended = time.now()
   if ! status.exited_with(0) {
-    return Err(check_failure(f"device-tree od reference failed for ${source_path}"))
+    return Err(check_failure(f"device-tree od reference failed for {source_path}"))
   }
 
-  let output = scratch.read_result(fp"${name}", max_bytes: max_bytes * 4 + 4096)?
+  let output = scratch.read_result(fp"{name}", max_bytes: max_bytes * 4 + 4096)?
   if output.state != "observed" or output.truncated or output.data == null {
-    return Err(check_failure(f"device-tree od reference output is incomplete for ${source_path}"))
+    return Err(check_failure(f"device-tree od reference output is incomplete for {source_path}"))
   }
 
   let decoded = output.data.utf8()
@@ -21354,9 +21354,9 @@ proc read_namespace_reference(
   output_name: Str,
 ) [fs, process, time, error] -> Result[NamespaceLinkObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"${output_name}", "")?
-  scratch.write(fp"${output_name}-error", "")?
-  let source_path = f"/proc/self/ns/${kernel_name}"
+  scratch.write(fp"{output_name}", "")?
+  scratch.write(fp"{output_name}-error", "")?
+  let source_path = f"/proc/self/ns/{kernel_name}"
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21364,18 +21364,18 @@ proc read_namespace_reference(
       ["readlink", source_path],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${output_name}",
-      stderr: fp"${scratch_path}/${output_name}-error",
+      stdout: fp"{scratch_path}/{output_name}",
+      stderr: fp"{scratch_path}/{output_name}-error",
     ),
   )?
   let ended = time.now()
   if ! status.exited_with(0) {
-    return Err(check_failure(f"namespace reference ${source_path} is unavailable"))
+    return Err(check_failure(f"namespace reference {source_path} is unavailable"))
   }
 
-  let target = scratch.read_text(fp"${output_name}")?.trim()
+  let target = scratch.read_text(fp"{output_name}")?.trim()
   if target == "" {
-    return Err(check_failure(f"namespace reference ${source_path} returned an empty target"))
+    return Err(check_failure(f"namespace reference {source_path} returned an empty target"))
   }
 
   {target: target, started: started, ended: ended}
@@ -21388,8 +21388,8 @@ proc read_reference_tool_version(
   name: Str,
 ) [fs, process, error] -> Result[Str] {
   let scratch_path = scratch.host_path()?
-  let output_name = fp"${name}-version"
-  let error_name = fp"${name}-version-error"
+  let output_name = fp"{name}-version"
+  let error_name = fp"{name}-version-error"
   scratch.write(output_name, "")?
   scratch.write(error_name, "")?
   let status = process.run(
@@ -21398,8 +21398,8 @@ proc read_reference_tool_version(
       [argv_name, "--version"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${output_name}",
-      stderr: fp"${scratch_path}/${error_name}",
+      stdout: fp"{scratch_path}/{output_name}",
+      stderr: fp"{scratch_path}/{error_name}",
     ),
   )?
   let output = scratch.read_text(output_name)?
@@ -21465,7 +21465,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
       [xsh_bin, script, "--", "--section", "identity", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -21529,8 +21529,8 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     } else {
       "mismatch"
     }
-    os_release_line = f"identity.os.release: ${os_release_state}; id_exact=${os_release_compared.id_exact}, version_id_exact=${os_release_compared.version_id_exact}, candidate_version_id_missing=${os_release_compared.version_id_missing}"
-    os_release_provenance = f"os-release-argv=/bin/cat ${os_release_path}; before-os-release=${before_os_release.started}..${before_os_release.ended} ms; after-os-release=${after_os_release.started}..${after_os_release.ended} ms"
+    os_release_line = f"identity.os.release: {os_release_state}; id_exact={os_release_compared.id_exact}, version_id_exact={os_release_compared.version_id_exact}, candidate_version_id_missing={os_release_compared.version_id_missing}"
+    os_release_provenance = f"os-release-argv=/bin/cat {os_release_path}; before-os-release={before_os_release.started}..{before_os_release.ended} ms; after-os-release={after_os_release.started}..{after_os_release.ended} ms"
     os_release_exact = os_release_compared.exact
     os_release_scored = 1
   }
@@ -21550,7 +21550,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
       before_dmi.vendor.value != null or before_dmi.product.value != null,
     )?
     let device_tree_state = if device_tree_compared.exact { "exact" } else { "mismatch" }
-    device_tree_line = f"firmware.device-tree: ${device_tree_state}; source_exact=${device_tree_compared.source_exact}, model_exact=${device_tree_compared.model_exact}, compatible_exact=${device_tree_compared.compatible_exact}"
+    device_tree_line = f"firmware.device-tree: {device_tree_state}; source_exact={device_tree_compared.source_exact}, model_exact={device_tree_compared.model_exact}, compatible_exact={device_tree_compared.compatible_exact}"
     var device_tree_argv: List[List[Str]] = []
     if before_device_tree_model.data != null {
       device_tree_argv += [
@@ -21581,7 +21581,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     }
 
     let od_version = read_reference_tool_version("/usr/bin/od", "od", scratch, "od")?
-    device_tree_provenance = f"device-tree-od=${od_version}; argv=${json.encode(device_tree_argv)?}; before-model=${before_device_tree_model.started}..${before_device_tree_model.ended} ms; before-compatible=${before_device_tree_compatible.started}..${before_device_tree_compatible.ended} ms; after-model=${after_device_tree_model.started}..${after_device_tree_model.ended} ms; after-compatible=${after_device_tree_compatible.started}..${after_device_tree_compatible.ended} ms"
+    device_tree_provenance = f"device-tree-od={od_version}; argv={json.encode(device_tree_argv)?}; before-model={before_device_tree_model.started}..{before_device_tree_model.ended} ms; before-compatible={before_device_tree_compatible.started}..{before_device_tree_compatible.ended} ms; after-model={after_device_tree_model.started}..{after_device_tree_model.ended} ms; after-compatible={after_device_tree_compatible.started}..{after_device_tree_compatible.ended} ms"
     device_tree_exact = device_tree_compared.exact
     device_tree_scored = 1
   }
@@ -21629,17 +21629,17 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     "mismatch"
   }
   let candidate_uptime_number = uptime_compared.candidate_seconds ?? -1
-  let candidate_uptime_display = if uptime_compared.candidate_missing { "null" } else { f"${candidate_uptime_number}" }
+  let candidate_uptime_display = if uptime_compared.candidate_missing { "null" } else { f"{candidate_uptime_number}" }
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let host_claim_display = json.encode(host_claim)?
-  print f"identity.kernel.release: ${release_state}; reference=${reference_release_display}; candidate=${candidate_release_display}"
-  print f"identity.kernel.architecture: ${architecture_state}; reference=${reference_architecture_display}; candidate=${candidate_architecture_display}"
-  print f"identity.uptime: ${uptime_state}; before=${before_uptime.seconds}, candidate=${candidate_uptime_display}, after=${after_uptime.seconds} seconds"
+  print f"identity.kernel.release: {release_state}; reference={reference_release_display}; candidate={candidate_release_display}"
+  print f"identity.kernel.architecture: {architecture_state}; reference={reference_architecture_display}; candidate={candidate_architecture_display}"
+  print f"identity.uptime: {uptime_state}; before={before_uptime.seconds}, candidate={candidate_uptime_display}, after={after_uptime.seconds} seconds"
   print $os_release_line
   print $device_tree_line
-  print f"identity.firmware: ${firmware_identity_state}; dmi_exposed=${dmi_compared.eligible}, dmi_mismatches=${dmi_compared.field_mismatches.len()}, dmi_changed_or_incomplete=${dmi_compared.unstable_fields.len()}"
-  print f"reference: uname=${uname_version}; cat=${cat_version}; argv=/bin/uname -r, /bin/uname -m, /bin/cat /proc/uptime; ${os_release_provenance}; ${device_tree_provenance}; dmi=/sys/class/dmi/id/{sys_vendor,product_name,board_vendor,board_name,bios_vendor,bios_version,product_serial,product_uuid}, bound=4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before-release=${before_release.started}..${before_release.ended} ms; before-architecture=${before_architecture.started}..${before_architecture.ended} ms; before-uptime=${before_uptime.started}..${before_uptime.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after-uptime=${after_uptime.started}..${after_uptime.ended} ms; after-release=${after_release.started}..${after_release.ended} ms; after-architecture=${after_architecture.started}..${after_architecture.ended} ms"
+  print f"identity.firmware: {firmware_identity_state}; dmi_exposed={dmi_compared.eligible}, dmi_mismatches={dmi_compared.field_mismatches.len()}, dmi_changed_or_incomplete={dmi_compared.unstable_fields.len()}"
+  print f"reference: uname={uname_version}; cat={cat_version}; argv=/bin/uname -r, /bin/uname -m, /bin/cat /proc/uptime; {os_release_provenance}; {device_tree_provenance}; dmi=/sys/class/dmi/id/{{sys_vendor,product_name,board_vendor,board_name,bios_vendor,bios_version,product_serial,product_uuid}}, bound=4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before-release={before_release.started}..{before_release.ended} ms; before-architecture={before_architecture.started}..{before_architecture.ended} ms; before-uptime={before_uptime.started}..{before_uptime.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after-uptime={after_uptime.started}..{after_uptime.ended} ms; after-release={after_release.started}..{after_release.ended} ms; after-architecture={after_architecture.started}..{after_architecture.ended} ms"
   if ! compared.exact or ! uptime_compared.bracketed or ! os_release_exact or ! device_tree_exact or ! firmware_identity_exact {
     return Err(check_failure("mandatory identity assertions failed"))
   }
@@ -21697,8 +21697,8 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   var reference_argv: List[List[Str]] = []
   let before_started = time.now()
   for spec in specs {
-    reference_argv = reference_argv.push(["readlink", f"/proc/self/ns/${spec.kernel}"])
-    let observed = read_namespace_reference(scratch, spec.kernel, f"${spec.kernel}-before")?
+    reference_argv = reference_argv.push(["readlink", f"/proc/self/ns/{spec.kernel}"])
+    let observed = read_namespace_reference(scratch, spec.kernel, f"{spec.kernel}-before")?
     before = before.push({field: spec.field, target: observed.target})
   }
 
@@ -21712,7 +21712,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
       [xsh_bin, script, "--", "--section", "identity", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -21723,9 +21723,9 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   let after_started = time.now()
   var index = 0
   for spec in specs {
-    let observed = read_namespace_reference(scratch, spec.kernel, f"${spec.kernel}-after")?
+    let observed = read_namespace_reference(scratch, spec.kernel, f"{spec.kernel}-after")?
     if observed.target != before[index].target {
-      print f"identity.scope.namespaces: unstable (${spec.kernel} changed around candidate collection)"
+      print f"identity.scope.namespaces: unstable ({spec.kernel} changed around candidate collection)"
       return Err(check_failure("namespace identities changed around candidate collection"))
     }
 
@@ -21744,8 +21744,8 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   let mismatched = json.encode(compared.mismatched_fields)?
   let argv_display = json.encode(reference_argv)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"identity.scope.namespaces: ${agreement}; reference=${compared.reference_count}, matched=${compared.matched_count}, candidate_missing=${missing}, mismatched=${mismatched}"
-  print f"reference: ${version}; executable=/usr/bin/readlink; argv_each_bracket=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"identity.scope.namespaces: {agreement}; reference={compared.reference_count}, matched={compared.matched_count}, candidate_missing={missing}, mismatched={mismatched}"
+  print f"reference: {version}; executable=/usr/bin/readlink; argv_each_bracket={argv_display}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact {
     return Err(check_failure("identity.scope.namespaces mandatory assertion failed"))
   }
@@ -21755,14 +21755,14 @@ proc print_cpu_id_set_result(name: Str, result: CpuIdSetComparison) [error, io] 
   let missing = json.encode(result.missing_ids)?
   let unexpected = json.encode(result.unexpected_ids)?
   let agreement = if result.exact { "exact" } else { "mismatch" }
-  print f"  ${name}: ${agreement}; reference=${result.reference_count}, candidate=${result.candidate_count}, matched=${result.matched_count}, missing=${missing}, unexpected=${unexpected}"
+  print f"  {name}: {agreement}; reference={result.reference_count}, candidate={result.candidate_count}, matched={result.matched_count}, missing={missing}, unexpected={unexpected}"
 }
 
 # Reads a bounded raw host-memory snapshot with its observation interval.
 proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, error] -> Result[MeminfoObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"${name}", "")?
-  scratch.write(fp"${name}-error", "")?
+  scratch.write(fp"{name}", "")?
+  scratch.write(fp"{name}-error", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21770,8 +21770,8 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
       ["cat", "/proc/meminfo"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
-      stderr: fp"${scratch_path}/${name}-error",
+      stdout: fp"{scratch_path}/{name}",
+      stderr: fp"{scratch_path}/{name}-error",
     ),
   )?
   let ended = time.now()
@@ -21779,7 +21779,7 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
     return Err(check_failure("meminfo raw reference command failed"))
   }
 
-  let raw = scratch.read_result(fp"${name}", max_bytes: 1048576)?
+  let raw = scratch.read_result(fp"{name}", max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("meminfo raw reference is incomplete"))
   }
@@ -21817,8 +21817,8 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -21840,10 +21840,8 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let compared = compare_meminfo(candidate, before.counters, after.counters)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact_scored { "exact_scored" } else { "mismatch" }
-  print f"memory.meminfo: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, stable=${compared.stable_count}, changed=${compared.changed_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, counter_mismatches=${compared.mismatched_names.len()}, scalar_mismatches=${compared.scalar_mismatches.len()}"
-  print f"reference: adapter=proc-meminfo-raw; argv=/bin/cat /proc/meminfo; bound=1048576 bytes; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"memory.meminfo: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, stable={compared.stable_count}, changed={compared.changed_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, counter_mismatches={compared.mismatched_names.len()}, scalar_mismatches={compared.scalar_mismatches.len()}"
+  print f"reference: adapter=proc-meminfo-raw; argv=/bin/cat /proc/meminfo; bound=1048576 bytes; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact_scored {
     return Err(check_failure("meminfo scored fields differ from the raw reference"))
   }
@@ -21855,35 +21853,35 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
   var policies: List[ThpReferencePolicy] = []
   let started = time.now()
   for name in ["enabled", "defrag"] {
-    let source_path = fp"/sys/kernel/mm/transparent_hugepage/${name}"
+    let source_path = fp"/sys/kernel/mm/transparent_hugepage/{name}"
     continue unless source_path.exists()?
-    let output_name = f"thp-${label}-${name}"
-    scratch.write(fp"${output_name}", "")?
-    scratch.write(fp"${output_name}-error", "")?
+    let output_name = f"thp-{label}-{name}"
+    scratch.write(fp"{output_name}", "")?
+    scratch.write(fp"{output_name}-error", "")?
     let status = process.run(
       process.command_argv(
         "/bin/cat",
         ["cat", source_path.display()],
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-        stdout: fp"${scratch_path}/${output_name}",
-        stderr: fp"${scratch_path}/${output_name}-error",
+        stdout: fp"{scratch_path}/{output_name}",
+        stderr: fp"{scratch_path}/{output_name}-error",
       ),
     )?
     if ! status.exited_with(0) {
-      return Err(check_failure(f"THP ${name} raw reference command failed"))
+      return Err(check_failure(f"THP {name} raw reference command failed"))
     }
 
-    let raw = scratch.read_result(fp"${output_name}", max_bytes: 4096)?
+    let raw = scratch.read_result(fp"{output_name}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
-      return Err(check_failure(f"THP ${name} raw reference is incomplete"))
+      return Err(check_failure(f"THP {name} raw reference is incomplete"))
     }
 
     var output = ""
     if let Ok(value) = raw.data.utf8() {
       output = value
     } else {
-      return Err(check_failure(f"THP ${name} raw reference is not UTF-8"))
+      return Err(check_failure(f"THP {name} raw reference is not UTF-8"))
     }
 
     policies = policies.push({name: name, value: parse_thp_reference(output)?})
@@ -21913,8 +21911,8 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -21941,13 +21939,9 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   let compared = compare_thp(candidate, before.policies, after.policies)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  var reference_argv = [f"/bin/cat /sys/kernel/mm/transparent_hugepage/${item.name}" for item in before.policies]
-  print f"memory.thp: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.mismatched_names.len()}"
-  print f"reference: adapter=thp-sysfs-v1; argv=${json.encode(reference_argv)?}; exit_status=0; output=${json.encode(
-    before.policies,
-  )?}; bound=4096 bytes per file; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  var reference_argv = [f"/bin/cat /sys/kernel/mm/transparent_hugepage/{item.name}" for item in before.policies]
+  print f"memory.thp: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.mismatched_names.len()}"
+  print f"reference: adapter=thp-sysfs-v1; argv={json.encode(reference_argv)?}; exit_status=0; output={json.encode(before.policies)?}; bound=4096 bytes per file; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact {
     return Err(check_failure("THP policies differ from stable sysfs references"))
   }
@@ -21992,7 +21986,7 @@ pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
   }
 
   let size_text = parts[1].split("kB").get(0) ?? ""
-  if f"${size_text}kB" != parts[1] {
+  if f"{size_text}kB" != parts[1] {
     return Err(check_failure("huge-page reference has an invalid size suffix"))
   }
 
@@ -22009,14 +22003,14 @@ proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required:
   return Ok(null) when raw.state == "absent" and ! required
 
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(check_failure(f"huge-page reference source ${source_path} is incomplete"))
+    return Err(check_failure(f"huge-page reference source {source_path} is incomplete"))
   }
 
   var value = ""
   if let Ok(text) = raw.data.utf8() {
     value = text
   } else {
-    return Err(check_failure(f"huge-page reference source ${source_path} is not UTF-8"))
+    return Err(check_failure(f"huge-page reference source {source_path} is not UTF-8"))
   }
 
   parse_huge_page_counter_reference(value)?
@@ -22028,15 +22022,15 @@ proc read_huge_page_pool_reference(
   node_id: Int?,
 ) [fs, error] -> Result[HugePageReferencePool] {
   let page_size_bytes = parse_huge_page_size_reference(source_path.name())?
-  let total = read_huge_page_counter_reference(root, fp"${source_path}/nr_hugepages", true)?
+  let total = read_huge_page_counter_reference(root, fp"{source_path}/nr_hugepages", true)?
   guard total != null else {
     return Err(check_failure("required huge-page count is unavailable"))
   }
 
   let total_count = total ?? -1
-  let free = read_huge_page_counter_reference(root, fp"${source_path}/free_hugepages", false)?
-  let reserved = read_huge_page_counter_reference(root, fp"${source_path}/resv_hugepages", false)?
-  let surplus = read_huge_page_counter_reference(root, fp"${source_path}/surplus_hugepages", false)?
+  let free = read_huge_page_counter_reference(root, fp"{source_path}/free_hugepages", false)?
+  let reserved = read_huge_page_counter_reference(root, fp"{source_path}/resv_hugepages", false)?
+  let surplus = read_huge_page_counter_reference(root, fp"{source_path}/surplus_hugepages", false)?
   Ok({
     node_id: node_id,
     page_size_bytes: page_size_bytes,
@@ -22071,9 +22065,9 @@ export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[H
     continue unless node.name().starts_with("node")
     let node_text = node.name().split("") |> drop(4).join("")
     let node_id = parse_huge_page_counter_reference(node_text)?
-    let listing = root.children(fp"${node}/hugepages", max_entries: 1024)?
+    let listing = root.children(fp"{node}/hugepages", max_entries: 1024)?
     if listing.state != "complete" and listing.state != "absent" {
-      return Err(check_failure(f"NUMA huge-page reference enumeration is incomplete for node ${node_id}"))
+      return Err(check_failure(f"NUMA huge-page reference enumeration is incomplete for node {node_id}"))
     }
 
     for source_path in listing.children {
@@ -22107,8 +22101,8 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -22145,10 +22139,8 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   } else {
     "mismatch"
   }
-  print f"memory.hugepages: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, mismatched=${compared.mismatched_fields.len()}, changed_counters=${compared.changed_fields.len()}"
-  print f"reference: adapter=hugepage-sysfs-rooted-v1; sources=/sys/kernel/mm/hugepages,/sys/devices/system/node/node*/hugepages; bound=4096 bytes per counter,1024 entries per directory; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"memory.hugepages: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, mismatched={compared.mismatched_fields.len()}, changed_counters={compared.changed_fields.len()}"
+  print f"reference: adapter=hugepage-sysfs-rooted-v1; sources=/sys/kernel/mm/hugepages,/sys/devices/system/node/node*/hugepages; bound=4096 bytes per counter,1024 entries per directory; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact_stable {
     return Err(check_failure("huge-page pool identities or stable fields differ from sysfs"))
   }
@@ -22163,36 +22155,36 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
   var rows: List[PsiReferenceRow] = []
   var available_resources: List[Str] = []
   for resource in ["cpu", "memory", "io"] {
-    let source_path = fp"/proc/pressure/${resource}"
+    let source_path = fp"/proc/pressure/{resource}"
     continue unless source_path.exists()?
     available_resources += [resource]
-    let output_name = f"psi-${label}-${resource}"
-    scratch.write(fp"${output_name}", "")?
-    scratch.write(fp"${output_name}-error", "")?
+    let output_name = f"psi-{label}-{resource}"
+    scratch.write(fp"{output_name}", "")?
+    scratch.write(fp"{output_name}-error", "")?
     let status = process.run(
       process.command_argv(
         "/bin/cat",
         ["cat", source_path.display()],
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-        stdout: fp"${scratch_path}/${output_name}",
-        stderr: fp"${scratch_path}/${output_name}-error",
+        stdout: fp"{scratch_path}/{output_name}",
+        stderr: fp"{scratch_path}/{output_name}-error",
       ),
     )?
     if ! status.exited_with(0) {
-      return Err(check_failure(f"PSI ${resource} raw reference command failed"))
+      return Err(check_failure(f"PSI {resource} raw reference command failed"))
     }
 
-    let raw = scratch.read_result(fp"${output_name}", max_bytes: 16384)?
+    let raw = scratch.read_result(fp"{output_name}", max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
-      return Err(check_failure(f"PSI ${resource} raw reference is incomplete"))
+      return Err(check_failure(f"PSI {resource} raw reference is incomplete"))
     }
 
     var output = ""
     if let Ok(value) = raw.data.utf8() {
       output = value
     } else {
-      return Err(check_failure(f"PSI ${resource} raw reference is not UTF-8"))
+      return Err(check_failure(f"PSI {resource} raw reference is not UTF-8"))
     }
 
     rows = rows.extend(parse_psi_reference(output, resource)?)
@@ -22222,8 +22214,8 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -22241,14 +22233,14 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
   for resource in ["cpu", "memory", "io"] {
-    let field = f"pressure.${resource}"
-    let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"${field}."))
+    let field = f"pressure.{resource}"
+    let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"{field}."))
     if resource in before.available_resources {
       if matching.len() > 0 {
-        return Err(check_failure(f"candidate PSI ${resource} source has a collection issue"))
+        return Err(check_failure(f"candidate PSI {resource} source has a collection issue"))
       }
     } else if (matching |> where .field == field and .state == "absent").len() != 1 {
-      return Err(check_failure(f"candidate PSI ${resource} source did not retain its absent state"))
+      return Err(check_failure(f"candidate PSI {resource} source did not retain its absent state"))
     }
   }
 
@@ -22270,12 +22262,10 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   } else {
     "mismatch"
   }
-  var reference_argv = [["/bin/cat", f"/proc/pressure/${resource}"] for resource in before.available_resources]
+  var reference_argv = [["/bin/cat", f"/proc/pressure/{resource}"] for resource in before.available_resources]
   let cat_version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat")?
-  print f"memory.pressure: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, mismatched=${compared.mismatched_fields.len()}, changing_averages=${compared.changing_averages.len()}"
-  print f"reference: adapter=pressure-procfs-v1; cat=${cat_version}; argv=${json.encode(reference_argv)?}; bound=16384 bytes per file; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"memory.pressure: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, mismatched={compared.mismatched_fields.len()}, changing_averages={compared.changing_averages.len()}"
+  print f"reference: adapter=pressure-procfs-v1; cat={cat_version}; argv={json.encode(reference_argv)?}; bound=16384 bytes per file; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact_stable {
     return Err(check_failure("PSI identities, cumulative totals, or stable averages differ"))
   }
@@ -22308,34 +22298,34 @@ proc read_vulnerability_reference(
       return Err(check_failure("vulnerability reference has an unsafe file name"))
     }
 
-    let output_name = f"vulnerability-${label}-${index}"
-    scratch.write(fp"${output_name}", "")?
-    scratch.write(fp"${output_name}-error", "")?
-    let source_path = fp"/sys/devices/system/cpu/vulnerabilities/${name}"
+    let output_name = f"vulnerability-{label}-{index}"
+    scratch.write(fp"{output_name}", "")?
+    scratch.write(fp"{output_name}-error", "")?
+    let source_path = fp"/sys/devices/system/cpu/vulnerabilities/{name}"
     let status = process.run(
       process.command_argv(
         "/bin/cat",
         ["cat", source_path.display()],
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-        stdout: fp"${scratch_path}/${output_name}",
-        stderr: fp"${scratch_path}/${output_name}-error",
+        stdout: fp"{scratch_path}/{output_name}",
+        stderr: fp"{scratch_path}/{output_name}-error",
       ),
     )?
     if ! status.exited_with(0) {
-      return Err(check_failure(f"vulnerability ${name} raw reference command failed"))
+      return Err(check_failure(f"vulnerability {name} raw reference command failed"))
     }
 
-    let raw = scratch.read_result(fp"${output_name}", max_bytes: 16384)?
+    let raw = scratch.read_result(fp"{output_name}", max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
-      return Err(check_failure(f"vulnerability ${name} raw reference is incomplete"))
+      return Err(check_failure(f"vulnerability {name} raw reference is incomplete"))
     }
 
     var output = ""
     if let Ok(value) = raw.data.utf8() {
       output = value
     } else {
-      return Err(check_failure(f"vulnerability ${name} raw reference is not UTF-8"))
+      return Err(check_failure(f"vulnerability {name} raw reference is not UTF-8"))
     }
 
     descriptions = descriptions.push({name: name, description: output.trim()})
@@ -22367,8 +22357,8 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
       [xsh_bin, script, "--", "--section", "cpu", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -22396,15 +22386,11 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
   var reference_argv = [
-    ["/bin/cat", f"/sys/devices/system/cpu/vulnerabilities/${item.name}"]
+    ["/bin/cat", f"/sys/devices/system/cpu/vulnerabilities/{item.name}"]
     for item in before.descriptions
   ]
-  print f"cpu.vulnerabilities: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.mismatched_names.len()}"
-  print f"reference: adapter=kernel-vulnerability-files; argv=${json.encode(reference_argv)?}; output=${json.encode(
-    before.descriptions,
-  )?}; bound=16384 bytes per file,256 entries; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"cpu.vulnerabilities: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.mismatched_names.len()}"
+  print f"reference: adapter=kernel-vulnerability-files; argv={json.encode(reference_argv)?}; output={json.encode(before.descriptions)?}; bound=16384 bytes per file,256 entries; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact {
     return Err(check_failure("CPU vulnerability descriptions differ from stable sysfs references"))
   }
@@ -22441,8 +22427,8 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/swapon-before",
-      stderr: fp"${scratch_path}/swapon-before-error",
+      stdout: fp"{scratch_path}/swapon-before",
+      stderr: fp"{scratch_path}/swapon-before-error",
     ),
   )?
   let before_ended = time.now()
@@ -22459,8 +22445,8 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -22475,8 +22461,8 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/swapon-after",
-      stderr: fp"${scratch_path}/swapon-after-error",
+      stdout: fp"{scratch_path}/swapon-after",
+      stderr: fp"{scratch_path}/swapon-after-error",
     ),
   )?
   let after_ended = time.now()
@@ -22509,8 +22495,8 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let unexpected_count = compared.unexpected_names.len()
   let mismatch_count = compared.field_mismatches.len()
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"memory.swap: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${missing_count}, unexpected=${unexpected_count}, field_mismatches=${mismatch_count}, kind=${compared.kind_mismatches}, size_bytes=${compared.size_mismatches}, used_bytes=${compared.used_mismatches}, priority=${compared.priority_mismatches}, candidate_field_missing=${compared.candidate_field_missing}, source_issue=${compared.source_issue}"
-  print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"memory.swap: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={missing_count}, unexpected={unexpected_count}, field_mismatches={mismatch_count}, kind={compared.kind_mismatches}, size_bytes={compared.size_mismatches}, used_bytes={compared.used_mismatches}, priority={compared.priority_mismatches}, candidate_field_missing={compared.candidate_field_missing}, source_issue={compared.source_issue}"
+  print f"reference: {version}; executable={binary}; argv={argv_display}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact {
     return Err(check_failure("memory.swap mandatory assertion failed"))
   }
@@ -22534,7 +22520,7 @@ proc lspci_reference_binary() [fs, error] -> Result[Str] {
 }
 
 proc read_lspci_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
-  let raw = scratch.read_result(fp"${output_name}", max_bytes: 16777216)?
+  let raw = scratch.read_result(fp"{output_name}", max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("lspci reference output is incomplete"))
   }
@@ -22564,8 +22550,8 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
       ["lspci", "--version"],
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lspci-version",
-      stderr: fp"${scratch_path}/lspci-version-error",
+      stdout: fp"{scratch_path}/lspci-version",
+      stderr: fp"{scratch_path}/lspci-version-error",
     ),
   )?
   if ! version_status.exited_with(0) {
@@ -22581,8 +22567,8 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lspci-before",
-      stderr: fp"${scratch_path}/lspci-before-error",
+      stdout: fp"{scratch_path}/lspci-before",
+      stderr: fp"{scratch_path}/lspci-before-error",
     ),
   )?
   let before_ended = time.now()
@@ -22599,8 +22585,8 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
       [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -22615,8 +22601,8 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lspci-after",
-      stderr: fp"${scratch_path}/lspci-after-error",
+      stdout: fp"{scratch_path}/lspci-after",
+      stderr: fp"{scratch_path}/lspci-after-error",
     ),
   )?
   let after_ended = time.now()
@@ -22635,10 +22621,8 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact_static { "exact_static" } else { "mismatch" }
-  print f"pci.identity.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_addresses.len()}, unexpected=${compared.unexpected_addresses.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; executable=${binary}; argv=${json.encode(argv)?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"pci.identity.static: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_addresses.len()}, unexpected={compared.unexpected_addresses.len()}, field_mismatches={compared.field_mismatches.len()}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; executable={binary}; argv={json.encode(argv)?}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact_static {
     return Err(check_failure("PCI numeric identity comparison failed"))
   }
@@ -22666,7 +22650,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
       [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22682,10 +22666,8 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   let compared = compare_pci_links(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"pci.link: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_addresses.len()}, unexpected=${compared.unexpected_addresses.len()}, stable_mismatches=${compared.field_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=pci-link-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{current_link_speed,current_link_width,max_link_speed,max_link_width}; bound=4096 bytes per attribute, 65536 functions; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"pci.link: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_addresses.len()}, unexpected={compared.unexpected_addresses.len()}, stable_mismatches={compared.field_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=pci-link-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{{current_link_speed,current_link_width,max_link_speed,max_link_width}}; bound=4096 bytes per attribute, 65536 functions; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_addresses.len() > 0 or compared.unexpected_addresses.len() > 0 or compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
     return Err(check_failure("PCIe link fields differ from the stable kernel reference"))
   }
@@ -22718,7 +22700,7 @@ proc compare_live_usb_topology(
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22743,10 +22725,8 @@ proc compare_live_usb_topology(
 
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"usb.topology: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed=${compared.unstable_fields.len()}, exact=${compared.exact}"
-  print f"reference: adapter=usb-topology-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{busnum,devnum,speed}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"usb.topology: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed={compared.unstable_fields.len()}, exact={compared.exact}"
+  print f"reference: adapter=usb-topology-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{busnum,devnum,speed}}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("USB topology differs from stable kernel device paths"))
   }
@@ -22776,7 +22756,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22792,10 +22772,8 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let compared = compare_usb_ids(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"usb.ids: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=usb-ids-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{idVendor,idProduct,bcdDevice,bDeviceClass,bDeviceSubClass,bDeviceProtocol,manufacturer,product}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"usb.ids: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=usb-ids-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{idVendor,idProduct,bcdDevice,bDeviceClass,bDeviceSubClass,bDeviceProtocol,manufacturer,product}}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("USB identity fields differ from stable kernel attributes"))
   }
@@ -22825,7 +22803,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22841,10 +22819,8 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   let compared = compare_usb_power(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"usb.power: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=usb-power-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{power/control,power/autosuspend_delay_ms,power/runtime_status,bNumConfigurations,bConfigurationValue}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"usb.power: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=usb-power-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{power/control,power/autosuspend_delay_ms,power/runtime_status,bNumConfigurations,bConfigurationValue}}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("USB power fields differ from stable kernel attributes"))
   }
@@ -22877,7 +22853,7 @@ proc compare_live_usb_interfaces(
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22893,10 +22869,8 @@ proc compare_live_usb_interfaces(
   let compared = compare_usb_interfaces(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"usb.interfaces: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=usb-interface-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{bInterfaceNumber,bAlternateSetting,bInterfaceClass,bInterfaceSubClass,bInterfaceProtocol,bNumEndpoints,driver,descriptors}; bound=4096 entries, 4096 bytes per attribute, 1048576 descriptor bytes; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"usb.interfaces: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=usb-interface-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{bInterfaceNumber,bAlternateSetting,bInterfaceClass,bInterfaceSubClass,bInterfaceProtocol,bNumEndpoints,driver,descriptors}}; bound=4096 entries, 4096 bytes per attribute, 1048576 descriptor bytes; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("USB interface fields differ from stable kernel attributes and descriptors"))
   }
@@ -22929,7 +22903,7 @@ proc compare_live_power_supplies(
       [xsh_bin, script, "--", "--section", "power", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22945,10 +22919,8 @@ proc compare_live_power_supplies(
   let compared = compare_power_supplies(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"power.supplies: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=power-supply-sysfs-rooted-v1; source=/sys/class/power_supply/*/{type,status,health,capacity,energy_now,energy_full,charge_now,charge_full,voltage_now,current_now,cycle_count}; bound=1024 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"power.supplies: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=power-supply-sysfs-rooted-v1; source=/sys/class/power_supply/*/{{type,status,health,capacity,energy_now,energy_full,charge_now,charge_full,voltage_now,current_now,cycle_count}}; bound=1024 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("power-supply fields differ from stable kernel attributes"))
   }
@@ -22978,7 +22950,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
       [xsh_bin, script, "--", "--section", "power", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -22994,10 +22966,8 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   let compared = compare_powercap(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"power.powercap: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=powercap-sysfs-rooted-v1; source=/sys/class/powercap/*/{name,energy_uj,max_energy_range_uj,constraint_*}; bound=1024 zones, 256 entries per zone, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"power.powercap: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=powercap-sysfs-rooted-v1; source=/sys/class/powercap/*/{{name,energy_uj,max_energy_range_uj,constraint_*}}; bound=1024 zones, 256 entries per zone, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("powercap zones or constraints differ from stable kernel attributes"))
   }
@@ -23034,7 +23004,7 @@ proc compare_live_device_classes(
       [xsh_bin, script, "--", "--section", "devices", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -23054,10 +23024,8 @@ proc compare_live_device_classes(
   let compared = compare_device_classes(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"devices.graphics-audio-input: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=device-class-sysfs-rooted-v1; source=/sys/class/drm|sound|input entries and device links; bound=4096 entries per class, 4096 bytes per label; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"devices.graphics-audio-input: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=device-class-sysfs-rooted-v1; source=/sys/class/drm|sound|input entries and device links; bound=4096 entries per class, 4096 bytes per label; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("device-class entries or parent links differ from stable kernel sources"))
   }
@@ -23091,7 +23059,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
       [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -23111,12 +23079,8 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let compared = compare_hwmon(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"sensors.hwmon: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${json.encode(
-    compared.missing_names,
-  )?}, unexpected=${json.encode(compared.unexpected_names)?}, mismatched=${json.encode(compared.field_mismatches)?}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=hwmon-sysfs-rooted-v1; source=/sys/class/hwmon informational input, label, threshold, alarm, and device-link attributes; bound=1024 chips, 1024 entries per chip, 4096 bytes per value; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"sensors.hwmon: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={json.encode(compared.missing_names)?}, unexpected={json.encode(compared.unexpected_names)?}, mismatched={json.encode(compared.field_mismatches)?}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=hwmon-sysfs-rooted-v1; source=/sys/class/hwmon informational input, label, threshold, alarm, and device-link attributes; bound=1024 chips, 1024 entries per chip, 4096 bytes per value; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(check_failure("hwmon channels or parents differ from stable kernel sources"))
   }
@@ -23149,7 +23113,7 @@ proc compare_live_pci_bindings(
       [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -23165,10 +23129,8 @@ proc compare_live_pci_bindings(
   let compared = compare_pci_bindings(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"pci.binding: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_addresses.len()}, unexpected=${compared.unexpected_addresses.len()}, stable_mismatches=${compared.field_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, eligible=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=pci-binding-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{driver,numa_node,iommu_group} and bus-entry target; bound=4096 bytes per attribute, 4096 directory entries per function, 65536 functions; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"pci.binding: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_addresses.len()}, unexpected={compared.unexpected_addresses.len()}, stable_mismatches={compared.field_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, eligible={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=pci-binding-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{{driver,numa_node,iommu_group}} and bus-entry target; bound=4096 bytes per attribute, 4096 directory entries per function, 65536 functions; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_addresses.len() > 0 or compared.unexpected_addresses.len() > 0 or compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
     return Err(check_failure("PCI binding fields differ from the stable kernel reference"))
   }
@@ -23198,7 +23160,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -23214,10 +23176,8 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let compared = compare_thermal_zones(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"sensors.thermal: reference=${compared.reference_count}, candidate=${compared.candidate_count}, stable_mismatches=${compared.field_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, eligible=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=thermal-sysfs-rooted-v1; source=/sys/class/thermal/thermal_zone*/{type,temp,trip_point_N_*}; bound=4096 bytes per attribute, 256 attributes per zone, 1024 class entries; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"sensors.thermal: reference={compared.reference_count}, candidate={compared.candidate_count}, stable_mismatches={compared.field_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, eligible={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=thermal-sysfs-rooted-v1; source=/sys/class/thermal/thermal_zone*/{{type,temp,trip_point_N_*}}; bound=4096 bytes per attribute, 256 attributes per zone, 1024 class entries; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
     return Err(check_failure("thermal zone fields differ from the stable kernel reference"))
   }
@@ -23226,7 +23186,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
 }
 
 proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
-  let raw = scratch.read_result(fp"${output_name}", max_bytes: 16777216)?
+  let raw = scratch.read_result(fp"{output_name}", max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("ip JSON reference output is incomplete"))
   }
@@ -23267,8 +23227,8 @@ proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> 
       ["ip", "-Version"],
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/ip-version",
-      stderr: fp"${scratch_path}/ip-version-error",
+      stdout: fp"{scratch_path}/ip-version",
+      stderr: fp"{scratch_path}/ip-version-error",
     ),
   )?
   if ! status.exited_with(0) {
@@ -23307,8 +23267,8 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/ip-before",
-      stderr: fp"${scratch_path}/ip-before-error",
+      stdout: fp"{scratch_path}/ip-before",
+      stderr: fp"{scratch_path}/ip-before-error",
     ),
   )?
   let before_ended = time.now()
@@ -23328,8 +23288,8 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23348,8 +23308,8 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/ip-after",
-      stderr: fp"${scratch_path}/ip-after-error",
+      stdout: fp"{scratch_path}/ip-after",
+      stderr: fp"{scratch_path}/ip-after-error",
     ),
   )?
   let after_ended = time.now()
@@ -23371,16 +23331,16 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
   let host_claim_display = json.encode(host_claim)?
   let argv_display = json.encode(argv)?
   let agreement = if compared.exact { "exact_static" } else { "mismatch" }
-  print f"network.links.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_ids.len()}, unexpected=${compared.unexpected_ids.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
-  print f"network.links.raw: reference=${raw_compared.reference_count}, candidate=${raw_compared.candidate_count}, matched=${raw_compared.matched_count}, mismatched=${raw_compared.field_mismatches.len()}, changed_or_incomplete=${raw_compared.unstable_fields.len()}, eligible=${raw_compared.eligible}, exact=${raw_compared.exact}"
-  print f"reference: adapter=network-link-sysfs-rooted-v1; source=/sys/class/net/*/{{ifindex,type,flags,statistics/rx_bytes,statistics/tx_bytes}}; bound=65536 links, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${raw_before_started}..${raw_before_ended} ms; after=${raw_after_started}..${raw_after_ended} ms"
+  print f"network.links.static: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_ids.len()}, unexpected={compared.unexpected_ids.len()}, field_mismatches={compared.field_mismatches.len()}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; executable={binary}; argv={argv_display}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
+  print f"network.links.raw: reference={raw_compared.reference_count}, candidate={raw_compared.candidate_count}, matched={raw_compared.matched_count}, mismatched={raw_compared.field_mismatches.len()}, changed_or_incomplete={raw_compared.unstable_fields.len()}, eligible={raw_compared.eligible}, exact={raw_compared.exact}"
+  print f"reference: adapter=network-link-sysfs-rooted-v1; source=/sys/class/net/*/{{{{ifindex,type,flags,statistics/rx_bytes,statistics/tx_bytes}}}}; bound=65536 links, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={raw_before_started}..{raw_before_ended} ms; after={raw_after_started}..{raw_after_ended} ms"
   return Err(check_failure("network link static comparison failed")) unless compared.exact
 
   if raw_compared.field_mismatches.len() > 0 {
     return Err(
       check_failure(
-        f"network link raw fields differ from stable kernel references: ${raw_compared.field_mismatches.join(", ")}",
+        f"network link raw fields differ from stable kernel references: {raw_compared.field_mismatches.join(", ")}",
       ),
     )
   }
@@ -23416,8 +23376,8 @@ proc compare_live_ip_addresses(
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/ip-address-before",
-      stderr: fp"${scratch_path}/ip-address-before-error",
+      stdout: fp"{scratch_path}/ip-address-before",
+      stderr: fp"{scratch_path}/ip-address-before-error",
     ),
   )?
   let before_ended = time.now()
@@ -23434,8 +23394,8 @@ proc compare_live_ip_addresses(
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23450,8 +23410,8 @@ proc compare_live_ip_addresses(
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/ip-address-after",
-      stderr: fp"${scratch_path}/ip-address-after-error",
+      stdout: fp"{scratch_path}/ip-address-after",
+      stderr: fp"{scratch_path}/ip-address-after-error",
     ),
   )?
   let after_ended = time.now()
@@ -23473,9 +23433,9 @@ proc compare_live_ip_addresses(
   let host_claim_display = json.encode(host_claim)?
   let argv_display = json.encode(argv)?
   let agreement = if compared.exact_static { "exact_static" } else { "mismatch" }
-  print f"network.addresses.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"network.addresses.lifetimes: reference=${lifetimes.reference_count}, candidate=${lifetimes.candidate_count}, mismatched=${lifetimes.field_mismatches.len()}, changed_or_incomplete=${lifetimes.unstable_fields.len()}, eligible=${lifetimes.eligible}, exact=${lifetimes.exact}"
-  print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"network.addresses.static: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, field_mismatches={compared.field_mismatches.len()}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"network.addresses.lifetimes: reference={lifetimes.reference_count}, candidate={lifetimes.candidate_count}, mismatched={lifetimes.field_mismatches.len()}, changed_or_incomplete={lifetimes.unstable_fields.len()}, eligible={lifetimes.eligible}, exact={lifetimes.exact}"
+  print f"reference: {version}; executable={binary}; argv={argv_display}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact_static {
     return Err(check_failure("network address static comparison failed"))
   }
@@ -23508,12 +23468,12 @@ proc read_ip_rule_family(
       network_rule_argv(family),
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${output_name}",
-      stderr: fp"${scratch_path}/${output_name}-error",
+      stdout: fp"{scratch_path}/{output_name}",
+      stderr: fp"{scratch_path}/{output_name}-error",
     ),
   )?
   if ! status.exited_with(0) {
-    return Err(check_failure(f"ip rule JSON reference failed for ${family}"))
+    return Err(check_failure(f"ip rule JSON reference failed for {family}"))
   }
 
   parse_ip_rule_json(read_ip_json_reference(scratch, output_name)?, family)
@@ -23543,8 +23503,8 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23568,8 +23528,8 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
   let host_claim_display = json.encode(host_claim)?
   let reference_commands = [network_rule_argv("ipv4"), network_rule_argv("ipv6")]
   let agreement = if compared.exact_static { "exact_static" } else { "mismatch" }
-  print f"network.rules.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, unscored_families=${compared.unscored_family_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, candidate_field_missing=${compared.candidate_field_missing}, exact_scored=${compared.exact_scored}"
-  print f"reference: ${version}; executable=${binary}; argv=${json.encode(reference_commands)?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"network.rules.static: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, unscored_families={compared.unscored_family_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, candidate_field_missing={compared.candidate_field_missing}, exact_scored={compared.exact_scored}"
+  print f"reference: {version}; executable={binary}; argv={json.encode(reference_commands)?}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact_static {
     return Err(check_failure("network rule static comparison failed"))
   }
@@ -23598,12 +23558,12 @@ proc read_ip_route_family(
       network_route_argv(family),
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${output_name}",
-      stderr: fp"${scratch_path}/${output_name}-error",
+      stdout: fp"{scratch_path}/{output_name}",
+      stderr: fp"{scratch_path}/{output_name}-error",
     ),
   )?
   if ! status.exited_with(0) {
-    return Err(check_failure(f"ip route JSON reference failed for ${family}"))
+    return Err(check_failure(f"ip route JSON reference failed for {family}"))
   }
 
   parse_ip_route_json(read_ip_json_reference(scratch, output_name)?, family)
@@ -23636,8 +23596,8 @@ proc compare_live_ip_routes(
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23661,8 +23621,8 @@ proc compare_live_ip_routes(
   let host_claim_display = json.encode(host_claim)?
   let reference_commands = [network_route_argv("ipv4"), network_route_argv("ipv6")]
   let agreement = if compared.exact_static { "exact_static" } else { "mismatch" }
-  print f"network.routes.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, candidate_field_missing=${compared.candidate_field_missing}, exact_scored=${compared.exact_scored}"
-  print f"reference: ${version}; executable=${binary}; argv=${json.encode(reference_commands)?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"network.routes.static: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, candidate_field_missing={compared.candidate_field_missing}, exact_scored={compared.exact_scored}"
+  print f"reference: {version}; executable={binary}; argv={json.encode(reference_commands)?}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact_static {
     return Err(check_failure("network route static comparison failed"))
   }
@@ -23714,8 +23674,8 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lsblk-before",
-      stderr: fp"${scratch_path}/lsblk-before-error",
+      stdout: fp"{scratch_path}/lsblk-before",
+      stderr: fp"{scratch_path}/lsblk-before-error",
     ),
   )?
   let before_ended = time.now()
@@ -23732,8 +23692,8 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23748,8 +23708,8 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lsblk-after",
-      stderr: fp"${scratch_path}/lsblk-after-error",
+      stdout: fp"{scratch_path}/lsblk-after",
+      stderr: fp"{scratch_path}/lsblk-after-error",
     ),
   )?
   let after_ended = time.now()
@@ -23775,7 +23735,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     ) or issue.field.ends_with(".removable") or issue.field.ends_with(".rotational") or issue.field.ends_with(
       ".read_only",
     ) or issue.field.ends_with(".holders") or issue.field.ends_with(".slaves")) {
-      return Err(check_failure(f"candidate block source has a collection issue: ${issue.field}"))
+      return Err(check_failure(f"candidate block source has a collection issue: {issue.field}"))
     }
   }
 
@@ -23785,10 +23745,10 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let host_claim_display = json.encode(host_claim)?
   let argv_display = json.encode(argv)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"storage.devices: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, edges=${compared.matched_edges}/${before.edges.len()}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, field_mismatches=${compared.field_mismatches.len()}, missing_edges=${compared.missing_edges}, unexpected_edges=${compared.unexpected_edges}, major_minor=${compared.major_minor_mismatches}, size_bytes=${compared.size_mismatches}, sectors=${compared.sector_mismatches}, flags=${compared.flag_mismatches}, partitions=${compared.partition_mismatches}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"storage.devices: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, edges={compared.matched_edges}/{before.edges.len()}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, field_mismatches={compared.field_mismatches.len()}, missing_edges={compared.missing_edges}, unexpected_edges={compared.unexpected_edges}, major_minor={compared.major_minor_mismatches}, size_bytes={compared.size_mismatches}, sectors={compared.sector_mismatches}, flags={compared.flag_mismatches}, partitions={compared.partition_mismatches}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; executable={binary}; argv={argv_display}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact {
-    return Err(check_failure(f"storage.devices mandatory assertion failed: ${compared.field_mismatches.join(", ")}"))
+    return Err(check_failure(f"storage.devices mandatory assertion failed: {compared.field_mismatches.join(", ")}"))
   }
 }
 
@@ -23831,8 +23791,8 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lsblk-queue-before",
-      stderr: fp"${scratch_path}/lsblk-queue-before-error",
+      stdout: fp"{scratch_path}/lsblk-queue-before",
+      stderr: fp"{scratch_path}/lsblk-queue-before-error",
     ),
   )?
   if ! before_status.exited_with(0) {
@@ -23850,8 +23810,8 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23866,8 +23826,8 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lsblk-queue-after",
-      stderr: fp"${scratch_path}/lsblk-queue-after-error",
+      stdout: fp"{scratch_path}/lsblk-queue-after",
+      stderr: fp"{scratch_path}/lsblk-queue-after-error",
     ),
   )?
   if ! after_status.exited_with(0) {
@@ -23909,8 +23869,8 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
   } else {
     "mismatch"
   }
-  print f"storage.queue: ${agreement}; reference=${fields.reference_count}, candidate=${fields.candidate_count}, matched=${fields.matched_count}, missing=${fields.missing_names.len()}, unexpected=${fields.unexpected_names.len()}, static_field_mismatches=${fields.field_mismatches.len()}, scheduler=${fields.scheduler_mismatches}, read_ahead=${fields.read_ahead_mismatches}, discard=${fields.discard_mismatches}, model=${fields.model_mismatches}, firmware=${sources.firmware_mismatches}, counters=${sources.counter_mismatches}, counter_unstable=${sources.unstable}"
-  print f"reference: ${version}; executable=${binary}; argv=${argv_display}; raw_sysfs=firmware_rev|rev,stat for each KNAME with 4096-byte bounds; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"storage.queue: {agreement}; reference={fields.reference_count}, candidate={fields.candidate_count}, matched={fields.matched_count}, missing={fields.missing_names.len()}, unexpected={fields.unexpected_names.len()}, static_field_mismatches={fields.field_mismatches.len()}, scheduler={fields.scheduler_mismatches}, read_ahead={fields.read_ahead_mismatches}, discard={fields.discard_mismatches}, model={fields.model_mismatches}, firmware={sources.firmware_mismatches}, counters={sources.counter_mismatches}, counter_unstable={sources.unstable}"
+  print f"reference: {version}; executable={binary}; argv={argv_display}; raw_sysfs=firmware_rev|rev,stat for each KNAME with 4096-byte bounds; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if sources.unstable {
     return Err(
       check_failure("storage.queue could not be scored because an I/O gauge or counter source changed incompatibly"),
@@ -23962,8 +23922,8 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/findmnt-before",
-      stderr: fp"${scratch_path}/findmnt-before-error",
+      stdout: fp"{scratch_path}/findmnt-before",
+      stderr: fp"{scratch_path}/findmnt-before-error",
     ),
   )?
   let before_ended = time.now()
@@ -23979,8 +23939,8 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -23995,8 +23955,8 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/findmnt-after",
-      stderr: fp"${scratch_path}/findmnt-after-error",
+      stdout: fp"{scratch_path}/findmnt-after",
+      stderr: fp"{scratch_path}/findmnt-after-error",
     ),
   )?
   let after_ended = time.now()
@@ -24026,8 +23986,8 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
   let host_claim_display = json.encode(host_claim)?
   let argv_display = json.encode(argv)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"storage.mountinfo: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_ids.len()}, unexpected=${compared.unexpected_ids.len()}, field_mismatches=${compared.field_mismatches.len()}, parents=${compared.parent_mismatches}, major_minor=${compared.identity_mismatches}, paths=${compared.path_mismatches}, filesystem=${compared.filesystem_mismatches}, source=${compared.source_mismatches}, options=${compared.option_mismatches}, propagation=${compared.propagation_mismatches}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"storage.mountinfo: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_ids.len()}, unexpected={compared.unexpected_ids.len()}, field_mismatches={compared.field_mismatches.len()}, parents={compared.parent_mismatches}, major_minor={compared.identity_mismatches}, paths={compared.path_mismatches}, filesystem={compared.filesystem_mismatches}, source={compared.source_mismatches}, options={compared.option_mismatches}, propagation={compared.propagation_mismatches}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; executable={binary}; argv={argv_display}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact {
     return Err(check_failure("storage.mountinfo mandatory assertion failed"))
   }
@@ -24043,12 +24003,12 @@ proc read_mount_usage_references(
   let scratch_path = scratch.host_path()?
   var observations: List[MountUsageReference] = []
   for id in mount_usage_eligible_ids(mounts) {
-    let output_name = f"${name}-${id}"
+    let output_name = f"{name}-{id}"
     let argv = [
       "findmnt",
       "--kernel=mountinfo",
       "--id",
-      f"${id}",
+      f"{id}",
       "--df",
       "--all",
       "--list",
@@ -24062,15 +24022,15 @@ proc read_mount_usage_references(
         argv,
         cwd: /,
         env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-        stdout: fp"${scratch_path}/${output_name}",
-        stderr: fp"${scratch_path}/${output_name}-error",
+        stdout: fp"{scratch_path}/{output_name}",
+        stderr: fp"{scratch_path}/{output_name}-error",
       ),
     )?
     if ! status.exited_with(0) {
-      return Err(check_failure(f"findmnt capacity reference failed for mount ID ${id}"))
+      return Err(check_failure(f"findmnt capacity reference failed for mount ID {id}"))
     }
 
-    observations = observations.push(parse_findmnt_usage_json(scratch.read_text(fp"${output_name}")?, id)?)
+    observations = observations.push(parse_findmnt_usage_json(scratch.read_text(fp"{output_name}")?, id)?)
   }
 
   observations
@@ -24128,8 +24088,8 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
       inventory_argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/usage-inventory-before",
-      stderr: fp"${scratch_path}/usage-inventory-before-error",
+      stdout: fp"{scratch_path}/usage-inventory-before",
+      stderr: fp"{scratch_path}/usage-inventory-before-error",
     ),
   )?
   if ! before_status.exited_with(0) {
@@ -24146,8 +24106,8 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/usage-candidate",
-      stderr: fp"${scratch_path}/usage-candidate-error",
+      stdout: fp"{scratch_path}/usage-candidate",
+      stderr: fp"{scratch_path}/usage-candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -24162,8 +24122,8 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
       inventory_argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/usage-inventory-after",
-      stderr: fp"${scratch_path}/usage-inventory-after-error",
+      stdout: fp"{scratch_path}/usage-inventory-after",
+      stderr: fp"{scratch_path}/usage-inventory-after-error",
     ),
   )?
   if ! after_status.exited_with(0) {
@@ -24191,14 +24151,8 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
   let version = read_reference_tool_version(binary, "findmnt", scratch, "findmnt-usage")?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact { "exact" } else if compared.unstable { "unstable" } else { "mismatch" }
-  print f"storage.mount-usage: ${agreement}; eligible=${compared.eligible_count}, skipped=${compared.skipped_count}, matched=${compared.matched_count}, mismatched_ids=${json.encode(
-    compared.mismatched_ids,
-  )?}"
-  print f"reference: ${version}; executable=${binary}; inventory_argv=${json.encode(inventory_argv)?}; capacity_argv=${json.encode(
-    capacity_argv,
-  )?}; eligible_ids=${json.encode(mount_usage_eligible_ids(before_mounts))?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"storage.mount-usage: {agreement}; eligible={compared.eligible_count}, skipped={compared.skipped_count}, matched={compared.matched_count}, mismatched_ids={json.encode(compared.mismatched_ids)?}"
+  print f"reference: {version}; executable={binary}; inventory_argv={json.encode(inventory_argv)?}; capacity_argv={json.encode(capacity_argv)?}; eligible_ids={json.encode(mount_usage_eligible_ids(before_mounts))?}; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.unstable {
     return Err(check_failure("storage.mount-usage could not be scored because total capacity changed"))
   }
@@ -24221,8 +24175,8 @@ proc read_kernel_module_reference(
       ["lsmod"],
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}-lsmod",
-      stderr: fp"${scratch_path}/${name}-lsmod-error",
+      stdout: fp"{scratch_path}/{name}-lsmod",
+      stderr: fp"{scratch_path}/{name}-lsmod-error",
     ),
   )?
   if ! formatted_status.exited_with(0) {
@@ -24235,8 +24189,8 @@ proc read_kernel_module_reference(
       ["cat", "/proc/modules"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}-proc",
-      stderr: fp"${scratch_path}/${name}-proc-error",
+      stdout: fp"{scratch_path}/{name}-proc",
+      stderr: fp"{scratch_path}/{name}-proc-error",
     ),
   )?
   let ended = time.now()
@@ -24246,8 +24200,8 @@ proc read_kernel_module_reference(
 
   {
     modules: parse_lsmod_reference(
-      scratch.read_text(fp"${name}-lsmod")?,
-      scratch.read_text(fp"${name}-proc")?,
+      scratch.read_text(fp"{name}-lsmod")?,
+      scratch.read_text(fp"{name}-proc")?,
     )?,
     started: started,
     ended: ended,
@@ -24283,8 +24237,8 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "kernel", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -24313,8 +24267,8 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let host_claim_display = json.encode(host_claim)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"kernel.modules: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, field_mismatches=${compared.field_mismatches.len()}, size=${compared.size_mismatches}, users=${compared.users_mismatches}, state=${compared.state_mismatches}, enumerated=${compared.enumeration_succeeded}, source_issue=${compared.source_issue}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; executable=${binary}; argv=[\"lsmod\"] and [\"cat\",\"/proc/modules\"]; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"kernel.modules: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, field_mismatches={compared.field_mismatches.len()}, size={compared.size_mismatches}, users={compared.users_mismatches}, state={compared.state_mismatches}, enumerated={compared.enumeration_succeeded}, source_issue={compared.source_issue}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; executable={binary}; argv=[\"lsmod\"] and [\"cat\",\"/proc/modules\"]; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact {
     return Err(check_failure("kernel.modules mandatory assertion failed"))
   }
@@ -24333,8 +24287,8 @@ proc read_kernel_command_line_reference(
       ["cat", "/proc/cmdline"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
-      stderr: fp"${scratch_path}/${name}-error",
+      stdout: fp"{scratch_path}/{name}",
+      stderr: fp"{scratch_path}/{name}-error",
     ),
   )?
   let ended = time.now()
@@ -24342,7 +24296,7 @@ proc read_kernel_command_line_reference(
     return Err(check_failure("proc command-line reference failed"))
   }
 
-  let read = scratch.read_result(fp"${name}", max_bytes: 65536)?
+  let read = scratch.read_result(fp"{name}", max_bytes: 65536)?
   if read.state != "observed" or read.truncated or read.data == null {
     return Err(check_failure("proc command-line reference is incomplete"))
   }
@@ -24372,8 +24326,8 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
       [xsh_bin, script, "--", "--section", "kernel", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/cmdline-sensitive",
-      stderr: fp"${scratch_path}/cmdline-sensitive-error",
+      stdout: fp"{scratch_path}/cmdline-sensitive",
+      stderr: fp"{scratch_path}/cmdline-sensitive-error",
     ),
   )?
   let sensitive_ended = time.now()
@@ -24388,8 +24342,8 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
       [xsh_bin, script, "--", "--section", "kernel", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/cmdline-redacted",
-      stderr: fp"${scratch_path}/cmdline-redacted-error",
+      stdout: fp"{scratch_path}/cmdline-redacted",
+      stderr: fp"{scratch_path}/cmdline-redacted-error",
     ),
   )?
   let redacted_ended = time.now()
@@ -24411,10 +24365,8 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
   let sensitive_data = json.decode(sensitive)?
   let host_claim = json.get(sensitive_data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"kernel.command-line: ${agreement}; source_exact=${compared.sensitive_exact}, default_redacted=${compared.redacted_exact}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; executable=/bin/cat; argv=[\"cat\",\"/proc/cmdline\"]; max_bytes=65536; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; sensitive=${sensitive_started}..${sensitive_ended} ms; default=${redacted_started}..${redacted_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"kernel.command-line: {agreement}; source_exact={compared.sensitive_exact}, default_redacted={compared.redacted_exact}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; executable=/bin/cat; argv=[\"cat\",\"/proc/cmdline\"]; max_bytes=65536; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; sensitive={sensitive_started}..{sensitive_ended} ms; default={redacted_started}..{redacted_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact {
     return Err(check_failure("kernel.command-line mandatory assertion failed"))
   }
@@ -24488,7 +24440,7 @@ proc read_kernel_parameter_reference(
       continue
     }
 
-    let output_name = f"${name}-${item.index}"
+    let output_name = f"{name}-{item.index}"
     let binary = if source.source == "sysctl" { sysctl_binary } else { "/bin/cat" }
     let argv = if source.source == "sysctl" { ["sysctl", "-n", source.name] } else { ["cat", source.path.display()] }
     let status = process.run(
@@ -24497,17 +24449,17 @@ proc read_kernel_parameter_reference(
         argv,
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-        stdout: fp"${scratch_path}/${output_name}",
-        stderr: fp"${scratch_path}/${output_name}-error",
+        stdout: fp"{scratch_path}/{output_name}",
+        stderr: fp"{scratch_path}/{output_name}-error",
       ),
     )?
     if ! status.exited_with(0) {
-      return Err(check_failure(f"kernel parameter reference failed for ${source.name}"))
+      return Err(check_failure(f"kernel parameter reference failed for {source.name}"))
     }
 
-    let read = scratch.read_result(fp"${output_name}", max_bytes: 4096)?
+    let read = scratch.read_result(fp"{output_name}", max_bytes: 4096)?
     if read.state != "observed" or read.truncated or read.data == null {
-      return Err(check_failure(f"kernel parameter reference is incomplete for ${source.name}"))
+      return Err(check_failure(f"kernel parameter reference is incomplete for {source.name}"))
     }
 
     let data = read.data
@@ -24554,8 +24506,8 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
       [xsh_bin, script, "--", "--section", "kernel", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/parameters-candidate",
-      stderr: fp"${scratch_path}/parameters-candidate-error",
+      stdout: fp"{scratch_path}/parameters-candidate",
+      stderr: fp"{scratch_path}/parameters-candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -24575,12 +24527,8 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"kernel.parameters: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}"
-  print f"reference: ${version}; sysctl_executable=${sysctl_binary}; sysctl_argv=[\"sysctl\",\"-n\",KEY]; module_argv=[\"cat\",PATH]; keys=${json.encode(
-    kernel_parameter_sources() |> map .name,
-  )?}; max_bytes=4096 each; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"kernel.parameters: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, field_mismatches={compared.field_mismatches.len()}, candidate_field_missing={compared.candidate_field_missing}"
+  print f"reference: {version}; sysctl_executable={sysctl_binary}; sysctl_argv=[\"sysctl\",\"-n\",KEY]; module_argv=[\"cat\",PATH]; keys={json.encode(kernel_parameter_sources() |> map .name)?}; max_bytes=4096 each; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact {
     return Err(check_failure("kernel.parameters mandatory assertion failed"))
   }
@@ -24594,9 +24542,9 @@ proc read_proc_status_affinity_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[ProcStatusAffinityObservation] {
   let scratch_path = scratch.host_path()?
-  let output_name = fp"${name}"
+  let output_name = fp"{name}"
   scratch.write(output_name, "")?
-  scratch.write(fp"${name}-error", "")?
+  scratch.write(fp"{name}-error", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -24604,8 +24552,8 @@ proc read_proc_status_affinity_reference(
       ["cat", "/proc/self/status"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${output_name}",
-      stderr: fp"${scratch_path}/${name}-error",
+      stdout: fp"{scratch_path}/{output_name}",
+      stderr: fp"{scratch_path}/{name}-error",
     ),
   )?
   let ended = time.now()
@@ -24655,8 +24603,8 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
       [xsh_bin, script, "--", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -24689,10 +24637,8 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   let cat_version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat-cpu-scope")?
   let agreement = if affinity_compared.exact and cgroup_compared.exact { "exact" } else { "mismatch" }
-  print f"memory.cpu-scope: ${agreement}; affinity_reference=${affinity_compared.reference_count}, affinity_matched=${affinity_compared.matched_count}, visible_cgroup_resources=${cgroup_compared.checked_resources}, cgroup_mismatches=${cgroup_compared.mismatched_fields.len()}, eligible=${cgroup_compared.eligible}"
-  print f"reference: adapter=cpu-scope-procfs-cgroup-v1; cat=${cat_version}; argv=[\"/bin/cat\",\"/proc/self/status\"]; rooted_sources=/proc/self/cgroup,/proc/self/mountinfo,visible_cgroup2_cpu.max,visible_cgroup2_cpuset.cpus.effective; bounds=65536,4194304,4096,65536 bytes; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; affinity_before=${affinity_before.started}..${affinity_before.ended} ms; cgroup_before=${cgroup_before.started}..${cgroup_before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; cgroup_after=${cgroup_after.started}..${cgroup_after.ended} ms; affinity_after=${affinity_after.started}..${affinity_after.ended} ms"
+  print f"memory.cpu-scope: {agreement}; affinity_reference={affinity_compared.reference_count}, affinity_matched={affinity_compared.matched_count}, visible_cgroup_resources={cgroup_compared.checked_resources}, cgroup_mismatches={cgroup_compared.mismatched_fields.len()}, eligible={cgroup_compared.eligible}"
+  print f"reference: adapter=cpu-scope-procfs-cgroup-v1; cat={cat_version}; argv=[\"/bin/cat\",\"/proc/self/status\"]; rooted_sources=/proc/self/cgroup,/proc/self/mountinfo,visible_cgroup2_cpu.max,visible_cgroup2_cpuset.cpus.effective; bounds=65536,4194304,4096,65536 bytes; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; affinity_before={affinity_before.started}..{affinity_before.ended} ms; cgroup_before={cgroup_before.started}..{cgroup_before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; cgroup_after={cgroup_after.started}..{cgroup_after.ended} ms; affinity_after={affinity_after.started}..{affinity_after.ended} ms"
   if ! affinity_compared.exact or ! cgroup_compared.exact {
     return Err(check_failure("candidate CPU scope differs from independent references"))
   }
@@ -24721,8 +24667,8 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -24752,10 +24698,8 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
   } else {
     "mismatch"
   }
-  print f"memory.cgroup-v2: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, mismatched=${compared.field_mismatches.len()}, changing_gauges=${compared.unscored_gauges.len()}, eligible=${compared.eligible}"
-  print f"reference: adapter=cgroup-v2-rooted-v1; sources=/proc/self/cgroup,/proc/self/mountinfo,visible_cgroup2_{memory.max,memory.current,memory.swap.max,memory.swap.current,cpu.max,cpu.stat,cpuset.cpus.effective,pids.max,pids.current,io.stat}; bounds=65536,4194304,4096_to_262144_bytes; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  print f"memory.cgroup-v2: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, mismatched={compared.field_mismatches.len()}, changing_gauges={compared.unscored_gauges.len()}, eligible={compared.eligible}"
+  print f"reference: adapter=cgroup-v2-rooted-v1; sources=/proc/self/cgroup,/proc/self/mountinfo,visible_cgroup2_{{memory.max,memory.current,memory.swap.max,memory.swap.current,cpu.max,cpu.stat,cpuset.cpus.effective,pids.max,pids.current,io.stat}}; bounds=65536,4194304,4096_to_262144_bytes; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before.started}..{before.ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after.started}..{after.ended} ms"
   if ! compared.exact_stable {
     return Err(check_failure("candidate cgroup2 resource identities or stable values differ"))
   }
@@ -24789,7 +24733,7 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -24815,10 +24759,8 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact { "exact" } else if compared.eligible { "mismatch" } else { "reference_incomplete" }
-  print f"cpu.cache-sharing: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, fields=${compared.field_mismatches.len()}, relationships=${compared.relationship_mismatches.len()}"
-  print f"reference: adapter=cache-sysfs-rooted-v1; sources=/sys/devices/system/cpu/present,/sys/devices/system/cpu/cpu*/cache/index*/{id,level,type,size,shared_cpu_list,coherency_line_size,number_of_sets}; bound=65536 bytes for present, 4096 per attribute, 64 entries per CPU; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"cpu.cache-sharing: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, fields={compared.field_mismatches.len()}, relationships={compared.relationship_mismatches.len()}"
+  print f"reference: adapter=cache-sysfs-rooted-v1; sources=/sys/devices/system/cpu/present,/sys/devices/system/cpu/cpu*/cache/index*/{{id,level,type,size,shared_cpu_list,coherency_line_size,number_of_sets}}; bound=65536 bytes for present, 4096 per attribute, 64 entries per CPU; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   return Ok(false) unless compared.eligible
 
   if ! compared.exact {
@@ -24851,7 +24793,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/before",
+      stdout: fp"{scratch_path}/before",
     ),
   )?
   if ! before_status.exited_with(0) {
@@ -24872,7 +24814,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -24887,7 +24829,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
       argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/after",
+      stdout: fp"{scratch_path}/after",
     ),
   )?
   if ! after_status.exited_with(0) {
@@ -24911,10 +24853,8 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   let version = read_reference_tool_version("/usr/bin/lscpu", "lscpu", scratch, "lscpu")?
   let agreement = if compared.exact { "exact" } else if compared.eligible { "mismatch" } else { "reference_incomplete" }
-  print f"cpu.topology: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_ids.len()}, unexpected=${compared.unexpected_ids.len()}, package_groups=${compared.package_group_mismatches.len()}, core_groups=${compared.core_group_mismatches.len()}, siblings=${compared.sibling_mismatches.len()}, nodes=${compared.node_mismatches.len()}, candidate_fields_missing=${compared.field_missing.len()}"
-  print f"reference: ${version}; argv=${json.encode(argv)?}; present=/sys/devices/system/cpu/present; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"cpu.topology: {agreement}; reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_ids.len()}, unexpected={compared.unexpected_ids.len()}, package_groups={compared.package_group_mismatches.len()}, core_groups={compared.core_group_mismatches.len()}, siblings={compared.sibling_mismatches.len()}, nodes={compared.node_mismatches.len()}, candidate_fields_missing={compared.field_missing.len()}"
+  print f"reference: {version}; argv={json.encode(argv)?}; present=/sys/devices/system/cpu/present; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   return Ok(false) unless compared.eligible
 
   if ! compared.exact {
@@ -24946,7 +24886,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -24971,12 +24911,10 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
 
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"cpu.freq-policies: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.policy_mismatches.len()}, exact=${compared.exact_policies}"
-  print f"cpu.freq-bounds: exposed=${compared.eligible_bounds}, bound_mismatches=${compared.bound_mismatches.len()}, changed_bounds=${compared.unstable_bounds.len()}, gauge_mismatches=${compared.gauge_mismatches.len()}, unstable_gauges=${compared.unstable_gauges.len()}, exact=${compared.exact_bounds}"
-  print f"cpu.epp-boost: exposed=${compared.eligible_controls}, stable_mismatches=${compared.control_mismatches.len()}, changed_controls=${compared.unstable_controls.len()}, exact=${compared.exact_controls}"
-  print f"reference: adapter=cpufreq-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpufreq/policy*; bound=4096 bytes per attribute, 1024 entries; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"cpu.freq-policies: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.policy_mismatches.len()}, exact={compared.exact_policies}"
+  print f"cpu.freq-bounds: exposed={compared.eligible_bounds}, bound_mismatches={compared.bound_mismatches.len()}, changed_bounds={compared.unstable_bounds.len()}, gauge_mismatches={compared.gauge_mismatches.len()}, unstable_gauges={compared.unstable_gauges.len()}, exact={compared.exact_bounds}"
+  print f"cpu.epp-boost: exposed={compared.eligible_controls}, stable_mismatches={compared.control_mismatches.len()}, changed_controls={compared.unstable_controls.len()}, exact={compared.exact_controls}"
+  print f"reference: adapter=cpufreq-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpufreq/policy*; bound=4096 bytes per attribute, 1024 entries; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact_policies or compared.bound_mismatches.len() > 0 or compared.gauge_mismatches.len() > 0 or compared.control_mismatches.len() > 0 {
     return Err(
       check_failure("CPUFreq policy membership, stable bounds, gauges, or controls differ from the kernel reference"),
@@ -25015,7 +24953,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -25031,10 +24969,8 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let compared = compare_cpuidle(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
-  print f"cpu.idle: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, field_mismatches=${compared.field_mismatches.len()}, counter_mismatches=${compared.counter_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, eligible=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=cpuidle-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpuidle and cpu*/cpuidle/state*; bound=4096 bytes per attribute, 256 states per CPU; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"cpu.idle: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, field_mismatches={compared.field_mismatches.len()}, counter_mismatches={compared.counter_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, eligible={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=cpuidle-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpuidle and cpu*/cpuidle/state*; bound=4096 bytes per attribute, 256 states per CPU; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_keys.len() > 0 or compared.unexpected_keys.len() > 0 or compared.field_mismatches.len() > 0 or compared.counter_mismatches.len() > 0 {
     return Err(check_failure("CPUIdle states or stable fields differ from the kernel reference"))
   }
@@ -25068,7 +25004,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   let scratch = fs.tempdir()?
   defer scratch.close()?
   for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
-    scratch.write(fp"${name}", "")?
+    scratch.write(fp"{name}", "")?
   }
 
   let scratch_path = scratch.host_path()?
@@ -25084,7 +25020,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
       reference_argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lscpu-before",
+      stdout: fp"{scratch_path}/lscpu-before",
     ),
   )?
   let before_ended = time.now()
@@ -25099,7 +25035,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -25114,7 +25050,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
       reference_argv,
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lscpu-after",
+      stdout: fp"{scratch_path}/lscpu-after",
     ),
   )?
   let after_ended = time.now()
@@ -25132,7 +25068,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
       ["lscpu", "--version"],
       cwd: /,
       env: reference_env,
-      stdout: fp"${scratch_path}/lscpu-version",
+      stdout: fp"{scratch_path}/lscpu-version",
     ),
   )?
   let version = if version_status.exited_with(0) {
@@ -25163,12 +25099,12 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   let source_mode_display = json.encode(source_mode)?
   let host_claim_display = json.encode(host_claim)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
-  print f"cpu.sets: ${agreement}"
+  print f"cpu.sets: {agreement}"
   print_cpu_id_set_result("possible", compared.possible)?
   print_cpu_id_set_result("present", compared.present)?
   print_cpu_id_set_result("online", compared.online)?
   print_cpu_id_set_result("offline", compared.offline)?
-  print f"reference: ${version}; argv=lscpu --json --extended=CPU,ONLINE,NODE,SOCKET,CORE; sysfs=/sys/devices/system/cpu/possible,present,online,offline; locale=C; euid=${applet.current_euid()}; source_mode=${source_mode_display}; host_claim=${host_claim_display}; before-sysfs=${before_sysfs_started}..${before_sysfs_ended} ms; before-lscpu=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after-lscpu=${after_started}..${after_ended} ms; after-sysfs=${after_sysfs_started}..${after_sysfs_ended} ms"
+  print f"reference: {version}; argv=lscpu --json --extended=CPU,ONLINE,NODE,SOCKET,CORE; sysfs=/sys/devices/system/cpu/possible,present,online,offline; locale=C; euid={applet.current_euid()}; source_mode={source_mode_display}; host_claim={host_claim_display}; before-sysfs={before_sysfs_started}..{before_sysfs_ended} ms; before-lscpu={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after-lscpu={after_started}..{after_ended} ms; after-sysfs={after_sysfs_started}..{after_sysfs_ended} ms"
   return Err(check_failure("cpu.sets mandatory assertion failed")) unless compared.exact
 }
 
@@ -25197,8 +25133,8 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
       [xsh_bin, script, "--", "--section", "processes", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   let candidate_ended = time.now()
@@ -25228,9 +25164,9 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
   let host_claim_display = json.encode(host_claim)?
   let agreement = if compared.exact_static { "exact" } else { "mismatch" }
   let resource_agreement = if resources.exact_scored { "exact_scored" } else { "mismatch" }
-  print f"process.identity.static: ${agreement}; stable=${compared.stable_count}, unstable=${compared.unstable_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_pids.len()}, mismatched=${compared.mismatched_pids.len()}, state_unscored=${compared.state_unscored_count}, before_skipped=${before_identity.skipped_count}, after_skipped=${after_identity.skipped_count}"
-  print f"process.resources: ${resource_agreement}; stable=${resources.stable_count}, unstable=${resources.unstable_count}, candidate=${resources.candidate_count}, matched=${resources.matched_count}, scored_fields=${resources.scored_fields}, unscored_fields=${resources.unscored_fields.len()}, missing=${resources.missing_pids.len()}, mismatched_fields=${resources.mismatched_fields.len()}, before_skipped=${before_resources.skipped_count}, after_skipped=${after_resources.skipped_count}"
-  print f"reference: adapter=procfs-rooted-v1; sources=/proc/[pid]/stat,status,statm,cgroup; bounds=16384 bytes per text source,4096 statm bytes,8192 entries; page_size_bytes=${units.page_size_bytes}; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"process.identity.static: {agreement}; stable={compared.stable_count}, unstable={compared.unstable_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_pids.len()}, mismatched={compared.mismatched_pids.len()}, state_unscored={compared.state_unscored_count}, before_skipped={before_identity.skipped_count}, after_skipped={after_identity.skipped_count}"
+  print f"process.resources: {resource_agreement}; stable={resources.stable_count}, unstable={resources.unstable_count}, candidate={resources.candidate_count}, matched={resources.matched_count}, scored_fields={resources.scored_fields}, unscored_fields={resources.unscored_fields.len()}, missing={resources.missing_pids.len()}, mismatched_fields={resources.mismatched_fields.len()}, before_skipped={before_resources.skipped_count}, after_skipped={after_resources.skipped_count}"
+  print f"reference: adapter=procfs-rooted-v1; sources=/proc/[pid]/stat,status,statm,cgroup; bounds=16384 bytes per text source,4096 statm bytes,8192 entries; page_size_bytes={units.page_size_bytes}; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if ! compared.exact_static or ! resources.exact_scored {
     return Err(check_failure("process reference comparison failed"))
   }
@@ -25293,7 +25229,7 @@ export pure rust_fixture_argv_for_target(cargo_bin: Str, test_name: Str, target:
         "--lib",
         "--target",
         target,
-        f"modules::linux::real::netlink::tests::${parts[1]}",
+        f"modules::linux::real::netlink::tests::{parts[1]}",
         "--",
         "--exact",
         "--test-threads=1",
@@ -25360,8 +25296,8 @@ proc run_fixture_cases(
   let scratch = fs.tempdir()?
   defer scratch.close()?
   let scratch_path = scratch.host_path()?
-  let stdout_path = fp"${scratch_path}/stdout"
-  let stderr_path = fp"${scratch_path}/stderr"
+  let stdout_path = fp"{scratch_path}/stdout"
+  let stderr_path = fp"{scratch_path}/stderr"
   var passed_cases = 0
   var failed_cases = 0
 
@@ -25374,7 +25310,7 @@ proc run_fixture_cases(
       if test_name in test_results {
         if ! (test_results.get(test_name) ?? false) {
           case_passed = false
-          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${test_failures.get(test_name) ?? "cached failure"})"
+          print f"fixture {fixture_case.scenario}: failed {test_name} ({test_failures.get(test_name) ?? "cached failure"})"
         }
 
         continue
@@ -25425,19 +25361,19 @@ proc run_fixture_cases(
         let stderr_output = scratch.read_text(p"stderr")?
         let result_line = fixture_failure_summary(output, stderr_output)
         test_failures = test_failures.set(test_name, result_line)
-        print f"fixture ${fixture_case.scenario}: failed ${test_name} (${result_line})"
+        print f"fixture {fixture_case.scenario}: failed {test_name} ({result_line})"
       }
     }
 
     if case_passed {
       passed_cases += 1
-      print f"fixture ${fixture_case.scenario}: passed"
+      print f"fixture {fixture_case.scenario}: passed"
     } else {
       failed_cases += 1
     }
   }
 
-  print f"fixture execution: ${passed_cases} passed, ${failed_cases} failed"
+  print f"fixture execution: {passed_cases} passed, {failed_cases} failed"
   {passed: passed_cases, failed: failed_cases}
 }
 
@@ -26017,10 +25953,10 @@ export proc validate_and_run(
   }
 
   if options.capture_cpu_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_cpu_bundle}")?
+    let destination = path.absolute(fp"{options.capture_cpu_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("CPU set capture destination already exists"))
     }
@@ -26033,18 +25969,18 @@ export proc validate_and_run(
     capture_cpu_set_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"CPU set raw capture saved at ${destination}; origin=live_capture; stable=${capture.stable}; scoreable=${scoreable}"
-    print f"Replay with --replay-cpu-bundle ${destination}"
+    print f"CPU set raw capture saved at {destination}; origin=live_capture; stable={capture.stable}; scoreable={scoreable}"
+    print f"Replay with --replay-cpu-bundle {destination}"
     return
   }
 
   if options.replay_cpu_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_cpu_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_cpu_bundle}")?
     defer bundle.close()?
     let result = replay_cpu_set_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"CPU set raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms"
+    print f"CPU set raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms"
     print_cpu_id_set_result("possible", result.possible)?
     print_cpu_id_set_result("present", result.present)?
     print_cpu_id_set_result("online", result.online)?
@@ -26057,10 +25993,10 @@ export proc validate_and_run(
   }
 
   if options.capture_cpufreq_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_cpufreq_bundle}")?
+    let destination = path.absolute(fp"{options.capture_cpufreq_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("CPUFreq capture destination already exists"))
     }
@@ -26072,13 +26008,13 @@ export proc validate_and_run(
     defer source.close()?
     capture_cpufreq_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuFreqBundleCapture)?
-    print f"CPUFreq raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; policies=${capture.layout.policies.len()}; changing_gauges=${capture.changing_gauges.len()}"
-    print f"Replay with --replay-cpufreq-bundle ${destination}"
+    print f"CPUFreq raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; policies={capture.layout.policies.len()}; changing_gauges={capture.changing_gauges.len()}"
+    print f"Replay with --replay-cpufreq-bundle {destination}"
     return
   }
 
   if options.replay_cpufreq_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_cpufreq_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_cpufreq_bundle}")?
     defer bundle.close()?
     let result = replay_cpufreq_bundle(bundle)?
     let bounds_state = if result.policies.exact_bounds {
@@ -26095,7 +26031,7 @@ export proc validate_and_run(
     } else {
       "partial"
     }
-    print f"CPUFreq raw replay: sets=${result.sets.exact}; policies=${result.policies.exact_policies}; bounds=${bounds_state}; controls=${controls_state}; policies_count=${result.policies.reference_count}"
+    print f"CPUFreq raw replay: sets={result.sets.exact}; policies={result.policies.exact_policies}; bounds={bounds_state}; controls={controls_state}; policies_count={result.policies.reference_count}"
     if ! result.sets.exact or ! result.policies.exact_policies or result.policies.bound_mismatches.len() > 0 or result.policies.gauge_mismatches.len() > 0 or result.policies.control_mismatches.len() > 0 {
       return Err(check_failure("CPUFreq raw replay differs from its independent reference"))
     }
@@ -26104,10 +26040,10 @@ export proc validate_and_run(
   }
 
   if options.capture_cpu_topology_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_cpu_topology_bundle}")?
+    let destination = path.absolute(fp"{options.capture_cpu_topology_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("CPU topology capture destination already exists"))
     }
@@ -26119,16 +26055,16 @@ export proc validate_and_run(
     defer source.close()?
     capture_cpu_topology_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuTopologyBundleCapture)?
-    print f"CPU topology raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; CPUs=${capture.layout.cpu_ids.len()}; node_links=${capture.layout.node_links.len()}"
-    print f"Replay with --replay-cpu-topology-bundle ${destination}"
+    print f"CPU topology raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; CPUs={capture.layout.cpu_ids.len()}; node_links={capture.layout.node_links.len()}"
+    print f"Replay with --replay-cpu-topology-bundle {destination}"
     return
   }
 
   if options.replay_cpu_topology_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_cpu_topology_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_cpu_topology_bundle}")?
     defer bundle.close()?
     let result = replay_cpu_topology_bundle(bundle)?
-    print f"CPU topology raw replay: sets=${result.sets.exact}; topology=${result.topology.exact}; CPUs=${result.topology.reference_count}; mismatches=${result.topology.field_mismatches.len()}"
+    print f"CPU topology raw replay: sets={result.sets.exact}; topology={result.topology.exact}; CPUs={result.topology.reference_count}; mismatches={result.topology.field_mismatches.len()}"
     if ! result.sets.exact or ! result.topology.exact {
       return Err(check_failure("CPU topology raw replay differs from its independent reference"))
     }
@@ -26137,10 +26073,10 @@ export proc validate_and_run(
   }
 
   if options.capture_memory_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_memory_bundle}")?
+    let destination = path.absolute(fp"{options.capture_memory_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("memory capture destination already exists"))
     }
@@ -26153,13 +26089,13 @@ export proc validate_and_run(
     capture_memory_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"memory raw capture saved at ${destination}; origin=live_capture; stable=${capture.stable}; scoreable=${scoreable}"
-    print f"Replay with --replay-memory-bundle ${destination}"
+    print f"memory raw capture saved at {destination}; origin=live_capture; stable={capture.stable}; scoreable={scoreable}"
+    print f"Replay with --replay-memory-bundle {destination}"
     return
   }
 
   if options.replay_memory_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_memory_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_memory_bundle}")?
     defer bundle.close()?
     let result = replay_memory_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
@@ -26171,7 +26107,7 @@ export proc validate_and_run(
     } else {
       "mismatch"
     }
-    print f"memory raw replay: meminfo=${meminfo_state}; thp=${thp_state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; meminfo_fields=${result.meminfo.reference_count}; thp_fields=${result.thp.reference_count}"
+    print f"memory raw replay: meminfo={meminfo_state}; thp={thp_state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; meminfo_fields={result.meminfo.reference_count}; thp_fields={result.thp.reference_count}"
     if ! result.meminfo.exact_scored or (result.thp.reference_count > 0 and ! result.thp.exact) {
       return Err(check_failure("memory raw replay differs from its independent reference"))
     }
@@ -26180,10 +26116,10 @@ export proc validate_and_run(
   }
 
   if options.capture_cgroup2_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_cgroup2_bundle}")?
+    let destination = path.absolute(fp"{options.capture_cgroup2_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("cgroup2 capture destination already exists"))
     }
@@ -26195,17 +26131,17 @@ export proc validate_and_run(
     defer source.close()?
     capture_cgroup2_bundle(source, bundle, "live_capture")?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
-    print f"cgroup2 raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; ancestors=${capture.layout.ancestors.len()}; resources=${capture.reference_resources.len()}; changing_sources=${capture.changing_sources.len()}"
-    print f"Replay with --replay-cgroup2-bundle ${destination}"
+    print f"cgroup2 raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; ancestors={capture.layout.ancestors.len()}; resources={capture.reference_resources.len()}; changing_sources={capture.changing_sources.len()}"
+    print f"Replay with --replay-cgroup2-bundle {destination}"
     return
   }
 
   if options.replay_cgroup2_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_cgroup2_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_cgroup2_bundle}")?
     defer bundle.close()?
     let result = replay_cgroup2_bundle(bundle)?
     let state = if result.exact_scored { "exact" } else if result.exact_stable { "partial" } else { "mismatch" }
-    print f"cgroup2 raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; mismatched=${result.field_mismatches.len()}"
+    print f"cgroup2 raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; matched={result.matched_count}; mismatched={result.field_mismatches.len()}"
     if ! result.exact_scored {
       return Err(check_failure("cgroup2 raw replay differs from its independent reference"))
     }
@@ -26214,10 +26150,10 @@ export proc validate_and_run(
   }
 
   if options.capture_process_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_process_bundle}")?
+    let destination = path.absolute(fp"{options.capture_process_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("process capture destination already exists"))
     }
@@ -26230,17 +26166,17 @@ export proc validate_and_run(
     let units = system.execution_units()?
     capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
-    print f"process raw capture saved at ${destination}; origin=${capture.origin}; scoreable=${capture.scoreable}; pids=${capture.pids.len()}; skipped=${capture.skipped_count}; page_size=${capture.page_size_bytes}"
-    print f"Replay with --replay-process-bundle ${destination}"
+    print f"process raw capture saved at {destination}; origin={capture.origin}; scoreable={capture.scoreable}; pids={capture.pids.len()}; skipped={capture.skipped_count}; page_size={capture.page_size_bytes}"
+    print f"Replay with --replay-process-bundle {destination}"
     return
   }
 
   if options.replay_process_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_process_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_process_bundle}")?
     defer bundle.close()?
     let result = replay_process_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"process raw replay: ${state}; identity=${result.identity.matched_count}; resource_fields=${result.resources.scored_fields}; candidate=${result.identity.candidate_count}"
+    print f"process raw replay: {state}; identity={result.identity.matched_count}; resource_fields={result.resources.scored_fields}; candidate={result.identity.candidate_count}"
     if ! result.exact {
       return Err(check_failure("process raw replay differs from its independent reference"))
     }
@@ -26249,10 +26185,10 @@ export proc validate_and_run(
   }
 
   if options.capture_power_supply_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_power_supply_bundle}")?
+    let destination = path.absolute(fp"{options.capture_power_supply_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("power supply capture destination already exists"))
     }
@@ -26264,21 +26200,21 @@ export proc validate_and_run(
     defer source.close()?
     capture_power_supply_bundle(source, bundle, "live_capture")?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
-    print f"power supply raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; supplies=${capture.layout.entries.len()}; changing_sources=${capture.changing_sources.len()}"
+    print f"power supply raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; supplies={capture.layout.entries.len()}; changing_sources={capture.changing_sources.len()}"
     if capture.scoreable {
-      print f"Replay with --replay-power-supply-bundle ${destination}"
+      print f"Replay with --replay-power-supply-bundle {destination}"
     }
 
     return
   }
 
   if options.replay_power_supply_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_power_supply_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_power_supply_bundle}")?
     defer bundle.close()?
     let result = replay_power_supply_bundle(bundle)?
     let mismatch = result.missing_names.len() > 0 or result.unexpected_names.len() > 0 or result.field_mismatches.len() > 0
     let state = if result.exact { "exact" } else if mismatch { "mismatch" } else { "partial" }
-    print f"power supply raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; partial=${result.unstable_fields.len()}"
+    print f"power supply raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; matched={result.matched_count}; partial={result.unstable_fields.len()}"
     if mismatch {
       return Err(check_failure("power supply raw replay differs from its independent reference"))
     }
@@ -26287,10 +26223,10 @@ export proc validate_and_run(
   }
 
   if options.capture_pressure_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_pressure_bundle}")?
+    let destination = path.absolute(fp"{options.capture_pressure_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("pressure capture destination already exists"))
     }
@@ -26303,18 +26239,18 @@ export proc validate_and_run(
     capture_pressure_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"pressure raw capture saved at ${destination}; origin=live_capture; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-pressure-bundle ${destination}"
+    print f"pressure raw capture saved at {destination}; origin=live_capture; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-pressure-bundle {destination}"
     return
   }
 
   if options.replay_pressure_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_pressure_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_pressure_bundle}")?
     defer bundle.close()?
     let result = replay_pressure_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let state = if result.exact_scored { "exact" } else { "mismatch" }
-    print f"pressure raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.mismatched_fields.len()}"
+    print f"pressure raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.mismatched_fields.len()}"
     if ! result.exact_scored {
       return Err(check_failure("pressure raw replay differs from its independent reference"))
     }
@@ -26323,10 +26259,10 @@ export proc validate_and_run(
   }
 
   if options.capture_swaps_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_swaps_bundle}")?
+    let destination = path.absolute(fp"{options.capture_swaps_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("swap capture destination already exists"))
     }
@@ -26339,18 +26275,18 @@ export proc validate_and_run(
     capture_proc_swaps_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"swap raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-swaps-bundle ${destination}"
+    print f"swap raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-swaps-bundle {destination}"
     return
   }
 
   if options.replay_swaps_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_swaps_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_swaps_bundle}")?
     defer bundle.close()?
     let result = replay_proc_swaps_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"swap raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; source_issue=${result.source_issue}"
+    print f"swap raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}; source_issue={result.source_issue}"
     if ! result.exact {
       return Err(check_failure("swap raw replay differs from its independent reference"))
     }
@@ -26359,10 +26295,10 @@ export proc validate_and_run(
   }
 
   if options.capture_os_release_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_os_release_bundle}")?
+    let destination = path.absolute(fp"{options.capture_os_release_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("os-release capture destination already exists"))
     }
@@ -26375,18 +26311,18 @@ export proc validate_and_run(
     capture_os_release_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
-    print f"os-release raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; selected=${capture.selected_path}"
-    print f"Replay with --replay-os-release-bundle ${destination}"
+    print f"os-release raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; selected={capture.selected_path}"
+    print f"Replay with --replay-os-release-bundle {destination}"
     return
   }
 
   if options.replay_os_release_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_os_release_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_os_release_bundle}")?
     defer bundle.close()?
     let result = replay_os_release_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"os-release raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; selected=${capture.selected_path}"
+    print f"os-release raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; selected={capture.selected_path}"
     if ! result.exact {
       return Err(check_failure("os-release raw replay differs from its independent reference"))
     }
@@ -26395,10 +26331,10 @@ export proc validate_and_run(
   }
 
   if options.capture_uptime_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_uptime_bundle}")?
+    let destination = path.absolute(fp"{options.capture_uptime_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("uptime capture destination already exists"))
     }
@@ -26411,19 +26347,19 @@ export proc validate_and_run(
     capture_uptime_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let scoreable = if capture.reference_seconds != null { "yes" } else { "no" }
-    print f"uptime raw capture saved at ${destination}; origin=${capture.origin}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-uptime-bundle ${destination}"
+    print f"uptime raw capture saved at {destination}; origin={capture.origin}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-uptime-bundle {destination}"
     return
   }
 
   if options.replay_uptime_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_uptime_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_uptime_bundle}")?
     defer bundle.close()?
     let result = replay_uptime_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let state = if result.bracketed { "exact" } else { "mismatch" }
-    let candidate_seconds = if result.candidate_seconds == null { "null" } else { f"${result.candidate_seconds ?? -1}" }
-    print f"uptime raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference_seconds=${result.before_seconds}; candidate_seconds=${candidate_seconds}"
+    let candidate_seconds = if result.candidate_seconds == null { "null" } else { f"{result.candidate_seconds ?? -1}" }
+    print f"uptime raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference_seconds={result.before_seconds}; candidate_seconds={candidate_seconds}"
     if ! result.bracketed {
       return Err(check_failure("uptime raw replay differs from its independent reference"))
     }
@@ -26432,10 +26368,10 @@ export proc validate_and_run(
   }
 
   if options.capture_dmi_identity_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_dmi_identity_bundle}")?
+    let destination = path.absolute(fp"{options.capture_dmi_identity_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("DMI identity capture destination already exists"))
     }
@@ -26448,18 +26384,18 @@ export proc validate_and_run(
     capture_dmi_identity_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
-    print f"DMI identity raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-dmi-identity-bundle ${destination}"
+    print f"DMI identity raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-dmi-identity-bundle {destination}"
     return
   }
 
   if options.replay_dmi_identity_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_dmi_identity_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_dmi_identity_bundle}")?
     defer bundle.close()?
     let result = replay_dmi_identity_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"DMI identity raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; mismatched=${result.sensitive.field_mismatches.len()}; unstable=${result.sensitive.unstable_fields.len()}; default_redacted=${result.default_redacted}"
+    print f"DMI identity raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; mismatched={result.sensitive.field_mismatches.len()}; unstable={result.sensitive.unstable_fields.len()}; default_redacted={result.default_redacted}"
     if ! result.exact {
       return Err(check_failure("DMI identity raw replay differs from its independent reference"))
     }
@@ -26468,10 +26404,10 @@ export proc validate_and_run(
   }
 
   if options.capture_device_tree_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_device_tree_bundle}")?
+    let destination = path.absolute(fp"{options.capture_device_tree_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("device-tree capture destination already exists"))
     }
@@ -26484,18 +26420,18 @@ export proc validate_and_run(
     capture_device_tree_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
-    print f"device-tree raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-device-tree-bundle ${destination}"
+    print f"device-tree raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-device-tree-bundle {destination}"
     return
   }
 
   if options.replay_device_tree_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_device_tree_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_device_tree_bundle}")?
     defer bundle.close()?
     let result = replay_device_tree_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"device-tree raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; source=${result.source_exact}; model=${result.model_exact}; compatible=${result.compatible_exact}"
+    print f"device-tree raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; source={result.source_exact}; model={result.model_exact}; compatible={result.compatible_exact}"
     if ! result.exact {
       return Err(check_failure("device-tree raw replay differs from its independent reference"))
     }
@@ -26504,10 +26440,10 @@ export proc validate_and_run(
   }
 
   if options.capture_kernel_command_line_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_kernel_command_line_bundle}")?
+    let destination = path.absolute(fp"{options.capture_kernel_command_line_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("kernel command-line capture destination already exists"))
     }
@@ -26520,18 +26456,18 @@ export proc validate_and_run(
     capture_kernel_command_line_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let scoreable = if capture.stable and capture.reference_base64 != null { "yes" } else { "no" }
-    print f"kernel command-line raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-kernel-command-line-bundle ${destination}"
+    print f"kernel command-line raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-kernel-command-line-bundle {destination}"
     return
   }
 
   if options.replay_kernel_command_line_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_kernel_command_line_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_kernel_command_line_bundle}")?
     defer bundle.close()?
     let result = replay_kernel_command_line_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"kernel command-line raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; sensitive_exact=${result.sensitive_exact}; redacted_exact=${result.redacted_exact}"
+    print f"kernel command-line raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; sensitive_exact={result.sensitive_exact}; redacted_exact={result.redacted_exact}"
     if ! result.exact {
       return Err(check_failure("kernel command-line raw replay differs from its reference"))
     }
@@ -26540,10 +26476,10 @@ export proc validate_and_run(
   }
 
   if options.capture_kernel_modules_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_kernel_modules_bundle}")?
+    let destination = path.absolute(fp"{options.capture_kernel_modules_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("kernel module capture destination already exists"))
     }
@@ -26556,18 +26492,18 @@ export proc validate_and_run(
     capture_kernel_modules_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"kernel module raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-kernel-modules-bundle ${destination}"
+    print f"kernel module raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-kernel-modules-bundle {destination}"
     return
   }
 
   if options.replay_kernel_modules_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_kernel_modules_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_kernel_modules_bundle}")?
     defer bundle.close()?
     let result = replay_kernel_modules_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"kernel module raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
+    print f"kernel module raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}"
     if ! result.exact {
       return Err(check_failure("kernel module raw replay differs from its independent reference"))
     }
@@ -26576,10 +26512,10 @@ export proc validate_and_run(
   }
 
   if options.capture_vulnerabilities_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_vulnerabilities_bundle}")?
+    let destination = path.absolute(fp"{options.capture_vulnerabilities_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("vulnerability capture destination already exists"))
     }
@@ -26592,18 +26528,18 @@ export proc validate_and_run(
     capture_vulnerabilities_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"vulnerability raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-vulnerabilities-bundle ${destination}"
+    print f"vulnerability raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-vulnerabilities-bundle {destination}"
     return
   }
 
   if options.replay_vulnerabilities_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_vulnerabilities_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_vulnerabilities_bundle}")?
     defer bundle.close()?
     let result = replay_vulnerabilities_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"vulnerability raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.mismatched_names.len()}"
+    print f"vulnerability raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.mismatched_names.len()}"
     if ! result.exact {
       return Err(check_failure("vulnerability raw replay differs from its independent reference"))
     }
@@ -26612,10 +26548,10 @@ export proc validate_and_run(
   }
 
   if options.capture_mountinfo_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_mountinfo_bundle}")?
+    let destination = path.absolute(fp"{options.capture_mountinfo_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("mountinfo capture destination already exists"))
     }
@@ -26628,18 +26564,18 @@ export proc validate_and_run(
     capture_mountinfo_bundle(source, bundle, "live_capture")?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"mountinfo raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-mountinfo-bundle ${destination}"
+    print f"mountinfo raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-mountinfo-bundle {destination}"
     return
   }
 
   if options.replay_mountinfo_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_mountinfo_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_mountinfo_bundle}")?
     defer bundle.close()?
     let result = replay_mountinfo_bundle(bundle)?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"mountinfo raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
+    print f"mountinfo raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}"
     if ! result.exact {
       return Err(check_failure("mountinfo raw replay differs from its independent reference"))
     }
@@ -26648,10 +26584,10 @@ export proc validate_and_run(
   }
 
   if options.capture_kernel_parameters_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_kernel_parameters_bundle}")?
+    let destination = path.absolute(fp"{options.capture_kernel_parameters_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("kernel parameter capture destination already exists"))
     }
@@ -26664,18 +26600,18 @@ export proc validate_and_run(
     capture_kernel_parameters_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
-    print f"kernel parameter raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-kernel-parameters-bundle ${destination}"
+    print f"kernel parameter raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-kernel-parameters-bundle {destination}"
     return
   }
 
   if options.replay_kernel_parameters_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_kernel_parameters_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_kernel_parameters_bundle}")?
     defer bundle.close()?
     let result = replay_kernel_parameters_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"kernel parameter raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
+    print f"kernel parameter raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}"
     if ! result.exact {
       return Err(check_failure("kernel parameter raw replay differs from its independent reference"))
     }
@@ -26684,10 +26620,10 @@ export proc validate_and_run(
   }
 
   if options.capture_thermal_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_thermal_bundle}")?
+    let destination = path.absolute(fp"{options.capture_thermal_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("thermal capture destination already exists"))
     }
@@ -26699,17 +26635,17 @@ export proc validate_and_run(
     defer source.close()?
     capture_thermal_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ThermalCapture)?
-    print f"thermal raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-thermal-bundle ${destination}"
+    print f"thermal raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-thermal-bundle {destination}"
     return
   }
 
   if options.replay_thermal_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_thermal_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_thermal_bundle}")?
     defer bundle.close()?
     let result = replay_thermal_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"thermal raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
+    print f"thermal raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}; partial={result.unstable_fields.len()}"
     if ! result.exact {
       return Err(check_failure("thermal raw replay differs from its independent reference"))
     }
@@ -26718,10 +26654,10 @@ export proc validate_and_run(
   }
 
   if options.capture_hwmon_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_hwmon_bundle}")?
+    let destination = path.absolute(fp"{options.capture_hwmon_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("hwmon capture destination already exists"))
     }
@@ -26733,13 +26669,13 @@ export proc validate_and_run(
     defer source.close()?
     capture_hwmon_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(HwmonBundleCapture)?
-    print f"hwmon raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; chips=${capture.layout.chips.len()}; changing_gauges=${capture.changing_gauges.len()}"
-    print f"Replay with --replay-hwmon-bundle ${destination}"
+    print f"hwmon raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; chips={capture.layout.chips.len()}; changing_gauges={capture.changing_gauges.len()}"
+    print f"Replay with --replay-hwmon-bundle {destination}"
     return
   }
 
   if options.replay_hwmon_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_hwmon_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_hwmon_bundle}")?
     defer bundle.close()?
     let result = replay_hwmon_bundle(bundle)?
     let mismatch = result.field_mismatches.len() > 0 or result.missing_names.len() > 0 or result.unexpected_names.len() > 0
@@ -26752,7 +26688,7 @@ export proc validate_and_run(
     } else {
       "unavailable"
     }
-    print f"hwmon raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
+    print f"hwmon raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}; partial={result.unstable_fields.len()}"
     if mismatch {
       return Err(check_failure("hwmon raw replay differs from its independent reference"))
     }
@@ -26761,10 +26697,10 @@ export proc validate_and_run(
   }
 
   if options.capture_block_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_block_bundle}")?
+    let destination = path.absolute(fp"{options.capture_block_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("block capture destination already exists"))
     }
@@ -26776,19 +26712,19 @@ export proc validate_and_run(
     defer source.close()?
     capture_block_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(BlockBundleCapture)?
-    print f"block raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; devices=${capture.layout.entries.len()}; changing_stats=${capture.changing_stats.len()}"
-    print f"Replay with --replay-block-bundle ${destination}"
+    print f"block raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; devices={capture.layout.entries.len()}; changing_stats={capture.changing_stats.len()}"
+    print f"Replay with --replay-block-bundle {destination}"
     return
   }
 
   if options.replay_block_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_block_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_block_bundle}")?
     defer bundle.close()?
     let result = replay_block_bundle(bundle)?
     let identity = if result.identity.exact { "exact" } else { "mismatch" }
     let queue = if result.queue.exact { "exact" } else { "mismatch" }
     let counters = if result.sources.exact { "exact" } else if result.sources.unstable { "partial" } else { "mismatch" }
-    print f"block raw replay: identity=${identity}; queue=${queue}; counters=${counters}; devices=${result.identity.reference_count}; edges=${result.identity.matched_edges}"
+    print f"block raw replay: identity={identity}; queue={queue}; counters={counters}; devices={result.identity.reference_count}; edges={result.identity.matched_edges}"
     if ! result.identity.exact or ! result.queue.exact or (! result.sources.exact and ! result.sources.unstable) {
       return Err(check_failure("block raw replay differs from its independent reference"))
     }
@@ -26797,10 +26733,10 @@ export proc validate_and_run(
   }
 
   if options.capture_powercap_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_powercap_bundle}")?
+    let destination = path.absolute(fp"{options.capture_powercap_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("powercap capture destination already exists"))
     }
@@ -26812,17 +26748,17 @@ export proc validate_and_run(
     defer source.close()?
     capture_powercap_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PowerCapCapture)?
-    print f"powercap raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; captured=${capture.captured_unix_ms} ms"
-    print f"Replay with --replay-powercap-bundle ${destination}"
+    print f"powercap raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
+    print f"Replay with --replay-powercap-bundle {destination}"
     return
   }
 
   if options.replay_powercap_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_powercap_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_powercap_bundle}")?
     defer bundle.close()?
     let result = replay_powercap_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"powercap raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
+    print f"powercap raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}; partial={result.unstable_fields.len()}"
     if ! result.exact {
       return Err(check_failure("powercap raw replay differs from its independent reference"))
     }
@@ -26831,10 +26767,10 @@ export proc validate_and_run(
   }
 
   if options.capture_pci_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_pci_bundle}")?
+    let destination = path.absolute(fp"{options.capture_pci_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("PCI capture destination already exists"))
     }
@@ -26846,13 +26782,13 @@ export proc validate_and_run(
     defer source.close()?
     capture_pci_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PciBundleCapture)?
-    print f"PCI raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; functions=${capture.layout.functions.len()}"
-    print f"Replay with --replay-pci-bundle ${destination}"
+    print f"PCI raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; functions={capture.layout.functions.len()}"
+    print f"Replay with --replay-pci-bundle {destination}"
     return
   }
 
   if options.replay_pci_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_pci_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_pci_bundle}")?
     defer bundle.close()?
     let result = replay_pci_bundle(bundle)?
     let binding_state = if ! result.binding.eligible {
@@ -26864,7 +26800,7 @@ export proc validate_and_run(
     }
     let link_unavailable = ! result.link.eligible and ! result.link.candidate_field_missing and result.link.missing_addresses.len() == 0 and result.link.unexpected_addresses.len() == 0 and result.link.field_mismatches.len() == 0 and result.link.unstable_fields.len() == 0
     let link_state = if result.link.exact { "exact" } else if link_unavailable { "unavailable" } else { "mismatch" }
-    print f"PCI raw replay: identity=${result.identity.exact_static}; binding=${binding_state}; link=${link_state}; functions=${result.identity.reference_count}"
+    print f"PCI raw replay: identity={result.identity.exact_static}; binding={binding_state}; link={link_state}; functions={result.identity.reference_count}"
     if ! result.identity.exact_static or binding_state == "mismatch" or link_state == "mismatch" {
       return Err(check_failure("PCI raw replay differs from its independent reference"))
     }
@@ -26873,10 +26809,10 @@ export proc validate_and_run(
   }
 
   if options.capture_usb_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_usb_bundle}")?
+    let destination = path.absolute(fp"{options.capture_usb_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("USB capture destination already exists"))
     }
@@ -26888,13 +26824,13 @@ export proc validate_and_run(
     defer source.close()?
     capture_usb_bundle(source, bundle, "live_capture")?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UsbBundleCapture)?
-    print f"USB raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; entries=${capture.layout.entries.len()}"
-    print f"Replay with --replay-usb-bundle ${destination}"
+    print f"USB raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; entries={capture.layout.entries.len()}"
+    print f"Replay with --replay-usb-bundle {destination}"
     return
   }
 
   if options.replay_usb_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_usb_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_usb_bundle}")?
     defer bundle.close()?
     let result = replay_usb_bundle(bundle)?
     let power_unavailable = ! result.power.eligible and result.power.missing_names.len() == 0 and result.power.unexpected_names.len() == 0 and result.power.field_mismatches.len() == 0 and result.power.unstable_fields.len() == 0
@@ -26907,7 +26843,7 @@ export proc validate_and_run(
     } else {
       "mismatch"
     }
-    print f"USB raw replay: topology=${result.topology.exact}; ids=${result.ids.exact}; power=${power_state}; interfaces=${interface_state}; devices=${result.topology.reference_count}"
+    print f"USB raw replay: topology={result.topology.exact}; ids={result.ids.exact}; power={power_state}; interfaces={interface_state}; devices={result.topology.reference_count}"
     if ! result.topology.exact or ! result.ids.exact or power_state == "mismatch" or interface_state == "mismatch" {
       return Err(check_failure("USB raw replay differs from its independent reference"))
     }
@@ -26916,10 +26852,10 @@ export proc validate_and_run(
   }
 
   if options.capture_smbios_bundle != "" {
-    let destination = path.absolute(fp"${options.capture_smbios_bundle}")?
+    let destination = path.absolute(fp"{options.capture_smbios_bundle}")?
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
-    let leaf = fp"${destination.name()}"
+    let leaf = fp"{destination.name()}"
     if parent.exists(leaf)? {
       return Err(check_failure("SMBIOS capture destination already exists"))
     }
@@ -26929,20 +26865,20 @@ export proc validate_and_run(
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let captured = smbios_module.capture_smbios_bundle(source, bundle, "live_capture")?
-    print f"SMBIOS raw capture saved at ${destination}; origin=${captured.origin}; stable=${captured.stable}; scoreable=${captured.scoreable}; captured=${captured.captured_unix_ms} ms"
-    print f"Replay with --replay-smbios-bundle ${destination}"
+    print f"SMBIOS raw capture saved at {destination}; origin={captured.origin}; stable={captured.stable}; scoreable={captured.scoreable}; captured={captured.captured_unix_ms} ms"
+    print f"Replay with --replay-smbios-bundle {destination}"
     return
   }
 
   if options.replay_smbios_bundle != "" {
-    let bundle = fs.open_root(fp"${options.replay_smbios_bundle}")?
+    let bundle = fs.open_root(fp"{options.replay_smbios_bundle}")?
     defer bundle.close()?
-    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let result = smbios_module.replay_smbios_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
-    print f"SMBIOS raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; missing=${result.missing_names.len()}; unexpected=${result.unexpected_names.len()}; field_mismatches=${result.field_mismatches.len()}"
+    print f"SMBIOS raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; matched={result.matched_count}; missing={result.missing_names.len()}; unexpected={result.unexpected_names.len()}; field_mismatches={result.field_mismatches.len()}"
     if ! result.exact {
       return Err(check_failure("SMBIOS raw replay differs from its independent reference"))
     }
@@ -26955,13 +26891,13 @@ export proc validate_and_run(
       return Err(check_failure("--dmidecode-bin must name an absolute executable path"))
     }
 
-    let bundle = fs.open_root(fp"${options.corroborate_smbios_bundle}")?
+    let bundle = fs.open_root(fp"{options.corroborate_smbios_bundle}")?
     defer bundle.close()?
-    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let result = smbios_module.corroborate_smbios_bundle(bundle, options.dmidecode_bin)?
     let compared = result.comparison
-    print f"firmware.dmidecode: reference=${compared.reference_count}, decoded=${compared.decoded_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, exact=${compared.exact}"
-    print f"reference: adapter=dmidecode-hex-v1; executable=${options.dmidecode_bin}; version=${result.version}; locale=C; source_mode=captured_replay; started=${result.started_unix_ms} ms; ended=${result.ended_unix_ms} ms; output and full provenance saved in the private bundle"
+    print f"firmware.dmidecode: reference={compared.reference_count}, decoded={compared.decoded_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, exact={compared.exact}"
+    print f"reference: adapter=dmidecode-hex-v1; executable={options.dmidecode_bin}; version={result.version}; locale=C; source_mode=captured_replay; started={result.started_unix_ms} ms; ended={result.ended_unix_ms} ms; output and full provenance saved in the private bundle"
     if ! compared.exact {
       return Err(check_failure("dmidecode hexadecimal records differ from the captured raw SMBIOS table"))
     }
@@ -27222,7 +27158,7 @@ export proc validate_and_run(
   }
 
   let mapped_fixture_cases = manifest.fixture_cases.len() + manifest.macos_fixture_cases.len()
-  print f"system-report coverage manifest v${manifest.schema_version}: ${manifest.assertions.len()} declared assertions, ${manifest.fixture_scenarios.len()} declared fixture scenarios, ${mapped_fixture_cases} executable fixture cases"
+  print f"system-report coverage manifest v{manifest.schema_version}: {manifest.assertions.len()} declared assertions, {manifest.fixture_scenarios.len()} declared fixture scenarios, {mapped_fixture_cases} executable fixture cases"
   print summary(manifest.assertions)
 
   var scored = 0
@@ -27252,7 +27188,7 @@ export proc validate_and_run(
       manifest.fixture_cases,
     )?
     fixture_cases_passed = fixture_run.passed
-    print f"fixture coverage: ${fixture_run.passed} passed, ${fixture_run.failed} failed, ${manifest.fixture_scenarios.len() - manifest.fixture_cases.len()} declared scenarios not executed"
+    print f"fixture coverage: {fixture_run.passed} passed, {fixture_run.failed} failed, {manifest.fixture_scenarios.len() - manifest.fixture_cases.len()} declared scenarios not executed"
     if fixture_run.failed > 0 {
       return Err(check_failure("one or more mapped fixture scenarios failed"))
     }
@@ -27280,7 +27216,7 @@ export proc validate_and_run(
       manifest.macos_fixture_cases,
     )?
     fixture_cases_passed = fixture_run.passed
-    print f"macOS fixture coverage: ${fixture_run.passed} passed, ${fixture_run.failed} failed, ${manifest.fixture_scenarios.len() - manifest.macos_fixture_cases.len()} declared scenarios not executed on macOS"
+    print f"macOS fixture coverage: {fixture_run.passed} passed, {fixture_run.failed} failed, {manifest.fixture_scenarios.len() - manifest.macos_fixture_cases.len()} declared scenarios not executed on macOS"
     if fixture_run.failed > 0 {
       return Err(check_failure("one or more macOS fixture scenarios failed"))
     }
@@ -27778,15 +27714,15 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks supplemental sensors.lm-sensors assertion"))
     }
 
-    let sensors_module = module.load(fp"${ctx.root}/dev/system_report_sensors_check.xsh")?.require(SensorsReferenceModule)?
+    let sensors_module = module.load(fp"{ctx.root}/dev/system_report_sensors_check.xsh")?.require(SensorsReferenceModule)?
     let result = sensors_module.compare_live_sensors_json(options.xsh_bin, options.script, options.sensors_bin)?
     supplemental_compared = true
     let compared = result.comparison
-    print f"sensors.lm-sensors: reference=${compared.reference_count}, compared=${compared.compared}, mismatched=${compared.mismatches.len()}, ambiguous_or_changed=${compared.partial.len()}"
-    print f"reference: adapter=sensors-json-v1; executable=${result.executable}; version=${result.version}; argv=-j -c /dev/null; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; before=${result.before_started_unix_ms} ms; candidate=${result.candidate_started_unix_ms} ms; after=${result.after_ended_unix_ms} ms; before_sha256=${result.before_sha256_hex}; after_sha256=${result.after_sha256_hex}"
+    print f"sensors.lm-sensors: reference={compared.reference_count}, compared={compared.compared}, mismatched={compared.mismatches.len()}, ambiguous_or_changed={compared.partial.len()}"
+    print f"reference: adapter=sensors-json-v1; executable={result.executable}; version={result.version}; argv=-j -c /dev/null; locale=C; euid={applet.current_euid()}; source_mode=live_linux; before={result.before_started_unix_ms} ms; candidate={result.candidate_started_unix_ms} ms; after={result.after_ended_unix_ms} ms; before_sha256={result.before_sha256_hex}; after_sha256={result.after_sha256_hex}"
     if compared.mismatches.len() > 0 {
       return Err(
-        check_failure(f"unconfigured sensors JSON differs from stable raw report fields: ${compared.mismatches.join(", ")}"),
+        check_failure(f"unconfigured sensors JSON differs from stable raw report fields: {compared.mismatches.join(", ")}"),
       )
     }
 
@@ -27808,17 +27744,15 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks supplemental cpu.cpupower assertion"))
     }
 
-    let cpupower_module = module.load(fp"${ctx.root}/dev/system_report_cpupower_check.xsh")?.require(CpupowerReferenceModule)?
+    let cpupower_module = module.load(fp"{ctx.root}/dev/system_report_cpupower_check.xsh")?.require(CpupowerReferenceModule)?
     let result = cpupower_module.compare_live_cpupower(options.xsh_bin, options.script, options.cpupower_bin)?
     supplemental_compared = true
     let compared = result.comparison
-    print f"cpu.cpupower: matched_fields=${compared.matched_fields}, mismatches=${json.encode(compared.mismatches)?}, partial=${json.encode(
-      compared.partial,
-    )?}"
-    print f"reference: adapter=cpupower-text-v1; executable=${result.executable}; version=${result.version}; argv=[--version,-c 0 frequency-info --driver,-c 0 frequency-info --hwlimits,-c 0 idle-info]; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; reference=${result.reference_started_unix_ms} ms; candidate=${result.candidate_started_unix_ms} ms; driver_sha256=${result.driver_sha256_hex}; limits_sha256=${result.limits_sha256_hex}; idle_sha256=${result.idle_sha256_hex}"
+    print f"cpu.cpupower: matched_fields={compared.matched_fields}, mismatches={json.encode(compared.mismatches)?}, partial={json.encode(compared.partial)?}"
+    print f"reference: adapter=cpupower-text-v1; executable={result.executable}; version={result.version}; argv=[--version,-c 0 frequency-info --driver,-c 0 frequency-info --hwlimits,-c 0 idle-info]; locale=C; euid={applet.current_euid()}; source_mode=live_linux; reference={result.reference_started_unix_ms} ms; candidate={result.candidate_started_unix_ms} ms; driver_sha256={result.driver_sha256_hex}; limits_sha256={result.limits_sha256_hex}; idle_sha256={result.idle_sha256_hex}"
     if compared.mismatches.len() > 0 {
       return Err(
-        check_failure(f"cpupower disagrees with the report on stable CPU metadata: ${compared.mismatches.join(", ")}"),
+        check_failure(f"cpupower disagrees with the report on stable CPU metadata: {compared.mismatches.join(", ")}"),
       )
     }
 
@@ -27836,16 +27770,14 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks supplemental usb.lsusb assertion"))
     }
 
-    let lsusb_module = module.load(fp"${ctx.root}/dev/system_report_lsusb_check.xsh")?.require(LsusbReferenceModule)?
+    let lsusb_module = module.load(fp"{ctx.root}/dev/system_report_lsusb_check.xsh")?.require(LsusbReferenceModule)?
     let result = lsusb_module.compare_live_lsusb(options.xsh_bin, options.script, options.lsusb_bin)?
     supplemental_compared = true
     let compared = result.comparison
-    print f"usb.lsusb: devices=${compared.matched_devices}, tree_rows=${compared.matched_tree_rows}, descriptor_fields=${compared.matched_descriptor_fields}, mismatches=${json.encode(
-      compared.mismatches,
-    )?}, partial=${json.encode(compared.partial)?}"
-    print f"reference: adapter=lsusb-text-v1; executable=${result.executable}; version=${result.version}; argv=[--version,list,-t,-v -s independently_selected_bus:device]; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; reference=${result.reference_started_unix_ms} ms; candidate=${result.candidate_started_unix_ms} ms; list_sha256=${result.list_sha256_hex}; tree_sha256=${result.tree_sha256_hex}; verbose_sha256=${result.verbose_sha256_hex}"
+    print f"usb.lsusb: devices={compared.matched_devices}, tree_rows={compared.matched_tree_rows}, descriptor_fields={compared.matched_descriptor_fields}, mismatches={json.encode(compared.mismatches)?}, partial={json.encode(compared.partial)?}"
+    print f"reference: adapter=lsusb-text-v1; executable={result.executable}; version={result.version}; argv=[--version,list,-t,-v -s independently_selected_bus:device]; locale=C; euid={applet.current_euid()}; source_mode=live_linux; reference={result.reference_started_unix_ms} ms; candidate={result.candidate_started_unix_ms} ms; list_sha256={result.list_sha256_hex}; tree_sha256={result.tree_sha256_hex}; verbose_sha256={result.verbose_sha256_hex}"
     if compared.mismatches.len() > 0 {
-      return Err(check_failure(f"lsusb disagrees with the report: ${compared.mismatches.join(", ")}"))
+      return Err(check_failure(f"lsusb disagrees with the report: {compared.mismatches.join(", ")}"))
     }
 
     if compared.partial.len() > 0 {
@@ -27862,7 +27794,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory firmware.smbios assertion"))
     }
 
-    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let smbios_result = smbios_module.compare_live_smbios(options.xsh_bin, options.script)?
     if smbios_result.scored {
       scored += 1
@@ -28122,7 +28054,7 @@ export proc validate_and_run(
   }
 
   if scored > 0 {
-    print f"coverage execution: ${scored} mandatory live assertions scored, ${mandatory_count - scored} mandatory assertions not exercised"
+    print f"coverage execution: {scored} mandatory live assertions scored, {mandatory_count - scored} mandatory assertions not exercised"
   }
 
   if partial_compared {

@@ -31,6 +31,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.lookup-absence` | Compare a lookup against `null` for absence, not the `-1` numeric sentinel |
 | `lint.lookup-fallback` | Remove the fallback argument from lookup calls, which no longer accept one |
 | `lint.missing-effects` | Flag a proc whose declared effects are incomplete and suggest the full effect list |
+| `lint.missing-f-prefix` | Add the `f` prefix to a string whose `{name}` names a binding in scope |
 | `lint.needless-annotation` | Remove a type annotation that the initializer or checked constraints already fix |
 | `lint.organize-top-level-consts` | Group safe immutable top-level constants after imports and before functions |
 | `lint.path-constructor` | Prefer a `p` string literal or path interpolation over `Path(...)` |

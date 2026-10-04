@@ -11,7 +11,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     return
   }
 
-  let file = fp"${argv[0]}"
+  let file = fp"{argv[0]}"
   let cmd_args = argv |> drop(1)
 
   if cmd_args.len() == 0 {
@@ -49,12 +49,12 @@ proc main(...argv: List[Str]) [fs, process, error] {
     pairs = pairs.push({key: key, val: val})
   }
 
-  print f"loaded ${pairs.len()} var(s) from ${file}"
-  let env_args = ["env", @[f"${kv.key}=${kv.val}" for kv in pairs], @cmd_args]
+  print f"loaded {pairs.len()} var(s) from {file}"
+  let env_args = ["env", @[f"{kv.key}={kv.val}" for kv in pairs], @cmd_args]
   let command = process.command_argv("env", env_args)
   let status = process.run(command)?
 
   if ! status.exited_with(0) {
-    print f"exit ${status.exit_code()?}"
+    print f"exit {status.exit_code()?}"
   }
 }

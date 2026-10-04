@@ -89,7 +89,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by .path
 
   if opts.verbose {
-    print f"scanning ${files.len()} files in ${root}"
+    print f"scanning {files.len()} files in {root}"
   }
 
   let findings: List[Finding] = files
@@ -118,12 +118,12 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
   for finding in findings {
-    print f"${finding.file}:${finding.line}: [${finding.kind}] ${finding.text}"
+    print f"{finding.file}:{finding.line}: [{finding.kind}] {finding.text}"
   }
 
   let files_hit = findings
     |> group-by .file
     |> count()
 
-  print f"${findings.len()} findings in ${files_hit} files (${files.len()} scanned)"
+  print f"{findings.len()} findings in {files_hit} files ({files.len()} scanned)"
 }

@@ -4,7 +4,7 @@ use lib.text_input as text_input
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
+    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 

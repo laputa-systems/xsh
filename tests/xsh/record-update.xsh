@@ -84,8 +84,8 @@ let updated = {
   build.jobs: if true { source = {...source, name: "changed", build: {...source.build, flags: {...source.build.flags, debug: true}}}; print "jobs"; 8 } else { 0 },
   build.flags.optimize: if true { print "optimize"; source.build.flags.debug } else { false },
 }
-print f"${updated.name},${updated.build.jobs},${updated.build.flags.debug},${updated.build.flags.optimize}"
-print f"${alias.name},${alias.build.flags.debug},${source.name},${source.build.flags.debug}"
+print f"{updated.name},{updated.build.jobs},{updated.build.flags.debug},{updated.build.flags.optimize}"
+print f"{alias.name},{alias.build.flags.debug},{source.name},{source.build.flags.debug}"
 }
 inspect()
 """,
@@ -120,9 +120,9 @@ proc update(value: Config) [io, error] -> Result[Config, UpdateError] {
 var published: Config = {build: {jobs: 2, flags: {debug: false}}, name: "original"}
 match update(published) {
   Ok(value) => published = value
-  Err(UpdateError.Failed {code}) => print f"caught=${code}"
+  Err(UpdateError.Failed {code}) => print f"caught={code}"
 }
-print f"${published.name},${published.build.jobs},${published.build.flags.debug}"
+print f"{published.name},{published.build.jobs},{published.build.flags.debug}"
 """,
   )?
   {

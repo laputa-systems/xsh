@@ -1,7 +1,7 @@
 const name = "demo"
 let unit = f"""
   [service]
-  name=$name
+  name={name}
   """
 const expected = """[service]
 name=demo"""

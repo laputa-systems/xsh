@@ -14,7 +14,7 @@ test test_regex_literals_preserve_raw_patterns_and_existing_operations {
     (b+) $
 """.matches("aabb")
   for index in range(10) {
-    assert assignment_regex().matches(f"COUNT=${index}")
+    assert assignment_regex().matches(f"COUNT={index}")
   }
 }
 

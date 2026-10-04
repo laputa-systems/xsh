@@ -1,7 +1,7 @@
-let helper = fp"${args[0]}"
-let slow_ready = fp"${args[1]}"
-let fast_marker = fp"${args[2]}"
-let dup_marker = fp"${args[3]}"
+let helper = fp"{args[0]}"
+let slow_ready = fp"{args[1]}"
+let fast_marker = fp"{args[2]}"
+let dup_marker = fp"{args[3]}"
 let slow_command = process.command_argv(helper, ["os-probe", "ready-sleep", slow_ready.display()], timeout: 50ms)
 let fast_command = process.command_argv(helper, ["os-probe", "delayed-marker", fast_marker.display(), "10"])
 let slow = spawn slow_command?

@@ -34,7 +34,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     } else {
       if ! only_duplicates or count > 1 {
         if show_counts {
-          print f"${tui.left_pad(f"${count}", 7)} ${previous}"
+          print f"{tui.left_pad(f"{count}", 7)} {previous}"
         } else {
           print $previous
         }
@@ -47,7 +47,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   if count > 0 and (! only_duplicates or count > 1) {
     if show_counts {
-      print f"${tui.left_pad(f"${count}", 7)} ${previous}"
+      print f"{tui.left_pad(f"{count}", 7)} {previous}"
     } else {
       print $previous
     }

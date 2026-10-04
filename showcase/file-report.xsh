@@ -29,7 +29,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let root = opts.root.resolve()?
 
   if opts.verbose {
-    print f"scanning ${root} for .${opts.ext} files"
+    print f"scanning {root} for .{opts.ext} files"
   }
 
   # tee logs each file as it's hashed, before the pipeline knows the final order.
@@ -39,7 +39,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by .path
     |> tee { |entry|
       if opts.verbose {
-        print f"  hashing ${entry.path.relative_to(root)}"
+        print f"  hashing {entry.path.relative_to(root)}"
       }
     }
     |> par-map { |entry|
@@ -50,7 +50,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by(desc: true) .size
 
   if entries.len() == 0 {
-    print f"no .${opts.ext} files found in ${root}"
+    print f"no .{opts.ext} files found in {root}"
     return
   }
 
@@ -58,12 +58,12 @@ proc main(...argv: List[Str]) [fs, error] {
     |> map .size
     |> sum
 
-  print f"${"file":<48} ${"bytes":>8}  sha256"
-  print f"${"----":<48} ${"-----":>8}  ------"
+  print f"{"file":<48} {"bytes":>8}  sha256"
+  print f"{"----":<48} {"-----":>8}  ------"
 
   for e in entries {
-    print f"${e.path:<48} ${e.size:>8}  ${e.sha256}"
+    print f"{e.path:<48} {e.size:>8}  {e.sha256}"
   }
 
-  print f"${entries.len()} files  ${total} bytes"
+  print f"{entries.len()} files  {total} bytes"
 }

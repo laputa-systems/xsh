@@ -29,24 +29,24 @@ export pure dummy_user() -> PasswdEntry {
 
 ## Public authentication helper for shipped core applets.
 export proc fail(applet_name: Str, message: Str) [io] -> Int {
-  eprint f"${applet_name}: ${message}"
+  eprint f"{applet_name}: {message}"
   1
 }
 
 ## Public authentication helper for shipped core applets.
 export pure missing_option_value(applet_name: Str, flag: Str) -> Str {
   let _ = applet_name
-  f"option requires an argument -- ${flag}"
+  f"option requires an argument -- {flag}"
 }
 
 ## Public authentication helper for shipped core applets.
 export pure invalid_option(flag: Str) -> Str {
-  f"invalid option -${flag}"
+  f"invalid option -{flag}"
 }
 
 ## Public authentication helper for shipped core applets.
 export pure unrecognized_option(flag: Str) -> Str {
-  f"unrecognized option ${flag}"
+  f"unrecognized option {flag}"
 }
 
 ## Public authentication helper for shipped core applets.
@@ -71,7 +71,7 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
       uid: uid,
       gid: gid,
       gecos: fields[4],
-      home: fp"${fields[5]}",
+      home: fp"{fields[5]}",
       shell: fields[6],
     })
   }
@@ -105,31 +105,31 @@ export pure render_shadow(records: List[ShadowRecord]) -> Str {
     if item.raw {
       lines = lines.push(item.line)
     } else if item.rest.len() == 0 {
-      lines = lines.push(f"${item.username}:${item.password}")
+      lines = lines.push(f"{item.username}:{item.password}")
     } else {
-      lines = lines.push(f"${item.username}:${item.password}:${item.rest.join(":")}")
+      lines = lines.push(f"{item.username}:{item.password}:{item.rest.join(":")}")
     }
   }
 
   return "" when lines.len() == 0
 
-  f"""${lines.join("\n")}
+  f"""{lines.join("\n")}
 """
 }
 
 ## Public authentication helper for shipped core applets.
 export proc passwd_path() [env, error] -> Result[Path] {
-  fp"${env.get_or("XSH_PASSWD_FILE", "/etc/passwd")?}"
+  fp"{env.get_or("XSH_PASSWD_FILE", "/etc/passwd")?}"
 }
 
 ## Public authentication helper for shipped core applets.
 export proc shadow_path() [env, error] -> Result[Path] {
-  fp"${env.get_or("XSH_SHADOW_FILE", "/etc/shadow")?}"
+  fp"{env.get_or("XSH_SHADOW_FILE", "/etc/shadow")?}"
 }
 
 ## Public authentication helper for shipped core applets.
 export proc nologin_path() [env, error] -> Result[Path] {
-  fp"${env.get_or("XSH_NOLOGIN_FILE", "/etc/nologin.txt")?}"
+  fp"{env.get_or("XSH_NOLOGIN_FILE", "/etc/nologin.txt")?}"
 }
 
 ## Public authentication helper for shipped core applets.
@@ -173,7 +173,7 @@ export proc lookup_user(name: Str) [fs, env, error] -> Result[PasswdEntry] {
       return entry when entry.name == name
     }
 
-    return Err(AuthError.Failed(f"unknown user ${name}"))
+    return Err(AuthError.Failed(f"unknown user {name}"))
   }
 
   let account = user.lookup(name)?
@@ -196,7 +196,7 @@ export proc user_by_uid(uid: Int) [fs, env, error] -> Result[PasswdEntry] {
       return entry when entry.uid == uid
     }
 
-    return Err(AuthError.Failed(f"unknown uid ${uid}"))
+    return Err(AuthError.Failed(f"unknown uid {uid}"))
   }
 
   let account = user.by_uid(uid)?
@@ -254,7 +254,7 @@ export proc authenticate(user_entry: PasswdEntry) [fs, process, env, error, io] 
   let records = read_shadow_records()?
   let credential = account_hash(user_entry, records)
 
-  return Err(AuthError.Failed(f"unknown user ${user_entry.name}")) unless credential.found
+  return Err(AuthError.Failed(f"unknown user {user_entry.name}")) unless credential.found
 
   let password = tui.read_secret("Password: ")?
 
@@ -282,7 +282,7 @@ export pure current_password(records: List[ShadowRecord], passwd: List[PasswdEnt
 export pure lock_password(password: Str) -> Str {
   return password when password.starts_with("!")
 
-  f"!${password}"
+  f"!{password}"
 }
 
 ## Public authentication helper for shipped core applets.
@@ -348,5 +348,5 @@ export pure upsert_shadow(
 
 ## Public authentication helper for shipped core applets.
 export proc days_since_epoch() [time] -> Str {
-  f"${time.now() / 86400000}"
+  f"{time.now() / 86400000}"
 }

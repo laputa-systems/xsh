@@ -11,7 +11,7 @@ proc run_ifupdown(
   linux_log: Path,
 ) [fs, process, error] -> AppletRun {
   test.linux_fake(ctx, {log: linux_log})?
-  let source = fp"${ctx.core_dir}/${name}.xsh".read_text()?
+  let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
   let overlay = {XSH_IFUP_INTERFACES: interfaces.display(), XSH_IFUP_STATE: state.display()}
   test.run_script(ctx, source, argv, overlay, b"", name)?
 }
@@ -38,19 +38,19 @@ iface eth0 inet static
     address 10.0.1.42
     netmask 255.255.255.0
     gateway 10.0.1.1
-    pre-down echo "pre-down:\$IFACE:\$LOGICAL:\$ADDRFAM:\$METHOD" >> ${hook_log}
-    down echo "down:\$IFACE:\$IF_ADDRESS" >> ${hook_log}
-    post-down echo "post-down:\$PHASE" >> ${hook_log}
+    pre-down echo "pre-down:\$IFACE:\$LOGICAL:\$ADDRFAM:\$METHOD" >> {hook_log}
+    down echo "down:\$IFACE:\$IF_ADDRESS" >> {hook_log}
+    post-down echo "post-down:\$PHASE" >> {hook_log}
 """,
   )?
 }
 
 test test_ifdown_all_removes_configured_interfaces { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-all")?
-  let interfaces = fp"${root}/interfaces"
-  let state = fp"${root}/ifstate"
-  let linux_log = fp"${root}/linux.jsonl"
-  let hook_log = fp"${root}/hooks.log"
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
+  let hook_log = fp"{root}/hooks.log"
   write_interfaces(interfaces, hook_log)?
 
   # Bring up eth0 first.
@@ -74,10 +74,10 @@ test test_ifdown_all_removes_configured_interfaces { |ctx|
 
 test test_ifdown_runs_hooks { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-hooks")?
-  let interfaces = fp"${root}/interfaces"
-  let state = fp"${root}/ifstate"
-  let linux_log = fp"${root}/linux.jsonl"
-  let hook_log = fp"${root}/hooks.log"
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
+  let hook_log = fp"{root}/hooks.log"
   write_interfaces(interfaces, hook_log)?
 
   ifupdown_ok(ctx, "ifup", ["eth0"], interfaces, state, linux_log)
@@ -92,9 +92,9 @@ test test_ifdown_runs_hooks { |ctx|
 
 test test_ifdown_dhcp_sends_release { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-dhcp-release")?
-  let interfaces = fp"${root}/interfaces"
-  let state = fp"${root}/ifstate"
-  let linux_log = fp"${root}/linux.jsonl"
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
 
   # Write a DHCP stanza and pre-seed the state file so ifdown finds it.
   fs.write(
@@ -119,9 +119,9 @@ iface eth0 inet dhcp
 
 test test_ifdown_skips_unconfigured_interface { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-skip")?
-  let interfaces = fp"${root}/interfaces"
-  let state = fp"${root}/ifstate"
-  let linux_log = fp"${root}/linux.jsonl"
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
 
   fs.write(
     interfaces,
@@ -140,9 +140,9 @@ iface eth0 inet static
 
 test test_ifdown_logical_selection { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-logical")?
-  let interfaces = fp"${root}/interfaces"
-  let state = fp"${root}/ifstate"
-  let linux_log = fp"${root}/linux.jsonl"
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
 
   fs.write(
     interfaces,

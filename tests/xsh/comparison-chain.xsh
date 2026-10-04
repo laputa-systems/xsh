@@ -16,11 +16,11 @@ test test_comparison_chain_evaluates_reached_operands_once { |ctx|
   let reached = test.run_script(
     ctx,
     r"""proc observed(n: Int) [io] -> Int {
-  print f"${n}"
+  print f"{n}"
   return n
 }
 let result = observed(1) < observed(2) <= observed(3)
-print f"${result}"
+print f"{result}"
 """,
   )?
   assert reached.success, reached.stderr
@@ -33,11 +33,11 @@ true
   let skipped = test.run_script(
     ctx,
     r"""proc observed(n: Int) [io] -> Int {
-  print f"${n}"
+  print f"{n}"
   return n
 }
 let result = observed(3) < observed(2) <= observed(1)
-print f"${result}"
+print f"{result}"
 """,
   )?
   assert skipped.success, skipped.stderr
@@ -104,7 +104,7 @@ test test_comparison_chain_skips_failing_last_operand { |ctx|
   let result = test.run_script(
     ctx,
     r"""let result = 2 < 1 < 1 / 0
-print f"${result}"
+print f"{result}"
 """,
   )?
   assert result.success, result.stderr
@@ -123,7 +123,7 @@ test test_comparison_chain_assertion_reports_reached_failed_pair { |ctx|
   let failed = test.run_script(
     ctx,
     r"""proc observed(n: Int) [io] -> Int {
-  print f"${n}"
+  print f"{n}"
   return n
 }
 assert observed(1) < observed(2) < observed(1) < 1 / 0
