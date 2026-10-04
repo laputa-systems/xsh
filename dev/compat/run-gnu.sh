@@ -37,6 +37,22 @@ want=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uutils"]
 
 uu_build=${CARGO_TARGET_DIR:-$uutils/target}/release
 
+# GNU configure refuses to run as root, and many GNU tests change behavior (or
+# skip) when they do. Preparation runs as the invoking user with the root check
+# bypassed for configure only; the test suites then run as GNU_RUN_USER (an
+# unprivileged account, created on demand when the script runs as root) so
+# permission semantics match a normal run.
+run_user=${GNU_RUN_USER:-gnutest}
+as_user() {
+	if [ "$(id -u)" -eq 0 ]; then
+		id "$run_user" >/dev/null 2>&1 || useradd -m -s /bin/bash "$run_user"
+		setpriv --reuid="$run_user" --regid="$run_user" --init-groups \
+			env HOME="$(getent passwd "$run_user" | cut -d: -f6)" "$@"
+	else
+		"$@"
+	fi
+}
+
 prepare() {
 	# See run-uutils.sh: a missing docs/tldr.zip makes cargo rebuild every time.
 	[ -e "$uutils/docs/tldr.zip" ] || : >"$uutils/docs/tldr.zip"
@@ -44,7 +60,8 @@ prepare() {
 		mkdir -p "$gnu"
 		(cd "$gnu" && bash "$uutils/util/fetch-gnu.sh")
 	fi
-	(cd "$uutils" && PROFILE=release path_GNU="$gnu" bash util/build-gnu.sh)
+	(cd "$uutils" && FORCE_UNSAFE_CONFIGURE=1 PROFILE=release path_GNU="$gnu" bash util/build-gnu.sh)
+	[ "$(id -u)" -ne 0 ] || { id "$run_user" >/dev/null 2>&1 || useradd -m -s /bin/bash "$run_user"; chown -R "$run_user" "$gnu"; }
 }
 
 point_path_at() {
@@ -68,7 +85,8 @@ run_suite() {
 	local out=$1
 	shift
 	clear_logs "$@"
-	(cd "$gnu" && LC_ALL=C TZ=UTC timeout -sKILL 4h make check \
+	[ "$(id -u)" -ne 0 ] || chown -R "$run_user" "$gnu"
+	(cd "$gnu" && as_user env LC_ALL=C TZ=UTC timeout -sKILL 4h make check \
 		${1+TESTS="$*"} SUBDIRS=. RUN_EXPENSIVE_TESTS=yes RUN_VERY_EXPENSIVE_TESTS=yes \
 		VERBOSE=no gl_public_submodule_commit="" srcdir="$gnu") || true
 	python3 "$uutils/util/gnu-json-result.py" "$gnu/tests" >"$out"

@@ -13,8 +13,14 @@ cargo build --release -p xsh --bins -p xsht --bin xsht
 cargo install cargo-nextest --locked          # for run-uutils.sh
 ```
 
-GNU runs also need a C toolchain, autotools, perl and `quilt` (uutils'
-`build-gnu.sh` requirements).
+GNU runs also need a C toolchain, autotools, perl and the packages uutils'
+`build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
+sandbox where `apt` cannot open `/dev/null` as its `_apt` user, add
+`-o APT::Sandbox::User=root` to `apt-get update` and `install` (signature
+verification stays on). GNU `configure` refuses to run as root, so
+`run-gnu.sh` bypasses that check for configure only and runs the test suites as
+the unprivileged `GNU_RUN_USER` (default `gnutest`, created on demand), because
+many GNU tests change behavior as root.
 
 ## Commands
 
