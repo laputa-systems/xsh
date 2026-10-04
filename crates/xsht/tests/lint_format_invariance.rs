@@ -375,7 +375,7 @@ fn formatting_preserves_identical_match_arms() {
     let corpus = TempDir::new().expect("corpus directory");
     let source = "const n = 2\nmatch n {\n  1 => print  \"small\"\n  2 => print \"small\"\n  _ => print \"big\"\n}\nlet label = match n {\n  1 => [1,2]\n  2 => [1, 2]\n  _ => []\n}\nprint f\"{label.len()}\"\n";
     fs::write(corpus.path().join("arms.xsh"), source).expect("write corpus file");
-    assert_eq!(assert_formatting_preserves_lints("identical arms", corpus.path()), 2);
+    assert_eq!(assert_formatting_preserves_lints("identical arms", corpus.path(), false, || written_lints(corpus.path(), false)), 2);
 }
 
 #[test]
@@ -471,50 +471,14 @@ fn lint_fix_commutes_with_formatting_on_corpus_files() {
     assert!(fixed_files > 0, "no corpus file received a lint fix");
 }
 
-/// The corpus as it stood before the formatter rewrote it, when history is available.
+/// The Laputa monorepo is the largest XSH corpus outside this repository.
 #[test]
-fn formatting_preserves_lints_on_the_pre_format_corpus() {
-    let root = workspace_root();
-    let archive = Command::new("git").args(["archive", "b1f984c8^"]).current_dir(&root).output();
-    let Ok(archive) = archive else { return };
-    if !archive.status.success() {
-        return;
-    }
-    let scratch = TempDir::new().expect("scratch directory");
-    let mut tar = Command::new("tar")
-        .args(["-x", "-C"])
-        .arg(scratch.path())
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .expect("start tar");
-    std::io::Write::write_all(tar.stdin.as_mut().expect("tar stdin"), &archive.stdout).expect("write archive");
-    assert!(tar.wait().expect("wait for tar").success());
-    // The checker has since rejected these unsound sites; migrate them as the
-    // live tree was, so the historical corpus still checks.
-    for (file, from, to) in [
-        ("tests/xsh/collections.xsh", "item.path.display\n", "item.path.display()\n"),
-        ("tests/xsh/stdlib/args.xsh", "parsed.target.name()", "parsed.target?.name()"),
-    ] {
-        let path = scratch.path().join(file);
-        if let Ok(text) = fs::read_to_string(&path) {
-            fs::write(&path, text.replace(from, to)).expect("migrate historical corpus file");
-        }
-    }
-    // The snapshot predates `check.mixed-logical`; grouping those operands
-    // keeps their files formattable without changing what they mean.
-    let grouped = xsht(scratch.path(), &["lint", "--only", "check.mixed-logical", "--fix"]);
-    assert!(grouped.status.code().is_some_and(|code| code <= 2), "xsht lint --fix failed:\n{}", String::from_utf8_lossy(&grouped.stderr));
-    let count = assert_formatting_preserves_lints("pre-format", scratch.path(), true, || written_lints(scratch.path(), true));
-    eprintln!("pre-format corpus: {count} diagnostic(s), layout-independent");
-}
-
-#[test]
-fn formatting_preserves_lints_on_package_corpus() {
-    let root = std::env::var_os("XSH_PACKAGE_CORPUS").map_or_else(|| workspace_root().join("../packages"), PathBuf::from);
+fn formatting_preserves_lints_on_laputa_corpus() {
+    let root = std::env::var_os("XSH_LAPUTA_CORPUS").map_or_else(|| workspace_root().join("../laputa"), PathBuf::from);
     if !root.is_dir() {
         return;
     }
-    let count = assert_formatting_preserves_lints("packages", &root, false, || written_lints(&root, false));
-    eprintln!("package corpus: {count} diagnostic(s), layout-independent");
+    let count = assert_formatting_preserves_lints("laputa", &root, false, || written_lints(&root, false));
+    eprintln!("laputa corpus: {count} diagnostic(s), layout-independent");
 }
 

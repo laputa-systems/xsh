@@ -108,8 +108,8 @@ deleting that line enables it. `dev/tests/test-docs.xsh` covers the generator.
 
 `cargo test --release -p xsht --test integration lint_format_invariance::`
 checks that lint diagnostics are identical before and after formatting on the
-repository corpus, layout perturbations of it, and `../packages` (or
-`XSH_PACKAGE_CORPUS`) when present; it formats only temporary copies. The
+repository corpus, layout perturbations of it, and the Laputa monorepo `../laputa` (or
+`XSH_LAPUTA_CORPUS`) when present; it formats only temporary copies. The
 repository baseline is linted once per run and shared, each baseline lint
 overlaps the rewritten copy's, and perturbation spreads files over a bounded
 thread pool; the largest file (`dev/system_report_check.xsh`) sets its floor
