@@ -1680,7 +1680,9 @@ A stage that is not a stream stage is a value call: a bare method name uses
 the previous value as its receiver (`text |> split(",")` is `text.split(",")`),
 and a qualified function receives it as the first argument. One whole argument
 may be `_` to place the value explicitly: `data |> render(template, data: _)`.
-A trailing `?` propagates that call's `Result`.
+A trailing `?` propagates that call's `Result`. Any other value stage is an
+error (`check.pipeline-stage`); an operator after a value call applies to the
+whole pipeline, which must be grouped (`check.ambiguous-grouping`).
 
 ### 13.2 Laziness
 

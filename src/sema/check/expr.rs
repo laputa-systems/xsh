@@ -493,12 +493,8 @@ impl Checker {
             }
             ArenaExprKind::EnvGet { kind, .. } => self.check_env_get(*kind, expr.span),
             ArenaExprKind::EnvPathList => { self.require_effect(Effect::Env, expr.span, "environment path lookup"); Type::EnvPathList },
-            ArenaExprKind::Pipeline { .. } => {
-                self.error(
-                    expr.span,
-                    "pipeline sugar was not desugared",
-                    "check.desugar",
-                );
+            ArenaExprKind::Pipeline { stages, .. } => {
+                self.report_value_stage_not_call(arena, source, expr.span, *stages);
                 Type::Unknown
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
@@ -608,6 +604,60 @@ impl Checker {
             }
         }
         Type::Str
+    }
+
+    /// A value stage lowers only as a call (`ArenaProgramBuilder::build_value_pipeline_stage`).
+    /// The parser builds a `Pipeline` node only when it cannot, and that node's
+    /// first stage is the offending one. An operator expression whose leftmost
+    /// operand is a call or a name, such as `xs |> len() == 1`, means the
+    /// operator for the whole pipeline, which needs grouping like any pipeline
+    /// an operator applies to; any other stage lacks its call.
+    fn report_value_stage_not_call(&mut self, arena: &ArenaProgram, source: &str, pipeline: Span, stages: ArenaRange) {
+        use crate::syntax::arena::ArenaPipeStageKind;
+        let ast = &arena.arena;
+        let Some(&ArenaPipeStageKind::Expr(stage)) = ast.pipe_stages(stages).first().map(|stage| &stage.kind) else {
+            self.error(pipeline, "a pipeline without a leading value stage reached the checker", "check.desugar");
+            return;
+        };
+        let is_call = |expr: ExprId| {
+            let call = match ast.expr(expr).kind {
+                ArenaExprKind::Try(inner) => inner,
+                _ => expr,
+            };
+            matches!(ast.expr(call).kind, ArenaExprKind::Call { .. })
+        };
+        let names_callee = |expr: ExprId| matches!(ast.expr(expr).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. });
+        let mut operand = stage;
+        loop {
+            operand = match ast.expr(operand).kind {
+                ArenaExprKind::Binary { left, .. } => left,
+                ArenaExprKind::ComparisonChain(pairs) => {
+                    ast.comparison_chain_operands(pairs).next().expect("a comparison chain has operands")
+                }
+                ArenaExprKind::PatternTest { value, .. } => value,
+                _ => break,
+            };
+        }
+        let diagnostic = if operand != stage && (is_call(operand) || names_callee(operand)) {
+            let span = Span::new(pipeline.source_id, pipeline.start(), ast.expr(operand).span.end());
+            let diagnostic = Diagnostic::error("group a pipeline that an operator applies to")
+                .with_code("check.ambiguous-grouping")
+                .with_label(Label::primary(span, "add parentheses around this operand"));
+            match source.get(span.range()) {
+                Some(text) => diagnostic.with_fix_hint(FixHint::replacement(span, "add parentheses", format!("({text})"))),
+                None => diagnostic,
+            }
+        } else {
+            let span = ast.expr(stage).span;
+            let diagnostic = Diagnostic::error("a value pipeline stage must be a call")
+                .with_code("check.pipeline-stage")
+                .with_label(Label::primary(span, "call a method or function here, or name a stream stage"));
+            match source.get(span.range()).filter(|_| names_callee(stage)) {
+                Some(text) => diagnostic.with_fix_hint(FixHint::replacement(span, "call it", format!("{text}()"))),
+                None => diagnostic,
+            }
+        };
+        self.diagnostics.push(diagnostic);
     }
 
     /// `$` is plain text in an f-string, so a shell habit such as
