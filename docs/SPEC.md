@@ -1914,8 +1914,9 @@ batch at the first limit reached, and keeps a final short batch.
 `batch(max_argv: true)` sizes batches to fit an argv.
 
 `par-map` maps items on a bounded pool of workers (by default about one per
-CPU) and keeps input order. When a worker's callback fails with `?`, no new
-work is scheduled. Cancellation stops running workers through the ordinary
+CPU) and keeps input order. When a callback fails with `?`, no new work is
+scheduled and the stage propagates exactly as `map` does: of the items that
+ran, the earliest failure becomes the enclosing function's `Err`. Cancellation stops running workers through the ordinary
 process cancellation rules. Every other stage runs serially. `each`,
 `group-by`, and `count` reject `jobs:`.
 

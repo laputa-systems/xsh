@@ -313,6 +313,10 @@ fn decode_match_expr<'a>(execution: &FullExecution<'a>, payload: &mut FullPayloa
 
 type IndexedModuleCall = (RuntimeOp, Option<Arc<crate::modules::cli::CliDescriptorPlan>>, Vec<Option<u32>>, Span);
 
+/// One `par-map` item as a worker left it: its value or runtime error, the
+/// control flow its callback left pending, and the traceback of a `?` failure.
+type ParMapItemOutcome = (Result<LoweredValue, RuntimeError>, Option<StmtFlow>, Option<Traceback>);
+
 /// A module call's operation, CLI plan, optional argument operands, and span.
 fn decode_module_call<'a>(execution: &FullExecution<'a>, payload: &mut FullPayload<'a>, span: Span) -> Result<IndexedModuleCall, RuntimeError> {
     let op = indexed_decode::<RuntimeOp>(payload, execution, span)?;
@@ -832,7 +836,10 @@ impl Evaluator {
         ControlFlow::Break(value)
     }
 
-    /// Returned Result values stay in-band; only explicit propagation escapes.
+    /// Returned Result values stay in-band. A `?` failure leaves its
+    /// `Propagate` flow pending, as in `map`, so the caller stops the stage and
+    /// the enclosing function returns the `Err` instead of raising a runtime
+    /// error.
     fn eval_indexed_par_map_item(
         &mut self,
         execution: &FullExecution<'_>,
@@ -855,23 +862,15 @@ impl Evaluator {
         } else {
             self.eval_indexed_expr(execution, value, slots, span)
         };
-        let item_result = match item_result {
-            Ok(ControlFlow::Continue(value)) => value,
-            Ok(ControlFlow::Break(value)) => value,
-            Err(error) => return Err(error),
-        };
-        if let Some(flow) = self.pending_value_block_flow.take() {
-            if let StmtFlow::Propagate(LoweredValue::ResultErr(error)) = flow {
-                let mut error = runtime_error_from_value(*error, span);
-                error.propagated = true;
-                return Err(error);
-            }
-            self.pending_value_block_flow = Some(flow);
-            return Ok(item_result);
+        match item_result? {
+            ControlFlow::Continue(value) | ControlFlow::Break(value) => Ok(value),
         }
-        Ok(item_result)
     }
 
+    /// Runs `items` on `jobs` workers and returns the mapped values in input
+    /// order. Once an item fails, or its `?` leaves a `Propagate` flow, workers
+    /// start no further items; the earliest such item that ran decides the
+    /// stage, and its flow and traceback are handed to this evaluator.
     fn eval_indexed_par_map_parallel(
         &mut self,
         execution: &FullExecution<'_>,
@@ -898,14 +897,20 @@ impl Evaluator {
             .symbol_owner()
             .clone();
         let base_slots = slots.to_vec();
+        let call_stack = self.call_stack.clone();
+        // Set once any item fails or leaves a control flow, so no worker
+        // starts another item.
+        let stopped = std::sync::atomic::AtomicBool::new(false);
         let (chunks, stderr) = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
             let mut workers = Vec::with_capacity(worker_count);
             for (chunk_index, chunk) in partitions.into_iter().enumerate() {
                 let shared = &shared;
+                let stopped = &stopped;
                 let sender = sender.clone();
                 let symbols = symbols.clone();
                 let base_slots = base_slots.clone();
+                let call_stack = call_stack.clone();
                 let execution = execution.thread_local();
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
@@ -915,7 +920,11 @@ impl Evaluator {
                         let (mut worker, mut worker_slots) = {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
-                            (Evaluator::new_lowered_worker(shared), base_slots)
+                            let mut worker = Evaluator::new_lowered_worker(shared);
+                            // A traceback built in the callback names the
+                            // functions that are running the stage.
+                            worker.call_stack = call_stack;
+                            (worker, base_slots)
                         };
                         let mut results = {
                             let _results = allocation_stage
@@ -926,6 +935,9 @@ impl Evaluator {
                             let _items = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
                             for (item_index, item) in chunk {
+                                if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                                    break;
+                                }
                                 let result = worker.eval_indexed_par_map_item(
                                         &execution,
                                         body,
@@ -935,7 +947,12 @@ impl Evaluator {
                                         item,
                                         span,
                                     );
-                                results.push((item_index, (result, worker.pending_value_block_flow.take())));
+                                let flow = worker.pending_value_block_flow.take();
+                                let traceback = worker.pending_traceback.take();
+                                if result.is_err() || flow.is_some() {
+                                    stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                results.push((item_index, (result, flow, traceback)));
                             }
                         }
                         sender
@@ -946,19 +963,20 @@ impl Evaluator {
                 workers.push((chunk_index, worker));
             }
             drop(sender);
-            let mut completed: Vec<
-                Option<(Vec<(usize, (Result<LoweredValue, RuntimeError>, Option<StmtFlow>))>, Vec<u8>)>,
-            > = (0..workers.len()).map(|_| None).collect();
+            let mut completed: Vec<Option<(Vec<(usize, ParMapItemOutcome)>, Vec<u8>)>> =
+                (0..workers.len()).map(|_| None).collect();
+            let stop_on_error =
+                |_: &RuntimeError| stopped.store(true, std::sync::atomic::Ordering::Relaxed);
             let mut remaining = workers.len();
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
                     Ok((chunk_index, results, worker_stderr)) => {
                         completed[chunk_index] = Some((results, worker_stderr));
                         remaining -= 1;
-                        self.service_pending_signal(span)?;
+                        self.service_pending_signal(span).inspect_err(stop_on_error)?;
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        self.service_pending_signal(span)?;
+                        self.service_pending_signal(span).inspect_err(stop_on_error)?;
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         return Err(RuntimeError::new(
@@ -974,8 +992,7 @@ impl Evaluator {
                     .join()
                     .expect("lowered par-map worker thread panicked");
             }
-            let mut ordered: Vec<Option<(Result<LoweredValue, RuntimeError>, Option<StmtFlow>)>> =
-                (0..item_count).map(|_| None).collect();
+            let mut ordered: Vec<Option<ParMapItemOutcome>> = (0..item_count).map(|_| None).collect();
             let mut stderr = Vec::new();
             for completed in completed {
                 let (mut results, worker_stderr) = completed.expect("par-map worker missing");
@@ -984,15 +1001,21 @@ impl Evaluator {
                 }
                 stderr.extend(worker_stderr);
             }
+            // Items skipped after a failure have no outcome. Of the items that
+            // ran, the earliest failure decides the stage.
             let mut results = Vec::with_capacity(item_count);
-            for (item_index, result) in ordered.into_iter().enumerate() {
-                let (result, flow) = result.expect("par-map result missing");
+            for (item_index, outcome) in ordered.into_iter().enumerate() {
+                let Some((result, flow, traceback)) = outcome else { continue };
                 let value = result.map_err(|error| self.stream_item_runtime_error("par-map", item_index, error))?;
                 if let Some(flow) = flow {
                     self.pending_value_block_flow = Some(flow);
-                    break;
+                    self.pending_traceback = traceback;
+                    return Ok((results, stderr));
                 }
                 results.push(value);
+            }
+            if results.len() != item_count {
+                return Err(RuntimeError::new("par-map", "an item was skipped without a failure").with_span(span));
             }
             Ok((results, stderr))
         })?;
@@ -1110,13 +1133,20 @@ impl Evaluator {
             .symbol_owner()
             .clone();
         let base_slots = slots.to_vec();
+        let call_stack = self.call_stack.clone();
+        // Set once a chunk fails or leaves a control flow, so no worker starts
+        // another item. Chunks are contiguous, so the earliest chunk that
+        // failed holds the earliest failing item that ran.
+        let stopped = std::sync::atomic::AtomicBool::new(false);
         let completed = std::thread::scope(|scope| {
             let mut workers = Vec::with_capacity(worker_count);
             for (chunk_index, chunk) in items.chunks(chunk_size).enumerate() {
                 let chunk = chunk.to_vec();
                 let shared = &shared;
+                let stopped = &stopped;
                 let symbols = symbols.clone();
                 let base_slots = base_slots.clone();
+                let call_stack = call_stack.clone();
                 let execution = execution.thread_local();
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
@@ -1126,11 +1156,9 @@ impl Evaluator {
                         let (mut worker, mut worker_slots, mut groups) = {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
-                            (
-                                Evaluator::new_lowered_worker(shared),
-                                base_slots,
-                                BTreeMap::new(),
-                            )
+                            let mut worker = Evaluator::new_lowered_worker(shared);
+                            worker.call_stack = call_stack;
+                            (worker, base_slots, BTreeMap::new())
                         };
                         let result = (|| {
                             let mut projection = Self::indexed_reduce_projection(
@@ -1143,6 +1171,9 @@ impl Evaluator {
                             )?
                             .map(LoweredProjectedReduceState::new);
                             for item in chunk {
+                                if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                                    break;
+                                }
                                 let mapped = {
                                     let _item = allocation_stage
                                         .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
@@ -1183,7 +1214,12 @@ impl Evaluator {
                             }
                             Ok::<_, RuntimeError>(groups)
                         })();
-                        (chunk_index, result, std::mem::take(&mut worker.stderr), worker.pending_value_block_flow.take())
+                        let flow = worker.pending_value_block_flow.take();
+                        if result.is_err() || flow.is_some() {
+                            stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        let traceback = worker.pending_traceback.take();
+                        (chunk_index, result, std::mem::take(&mut worker.stderr), flow, traceback)
                     })
                     .expect("failed to spawn fused par-map worker");
                 workers.push(worker);
@@ -1193,6 +1229,7 @@ impl Evaluator {
                     Result<BTreeMap<String, LoweredValue>, RuntimeError>,
                     Vec<u8>,
                     Option<StmtFlow>,
+                    Option<Traceback>,
                 )>,
             > = (0..workers.len()).map(|_| None).collect();
             while !workers.is_empty() {
@@ -1201,15 +1238,16 @@ impl Evaluator {
                 while index < workers.len() {
                     if workers[index].is_finished() {
                         let worker = workers.swap_remove(index);
-                        let (chunk_index, result, worker_stderr, flow) =
+                        let (chunk_index, result, worker_stderr, flow, traceback) =
                             worker.join().expect("fused par-map worker thread panicked");
-                        completed[chunk_index] = Some((result, worker_stderr, flow));
+                        completed[chunk_index] = Some((result, worker_stderr, flow, traceback));
                         progress = true;
                     } else {
                         index += 1;
                     }
                 }
-                self.service_pending_signal(span)?;
+                self.service_pending_signal(span)
+                    .inspect_err(|_| stopped.store(true, std::sync::atomic::Ordering::Relaxed))?;
                 if !progress {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
@@ -1220,14 +1258,15 @@ impl Evaluator {
             completed
                 .iter()
                 .filter_map(|entry| entry.as_ref())
-                .flat_map(|(_, stderr, _)| stderr.iter().copied()),
+                .flat_map(|(_, stderr, _, _)| stderr.iter().copied()),
         );
         let mut groups = BTreeMap::new();
         for completed in completed {
-            let (result, _, flow) = completed.expect("fused par-map worker missing");
+            let (result, _, flow, traceback) = completed.expect("fused par-map worker missing");
             let result = result?;
             if let Some(flow) = flow {
                 self.pending_value_block_flow = Some(flow);
+                self.pending_traceback = traceback;
                 break;
             }
             for (key, value) in result {

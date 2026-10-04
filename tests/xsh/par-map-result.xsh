@@ -71,3 +71,61 @@ test test_par_map_collect_all_retains_nominal_error_data_in_order {
     assert false, "expected the middle item's nominal error"
   }
 }
+
+proc divide_all(xs: List[Int], parallel: Bool) [error] -> Result[List[Int]] {
+  if parallel {
+    xs |> par-map(jobs: 4) { |x| safe_div(x)? }
+  } else {
+    xs |> map { |x| safe_div(x)? }
+  }
+}
+
+proc divide_total(xs: List[Int]) [error] -> Result[Map[Str, Int]] {
+  xs
+    |> par-map(jobs: 4) { |x| safe_div(x)? }
+    |> reduce-by(sum: true) { |value| {key: "all", value} }
+}
+
+test test_par_map_propagation_fails_the_enclosing_function_like_map {
+  let items = [10, 20, 0, 40, 50, 0, 25, 5]
+  for parallel in [false, true] {
+    if let Err(failure) = divide_all(items, parallel) {
+      assert failure is TestError.DivisionByZero
+    } else {
+      assert false, "expected the stage's first failure as the function's Err"
+    }
+  }
+  assert divide_all([10, 20, 25], true)? == [10, 5, 4]
+  if let Err(failure) = divide_total(items) {
+    assert failure is TestError.DivisionByZero
+  } else {
+    assert false, "expected the fused stage's first failure as the function's Err"
+  }
+  assert divide_total([10, 20])?["all"] == 15
+}
+
+test test_par_map_uncaught_propagation_traces_the_callers { |ctx|
+  let failed = test.run_script(
+    ctx,
+    """
+error Stop = Bad(message: Str)
+
+proc check(x: Int) [error] -> Result[Int] {
+  return Err(Stop.Bad(message: "bad item")) when x == 2
+  Ok(x)
+}
+
+proc check_all(xs: List[Int]) [error] -> Result[List[Int]] {
+  xs |> par-map(jobs: 4) { |x| check(x)? }
+}
+
+let checked = check_all([1, 2, 3, 4])?
+print $checked.len()
+""",
+  )?
+  assert ! failed.success, failed.stderr
+  assert failed.status == 3, failed.stderr
+  assert "operation: result.propagate" in failed.stderr, failed.stderr
+  assert "proc check_all at" in failed.stderr, failed.stderr
+  assert "stream stage" not in failed.stderr, failed.stderr
+}
