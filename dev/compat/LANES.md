@@ -189,6 +189,18 @@ the wave follows the dependency column.
 | `awk` | Rust | new native module for the awk parser/runtime, `core/awk.xsh` | Wave 0; long-running |
 | `gnu-patch-classify` | routine | `dev/compat/gnu-patches.json` (temporary ownership) | none |
 
+`dev/compat/lanes.json` is the authoritative ownership table (`lanes.py check`
+enforces exclusive ownership and full coverage of the 106 in-scope utilities;
+`lanes.py brief LANE` renders the brief with live baseline counts). It splits
+the large groups above into lane-sized pieces: `files-a` into `ls`, `cp`,
+`mv-ln`, `fs-basic`; `files-b` into `perm`, `stat-du-df`, `fs-misc`; `text-a`
+into `text-a1`, `text-a2`; `text-b` into `sort`, `text-b1`, `text-b2`; `bytes`
+into `bytes-enc`, `checksums`; `trivial` into `trivial`, `printf-env`, `date`;
+`process-cmds` into `proc-a`, `tty-misc`.
+
+Merging a script-only lane needs no rebuild: the suite stages `core/` and uses
+the existing release `xsh`. Only lanes that change Rust rebuild first.
+
 Start order on the reference VM (4 active, 1 compiling): `trivial`,
 `native-fs`, `text-a`, `sysreport-extract`; then fill freed slots in this
 order: `native-proc-tty`, `files-a`, `text-b`, `native-bytes-hash`, `bytes`,
