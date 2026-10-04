@@ -87,12 +87,14 @@ proc fd_info(fd: Int) [fs, error] -> Result[Fd] {
   for line in fp"/proc/self/fdinfo/{fd}".read_text()?.lines() {
     let parts = line.split(":")
     let name = parts.get(0) ?? ""
-    let value = (parts.get(1) ?? "").trim().parse_int() ?? 0
+    let text = (parts.get(1) ?? "").trim()
+    let value = text.parse_int() ?? 0
 
     if name == "pos" {
       info = {...info, pos: value}
     } else if name == "flags" {
-      info = {...info, append: value / 1024 % 2 == 1}
+      let mode = if text.byte_len() >= 4 { text.byte_slice(text.byte_len() - 4, length: 1) } else { "0" }
+      info = {...info, append: mode in ["2", "3", "6", "7"]}
     } else if name == "ino" {
       info = {...info, ino: value}
     } else if name == "mnt_id" {
