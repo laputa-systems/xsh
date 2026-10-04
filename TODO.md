@@ -117,3 +117,38 @@ autofix where one exists, and tests.
   `run_script` + `assert output.status == N, output.stderr` + repeated
   `assert "..." in output.stderr, output.stderr` (1,013 `run_script` calls,
   about 587 status and 567 stderr asserts here).
+
+## Accepted ergonomics backlog, second batch
+
+- **One spelling for statement-position propagation; fewer `?` overall.** A
+  statement-position `Result[Unit]` already propagates (SPEC 8.1), so
+  `fs.mkdir(tmp)?` as a statement spells it twice (about 6,400 such lines
+  across this repo and Laputa). Drop the redundant `?` with a lint and
+  autofix. Broader goal: audit where else `?` is ceremony rather than
+  information.
+- **`fail MESSAGE` statement**, desugaring to `return Err(error.failure(msg))`.
+  Replaces the 124 one-variant `error X = Failed(message: Str)` families that
+  exist only to have something to return. Typed families stay for errors
+  callers match on.
+- **Multi-line error families and implicit messages.** Families cannot span
+  lines today (Laputa's `PmError` is one ~1,100-character line). Use the
+  `enum`-style brace form, one variant per line, and let a variant without a
+  payload take its message positionally (`PmError.Usage("...")`): every error
+  already has `.message`, so 273 `(message: Str)` payloads restate it.
+- **String patterns in f-string syntax**: `if let f"{key}={value}" = line`,
+  `match line { f"#define {name} {body}" => ... }`. Stay as close to Python
+  as possible: the hole grammar is Python's format-field grammar read in
+  reverse (as the `parse` package does), so typed holes such as `{n:d}`
+  follow Python's spec letters. Holes match leftmost-shortest, the last takes
+  the rest; a non-match is just a non-matching arm. Targets ~40 split-then-index
+  sites, ~33 regex captures, and many `starts_with` + slice pairs.
+- **`wait until COND within DURATION`**, failing loudly with `Timeout`
+  instead of hand-written polling loops that silently fall through (~37
+  `time.sleep` loops). Include exponential backoff in the same sugar, e.g.
+  `wait until ready()? within 30s every 100ms` and a backoff form such as
+  `... backoff 100ms..5s` (doubling, capped); `retry` should accept the same
+  backoff spelling instead of a hand-written delay list. Open: exact spelling
+  and whether jitter is the default.
+- **Optionals instead of `""` sentinels.** Lint `?? ""` (~475 Laputa sites)
+  whose binding is later compared with `""`, and suggest optional binding:
+  collapsing "unset" into "empty" makes the two indistinguishable.
