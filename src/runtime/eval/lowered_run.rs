@@ -1352,7 +1352,8 @@ fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), R
 /// Whether a captured module-export signature satisfies the contract `expected`:
 /// same arity, matching (bidirectional) param types and rest flags, a defaulted
 /// flag that the contract permits, compatible return type, and the contract's
-/// effects match the function's declared effects exactly.
+/// effects match the function's checked effects exactly. An entry without a
+/// clause is unrestricted and accepts any effects, as in static checking.
 fn lowered_signature_matches_contract(sig: &CallableType, expected: &CallableType) -> bool {
     sig.params.len() == expected.params.len()
         && sig
@@ -1362,14 +1363,7 @@ fn lowered_signature_matches_contract(sig: &CallableType, expected: &CallableTyp
             .all(|(actual, expected)| {
                 actual.rest == expected.rest && actual.ty.matches_expected(&expected.ty)
             })
-        && match (&sig.effects, &expected.effects) {
-            (None, None) => true,
-            (Some(actual), Some(expected)) => {
-                actual.iter().all(|effect| expected.contains(effect))
-                    && expected.iter().all(|effect| actual.contains(effect))
-            }
-            _ => false,
-        }
+        && crate::sema::types::callable_effects_match(&sig.effects, &expected.effects)
         && sig.return_ty.matches_expected(&expected.return_ty)
 }
 

@@ -34,9 +34,8 @@ composition model and replaces its semantics.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   can leave a function only through a visible `?`, a statement-position
   `Result[Unit]`, an `assert`, or a failed plain `run`.
-- **Effects are tracked.** Pure functions cannot touch the host. Procs may
-  declare which host effects they use, and private procs have their effects
-  inferred.
+- **Effects are tracked.** Pure functions cannot touch the host. Procs infer
+  which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
   units are host processes and bounded stream stages; there are no futures,
   callbacks, event loops, or green threads.
@@ -538,7 +537,9 @@ strings. Ordinary enums cannot be JSON-encoded.
 
 A module contract describes a runtime module's exports. Each entry's kind and
 full signature must match exactly; `optional` entries may be absent, and extra
-exports are allowed. Statically imported modules satisfy contracts directly;
+exports are allowed. An entry's effect clause matches the export's declared or
+inferred effects as a set; an entry without a clause is unrestricted and
+accepts any effects. Statically imported modules satisfy contracts directly;
 `module.load` values are checked when `.require(Contract)` runs. Streams are
 not contract members. Loading the same file again returns the same exports
 while the module and its imports are unchanged on disk, and reloads it once
@@ -1359,13 +1360,23 @@ must stay within it, or the checker reports `check.effect-violation` with the
 call chain. `print` and `eprint` need no effect. Pure functions satisfy any
 bound.
 
-A private proc without a clause has its effects inferred from its body and
-callees (recursion included). Callers see the inferred set. Exported procs,
-module-contract entries, `cli main`, `proc main`, native tests, and streams
+A proc or stream without a clause, exported or not, has its effects inferred
+from its body and callees (recursion included), and callers, including
+importers, see the inferred set. The set depends only on the declaration and
+what it calls, never on its callers, so the checker solves it once over the
+whole module bundle, independent of declaration and import order; `proc main`
+and `cli main` infer the same way. Native tests and module-contract entries
 without a clause are unrestricted, so a restricted caller cannot call them.
 Opaque callables and unresolved dependencies have unknown effects, which a
 restricted caller cannot use either. Local `try` and `retry` capture removes
 only the outward `error` requirement.
+
+Write a clause where it states a promise: on an exported API whose effects
+callers should be able to rely on as the implementation changes, or on a
+surface deliberately kept narrower than its body could be, such as a proc
+that must never reach the network. `lint.prefer-inferred-private-effects`
+reports a clause on a private proc or stream that names exactly its inferred
+effects.
 
 ## 10. Commands And Scopes
 

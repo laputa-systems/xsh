@@ -50,7 +50,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-generic-record-constructor` | Let a constructor infer its concrete schema from the supplied fields |
 | `lint.prefer-guard` | Use `guard` instead of a single-action `if` |
 | `lint.prefer-in` | Use `in` or `not in` instead of a membership method call |
-| `lint.prefer-inferred-private-effects` | Drop a private proc effect clause when it is inferred exactly |
+| `lint.prefer-inferred-private-effects` | Drop a private proc or stream effect clause that names exactly its inferred effects |
 | `lint.prefer-inferred-pure-return` | Drop a private pure return type when it is inferred exactly |
 | `lint.prefer-inferred-variant` | Drop a variant qualifier that the expected type already selects, as in `.Symlink` |
 | `lint.prefer-known-field-access` | Select a guaranteed record field directly instead of through a lookup |
@@ -106,7 +106,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.stage-callable` | Name the callable directly instead of a transparent stream stage block |
 | `lint.stream-options` | Replace stream stage flags with ordinary named arguments |
 | `lint.stringly-typed-match` | Suggest a tag union type for a match with three or more string-literal arms |
-| `lint.unannotated-effects` | Flag a proc that has effects but no annotation and suggest the effect list |
 | `lint.unsorted-imports` | Sort a contiguous import block by module path and alias |
 | `lint.unused-callable` | Flag an unexported callable not reachable from a bundle entry point |
 | `lint.unused-local` | Flag a local variable that is never read |

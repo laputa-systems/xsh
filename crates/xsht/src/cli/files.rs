@@ -168,13 +168,26 @@ pub(crate) fn is_path_excluded(root: &Path, path: &Path, excludes: &[String]) ->
     excludes.iter().any(|pat| glob_matches(pat, &relative))
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct LintConfig {
     pub prefer_inferred_pure_returns: bool,
+    /// On unless `prefer-inferred-private-effects = false`.
     pub prefer_inferred_private_effects: bool,
     pub prefer_inferred_variants: bool,
     pub prefer_positional_constructors: bool,
     pub runless_except: Vec<String>,
+}
+
+impl Default for LintConfig {
+    fn default() -> Self {
+        Self {
+            prefer_inferred_pure_returns: false,
+            prefer_inferred_private_effects: true,
+            prefer_inferred_variants: false,
+            prefer_positional_constructors: false,
+            runless_except: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -333,7 +346,7 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_inferred_pure_returns: ini_string(lint, "prefer-inferred-pure-returns")
             .is_some_and(|value| value == "true"),
         prefer_inferred_private_effects: ini_string(lint, "prefer-inferred-private-effects")
-            .is_some_and(|value| value == "true"),
+            .is_none_or(|value| value != "false"),
         prefer_inferred_variants: ini_string(lint, "prefer-inferred-variants")
             .is_some_and(|value| value == "true"),
         prefer_positional_constructors: ini_string(lint, "prefer-positional-constructors")
@@ -599,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn private_proc_effects_config_is_explicit_opt_in() {
+    fn private_proc_effects_config_is_on_unless_disabled() {
         let root = temp_root("private-proc-effects-config");
         let path = root.join("xsht-config.ini");
         fs::write(&path, "[lint]\nprefer-inferred-private-effects = true\n").unwrap();
@@ -618,7 +631,7 @@ mod tests {
         );
         fs::write(&path, "[lint]\n").unwrap();
         assert!(
-            !load_config_from(&path)
+            load_config_from(&path)
                 .unwrap()
                 .lint
                 .prefer_inferred_private_effects

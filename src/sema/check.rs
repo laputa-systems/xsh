@@ -471,6 +471,10 @@ pub struct Checker {
     collecting_effects: bool,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
+    /// Set by a probe that read a callee's effects from a module-value type
+    /// instead of recording a graph edge, so the probe must repeat until the
+    /// summaries it read are the solved ones.
+    provisional_effects_read: std::cell::Cell<bool>,
     effect_owner: Option<EffectDeclarationId>,
     last_status_available: bool,
     stream_item_types: Vec<Type>,
@@ -558,14 +562,18 @@ impl Checker {
         program.symbol_owner().with_current(|| {
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
-            let mut probe = Self::new(options);
-            probe.collecting_effects = true;
-            probe.check_embedded_bodies = check_embedded_bodies;
-            probe.check_program_arena_with_type_program(program, source, type_program.clone());
+            let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
+                let mut probe = Self::new(options);
+                probe.collecting_effects = true;
+                probe.check_embedded_bodies = check_embedded_bodies;
+                probe.effect_summaries = summaries;
+                probe.check_program_arena_with_type_program(program, source, type_program.clone());
+                probe
+            });
             let mut checker = Self::new(options);
             checker.check_embedded_bodies = check_embedded_bodies;
-            checker.effect_summaries = probe.effect_graph.solve();
-            checker.effect_graph = probe.effect_graph;
+            checker.effect_summaries = effect_summaries;
+            checker.effect_graph = effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
             CheckOutput {
@@ -602,6 +610,26 @@ impl Checker {
                 record_constructor_fields: checker.record_constructor_fields,
             }
         })
+    }
+
+    /// Probe passes resolve every body once to build the effect graph, so a
+    /// checked program never depends on declaration or module order. A call
+    /// through a module value reads its callee's effects from the value's type
+    /// rather than recording an edge; such a probe repeats with the previous
+    /// solution until the summaries it read are the solved ones. Summaries only
+    /// grow within a finite domain, so the repetition terminates.
+    fn solve_effect_probes(
+        mut probe: impl FnMut(BTreeMap<EffectDeclarationId, EffectSummary>) -> Self,
+    ) -> (EffectGraph, BTreeMap<EffectDeclarationId, EffectSummary>) {
+        let mut provisional = BTreeMap::new();
+        loop {
+            let checker = probe(provisional.clone());
+            let solved = checker.effect_graph.solve();
+            if !checker.provisional_effects_read.get() || solved == provisional {
+                return (checker.effect_graph, solved);
+            }
+            provisional = solved;
+        }
     }
 
     pub fn check_arena_interactive(
@@ -700,11 +728,15 @@ impl Checker {
                 }
             }
 
-            let mut probe = Self::new(CheckOptions::default());
-            probe.collecting_effects = true;
-            probe.check_program_arena(&main_program, main.1);
-            checker.effect_summaries = probe.effect_graph.solve();
-            checker.effect_graph = probe.effect_graph;
+            let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
+                let mut probe = Self::new(CheckOptions::default());
+                probe.collecting_effects = true;
+                probe.effect_summaries = summaries;
+                probe.check_program_arena(&main_program, main.1);
+                probe
+            });
+            checker.effect_summaries = effect_summaries;
+            checker.effect_graph = effect_graph;
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
             CheckOutput {
@@ -820,6 +852,7 @@ impl Checker {
             collecting_effects: false,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
+            provisional_effects_read: std::cell::Cell::new(false),
             effect_owner: None,
             last_status_available: false,
             stream_item_types: Vec::new(),

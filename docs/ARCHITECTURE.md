@@ -93,8 +93,8 @@ stages do not recover from ambiguous trees the parser could have represented.
 **Checking.** `Checker` owns lexical scopes, signatures, imports, return and
 purity context, and stream item context. Focused rules live beside it:
 `src/sema/constraints.rs::TypeConstraints` (bounded monomorphic inference),
-`src/sema/check/infer_return.rs` and `src/sema/check/infer_effects.rs` (private
-return and effect inference), `src/sema/check/proof.rs` (narrowing provenance),
+`src/sema/check/infer_return.rs` (private return inference),
+`src/sema/check/infer_effects.rs` (effect inference over the whole module bundle), `src/sema/check/proof.rs` (narrowing provenance),
 `src/sema/check/stream.rs` (pipeline stage facts), and `src/sema/arguments.rs`
 (static argument binding). Registry signatures from `crates/xsh-registry` are
 adapted to semantic types in `src/modules/signature.rs`. The checker reports a

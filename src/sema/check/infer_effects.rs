@@ -9,7 +9,7 @@ pub struct EffectDeclarationId {
     pub body: Span,
 }
 
-/// Missing private clauses infer a contract; an explicit clause remains the
+/// Missing clauses infer a contract; an explicit clause remains the
 /// caller-visible upper bound even when its body needs fewer effects.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FunctionEffectFact {
@@ -17,6 +17,9 @@ pub struct FunctionEffectFact {
     pub required: Option<Vec<Effect>>,
     pub inferred: bool,
     pub inference_allowed: bool,
+    /// The clause names exactly the set its declaration would infer without
+    /// it, so deleting the clause changes no caller-visible contract.
+    pub redundant_clause: bool,
     pub unknown_chain: Vec<String>,
 }
 
@@ -54,10 +57,14 @@ impl EffectSummary {
     }
 }
 
+/// A summary edge reads the target's solved summary; a contract edge reads the
+/// target's declared clause. Keeping contract edges distinct lets the solver
+/// ask what a declared callee would infer without its clause.
 #[derive(Clone, Debug)]
 struct EffectEdge {
     target: EffectDeclarationId,
     captures_error: bool,
+    contract: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -125,22 +132,37 @@ impl EffectGraph {
         target: EffectDeclarationId,
         captures_error: bool,
     ) {
+        let contract = self
+            .nodes
+            .get(&target)
+            .is_some_and(|node| !node.inferred && node.declared.is_some());
         if let Some(node) = owner.and_then(|owner| self.nodes.get_mut(&owner))
-            && !node
-                .edges
-                .iter()
-                .any(|edge| edge.target == target && edge.captures_error == captures_error)
+            && !node.edges.iter().any(|edge| {
+                edge.target == target
+                    && edge.captures_error == captures_error
+                    && edge.contract == contract
+            })
         {
             node.edges.push(EffectEdge {
                 target,
                 captures_error,
+                contract,
             });
         }
     }
 
+    pub fn solve(&self) -> BTreeMap<EffectDeclarationId, EffectSummary> {
+        self.solve_with(None)
+    }
+
     /// Effect sets only grow within the finite domain. Unknown witnesses choose
     /// the shortest stable chain, so recursive calls cannot grow diagnostic paths.
-    pub fn solve(&self) -> BTreeMap<EffectDeclarationId, EffectSummary> {
+    /// `unclaused` solves as if that declaration had no clause: contract edges
+    /// to it read its summary instead.
+    fn solve_with(
+        &self,
+        unclaused: Option<EffectDeclarationId>,
+    ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
         let mut summaries = self
             .nodes
             .iter()
@@ -150,8 +172,16 @@ impl EffectGraph {
             let mut changed = false;
             for (&id, node) in &self.nodes {
                 for edge in &node.edges {
-                    let Some(target) = summaries.get(&edge.target).cloned() else {
-                        continue;
+                    let target = if edge.contract && unclaused != Some(edge.target) {
+                        EffectSummary {
+                            known: self.nodes[&edge.target].declared.clone().unwrap_or_default(),
+                            unknown_chain: Vec::new(),
+                        }
+                    } else {
+                        let Some(target) = summaries.get(&edge.target).cloned() else {
+                            continue;
+                        };
+                        target
                     };
                     let summary = summaries
                         .get_mut(&id)
@@ -174,6 +204,55 @@ impl EffectGraph {
         }
     }
 
+    /// A clause is redundant when it equals, as a set, what its declaration
+    /// infers once every use of the clause, including recursive ones, reads the
+    /// inferred summary instead.
+    fn redundant_clause(
+        &self,
+        id: EffectDeclarationId,
+        node: &EffectNode,
+        summary: &EffectSummary,
+    ) -> bool {
+        let Some(declared) = &node.declared else {
+            return false;
+        };
+        let same = |known: &[Effect]| {
+            known.len() == declared.len() && declared.iter().all(|effect| known.contains(effect))
+        };
+        if !node.inference_allowed || summary.effects().is_none_or(|known| !same(&known)) {
+            return false;
+        }
+        // Without a path back to the declaration, its clause feeds nothing it
+        // depends on, so the solved summary already is the inferred set.
+        if !self.reaches_own_contract(id) {
+            return true;
+        }
+        self.solve_with(Some(id))[&id]
+            .effects()
+            .is_some_and(|known| same(&known))
+    }
+
+    /// Whether a call chain from `id` uses `id`'s own clause. Contract edges to
+    /// other declarations end a chain because they read a fixed clause.
+    fn reaches_own_contract(&self, id: EffectDeclarationId) -> bool {
+        let mut pending = vec![id];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(current) = pending.pop() {
+            if !seen.insert(current) {
+                continue;
+            }
+            for edge in self.nodes.get(&current).map_or(&[][..], |node| &node.edges) {
+                if edge.target == id {
+                    return true;
+                }
+                if !edge.contract {
+                    pending.push(edge.target);
+                }
+            }
+        }
+        false
+    }
+
     pub fn facts(
         &self,
         summaries: &BTreeMap<EffectDeclarationId, EffectSummary>,
@@ -193,6 +272,7 @@ impl EffectGraph {
                         required: summary.effects(),
                         inferred: node.inferred,
                         inference_allowed: node.inference_allowed,
+                        redundant_clause: self.redundant_clause(*id, node, summary),
                         unknown_chain: summary.unknown_chain.clone(),
                     },
                 )
@@ -221,7 +301,6 @@ impl Checker {
         program: &ArenaProgram,
         namespace: Option<Name>,
     ) {
-        let mut exported = super::FxHashSet::default();
         let mut namespaces = super::FxHashMap::default();
         for module in &program.modules {
             for statement in program.arena.stmt_ids(module.statements) {
@@ -229,19 +308,11 @@ impl Checker {
             }
         }
         for raw in 0..program.arena.stmt_tags.len() {
-            if let ArenaStmtKind::Export(inner) = program.arena.stmt(StmtId::from_index(raw)).kind
-                && let ArenaStmtKind::ProcDef(definition) = program.arena.stmt(inner).kind
-            {
-                exported.insert(definition);
-            }
-        }
-        for raw in 0..program.arena.stmt_tags.len() {
             let statement = program.arena.stmt(StmtId::from_index(raw));
-            let (definition, ordinary) = match statement.kind {
-                ArenaStmtKind::ProcDef(definition) => (definition, true),
-                ArenaStmtKind::StreamDef(definition) | ArenaStmtKind::CliMain(definition) => {
-                    (definition, false)
-                }
+            let definition = match statement.kind {
+                ArenaStmtKind::ProcDef(definition)
+                | ArenaStmtKind::StreamDef(definition)
+                | ArenaStmtKind::CliMain(definition) => definition,
                 _ => continue,
             };
             {
@@ -256,10 +327,11 @@ impl Checker {
                 let declared = def
                     .effects
                     .map(|effects| program.arena.effects(effects).collect());
-                let inference_allowed = ordinary
-                    && !def.test_declaration
-                    && !exported.contains(&definition)
-                    && def.name != "main";
+                // Exports, streams, and entry points infer like private procs:
+                // an importer reads the inferred set, which depends only on the
+                // body and its callees. A native test has no callers, so
+                // without a clause it stays unrestricted.
+                let inference_allowed = !def.test_declaration;
                 let name = id
                     .namespace
                     .map(|namespace| format!("{namespace}.{}", def.name))
@@ -282,8 +354,13 @@ impl Checker {
         if !self.effect_graph.is_inferred(id) {
             return None;
         }
+        // A probe reads the previous probe's solution; the first probe starts
+        // from the empty set.
         if self.collecting_effects {
-            return Some(Vec::new());
+            return self
+                .effect_summaries
+                .get(&id)
+                .map_or_else(|| Some(Vec::new()), EffectSummary::effects);
         }
         self.effect_summaries
             .get(&id)
@@ -324,8 +401,8 @@ impl Checker {
         span: Span,
     ) {
         if self.collecting_effects {
-            if sig.inferred_effects
-                && let Some(declaration) = sig.effect_declaration
+            if let Some(declaration) = sig.effect_declaration
+                && (sig.inferred_effects || sig.effects.is_some())
             {
                 self.effect_graph.call(
                     self.effect_owner,

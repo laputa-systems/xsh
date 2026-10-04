@@ -549,6 +549,9 @@ impl Checker {
             {
                 match export {
                     ModuleExportType::Proc { sig, .. } => {
+                        if self.collecting_effects {
+                            self.provisional_effects_read.set(true);
+                        }
                         self.record_effect_contract(&sig.effects, &name.as_str());
                         if self.in_pure {
                             self.error(

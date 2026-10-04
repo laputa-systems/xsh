@@ -628,10 +628,7 @@ fn effect_annotation_lints(source: &str) -> Vec<(String, String)> {
     .diagnostics
     .into_iter()
     .filter(|diagnostic| {
-        matches!(
-            diagnostic.code.map(DiagnosticCode::name),
-            Some("lint.unannotated-effects" | "lint.missing-effects")
-        )
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.missing-effects")
     })
     .map(|diagnostic| {
         (
@@ -667,7 +664,7 @@ proc main() {
 }
 
 #[test]
-fn effect_annotation_lints_keep_exported_procs_streams_and_exported_main() {
+fn effect_annotation_lints_leave_inferred_exports_streams_and_main_alone() {
     let source = "\
 ##! Effect contract fixture.
 ## Reads the clock.
@@ -690,23 +687,7 @@ for tick in ticks() {
   print ${stamp() + tick}
 }
 ";
-    assert_eq!(
-        effect_annotation_lints(source),
-        [
-            (
-                "lint.unannotated-effects".to_owned(),
-                "proc `stamp` has effects but no annotation".to_owned()
-            ),
-            (
-                "lint.unannotated-effects".to_owned(),
-                "proc `ticks` has effects but no annotation".to_owned()
-            ),
-            (
-                "lint.unannotated-effects".to_owned(),
-                "proc `main` has effects but no annotation".to_owned()
-            ),
-        ]
-    );
+    assert_eq!(effect_annotation_lints(source), []);
 }
 
 #[test]
@@ -6962,88 +6943,96 @@ fn private_proc_effects_lint_does_not_reinsert_inferred_annotations() {
     );
     assert!(!linted.diagnostics.iter().any(|diagnostic| matches!(
         diagnostic.code.map(DiagnosticCode::name),
-        Some("lint.unannotated-effects" | "lint.missing-effects")
+        Some("lint.missing-effects" | "lint.prefer-inferred-private-effects")
     )));
 }
 
-#[test]
-fn private_proc_effects_removal_is_opt_in_checked_and_convergent() {
-    let source = "proc clock() [time] -> Int { let _ = time.now(); 42 }\nlet value = clock()\n";
+fn private_effects_lints(source: &str, enabled: bool) -> Vec<Diagnostic> {
     let parsed = parse_lint_source(source);
-    let disabled = Linter::lint(&parsed.arena, source, LintOptions::default());
-    assert!(
-        !disabled
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
-                == Some("lint.prefer-inferred-private-effects"))
-    );
-    let enabled = Linter::lint(
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    Linter::lint(
         &parsed.arena,
         source,
         LintOptions {
-            prefer_inferred_private_effects: true,
+            prefer_inferred_private_effects: enabled,
             ..LintOptions::default()
         },
-    );
-    let diagnostic = enabled
-        .diagnostics
-        .iter()
-        .find(|diagnostic| {
-            diagnostic.code.map(DiagnosticCode::name)
-                == Some("lint.prefer-inferred-private-effects")
-        })
-        .expect("equivalent private effect removal");
+    )
+    .diagnostics
+    .into_iter()
+    .filter(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-inferred-private-effects")
+    })
+    .collect()
+}
+
+fn delete_fix(source: &str, diagnostic: &Diagnostic) -> String {
     let span = diagnostic.fix_hints[0].span.unwrap();
     let mut fixed = source.to_string();
     fixed.replace_range(span.start()..span.end(), "");
-    assert_parse_check_standalone("inferred effects", &fixed);
-    let parsed = parse_lint_source(&fixed);
-    let second = Linter::lint(
-        &parsed.arena,
-        &fixed,
-        LintOptions {
-            prefer_inferred_private_effects: true,
-            ..LintOptions::default()
-        },
-    );
-    assert!(
-        !second
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
-                == Some("lint.prefer-inferred-private-effects"))
-    );
+    fixed
 }
 
 #[test]
-fn private_proc_effects_removal_retains_bounds_docs_and_entry_contracts() {
+fn private_effects_removal_is_default_checked_and_convergent() {
+    let source = "proc clock() [time] -> Int { let _ = time.now(); 42 }\nlet value = clock()\n";
+    assert!(private_effects_lints(source, false).is_empty());
+    let diagnostics = private_effects_lints(source, true);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    let fixed = delete_fix(source, &diagnostics[0]);
+    assert_eq!(
+        fixed,
+        "proc clock() -> Int { let _ = time.now(); 42 }\nlet value = clock()\n"
+    );
+    assert_parse_check_standalone("inferred effects", &fixed);
+    assert!(private_effects_lints(&fixed, true).is_empty());
+}
+
+#[test]
+fn private_effects_removal_covers_streams_comments_and_bracketed_parameters() {
     for source in [
+        "stream ticks() [time] -> Stream[Int] { let _ = time.now(); yield 1 }\nproc caller() -> Int { ticks().collect().len() }\n",
+        "# Reads the clock.\nproc documented() [time] -> Int { let _ = time.now(); 42 }\n",
+        "# Reads the clock [UTC].\nproc clock(offsets: List[Int] = [1, 2]) [time] -> Int { let _ = time.now(); offsets.len() }\nproc caller() -> Int { clock() }\n",
+    ] {
+        let diagnostics = private_effects_lints(source, true);
+        assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+        let fixed = delete_fix(source, &diagnostics[0]);
+        assert!(!fixed.contains("[time]"), "{fixed}");
+        assert!(fixed.contains(") -> Int {") || fixed.contains(") -> Stream"), "{fixed}");
+        assert_eq!(fixed.contains('#'), source.contains('#'), "{fixed}");
+        assert_parse_check_standalone("inferred effects", &fixed);
+    }
+}
+
+#[test]
+fn private_effects_removal_retains_bounds_entry_points_exports_and_recursion() {
+    for source in [
+        // Narrower than the clause: deleting it would narrow callers' view.
         "proc deliberate() [time] -> Int { 42 }\n",
-        "# Checked clock boundary.\nproc documented() [time] -> Int { let _ = time.now(); 42 }\n",
         "proc main() [time] -> Int { let _ = time.now(); 42 }\n",
+        "cli main(count: Int) [time] { let _ = time.now(); print $count }\n",
         "test registered [error] { assert true, \"checked\" }\n",
         "##! Public boundary.\n## Clock.\nexport proc published() [time] -> Int { let _ = time.now(); 42 }\n",
         "proc dynamic(callback: Proc) [io] -> Int { let _ = callback.call(); 42 }\n",
+        // Only the clause's own recursive use supplies `time`; without the
+        // clause the cycle infers nothing.
+        "proc spin(count: Int) [time] -> Int {\n  if count == 0 { return 0 }\n  spin(count - 1)\n}\n",
+        "proc ping(count: Int) [time] -> Int {\n  if count == 0 { return 0 }\n  pong(count - 1)\n}\nproc pong(count: Int) -> Int { ping(count) }\n",
     ] {
-        let parsed = parse_lint_source(source);
-        let linted = Linter::lint(
-            &parsed.arena,
-            source,
-            LintOptions {
-                prefer_inferred_private_effects: true,
-                ..LintOptions::default()
-            },
-        );
         assert!(
-            !linted
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
-                    == Some("lint.prefer-inferred-private-effects")),
+            private_effects_lints(source, true).is_empty(),
             "{source}"
         );
     }
+}
+
+#[test]
+fn private_effects_removal_flags_recursion_whose_body_needs_the_effects() {
+    let source = "proc spin(count: Int) [time] -> Int {\n  if count == 0 {\n    let _ = time.now()\n    return 0\n  }\n  spin(count - 1)\n}\n";
+    let diagnostics = private_effects_lints(source, true);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_parse_check_standalone("recursive inferred effects", &delete_fix(source, &diagnostics[0]));
 }
 
 #[test]

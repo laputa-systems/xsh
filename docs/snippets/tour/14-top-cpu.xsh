@@ -14,7 +14,7 @@ pure parse_stat(line: Str) -> Sample? {
   }
 }
 
-proc snapshot() [fs, process, error] -> Result[Map[Int, Sample]] {
+proc snapshot() -> Result[Map[Int, Sample]] {
   var samples: Map[Int, Sample] = {}
 
   for entry in process.list()? {

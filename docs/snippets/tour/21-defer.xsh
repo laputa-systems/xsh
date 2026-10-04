@@ -1,4 +1,4 @@
-proc rotate(dir: Path) [fs, error] {
+proc rotate(dir: Path) {
   let lock = fp"{dir}/.rotate.lock"
   lock.write("locked\n")?
   defer {

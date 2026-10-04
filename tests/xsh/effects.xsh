@@ -93,16 +93,17 @@ test test_unrestricted_proc_unchecked { |ctx|
   assert result.ok, "private proc effects should be inferred"
 }
 
-test test_restricted_cannot_call_unrestricted_proc { |ctx|
+test test_restricted_caller_sees_inferred_export_effects { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
-    contents: b"##! Public effect boundary.\n## Retains an unrestricted public contract.\nexport proc legacy() {\n  return\n}\nproc restricted() [fs] {\n  legacy()\n}\n",
+    contents: b"##! Public effect boundary.\n## Runs a process, which its inferred effects publish.\nexport proc legacy() {\n  run true\n}\nproc restricted() [fs] {\n  legacy()\n}\n",
   )?
 
   let result = run_check(src)?
   assert ! result.ok, "expected check failure"
   assert "check.effect-violation" in result.out
+  assert "process" in result.out
 }
 
 test test_proc_to_proc_subset_passes { |ctx|
@@ -114,31 +115,6 @@ test test_proc_to_proc_subset_passes { |ctx|
 
   let result = run_check(src)?
   assert result.ok, "superset caller should pass"
-}
-
-test test_linter_infers_fs_error { |ctx|
-  let src = test.temp_file(ctx, name: "t.xsh", contents: b"export proc fetch() {\n  let _ = fs.read_text(p\"x\")?\n}\n")?
-  let out = run_lint(src)?
-  assert "lint.unannotated-effects" in out
-  assert "[fs, error]" in out
-}
-
-test test_linter_infers_net { |ctx|
-  let src = test.temp_file(
-    ctx,
-    name: "t.xsh",
-    contents: b"export proc fetch() {\n  let _ = dns.lookup(\"x.test\")\n}\n",
-  )?
-  let out = run_lint(src)?
-  assert "lint.unannotated-effects" in out
-  assert "[net]" in out
-}
-
-test test_linter_infers_process_from_run { |ctx|
-  let src = test.temp_file(ctx, name: "t.xsh", contents: b"export proc fetch() {\n  run echo hello\n}\n")?
-  let out = run_lint(src)?
-  assert "lint.unannotated-effects" in out
-  assert "process" in out
 }
 
 test test_annotated_proc_not_flagged_by_linter { |ctx|

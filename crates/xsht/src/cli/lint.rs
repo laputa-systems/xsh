@@ -1994,6 +1994,15 @@ mod tests {
         }
     }
 
+    /// A repaired private clause names exactly its inferred effects, so the
+    /// default configuration would go on to delete it. Repair tests stop at
+    /// the repaired clause.
+    fn repair_config() -> ResolvedLintConfig {
+        let mut config = config();
+        config.lint_options.prefer_inferred_private_effects = false;
+        config
+    }
+
     #[test]
     fn explicit_directory_discovery_does_not_expand_parent_includes() {
         let root = TempDir::new().expect("create temp root");
@@ -2798,13 +2807,29 @@ proc load() [fs] {
   let _ = fs.read_text(Path(\"x\"))?
 }
 ";
-        let config = config();
+        let config = repair_config();
         let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
         let LintResultKind::Write { text, .. } = result.kind else {
             panic!("expected fixed source to be written");
         };
 
         assert!(text.contains("proc load() [fs, error]"));
+    }
+
+    #[test]
+    fn lint_fix_converges_a_too_narrow_private_clause_to_inference() {
+        let source = "\
+proc load() [fs] {
+  let _ = fs.read_text(Path(\"x\"))?
+}
+";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        let LintResultKind::Write { text, status, .. } = result.kind else {
+            panic!("expected fixed source to be written");
+        };
+
+        assert_eq!(status, 0);
+        assert!(text.starts_with("proc load() {\n"), "{text}");
     }
 
     #[test]
@@ -2868,7 +2893,7 @@ proc stamp() [] -> Int {
   timestamp() + 1
 }
 ";
-        let config = config();
+        let config = repair_config();
         let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
         let LintResultKind::Write { text, .. } = result.kind else {
             panic!("expected fixed source to be written");
@@ -2901,7 +2926,7 @@ proc build() [] -> Int {
   ARGV.image_task()
 }
 ";
-            let config = config();
+            let config = repair_config();
             let result = lint_one_file_with_fixes(
                 0,
                 &entry_path.to_string_lossy(),
@@ -2945,7 +2970,7 @@ proc build() [] -> Int {
   ARGV.image_task()
 }
 ";
-            let config = config();
+            let config = repair_config();
             let result = lint_one_file_with_fixes(
                 0,
                 &entry_path.to_string_lossy(),

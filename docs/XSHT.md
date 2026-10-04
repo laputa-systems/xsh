@@ -46,7 +46,8 @@ command error.
 | `[format] line-width` | formatter width target (default 120) |
 | `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
 | `[check] annotate` | default `--annotate` policy |
-| `[lint] prefer-inferred-pure-returns`, `prefer-inferred-private-effects` | opt-in removal of annotations the checker can infer |
+| `[lint] prefer-inferred-pure-returns` | opt-in removal of private pure return annotations the checker can infer |
+| `[lint] prefer-inferred-private-effects` | `false` turns off `lint.prefer-inferred-private-effects`, which is on by default |
 | `[lint] prefer-inferred-variants`, `prefer-positional-constructors` | opt-in `lint.prefer-inferred-variant` (drop a variant qualifier the expected type selects) and `lint.prefer-positional-constructor` (pass in-order constructor fields positionally) |
 | `[lint] runless-except` | commands allowed under `--runless` |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |

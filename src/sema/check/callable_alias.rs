@@ -142,6 +142,9 @@ impl Checker {
             } => (sig, false),
             _ => return None,
         };
+        if self.collecting_effects && !pure {
+            self.provisional_effects_read.set(true);
+        }
         Some(CallableAlias {
             name,
             pure,

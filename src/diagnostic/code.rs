@@ -541,7 +541,7 @@ diagnostic_codes! {
         LintPreferGenericRecordConstructor = "lint.prefer-generic-record-constructor", warning, "Let a constructor infer its concrete schema from the supplied fields";
         LintPreferGuard = "lint.prefer-guard", warning, "Use `guard` instead of a single-action `if`";
         LintPreferIn = "lint.prefer-in", warning, "Use `in` or `not in` instead of a membership method call";
-        LintPreferInferredPrivateEffects = "lint.prefer-inferred-private-effects", warning, "Drop a private proc effect clause when it is inferred exactly";
+        LintPreferInferredPrivateEffects = "lint.prefer-inferred-private-effects", warning, "Drop a private proc or stream effect clause that names exactly its inferred effects";
         LintPreferInferredPureReturn = "lint.prefer-inferred-pure-return", warning, "Drop a private pure return type when it is inferred exactly";
         LintPreferInferredVariant = "lint.prefer-inferred-variant", warning, "Drop a variant qualifier that the expected type already selects, as in `.Symlink`";
         LintPreferKnownFieldAccess = "lint.prefer-known-field-access", warning, "Select a guaranteed record field directly instead of through a lookup";
@@ -597,7 +597,6 @@ diagnostic_codes! {
         LintStageCallable = "lint.stage-callable", warning, "Name the callable directly instead of a transparent stream stage block";
         LintStreamOptions = "lint.stream-options", warning, "Replace stream stage flags with ordinary named arguments";
         LintStringlyTypedMatch = "lint.stringly-typed-match", warning, "Suggest a tag union type for a match with three or more string-literal arms";
-        LintUnannotatedEffects = "lint.unannotated-effects", warning, "Flag a proc that has effects but no annotation and suggest the effect list";
         LintUnsortedImports = "lint.unsorted-imports", warning, "Sort a contiguous import block by module path and alias";
         LintUnusedCallable = "lint.unused-callable", warning, "Flag an unexported callable not reachable from a bundle entry point";
         LintUnusedLocal = "lint.unused-local", warning, "Flag a local variable that is never read";

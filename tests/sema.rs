@@ -1323,8 +1323,8 @@ fn checker_rejects_process_time_system_identity_calls_in_pure_functions() {
 }
 
 #[test]
-fn checker_requires_explicit_contract_for_unrestricted_public_callee() {
-    let messages = check_messages(
+fn checker_infers_public_callee_effects_without_a_contract() {
+    for source in [
         r#"
 ##! Public effect boundary.
 ## Trims a line.
@@ -1336,16 +1336,6 @@ proc main() [fs, error] -> Result[Str] {
   return Ok(trim_line("hello"))
 }
 "#,
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|message| message
-                .contains("establish an explicit checked contract at its declaration")),
-        "expected actionable unrestricted-proc diagnostic, got {messages:?}"
-    );
-
-    let accepted = check(
         r#"
 ##! Public effect boundary.
 ## Trims a line.
@@ -1357,8 +1347,24 @@ proc main() [fs, error] -> Result[Str] {
   return Ok(trim_line("hello"))
 }
 "#,
+    ] {
+        assert_no_codes(&check(source), &["check.effect-violation"]);
+    }
+    let rejected = check(
+        r#"
+##! Public effect boundary.
+## Reads the clock.
+export proc stamp() -> Int {
+  let _ = time.now()
+  1
+}
+
+proc main() [fs, error] -> Result[Int] {
+  return Ok(stamp())
+}
+"#,
     );
-    assert_no_codes(&accepted, &["check.effect-violation"]);
+    assert!(has_code(&rejected, "check.effect-violation"));
 }
 
 #[test]
@@ -4376,24 +4382,32 @@ fn private_proc_effects_publish_matching_full_and_compact_facts() {
 }
 
 #[test]
-fn private_proc_effects_preserve_unknown_and_declaration_boundaries() {
-    for (source, name) in [
+fn effect_inference_keeps_unknown_dynamic_and_test_boundaries() {
+    // Exports, entry points, and streams infer like private procs; only an
+    // opaque dependency leaves the effects unknown.
+    for (source, name, effects) in [
         (
             "proc opaque(callback: Proc) -> Int { let _ = callback.call(); 42 }\n",
             "opaque",
+            None,
         ),
-        ("proc main() -> Int { 42 }\n", "main"),
+        ("proc main() -> Int { 42 }\n", "main", Some(Vec::new())),
         (
             "##! Boundary.\n## Public.\nexport proc published() -> Int { 42 }\n",
             "published",
+            Some(Vec::new()),
         ),
-        ("stream values() -> Stream[Int] { yield 42 }\n", "values"),
+        (
+            "stream values() -> Stream[Int] { yield 42 }\n",
+            "values",
+            Some(Vec::new()),
+        ),
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        assert_eq!(checked.callable_effects[name], None);
+        assert_eq!(checked.callable_effects[name], effects, "{name}");
         let compact = Checker::check_compact_declarations(&parsed.arena);
         parsed.arena.symbol_owner().with_current(|| {
             let name = xsh::frontend::symbols::Name::intern(name);
@@ -4402,7 +4416,7 @@ fn private_proc_effects_preserve_unknown_and_declaration_boundaries() {
                 .get(&name)
                 .or_else(|| compact.streams.get(&name))
                 .unwrap();
-            assert_eq!(signature.effects, None);
+            assert_eq!(signature.effects, effects);
         });
     }
     let source = "test registered { assert true, \"checked\" }\n";

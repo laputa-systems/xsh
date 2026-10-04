@@ -18,7 +18,7 @@ pure set_option(text: Str, key: Str, value: Str) -> Str {
   out.join("\n") + "\n"
 }
 
-proc edit_config(file: Path, key: Str, value: Str) [fs, error] {
+proc edit_config(file: Path, key: Str, value: Str) {
   let before = file.read_text()?
   let after = set_option(before, key, value)
   if after == before {

@@ -826,9 +826,14 @@ fn callable_matches_expected(actual: &CallableType, expected: &CallableType) -> 
         && callable_effects_match(&actual.effects, &expected.effects)
 }
 
-fn callable_effects_match(actual: &Option<Vec<Effect>>, expected: &Option<Vec<Effect>>) -> bool {
+/// A contract entry without a clause is unrestricted, so its callers already
+/// assume any effect and it accepts every export. A clause names the exact set.
+pub(crate) fn callable_effects_match(
+    actual: &Option<Vec<Effect>>,
+    expected: &Option<Vec<Effect>>,
+) -> bool {
     match (actual, expected) {
-        (None, None) => true,
+        (_, None) => true,
         (Some(actual), Some(expected)) => {
             actual.iter().all(|effect| expected.contains(effect))
                 && expected.iter().all(|effect| actual.contains(effect))
@@ -900,6 +905,30 @@ mod tests {
             proc(Some(vec![Effect::Error, Effect::Fs])),
         )])));
         assert!(!actual.matches_expected(&expected));
+    }
+
+    #[test]
+    fn unrestricted_contract_entry_accepts_any_export_effects() {
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+            Name::intern("run"),
+            proc(None),
+        )])));
+        for effects in [None, Some(Vec::new()), Some(vec![Effect::Fs, Effect::Error])] {
+            let actual = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+                Name::intern("run"),
+                proc(effects.clone()),
+            )])));
+            assert!(actual.matches_expected(&expected), "{effects:?}");
+        }
+        let restricted = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+            Name::intern("run"),
+            proc(Some(vec![Effect::Error])),
+        )])));
+        let unrestricted = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+            Name::intern("run"),
+            proc(None),
+        )])));
+        assert!(!unrestricted.matches_expected(&restricted));
     }
 
     #[test]

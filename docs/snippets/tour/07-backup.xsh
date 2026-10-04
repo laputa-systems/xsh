@@ -1,4 +1,4 @@
-proc backup(src: Path, dest: Path) [process, error] {
+proc backup(src: Path, dest: Path) {
   run tar -czf $dest $src
   print "backup written"
 }

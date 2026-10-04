@@ -278,7 +278,7 @@ impl Default for LintOptions {
     fn default() -> Self {
         Self {
             prefer_inferred_pure_returns: false,
-            prefer_inferred_private_effects: false,
+            prefer_inferred_private_effects: true,
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
             runless: false,
@@ -1334,14 +1334,13 @@ impl<'a> Linter<'a> {
                 self.lint_expr_or_run(&value);
             }
             ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
-                self.lint_proc_function(def, exported, stmt.span);
-                // Test declarations and program entrypoints are already
-                // unrestricted and have no restricted callers, so a clause adds
-                // no contract.
                 let function = self.arena.function_def(def);
                 let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
                     || function.test_declaration
                     || (!exported && self.scopes.len() == 1 && function.name == "main");
+                self.lint_proc_function(def, exported, entrypoint, stmt.span);
+                // Test declarations and program entrypoints have no restricted
+                // callers, so a clause there is a bound the author chose.
                 if !entrypoint {
                     self.lint_effect_annotation(def, stmt.span);
                 }
@@ -1351,7 +1350,7 @@ impl<'a> Linter<'a> {
                 self.lint_function(def);
             }
             ArenaStmtKind::StreamDef(def) => {
-                self.lint_proc_function(def, exported, stmt.span);
+                self.lint_proc_function(def, exported, false, stmt.span);
                 self.lint_effect_annotation(def, stmt.span);
             }
             ArenaStmtKind::SignalHook(hook_id) => {
@@ -1795,13 +1794,21 @@ impl<'a> Linter<'a> {
         matches.next().is_none().then_some(fact)
     }
 
+    /// A private proc or stream whose clause equals the set it would infer
+    /// gains nothing from the clause. Exports keep theirs because a clause there
+    /// may be a deliberate API contract, and `main` and tests are entry points
+    /// whose clause bounds the whole program or test. The checker's solver
+    /// proves the inferred set is the declared one across module boundaries;
+    /// when the file also checks on its own, every other checked fact must be
+    /// unchanged by the deletion too.
     fn lint_inferred_proc_effects(
         &mut self,
         definition: FunctionDefId,
         exported: bool,
+        entrypoint: bool,
         statement_span: Span,
     ) {
-        if !self.prefer_inferred_private_effects || exported || self.source.contains('#') {
+        if !self.prefer_inferred_private_effects || exported || entrypoint {
             return;
         }
         let def = self.arena.function_def(definition);
@@ -1809,42 +1816,60 @@ impl<'a> Linter<'a> {
             return;
         }
         let body = self.arena.span(self.arena.block(def.body).span);
-        let Some(fact) = self.checked_effect_fact(body) else {
-            return;
-        };
-        if !fact.inference_allowed || fact.required.is_none() {
+        if !self
+            .checked_effect_fact(body)
+            .is_some_and(|fact| fact.redundant_clause)
+        {
             return;
         }
-        let Some(span) = scan_effect_list_span(self.arena, def, statement_span, self.source) else {
+        let Some(clause) = scan_effect_list_span(self.arena, def, statement_span, self.source)
+        else {
             return;
         };
-        let mut rewritten = self.source.to_string();
-        rewritten.replace_range(span.start()..span.end(), "");
-        let before = checked_return_removal_facts(self.source, span.source_id, None);
-        let after = checked_return_removal_facts(
-            &rewritten,
-            span.source_id,
-            Some((span.start(), span.end() - span.start())),
-        );
-        if before.is_none() || before != after {
-            return;
+        // Delete the space before the clause too, leaving `) -> T` formatted.
+        let start = self.source[..clause.start()].trim_end_matches(' ').len();
+        let span = Span::new(clause.source_id, start, clause.end());
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(
+                self.source,
+                span.source_id,
+                None,
+            ));
+        }
+        if let Some(before) = self.return_removal_before.as_ref().unwrap() {
+            let mut rewritten = self.source.to_string();
+            rewritten.replace_range(span.start()..span.end(), "");
+            let after = checked_return_removal_facts(
+                &rewritten,
+                span.source_id,
+                Some((span.start(), span.end() - span.start())),
+            );
+            if after.as_ref() != Some(before) {
+                return;
+            }
         }
         self.diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
-                "private proc effect clause can be inferred exactly",
+                "private effect clause names exactly the inferred effects",
             )
             .with_code(DiagnosticCode::LintPreferInferredPrivateEffects)
             .with_label(Label::secondary(
-                span,
+                clause,
                 "checked body, caller contracts, and statement purposes remain equivalent",
             ))
-            .with_fix_hint(FixHint::deletion(span, "infer the private proc effects")),
+            .with_fix_hint(FixHint::deletion(span, "infer the private effects")),
         );
     }
 
-    fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool, statement_span: Span) {
-        self.lint_inferred_proc_effects(def_id, exported, statement_span);
+    fn lint_proc_function(
+        &mut self,
+        def_id: FunctionDefId,
+        exported: bool,
+        entrypoint: bool,
+        statement_span: Span,
+    ) {
+        self.lint_inferred_proc_effects(def_id, exported, entrypoint, statement_span);
         let def = self.arena.function_def(def_id).clone();
         // Without the annotation, a complete `if`/`match` tail may infer a value.
         let branching_tail = self
@@ -1911,71 +1936,46 @@ impl<'a> Linter<'a> {
         if effects.is_empty() {
             return;
         }
-        if let Some(declared_range) = def.effects {
-            let declared: Vec<Effect> = self.arena.effects(declared_range).collect();
-            let missing = effects
-                .iter()
-                .filter(|effect| !effects_covers_any(&declared, effect))
-                .cloned()
-                .collect::<Vec<_>>();
-            if missing.is_empty() {
-                return;
-            }
-            let mut union = FxHashSet::default();
-            for effect in &declared {
-                union.insert(effect.clone());
-            }
-            for effect in missing {
-                union.insert(effect);
-            }
-            let annotation = effects_annotation(&union);
-            let Some(effect_span) = scan_effect_list_span(self.arena, &def, stmt_span, self.source)
-            else {
-                return;
-            };
-            self.diagnostics.push(
-                Diagnostic::new(
-                    Severity::Warning,
-                    format!("proc `{}` is missing declared effects", def.name),
-                )
-                .with_code(DiagnosticCode::LintMissingEffects)
-                .with_label(Label::secondary(
-                    stmt_span,
-                    format!("suggest [{annotation}]"),
-                ))
-                .with_fix_hint(FixHint::replacement(
-                    effect_span,
-                    format!("replace effect annotation with `[{annotation}]`"),
-                    format!("[{annotation}]"),
-                )),
-            );
+        // Every declaration without a clause infers its effects, so only an
+        // incomplete clause needs a suggestion.
+        let Some(declared_range) = def.effects else {
+            return;
+        };
+        let declared: Vec<Effect> = self.arena.effects(declared_range).collect();
+        let missing = effects
+            .iter()
+            .filter(|effect| !effects_covers_any(&declared, effect))
+            .cloned()
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
             return;
         }
-        let annotation = effects_annotation(&effects);
-        let body_span = self.arena.block(def.body).span;
-        let body_span = self.arena.span(body_span);
-        let (insert_pos, source_id) = if def.return_ty_defaulted {
-            (body_span.start(), body_span.source_id)
-        } else {
-            let return_ty_span = self.arena.type_expr_span(def.return_ty);
-            let pos = scan_before_arrow(self.source, return_ty_span.start());
-            (pos, return_ty_span.source_id)
+        let mut union = FxHashSet::default();
+        for effect in &declared {
+            union.insert(effect.clone());
+        }
+        for effect in missing {
+            union.insert(effect);
+        }
+        let annotation = effects_annotation(&union);
+        let Some(effect_span) = scan_effect_list_span(self.arena, &def, stmt_span, self.source)
+        else {
+            return;
         };
-        let insert_span = Span::new(source_id, insert_pos, insert_pos);
         self.diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
-                format!("proc `{}` has effects but no annotation", def.name),
+                format!("proc `{}` is missing declared effects", def.name),
             )
-            .with_code(DiagnosticCode::LintUnannotatedEffects)
+            .with_code(DiagnosticCode::LintMissingEffects)
             .with_label(Label::secondary(
                 stmt_span,
                 format!("suggest [{annotation}]"),
             ))
             .with_fix_hint(FixHint::replacement(
-                insert_span,
-                format!("add effect annotation `[{annotation}]`"),
-                format!("[{annotation}] "),
+                effect_span,
+                format!("replace effect annotation with `[{annotation}]`"),
+                format!("[{annotation}]"),
             )),
         );
     }
@@ -12422,21 +12422,59 @@ fn command_value_replacement(arena: &AstArena, expr: ExprId) -> String {
     }
 }
 
+/// The span of a declaration's `[effects]` clause: the bracket that directly
+/// follows the closing parenthesis of the parameter list. Scanning tokens
+/// keeps comments and bracketed parameter types or defaults from being
+/// mistaken for the clause.
 fn scan_effect_list_span(
     arena: &AstArena,
     def: &ArenaFunctionDef,
     stmt_span: Span,
     source: &str,
 ) -> Option<Span> {
-    let signature_end = if def.return_ty_defaulted {
-        arena.span(arena.block(def.body).span).start()
-    } else {
-        scan_before_arrow(source, arena.type_expr_span(def.return_ty).start())
-    };
-    let signature = source.get(stmt_span.start()..signature_end)?;
-    let open = signature.rfind('[')? + stmt_span.start();
-    let close = source.get(open..signature_end)?.find(']')? + open + 1;
-    Some(Span::new(stmt_span.source_id, open, close))
+    use xsh::frontend::syntax::token::TokenTag;
+    let base = stmt_span.start();
+    let signature = source.get(base..arena.span(arena.block(def.body).span).start())?;
+    let tokens = xsh::frontend::syntax::lexer::Lexer::new(stmt_span.source_id, signature)
+        .lex_compact()
+        .token_table;
+    let mut depth = 0usize;
+    let mut parameters_closed = false;
+    let mut open = None;
+    for index in 0..tokens.len() {
+        let tag = tokens.tag_at(index)?;
+        if let Some(open) = open {
+            match tag {
+                TokenTag::RBracket => {
+                    return Some(Span::new(
+                        stmt_span.source_id,
+                        base + open,
+                        base + tokens.end_at(index, signature)?,
+                    ));
+                }
+                _ => continue,
+            }
+        }
+        if matches!(tag, TokenTag::Comment | TokenTag::Newline) {
+            continue;
+        }
+        if parameters_closed {
+            if tag != TokenTag::LBracket {
+                return None;
+            }
+            open = Some(tokens.start_at(index)?);
+            continue;
+        }
+        match tag {
+            TokenTag::LParen => depth += 1,
+            TokenTag::RParen => {
+                depth = depth.checked_sub(1)?;
+                parameters_closed = depth == 0;
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Scan backward from `ty_start` past whitespace and the `->` arrow to find the

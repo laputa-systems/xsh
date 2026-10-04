@@ -302,8 +302,8 @@ variants that callers can match on, instead of grepping message strings:
 {{.tour.typed_errors.output}}
 ```
 
-The `[fs, error]` clause lists the proc's effects; the [Effects](#effects)
-section covers it. `error` is the effect that permits `?`.
+The checker also notices that `read_port` reads files and can fail, and every
+caller inherits those effects; the [Effects](#effects) section covers them.
 
 Two more tools round this out. `ctx "description" { ... }` attaches context to
 anything that fails inside the block, so a bare "No such file or directory"
@@ -543,12 +543,15 @@ When the shape is genuinely open, match on it with type patterns instead:
 
 `json.read(path)` and `json.write path (value)` do the same at file
 boundaries. Records encode with sorted keys, so output is stable enough to
-diff and commit. [`docs/JSON.md`](JSON.md) has the full contract, including
-JSON lines.
+diff and commit. [`docs/SPEC.md`](SPEC.md) §14 has the full contract,
+including JSON lines.
 
 ## Effects
 
-A proc can declare which kinds of side effects it performs:
+Every proc has a set of effects: the kinds of host state it can touch. The
+checker infers them from the body and everything it calls, so you rarely write
+them down. `disk_used_kb` runs a process and can fail, so its effects are
+`process` and `error`, and every caller inherits them:
 
 ```xsh
 {{.tour.effects.source}}
@@ -561,21 +564,28 @@ A proc can declare which kinds of side effects it performs:
 ```
 
 The effects are `fs`, `process`, `net`, `env`, `time`, `io`, and `error`
-(permission to propagate with `?`). A declared list is an upper bound the
-checker enforces through every call. Had `disk_used_kb` claimed only `[fs]`:
+(permission to propagate with `?`). A clause between the parameters and the
+return type turns the inferred set into a promise: an upper bound the checker
+enforces through every call. `main` above may touch files and run processes,
+nothing more, so if `disk_used_kb` someday also posted its result to a stats
+server, the script would stop checking:
 
 ```text
-err[check.effect-violation]: `run` requires the `process` effect
-  disk.xsh:2:13
-    let out = run.text du -sk $root ?
-              ^^^^^^^^^^^^^^^^^^^^^ `run` requires the `process` effect
+err[check.effect-violation]: effect `net` required by `disk_used_kb` is not in caller's declared effects
+  disk.xsh:18:22
+    print f"measured: {disk_used_kb(dir)? > 0}; 3 of 4 is {percent(3, 4)}%"
+                       ^^^^^^^^^^^^^^^^^ effect `net` required by `disk_used_kb` is not in caller's declared effects
 ```
+
+Write a clause where it states a promise: on an exported proc whose callers in
+other modules rely on its effects not growing as the implementation changes,
+or on a surface you want kept narrow, such as an entry point that must never
+reach the network. Without a clause, an export publishes whatever it infers. A
+clause on a private proc that only repeats the inferred set is noise, and
+`xsht lint` offers to delete it.
 
 `pure` functions have no effects at all: no processes, no files, no clock.
 They are where parsing and policy belong, and they are trivially testable.
-Private procs without a clause get their effects inferred from their bodies;
-write the clause where you want a promise, such as exported APIs and anything
-that must not touch the network.
 
 ## Functions and Inference
 
@@ -723,6 +733,100 @@ Combine the two for the common case of a flaky network command:
 {{.tour.retry_curl.source}}
 ```
 
+## Signals and Cancellation
+
+In the shell, Ctrl-C is a race. The terminal signals the whole foreground
+process group, so the script and every child die at once, in no particular
+order, and whatever `trap` you remembered to write runs while the children are
+still half-finished. A `kill -TERM` from a supervisor reaches only the script,
+leaving the children running.
+
+XSH puts every `run` command (and every byte pipeline) in its own process
+group, so a signal reaches the script alone. With no hook, `SIGINT` or
+`SIGTERM` makes XSH forward the same signal to its child groups, wait a short
+grace period, `SIGKILL` whatever is left, and fail with `Canceled` at the next
+checkpoint. That failure unwinds like any other error, so `defer` cleanup runs,
+and the script exits with status 3:
+
+```xsh
+{{.tour.interrupt.source}}
+```
+
+```text
+$ xsh fetch.xsh
+^Cremoved partial download
+runtime traceback
+...
+error: canceled: process work was canceled by signal 2
+at fetch.xsh:8:3-8:34
+call path:
+  1. proc fetch at fetch.xsh:12:1-12:62
+```
+
+`--timeout` uses the same machinery: the child's whole group is killed, not
+just its leader. A spawned handle can be stopped on purpose with
+`handle.cancel(signal:, kill_after:)`, which signals the group, escalates to
+`SIGKILL` after the grace period, and reaps the child. A child that dies from a
+signal is `Status` data for `run.status` and a `ProcessError.Signal` for the
+forms that fail on a bad exit. A handle still running when its scope ends is
+cancelled and reaped before that scope's defers run:
+
+```xsh
+{{.tour.cancel.source}}
+```
+
+<!-- expected-output -->
+
+```text
+{{.tour.cancel.output}}
+```
+
+An entry script that needs to do something when signaled declares a hook at
+its top level, one per signal, with a required effect list. A hook is not a
+way to ignore or resume: the first handled signal always starts shutdown, the
+hook runs at most once, and a second signal kills the remaining children
+immediately. `abort(status)` chooses the exit status; a hook for `INT` or
+`TERM` that finishes normally exits 3.
+
+```xsh
+{{.tour.signal_hook.source}}
+```
+
+The hook may delay forwarding the signal to running children by
+`--pre-cancel` (150 ms by default), long enough to record state or start an
+orderly handoff. There is no way to ignore a signal in XSH code. To keep a
+child running after a hangup, start it with the `process.command` fields
+`ignore_hup`, `new_session`, or `detach`.
+
+## Archives
+
+`tar czf` and `tar xzf --strip-components=1` are easy to type and easy to get
+wrong. A member named `../../etc/passwd` lands wherever it points, and the
+flags change between GNU tar, bsdtar, and busybox. The `archive` module reads and
+writes tar, zip, and cpio in-process, takes typed paths relative to an explicit
+root, and rejects member paths that would escape the destination:
+
+```xsh
+{{.tour.archive.source}}
+```
+
+<!-- expected-output -->
+
+```text
+{{.tour.archive.output}}
+```
+
+When you create an archive, its name picks the compression (`.gz`, `.bz2`,
+`.xz`, `.lzma`), and readers detect it from the content. Pass `compression:`
+to choose it explicitly.
+`tar_list`, `zip_list`, and `cpio_list` stream records with `path`, `kind`,
+`size`, `mode`, `modified`, and `link_name`. `tar_extract` also takes
+`members:` to extract a selection. Extracting over existing files fails unless
+you pass `overwrite: true`. `zip_extract`, `cpio_create`, and `cpio_extract`
+follow the same shape, and `archive.compress`, `archive.decompress`, and
+`archive.decompress_bytes` handle single files (`gzip`, `bzip2`, `xz`,
+`lzma`).
+
 ## Rendering Config from a Template
 
 Generating config with `cat <<EOF` and shell variables means every `$` in the
@@ -785,7 +889,9 @@ Things worth noticing:
   of propagating them, because an unreachable endpoint is a finding, not a
   crash. `listening` propagates, because failing to read the socket table means
   the check itself is broken.
-- The effect clauses document exactly which procs touch the network.
+- No proc declares its effects. The checker infers them, so `healthy` is
+  known to be the one that reaches the network, and a caller restricted to
+  `[fs, process, error]` could not call it.
 - `abort(1)` exits with a chosen status without a traceback. Deferred cleanup
   still runs.
 
@@ -951,10 +1057,8 @@ the fixes, which makes large migrations reviewable one rule at a time.
   xsht api search:timeout             # full-text search
   ```
 
-- [`docs/SPEC-TYPING.md`](SPEC-TYPING.md) covers inference, `Any`, and
-  narrowing; [`docs/STREAMS.md`](STREAMS.md) covers pipelines;
-  [`docs/JSON.md`](JSON.md) covers JSON; [`docs/SPEC-OS.md`](SPEC-OS.md)
-  covers signals and process groups.
+- In the spec, §5 covers inference, `Any`, and narrowing; §12 covers signals,
+  cancellation, and process groups; §13 covers pipelines; and §14 covers JSON.
 - `xsht trace script.xsh` runs a script and shows where the time went: every
   process, its argv as an array, and how long each proc took.
 - `showcase/` holds larger programs (`px.xsh`, `ecount.xsh`, `run-retry.xsh`,

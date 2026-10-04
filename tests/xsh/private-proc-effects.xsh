@@ -363,19 +363,19 @@ proc read_manifest(file: Path) -> Result[Manifest] {
   }
 }
 
-test test_private_proc_effects_leave_missing_public_and_stream_clauses_unrestricted { |ctx|
+test test_missing_public_and_stream_clauses_infer_effects { |ctx|
   for source in [
-    """export proc published() -> Int { 42 }
+    """##! Inferred public effects.
+## Needs no effects.
+export proc published() -> Int { 42 }
 proc caller() [] -> Int { published() }
 """,
     """stream values() -> Stream[Int] { yield 42 }
 proc caller() [] -> Stream[Int] { values() }
 """,
   ] {
-    let rejected = test.run_xsh(ctx, source)?
-    assert rejected.status != 0
-    assert "check.effect-violation" in rejected.stderr == true
-    assert "unknown or unrestricted effect contract" in rejected.stderr == true
+    let accepted = test.run_xsh(ctx, source)?
+    assert accepted.status == 0, accepted.stderr
   }
 
   let accepted = test.run_xsh(

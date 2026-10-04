@@ -15,20 +15,20 @@ type Check = {check: Str, ok: Bool, detail: Str}
 
 const pseudo_filesystems = ["devfs", "devtmpfs", "tmpfs", "overlay", "squashfs", "proc", "sysfs"]
 
-proc load_config(file: Path) [fs, error] -> Result[Config] {
+proc load_config(file: Path) -> Result[Config] {
   ctx f"loading {file}" {
     # The return type supplies the schema: this is `.require(Config)`.
     json.read(file)?.require()?
   }
 }
 
-proc listening(svc: Service) [process, error] -> Result[Check] {
+proc listening(svc: Service) -> Result[Check] {
   let owners = process.port(svc.port)? |> where .state == "LISTEN" |> map .command
   let detail = if owners.len() > 0 { owners[0] } else { "nothing listening" }
   Check(check: f"port {svc.port} ({svc.name})", ok: owners.len() > 0, detail:)
 }
 
-proc healthy(svc: Service, url: Str) [net] -> Check {
+proc healthy(svc: Service, url: Str) -> Check {
   let label = f"health {svc.name}"
   match net.request({method: "GET", url, timeout: 3s, fail_status: false}) {
     Ok(response) => Check(check: label, ok: response.status == 200, detail: f"HTTP {response.status}")
@@ -36,7 +36,7 @@ proc healthy(svc: Service, url: Str) [net] -> Check {
   }
 }
 
-proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
+proc disks(threshold: Int) -> Result[List[Check]] {
   fs.mounts()?
     |> where { |m| ! m.readonly and m.blocks_1k > 0 and m.fstype not in pseudo_filesystems }
     |> map { |m|
@@ -48,7 +48,7 @@ proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
     }
 }
 
-proc files(names: List[Str]) [fs, error] -> Result[List[Check]] {
+proc files(names: List[Str]) -> Result[List[Check]] {
   var checks: List[Check] = []
   for name in names {
     let present = fp"{name}".exists()?
