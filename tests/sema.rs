@@ -3593,6 +3593,34 @@ export let exported: Int = value
 }
 
 #[test]
+fn export_doc_comment_attaches_across_ordinary_comment_lines() {
+    let accepted = check_with_module(
+        "use plugin\n",
+        r#"
+##! Module documentation.
+
+## Exposes a documented value.
+# An implementation note between the doc and its declaration.
+export let exported: Int = 1
+"#,
+    );
+    assert!(!has_code(&accepted, "check.orphan-doc-comment"), "{accepted:?}");
+    assert!(!has_code(&accepted, "check.missing-public-doc"), "{accepted:?}");
+
+    let separated = check_with_module(
+        "use plugin\n",
+        r#"
+##! Module documentation.
+
+## Exposes a documented value.
+
+export let exported: Int = 1
+"#,
+    );
+    assert!(has_code(&separated, "check.orphan-doc-comment"), "{separated:?}");
+}
+
+#[test]
 fn doc_only_module_does_not_attribute_orphan_docs_to_another_source() {
     let main_source = "use helper\nlet value = helper.exported\n";
     let helper_source =

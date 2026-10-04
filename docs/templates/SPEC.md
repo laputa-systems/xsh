@@ -66,8 +66,10 @@ comment may stand on its own line or follow a complete statement.
 `##!` starts a module documentation block and `##` starts a declaration
 documentation block; consecutive lines with the same prefix form one block. A
 module that exports anything must begin with one `##!` block, and every
-`export` must be immediately preceded by a `##` block. A `##` block that does
-not attach to an export, or a second `##!` block, is an error.
+`export` must be immediately preceded by a `##` block. Ordinary `#` comment
+lines may sit between the block and its declaration; a blank line may not. A
+`##` block that does not attach to an export, or a second `##!` block, is an
+error.
 
 ### 2.3 Keywords
 

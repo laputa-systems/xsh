@@ -738,12 +738,24 @@ fn attached_export_doc_comment(
     let (_, block) = blocks.iter().rev().find(|(module, span)| {
         !module
             && span.end() <= statement.start()
-            && source[span.end()..statement.start()]
-                .bytes()
-                .all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
+            && doc_gap_attaches(&source[span.end()..statement.start()])
     })?;
     let end = source[..block.end()].trim_end_matches(['\r', '\n']).len();
     Some(Span::new(statement.source_id, block.start(), end))
+}
+
+// The text between a `##` block and its declaration: the declaration's
+// indentation, optionally after ordinary `#` comment lines (an implementation
+// note, say). A blank line or another `##` line still separates them.
+fn doc_gap_attaches(gap: &str) -> bool {
+    let mut lines = gap.split('\n').collect::<Vec<_>>();
+    let indentation = lines.pop().unwrap_or("");
+    let blank = |text: &str| text.bytes().all(|byte| matches!(byte, b' ' | b'\t' | b'\r'));
+    blank(indentation)
+        && lines.iter().all(|line| {
+            let text = line.trim_start_matches([' ', '\t']);
+            text.starts_with('#') && !text.starts_with("##")
+        })
 }
 
 fn doc_comment_blocks(
