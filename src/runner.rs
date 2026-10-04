@@ -848,7 +848,8 @@ fail()
 
         assert_eq!(output.status, 3);
         assert!(output.stdout.is_empty());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("nonzero-exit"));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.starts_with("err: `false` exited 1\n"), "stderr: {stderr}");
         let _ = fs::remove_file(&path);
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
