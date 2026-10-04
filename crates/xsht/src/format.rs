@@ -203,7 +203,7 @@ struct Writer<'a> {
     /// Set before each block statement: the previous statement ends in an
     /// expression that a line starting with `.name` would continue.
     after_expression: bool,
-    /// Set while writing the unbraced statement of a `match` statement arm.
+    /// Set while writing the unbraced expression statement of a `match` arm.
     arm_statement: bool,
 }
 
@@ -1145,7 +1145,9 @@ impl<'a> Writer<'a> {
                         | ArenaStmtKind::With { .. }
                 );
                 let write_arm = |writer: &mut Self, line: &mut String| {
-                    writer.arm_statement = true;
+                    // An initializer's nested statements have ordinary block
+                    // syntax; only the arm's own expression needs arm grouping.
+                    writer.arm_statement = matches!(stmt.kind, ArenaStmtKind::Expr(_));
                     writer.write_stmt_body(stmt_id, indent + 1, line);
                     writer.arm_statement = false;
                 };

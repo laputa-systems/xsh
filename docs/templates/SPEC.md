@@ -1592,11 +1592,13 @@ declare locals, and entries such as `run` are interpreted by the API. Unknown,
 duplicate, missing, or invalid fields are check-time errors located in the
 block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `stdout`, `stderr`, `stdout_append`, `stderr_append`, `timeout`, `cpu_max`,
-`accept`, `detach`, `new_session`, `ignore_hup`, and exactly one plain `run`
-entry. `process.command_argv(target, argv)` builds the same plan from data; its
+`accept`, `detach`, `new_session`, `ignore_hup`, and exactly one `run` or
+`run.status` entry. Missing or multiple run entries are rejected with
+`check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
 `argv` includes `argv[0]`. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
-Pipelines, captures, and redirection syntax are not plan inputs.
+Pipelines, captures, propagation, and redirection syntax are not plan inputs;
+use the builder fields for redirections.
 
 ## 12. Signals, Cancellation, And Exit Status
 

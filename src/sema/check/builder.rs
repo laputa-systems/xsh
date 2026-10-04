@@ -3,9 +3,10 @@
 use super::{BuilderKind, Checker, FxHashSet, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBuilderBlock, ArenaBuilderEntryKind, ArenaCallArg, ArenaExprKind, ArenaProgram,
-    BuilderBlockId, ExprId,
+    ArenaBuilderBlock, ArenaBuilderEntryKind, ArenaCallArg, ArenaCommand, ArenaExprKind,
+    ArenaProgram, ArenaStmtKind, BuilderBlockId, ExprId,
 };
+use crate::syntax::node::RunKind;
 
 #[allow(dead_code)]
 impl Checker {
@@ -165,13 +166,38 @@ impl Checker {
                 ArenaBuilderEntryKind::Stmt(stmt_id) => {
                     if matches!(kind, BuilderKind::ProcessCommand) {
                         match arena.arena.stmt(*stmt_id).kind {
-                            crate::syntax::arena::ArenaStmtKind::Command(command_id)
-                                if matches!(
-                                    arena.arena.command_stmt(command_id).command,
-                                    crate::syntax::arena::ArenaCommand::Run(_)
-                                ) =>
-                            {
+                            ArenaStmtKind::Command(command_id) => {
+                                let command = arena.arena.command_stmt(command_id);
+                                let ArenaCommand::Run(run_id) = command.command else {
+                                    self.error(
+                                        arena.arena.stmt(*stmt_id).span,
+                                        "process.command accepts only run entries and fields",
+                                        DiagnosticCode::CheckBuilderEntry,
+                                    );
+                                    continue;
+                                };
                                 run_entries += 1;
+                                if run_entries > 1 {
+                                    self.error(
+                                        arena.arena.stmt(*stmt_id).span,
+                                        "process.command requires exactly one run entry",
+                                        DiagnosticCode::CheckBuilderCheck,
+                                    );
+                                }
+                                let run = arena.arena.run_form(run_id);
+                                let single_command = matches!(
+                                    arena.arena.run_segments(run.segments),
+                                    [segment]
+                                        if matches!(segment.kind, RunKind::Plain | RunKind::Status)
+                                            && arena.arena.redirections(segment.redirections).is_empty()
+                                );
+                                if command.propagate || run.propagate || !single_command {
+                                    self.error(
+                                        arena.arena.stmt(*stmt_id).span,
+                                        "process.command requires run or run.status without pipelines, capture, redirections, or propagation",
+                                        DiagnosticCode::CheckBuilderEntry,
+                                    );
+                                }
                                 self.check_stmt_arena(arena, source, *stmt_id);
                             }
                             _ => self.error(

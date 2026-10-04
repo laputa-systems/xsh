@@ -266,7 +266,7 @@ diagnostic_codes! {
         CheckBlockParams = "check.block-params", error, "Reject parameters on a block that does not receive any";
         CheckBoolStatement = "check.bool-statement", error, fixable, "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard";
         CheckBuilderCall = "check.builder-call", error, "Reject a builder block on a call that does not accept one";
-        CheckBuilderCheck = "check.builder-check", error, "Reject a `process.command` builder block without a `run` entry";
+        CheckBuilderCheck = "check.builder-check", error, "Reject a `process.command` builder block without exactly one `run` entry";
         CheckBuilderEntry = "check.builder-entry", error, "Reject an unknown builder entry, task, or statement in a builder block";
         CheckBuilderField = "check.builder-field", error, "Reject a duplicate or unknown builder field, or a non-positive `cpu_max`";
         CheckBytesChunks = "check.bytes-chunks", error, "Reject a non-positive `size` for a bytes `chunks` stage";

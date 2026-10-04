@@ -56,6 +56,50 @@ test test_process_command_argv_requires_argv0 { |ctx|
   assert "check.process-argv-empty" in output.stderr
 }
 
+test test_process_command_builder_rejects_invalid_run_entries_before_execution { |ctx|
+  for case in [
+    {entries: "", code: "check.builder-check"},
+    {entries: "run true\nrun true", code: "check.builder-check"},
+    {entries: "run true\ntimeout = 1s\nrun true", code: "check.builder-check"},
+    {entries: "run true | run true", code: "check.builder-entry"},
+    {entries: "run true > p\"out\"", code: "check.builder-entry"},
+    {entries: "run.text true", code: "check.builder-entry"},
+    {entries: "run.capture --text true", code: "check.builder-entry"},
+    {entries: "run true ?", code: "check.builder-entry"},
+  ] {
+    for source in [
+      "let command = process.command {\n" + case.entries + "\n}\n",
+      "proc unused() [process, error] {\nlet command = process.command {\n" + case.entries + "\n}\n}\n",
+    ] {
+      let output = test.run_script(ctx, "print \"started\"\n" + source)?
+      assert output.status == 2, output.stderr
+      assert case.code in output.stderr, output.stderr
+      assert "compact.indexed-build" not in output.stderr, output.stderr
+      assert output.stdout == "", output.stdout
+    }
+  }
+}
+
+test test_process_command_builder_accepts_one_run_or_status_with_fields { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let plain = process.command {
+  timeout = 1s
+  run true
+}
+let status = process.command {
+  run.status true
+  timeout = 1s
+}
+assert process.run(plain)?.exited_with(0)
+assert process.run(status)?.exited_with(0)
+print accepted
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "accepted\n", output.stdout
+}
+
 # The message of a rejected argument string, or the empty string when the
 # string parsed. `test.error_kind` compares kinds only, so message parity is
 # asserted through this.

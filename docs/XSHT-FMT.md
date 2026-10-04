@@ -26,7 +26,9 @@ contract stays in `docs/SPEC.md`.
 - A block the author wrote on one line with a single statement stays on one
   line when it fits: `{ return 1 }`, `{ |x| x + 1 }`. The branches of an `if`
   are all flat or all broken, and a `match` arm holds a control-flow statement
-  unbraced only when it stays on the arm's line.
+  unbraced only when it stays on the arm's line. Arm-specific expression
+  grouping applies to the arm's own statement; statements inside a declaration
+  initializer keep ordinary block syntax.
 - Break at semantic boundaries, in this order: between chained calls, call
   arguments, record fields, collection items, comprehension clauses, pipeline
   stages; inside nested expressions only as a last resort.

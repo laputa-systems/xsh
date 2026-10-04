@@ -64,3 +64,17 @@ test test_fmt_multiline_comprehension_pipelines_preserve_value { |ctx|
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
 }
+
+test test_fmt_match_arm_nested_blocks_preserve_value { |ctx|
+  let source = p"tests/fixtures/fmt/match-arm-nested-blocks.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  let candidate = test.temp_file(ctx, name: "match-arm-nested-blocks.xsh", contents: bytes.from_text(source))?
+  let formatted = run.capture --text "xsht" fmt $candidate ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  let after = test.run_script(ctx, candidate.read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  assert stable.status.exited_with(0), stable.stderr
+}
