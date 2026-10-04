@@ -2158,8 +2158,8 @@ decorated; diagnostics go to stderr.
 Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
 file under the current directory plus `include` entries from the nearest
 `xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
-nearest config among its ancestors (for `module_path`, `format.line-width`
-(default 120), lint options, and `check.annotate`). `xsht fmt` discovery also
+nearest config among its ancestors (for `module_path`, `[format] line-width`
+(default 120), lint options, and `[check] annotate`). `xsht fmt` discovery also
 skips the discovery root's `[format] exclude` patterns.
 
 `xsht check` runs exactly the checks that execution runs before evaluating
