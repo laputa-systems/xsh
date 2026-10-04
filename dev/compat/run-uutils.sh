@@ -42,6 +42,9 @@ export PATH
 lock=${UUTILS_SUITE_LOCK:-/tmp/uutils-suite.lock}
 exec 9>"$lock"
 flock 9
+# Every child below runs with 9>&-: a test that leaves a background process behind
+# (the sleep tests leave `sleep 999d`) would otherwise inherit this descriptor and
+# hold the suite lock until it is killed.
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 uutils=${UUTILS_ROOT:?set UUTILS_ROOT to the pinned uutils checkout}
@@ -67,14 +70,14 @@ mkdir -p "$results"
 python3 "$repo/dev/compat/stage.py" --stage "$stage"
 
 target=${UUTILS_TARGET_DIR:-$uutils/target}
-(cd "$uutils" && CARGO_TARGET_DIR=$target cargo nextest --version >/dev/null 2>&1) || {
+(cd "$uutils" && CARGO_TARGET_DIR=$target cargo nextest --version >/dev/null 2>&1 9>&-) || {
 	echo "cargo-nextest is required: cargo install cargo-nextest --locked" >&2
 	exit 2
 }
 
 # Build the test binary once; nextest archives would also work but add a step.
 (cd "$uutils" && CARGO_TARGET_DIR=$target cargo nextest run --no-run --release \
-	--features feat_os_unix --test tests)
+	--features feat_os_unix --test tests 9>&-)
 
 uubin=$target/release/coreutils
 restore() { [ -e "$uubin" ] && chmod 755 "$uubin"; }
@@ -126,7 +129,7 @@ set +e
 	CARGO_TARGET_DIR=$target \
 	cargo nextest run --release --features feat_os_unix --test tests \
 		--config-file "$profile_dir/nextest-xsh.toml" --profile xsh \
-		--no-fail-fast --test-threads "${UUTESTS_THREADS:-3}" -E "$filter")
+		--no-fail-fast --test-threads "${UUTESTS_THREADS:-3}" -E "$filter" 9>&-)
 status=$?
 set -e
 
