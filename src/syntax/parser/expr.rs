@@ -311,19 +311,22 @@ impl<'a> Parser<'a> {
             || (shorthand && matches!(self.peek_tag(offset), Some(TokenTag::Comma | TokenTag::RBrace)))
     }
 
-    /// Shell `[ -f x ]`, `[[ ... ]]`, and `[ $x -lt 3 ]` conditions. A list
+    /// Shell `[ -f x ]`, `[[ -n $x ]]`, and `[ $x -lt 3 ]` conditions. A list
     /// literal never starts with a flag word or `$name`, so these shapes are
     /// reported once and skipped through the last `]` on the line, along
-    /// with a following `; then` or `; do`.
+    /// with a following `; then` or `; do`. A bare `[[` is not enough: a
+    /// nested list or comprehension (`[[a, 2] for x in xs]`) starts the same way.
     fn skip_shell_test(&mut self) -> bool {
         if self.current_tag() != TokenTag::LBracket {
             return false;
         }
-        let flag = self.peek_tag(1) == Some(TokenTag::Minus)
-            && self.peek_tag(2) == Some(TokenTag::Ident)
-            && self.peek_start(2) == self.peek_end(1);
-        let shell_test = flag
-            || matches!(self.peek_tag(1), Some(TokenTag::LBracket | TokenTag::DollarIdent | TokenTag::DollarLBrace));
+        let shell_word = |at: usize| {
+            (self.peek_tag(at) == Some(TokenTag::Minus)
+                && self.peek_tag(at + 1) == Some(TokenTag::Ident)
+                && self.peek_start(at + 1) == self.peek_end(at))
+                || matches!(self.peek_tag(at), Some(TokenTag::DollarIdent | TokenTag::DollarLBrace))
+        };
+        let shell_test = shell_word(1) || (self.peek_tag(1) == Some(TokenTag::LBracket) && shell_word(2));
         if !shell_test {
             return false;
         }

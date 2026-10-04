@@ -112,6 +112,30 @@ fi
       fix: "",
     },
     {
+      name: "shell_double_bracket_test",
+      source: r"""let x = "a"
+if [[ -n $x ]] {
+  print yes
+}
+""",
+      code: "parse.foreign-syntax",
+      cause: "shell test syntax",
+      fix: "",
+    },
+    {
+      # A nested list or comprehension also starts with `[[`; it is a
+      # non-Bool condition, not shell syntax.
+      name: "comprehension_condition_is_not_shell_syntax",
+      source: r"""let xs = [1]
+if [[x] for x in xs] {
+  print yes
+}
+""",
+      code: "check.if-condition",
+      cause: "condition must be Bool",
+      fix: "",
+    },
+    {
       name: "shell_while_do",
       source: r"""var count = 0
 while [ $count -lt 3 ]; do
