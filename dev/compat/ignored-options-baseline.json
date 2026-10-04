@@ -7,7 +7,6 @@
     "df.xsh:ignored": "-k -P --portability",
     "du.xsh:ignored": "-k",
     "getty.xsh:ignored": "-h -L -m -w",
-    "hostname.xsh:ignored": "-f",
     "ifdown.xsh:ignored": "-v --verbose",
     "ifup.xsh:ignored": "-v --verbose",
     "ln.xsh:ignored": "-n",
