@@ -591,3 +591,78 @@ if status == 0 { print ok }
     assert_one_diagnostic(ctx, mistake)?
   }
 }
+
+# A value stage is a call, so an operator written after it applies to the
+# whole pipeline in every expression position and needs the grouping fix.
+test test_value_pipeline_stage_mistakes_name_the_real_cause { |ctx|
+  for mistake in [
+    {
+      name: "pipeline_operand_in_assert",
+      source: r"""let argv = ["a", "b"]
+assert argv |> where . == "a" |> len == 1
+""",
+      code: "check.ambiguous-grouping",
+      cause: "group a pipeline that an operator applies to",
+      fix: r"""-> (argv |> where . == "a" |> len)""",
+    },
+    {
+      name: "pipeline_operand_in_let",
+      source: r"""let argv = ["a", "b"]
+let wide = argv |> len() + 1
+print $wide
+""",
+      code: "check.ambiguous-grouping",
+      cause: "group a pipeline that an operator applies to",
+      fix: "-> (argv |> len())",
+    },
+    {
+      name: "pipeline_operand_in_if",
+      source: r"""let argv = ["a", "b"]
+if argv |> len() == 2 { print yes }
+""",
+      code: "check.ambiguous-grouping",
+      cause: "group a pipeline that an operator applies to",
+      fix: "-> (argv |> len())",
+    },
+    {
+      name: "pipeline_operand_in_while",
+      source: r"""var argv = ["a", "b"]
+while argv |> len() > 0 { argv = [] }
+""",
+      code: "check.ambiguous-grouping",
+      cause: "group a pipeline that an operator applies to",
+      fix: "-> (argv |> len())",
+    },
+    {
+      name: "pipeline_operand_in_return",
+      source: r"""pure several(xs: List[Str]) -> Bool {
+  return xs |> len() > 1
+}
+""",
+      code: "check.ambiguous-grouping",
+      cause: "group a pipeline that an operator applies to",
+      fix: "-> (xs |> len())",
+    },
+    {
+      name: "pipeline_operand_in_argument",
+      source: r"""pure twice(n: Int) -> Int { n * 2 }
+let doubled = twice(["a"] |> len() + 1)
+print $doubled
+""",
+      code: "check.ambiguous-grouping",
+      cause: "group a pipeline that an operator applies to",
+      fix: r"""-> (["a"] |> len())""",
+    },
+    {
+      name: "pipeline_bare_value_stage",
+      source: r"""let size = ["a"] |> where . == "a" |> len
+print $size
+""",
+      code: "check.pipeline-stage",
+      cause: "a value pipeline stage must be a call",
+      fix: "-> len()",
+    },
+  ] {
+    assert_one_diagnostic(ctx, mistake)?
+  }
+}

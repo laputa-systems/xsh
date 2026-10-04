@@ -55,7 +55,10 @@ let _ = [\"one\", \"two\"] |> par-map(jobs: 2) {{ |item|
     assert!(!stderr.contains("return-outside-function"), "{stderr}");
     assert!(stderr.contains("kind=parallel.job.start"), "{stderr}");
     assert!(stderr.contains("kind=parallel.job.end"), "{stderr}");
-    assert!(stderr.contains("kind=stream.item.error"), "{stderr}");
+    // The canceled run fails the callback's `?`, which propagates out of the
+    // stage as an `Err`, as it would from `map`.
+    assert!(stderr.contains("kind=result.propagate"), "{stderr}");
+    assert!(!stderr.contains("kind=stream.item.error"), "{stderr}");
     let _ = std::fs::remove_dir_all(root);
 }
 

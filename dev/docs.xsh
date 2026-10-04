@@ -250,13 +250,7 @@ proc snippets(dir: Path, xsh: Path, shown: List[Str]) [fs, process, env, error] 
         run_snippet(xsh, file.path, search_path)?
       }
 
-      # `?` in a `par-map` callback escapes this function's Result, so layout
-      # failures return explicitly like the ones above.
-      guard let shown_text = shown_source(file.name, source) else { |failure|
-        return Err(failure)
-      }
-
-      {name: file.key, snippet: Snippet(source: shown_text, output:, platform:)}
+      {name: file.key, snippet: Snippet(source: shown_source(file.name, source)?, output:, platform:)}
     }
 
   var table: Map[Str, Snippet] = {}
