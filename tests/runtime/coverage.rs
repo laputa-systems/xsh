@@ -550,7 +550,8 @@ fn xsht_fmt_writes_canonical_source() {
     assert_eq!(stderr_text(&output), "");
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
-        "proc main(args: List[Str]) -> Result[Unit] {\n  return Ok()\n}\n"
+        // A short body written on one line stays on one line.
+        "proc main(args: List[Str]) -> Result[Unit] { return Ok() }\n"
     );
 
     std::fs::remove_file(path).expect("remove temp script");
