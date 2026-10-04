@@ -1,0 +1,4 @@
+{
+  "comment": "Exact uutils test IDs (module::function) excluded from Gate 3. One entry per test; module-wide exclusions are rejected by dev/compat/check_exclusions.py. category is one of: selinux, smack, needs-root, host-oracle, help-text, uutils-internal, platform.",
+  "tests": []
+}

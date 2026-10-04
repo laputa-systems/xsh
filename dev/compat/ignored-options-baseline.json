@@ -1,0 +1,20 @@
+{
+  "buckets": {
+    "chgrp.xsh:ignored": "-c -f -v --apply",
+    "chmod.xsh:ignored": "-c -f -v",
+    "chown.xsh:ignored": "-c -f -v --apply",
+    "cp.xsh:ignored": "-p -d -P -H -L -i -u",
+    "df.xsh:ignored": "-k -P --portability",
+    "du.xsh:ignored": "-k",
+    "getty.xsh:ignored": "-h -L -m -w",
+    "hostname.xsh:ignored": "-f",
+    "ifdown.xsh:ignored": "-v --verbose",
+    "ifup.xsh:ignored": "-v --verbose",
+    "ln.xsh:ignored": "-n",
+    "ls.xsh:ignored": "-1 -r -s -S -t -U -h",
+    "mv.xsh:ignored": "-i",
+    "pstree.xsh:ignored": "-c --compact-not -l --long -t --thread-names -T --hide-threads",
+    "touch.xsh:ignored": "-a -m -h",
+    "which.xsh:ignored": "-a"
+  }
+}

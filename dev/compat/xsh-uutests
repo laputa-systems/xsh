@@ -1,0 +1,34 @@
+#!/bin/sh
+# uutils multicall contract for XSH: `xsh-uutests <utility> <args...>`.
+#
+# The uutils integration suite runs `$UUTESTS_BINARY_PATH <utility> <args...>`
+# for every command under test. This dispatcher execs the staged XSH applet for
+# <utility> with argv, stdio, cwd, environment and signals untouched; it is a
+# dispatcher, not a second implementation, so it never rewrites arguments.
+#
+# XSH_COMPAT_STAGE names the stage written by dev/compat/stage.py. A utility
+# with no staged applet exits 127 with a diagnostic, so a missing command is a
+# visible failure rather than a fall-through to a host binary.
+stage=${XSH_COMPAT_STAGE:?set XSH_COMPAT_STAGE to the dev/compat/stage.py output}
+
+if [ "$#" -eq 0 ]; then
+	echo "usage: xsh-uutests UTILITY [ARG...]" >&2
+	exit 2
+fi
+util=$1
+shift
+
+case $util in
+	*/* | "" | . | ..)
+		echo "xsh-uutests: invalid utility name '$util'" >&2
+		exit 2
+		;;
+esac
+
+applet=$stage/bin/$util
+if [ ! -x "$applet" ] || [ -d "$applet" ]; then
+	echo "xsh-uutests: XSH provides no applet for '$util'" >&2
+	exit 127
+fi
+
+exec "$applet" "$@"

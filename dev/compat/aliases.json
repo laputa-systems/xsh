@@ -1,0 +1,4 @@
+{
+  "comment": "Executable names that dispatch to a shared core applet. The applet sees argv[0] and must keep command-specific defaults, help and diagnostics. Lanes propose entries; the integrator owns this file.",
+  "aliases": {}
+}
