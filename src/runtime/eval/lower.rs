@@ -6330,7 +6330,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildExprRow::FmtString(lowered)
                 ))
             }
-            ArenaCommandArgKind::SpliceName(name) => self.lower_bare_ident(*name, slots),
+            ArenaCommandArgKind::SpliceName(name) => {
+                self.lower_splice_name(*name, self.program.arena.span(arg.span), slots)
+            }
             ArenaCommandArgKind::SpliceExpr(expr) => {
                 self.lower_expr(*expr, slots, current_function, item_slot)
             }
@@ -6812,9 +6814,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ))
                     }
                 }
-                ArenaCommandArgKind::SpliceName(name) => {
-                    LoweredRunArgKind::Splice(self.lower_bare_ident(*name, slots)?)
-                }
+                ArenaCommandArgKind::SpliceName(name) => LoweredRunArgKind::Splice(
+                    self.lower_splice_name(*name, self.program.arena.span(arg.span), slots)?,
+                ),
                 ArenaCommandArgKind::SpliceExpr(expr) => LoweredRunArgKind::Splice(
                     self.lower_expr(*expr, slots, current_function, item_slot)?,
                 ),
@@ -11389,6 +11391,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ));
         }
         self.lower_bare_ident(name, slots)
+    }
+
+    // `@name` in a command splices a local or, like a `$name` word, a module
+    // constant; a constant is not a slot, so it resolves through the
+    // prepared constants the way command-word references do.
+    fn lower_splice_name(&self, name: Name, span: Span, slots: &SlotScope) -> Option<BuildExprId> {
+        self.lower_bare_ident(name, slots).or_else(|| {
+            lower_command_word_reference(
+                name.as_str().as_str(),
+                slots,
+                span,
+                &self.scratch,
+                &self.declarations.prepared_constants,
+                &self.declarations.wire_enums,
+                self.current_namespace,
+            )
+        })
     }
 
     fn lower_bare_ident(&self, name: Name, slots: &SlotScope) -> Option<BuildExprId> {

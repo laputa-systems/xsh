@@ -1613,6 +1613,7 @@ impl FullBuilder {
                     0,
                     builder.store.tags.len(),
                 )
+                .with_detail(unit.blocker_detail.as_ref().map(|(_, detail)| detail.clone()))
             })?;
             let checkpoint = builder.checkpoint();
             let function = builder.function_ids[&unit.key()];
@@ -1759,6 +1760,7 @@ impl FullBuilder {
                         0,
                         builder.store.tags.len(),
                     )
+                    .with_detail(unit.blocker_detail.as_ref().map(|(_, detail)| detail.clone()))
                 })?;
                 let checkpoint = builder.checkpoint();
                 let function = builder.function_ids[&unit.key()];
@@ -1831,6 +1833,7 @@ impl FullBuilder {
                     0,
                     self.store.tags.len(),
                 )
+                .with_detail(unit.blocker_detail.as_ref().map(|(_, detail)| detail.clone()))
             })?;
             let function_id = self
                 .function_ids

@@ -4249,7 +4249,10 @@ impl Evaluator {
             let span = error.span.unwrap_or_else(zero_span);
             compact_lowerability_diagnostic(
                 span,
-                &format!("indexed IR could not encode `{}`", error.construct),
+                &match &error.detail {
+                    Some(detail) => format!("this function cannot be compiled yet: {detail}"),
+                    None => format!("indexed IR could not encode `{}`", error.construct),
+                },
                 DiagnosticCode::CompactIndexedBuild,
             )
         })?;

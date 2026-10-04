@@ -121,6 +121,8 @@ pub struct IrBuildError {
     pub span: Option<Span>,
     pub attempted_instructions: usize,
     pub committed_instructions: usize,
+    /// Why lowering gave up, in source terms, when the lowerer recorded it.
+    pub detail: Option<String>,
 }
 
 impl IrBuildError {
@@ -135,7 +137,13 @@ impl IrBuildError {
             span,
             attempted_instructions,
             committed_instructions,
+            detail: None,
         }
+    }
+
+    fn with_detail(mut self, detail: Option<String>) -> Self {
+        self.detail = detail;
+        self
     }
 }
 

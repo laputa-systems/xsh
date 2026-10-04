@@ -254,6 +254,29 @@ first second
 """
 }
 
+test test_run_splices_module_constant_lists_inside_procs { |ctx|
+  let result = test.run_script(
+    ctx,
+    r"""
+const words = ["constant", "words"]
+
+proc show() [process, error] {
+  run printf "%s %s\n" @words ?
+}
+
+show()?
+run printf "%s %s\n" @words ?
+""",
+  )?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  assert result.stdout == """constant words
+constant words
+"""
+}
+
 test test_nul_run_targets_proc_splice_and_match_diagnostics { |ctx|
   let nul_target = test.run_script(
     ctx,
