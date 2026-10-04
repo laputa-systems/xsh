@@ -67,3 +67,53 @@ Rejected so far:
 Open decision: a delimiter or prefix that makes `{` literal while still
 allowing interpolation, or none (keep `{{` and use `template.render` for
 large generated files).
+
+## Accepted ergonomics backlog
+
+Each item was surveyed against this repo and `../laputa` (counts are rough
+grep counts). Each needs SPEC wording, a lint with a behavior-preserving
+autofix where one exists, and tests.
+
+- **Subcommand `cli` entries.** `cli main repo check(repo: Path = default_repo()) { ... }`:
+  several `cli` entries named by a subcommand path, each with generated help
+  and option parsing. Replaces the `var parsed = Placeholder(...)` +
+  `match cli.parse(...) { Ok(v) => parsed = v  Err(e) => return Err(e) }`
+  dance (11 times in Laputa's `pm/cli.xsh`, 850 lines).
+- **Infer private proc return types**, as private proc effects already are.
+  Exports keep their signatures as the contract. About 2,259
+  `-> Result[...]` annotations in Laputa; the lint drops one only when the
+  inferred type is identical.
+- **A `match` that only re-propagates is `?`.** `match f() { Ok(_) => {}
+  Err(e) => return Err(e) }` → `f()?` (about 62 Laputa sites). One site
+  (`pm/execute.xsh`) says `?` once escaped a `par-map` worker before the
+  caller's cleanup ran: confirm whether that runtime bug still exists and fix
+  it before the lint.
+- **`tempdir NAME at PATH { ... }`**: a scratch directory at a fixed path,
+  removed if present, created, and removed on exit. Replaces
+  `fs.remove(t, missing_ok: true)?` / `fs.mkdir(t)?` /
+  `defer fs.remove(t, missing_ok: true)?` (about 35 full triples, 59
+  remove-then-mkdir pairs in Laputa). Extends the `tempdir` block.
+- **Path lists as environment values.** A `List[Path]` in an env overlay
+  joins with the platform separator, losslessly:
+  `PATH: [fp"{root}/usr/bin", ...env.PATH]` instead of
+  `f"{root}/usr/bin:{env.get("PATH") ?? ""}"`, whose empty fallback leaves a
+  trailing `:` (about 25 Laputa sites).
+- **`Path.write_lines(lines)`**: newline-terminated lines, replacing
+  `fs.write(p, lines.join("\n") + "\n")` (about 46 sites); pairs with
+  `collect { ... }`.
+- **One spelling per filesystem operation.** `fs.write(p, x)` and
+  `p.write(x)` (likewise `exists`, `read_text`, `remove`, `mkdir`) are two
+  names for one concept: about 1,250 `fs.op(path, ...)` calls against
+  about 4,000 method calls. Keep the Path method ("methods first"), keep
+  `fs.*` only where there is no single path receiver, and lint + autofix.
+- **`empty` as a natural-language predicate.** `return nested when ! empty`
+  style sugar for emptiness tests instead of `.len() == 0` / `> 0`
+  (about 615 sites). Open design point: what `empty` refers to (the subject
+  named in the statement, e.g. `when nested is empty` /
+  `when nested not empty`); it must desugar trivially to `.len() == 0`.
+- **`test.expect(ctx, src, status: N, stderr: [...])`** for script tests. The
+  status is a required argument (0 for success), stderr/stdout fragments are
+  optional, and any mismatch reports the full output. Replaces
+  `run_script` + `assert output.status == N, output.stderr` + repeated
+  `assert "..." in output.stderr, output.stderr` (1,013 `run_script` calls,
+  about 587 status and 567 stderr asserts here).

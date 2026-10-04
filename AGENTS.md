@@ -59,7 +59,8 @@ before editing.
 
 - Put language contracts (including OS, streams, JSON, and interactive
   behavior) in `docs/SPEC.md`, API details in the registry behind `xsht api`,
-  architecture and invariants in `docs/ARCHITECTURE.md`, test gates in
+  architecture and invariants in `docs/ARCHITECTURE.md`, the design rationale for
+  new syntax in `docs/DESIGN.md`, test gates in
   `docs/TESTING.md`, tooling in `docs/XSHT.md`, and the system-report contract
   in `core/SYSTEM-REPORT.md`.
 - Do not add prose that restates obvious syntax or API signatures. Prefer exact
