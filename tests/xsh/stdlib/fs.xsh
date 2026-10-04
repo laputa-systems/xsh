@@ -106,6 +106,23 @@ print ${{entry.size}}
   assert "metadata-unavailable" in unstat.stderr
 }
 
+test test_fs_write_atomic_keeps_plain_write_modes { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-atomic-mode")?
+  let plain = fp"{root}/plain.txt"
+  let atomic = fp"{root}/atomic.txt"
+  fs.write(plain, "plain")?
+  fs.write_atomic(atomic, "atomic")?
+  # A new file gets the mode a plain write gives under the same umask, not
+  # the temporary file's private 0600.
+  assert fs.metadata(atomic)?.mode % 512 == fs.metadata(plain)?.mode % 512
+
+  # Replacing a file keeps its mode, as a plain write over it does.
+  fs.chmod(atomic, 0o751)?
+  fs.write_atomic(atomic, "replaced")?
+  assert fs.read_text(atomic)? == "replaced"
+  assert fs.metadata(atomic)?.mode % 512 == 0o751
+}
+
 test test_fs_tree_metadata_install_and_locking { |ctx|
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"{root}/src"

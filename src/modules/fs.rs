@@ -2053,10 +2053,25 @@ pub(crate) fn write_atomic(path: PathBuf, data: &[u8], span: Span) -> Result<(),
     name_error_path(&shown, write_atomic_unnamed(path, data, span))
 }
 
+// The replacement gets the mode a plain write would leave: an existing
+// file's mode, else 0666 under the umask. tempfile alone creates 0600, which
+// would silently make every atomically written file private.
 fn write_atomic_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut temp = tempfile::NamedTempFile::new_in(parent)
+    let existing_mode = match std::fs::metadata(&path) {
+        Ok(metadata) => Some(metadata.permissions().mode() & 0o7777),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(RuntimeError::host("fs-write", &error).with_span(span)),
+    };
+    let mut temp = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o666))
+        .tempfile_in(parent)
         .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
+    if let Some(mode) = existing_mode {
+        temp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(mode))
+            .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
+    }
     temp.write_all(data)
         .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
     temp.as_file()

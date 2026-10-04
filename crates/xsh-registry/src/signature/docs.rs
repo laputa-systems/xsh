@@ -600,7 +600,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "write_atomic") => Some((
             "Replaces a file through an atomic write path.",
-            "Use when readers must not observe a partially written replacement.",
+            "Use when readers must not observe a partially written replacement. The result keeps an existing file's mode, and a new file gets the mode a plain write would.",
             &["filesystem", "atomic", "write"],
         )),
         ("fs", "mkdir") => Some((
