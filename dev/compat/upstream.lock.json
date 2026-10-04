@@ -11,5 +11,10 @@
     "source": "https://github.com/coreutils/coreutils/releases/download/v9.12/coreutils-9.12.tar.xz",
     "pinned_by": "uutils util/fetch-gnu.sh at the uutils commit above",
     "role": "GNU test suite for the uutils-vs-XSH differential (Gate 4)"
+  },
+  "denominator": {
+    "upstream_utilities": 108,
+    "in_scope": 106,
+    "capability_gated": 2
   }
 }

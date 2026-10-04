@@ -14,7 +14,14 @@ than claiming a pass.
 Usage:
     UUTILS_ROOT=../ref/uutils-coreutils python3 dev/compat/parity.py [--check]
 
-`--check` exits non-zero when the checked-in manifest is stale.
+`--check` exits non-zero when the checked-in manifest is stale. Without
+`UUTILS_ROOT` it runs offline, which is what `make check` does: the utility
+list, capability gates and upstream test counts come from the committed
+manifest, and every XSH-side field (presence, aliases, native tests, suite
+results, exclusions, gaps) is still recomputed and compared. Both modes also
+fail when the totals differ from the denominator pinned in
+`upstream.lock.json`, so the denominator cannot shrink without a deliberate
+lock change.
 """
 
 from __future__ import annotations
@@ -117,17 +124,28 @@ def suite_summary(report: dict, util: str) -> dict | None:
     return {k: entry.get(k, 0) for k in ("pass", "fail", "skip", "excluded")}
 
 
-def build(root: Path) -> dict:
+def upstream_from_manifest(manifest: dict) -> tuple[list[str], dict[str, str], dict[str, int]]:
+    rows = manifest.get("utilities", [])
+    base = [r["utility"] for r in rows if r["capability"] is None]
+    gated = {r["utility"]: r["capability"] for r in rows if r["capability"] is not None}
+    counts = {r["utility"]: r["uutils_test_count"] for r in rows}
+    return base, gated, counts
+
+
+def build(root: Path | None, committed: dict | None = None) -> dict:
     lock = load_json(LOCK, {})
-    aliases = load_json(ALIASES, {}).get("aliases", {})
+    aliases = {e["name"]: e["target"] for e in load_json(ALIASES, {}).get("aliases", [])}
     exclusions = load_json(EXCLUSIONS, {"tests": []})
     gaps = load_json(COMPAT / "gaps.json", {}).get("utilities", {})
     uu_tests = load_json(RESULTS / "uutils-integration.json", {})
     gnu = load_json(RESULTS / "gnu-differential.json", {})
     busybox = load_json(RESULTS / "busybox.json", {})
 
-    base, gated = upstream_utilities(root)
-    test_counts = upstream_tests(root)
+    if root is None:
+        base, gated, test_counts = upstream_from_manifest(committed or {})
+    else:
+        base, gated = upstream_utilities(root)
+        test_counts = upstream_tests(root)
     excluded_by_util: dict[str, list[str]] = {}
     for item in exclusions.get("tests", []):
         excluded_by_util.setdefault(item["utility"], []).append(item["id"])
@@ -177,22 +195,35 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--uutils-root", default=os.environ.get("UUTILS_ROOT"))
     args = parser.parse_args()
-    if not args.uutils_root:
+    if not args.uutils_root and not args.check:
         print("set UUTILS_ROOT or pass --uutils-root", file=sys.stderr)
         return 2
-    root = Path(args.uutils_root).resolve()
+    root = Path(args.uutils_root).resolve() if args.uutils_root else None
 
     lock = load_json(LOCK, {})
     want = lock.get("uutils", {}).get("commit")
-    head = (root / ".git" / "HEAD").read_text().strip() if (root / ".git").exists() else None
-    if head and head.startswith("ref:"):
-        ref = root / ".git" / head.split()[1]
-        head = ref.read_text().strip() if ref.exists() else None
-    if want and head and head != want:
-        print(f"UUTILS_ROOT is at {head}, lock pins {want}", file=sys.stderr)
-        return 2
+    if root is not None:
+        head = (root / ".git" / "HEAD").read_text().strip() if (root / ".git").exists() else None
+        if head and head.startswith("ref:"):
+            ref = root / ".git" / head.split()[1]
+            head = ref.read_text().strip() if ref.exists() else None
+        if want and head and head != want:
+            print(f"UUTILS_ROOT is at {head}, lock pins {want}", file=sys.stderr)
+            return 2
 
-    text = json.dumps(build(root), indent=2) + "\n"
+    committed = load_json(MANIFEST, None)
+    if root is None and committed is None:
+        print(f"{MANIFEST.relative_to(REPO)} is missing; run parity.py with UUTILS_ROOT set", file=sys.stderr)
+        return 1
+    manifest = build(root, committed)
+    pinned = lock.get("denominator")
+    if pinned:
+        totals = manifest["totals"]
+        for key, value in pinned.items():
+            if totals[key] != value:
+                print(f"denominator shrank or grew: {key} is {totals[key]}, lock pins {value}", file=sys.stderr)
+                return 1
+    text = json.dumps(manifest, indent=2) + "\n"
     if args.check:
         if not MANIFEST.exists() or MANIFEST.read_text() != text:
             print(f"{MANIFEST.relative_to(REPO)} is stale; rerun dev/compat/parity.py", file=sys.stderr)

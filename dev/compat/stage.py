@@ -77,7 +77,7 @@ def main() -> int:
     (bin_dir / "lib").mkdir(parents=True)
 
     names = applets()
-    aliases = json.loads(ALIASES.read_text()).get("aliases", {}) if ALIASES.exists() else {}
+    aliases = {e["name"]: e["target"] for e in json.loads(ALIASES.read_text()).get("aliases", [])} if ALIASES.exists() else {}
     for name in names:
         install_script(CORE / f"{name}.xsh", bin_dir / name, str(xsh), 0o755)
     for lib in sorted((CORE / "lib").glob("*.xsh")):

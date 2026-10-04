@@ -106,6 +106,43 @@ match build.check_lint(ctx) {{
   assert cargo_marker.read_text()? == "test|--release|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
+test test_check_compat_runs_both_ratchets_and_stops_at_the_first_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "check-compat")?
+  let tools = fp"{root}/tools"
+  tools.mkdir()?
+  let repository = fs.cwd()?
+  let xsh = ctx.xsh_bin
+  let log = fp"{root}/python-argv"
+  write_fake_tool(
+    fp"{tools}/python3",
+    xsh,
+    f"""let previous = if p"{log}".exists()? {{ p"{log}".read_text()? }} else {{ "" }}
+p"{log}".write(previous + args.join("|") + "\\n")?
+if "parity.py" in args.join("|") {{
+  abort(7)
+}}""",
+  )?
+  let result = test.run_script(
+    ctx,
+    f"""
+use build
+use context
+use targets as target_policy
+
+let ctx: context.Context = {context_source(root)}
+match build.check_compat(ctx) {{
+  Ok(_) => abort(1)
+  Err(error) => print ${{error.message}}
+}}
+""",
+    [],
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
+  )?
+  assert result.success, result.stderr
+  assert "StageError.Failed" in result.stdout, result.stdout
+  assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/parity.py|--check\n"
+}
+
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
   let root = test.temp_dir(ctx, name: "lint-build-xsh")?
   let tools = fp"{root}/tools"
