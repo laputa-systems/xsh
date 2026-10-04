@@ -2022,6 +2022,12 @@ the operation, the error variant and message, context frames, the cause chain,
 the user call stack with call sites, and, for process failures, the executable,
 argv, working directory, and status.
 
+A traceback describes only the failure it reports. An `Err` that each caller
+re-propagates directly with `?` keeps the span and call path of the `?` that
+first propagated it. Once a caller handles the `Err` instead (matches, binds,
+tests, or replaces it with `??`), the next statement, call, or `?` operand
+discards that record, and a later failure reports its own span and call path.
+
 ## 17. Native Tests
 
 `xsht test` discovers tests in `tests/**/*.xsh` and `showcase/tests/**/*.xsh`

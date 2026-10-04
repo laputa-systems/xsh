@@ -2966,6 +2966,14 @@ pub struct Evaluator {
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
+    // The traceback of the failure that is still unwinding: recorded where a
+    // `?` fails (or a signal hook raises), carried while that `Err` returns
+    // through callers, and taken by the `?` that re-propagates it or by the
+    // report of the uncaught failure. An error that is still unwinding starts
+    // no new evaluation (cleanup sets the slot aside), so a statement, a
+    // function call, or a `?` operand that starts means any recorded `Err` was
+    // handled; each discards the slot so a traceback only ever describes the
+    // error it is reported for.
     pending_traceback: Option<Traceback>,
     unix_next_pid: i64,
     fs_locks: Vec<Option<std::fs::File>>,
@@ -4402,7 +4410,7 @@ impl Evaluator {
             if stopped { break; }
             let span = stmt.span;
             if let Err(error) = self.service_pending_signal(span) {
-                let pending_traceback = self.pending_traceback.take();
+                let pending_traceback = self.take_traceback_for_runtime_error(&error);
                 diagnostics.push(runtime_diagnostic(
                     error.span.unwrap_or(span),
                     &error.message,
@@ -4527,7 +4535,7 @@ impl Evaluator {
                         status = signal.status;
                         break;
                     }
-                    let pending_traceback = self.pending_traceback.take();
+                    let pending_traceback = self.take_traceback_for_runtime_error(&error);
                     self.trace_leaf(
                         TraceKind::RuntimeError,
                         Some(error.span.unwrap_or(span)),
@@ -4552,7 +4560,7 @@ impl Evaluator {
                 }
             }
             if let Err(error) = self.service_pending_signal(span) {
-                let pending_traceback = self.pending_traceback.take();
+                let pending_traceback = self.take_traceback_for_runtime_error(&error);
                 diagnostics.push(runtime_diagnostic(
                     error.span.unwrap_or(span),
                     &error.message,
@@ -4594,7 +4602,7 @@ impl Evaluator {
                 &error.message,
                 "runtime.error",
             ));
-            traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
+            traceback = Some(self.take_traceback_for_runtime_error(&error).unwrap_or_else(|| {
                 self.traceback_for_value(
                     error.span.unwrap_or(script_span),
                     "signal.hook",
@@ -4638,7 +4646,7 @@ impl Evaluator {
                             abort = Some(signal);
                             status = signal.status;
                         } else {
-                            let pending_traceback = self.pending_traceback.take();
+                            let pending_traceback = self.take_traceback_for_runtime_error(&error);
                             diagnostics.push(runtime_diagnostic(
                                 error.span.unwrap_or(zero),
                                 &error.message,
@@ -4684,7 +4692,7 @@ impl Evaluator {
                     &error.message,
                     "runtime.error",
                 ));
-                traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
+                traceback = Some(self.take_traceback_for_runtime_error(&error).unwrap_or_else(|| {
                     self.traceback_for_value(
                         error.span.unwrap_or(script_span),
                         "signal.hook",
@@ -5018,7 +5026,7 @@ impl Evaluator {
                     break;
                 }
                 Some(Err(error)) => {
-                    let pending_traceback = self.pending_traceback.take();
+                    let pending_traceback = self.take_traceback_for_runtime_error(&error);
                     self.trace_leaf(
                         TraceKind::RuntimeError,
                         Some(error.span.unwrap_or(span)),
@@ -5114,7 +5122,7 @@ impl Evaluator {
             Some(Ok(value)) => Ok(Some(value)),
             Some(Err(error)) => {
                 let span = error.span.unwrap_or(script_span);
-                let pending_traceback = self.pending_traceback.take();
+                let pending_traceback = self.take_traceback_for_runtime_error(&error);
                 self.trace_leaf(
                     TraceKind::RuntimeError,
                     Some(span),
@@ -5224,6 +5232,16 @@ impl Evaluator {
                 },
             }),
         }
+    }
+
+    /// Takes the pending traceback when it describes `error`, the runtime error
+    /// being reported. A `?` records its traceback for the `Err` it propagates,
+    /// so only that failure crossing as a propagated runtime error, or a signal
+    /// hook's failure (recorded as the hook raises it), may report it; any
+    /// other runtime error gets a traceback of its own.
+    fn take_traceback_for_runtime_error(&mut self, error: &RuntimeError) -> Option<Traceback> {
+        let traceback = self.pending_traceback.take();
+        traceback.filter(|_| error.propagated || self.signal_state.shutdown_complete)
     }
 
     fn exe_path_for_traceback(&self) -> String {

@@ -1343,6 +1343,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 TracePayload::None,
             );
         }
+        // A call starts only once any earlier `Err` was handled.
+        self.evaluator.pending_traceback = None;
         self.evaluator.call_stack.push(TracebackFrame {
             kind: frame_kind,
             name: function.traceback_name(),
@@ -1527,6 +1529,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
+        // A statement starts only once any earlier `Err` was handled.
+        self.evaluator.pending_traceback = None;
         let span = self.calls[index].call_span;
         let (tag, mut payload) = indexed_value(
             self.calls[index].execution.instruction_id(instruction),
@@ -2200,6 +2204,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
+                // The `?` reuses only a traceback that its operand records.
+                self.evaluator.pending_traceback = None;
                 self.push_expr(
                     index,
                     value,
