@@ -275,14 +275,14 @@ fs.write(copy, b"------")?
   test.ok(sysctl_value != "")?
   match linux.loop_list() {
     Ok(loops) => {
-      test.ok(loops |> count() >= 0)?
+      test.ok((loops |> count()) >= 0)?
     }
     Err(err) => {
       test.error_kind(err, "linux-loop")?
     }
   }
   let open_files = linux.open_files(process.current_pid()?)?.collect()
-  test.ok(open_files |> count() >= 0)?
+  test.ok((open_files |> count()) >= 0)?
 
   match linux.file_attrs(source) {
     Ok(attrs) => {

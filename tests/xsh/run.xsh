@@ -1184,10 +1184,14 @@ for _ in numbers() {
   assert "fs-read: /nonexistent/traceback.txt: " in stale.stderr, stale.stderr
 }
 
-test test_filesystem_errors_name_their_paths {
-  let missing = p"/nonexistent/xsh-missing-dir"
+test test_filesystem_errors_name_their_paths { |ctx|
+  # A path under a regular file fails for every user; root could create
+  # a missing top-level directory such as /nonexistent.
+  let blocker = fp"{ctx.temp_root}/blocker"
+  blocker.write("x")?
+  let missing = fp"{blocker}/xsh-missing-dir"
   if let Err(error) = fs.metadata(missing) {
-    assert "/nonexistent/xsh-missing-dir" in error.message, error.message
+    assert missing.display() in error.message, error.message
   } else {
     test.fail("expected a filesystem failure")?
   }
@@ -1197,7 +1201,7 @@ test test_filesystem_errors_name_their_paths {
     fs.copy(fp"{missing}/a", fp"{missing}/b"),
   ] {
     if let Err(error) = failure {
-      assert "/nonexistent/xsh-missing-dir" in error.message, error.message
+      assert missing.display() in error.message, error.message
     } else {
       test.fail("expected a filesystem failure")?
     }
