@@ -2,7 +2,9 @@
 
 use crate::modules::time::{format_epoch_ms_utc, now_epoch_ms};
 use crate::modules::user::name_for_uid;
-use crate::runtime::value::{LiveStream, RecordMap, RecordShape, RuntimeError, StreamValue, Value};
+use crate::runtime::value::{
+    LiveStream, PathValue, RecordMap, RecordShape, RuntimeError, StreamValue, Value,
+};
 use crate::source::Span;
 use std::sync::{Arc, LazyLock};
 
@@ -387,6 +389,27 @@ fn list_threads_stream(_pid: Option<i64>, _span: Span) -> Result<StreamValue, Ru
         "process.threads",
         EmptyProcessStream,
     ))
+}
+
+/// The script operand of this `xsh` invocation, exactly as the kernel or the
+/// caller passed it: relative paths stay relative and symlinks stay unresolved,
+/// so multicall aliases see their own name.
+pub(crate) fn script_path(span: Span) -> Result<PathValue, RuntimeError> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut args = std::env::args_os().skip(1);
+    let first = args.next();
+    let script = match first {
+        Some(arg) if arg == "--" => args.next(),
+        other => other,
+    };
+    match script {
+        Some(arg) => PathValue::new(arg.into_vec()).map_err(|error| error.with_span(span)),
+        None => Err(
+            RuntimeError::new("script-path", "this process was not started from a script")
+                .with_span(span),
+        ),
+    }
 }
 
 pub(crate) fn process_stats(pid: i64, span: Span) -> Result<Value, RuntimeError> {

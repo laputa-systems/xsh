@@ -509,6 +509,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ProcessList
             | RuntimeOp::ProcessThreads
             | RuntimeOp::ProcessCurrentPid
+            | RuntimeOp::ProcessScriptPath
             | RuntimeOp::ProcessStats
             | RuntimeOp::ProcessWhich
             | RuntimeOp::ProcessPort

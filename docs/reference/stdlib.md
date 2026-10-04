@@ -337,6 +337,7 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.port(port: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
 - `process.ports() -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
 - `process.run(command: Command) -> Result[Status, ProcessError]` — Runs a typed command and returns its process status.
+- `process.script_path() -> Result[Path, Error]` — Returns the script path this process was started with.
 - `process.signal(signal: Str) -> Result[{name: Str, number: Int}, Error]` — Sends a selected signal to a process.
 - `process.spawn(command: Command) -> Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]` — Starts a typed command and returns an owned process handle record.
 - `process.stats(pid: Int) -> Result[{rss_kb: Int, vsz_kb: Int}, Error]` — Reads structured process or listener information from the host.

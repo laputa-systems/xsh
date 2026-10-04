@@ -318,6 +318,10 @@ parameter collects the remainder, so the usual form is
 `proc main(...argv: List[Str])`. A `main` whose required parameter is neither
 `Str` nor `Path` can never bind an argument and is reported at check time.
 
+`process.script_path()` returns the script operand of the running `xsh`
+exactly as it was passed, relative or absolute and never symlink-resolved, so
+an applet installed as a symlink alias sees its own name.
+
 `cli main(parameters) [effects] -> Return { ... }` declares a typed command-line
 entry instead:
 

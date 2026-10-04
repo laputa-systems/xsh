@@ -2907,6 +2907,15 @@ fn process_module() -> ModuleSig {
             ),
         ),
         (
+            "script_path",
+            sig(
+                Vec::new(),
+                result(Type::Path),
+                false,
+                RuntimeOp::ProcessScriptPath,
+            ),
+        ),
+        (
             "stats",
             sig(
                 vec![param("pid", Type::Int)],

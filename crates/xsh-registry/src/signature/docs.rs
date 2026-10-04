@@ -1016,6 +1016,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The identifier belongs to the host process running the evaluator and is not stable across invocations.",
             &["process", "identity", "host-state"],
         )),
+        ("process", "script_path") => Some((
+            "Returns the script path this process was started with.",
+            "The path is exactly as the kernel or caller passed it: relative paths stay relative and symlinks are not resolved, so an alias sees its own name. It fails when the process was not started from a script.",
+            &["process", "identity", "host-state"],
+        )),
         ("process", "which") => Some((
             "Resolves an executable through the current PATH.",
             "Resolution reports absence as data and does not start or inspect the target process.",

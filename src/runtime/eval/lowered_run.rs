@@ -7118,6 +7118,12 @@ impl Evaluator {
             RuntimeOp::ProcessCurrentPid if values.is_empty() => {
                 lowered_result_ok(LoweredValue::Int(std::process::id() as i64))
             }
+            RuntimeOp::ProcessScriptPath if values.is_empty() => {
+                match process_module::script_path(span) {
+                    Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::ProcessStats if values.len() == 1 => {
                 let pid = lowered_int_arg(values.pop(), "process.stats", span)?;
                 lowered_runtime_result(process_module::process_stats(pid, span), span)?

@@ -335,6 +335,7 @@ pub enum RuntimeOp {
     ProcessList,
     ProcessThreads,
     ProcessCurrentPid,
+    ProcessScriptPath,
     ProcessStats,
     ProcessWhich,
     ProcessPort,
