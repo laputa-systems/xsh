@@ -1753,6 +1753,43 @@ print ${{fp\"{{out}}/dir/source.txt\".read_text()?.trim()}} ${{fp\"{{out}}/dir/c
     let _ = std::fs::remove_dir_all(root);
 }
 
+// A release tarball's hard links name their targets under the same top-level
+// directory the extraction strips, as in strace's tarball.
+#[test]
+fn archive_module_strips_tar_hardlink_targets_like_their_names() {
+    let root = temp_path("archive-hardlink-strip");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create root");
+    let archive = root.join("hardlink.tar");
+    let out = root.join("out");
+    write_test_tar_hardlink(&archive, "pkg-1.0/source.txt", "pkg-1.0/copy.txt", b"shared\n");
+
+    let script = format!(
+        "\
+let tar_path = Path({})
+let out = Path({})
+archive.tar_extract(tar_path, out, 1)?
+print ${{fp\"{{out}}/source.txt\".read_text()?.trim()}} ${{fp\"{{out}}/copy.txt\".read_text()?.trim()}}
+",
+        xsh_string_literal(archive.to_str().unwrap()),
+        xsh_string_literal(out.to_str().unwrap()),
+    );
+
+    let output = run_temp_script("archive-hardlink-strip", &script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "shared shared\n");
+    let source = std::fs::metadata(out.join("source.txt")).expect("source metadata");
+    let copy = std::fs::metadata(out.join("copy.txt")).expect("copy metadata");
+    assert_eq!(source.ino(), copy.ino());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[cfg(feature = "net")]
 struct LocalDnsServer {
     addr: String,

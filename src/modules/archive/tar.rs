@@ -1,7 +1,6 @@
 use crate::modules::archive::policy::{
     archive_member_filters, archive_member_path, archive_member_selected, archive_path_in,
-    clean_archive_path, prepare_output_path, refuse_existing, strip_archive_path,
-    validate_link_target,
+    prepare_output_path, refuse_existing, strip_archive_path, validate_link_target,
 };
 use crate::modules::compression::{
     ArchiveWriter, archive_reader, for_create as compression_for_create, parse as parse_compression,
@@ -102,7 +101,14 @@ pub(crate) fn tar_extract(
         let Some(path) = strip_archive_path(&raw_path, strip_components as usize, span)? else {
             continue;
         };
-        extract_entry(&mut entry, &dest, &path, overwrite, span)?;
+        extract_entry(
+            &mut entry,
+            &dest,
+            &path,
+            strip_components as usize,
+            overwrite,
+            span,
+        )?;
     }
     Ok(())
 }
@@ -356,6 +362,7 @@ fn extract_entry<R: Read>(
     entry: &mut Entry<R>,
     dest: &Path,
     path: &Path,
+    strip_components: usize,
     overwrite: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
@@ -391,7 +398,15 @@ fn extract_entry<R: Read>(
                 RuntimeError::new("archive-extract", "missing hardlink target").with_span(span)
             })?
             .into_owned();
-        let target = clean_archive_path(&target, span)?;
+        // A hard link names its target as an archive member, so it loses the
+        // same leading components as every member name.
+        let Some(target) = strip_archive_path(&target, strip_components, span)? else {
+            return Err(RuntimeError::new(
+                "archive-extract",
+                "hardlink target is stripped out of the extracted tree",
+            )
+            .with_span(span));
+        };
         let target_output = archive_path_in(dest, &target, span)?;
         fs::hard_link(target_output, output)
             .map_err(|error| archive_error("archive-extract", error, span))?;
