@@ -9,7 +9,7 @@ use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand, ArenaCommandArg,
     ArenaCompQualifier, ArenaCommandArgKind, ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExprKind,
     ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordField, ArenaRecordFieldKind,
+    ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage,
     ArenaText, ArenaTypeExprTag, ArenaWordPart, AstArena, BindingTargetId, BlockId, ExprId,
     FunctionDefId, PatternId, StmtId, TypeExprId,
@@ -22,6 +22,7 @@ use xsh::frontend::syntax::node::{
     UnaryOp,
 };
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
+use xsh::frontend::syntax::grammar;
 use xsh::frontend::syntax::grouping::{self, Context, Follow};
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
 use xsh::frontend::syntax::token::TokenTag;
@@ -42,8 +43,6 @@ const END: Context = Context::open(Follow::END);
 const BRACE: Context = Context::open(Follow::BRACE);
 /// Before a keyword.
 const WORD: Context = Context::open(Follow::WORD);
-const MULTILINE_LIST_ITEM_THRESHOLD: usize = 8;
-const MULTILINE_RECORD_FIELD_THRESHOLD: usize = 6;
 const MULTILINE_SCHEMA_FIELD_THRESHOLD: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -374,67 +373,59 @@ impl<'a> Writer<'a> {
     fn format_program(&mut self, program: &ArenaProgram) -> String {
         let mut output = String::new();
         let mut previous: Option<ArenaStmtKind> = None;
-        let mut previous_end: Option<usize> = None;
+        let mut previous_span: Option<Span> = None;
 
         for stmt_id in program.statement_ids() {
             let stmt = self.arena.stmt(stmt_id);
-            let pending_comment = self.has_comment_before(stmt.span.start());
-            if !output.is_empty() {
+            if let Some(previous_span) = previous_span {
                 output.push('\n');
-                let original_blank =
-                    previous_end.is_some_and(|end| self.gap_has_blank_line(end, stmt.span.start()));
-                if previous
-                    .as_ref()
-                    .is_some_and(|prev| needs_top_level_blank(prev, &stmt.kind))
-                    || pending_comment
-                    || original_blank
-                {
+                let forced = previous.as_ref().is_some_and(|prev| needs_top_level_blank(prev, &stmt.kind));
+                if forced || self.authored_blank_before(previous_span, stmt.span.start()) {
                     output.push('\n');
                 }
             }
             self.after_expression = previous.as_ref().is_some_and(grouping::statement_may_continue);
             self.write_stmt(stmt_id, 0, &mut output);
             previous = Some(stmt.kind);
-            previous_end = Some(stmt.span.end());
-        }
-
-        if self.next_comment < self.comments.len() {
-            if !output.is_empty() {
-                output.push('\n');
-            }
-            self.write_remaining_comments(0, &mut output);
+            previous_span = Some(stmt.span);
         }
 
         if !output.is_empty() {
             output.push('\n');
         }
+        if self.next_comment < self.comments.len() {
+            if let Some(previous) = previous_span
+                && self.authored_blank_before(previous, self.source.len())
+            {
+                output.push('\n');
+            }
+            self.write_closing_comments(self.source.len(), 0, &mut output);
+        }
         output
     }
 
-    fn gap_has_blank_line(&self, start: usize, end: usize) -> bool {
-        self.source.get(start..end).is_some_and(|gap| {
-            if let Some(comment_start) = gap.rfind('#') {
-                return gap[comment_start..].matches('\n').count() >= 2;
-            }
-            gap.contains('\n')
-        })
+    /// Where the source text of a span ends, before trailing whitespace.
+    /// Control-flow statement spans end at their closing brace while other
+    /// statement spans, and expressions that end a line, own the newline.
+    fn text_end(&self, span: Span) -> usize {
+        self.source
+            .get(span.range())
+            .map_or(span.end(), |text| span.start() + text.trim_end().len())
     }
 
-    fn gap_has_blank_line_in_block(&self, previous: Span, current_start: usize) -> bool {
-        // Control-flow statement spans end at their closing brace while other
-        // statement spans own their terminating newline; trim so only an
-        // authored blank line counts.
-        let previous_end = self
-            .source
-            .get(previous.range())
-            .map_or(previous.end(), |text| previous.start() + text.trim_end().len());
-        let Some(gap) = self.source.get(previous_end..current_start) else {
-            return false;
-        };
-        if let Some(comment_start) = gap.rfind('#') {
-            return gap[comment_start..].matches('\n').count() >= 2;
-        }
-        gap.matches('\n').count() >= 2
+    fn blank_line_between(&self, start: usize, end: usize) -> bool {
+        self.source.get(start..end).is_some_and(|gap| gap.matches('\n').count() >= 2)
+    }
+
+    /// Whether the author left a blank line between the previous statement
+    /// and the next one, or the comments leading it.
+    fn authored_blank_before(&self, previous: Span, next_start: usize) -> bool {
+        let next = self
+            .comments
+            .get(self.next_comment)
+            .filter(|comment| comment.span.start() < next_start)
+            .map_or(next_start, |comment| comment.span.start());
+        self.blank_line_between(self.text_end(previous), next)
     }
 
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
@@ -447,6 +438,14 @@ impl<'a> Writer<'a> {
             return;
         }
         self.write_indent(indent, output);
+        self.write_stmt_body(stmt_id, indent, output);
+        self.write_trailing_comment(stmt.span.end(), output);
+    }
+
+    /// Writes a statement without its leading comments, indentation, or
+    /// trailing comment.
+    fn write_stmt_body(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
+        let stmt = self.arena.stmt(stmt_id);
         match &stmt.kind {
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = self.arena.use_stmt(*use_id);
@@ -459,7 +458,7 @@ impl<'a> Writer<'a> {
             }
             ArenaStmtKind::Export(inner) => {
                 output.push_str("export ");
-                self.write_stmt_inline(*inner, indent, output);
+                self.write_stmt_body(*inner, indent, output);
             }
             ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, stmt.span, indent, output),
             ArenaStmtKind::ErrorDef(def) => self.write_error_def(*def, output),
@@ -547,20 +546,42 @@ impl<'a> Writer<'a> {
                 body,
                 else_block,
             } => {
-                output.push_str("with\n");
                 let bindings = self.arena.with_bindings(*bindings).to_vec();
                 let len = bindings.len();
-                for (index, binding) in bindings.iter().enumerate() {
-                    self.write_indent(indent + 1, output);
-                    output.push_str(binding.name.as_str().as_str());
-                    output.push_str(" = ");
-                    self.write_expr(binding.initializer, if index + 1 < len { CLOSE } else { END }, output);
-                    if index + 1 < len {
-                        output.push(',');
+                let body_start = self.arena.span(self.arena.block(*body).span).start();
+                // Bindings the author wrote on the `with` line stay there
+                // when they fit.
+                let one_line = self.source.get(stmt.span.start()..body_start).is_some_and(|header| !header.contains('\n'));
+                let flat = one_line
+                    && !self.has_comment_in(stmt.span.start(), body_start)
+                    && self.try_write_flat(output, |writer, line| {
+                        line.push_str("with ");
+                        for (index, binding) in bindings.iter().enumerate() {
+                            if index > 0 {
+                                line.push_str(", ");
+                            }
+                            line.push_str(binding.name.as_str().as_str());
+                            line.push_str(" = ");
+                            writer.write_expr(binding.initializer, if index + 1 < len { CLOSE } else { BRACE }, line);
+                        }
+                        line.push_str(" {");
+                    });
+                if flat {
+                    output.pop();
+                } else {
+                    output.push_str("with\n");
+                    for (index, binding) in bindings.iter().enumerate() {
+                        self.write_indent(indent + 1, output);
+                        output.push_str(binding.name.as_str().as_str());
+                        output.push_str(" = ");
+                        self.write_expr(binding.initializer, if index + 1 < len { CLOSE } else { END }, output);
+                        if index + 1 < len {
+                            output.push(',');
+                        }
+                        output.push('\n');
                     }
-                    output.push('\n');
+                    self.write_indent(indent, output);
                 }
-                self.write_indent(indent, output);
                 self.write_block(*body, indent, output);
                 output.push_str(" else ");
                 self.write_block(*else_block, indent, output);
@@ -611,12 +632,11 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaStmtKind::Continue => output.push_str("continue"),
-            ArenaStmtKind::Match { value, arms } => self.write_match(*value, *arms, indent, output),
+            ArenaStmtKind::Match { value, arms } => self.write_match(*value, *arms, stmt.span, indent, output),
             ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
             ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => self.write_statement_expr(*expr, output),
         }
-        self.write_trailing_comment(stmt.span.end(), output);
     }
 
     fn write_signal_hook(
@@ -945,21 +965,42 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let branches = self.arena.if_branches(branches).to_vec();
-        if let Some(first) = branches.first() {
-            output.push_str("if ");
-            self.write_expr(first.condition, BRACE, output);
-            output.push(' ');
-            self.write_block(first.block, indent, output);
-            for branch in &branches[1..] {
-                output.push_str(" else if ");
-                self.write_expr(branch.condition, BRACE, output);
-                output.push(' ');
-                self.write_block(branch.block, indent, output);
-            }
+        let blocks: Vec<BlockId> = branches.iter().map(|branch| branch.block).chain(else_block).collect();
+        let flat: Option<Vec<StmtId>> = blocks.iter().map(|block| self.flat_block_statement(*block, false)).collect();
+        let start = branches.first().map_or(0, |branch| self.arena.expr(branch.condition).span.start());
+        let end = blocks.last().map_or(0, |block| self.arena.span(self.arena.block(*block).span).end());
+        // Every branch stays on one line, or every branch breaks.
+        if let Some(flat) = flat
+            && !self.has_comment_in(start, end)
+            && self.try_write_flat(output, |writer, line| {
+                writer.write_if_branches(&branches, else_block, line, |writer, index, line| {
+                    writer.write_flat_block(blocks[index], flat[index], line)
+                })
+            })
+        {
+            return;
         }
-        if let Some(block) = else_block {
+        self.write_if_branches(&branches, else_block, output, |writer, index, output| {
+            writer.write_broken_block(blocks[index], indent, output, false)
+        });
+    }
+
+    fn write_if_branches(
+        &mut self,
+        branches: &[xsh::frontend::syntax::arena::ArenaIfBranch],
+        else_block: Option<BlockId>,
+        output: &mut String,
+        mut write_block: impl FnMut(&mut Self, usize, &mut String),
+    ) {
+        for (index, branch) in branches.iter().enumerate() {
+            output.push_str(if index == 0 { "if " } else { " else if " });
+            self.write_expr(branch.condition, BRACE, output);
+            output.push(' ');
+            write_block(self, index, output);
+        }
+        if else_block.is_some() {
             output.push_str(" else ");
-            self.write_block(block, indent, output);
+            write_block(self, branches.len(), output);
         }
     }
 
@@ -967,6 +1008,7 @@ impl<'a> Writer<'a> {
         &mut self,
         value: ExprId,
         arms: xsh::frontend::syntax::arena::ArenaRange,
+        span: Span,
         indent: usize,
         output: &mut String,
     ) {
@@ -974,6 +1016,8 @@ impl<'a> Writer<'a> {
         self.write_expr(value, BRACE, output);
         output.push_str(" {");
         let arms = self.arena.match_arms(arms).to_vec();
+        // Comments before the closing brace stay inside the match.
+        let close = self.text_end(span).saturating_sub(1);
         if arms.is_empty() {
             output.push('}');
             return;
@@ -983,6 +1027,8 @@ impl<'a> Writer<'a> {
             if index > 0 {
                 output.push('\n');
             }
+            let pattern_start = self.arena.span(self.arena.pattern(arm.pattern).span).start();
+            self.write_comments_before(pattern_start, indent + 1, output);
             self.write_indent(indent + 1, output);
             self.write_pattern(arm.pattern, output);
             if let Some(guard) = arm.guard {
@@ -994,28 +1040,42 @@ impl<'a> Writer<'a> {
             let stmts: Vec<StmtId> = self.arena.stmt_ids(block.statements).collect();
             if stmts.len() == 1 && block.params.is_empty() {
                 let stmt_id = stmts[0];
-                let stmt_kind = self.arena.stmt(stmt_id).kind;
-                if !matches!(
-                    stmt_kind,
+                let stmt = self.arena.stmt(stmt_id);
+                let definition = matches!(stmt.kind, ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_));
+                let control_flow = matches!(
+                    stmt.kind,
                     ArenaStmtKind::If { .. }
                         | ArenaStmtKind::BooleanGuard { .. }
                         | ArenaStmtKind::While { .. }
                         | ArenaStmtKind::For { .. }
                         | ArenaStmtKind::Match { .. }
                         | ArenaStmtKind::With { .. }
-                        | ArenaStmtKind::ProcDef(_)
-                        | ArenaStmtKind::PureDef(_)
-                        | ArenaStmtKind::StreamDef(_)
-                ) {
-                    self.arm_statement = true;
-                    self.write_stmt_inline(stmt_id, indent + 1, output);
-                    self.arm_statement = false;
+                );
+                let write_arm = |writer: &mut Self, line: &mut String| {
+                    writer.arm_statement = true;
+                    writer.write_stmt_body(stmt_id, indent + 1, line);
+                    writer.arm_statement = false;
+                };
+                // A control-flow arm statement goes unbraced only when it
+                // stays on the arm's line.
+                let written = if control_flow {
+                    !self.has_comment_in(stmt.span.start(), self.text_end(stmt.span))
+                        && self.try_write_flat(output, write_arm)
+                } else if !definition {
+                    write_arm(self, output);
+                    true
+                } else {
+                    false
+                };
+                if written {
+                    self.write_trailing_comment(stmt.span.end(), output);
                     continue;
                 }
             }
             self.write_block(arm.block, indent + 1, output);
         }
         output.push('\n');
+        self.write_closing_comments(close, indent + 1, output);
         self.write_indent(indent, output);
         output.push('}');
     }
@@ -1026,92 +1086,6 @@ impl<'a> Writer<'a> {
         if let Some(message) = message {
             output.push_str(", ");
             self.write_expr(message, END, output);
-        }
-    }
-
-    fn write_stmt_inline(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
-        let stmt = self.arena.stmt(stmt_id);
-        let kind = stmt.kind;
-        match &kind {
-            ArenaStmtKind::Use(use_id) => {
-                let use_stmt = self.arena.use_stmt(*use_id);
-                output.push_str("use ");
-                output.push_str(&self.join_name_range(use_stmt.path, "."));
-                if let Some(alias) = &use_stmt.alias {
-                    output.push_str(" as ");
-                    output.push_str(alias.as_str().as_str());
-                }
-            }
-            ArenaStmtKind::Export(inner) => {
-                output.push_str("export ");
-                self.write_stmt_inline(*inner, indent, output);
-            }
-            ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, stmt.span, indent, output),
-            ArenaStmtKind::Let {
-                target,
-                ty,
-                initializer,
-            } | ArenaStmtKind::Const {
-                target,
-                ty,
-                initializer,
-            } => {
-                output.push_str(if matches!(kind, ArenaStmtKind::Const { .. }) { "const " } else { "let " });
-                self.write_binding_target(*target, output);
-                self.write_optional_type(*ty, output);
-                output.push_str(" = ");
-                self.write_expr_or_run_safe(initializer, output);
-            }
-            ArenaStmtKind::Var {
-                target,
-                ty,
-                initializer,
-            } => {
-                output.push_str("var ");
-                self.write_binding_target(*target, output);
-                self.write_optional_type(*ty, output);
-                output.push_str(" = ");
-                self.write_expr_or_run_safe(initializer, output);
-            }
-            ArenaStmtKind::Assign { target, op, value } => {
-                self.write_assign_target(*target, output);
-                output.push(' ');
-                output.push_str(assign_op_text(*op));
-                output.push(' ');
-                self.write_expr_or_run(value, output);
-            }
-            ArenaStmtKind::Return(value) => {
-                output.push_str("return");
-                if let Some(value) = value {
-                    output.push(' ');
-                    self.write_expr_or_run_safe(value, output);
-                }
-            }
-            ArenaStmtKind::YieldDelegate(value) => {
-                output.push_str("yield @");
-                self.write_expr(*value, END, output);
-            }
-            ArenaStmtKind::Yield(value) => {
-                output.push_str("yield ");
-                self.write_expr_or_run_safe(value, output);
-            }
-            ArenaStmtKind::Defer(value) => {
-                output.push_str("defer ");
-                self.write_expr_or_run(value, output);
-            }
-            ArenaStmtKind::Break { value } => {
-                output.push_str("break");
-                if let Some(expr) = value {
-                    output.push(' ');
-                    self.write_expr(*expr, END, output);
-                }
-            }
-            ArenaStmtKind::Continue => output.push_str("continue"),
-            ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
-            ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
-            ArenaStmtKind::Expr(expr) => self.write_statement_expr(*expr, output),
-            ArenaStmtKind::Assert { condition, message } => self.write_assert(*condition, *message, output),
-            _ => self.write_stmt(stmt_id, indent, output),
         }
     }
 
@@ -1173,9 +1147,7 @@ impl<'a> Writer<'a> {
                     if index > 0 {
                         output.push_str(", ");
                     }
-                    output.push_str(field.name.as_str().as_str());
-                    output.push_str(": ");
-                    self.write_pattern(field.pattern, output);
+                    self.write_pattern_field(field, output);
                 }
                 if *rest {
                     if len != 0 {
@@ -1216,9 +1188,7 @@ impl<'a> Writer<'a> {
                     if index > 0 {
                         output.push_str(", ");
                     }
-                    output.push_str(field.name.as_str().as_str());
-                    output.push_str(": ");
-                    self.write_pattern(field.pattern, output);
+                    self.write_pattern_field(field, output);
                 }
                 // Error variant patterns always ignore unnamed fields, so the
                 // tree omits `..`; keep the author's spelling of it.
@@ -1241,6 +1211,18 @@ impl<'a> Writer<'a> {
                     self.write_pattern(*pattern, output);
                 }
             }
+        }
+    }
+
+    /// Writes a record or error-variant pattern field. A `{name}` shorthand
+    /// stays shorthand and `{name: name}` stays spelled out.
+    fn write_pattern_field(&mut self, field: &xsh::frontend::syntax::arena::ArenaRecordPatternField, output: &mut String) {
+        output.push_str(field.name.as_str().as_str());
+        let shorthand = matches!(self.arena.pattern(field.pattern).kind, ArenaPatternKind::Binding(name) if name == field.name)
+            && self.source.get(self.arena.span(field.span).range()).is_some_and(|text| !text.contains(':'));
+        if !shorthand {
+            output.push_str(": ");
+            self.write_pattern(field.pattern, output);
         }
     }
 
@@ -1309,22 +1291,95 @@ impl<'a> Writer<'a> {
     }
 
     fn write_block_contents(&mut self, block_id: BlockId, indent: usize, output: &mut String, preserve_value_shape: bool) {
+        if let Some(stmt) = self.flat_block_statement(block_id, preserve_value_shape)
+            && self.try_write_flat(output, |writer, line| writer.write_flat_block(block_id, stmt, line))
+        {
+            return;
+        }
+        self.write_broken_block(block_id, indent, output, preserve_value_shape);
+    }
+
+    /// The single statement of a block the author wrote on one line with no
+    /// comment inside, which may stay on one line: `{ return 1 }`,
+    /// `{ |x| x + 1 }`.
+    fn flat_block_statement(&self, block_id: BlockId, preserve_value_shape: bool) -> Option<StmtId> {
+        let block = self.arena.block(block_id);
+        let span = self.arena.span(block.span);
+        let [stmt] = self.arena.stmt_ids(block.statements).collect::<Vec<_>>()[..] else {
+            return None;
+        };
+        // A value block's lone bare name prints as `(name)`, which only the
+        // broken shape keeps apart from a record shorthand.
+        let grouped_name = preserve_value_shape
+            && block.params.is_empty()
+            && matches!(self.arena.stmt(stmt).kind, ArenaStmtKind::TailBareIdent(_));
+        let one_line = self.source.get(span.range()).is_some_and(|text| !text.contains('\n'));
+        (one_line && !grouped_name && !self.has_comment_in(span.start(), span.end())).then_some(stmt)
+    }
+
+    fn has_comment_in(&self, start: usize, end: usize) -> bool {
+        self.comments[self.next_comment..].iter().any(|comment| (start..end).contains(&comment.span.start()))
+    }
+
+    fn write_block_params(&self, block_id: BlockId, output: &mut String) {
+        let params = self.arena.block_params(self.arena.block(block_id).params).to_vec();
+        if params.is_empty() {
+            return;
+        }
+        output.push_str(" |");
+        for (index, param) in params.iter().enumerate() {
+            if index > 0 {
+                output.push_str(", ");
+            }
+            output.push_str(param.name.as_str().as_str());
+        }
+        output.push('|');
+    }
+
+    fn write_flat_block(&mut self, block_id: BlockId, stmt: StmtId, output: &mut String) {
+        output.push('{');
+        self.write_block_params(block_id, output);
+        output.push(' ');
+        self.after_expression = false;
+        self.write_stmt(stmt, 0, output);
+        output.push_str(" }");
+    }
+
+    /// Writes with `write` onto a copy of the current line and keeps the
+    /// result only when it stays on that line within the width. The region
+    /// written must hold no comments; they are hidden while writing so a
+    /// statement's trailing comment cannot be pulled inside the line.
+    fn try_write_flat(&mut self, output: &mut String, write: impl FnOnce(&mut Self, &mut String)) -> bool {
+        self.try_write_on_line(output, false, write)
+    }
+
+    /// Like `try_write_flat`, but with `allow_break` the result may continue
+    /// onto further lines as long as its first line fits.
+    fn try_write_on_line(&mut self, output: &mut String, allow_break: bool, write: impl FnOnce(&mut Self, &mut String)) -> bool {
+        let line_start = output.rfind('\n').map_or(0, |index| index + 1);
+        let mut line = output[line_start..].to_string();
+        let prefix = line.len();
+        let next_comment = self.next_comment;
+        self.next_comment = self.comments.len();
+        write(self, &mut line);
+        self.next_comment = next_comment;
+        let first_line = line.split('\n').next().unwrap_or_default();
+        if (!allow_break && line.contains('\n')) || first_line.chars().count() > self.line_width {
+            return false;
+        }
+        output.push_str(&line[prefix..]);
+        true
+    }
+
+    fn write_broken_block(&mut self, block_id: BlockId, indent: usize, output: &mut String, preserve_value_shape: bool) {
         let block = self.arena.block(block_id);
         let params = self.arena.block_params(block.params).to_vec();
         let stmts: Vec<StmtId> = self.arena.stmt_ids(block.statements).collect();
+        // Comments before the closing brace stay inside the block.
+        let close = self.arena.span(block.span).end().saturating_sub(1);
         output.push('{');
-        if !params.is_empty() {
-            output.push(' ');
-            output.push('|');
-            for (index, param) in params.iter().enumerate() {
-                if index > 0 {
-                    output.push_str(", ");
-                }
-                output.push_str(param.name.as_str().as_str());
-            }
-            output.push('|');
-        }
-        if stmts.is_empty() {
+        self.write_block_params(block_id, output);
+        if stmts.is_empty() && !self.has_comment_before(close) {
             if !params.is_empty() {
                 output.push(' ');
             }
@@ -1337,13 +1392,9 @@ impl<'a> Writer<'a> {
         for (index, stmt_id) in stmts.iter().enumerate() {
             let stmt = self.arena.stmt(*stmt_id);
             let stmt_span = stmt.span;
-            let pending_comment = self.has_comment_before(stmt_span.start());
-            if index > 0 {
+            if let Some(previous) = previous_span {
                 output.push('\n');
-                let original_blank = previous_span.is_some_and(|previous| {
-                    self.gap_has_blank_line_in_block(previous, stmt_span.start())
-                });
-                if pending_comment || original_blank || previous_multiline_control_flow {
+                if previous_multiline_control_flow || self.authored_blank_before(previous, stmt_span.start()) {
                     output.push('\n');
                 }
             }
@@ -1372,7 +1423,17 @@ impl<'a> Writer<'a> {
                     | ArenaStmtKind::Match { .. }
             ) && output[stmt_output_start..].contains('\n');
         }
-        output.push('\n');
+        if self.has_comment_before(close) {
+            if let Some(previous) = previous_span {
+                output.push('\n');
+                if self.authored_blank_before(previous, close) {
+                    output.push('\n');
+                }
+            }
+            self.write_closing_comments(close, indent + 1, output);
+        } else {
+            output.push('\n');
+        }
         self.write_indent(indent, output);
         output.push('}');
     }
@@ -1437,7 +1498,7 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Yield(value) => ("yield", value),
             ArenaStmtKind::Break { value: Some(value) } => ("break", ArenaExprOrRun::Expr(value)),
             _ => {
-                self.write_stmt_inline(stmt, indent, output);
+                self.write_stmt_body(stmt, indent, output);
                 return;
             }
         };
@@ -1620,6 +1681,35 @@ impl<'a> Writer<'a> {
         match &arg.kind {
             ArenaCommandArgKind::Word(parts) => {
                 let parts: Vec<ArenaWordPart> = self.arena.word_parts(*parts).collect();
+                let source = self.source.get(self.arena.span(arg.span).range()).unwrap_or_default();
+                // A word the author wrote as one quoted string with
+                // interpolations, `"-j${jobs}"`, stays one quoted string.
+                if parts.len() > 1 && !parts.iter().any(|part| matches!(part, ArenaWordPart::Bare(_))) && is_one_quoted_string(source) {
+                    output.push('"');
+                    for part in &parts {
+                        match part {
+                            ArenaWordPart::Quoted(text) => {
+                                let mut quoted = String::new();
+                                write_command_quoted(self.text_value(text), &mut quoted);
+                                output.push_str(&quoted[1..quoted.len() - 1]);
+                            }
+                            ArenaWordPart::Shorthand(expr) => {
+                                escape_trailing_dollar(output);
+                                output.push('$');
+                                self.write_expr(*expr, CLOSE, output);
+                            }
+                            ArenaWordPart::Interpolation(expr) => {
+                                escape_trailing_dollar(output);
+                                output.push_str("${");
+                                self.write_expr(*expr, END, output);
+                                output.push('}');
+                            }
+                            ArenaWordPart::Bare(_) => unreachable!("checked above"),
+                        }
+                    }
+                    output.push('"');
+                    return;
+                }
                 for part in &parts {
                     match part {
                         ArenaWordPart::Bare(text) => {
@@ -1698,10 +1788,12 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Duration(value) => self.arena.duration_literal(*value).write(output),
             ArenaExprKind::Str(value) => {
                 let span = self.arena.expr(expr_id).span;
+                // Block and raw strings keep their source; a `"..."` string
+                // stays one, with its line breaks escaped.
                 if let Some(original) = original_preserved_string_literal(&self.source, span) {
                     output.push_str(original);
                 } else {
-                    write_str_literal(self.arena.string_literal(*value), output);
+                    write_quoted(self.arena.string_literal(*value), output);
                 }
             }
             ArenaExprKind::PathStr(value) => {
@@ -1757,7 +1849,7 @@ impl<'a> Writer<'a> {
                 self.write_comp_qualifiers(*qualifiers, None, output);
                 output.push('}');
             }
-            ArenaExprKind::Record(fields) => self.write_record(*fields, output),
+            ArenaExprKind::Record(fields) => self.write_record(expr_id, *fields, output),
             ArenaExprKind::If {
                 branches,
                 else_value,
@@ -1805,8 +1897,18 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaExprKind::Binary { op, left, right } => {
+                let continuation = continuation_indent_for_expr(output);
                 self.write_expr(*left, child(*left), output);
-                output.push(' ');
+                // A statement whose first line is a bare name would read as a
+                // command, so its first operator stays on that line.
+                let command_like = matches!(context.lead, Some(grouping::Lead::Statement { .. } | grouping::Lead::ArmStatement))
+                    && self.is_name_path(*left);
+                if !command_like && self.authored_operator_break(*op, *left, *right) {
+                    output.push('\n');
+                    self.write_indent(continuation, output);
+                } else {
+                    output.push(' ');
+                }
                 output.push_str(binary_op_text(*op));
                 output.push(' ');
                 self.write_expr(*right, child(*right), output);
@@ -1870,12 +1972,12 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Pipeline { input, stages } => {
                 self.write_expr(*input, child(*input), output);
                 let indent = continuation_indent_for_expr(output);
-                self.write_pipe_stages(*stages, indent, output);
+                self.write_pipe_stages(self.arena.expr(*input).span.end(), *stages, indent, output);
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
                 self.write_expr(*input, child(*input), output);
                 let indent = continuation_indent_for_expr(output);
-                self.write_stream_stages(*stages, indent, output);
+                self.write_stream_stages(self.arena.expr(*input).span.end(), *stages, indent, output);
             }
             ArenaExprKind::Run(run) => self.write_run(*run, output),
             ArenaExprKind::Spawn(form) => {
@@ -1959,6 +2061,28 @@ impl<'a> Writer<'a> {
         }
     }
 
+    fn is_name_path(&self, expr: ExprId) -> bool {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Ident(_) => true,
+            ArenaExprKind::Field { base, .. } => self.is_name_path(base),
+            _ => false,
+        }
+    }
+
+    /// Whether the author broke the line at this operator, which then leads
+    /// the continuation line: `ready = enabled` / `  and target.exists()`.
+    /// Only operators that may begin a continuation line qualify.
+    fn authored_operator_break(&self, op: BinaryOp, left: ExprId, right: ExprId) -> bool {
+        // An operand that ends a line can own its newline, so measure from
+        // the end of its text.
+        !self.inline_only
+            && grammar::BINARY_OPERATORS.iter().any(|operator| operator.op == op && operator.continues_line)
+            && self
+                .source
+                .get(self.text_end(self.arena.expr(left).span)..self.arena.expr(right).span.start())
+                .is_some_and(|gap| gap.contains('\n'))
+    }
+
     fn write_expr_with_internal_comment(&mut self, expr_id: ExprId, output: &mut String) -> bool {
         let span = self.arena.expr(expr_id).span;
         let has_comment = self.comments[self.next_comment..].iter().any(|comment| {
@@ -2000,20 +2124,17 @@ impl<'a> Writer<'a> {
 
     fn write_pipe_stages(
         &mut self,
+        input_end: usize,
         stages: xsh::frontend::syntax::arena::ArenaRange,
         indent: usize,
         output: &mut String,
     ) {
         let stages = self.arena.pipe_stages(stages).to_vec();
-        if let [stage] = stages.as_slice() {
-            let inline = self.render_inline(|writer, inline| {
-                inline.push_str(" |> ");
-                writer.write_pipe_stage(stage, indent, inline);
-            });
-            if self.fits_inline(output, &inline) {
-                output.push_str(&inline);
-                return;
-            }
+        let spans: Vec<Span> = stages.iter().map(|stage| self.arena.span(stage.span)).collect();
+        if self.try_write_stages_on_line(input_end, &spans, output, |writer, index, stage_indent, line| {
+            writer.write_pipe_stage(&stages[index], stage_indent, line)
+        }) {
+            return;
         }
         for stage in &stages {
             output.push('\n');
@@ -2023,31 +2144,78 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Writes pipeline stages after the input on the input's line: a single
+    /// stage that fits, or stages the author wrote on one line. Those may
+    /// also end in a block that breaks, as in `rows |> fold(0) { |acc, row|`,
+    /// when the first line fits.
+    fn try_write_stages_on_line(
+        &mut self,
+        input_end: usize,
+        stages: &[Span],
+        output: &mut String,
+        write: impl Fn(&mut Self, usize, usize, &mut String),
+    ) -> bool {
+        let Some(last) = stages.last() else {
+            return true;
+        };
+        let authored_flat = !self.collection_source_is_multiline(Span::new(last.source_id, input_end, last.end()), stages);
+        if stages.len() == 1 || authored_flat {
+            let inline = self.render_inline(|writer, inline| {
+                for index in 0..stages.len() {
+                    inline.push_str(" |> ");
+                    write(writer, index, 0, inline);
+                }
+            });
+            if self.fits_inline(output, &inline) {
+                output.push_str(&inline);
+                return true;
+            }
+        }
+        let line_indent = indent_for_expr(output);
+        authored_flat
+            && !self.has_comment_in(input_end, last.end())
+            && self.try_write_on_line(output, true, |writer, line| {
+                for index in 0..stages.len() {
+                    line.push_str(" |> ");
+                    write(writer, index, line_indent, line);
+                }
+            })
+    }
+
     fn write_list(
         &mut self,
         expr_id: ExprId,
         items: xsh::frontend::syntax::arena::ArenaListElementRange,
         output: &mut String,
     ) {
-        let item_count = items.len();
+        let elements: Vec<_> = self.arena.list_elements(items).collect();
         let inline = self.render_inline(|writer, inline| writer.write_list_literal_inline(items, inline));
-        let original_multiline = self.expr_source_is_multiline(expr_id);
+        let item_spans: Vec<Span> = elements
+            .iter()
+            .map(|item| {
+                let value = self.arena.expr(item.value).span;
+                item.splice_span.map_or(value, |splice| Span::new(value.source_id, self.arena.span(splice).start(), value.end()))
+            })
+            .collect();
+        let original_multiline = self.collection_source_is_multiline(self.arena.expr(expr_id).span, &item_spans);
         if self.inline_only
-            || item_count == 0
-            || (item_count < MULTILINE_LIST_ITEM_THRESHOLD && self.fits_inline(output, &inline))
-                && !original_multiline
-                && !self.force_collection_expanded
+            || elements.is_empty()
+            || (self.fits_inline(output, &inline) && !original_multiline && !self.force_collection_expanded)
         {
             output.push_str(&inline);
             return;
         }
 
         let indent = indent_for_expr(output);
+        let expand = self.force_collection_expanded || self.sibling_overflows(indent + 1, elements.len(), |writer, index, line| {
+            if elements[index].splice_span.is_some() { line.push('@'); }
+            writer.write_expr_safe(elements[index].value, line);
+        });
         output.push_str("[\n");
-        for item in self.arena.list_elements(items).collect::<Vec<_>>() {
+        for item in elements {
             self.write_indent(indent + 1, output);
             let previous_force = self.force_collection_expanded;
-            self.force_collection_expanded = true;
+            self.force_collection_expanded = expand;
             if item.splice_span.is_some() { output.push('@'); }
             self.write_expr_safe(item.value, output);
             self.force_collection_expanded = previous_force;
@@ -2055,6 +2223,31 @@ impl<'a> Writer<'a> {
         }
         self.write_indent(indent, output);
         output.push(']');
+    }
+
+    /// Whether the author broke a collection between its elements or inside
+    /// its delimiters. A line break inside one element is that element's own
+    /// layout and does not count.
+    fn collection_source_is_multiline(&self, span: Span, elements: &[Span]) -> bool {
+        let mut previous = span.start();
+        for element in elements {
+            if self.source.get(previous..element.start()).is_some_and(|gap| gap.contains('\n')) {
+                return true;
+            }
+            previous = element.end();
+        }
+        self.source.get(previous..span.end()).is_some_and(|gap| gap.contains('\n'))
+    }
+
+    /// Whether an element of a broken collection at `indent` cannot fit flat
+    /// on its own line. Similar siblings share a shape, so then every element
+    /// expands, and so do the collections nested in them; otherwise each
+    /// element keeps the layout the author wrote.
+    fn sibling_overflows(&self, indent: usize, count: usize, write: impl Fn(&mut Self, usize, &mut String)) -> bool {
+        (0..count).any(|index| {
+            let flat = self.render_inline(|writer, line| write(writer, index, line));
+            flat.contains('\n') || indent * 2 + flat.chars().count() >= self.line_width
+        })
     }
 
     fn write_list_literal_inline(&mut self, items: xsh::frontend::syntax::arena::ArenaListElementRange, output: &mut String) {
@@ -2085,40 +2278,46 @@ impl<'a> Writer<'a> {
 
     fn write_record(
         &mut self,
+        expr_id: ExprId,
         fields: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         let field_count = fields.len();
-        let original_multiline = record_fields_original_multiline(
-            self.arena,
-            &self.source,
-            self.arena.record_fields(fields),
-        );
+        let original_multiline = self.record_source_is_multiline(expr_id);
         let inline =
             self.render_inline(|writer, inline| writer.write_record_inline(fields, inline));
         if field_count == 0
-            || (!original_multiline
-                && field_count < MULTILINE_RECORD_FIELD_THRESHOLD
-                && self.fits_inline(output, &inline)
-                && !self.force_collection_expanded)
+            || (!original_multiline && self.fits_inline(output, &inline) && !self.force_collection_expanded)
         {
             output.push_str(&inline);
             return;
         }
 
         let indent = indent_for_expr(output);
+        let expand = self.force_collection_expanded || self.sibling_overflows(indent + 1, field_count, |writer, index, line| {
+            let field = writer.arena.record_fields(fields)[index].kind.clone();
+            writer.write_record_field(&field, Follow::CLOSE, line);
+        });
         output.push_str("{\n");
         for index in 0..field_count {
             let field = self.arena.record_fields(fields)[index].kind.clone();
             self.write_indent(indent + 1, output);
             let previous_force = self.force_collection_expanded;
-            self.force_collection_expanded = true;
+            self.force_collection_expanded = expand;
             self.write_record_field(&field, Follow::CLOSE, output);
             self.force_collection_expanded = previous_force;
             output.push_str(",\n");
         }
         self.write_indent(indent, output);
         output.push('}');
+    }
+
+    fn record_source_is_multiline(&self, expr_id: ExprId) -> bool {
+        let ArenaExprKind::Record(fields) = self.arena.expr(expr_id).kind else {
+            return false;
+        };
+        let spans: Vec<Span> = self.arena.record_fields(fields).iter().filter_map(|field| record_field_span(self.arena, &field.kind)).collect();
+        self.collection_source_is_multiline(self.arena.expr(expr_id).span, &spans)
     }
 
     fn write_record_inline(
@@ -2190,7 +2389,7 @@ impl<'a> Writer<'a> {
                 tokens.token_table.tag_at(0) == Some(TokenTag::String)
             });
         if quoted {
-            write_str_literal(text, output);
+            write_quoted(text, output);
         } else {
             output.push_str(text);
         }
@@ -2243,11 +2442,11 @@ impl<'a> Writer<'a> {
             output.push_str(if index == 0 { "if " } else { " else if " });
             self.write_expr(branch.condition, BRACE, output);
             output.push(' ');
-            if let ArenaExprKind::ValueBlock(block) = self.arena.expr(branch.value).kind { self.write_block(block, indent, output); }
+            if let ArenaExprKind::ValueBlock(block) = self.arena.expr(branch.value).kind { self.write_broken_block(block, indent, output, false); }
             else { output.push_str("{\n"); self.write_indent(indent + 1, output); self.write_expr_safe_in(branch.value, Context::statement(Follow::END, false), output); output.push('\n'); self.write_indent(indent, output); output.push('}'); }
         }
         output.push_str(" else ");
-        if let ArenaExprKind::ValueBlock(block) = self.arena.expr(else_value).kind { self.write_block(block, indent, output); }
+        if let ArenaExprKind::ValueBlock(block) = self.arena.expr(else_value).kind { self.write_broken_block(block, indent, output, false); }
         else { output.push_str("{\n"); self.write_indent(indent + 1, output); self.write_expr_safe_in(else_value, Context::statement(Follow::END, false), output); output.push('\n'); self.write_indent(indent, output); output.push('}'); }
     }
 
@@ -2338,20 +2537,17 @@ impl<'a> Writer<'a> {
 
     fn write_stream_stages(
         &mut self,
+        input_end: usize,
         stages: xsh::frontend::syntax::arena::ArenaRange,
         indent: usize,
         output: &mut String,
     ) {
         let stages = self.arena.stream_stages(stages).to_vec();
-        if let [stage] = stages.as_slice() {
-            let inline = self.render_inline(|writer, inline| {
-                inline.push_str(" |> ");
-                writer.write_stream_stage(stage, indent, inline);
-            });
-            if self.fits_inline(output, &inline) {
-                output.push_str(&inline);
-                return;
-            }
+        let spans: Vec<Span> = stages.iter().map(|stage| self.arena.span(stage.span)).collect();
+        if self.try_write_stages_on_line(input_end, &spans, output, |writer, index, stage_indent, line| {
+            writer.write_stream_stage(&stages[index], stage_indent, line)
+        }) {
+            return;
         }
         for stage in &stages {
             output.push('\n');
@@ -2377,6 +2573,8 @@ impl<'a> Writer<'a> {
         self.write_fmt_string_with_prefix("fp", parts, output);
     }
 
+    /// Writes a one-line f-string; block f-strings keep their source text,
+    /// so line breaks in the value are escaped here.
     fn write_fmt_string_with_prefix(
         &mut self,
         prefix: &str,
@@ -2384,26 +2582,10 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let parts: Vec<ArenaFmtPart> = self.arena.fmt_parts(parts).collect();
-        let multiline = parts.iter().any(|part| match part {
-            ArenaFmtPart::Text(text) => self.text_value(text).contains('\n'),
-            ArenaFmtPart::Expr(..) => false,
-        });
         output.push_str(prefix);
-        if multiline {
-            output.push_str("\"\"\"");
-        } else {
-            output.push('"');
-        }
-        let len = parts.len();
-        for (index, part) in parts.iter().enumerate() {
+        output.push('"');
+        for part in &parts {
             match part {
-                ArenaFmtPart::Text(text) if multiline => {
-                    let text = self.text_value(text).to_string();
-                    if prefix == "f" && index == 0 && text.starts_with('\n') {
-                        output.push_str("\\n");
-                        write_triple_text(&text[1..], index + 1 == len, true, output);
-                    } else { write_triple_text(&text, index + 1 == len, true, output); }
-                }
                 ArenaFmtPart::Text(text) => {
                     let text = self.text_value(text).to_string();
                     write_fmt_text(&text, output);
@@ -2412,15 +2594,13 @@ impl<'a> Writer<'a> {
                     escape_trailing_dollar(output);
                     output.push('{');
                     let start = output.len();
-                    // A single-line f-string cannot hold a line break inside
+                    // A one-line f-string cannot hold a line break inside
                     // `{...}`: write the expression flat, or keep its source.
                     let line_width = self.line_width;
-                    if !multiline {
-                        self.line_width = usize::MAX / 4;
-                    }
+                    self.line_width = usize::MAX / 4;
                     self.write_expr(*expr, END, output);
                     self.line_width = line_width;
-                    if !multiline && output[start..].contains(['\n', '\r']) {
+                    if output[start..].contains(['\n', '\r']) {
                         output.truncate(start);
                         let span = self.arena.expr(*expr).span;
                         output.push_str(&self.source[span.range()]);
@@ -2444,11 +2624,7 @@ impl<'a> Writer<'a> {
                 }
             }
         }
-        if multiline {
-            output.push_str("\"\"\"");
-        } else {
-            output.push('"');
-        }
+        output.push('"');
     }
 
     fn write_builder_block(
@@ -2483,6 +2659,10 @@ impl<'a> Writer<'a> {
         indent: usize,
         output: &mut String,
     ) {
+        if let ArenaBuilderEntryKind::Stmt(stmt) = entry.kind {
+            self.write_stmt(stmt, indent, output);
+            return;
+        }
         self.write_indent(indent, output);
         match &entry.kind {
             ArenaBuilderEntryKind::Field { name, value } => {
@@ -2504,7 +2684,7 @@ impl<'a> Writer<'a> {
                 output.push_str("() ");
                 self.write_block(*block, indent, output);
             }
-            ArenaBuilderEntryKind::Stmt(stmt) => self.write_stmt_inline(*stmt, indent, output),
+            ArenaBuilderEntryKind::Stmt(_) => unreachable!("written above"),
         }
     }
 
@@ -2710,7 +2890,9 @@ impl<'a> Writer<'a> {
             output.push_str(&inline);
             return;
         }
-        if args.len() == 1 {
+        // A lone multi-line argument hugs the parentheses unless the author
+        // put it on its own line.
+        if args.len() == 1 && !original_multiline {
             let arg_kind = self.arena.call_args(args)[0].kind.clone();
             if (self.call_arg_is_multiline_literal(&arg_kind)
                 || (self.call_arg_is_multiline_record(&arg_kind) && inline.contains('\n')))
@@ -2996,7 +3178,14 @@ impl<'a> Writer<'a> {
             output.push('(');
         }
         let inline = self.render_inline(|writer, inline| writer.write_expr_contents(expr_id, inner, inline));
-        let fits = self.inline_only || (self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id));
+        // An inline-only rendering stays flat unless a part of it cannot,
+        // such as a multi-statement branch; that part is written broken here
+        // so its indentation follows `output`.
+        let fits = if self.inline_only {
+            !inline.contains('\n')
+        } else {
+            self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id)
+        };
         match kind {
             ArenaExprKind::If { branches, else_value } if !fits => self.write_if_expr_multiline(branches, else_value, output),
             ArenaExprKind::Match { value, arms } if !fits => self.write_match_expr_multiline(value, arms, output),
@@ -3103,29 +3292,38 @@ impl<'a> Writer<'a> {
             .is_some_and(|source| source.contains('\n'))
     }
 
+    /// Writes the comments that start before `offset`, one per line, and
+    /// reports whether one of them is `# fmt: skip`. A blank line the author
+    /// left between two of them, or between the last one and the code at
+    /// `offset`, stays as one blank line.
     fn write_comments_before(&mut self, offset: usize, indent: usize, output: &mut String) -> bool {
         let mut skip_formatting = false;
         while self.has_comment_before(offset) {
             self.write_indent(indent, output);
             output.push('#');
-            let text = self.comments[self.next_comment].text.trim_end();
+            let comment = &self.comments[self.next_comment];
+            let text = comment.text.trim_end();
             if text.trim() == "fmt: skip" {
                 skip_formatting = true;
             }
             output.push_str(text);
             output.push('\n');
+            let end = comment.span.end();
             self.next_comment += 1;
+            let next = self.comments.get(self.next_comment).filter(|next| next.span.start() < offset).map_or(offset, |next| next.span.start());
+            if self.blank_line_between(end, next) {
+                output.push('\n');
+            }
         }
         skip_formatting
     }
 
-    fn write_remaining_comments(&mut self, indent: usize, output: &mut String) {
-        while self.next_comment < self.comments.len() {
-            self.write_indent(indent, output);
-            output.push('#');
-            output.push_str(self.comments[self.next_comment].text.trim_end());
-            output.push('\n');
-            self.next_comment += 1;
+    /// Writes the comments before a closing delimiter at `close`, ending on a
+    /// fresh line with no blank line before the delimiter.
+    fn write_closing_comments(&mut self, close: usize, indent: usize, output: &mut String) {
+        self.write_comments_before(close, indent, output);
+        if output.ends_with("\n\n") {
+            output.pop();
         }
     }
 
@@ -3215,7 +3413,7 @@ impl<'a> Writer<'a> {
             && lines.all(|line| line.chars().count() <= self.line_width)
     }
 
-    fn render_inline(&self, f: impl FnOnce(&mut Writer, &mut String)) -> String {
+    fn render_inline(&self, f: impl FnOnce(&mut Self, &mut String)) -> String {
         let mut writer = Writer {
             arena: self.arena,
             source: Arc::clone(&self.source),
@@ -3286,21 +3484,10 @@ impl<'a> Writer<'a> {
 
     fn expr_is_multiline_literal(&self, expr_id: ExprId) -> bool {
         match self.arena.expr(expr_id).kind {
-            ArenaExprKind::Str(value) => self.arena.string_literal(value).contains('\n'),
-            ArenaExprKind::Regex(value) => self.arena.regex_literal(value).source_text.contains('\n'),
-            ArenaExprKind::Record(fields) => {
-                record_fields_original_multiline(
-                    self.arena,
-                    &self.source,
-                    self.arena.record_fields(fields),
-                ) || fields.len() >= MULTILINE_RECORD_FIELD_THRESHOLD
+            ArenaExprKind::Str(_) | ArenaExprKind::Regex(_) | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_) => {
+                self.expr_source_is_multiline(expr_id)
             }
-            ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-                self.arena.fmt_parts(parts).any(|part| match part {
-                    ArenaFmtPart::Text(text) => self.text_value(&text).contains('\n'),
-                    ArenaFmtPart::Expr(..) => false,
-                })
-            }
+            ArenaExprKind::Record(_) => self.record_source_is_multiline(expr_id),
             _ => false,
         }
     }
@@ -3440,8 +3627,8 @@ fn needs_top_level_blank(previous: &ArenaStmtKind, current: &ArenaStmtKind) -> b
         ) | (
             _,
             ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_)
-        ) | (ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_), _)
-            | (_, ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_))
+        ) | (ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) | ArenaStmtKind::SignalHook(_), _)
+            | (_, ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) | ArenaStmtKind::SignalHook(_))
             | (ArenaStmtKind::Export(_), _)
             | (_, ArenaStmtKind::Export(_))
     ) || is_top_level_section(previous)
@@ -3483,28 +3670,6 @@ fn tag_variants_original_multiline(
         .map(|variant| arena.span(variant.span))
         .collect();
     let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
-        return false;
-    };
-    source
-        .get(first.start()..last.end())
-        .is_some_and(|source| source.contains('\n'))
-}
-
-fn record_fields_original_multiline(
-    arena: &AstArena,
-    source: &str,
-    fields: &[ArenaRecordField],
-) -> bool {
-    let Some(first) = fields
-        .first()
-        .and_then(|field| record_field_span(arena, &field.kind))
-    else {
-        return false;
-    };
-    let Some(last) = fields
-        .last()
-        .and_then(|field| record_field_span(arena, &field.kind))
-    else {
         return false;
     };
     source
@@ -3627,22 +3792,6 @@ fn env_assignments_are_exprs(assignments: &[ArenaEnvAssignment]) -> bool {
         .any(|assignment| matches!(assignment.value, ArenaEnvAssignmentValue::Expr(_)))
 }
 
-fn write_str_literal(value: &str, output: &mut String) {
-    if value == "\n" {
-        write_quoted(value, output);
-    } else if value.contains('\n') {
-        output.push_str("\"\"\"");
-        // An explicit first break keeps leading newlines from becoming source layout.
-        if let Some(rest) = value.strip_prefix('\n') {
-            output.push_str("\\n");
-            write_triple_text(rest, true, false, output);
-        } else { write_triple_text(value, true, false, output); }
-        output.push_str("\"\"\"");
-    } else {
-        write_quoted(value, output);
-    }
-}
-
 fn write_quoted(value: &str, output: &mut String) {
     write_quoted_with_dollar(value, false, output);
 }
@@ -3682,43 +3831,6 @@ fn is_invisible_format_char(ch: char) -> bool {
     matches!(ch, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 }
 
-/// `fmt` text doubles braces and escapes a `$` before an identifier, which
-/// would otherwise read as a mistaken shell-style interpolation.
-fn write_triple_text(value: &str, trailing: bool, fmt: bool, output: &mut String) {
-    let mut chars = value.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\\' => output.push_str("\\\\"),
-            '"' => {
-                let mut run = 1usize;
-                while chars.peek() == Some(&'"') {
-                    chars.next();
-                    run += 1;
-                }
-                let unescaped = if trailing && chars.peek().is_none() {
-                    0
-                } else {
-                    run.min(2)
-                };
-                for _ in 0..(run - unescaped) {
-                    output.push_str("\\\"");
-                }
-                for _ in 0..unescaped {
-                    output.push('"');
-                }
-            }
-            '\r' => output.push_str("\\r"),
-            '\t' => output.push('\t'),
-            '\0' => output.push_str("\\0"),
-            '{' if fmt => output.push_str("{{"),
-            '}' if fmt => output.push_str("}}"),
-            '$' if fmt && chars.peek().copied().is_some_and(is_identifier_start) => output.push_str("\\$"),
-            '$' if !fmt && should_escape_dollar(chars.peek().copied(), false) => output.push_str("\\$"),
-            ch => output.push(ch),
-        }
-    }
-}
-
 fn write_fmt_text(value: &str, output: &mut String) {
     let mut chars = value.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -3735,6 +3847,23 @@ fn write_fmt_text(value: &str, output: &mut String) {
             ch => output.push(ch),
         }
     }
+}
+
+/// Whether `text` is exactly one `"..."` string: its only unescaped quotes
+/// are the first and last characters.
+fn is_one_quoted_string(text: &str) -> bool {
+    let Some(inner) = text.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) else {
+        return false;
+    };
+    let mut escaped = false;
+    for ch in inner.chars() {
+        match ch {
+            '\\' => escaped = !escaped,
+            '"' if !escaped => return false,
+            _ => escaped = false,
+        }
+    }
+    !escaped
 }
 
 /// Text that ends in a literal `$` right before an interpolation must keep
@@ -3856,7 +3985,7 @@ mod tests {
 
     #[test]
     fn control_flow_expanded_to_multiple_lines_is_followed_by_one_blank_line() {
-        let source = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" { return fp\"{configured}\" }\n  process.which(\"xsh\")?\n}\n";
+        let source = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" {\n  return fp\"{configured}\" }\n  process.which(\"xsh\")?\n}\n";
         let expected = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" {\n    return fp\"{configured}\"\n  }\n\n  process.which(\"xsh\")?\n}\n";
         let formatted = Formatter::new().format_source(SourceId::new(0), source);
         assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);

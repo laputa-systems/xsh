@@ -162,6 +162,22 @@ pure dedent(lines: List[Str]) -> List[Str] {
   [if line.trim() == "" { "" } else { line.byte_slice(width) } for line in lines]
 }
 
+# Region lines without blank lines at either end, such as the one the
+# formatter puts after a declaration that ends a region.
+pure trim_blank_edges(lines: List[Str]) -> List[Str] {
+  var start = 0
+  var end = lines.len()
+  while start < end and lines[start].trim() == "" {
+    start += 1
+  }
+
+  while end > start and lines[end - 1].trim() == "" {
+    end -= 1
+  }
+
+  lines[start..end]
+}
+
 # The text a document shows for a snippet: the whole file when it has no
 # example region, otherwise its regions in order.
 pure shown_source(name: Str, source: Str) -> Result[Str] {
@@ -182,7 +198,7 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
         return Err(DocsError.Layout(message: f"{name} closes an example region that is not open or is empty"))
       }
 
-      shown += dedent(region)
+      shown += dedent(trim_blank_edges(region))
       inside = false
       regions += 1
     } else if inside {

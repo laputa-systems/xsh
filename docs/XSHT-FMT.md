@@ -16,23 +16,35 @@ contract stays in `docs/SPEC.md`.
 ## Policy
 
 - Source intent breaks ties. When flat and broken forms are both readable, keep
-  the author's choice (control-flow expressions, call arguments,
-  comprehensions, collections, method chains). Do not preserve accidental
-  cramped or one-token-per-line layout.
+  the author's choice (blocks, control-flow expressions, `with` bindings, call
+  arguments, comprehensions, collections, method chains, pipeline stages, and a
+  line break before a continuation operator). A collection counts as broken
+  when the author broke it between elements, not inside one. A `"..."` string
+  keeps its escapes, a quoted command word with interpolations stays one
+  quoted string, and a `{name}` pattern field stays shorthand. Do not preserve
+  accidental cramped or one-token-per-line layout.
+- A block the author wrote on one line with a single statement stays on one
+  line when it fits: `{ return 1 }`, `{ |x| x + 1 }`. The branches of an `if`
+  are all flat or all broken, and a `match` arm holds a control-flow statement
+  unbraced only when it stays on the arm's line.
 - Break at semantic boundaries, in this order: between chained calls, call
   arguments, record fields, collection items, comprehension clauses, pipeline
   stages; inside nested expressions only as a last resort.
 - Broken argument lists put one argument per line with a trailing comma. Method
   chains keep the first call on the receiver and continue with leading-dot lines
   that still parse as one expression.
-- Once a collection breaks, similar siblings share a shape, and nested
-  collections expand rather than leave a dense island inside a broken parent.
+- Once a collection breaks, similar siblings share a shape: when any element
+  cannot fit flat on its own line, every element expands, and so do the
+  collections nested in them. Otherwise each element keeps its own layout, so
+  rows of short records stay one per line.
 - Pipeline stages use a two-space continuation. Blank lines mark sections,
   declarations, and multi-line control-flow statements, decided from the
   formatted output so the first and second passes agree.
 - Comments are layout constraints. Leading comments stay leading, trailing
-  comments stay with their statement, and nested comments block AST-only
-  regeneration. `# fmt: skip` preserves the next statement byte-for-byte.
+  comments stay with their statement, a comment that ends a block stays inside
+  it, and nested comments block AST-only regeneration. A blank line next to a
+  comment is kept as one blank line where the author left it and never added.
+  `# fmt: skip` preserves the next statement byte-for-byte.
 - Strings, paths, comments, and other indivisible tokens are never split;
   they may exceed `format.line-width` (from the nearest `xsht-config.ini`,
   default 120). Multi-line literal contents are never reindented.

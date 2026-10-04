@@ -25,7 +25,9 @@ print "linux only"
 
 const offset = 1
 # begin example
+
 let total = double(20) + offset
+
 # end example
 print $total
 """)?

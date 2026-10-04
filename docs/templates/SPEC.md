@@ -1333,10 +1333,14 @@ Each command argument is one of:
   argument. Words are never split, globbed, tilde-expanded, or brace-expanded.
 - a **splice** `@name`, `@(expr)`, or `@g"glob"`, inserting each list element
   as its own argument.
-- a **typed argument**: `(expr)`, an `f"..."`, `p"..."`, or `fp"..."` literal,
-  or an unspaced expression chain containing a call or index, such as
-  `input.display()` or `rows[0]`. Plain `record.field` is a word unless written
-  `$record.field`, `${record.field}`, or `(record.field)`.
+- a **typed argument**: an `f"..."`, `p"..."`, or `fp"..."` literal, an
+  unspaced expression chain containing a call or index, such as
+  `input.display()` or `rows[0]`, or a compound expression in parentheses,
+  such as `(count + 1)` or `(name ?? "anonymous")`.
+
+A name or field path passes its value as `$name` or `$record.field`; plain
+`record.field` is a word. `(name)` and `(record.field)` mean the same as the
+`$` forms, and `xsht lint` reports them as redundant (`lint.command-value`).
 
 A standalone interpolation that evaluates to a `List` splices its elements,
 as `@` does. Interpolation inside a larger word uses display conversion and
