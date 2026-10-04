@@ -55,6 +55,8 @@ fn children() -> Vec<String> {
         "b |> sort",
         "b |> take(1)",
         "b |> sum",
+        "b |> count",
+        "b |> collect()",
         "b |> map .f",
         "b |> where . > c",
         "{k: b for k in c}",
@@ -108,6 +110,8 @@ fn parents() -> Vec<String> {
         "f(H?.f(), 1)",
         "[H, 1]",
         "{k: H}",
+        "[H\n  for x in xs\n]",
+        "{[1]: H\n  for x in xs\n}",
         "if H {\n  w()\n}",
         "while H {\n  w()\n}",
         "for x in H {\n  w()\n}",
@@ -266,10 +270,10 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
             }
         }
     }
-    assert_eq!((parents.len(), children.len()), (77, 65));
+    assert_eq!((parents.len(), children.len()), (79, 67));
     assert_eq!(
         (cases, required, redundant, kept, ambiguous),
-        (5005, 1409, 3586, 10, 156)
+        (5293, 1496, 3762, 35, 192)
     );
 }
 

@@ -164,9 +164,11 @@ fn default_options(mode: Mode) -> Options {
     let cpus = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
     Options {
         mode,
+        // Each campaign checks thousands of seeds per second; second-based
+        // starts would make successive campaigns replay almost the same range.
         seed: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_or(1, |elapsed| elapsed.as_secs()),
+            .map_or(1, |elapsed| elapsed.as_nanos() as u64),
         iterations: None,
         duration: None,
         jobs: (cpus / 2).clamp(1, 4),

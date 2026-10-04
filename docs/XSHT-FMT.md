@@ -67,6 +67,10 @@ contract stays in `docs/SPEC.md`.
 - Formatting is idempotent.
 - Comments are never duplicated or dropped; `fmt: skip` source is preserved.
 - Expression continuations never become separate statements.
+- A comprehension value is grouped against the qualifier's rendered boundary:
+  an inline keyword or a newline in a broken comprehension. Optional pipeline
+  callbacks must not gain redundant parentheses when the qualifier moves to
+  the next line.
 - Lint diagnostics are unchanged by formatting (`docs/XSHT.md`).
 
 ## Tests

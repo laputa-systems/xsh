@@ -4523,9 +4523,8 @@ impl<'a> Linter<'a> {
             }
             format!("{{ |{error_name}|{body}")
         } else {
-            if handler_source.contains('\n') {
-                return;
-            }
+            // Keep continuation lines intact: formatting may wrap an expression
+            // handler without changing its lazy fallback behavior.
             format!(
                 "{{ |{error_name}|\n{}{handler_source}\n{}}}",
                 " ".repeat(indent + 2),

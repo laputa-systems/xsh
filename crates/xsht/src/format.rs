@@ -3720,7 +3720,7 @@ impl<'a> Writer<'a> {
         output.push_str("[\n");
         self.write_comments_before(self.arena.expr(expr).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
-        self.write_expr_safe_in(expr, Context::open(Follow::WORD), output);
+        self.write_expr_safe_in(expr, END, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);
@@ -3761,7 +3761,7 @@ impl<'a> Writer<'a> {
         self.write_indent(indent + 1, output);
         self.write_map_comp_key(key, output);
         output.push_str(": ");
-        self.write_expr_safe_in(value, Context::open(Follow::WORD), output);
+        self.write_expr_safe_in(value, END, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);

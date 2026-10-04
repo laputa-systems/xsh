@@ -244,3 +244,20 @@ print $value
   assert "handler failed" in output.stderr
   assert output.stdout == ""
 }
+
+test test_error_fallback_lint_preserves_multiline_match_handlers { |ctx|
+  let source = r"""enum Choice { Text(Str), Count(Int) }
+pure recover(outcome: Result[Choice]) -> Str {
+  match match outcome { Ok(value) => value, Err(failure) => Text("fallback") } {
+    Text(text) => text,
+    Count(count) => f"{count}",
+  }
+}
+"""
+  for layout in [source, source.replace("Text(\"fallback\")", "Text(\n    \"fallback\",\n  )")] {
+    let candidate = test.temp_file(ctx, name: "fallback-lint.xsh", contents: bytes.from_text(layout))?
+    let diagnosed = run.capture --text "xsht" lint --only lint.error-fallback-block $candidate ?
+    assert "err[" not in diagnosed.stderr, diagnosed.stderr
+    assert diagnosed.stderr.split("[lint.error-fallback-block]").len() == 2, diagnosed.stderr
+  }
+}

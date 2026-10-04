@@ -156,7 +156,9 @@ run without internal errors, and mutants of generated and corpus programs must
 get ordinary diagnostics with valid spans. A failure prints a minimized
 program.
 
-`make fuzz` explores fresh seeds. Generated programs run under
+`make fuzz` explores fresh seeds, starting each campaign from the clock's
+nanoseconds so consecutive campaigns do not replay overlapping seed ranges.
+Generated programs run under
 `proc fuzz_main() []`, so the checker proves them free of host effects, and
 each runs in a child with a cleared environment, a temp directory, a timeout,
 and an output cap. Memory is bounded: at most `--jobs` workers (default half
