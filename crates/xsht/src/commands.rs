@@ -306,6 +306,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         examples: &[],
     },
     CommandSpec {
+        name: "highlight",
+        summary: "Print syntax highlighting runs as JSON Lines",
+        quick_label: "Highlight source",
+        args: "SCRIPT",
+        usage: &[&[UsagePart::Args]],
+        options: &[],
+        removed: &[],
+        options_end_at_first_argument: false,
+        notes: &[
+            "Each line is {\"kind\":KIND,\"text\":TEXT}; the texts concatenate to the file.",
+            "KINDs: plain, comment, doc-comment, keyword, constant, type, function,",
+            "  property, variable, string, path, regex, number, operator, punctuation,",
+            "  interpolation.",
+        ],
+        examples: &[],
+    },
+    CommandSpec {
         name: "grammar",
         summary: "Print the language grammar",
         quick_label: "Read the grammar",

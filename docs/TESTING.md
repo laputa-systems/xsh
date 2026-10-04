@@ -95,7 +95,7 @@ Repository gates (owner-run unless the task asks for them):
 | `make test` (`cargo dev test`) | the root integration targets with `cargo test --release`, then the unit tests with debug `cargo test --lib` |
 | `cargo dev test xsh` | build release `xsh` and `xsht`, then the native suite through `target/release/xsht test` |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
-| `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/` |
+| `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/`, and `docs/user-tour.html` |
 | `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check` on each snippet in `docs/snippets/spec` and `docs/snippets/tour`, and `xsht test` in `docs/snippets/tour/project` |
 
 Generated docs: `docs/SPEC.md`, `docs/user-tour.md`, and `docs/reference/*.md`
@@ -112,6 +112,13 @@ snippet; other output blocks are literal template text. The repository's
 its edges, so a blank line the formatter puts before `# end example` never
 shows.
 `dev/tests/test-docs.xsh` covers the generator.
+
+`docs/user-tour.html` is the tour as one self-contained page. It is not a
+template: `dev/tour_html.xsh` renders it from the rendered `docs/user-tour.md`
+(`make docs` writes it and `make docs-check` fails when it is stale), coloring
+XSH code with `xsht highlight`. The renderer accepts only the Markdown subset
+the tour uses and fails on anything else, so a new construct in the tour needs
+renderer support in the same change. `dev/tests/test-tour-html.xsh` covers it.
 
 `cargo test --release -p xsht --test integration lint_format_invariance::`
 checks that lint diagnostics are identical before and after formatting on the

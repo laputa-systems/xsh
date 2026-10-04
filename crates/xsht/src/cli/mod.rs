@@ -102,6 +102,7 @@ mod coverage;
 mod files;
 mod fmt;
 mod grep;
+mod highlight;
 mod lint;
 mod refactor;
 mod syntax_tree;
@@ -127,6 +128,7 @@ pub(crate) use files::{
 };
 pub use fmt::format_files;
 pub use grep::grep_scripts;
+pub use highlight::highlight_script;
 pub use lint::lint_files;
 pub use refactor::refactor_scripts;
 pub use syntax_tree::ast_script;

@@ -2,6 +2,7 @@ pub mod arena;
 pub mod cst;
 pub mod grammar;
 pub mod grouping;
+pub mod highlight;
 pub mod lexer;
 pub mod literal;
 pub mod node;

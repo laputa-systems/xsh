@@ -34,6 +34,7 @@ Start here:
   Format source      xsht fmt [FILE...]
   Improve source     xsht lint [FILE...]
   Inspect syntax     xsht ast SCRIPT
+  Highlight source   xsht highlight SCRIPT
   Read the grammar   xsht grammar 
   Run with tracing   xsht trace SCRIPT [ARGS...]
   Query the API      xsht api [QUERY...]
@@ -88,6 +89,20 @@ xsht ast — Print parser debug output
 
 Usage:
   xsht ast SCRIPT
+```
+
+### `xsht highlight`
+
+```text
+xsht highlight — Print syntax highlighting runs as JSON Lines
+
+Usage:
+  xsht highlight SCRIPT
+
+  Each line is {"kind":KIND,"text":TEXT}; the texts concatenate to the file.
+  KINDs: plain, comment, doc-comment, keyword, constant, type, function,
+    property, variable, string, path, regex, number, operator, punctuation,
+    interpolation.
 ```
 
 ### `xsht grammar`

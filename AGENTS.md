@@ -27,7 +27,7 @@ before editing.
 - Do not add dependencies unless there is a clear need and no local equivalent.
 - Update the closest tests, examples, and `docs/` markdown for the behavior you
   changed. Never hand-edit generated documentation (`docs/SPEC.md`,
-  `docs/user-tour.md`, `docs/reference/`): edit the prose in `docs/templates/`
+  `docs/user-tour.md`, `docs/user-tour.html`, `docs/reference/`): edit the prose in `docs/templates/`
   and the code blocks in `docs/snippets/spec/` and `docs/snippets/tour/`, then
   run `make docs`; `make check` fails on stale generated docs.
 - Prefer an `xsht` native test first for XSH behavior: add or extend a

@@ -412,7 +412,17 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
     assert!(!stdout.contains("Run `xsht COMMAND --help`"));
 
     for command in [
-        "check", "fmt", "lint", "ast", "grammar", "trace", "api", "test", "grep", "refactor",
+        "check",
+        "fmt",
+        "lint",
+        "ast",
+        "highlight",
+        "grammar",
+        "trace",
+        "api",
+        "test",
+        "grep",
+        "refactor",
     ] {
         assert!(
             stdout.contains(&format!("{command} —")),
@@ -458,6 +468,66 @@ fn xsht_grammar_prints_the_productions() {
             .unwrap()
             .contains("must be ebnf or json")
     );
+}
+
+#[test]
+fn xsht_highlight_prints_runs_that_rebuild_the_source() {
+    let dir = TempDir::new().expect("temporary highlight fixture");
+    let script = dir.path().join("sample.xsh");
+    let source = "# note\nlet n = f\"{n:>4} \\u{41}\" ?? null\n";
+    std::fs::write(&script, source).unwrap();
+
+    let output = Command::new(release_bin!("xsht"))
+        .arg("highlight")
+        .arg(&script)
+        .output()
+        .expect("run xsht highlight");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "{\"kind\":\"comment\",\"text\":\"# note\"}");
+    assert_eq!(lines[1], "{\"kind\":\"plain\",\"text\":\"\\n\"}");
+    assert_eq!(lines[2], "{\"kind\":\"keyword\",\"text\":\"let\"}");
+    assert!(
+        lines.contains(&"{\"kind\":\"interpolation\",\"text\":\":>4}\"}"),
+        "{stdout}"
+    );
+    assert!(
+        lines.contains(&"{\"kind\":\"constant\",\"text\":\"null\"}"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn xsht_highlight_reports_bad_arguments_and_unreadable_files() {
+    let dir = TempDir::new().expect("temporary highlight error fixture");
+    let binary = dir.path().join("binary.xsh");
+    std::fs::write(&binary, [0xff, 0xfe]).unwrap();
+
+    for (args, message) in [
+        (vec!["highlight".to_string()], "requires SCRIPT"),
+        (
+            vec!["highlight".to_string(), "a.xsh".to_string(), "b.xsh".to_string()],
+            "exactly one SCRIPT",
+        ),
+        (
+            vec!["highlight".to_string(), "missing.xsh".to_string()],
+            "failed to read 'missing.xsh'",
+        ),
+        (
+            vec!["highlight".to_string(), binary.display().to_string()],
+            "failed to read",
+        ),
+    ] {
+        let output = Command::new(release_bin!("xsht"))
+            .args(&args)
+            .current_dir(dir.path())
+            .output()
+            .expect("run xsht highlight");
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
 }
 
 #[test]
