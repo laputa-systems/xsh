@@ -4307,6 +4307,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     },
                 }
             ),
+            // A tail `run.text cmd` supplies the body's value.
+            ArenaStmtKind::Command(_) if self.bodies.statement_positions.get(&tail) == Some(&crate::sema::check::StatementPosition::Value) => {
+                let value = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)?;
+                push_build_row!(self, stmt, BuildStmtRow::Return { value })
+            }
             _ => self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?,
         };
         lowered.push(tail);

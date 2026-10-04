@@ -1220,3 +1220,11 @@ test test_run_accepts_relative_command_paths { |ctx|
   assert output.success, output.stderr
   assert output.stdout == "ran\nran\n"
 }
+
+proc tail_capture() -> Result[Str] {
+  run.text printf "%s" tail
+}
+
+test test_tail_run_text_supplies_the_proc_value {
+  assert tail_capture()? == "tail"
+}
