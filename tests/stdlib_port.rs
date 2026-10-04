@@ -1061,7 +1061,7 @@ fn os_release_entry_reads_the_fixed_paths() {
             // the one only `/usr/lib/os-release` can produce.
             assert_ne!(output.status.code(), Some(0), "{stdout}");
             assert!(
-                stderr.contains("error: system-os-release: stream did not contain valid UTF-8\n"),
+                stderr.contains("err: system-os-release: stream did not contain valid UTF-8\n"),
                 "{stderr}"
             );
         }

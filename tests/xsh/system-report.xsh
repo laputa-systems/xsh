@@ -3164,7 +3164,7 @@ test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
   let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
   assert outcome.status.exited_with(3)
   assert outcome.stdout == ""
-  assert "error: SystemReportCliError.Usage:" in outcome.stderr
+  assert "err: SystemReportCliError.Usage:" in outcome.stderr
   assert "caused by: SystemReportError.InvalidSection:" in outcome.stderr
   assert outcome.stderr.split("unknown report section 'hardware'").len() == 3
 }

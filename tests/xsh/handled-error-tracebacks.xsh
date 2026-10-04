@@ -47,7 +47,7 @@ assert kept is Err(_)""",
       let failed = test.run_script(ctx, handled_script(handling, failure))?
       assert failed.status == 3, failed.stderr
       assert "list index" in failed.stderr, failed.stderr
-      assert "operation: runtime.error" in failed.stderr, failed.stderr
+      assert "err: " in failed.stderr, failed.stderr
       assert "handled failure" not in failed.stderr, failed.stderr
       assert "handled_outer" not in failed.stderr, failed.stderr
     }
@@ -96,7 +96,7 @@ caller()?""",
 ),
   )?
   assert failed.status == 3, failed.stderr
-  assert "operation: result.propagate" in failed.stderr, failed.stderr
+  assert "err: " in failed.stderr, failed.stderr
   assert "fresh failure" in failed.stderr, failed.stderr
   assert "proc caller" in failed.stderr, failed.stderr
   assert "handled failure" not in failed.stderr, failed.stderr

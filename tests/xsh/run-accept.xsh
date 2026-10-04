@@ -150,7 +150,7 @@ print unreachable
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  assert "unexpected-exit" in output.stderr
+  assert "err: `sh` exited with unaccepted status 1" in output.stderr
   let accepted = test.run_script(
     ctx,
     """let rows = run.stream --text --accept=[0,1] sh -c "printf 'row\\nfinal'; exit 1" ?

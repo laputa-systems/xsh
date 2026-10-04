@@ -344,7 +344,7 @@ value?
 """,
   )?
   assert output.status == 3
-  assert "error: error: propagated error" in output.stderr
+  assert "err: error: propagated error" in output.stderr
   {
     let assertion_condition = "caused by" not in output.stderr
     let assertion_message = output.stderr

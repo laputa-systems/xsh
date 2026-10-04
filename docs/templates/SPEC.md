@@ -2033,10 +2033,14 @@ separate from script stdout and goes to stderr unless `--trace-file` is given.
 Without `--raw`, `xsht trace` prints a summary of call counts, duration
 percentiles, and the slowest operations.
 
-A runtime failure or top-level `Err` prints a traceback with the failing span,
-the operation, the error variant and message, context frames, the cause chain,
-the user call stack with call sites, and, for process failures, the executable,
-argv, working directory, and status.
+A runtime failure or top-level `Err` prints a traceback starting with `err:`.
+Process exit failures use a compact summary such as ``err: `tar` exited 1``;
+other failures retain their error variant and message. The traceback includes
+the failing span, context frames, the cause chain, the user call stack with call
+sites, and, for process failures, argv, working directory, and status. The runtime
+executable follows the error summary. Internal operation names remain available
+in structured traces. Child output keeps its normal streaming and redirection
+behavior.
 
 A traceback describes only the failure it reports. An `Err` that each caller
 re-propagates directly with `?` keeps the span and call path of the `?` that

@@ -123,8 +123,9 @@ fn trace_error_fixture_has_timed_error_trace() {
     assert_exit(&output, 3);
     assert_eq!(stdout_text(&output), "");
     let stderr = stderr_text(&output);
-    assert!(stderr.contains("nonzero-exit"));
-    assert!(stderr.contains("traceback"));
+    assert!(stderr.contains("err: `false` exited 1"));
+    assert!(!stderr.contains("runtime traceback"));
+    assert!(stderr.contains("proc fail at"));
     assert!(stderr.contains("trace summary"));
     assert!(stderr.contains("script duration"));
 }

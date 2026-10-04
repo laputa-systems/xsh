@@ -178,7 +178,7 @@ print unreachable
     assert output.stdout == """seen:1
 cleanup
 """
-    assert "unexpected-exit" in output.stderr
+    assert "err: `sh` exited with unaccepted status 0" in output.stderr
   }
 }
 
@@ -320,7 +320,7 @@ proc main() [process] -> Result[Unit] {
     let assertion_message = captured.stderr
     assert assertion_condition, assertion_message
   }
-  assert "unexpected-exit" in captured.stderr
+  assert "err: `sh` exited with unaccepted status 0" in captured.stderr
   {
     let assertion_condition = "check.effect-violation" not in captured.stderr
     let assertion_message = captured.stderr

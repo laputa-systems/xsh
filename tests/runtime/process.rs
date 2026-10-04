@@ -1256,7 +1256,7 @@ for row in rows { run cat < (row) }
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected-exit"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("err: `sh` exited with unaccepted status 1"));
 }
 
 #[test]

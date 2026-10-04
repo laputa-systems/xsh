@@ -496,20 +496,16 @@ impl TracebackRenderer {
 
     pub fn render(&self, traceback: &Traceback, sources: &SourceMap) -> String {
         let mut output = String::new();
-        output.push_str("runtime traceback\n");
-
-        if !traceback.exe_path.is_empty() {
-            output.push_str("executable: ");
-            output.push_str(&traceback.exe_path);
-            output.push('\n');
-        }
-
-        output.push_str("operation: ");
-        output.push_str(&traceback.operation_kind);
-        output.push('\n');
-        output.push_str("error: ");
+        output.push_str("err: ");
         if let Some(detail) = &traceback.error.detail {
             render_error_detail(detail, sources, &mut output);
+        } else if matches!(
+            traceback.error.kind.as_str(),
+            "nonzero-exit" | "unexpected-exit" | "pipeline-failure"
+        ) {
+            output.push_str(
+                &traceback.error.message.replacen(" exited with status ", " exited ", 1),
+            );
         } else {
             output.push_str(&traceback.error.kind);
             if !traceback.error.message.is_empty()
@@ -520,6 +516,11 @@ impl TracebackRenderer {
             }
         }
         output.push('\n');
+        if !traceback.exe_path.is_empty() {
+            output.push_str("executable: ");
+            output.push_str(&traceback.exe_path);
+            output.push('\n');
+        }
         for cause in &traceback.error.causes {
             output.push_str("caused by: ");
             render_error_detail(cause, sources, &mut output);

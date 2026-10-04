@@ -664,7 +664,7 @@ test test_whole_script_run_error_diagnostics { |ctx|
   )?
 
   assert details.status == 3
-  assert "nonzero-exit" in details.stderr
+  assert "err: `false` exited 1" in details.stderr
   assert "cwd: " in details.stderr
   assert "argv: false 'two words'" in details.stderr
 
@@ -735,7 +735,7 @@ print "after"
 """,
   )?
   assert late.status == 3
-  assert "pipeline segment 1 `false` exited with status 1" in late.stderr
+  assert "pipeline segment 1 `false` exited 1" in late.stderr
   assert "after" not in late.stdout
 
   let signaled = test.run_script(
@@ -763,7 +763,7 @@ print "after"
 """,
   )?
   assert drained.status == 3
-  assert "pipeline segment 0 `sh` exited with status 3" in drained.stderr
+  assert "pipeline segment 0 `sh` exited 3" in drained.stderr
   assert marker.read_text()? == "ran\n"
 }
 
@@ -782,7 +782,7 @@ test test_pipeline_sigpipe_after_successful_downstream_exit_is_not_failure { |ct
 """,
   )?
   assert downstream_failed.status == 3
-  assert "pipeline segment 1 `sh` exited with status 4" in downstream_failed.stderr
+  assert "pipeline segment 1 `sh` exited 4" in downstream_failed.stderr
 }
 
 test test_pipeline_value_position_and_accept_rules { |ctx|
@@ -1005,7 +1005,7 @@ test test_run_fixture_behaviors { |ctx|
   )?
 
   assert failed.status == 3
-  assert "nonzero-exit" in failed.stderr
+  assert "err: `false` exited 1" in failed.stderr
   let status = run.status false
   assert status.exited_with(1)
   let text = run.text printf "%s" "hello" ?
@@ -1176,7 +1176,9 @@ backup(p"/nonexistent/out.tgz")?
 """,
   )?
   assert failed_run.status == 3
-  assert "error: nonzero-exit: `sh` exited with status 4" in failed_run.stderr, failed_run.stderr
+  assert "err: `sh` exited 4" in failed_run.stderr, failed_run.stderr
+  assert "runtime traceback" not in failed_run.stderr, failed_run.stderr
+  assert "operation:" not in failed_run.stderr, failed_run.stderr
   assert "pipeline segment" not in failed_run.stderr, failed_run.stderr
   assert ":3:3-" in failed_run.stderr, failed_run.stderr
 
@@ -1185,7 +1187,7 @@ backup(p"/nonexistent/out.tgz")?
     """run false | run true ?
 """,
   )?
-  assert "pipeline segment 0 `false` exited with status 1" in pipeline.stderr, pipeline.stderr
+  assert "err: pipeline segment 0 `false` exited 1" in pipeline.stderr, pipeline.stderr
 
   let stale = test.run_script(
     ctx,

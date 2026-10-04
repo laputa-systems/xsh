@@ -127,7 +127,7 @@ print $checked.len()
   )?
   assert ! failed.success, failed.stderr
   assert failed.status == 3, failed.stderr
-  assert "operation: result.propagate" in failed.stderr, failed.stderr
+  assert "err: " in failed.stderr, failed.stderr
   assert "proc check_all at" in failed.stderr, failed.stderr
   assert "stream stage" not in failed.stderr, failed.stderr
 }

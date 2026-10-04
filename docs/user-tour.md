@@ -323,10 +323,8 @@ backup(/var/lib/app, /backups/app.tgz)?
 
 ```text
 tar: Failed to open '/backups/app.tgz'
-runtime traceback
+err: `tar` exited 1
 executable: /usr/local/bin/xsh
-operation: result.propagate
-error: nonzero-exit: `tar` exited with status 1
 cwd: /home/ops
 argv: tar -czf /backups/app.tgz /var/lib/app
 at backup.xsh:2:3-2:26
@@ -1294,10 +1292,8 @@ says which file was being loaded:
 
 ```text
 $ xsh preflight.xsh -- bad.json
-runtime traceback
+err: schema: schema check failed at disk_threshold: expected Int, found Str (ctx: loading bad.json)
 executable: /usr/local/bin/xsh
-operation: result.propagate
-error: schema: schema check failed at disk_threshold: expected Int, found Str (ctx: loading bad.json)
 ...
 ```
 
