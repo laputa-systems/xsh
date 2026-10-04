@@ -18,6 +18,8 @@ use xsh_fuzz::generator::GenConfig;
 use xsh_fuzz::harness::Sandbox;
 use xsh_fuzz::mutate::{check_mutant, corpus_files, mutate};
 use xsh_fuzz::rng::Rng;
+use xsh::frontend::syntax::grammar::earley::Recognizer;
+use xsh::frontend::syntax::grammar::{grammar, lex_grammar_tokens};
 
 const GENERATED_SEEDS: u64 = 1500;
 const MUTANT_SEEDS: u64 = 1000;
@@ -51,6 +53,24 @@ fn for_seeds(count: u64, body: impl Fn(u64) -> Option<String> + Sync) -> Vec<Str
         }
     });
     failures.into_inner().unwrap()
+}
+
+/// Every generated program is a sentence of the grammar's productions
+/// (`src/syntax/grammar.rs`), lexed with the real lexer.
+#[test]
+fn generated_programs_are_grammar_sentences() {
+    let recognizer = Recognizer::new(grammar());
+    let config = GenConfig::default();
+    let failures = for_seeds(GENERATED_SEEDS, |seed| {
+        let source = xsh_fuzz::generator::generate(seed, &config).source;
+        let Some(tokens) = lex_grammar_tokens(&source) else {
+            return Some(format!("seed {seed}: the program does not lex\n{source}"));
+        };
+        let rejection = recognizer.recognize(&tokens).err()?;
+        let near: Vec<&str> = tokens[rejection.token.saturating_sub(4)..(rejection.token + 3).min(tokens.len())].iter().map(|token| token.text).collect();
+        Some(format!("seed {seed}: rejected near {near:?}; expected {}\n{source}", rejection.expected.join(" ")))
+    });
+    assert!(failures.is_empty(), "{} of {GENERATED_SEEDS} generated programs are not grammar sentences:\n\n{}", failures.len(), failures.join("\n\n"));
 }
 
 #[test]

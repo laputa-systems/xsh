@@ -1,6 +1,7 @@
 use crate::diagnostic::{Diagnostic, FixHint, Label};
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
+use crate::syntax::grammar;
 use crate::syntax::literal::{self, QuotedLiteralKind, QuotedScan};
 use crate::syntax::token::{Keyword, TokenKind, TokenTable, TokenTableBuilder, TokenTag};
 
@@ -121,6 +122,7 @@ impl<'a> Lexer<'a> {
     fn lex_token(&mut self) {
         {
             let start = self.offset;
+            let quoted = grammar::quoted_literal_at(self.source.as_bytes(), start);
             match self.peek_byte() {
                 Some(b' ' | b'\t') => self.lex_whitespace(),
                 Some(b'\r') if self.peek_next_byte() == Some(b'\n') => {
@@ -132,35 +134,24 @@ impl<'a> Lexer<'a> {
                     self.push(TokenKind::Newline, start, self.offset);
                 }
                 Some(b'#') => self.lex_comment(),
-                Some(b'"') => self.lex_string(StringLiteralKind::Str, false, start),
-                Some(b'b') if self.peek_next_byte() == Some(b'"') => {
-                    self.offset += 1;
-                    self.lex_string(StringLiteralKind::Bytes, false, start);
+                Some(_) if let Some(form) = quoted => {
+                    self.offset += form.prefix.len();
+                    match form.kind {
+                        QuotedLiteralKind::Fmt => {
+                            self.offset = start;
+                            self.lex_fmt_string();
+                        }
+                        QuotedLiteralKind::PathFmt => {
+                            self.offset = start;
+                            self.lex_path_fmt_string();
+                        }
+                        QuotedLiteralKind::Str => self.lex_string(StringLiteralKind::Str, form.raw, start),
+                        QuotedLiteralKind::Bytes => self.lex_string(StringLiteralKind::Bytes, form.raw, start),
+                        QuotedLiteralKind::Regex => self.lex_string(StringLiteralKind::Regex, form.raw, start),
+                        QuotedLiteralKind::Path => self.lex_string(StringLiteralKind::Path, form.raw, start),
+                        QuotedLiteralKind::Glob => self.lex_string(StringLiteralKind::Glob, form.raw, start),
+                    }
                 }
-                Some(b'p') if self.peek_next_byte() == Some(b'"') => {
-                    self.offset += 1;
-                    self.lex_string(StringLiteralKind::Path, false, start);
-                }
-                Some(b'g') if self.peek_next_byte() == Some(b'"') => {
-                    self.offset += 1;
-                    self.lex_string(StringLiteralKind::Glob, false, start);
-                }
-                Some(b'r') if self.peek_next_byte() == Some(b'x')
-                    && self.source.as_bytes().get(self.offset + 2) == Some(&b'"') => {
-                    self.offset += 2;
-                    self.lex_string(StringLiteralKind::Regex, true, start);
-                }
-                Some(b'r') if self.peek_next_byte() == Some(b'"') => {
-                    self.offset += 1;
-                    self.lex_string(StringLiteralKind::Str, true, start);
-                }
-                Some(b'f')
-                    if self.peek_next_byte() == Some(b'p')
-                        && self.source.as_bytes().get(self.offset + 2) == Some(&b'"') =>
-                {
-                    self.lex_path_fmt_string()
-                }
-                Some(b'f') if self.peek_next_byte() == Some(b'"') => self.lex_fmt_string(),
                 Some(b'E')
                     if self.peek_next_byte() == Some(b'>')
                         && self.source.as_bytes().get(self.offset + 2) == Some(&b'>') =>
@@ -392,13 +383,8 @@ impl<'a> Lexer<'a> {
             self.push(TokenKind::Float, start, self.offset);
             return;
         }
-        if self.source.as_bytes().get(self.offset..self.offset + 2) == Some(b"ms") {
-            self.offset += 2;
-            self.push(TokenKind::Duration, start, self.offset);
-            return;
-        }
-        if matches!(self.peek_byte(), Some(b's' | b'm' | b'h')) {
-            self.offset += 1;
+        if let Some(suffix) = grammar::duration_suffix_at(self.source.as_bytes(), self.offset) {
+            self.offset += suffix.len();
             self.push(TokenKind::Duration, start, self.offset);
             return;
         }

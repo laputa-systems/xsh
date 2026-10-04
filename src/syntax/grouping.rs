@@ -1,59 +1,33 @@
 //! Where an expression must be parenthesized.
 //!
-//! The parser's operator data lives here, and `needs_parens` derives from it
-//! the one answer shared by the printer and the checker: `xsht fmt` emits
-//! exactly these parentheses, and `check.redundant-parens` rejects every
-//! other source parenthesis. A parenthesis is required only when removing it
-//! changes the parse or breaks a grouping rule (`docs/SPEC.md`).
+//! `needs_parens` derives from the grammar's operator table the one answer
+//! shared by the printer and the checker: `xsht fmt` emits exactly these
+//! parentheses, and `check.redundant-parens` rejects every other source
+//! parenthesis. A parenthesis is required only when removing it changes the
+//! parse or breaks a grouping rule.
 
 use crate::diagnostic::{Diagnostic, FixHint, Label};
 use crate::source::Span;
 use crate::syntax::arena::{
     ArenaExprKind, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, AstArena, ExprId,
 };
+use crate::syntax::grammar::{self, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence, binary_right_operand_precedence};
 use crate::syntax::lexer::{lex_spellings, tokens_stay_separate};
 use crate::syntax::node::{BinaryOp, RunKind};
 use crate::syntax::token::{Keyword, TokenTag};
 use rustc_hash::FxHashMap;
 
-/// Binding power of `!` and unary `-`: their operand is parsed at
-/// `PREFIX_OPERAND`, so prefix forms bind tighter than every binary operator.
-pub const PREFIX: u8 = 7;
-/// Minimum binding power of a prefix operand.
-pub const PREFIX_OPERAND: u8 = 8;
-/// `is` applies to an operand built at this precedence or tighter.
-pub const PATTERN_TEST: u8 = 3;
-const POSTFIX: u8 = 8;
-const PRIMARY: u8 = 9;
-
-pub const fn binary_precedence(op: BinaryOp) -> u8 {
-    match op {
-        BinaryOp::ResultFallback | BinaryOp::Or => 1,
-        BinaryOp::And => 2,
-        BinaryOp::Eq | BinaryOp::Ne => 3,
-        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::In | BinaryOp::NotIn => 4,
-        BinaryOp::Add | BinaryOp::Sub => 5,
-        BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => 6,
-    }
-}
-
-/// `??` is right-associative; every other binary operator is left-associative.
-pub const fn binary_right_operand_precedence(op: BinaryOp) -> u8 {
-    match op {
-        BinaryOp::ResultFallback => binary_precedence(op),
-        _ => binary_precedence(op) + 1,
-    }
-}
+/// Binding power of a postfix form, and of a primary: tighter than every
+/// operator in the grammar's precedence table.
+const POSTFIX: u8 = PREFIX_OPERAND;
+const PRIMARY: u8 = PREFIX_OPERAND + 1;
 
 pub const fn is_ordering(op: BinaryOp) -> bool {
-    matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge)
+    matches!(grammar::binary_operator(op).family, OperatorFamily::Ordering)
 }
 
 pub const fn is_comparison(op: BinaryOp) -> bool {
-    matches!(
-        op,
-        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn
-    )
+    matches!(grammar::binary_operator(op).family, OperatorFamily::Equality | OperatorFamily::Ordering | OperatorFamily::Membership)
 }
 
 /// Whether an operand of this kind is an ordering (`Some(true)`) or an
@@ -69,7 +43,7 @@ pub fn comparison_family(kind: &ArenaExprKind) -> Option<bool> {
 }
 
 const fn is_logical(op: BinaryOp) -> bool {
-    matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::ResultFallback)
+    matches!(grammar::binary_operator(op).family, OperatorFamily::Logical | OperatorFamily::Fallback)
 }
 
 /// Whether `child`, written as an ungrouped operand of `parent`, mixes `and`,
@@ -169,18 +143,7 @@ impl Follow {
             TokenTag::Dot => FollowToken::Dot,
             TokenTag::LBracket => FollowToken::Bracket,
             TokenTag::LParen => FollowToken::Paren,
-            TokenTag::QuestionQuestion
-            | TokenTag::EqEq
-            | TokenTag::BangEq
-            | TokenTag::Lt
-            | TokenTag::Le
-            | TokenTag::Gt
-            | TokenTag::Ge
-            | TokenTag::Plus
-            | TokenTag::Minus
-            | TokenTag::Star
-            | TokenTag::Slash
-            | TokenTag::Percent => FollowToken::Operator,
+            _ if grammar::binary_operator_at(tag, None, None).is_some() => FollowToken::Operator,
             _ => FollowToken::Close,
         };
         Self { token, adjacent }
@@ -321,8 +284,7 @@ fn last_stage(arena: &AstArena, kind: &ArenaExprKind) -> LastStage {
     if inline_stage_expr(arena, &stage).is_some() {
         LastStage::Expression
     } else if stage.block.is_none()
-        && (crate::syntax::parser::expr::stream_stage_accepts_block(&stage.kind)
-            || crate::syntax::parser::expr::stream_stage_accepts_inline_expr(&stage.kind))
+        && (grammar::stream_stage(stage.kind).block || grammar::stream_stage(stage.kind).inline)
     {
         LastStage::Awaiting
     } else {
@@ -440,7 +402,7 @@ fn accepts_builder_block(arena: &AstArena, kind: &ArenaExprKind) -> bool {
     };
     matches!(field, ArenaExprKind::Field { base, name }
         if matches!(arena.expr(base).kind, ArenaExprKind::Ident(module)
-            if crate::syntax::parser::expr::builder_api_accepts_block(&module.as_str(), &name.as_str())))
+            if grammar::builder_api_accepts_block(&module.as_str(), &name.as_str())))
 }
 
 /// Whether a record or map comprehension written first in a statement or arm

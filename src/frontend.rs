@@ -46,7 +46,7 @@ pub mod syntax {
     // These representations are intentionally exposed as a tooling tier. The
     // façade makes their ownership explicit without promising arena-layout
     // stability to arbitrary host applications.
-    pub use crate::syntax::{arena, cst, grouping, lexer, literal, node, parser, token};
+    pub use crate::syntax::{arena, cst, grammar, grouping, lexer, literal, node, parser, token};
 }
 
 /// Embedded standard-library preparation hooks used by the architecture tests.

@@ -4,6 +4,7 @@ use super::{
     AssignOp, BlockParam, Diagnostic, FixHint, DurationLiteral, Effect, IntLiteral, Keyword, Label, Name,
     Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
 };
+use crate::syntax::grammar::{self, StatementForm};
 use crate::syntax::arena::{
     ArenaBuilderEntryKind, ArenaExprOrRun, ArenaModuleContractEntryKind, ArenaProgramBuilder,
     ArenaTypeDefBody, BindingTargetId, BuilderBlockId, ExprId, TypeExprId,
@@ -17,57 +18,37 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.skip_comments();
         let start = self.current_start();
+        if let Some(form) = self.current_keyword().and_then(grammar::statement_form) {
+            return match form {
+                StatementForm::Binding => self.parse_binding_arena_only(start, !self.at_keyword(Keyword::Var), arena),
+                // `run.stream` was meant to read as an expression, so a stream
+                // could feed a pipeline, but `stream` lexes as a keyword and the
+                // lookahead never matches.
+                StatementForm::Run if self.lookahead_is_run_stream() => self.parse_expr_statement_arena_only(start, arena),
+                StatementForm::Run => self.parse_command_statement_arena_only(start, arena),
+                StatementForm::Assert => self.parse_assert_arena_only(start, arena),
+                StatementForm::If => self.parse_if_arena_only(start, arena),
+                StatementForm::While => self.parse_while_arena_only(start, arena),
+                StatementForm::For => self.parse_for_arena_only(start, arena),
+                StatementForm::Loop => self.parse_loop_arena_only(start, arena),
+                StatementForm::Return => self.parse_return_arena_only(start, arena),
+                StatementForm::Yield => self.parse_yield_arena_only(start, arena),
+                StatementForm::Defer => self.parse_defer_arena_only(start, arena),
+                StatementForm::Break => self.parse_loop_control_arena_only(start, true, arena),
+                StatementForm::Continue => self.parse_loop_control_arena_only(start, false, arena),
+                StatementForm::Match => self.parse_match_arena_only(start, arena),
+                StatementForm::Proc => self.parse_function_arena_only(start, true, arena),
+                StatementForm::Pure => self.parse_function_arena_only(start, false, arena),
+                StatementForm::Stream => self.parse_stream_function_arena_only(start, arena),
+                StatementForm::Use => self.parse_use_arena_only(start, arena),
+                StatementForm::Guard => self.parse_guard_arena_only(start, arena),
+                StatementForm::With => self.parse_with_arena_only(start, arena),
+                StatementForm::Enum => self.parse_enum_def_arena_only(start, arena),
+                StatementForm::Type => self.parse_type_def_arena_only(start, arena),
+                StatementForm::Export => self.parse_export_arena_only(start, arena),
+            };
+        }
         match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(Keyword::Let | Keyword::Const)) => {
-                self.parse_binding_arena_only(start, true, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Var)) => {
-                self.parse_binding_arena_only(start, false, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Run)) if self.lookahead_is_run_stream() => {
-                self.parse_expr_statement_arena_only(start, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Run)) => {
-                self.parse_command_statement_arena_only(start, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Assert)) => self.parse_assert_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::If)) => self.parse_if_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::While)) => self.parse_while_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::For)) => self.parse_for_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Loop)) => self.parse_loop_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Return)) => {
-                self.parse_return_arena_only(start, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Yield)) => self.parse_yield_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Defer)) => self.parse_defer_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Break)) => {
-                self.parse_loop_control_arena_only(start, true, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Continue)) => {
-                self.parse_loop_control_arena_only(start, false, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Match)) => self.parse_match_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Proc)) => {
-                self.parse_function_arena_only(start, true, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Pure)) => {
-                self.parse_function_arena_only(start, false, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Stream)) => {
-                self.parse_stream_function_arena_only(start, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Use)) => self.parse_use_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Guard)) => self.parse_guard_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::With)) => self.parse_with_arena_only(start, arena),
-            (TokenTag::Keyword, Some(Keyword::Enum)) => {
-                self.parse_enum_def_arena_only(start, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Type)) => {
-                self.parse_type_def_arena_only(start, arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Export)) => {
-                self.parse_export_arena_only(start, arena)
-            }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
                 if self.current_name().is_some_and(|name| name == "env") && self.peek_tag(1) == Some(TokenTag::LBrace) {
                     let saved = self.index;
@@ -206,25 +187,14 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
-        match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(Keyword::Let | Keyword::Const)) => {
-                self.parse_binding_arena_only(start, true, arena)?
-            }
-            (TokenTag::Keyword, Some(Keyword::Proc)) => {
-                self.parse_function_arena_only(start, true, arena)?
-            }
-            (TokenTag::Keyword, Some(Keyword::Pure)) => {
-                self.parse_function_arena_only(start, false, arena)?
-            }
-            (TokenTag::Keyword, Some(Keyword::Stream)) => {
-                self.parse_stream_function_arena_only(start, arena)?
-            }
-            (TokenTag::Keyword, Some(Keyword::Enum)) => {
-                self.parse_enum_def_arena_only(start, arena)?
-            }
-            (TokenTag::Keyword, Some(Keyword::Type)) => {
-                self.parse_type_def_arena_only(start, arena)?
-            }
+        let exported = self.current_keyword().filter(|keyword| grammar::EXPORTABLE_KEYWORDS.contains(keyword)).and_then(grammar::statement_form);
+        match (self.current_tag(), exported) {
+            (_, Some(StatementForm::Binding)) => self.parse_binding_arena_only(start, true, arena)?,
+            (_, Some(StatementForm::Proc)) => self.parse_function_arena_only(start, true, arena)?,
+            (_, Some(StatementForm::Pure)) => self.parse_function_arena_only(start, false, arena)?,
+            (_, Some(StatementForm::Stream)) => self.parse_stream_function_arena_only(start, arena)?,
+            (_, Some(StatementForm::Enum)) => self.parse_enum_def_arena_only(start, arena)?,
+            (_, Some(StatementForm::Type)) => self.parse_type_def_arena_only(start, arena)?,
             (TokenTag::Ident, _)
                 if self.current_name().is_some_and(|name| name == "on")
                     && self.lookahead_is_signal_hook() =>
@@ -1130,8 +1100,8 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
-            match name.as_str().as_str() {
-                "pre-cancel" => {
+            match grammar::SignalHookOption::named(&name.as_str()) {
+                Some(grammar::SignalHookOption::PreCancel) => {
                     self.expect(TokenKindMatch::Equals, "expected `=` after `--pre-cancel`");
                     match self.current_tag() {
                         TokenTag::Duration => {
@@ -1279,7 +1249,7 @@ impl<'a> Parser<'a> {
         self.bump();
         let target = self.parse_binding_target_arena_only("expected loop binding name", arena)?;
         self.expect_keyword(Keyword::In, "expected `in` in for loop");
-        let iter = self.parse_expr_id_arena_only(arena)?;
+        let iter = self.parse_head_expr_arena_only(arena)?.id;
         let block_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
         arena.push_for_id(target, iter, block_id, span);
@@ -1623,7 +1593,7 @@ impl<'a> Parser<'a> {
             );
             let prev_comma = self.comma_is_terminator;
             self.comma_is_terminator = true;
-            let initializer = self.parse_expr_id_arena_only(arena);
+            let initializer = self.parse_head_expr_arena_only(arena).map(|expr| expr.id);
             self.comma_is_terminator = prev_comma;
             let initializer = initializer?;
             bindings.push((
@@ -1653,7 +1623,7 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
-        let value = self.parse_expr_id_arena_only(arena)?;
+        let value = self.parse_head_expr_arena_only(arena)?.id;
         self.expect(TokenKindMatch::LBrace, "expected `{` to start match arms")?;
         self.skip_separators();
         arena.begin_match_arms();
@@ -1769,12 +1739,14 @@ impl<'a> Parser<'a> {
         arena.begin_block();
         self.block_depth += 1;
         self.skip_separators();
-        while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            if self.parse_statement_arena_only(arena).is_none() {
-                self.recover_statement();
+        self.in_nested_group(|parser| {
+            while !parser.at(TokenKindMatch::RBrace) && !parser.at(TokenKindMatch::Eof) {
+                if parser.parse_statement_arena_only(arena).is_none() {
+                    parser.recover_statement();
+                }
+                parser.skip_separators();
             }
-            self.skip_separators();
-        }
+        });
         self.block_depth -= 1;
         let end = self
             .expect(TokenKindMatch::RBrace, "expected `}` to close block")
@@ -1846,25 +1818,7 @@ impl<'a> Parser<'a> {
         self.skip_comments();
         let start = self.current_start();
         match (self.current_tag(), self.current_keyword()) {
-            (
-                TokenTag::Keyword,
-                Some(
-                    Keyword::Let
-                    | Keyword::Const
-                    | Keyword::Var
-                    | Keyword::Return
-                    | Keyword::Defer
-                    | Keyword::If
-                    | Keyword::While
-                    | Keyword::For
-                    | Keyword::Loop
-                    | Keyword::Guard
-                    | Keyword::Break
-                    | Keyword::Continue
-                    | Keyword::Match
-                    | Keyword::Run,
-                ),
-            ) => {
+            (TokenTag::Keyword, Some(keyword)) if grammar::BUILDER_STATEMENT_KEYWORDS.contains(&keyword) => {
                 self.parse_statement_arena_only(arena)?;
                 let stmt_id = arena.pop_last_statement();
                 let span = self.span(start, self.previous_end());
