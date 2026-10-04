@@ -339,6 +339,8 @@ tr:last-child td { border-bottom: 0; }
 </li>
 <li><a href="#errors-results-and">Errors, Results, and <code>?</code></a>
 </li>
+<li><a href="#environment-variables">Environment Variables</a>
+</li>
 <li><a href="#records-lists-and-maps">Records, Lists, and Maps</a>
 </li>
 <li><a href="#streams-and-pipelines">Streams and Pipelines</a>
@@ -502,11 +504,12 @@ cpu=2 owner=nobody</code></pre></figure>
   <span class="hl-keyword">print</span> <span class="hl-string">f"child saw: </span><span class="hl-interpolation">{</span>said<span class="hl-punctuation">.</span><span class="hl-function">trim</span><span class="hl-punctuation">()</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
 <span class="hl-punctuation">}</span>
 
-<span class="hl-keyword">let</span> outside <span class="hl-operator">=</span> env<span class="hl-punctuation">.</span><span class="hl-type">Str</span><span class="hl-punctuation">.</span><span class="hl-property">GREETING</span> <span class="hl-operator">??</span> <span class="hl-string">"(unset)"</span>
+<span class="hl-keyword">let</span> outside <span class="hl-operator">=</span> <span class="hl-variable">e"GREETING"</span> <span class="hl-operator">??</span> <span class="hl-string">"(unset)"</span>
 <span class="hl-keyword">print</span> <span class="hl-string">f"after the block: </span><span class="hl-interpolation">{</span>outside<span class="hl-interpolation">}</span><span class="hl-string">"</span></code></pre></figure>
 <figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>inside: notes.txt
 child saw: hello world
 after the block: (unset)</code></pre></figure>
+<p><code>e"GREETING"</code> reads a variable; <a href="#environment-variables">Environment Variables</a> covers reading, setting, and what children inherit.</p>
 </section>
 <section class="chapter">
 <h2 id="paths"><a class="anchor" href="#paths">Paths</a></h2>
@@ -592,6 +595,84 @@ missing, with default: 80
 not a port: eighty</code></pre></figure>
 <p>The <code>[fs, error]</code> clause lists the proc's effects; the <a href="#effects">Effects</a> section covers it. <code>error</code> is the effect that permits <code>?</code>.</p>
 <p>Two more tools round this out. <code>ctx "description" { ... }</code> attaches context to anything that fails inside the block, so a bare "No such file or directory" becomes "No such file or directory (ctx: loading /etc/app.json)". <code>try { ... }</code> turns a block into a <code>Result</code> value when you want to collect failures as data instead of propagating them.</p>
+</section>
+<section class="chapter">
+<h2 id="environment-variables"><a class="anchor" href="#environment-variables">Environment Variables</a></h2>
+<p>In shell, <code>$DEPLOY_TARGET</code> is the empty string whether the variable is unset, empty, or misspelled, and <code>export</code> changes every later command in the script. XSH reads a variable with an e-string, <code>e"NAME"</code>, whose value is a <code>Result[Str]</code>: a missing variable is an <code>Err</code> you handle like any other.</p>
+<figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-comment"># The first variable that is set wins; a missing one is an Err that `??`</span>
+<span class="hl-comment"># replaces.</span>
+<span class="hl-keyword">let</span> target <span class="hl-operator">=</span> <span class="hl-variable">e"DEPLOY_TARGET"</span> <span class="hl-operator">??</span> <span class="hl-variable">e"DEFAULT_TARGET"</span> <span class="hl-operator">??</span> <span class="hl-string">"staging"</span>
+<span class="hl-keyword">print</span> <span class="hl-string">f"target: </span><span class="hl-interpolation">{</span>target<span class="hl-interpolation">}</span><span class="hl-string">"</span>
+
+<span class="hl-keyword">env</span> <span class="hl-property">JOBS</span><span class="hl-operator">=</span><span class="hl-number">8</span> <span class="hl-property">VERBOSE</span><span class="hl-operator">=</span>yes <span class="hl-property">PREFIX</span><span class="hl-operator">=</span><span class="hl-path">/opt/app</span> <span class="hl-punctuation">{</span>
+  <span class="hl-keyword">let</span> jobs <span class="hl-operator">=</span> env<span class="hl-punctuation">.</span><span class="hl-function">int</span><span class="hl-punctuation">(</span><span class="hl-string">"JOBS"</span><span class="hl-punctuation">,</span> <span class="hl-number">1</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+  <span class="hl-keyword">let</span> verbose <span class="hl-operator">=</span> env<span class="hl-punctuation">.</span><span class="hl-function">bool</span><span class="hl-punctuation">(</span><span class="hl-string">"VERBOSE"</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+  <span class="hl-keyword">let</span> prefix <span class="hl-operator">=</span> env<span class="hl-punctuation">.</span><span class="hl-type">Path</span><span class="hl-punctuation">.</span><span class="hl-property">PREFIX</span><span class="hl-operator">?</span>
+  <span class="hl-keyword">print</span> <span class="hl-string">f"jobs=</span><span class="hl-interpolation">{</span>jobs<span class="hl-interpolation">}</span><span class="hl-string"> verbose=</span><span class="hl-interpolation">{</span>verbose<span class="hl-interpolation">}</span><span class="hl-string"> bin=</span><span class="hl-interpolation">{</span><span class="hl-path">fp"</span><span class="hl-interpolation">{</span>prefix<span class="hl-interpolation">}</span><span class="hl-path">/bin"</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
+
+  <span class="hl-comment"># A value that is not what it claims is an error, not a silent default.</span>
+  <span class="hl-keyword">match</span> env<span class="hl-punctuation">.</span><span class="hl-function">int</span><span class="hl-punctuation">(</span><span class="hl-string">"VERBOSE"</span><span class="hl-punctuation">,</span> <span class="hl-number">1</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
+    <span class="hl-type">Ok</span><span class="hl-punctuation">(</span>n<span class="hl-punctuation">)</span> <span class="hl-operator">=&gt;</span> <span class="hl-keyword">print</span> <span class="hl-string">f"verbose level </span><span class="hl-interpolation">{</span>n<span class="hl-interpolation">}</span><span class="hl-string">"</span>
+    <span class="hl-type">Err</span><span class="hl-punctuation">(</span>error<span class="hl-punctuation">)</span> <span class="hl-operator">=&gt;</span> <span class="hl-keyword">print</span> <span class="hl-string">f"VERBOSE: </span><span class="hl-interpolation">{</span>error<span class="hl-punctuation">.</span><span class="hl-property">message</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
+  <span class="hl-punctuation">}</span>
+<span class="hl-punctuation">}</span>
+
+<span class="hl-comment"># Text reads never decode bytes lossily; path reads keep them.</span>
+<span class="hl-keyword">let</span> data <span class="hl-operator">=</span> <span class="hl-type">Path</span><span class="hl-punctuation">.</span><span class="hl-function">parse_bytes</span><span class="hl-punctuation">(</span><span class="hl-string">b"/srv/caf\xe9"</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+<span class="hl-function">env</span> <span class="hl-punctuation">({</span><span class="hl-type">DATA_DIR</span><span class="hl-punctuation">:</span> data<span class="hl-punctuation">})</span> <span class="hl-punctuation">{</span>
+  <span class="hl-keyword">match</span> <span class="hl-variable">e"DATA_DIR"</span> <span class="hl-punctuation">{</span>
+    <span class="hl-type">Ok</span><span class="hl-punctuation">(</span>text<span class="hl-punctuation">)</span> <span class="hl-operator">=&gt;</span> <span class="hl-keyword">print</span> <span class="hl-string">f"text: </span><span class="hl-interpolation">{</span>text<span class="hl-interpolation">}</span><span class="hl-string">"</span>
+    <span class="hl-type">Err</span><span class="hl-punctuation">(</span>error<span class="hl-punctuation">)</span> <span class="hl-operator">=&gt;</span> <span class="hl-keyword">print</span> <span class="hl-string">f"as text: </span><span class="hl-interpolation">{</span>error<span class="hl-punctuation">.</span><span class="hl-property">message</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
+  <span class="hl-punctuation">}</span>
+
+  <span class="hl-keyword">print</span> <span class="hl-string">f"as a path, the bytes survive: </span><span class="hl-interpolation">{</span>env<span class="hl-punctuation">.</span><span class="hl-type">Path</span><span class="hl-punctuation">.</span><span class="hl-property">DATA_DIR</span><span class="hl-operator">?</span> <span class="hl-operator">==</span> data<span class="hl-interpolation">}</span><span class="hl-string">"</span>
+<span class="hl-punctuation">}</span></code></pre></figure>
+<figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>target: staging
+jobs=8 verbose=true bin=/opt/app/bin
+VERBOSE: environment value is not an integer
+as text: environment value is not valid UTF-8
+as a path, the bytes survive: true</code></pre></figure>
+<p><code>e"NAME"</code> is the same read as <code>env.Str.NAME</code> and <code>env.get("NAME")</code>, so <code>?</code> propagates a missing variable, <code>??</code> supplies a default, and <code>match</code> tells the cases apart. The name is a literal identifier and e-strings never interpolate; read a computed name with <code>env.get(f"{prefix}_HOME")</code>. Typed reads do the conversion and keep a malformed value an error: <code>env.int</code> and <code>env.bool</code> take a fallback used only when the variable is unset, and <code>env.Path.NAME</code> and <code>env.path</code> read native bytes.</p>
+<p>Environment values are bytes, which is the non-UTF-8 rule's reason for being: a text read of a value that is not valid UTF-8 fails rather than guessing, while a <code>Path</code> read and every child process get the bytes unchanged.</p>
+<p>Assigning to an e-string sets a variable:</p>
+<figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-variable">e"STAGE"</span> <span class="hl-operator">=</span> <span class="hl-string">"build"</span> <span class="hl-comment"># set for the rest of the script</span>
+
+<span class="hl-keyword">env</span> <span class="hl-property">LC_ALL</span><span class="hl-operator">=</span><span class="hl-type">C</span> <span class="hl-punctuation">{</span>
+  <span class="hl-variable">e"STAGE"</span> <span class="hl-operator">=</span> <span class="hl-string">"test"</span> <span class="hl-comment"># undone when this scope ends</span>
+  <span class="hl-variable">e"RETRIES"</span> <span class="hl-operator">=</span> <span class="hl-number">3</span> <span class="hl-comment"># converted like an argv item</span>
+  <span class="hl-keyword">let</span> seen <span class="hl-operator">=</span> <span class="hl-keyword">run</span><span class="hl-punctuation">.</span><span class="hl-property">text</span> <span class="hl-function">printenv</span> <span class="hl-type">STAGE</span> <span class="hl-type">RETRIES</span> <span class="hl-operator">?</span>
+  <span class="hl-keyword">print</span> <span class="hl-string">f"child sees: </span><span class="hl-interpolation">{</span>seen<span class="hl-punctuation">.</span><span class="hl-function">lines</span><span class="hl-punctuation">().</span><span class="hl-function">join</span><span class="hl-punctuation">(</span><span class="hl-string">" "</span><span class="hl-punctuation">)</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
+<span class="hl-punctuation">}</span>
+
+<span class="hl-keyword">print</span> <span class="hl-string">f"after the scope: STAGE=</span><span class="hl-interpolation">{</span><span class="hl-variable">e"STAGE"</span><span class="hl-operator">?</span><span class="hl-interpolation">}</span><span class="hl-string"> RETRIES=</span><span class="hl-interpolation">{</span><span class="hl-variable">e"RETRIES"</span> <span class="hl-operator">??</span> <span class="hl-string">"(unset)"</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
+
+<span class="hl-comment"># `NAME=value` before a command sets it for that one child.</span>
+<span class="hl-keyword">let</span> once <span class="hl-operator">=</span> <span class="hl-keyword">run</span><span class="hl-punctuation">.</span><span class="hl-property">text</span> <span class="hl-property">STAGE</span><span class="hl-operator">=</span>deploy printenv <span class="hl-type">STAGE</span> <span class="hl-operator">?</span>
+<span class="hl-keyword">print</span> <span class="hl-string">f"one command saw </span><span class="hl-interpolation">{</span>once<span class="hl-punctuation">.</span><span class="hl-function">trim</span><span class="hl-punctuation">()</span><span class="hl-interpolation">}</span><span class="hl-string">; the script still has </span><span class="hl-interpolation">{</span><span class="hl-variable">e"STAGE"</span><span class="hl-operator">?</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
+
+<span class="hl-keyword">let</span> scratch <span class="hl-operator">=</span> fs<span class="hl-punctuation">.</span><span class="hl-function">tempdir</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
+<span class="hl-keyword">defer</span> scratch<span class="hl-punctuation">.</span><span class="hl-function">close</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
+<span class="hl-keyword">let</span> tools <span class="hl-operator">=</span> scratch<span class="hl-punctuation">.</span><span class="hl-function">host_path</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
+<span class="hl-keyword">let</span> tool <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>tools<span class="hl-interpolation">}</span><span class="hl-path">/hello-tool"</span>
+tool<span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"#!/bin/sh\necho \"hello from $STAGE\"\n"</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+tool<span class="hl-punctuation">.</span><span class="hl-function">chmod</span><span class="hl-punctuation">(</span><span class="hl-number">0o755</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+
+<span class="hl-keyword">env</span> <span class="hl-property">STAGE</span><span class="hl-operator">=</span>release <span class="hl-punctuation">{</span>
+  env<span class="hl-punctuation">.</span><span class="hl-property">PATH</span><span class="hl-punctuation">.</span><span class="hl-function">prepend</span><span class="hl-punctuation">(</span>tools<span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+  <span class="hl-keyword">run</span> <span class="hl-function">hello-tool</span>
+<span class="hl-punctuation">}</span>
+
+<span class="hl-keyword">print</span> <span class="hl-string">f"tools on PATH afterwards: </span><span class="hl-interpolation">{</span>tools <span class="hl-keyword">in</span> env<span class="hl-punctuation">.</span><span class="hl-property">PATH</span><span class="hl-interpolation">}</span><span class="hl-string">"</span></code></pre></figure>
+<figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>child sees: test 3
+after the scope: STAGE=build RETRIES=(unset)
+one command saw deploy; the script still has build
+hello from release
+tools on PATH afterwards: false</code></pre></figure>
+<p><code>e"NAME" = value</code> takes any value that converts to one command argument, the way <code>run</code> converts its arguments: a <code>Path</code> keeps its bytes and <code>3</code> becomes <code>"3"</code>. The right-hand side is an ordinary expression, so <code>e"CC" = clang</code> names a binding and the text is <code>"clang"</code>. There is no unset, and <code>null</code> is rejected rather than meaning one.</p>
+<p>An <code>env NAME=value { ... }</code> or <code>env (record) { ... }</code> block is a scope: when it ends, by finishing, failing, or returning early, the environment goes back to what it was when the block started. An assignment therefore lasts until the innermost enclosing <code>env</code> block ends, and outside any block for the rest of the script. A proc that sets a variable sets it for its caller too, because the environment belongs to the running script, not to a binding.</p>
+<p>A child process inherits XSH's environment as it is when the child starts: what the script started with, plus assignments, scope overlays, and <code>env.PATH</code> edits. A <code>NAME=value</code> word before a command adds to that child alone. XSH never changes its own process environment, so none of this leaks into the host.</p>
+<p><code>env.PATH</code> is a typed view of <code>PATH</code>: <code>prepend</code>, <code>append</code>, and <code>pop</code> take and return <code>Path</code> values, and <code>dir in env.PATH</code> tests an exact entry, never a substring. Like an assignment, the edit ends with its <code>env</code> scope.</p>
+<p>Reading and setting are the <code>env</code> effect, so a <code>pure</code> function can do neither.</p>
 </section>
 <section class="chapter">
 <h2 id="records-lists-and-maps"><a class="anchor" href="#records-lists-and-maps">Records, Lists, and Maps</a></h2>

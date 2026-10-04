@@ -163,6 +163,9 @@ impl<'a> Parser<'a> {
                     self.parse_command_statement_arena_only(start, arena)
                 }
             }
+            (TokenTag::EnvString, _) if self.lookahead_is_assignment() => {
+                self.parse_assignment_arena_only(start, arena)
+            }
             _ => self.parse_expr_statement_arena_only(start, arena),
         }
     }
@@ -819,6 +822,11 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<crate::syntax::arena::AssignTargetId> {
+        if self.current_tag() == TokenTag::EnvString {
+            let span = self.bump();
+            let name = self.env_string_name(span);
+            return Some(arena.push_assign_target_env(name));
+        }
         let name = self.expect_ident("expected assignment target")?;
         let mut target_id = arena.push_assign_target_name(name);
         loop {

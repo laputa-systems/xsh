@@ -10,8 +10,19 @@ pub(crate) enum QuotedLiteralKind {
     Regex,
     Path,
     Glob,
+    Env,
     Fmt,
     PathFmt,
+}
+
+/// Whether `name` can be written inside `e"..."`: an ASCII identifier, the
+/// rule environment overlays apply to the names they set.
+pub fn is_env_string_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -428,6 +428,7 @@ impl<'g> Generator<'g> {
                     TokenTag::FmtString => pick(self, &["f\"x\"", "f\"{a}\""]),
                     TokenTag::PathString => "p\"p\"".to_string(),
                     TokenTag::GlobString => "g\"*.x\"".to_string(),
+                    TokenTag::EnvString => "e\"HOME\"".to_string(),
                     TokenTag::PathFmtString => "fp\"{a}/x\"".to_string(),
                     TokenTag::Bytes => "b\"x\"".to_string(),
                     TokenTag::Regex => "rx\"a+\"".to_string(),

@@ -205,6 +205,7 @@ diagnostic_codes! {
         ParseExpectedTerminator = "parse.expected-terminator", error, "Reject a statement that is not followed by a terminator";
         ParseExpectedToken = "parse.expected-token", error, "Reject a missing required token such as an assignment operator or the `{` after `cd PATH`";
         ParseExpectedWord = "parse.expected-word", error, "Reject a command word that is not a literal word";
+        ParseEnvStringName = "parse.env-string-name", error, "Reject an `e\"...\"` literal whose contents are not one identifier-shaped environment variable name";
         ParseExportTarget = "parse.export-target", error, "Reject `export` applied to anything but a definition";
         ParseExprStringInterpolation = "parse.expr-string-interpolation", error, "Reject interpolation in an expression string literal";
         ParseFallbackBlockParams = "parse.fallback-block-params", error, "Reject an error fallback block with no error parameter";
@@ -533,6 +534,7 @@ diagnostic_codes! {
         LintPreferContextScopeValue = "lint.prefer-context-scope-value", warning, "Let a scope such as `cd` or `env` yield the value instead of a placeholder assigned inside";
         LintPreferDeferBlock = "lint.prefer-defer-block", warning, "Replace a single-use literal cleanup helper with a `defer` block";
         LintPreferEmptyMapLiteral = "lint.prefer-empty-map-literal", warning, "Use `{}` for an empty map in map-typed contexts";
+        LintPreferEnvString = "lint.prefer-env-string", warning, "Read an environment variable with a literal identifier name as `e\"NAME\"`";
         LintPreferFileLines = "lint.prefer-file-lines", warning, "Use `path.lines()?` instead of `read_text()?.lines()` in a loop";
         LintPreferFsFiles = "lint.prefer-fs-files", warning, "Use `fs.files()` instead of `fs.walk()` filtered to `kind == file`";
         LintPreferGenericRecordConstructor = "lint.prefer-generic-record-constructor", warning, "Let a constructor infer its concrete schema from the supplied fields";

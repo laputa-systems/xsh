@@ -375,3 +375,133 @@ test test_env_path_rejects_str_literal_entries { |ctx|
     assert "requires Path" in rejected.stderr, rejected.stderr
   }
 }
+
+test test_env_string_reads_exactly_like_env_str {
+  env XSH_ESTR_TEXT="  keep  " XSH_ESTR_EMPTY="" {
+    # Computed names keep `env.get` from being rewritten to the form under
+    # test.
+    let text_name = "XSH_ESTR_TEXT"
+    let absent_name = "XSH_ESTR_ABSENT"
+    assert e"XSH_ESTR_TEXT"? == "  keep  "
+    assert e"XSH_ESTR_TEXT"? == env.get(text_name)?
+
+    # An empty value is present, so `??` keeps it.
+    assert (e"XSH_ESTR_EMPTY" ?? "fallback") == ""
+
+    # A missing name fails with the lookup's own error, so `??`, `match`, and
+    # `test.error_kind` see what `env.Str.NAME` produces.
+    assert (e"XSH_ESTR_ABSENT" ?? "fallback") == "fallback"
+    test.error_kind(e"XSH_ESTR_ABSENT", "env-missing")?
+    assert str_failure(e"XSH_ESTR_ABSENT") == str_failure(env.get(absent_name))
+    let described = match e"XSH_ESTR_ABSENT" {
+      Ok(value) => f"set to {value}"
+      Err(error) => error.message
+    }
+    assert described == "environment value is unset"
+
+    # An e-string interpolates inside an f-string like any other expression.
+    assert f"[{e"XSH_ESTR_TEXT"?.trim()}]" == "[keep]"
+  } ?
+}
+
+test test_env_string_assignment_converts_like_an_overlay_value {
+  env XSH_ESTR_SCOPE=outer {
+    e"XSH_ESTR_WORD" = "hello world"
+    e"XSH_ESTR_PORT" = 8080
+    e"XSH_ESTR_ON" = true
+    e"XSH_ESTR_GRACE" = 90s
+    e"XSH_ESTR_DIR" = /tmp/xsh-estr
+    let count = 3
+    e"XSH_ESTR_COUNT" = count + 1
+    assert e"XSH_ESTR_WORD"? == "hello world"
+    assert e"XSH_ESTR_PORT"? == "8080"
+    assert e"XSH_ESTR_ON"? == "true"
+    assert e"XSH_ESTR_GRACE"? == "90s"
+    assert env.Path.XSH_ESTR_DIR? == /tmp/xsh-estr
+    assert e"XSH_ESTR_COUNT"? == "4"
+
+    # Reassignment replaces the value, including one an overlay set.
+    e"XSH_ESTR_SCOPE" = "replaced"
+    assert e"XSH_ESTR_SCOPE"? == "replaced"
+  } ?
+}
+
+proc export_estr_marker(value: Str) [env] {
+  e"XSH_ESTR_MARKER" = value
+}
+
+test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
+  let dir = test.temp_dir(ctx, name: "estr-scope")?
+  env XSH_ESTR_OUTER=1 {
+    env XSH_ESTR_INNER=1 {
+      e"XSH_ESTR_NESTED" = "inner"
+      assert e"XSH_ESTR_NESTED"? == "inner"
+    } ?
+    # The inner scope restored the environment it started with.
+    test.error_kind(e"XSH_ESTR_NESTED", "env-missing")?
+
+    # A `cd` scope restores only the directory, so the assignment outlives it.
+    cd $dir {
+      e"XSH_ESTR_FROM_CD" = "kept"
+    }
+    assert e"XSH_ESTR_FROM_CD"? == "kept"
+
+    # The environment is evaluator state, not a binding: a proc's assignment
+    # is visible to its caller.
+    export_estr_marker("from proc")
+    assert e"XSH_ESTR_MARKER"? == "from proc"
+  } ?
+  test.error_kind(e"XSH_ESTR_FROM_CD", "env-missing")?
+  test.error_kind(e"XSH_ESTR_MARKER", "env-missing")?
+}
+
+test test_env_string_assignment_reaches_child_processes {
+  env XSH_ESTR_CHILD_SCOPE=1 {
+    e"XSH_ESTR_CHILD" = "seen by child"
+    let said = run.text printenv XSH_ESTR_CHILD ?
+    assert said == "seen by child\n"
+
+    # A per-command `NAME=value` word still overrides it for that child only.
+    let overridden = run.text XSH_ESTR_CHILD=override printenv XSH_ESTR_CHILD ?
+    assert overridden == "override\n"
+    assert e"XSH_ESTR_CHILD"? == "seen by child"
+  } ?
+}
+
+test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
+  let raw = Path.parse_bytes(b"/tmp/xsh-estr-\xff")?
+  env XSH_ESTR_RAW_SCOPE=1 {
+    e"XSH_ESTR_RAW" = raw
+    # The text read fails rather than decoding lossily; the path read and the
+    # child keep the bytes.
+    test.error_kind(e"XSH_ESTR_RAW", "invalid-utf8")?
+    assert (e"XSH_ESTR_RAW" ?? "fallback") == "fallback"
+    assert env.Path.XSH_ESTR_RAW? == raw
+    let child = run.bytes printenv XSH_ESTR_RAW ?
+    assert child == b"/tmp/xsh-estr-\xff\n"
+  } ?
+}
+
+test test_env_string_rejections { |ctx|
+  for case in [
+    {source: "let x = e\"{prefix}_HOME\"\n", code: "parse.env-string-name"},
+    {source: "let x = e\"NOT-IDENT\"\n", code: "parse.env-string-name"},
+    {source: "let x = e\"\"\n", code: "parse.env-string-name"},
+    {source: "e\"X\" += \"y\"\n", code: "check.assign-target"},
+    {source: "e\"X\" = null\n", code: "check.env-value"},
+    {source: "e\"X\" = [\"a\"]\n", code: "check.env-value"},
+    {source: "pure read() -> Str { e\"HOME\" ?? \"\" }\nlet home = read()\n", code: "check.pure-effect"},
+    {source: "pure write() { e\"X\" = \"y\" }\nwrite()\n", code: "check.pure-effect"},
+    {source: "proc write() [fs] { e\"X\" = \"y\" }\nwrite()\n", code: "check.effect-violation"},
+  ] {
+    let rejected = test.run_script(ctx, case.source)?
+    assert rejected.status == 2, case.source
+    assert case.code in rejected.stderr, rejected.stderr
+  }
+}
+
+test test_env_string_value_with_nul_fails_at_runtime { |ctx|
+  let failed = test.run_script(ctx, "e\"XSH_ESTR_NUL\" = \"a\\0b\"\n")?
+  assert failed.status == 3, failed.stderr
+  assert "NUL" in failed.stderr, failed.stderr
+}

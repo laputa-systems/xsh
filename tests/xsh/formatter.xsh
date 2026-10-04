@@ -23,6 +23,15 @@ test test_fmt_fixture { |ctx|
   )?
 }
 
+test test_fmt_env_strings_round_trip { |ctx|
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/env-strings.xsh",
+    p"tests/fixtures/fmt/env-strings.expected.xsh",
+    "fmt-env-strings.xsh",
+  )?
+}
+
 test test_fmt_nested_multiline_string_preserves_value { |ctx|
   let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
   let before = test.run_script(ctx, source)?

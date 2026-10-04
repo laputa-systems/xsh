@@ -541,7 +541,7 @@ pub struct QuotedLiteralForm {
 }
 
 /// Every quoted literal prefix, longest first so the first match wins.
-pub const QUOTED_LITERALS: [QuotedLiteralForm; 8] = [
+pub const QUOTED_LITERALS: [QuotedLiteralForm; 9] = [
     QuotedLiteralForm {
         prefix: "rx",
         kind: QuotedLiteralKind::Regex,
@@ -571,6 +571,14 @@ pub const QUOTED_LITERALS: [QuotedLiteralForm; 8] = [
         kind: QuotedLiteralKind::Glob,
         raw: false,
         token: TokenTag::GlobString,
+    },
+    // An environment variable named by its literal identifier. The contents
+    // are kept raw because a valid name never needs an escape.
+    QuotedLiteralForm {
+        prefix: "e",
+        kind: QuotedLiteralKind::Env,
+        raw: true,
+        token: TokenTag::EnvString,
     },
     QuotedLiteralForm {
         prefix: "f",

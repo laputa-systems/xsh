@@ -3130,8 +3130,8 @@ fn joined_token_pairs_lex_back_to_the_same_tokens() {
             spaced += usize::from(joined.len() > left.len() + right.len());
         }
     }
-    assert_eq!(texts.len(), 148);
-    assert_eq!(spaced, 11078, "pairs that need a space");
+    assert_eq!(texts.len(), 149);
+    assert_eq!(spaced, 11180, "pairs that need a space");
 }
 
 #[test]

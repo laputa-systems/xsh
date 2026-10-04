@@ -5974,6 +5974,17 @@ impl Evaluator {
                     ),
                 }
             }
+            // `e"NAME" = value`: the parser admits only identifier names, and
+            // the value converts like an `env (...)` overlay value. The change
+            // lives in the evaluator environment, so the innermost enclosing
+            // context scope undoes it and child processes inherit it.
+            RuntimeOp::EnvSet if values.len() == 2 => {
+                let value = values.pop().expect("checked value length");
+                let name = lowered_str_arg_owned(values.pop(), "", "env", span)?;
+                let value = value_to_argv_bytes(value.into_value(), span)?;
+                self.env.insert(name.into_bytes(), value);
+                LoweredValue::Unit
+            }
             // Read the scoped environment overlay at invocation time. Only an
             // unset name selects a fallback; invalid names and bytes keep
             // their original error kinds.

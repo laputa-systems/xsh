@@ -2292,7 +2292,9 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        let name = assign_target_root_name_arena(arena, target);
+        let Some(name) = assign_target_root_name_arena(arena, target) else {
+            return;
+        };
         let mut diagnostic = Diagnostic::error(format!(
             "assignment to undefined name `{name}`; declare it with `let` or `var`"
         ))
@@ -2329,7 +2331,10 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        let name = assign_target_root_name_arena(arena, target);
+        let Some(name) = assign_target_root_name_arena(arena, target) else {
+            self.check_env_variable_assignment_arena(arena, source, op, value, span);
+            return;
+        };
         let Some(binding) = self.lookup(name).cloned() else {
             self.report_undeclared_assignment(arena, source, target, op, value, span);
             return;
@@ -2381,6 +2386,44 @@ impl Checker {
         let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
         self.expect_type(&target_ty, &result, span);
         self.invalidate_binding_projection_arena(arena, target, name);
+    }
+
+    /// `e"NAME" = value` sets the variable in the evaluator environment, so
+    /// it needs the `env` effect, and its value converts like an `env (...)`
+    /// overlay value. `null` is not an unset.
+    fn check_env_variable_assignment_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        op: AssignOp,
+        value: ArenaExprOrRun,
+        span: Span,
+    ) {
+        self.require_effect(crate::syntax::node::Effect::Env, span, "environment assignment");
+        if self.in_pure {
+            self.error(
+                span,
+                "environment assignment is not allowed in pure functions",
+                DiagnosticCode::CheckPureEffect,
+            );
+        }
+        if op != AssignOp::Set {
+            self.error(
+                span,
+                "an environment variable is set only with `=`",
+                DiagnosticCode::CheckAssignTarget,
+            );
+        }
+        let actual = self.check_expr_or_run_arena(arena, source, value, None);
+        let value_span = expr_or_run_span_arena(arena, value);
+        if self.reject_dynamic_word(&actual, value_span) {
+        } else if !actual.can_be_argv_item() && !matches!(actual, Type::Unknown | Type::Invalid) {
+            self.error(
+                value_span,
+                &format!("environment value of type `{actual}` cannot convert to one value"),
+                DiagnosticCode::CheckEnvValue,
+            );
+        }
     }
 
     fn invalidate_binding_projection_arena(
@@ -2451,7 +2494,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         match &arena.arena.assign_target(target).kind {
-            ArenaAssignTargetKind::Name(_) => root_ty.clone(),
+            ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => root_ty.clone(),
             ArenaAssignTargetKind::Field { base, name } => {
                 let base_ty =
                     self.assignment_target_type_arena(arena, source, *base, root_ty, span);
@@ -3518,9 +3561,12 @@ impl Checker {
     }
 }
 
-fn assign_target_root_name_arena(arena: &ArenaProgram, target: AssignTargetId) -> Name {
+/// The binding an assignment writes through, or `None` for an environment
+/// variable target.
+fn assign_target_root_name_arena(arena: &ArenaProgram, target: AssignTargetId) -> Option<Name> {
     match &arena.arena.assign_target(target).kind {
-        ArenaAssignTargetKind::Name(name) => *name,
+        ArenaAssignTargetKind::Name(name) => Some(*name),
+        ArenaAssignTargetKind::Env(_) => None,
         ArenaAssignTargetKind::Field { base, .. } | ArenaAssignTargetKind::Index { base, .. } => {
             assign_target_root_name_arena(arena, *base)
         }

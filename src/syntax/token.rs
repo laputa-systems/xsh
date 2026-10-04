@@ -44,6 +44,7 @@ pub enum TokenTag {
     String,
     PathString,
     GlobString,
+    EnvString,
     FmtString,
     PathFmtString,
     Bytes,
@@ -91,7 +92,7 @@ pub enum TokenTag {
 }
 
 impl TokenTag {
-    pub const ALL: [TokenTag; 53] = [
+    pub const ALL: [TokenTag; 54] = [
         TokenTag::Ident,
         TokenTag::ProcIdent,
         TokenTag::Keyword,
@@ -101,6 +102,7 @@ impl TokenTag {
         TokenTag::String,
         TokenTag::PathString,
         TokenTag::GlobString,
+        TokenTag::EnvString,
         TokenTag::FmtString,
         TokenTag::PathFmtString,
         TokenTag::Bytes,
@@ -481,6 +483,7 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
         TokenTag::String
         | TokenTag::PathString
         | TokenTag::GlobString
+        | TokenTag::EnvString
         | TokenTag::FmtString
         | TokenTag::PathFmtString
         | TokenTag::Bytes
@@ -596,6 +599,7 @@ pub enum TokenKind {
     },
     PathString,
     GlobString,
+    EnvString,
     FmtString {
         raw_literal: bool,
     },
@@ -656,6 +660,7 @@ impl TokenKind {
             Self::String { .. } => TokenTag::String,
             Self::PathString => TokenTag::PathString,
             Self::GlobString => TokenTag::GlobString,
+            Self::EnvString => TokenTag::EnvString,
             Self::FmtString { .. } => TokenTag::FmtString,
             Self::PathFmtString => TokenTag::PathFmtString,
             Self::Bytes => TokenTag::Bytes,

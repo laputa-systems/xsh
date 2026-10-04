@@ -962,26 +962,30 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "assignment",
-            seq([
-                ident(),
-                star(alt([
-                    seq([t(T::Dot), member()]),
-                    seq([t(T::LBracket), r("expression"), t(T::RBracket)]),
-                ])),
-                alt([
-                    t(T::Equals),
-                    seq([
-                        alt([
-                            t(T::Plus),
-                            t(T::Minus),
-                            t(T::Star),
-                            t(T::Slash),
-                            t(T::Percent),
+            alt([
+                seq([
+                    ident(),
+                    star(alt([
+                        seq([t(T::Dot), member()]),
+                        seq([t(T::LBracket), r("expression"), t(T::RBracket)]),
+                    ])),
+                    alt([
+                        t(T::Equals),
+                        seq([
+                            alt([
+                                t(T::Plus),
+                                t(T::Minus),
+                                t(T::Star),
+                                t(T::Slash),
+                                t(T::Percent),
+                            ]),
+                            g(T::Equals),
                         ]),
-                        g(T::Equals),
                     ]),
+                    r("expression_or_run"),
                 ]),
-                r("expression_or_run"),
+                // Setting an environment variable takes only plain `=`.
+                seq([t(T::EnvString), t(T::Equals), r("expression_or_run")]),
             ]),
         ),
         rule(
@@ -1468,6 +1472,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 t(T::PathString),
                 t(T::PathFmtString),
                 t(T::GlobString),
+                t(T::EnvString),
             ]),
         ),
         rule(
@@ -2039,6 +2044,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     alt([
                         t(T::PathString),
                         t(T::GlobString),
+                        t(T::EnvString),
                         t(T::PathFmtString),
                         t(T::FmtString),
                     ]),
@@ -2084,8 +2090,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 alt([
                     seq([
                         not(
-                            [T::PathString, T::GlobString, T::PathFmtString, T::FmtString]
-                                .map(|tag| vec![tag_term(tag)]),
+                            [
+                                T::PathString,
+                                T::GlobString,
+                                T::EnvString,
+                                T::PathFmtString,
+                                T::FmtString,
+                            ]
+                            .map(|tag| vec![tag_term(tag)]),
                         ),
                         class(Class::WordPart),
                     ]),

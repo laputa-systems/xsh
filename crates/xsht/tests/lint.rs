@@ -8249,3 +8249,76 @@ fn assertion_helper_migration_targets_assert() {
     }
     assert_parse_check_standalone("assertion helper migration", &fixed);
 }
+
+#[test]
+fn linter_env_strings_replace_literal_reads_and_keep_other_lookups() {
+    let source = "let home = env.get(\"HOME\")?\nlet login = env.Str.USER ?? \"nobody\"\nlet named = env.get(name: \"SHELL\") ?? \"sh\"\nlet nested = f\"{env.get(\"TERM\") ?? \"dumb\"}\"\nlet dashed = env.get(\"NOT-AN-IDENT\") ?? \"\"\nlet key = \"HOME\"\nlet computed = env.get(key) ?? \"\"\nlet fallback = env.get_or(\"HOME\", \"/\")?\nlet dir = env.Path.HOME ?? /\nprint $home $login $named $nested $dashed $computed $fallback $dir\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let mut edits = diagnostics
+        .iter()
+        .filter(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-env-string"))
+        .flat_map(|d| &d.fix_hints)
+        .map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap()))
+        .collect::<Vec<_>>();
+    // Only the four literal identifier reads; `env.get_or` fails on non-UTF-8
+    // values where `??` would fall back, so it is not an equivalent rewrite.
+    assert_eq!(edits.len(), 4, "{diagnostics:?}");
+    edits.sort_by_key(|(span, _)| span.start());
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits.into_iter().rev() {
+        fixed.replace_range(span.range(), replacement);
+    }
+    assert_eq!(
+        fixed,
+        "let home = e\"HOME\"?\nlet login = e\"USER\" ?? \"nobody\"\nlet named = e\"SHELL\" ?? \"sh\"\nlet nested = f\"{e\"TERM\" ?? \"dumb\"}\"\nlet dashed = env.get(\"NOT-AN-IDENT\") ?? \"\"\nlet key = \"HOME\"\nlet computed = env.get(key) ?? \"\"\nlet fallback = env.get_or(\"HOME\", \"/\")?\nlet dir = env.Path.HOME ?? /\nprint $home $login $named $nested $dashed $computed $fallback $dir\n"
+    );
+    assert_parse_check_standalone("env string fixes", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(
+        &parsed.arena,
+        &fixed,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    assert!(
+        !second
+            .diagnostics
+            .iter()
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-env-string"))
+    );
+}
+
+#[test]
+fn linter_env_strings_ignore_shadowed_env_bindings() {
+    let source = "let env = {Str: {USER: \"me\"}}\nprint $env.Str.USER\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-env-string")),
+        "{diagnostics:?}"
+    );
+}

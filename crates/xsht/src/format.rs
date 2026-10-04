@@ -20,7 +20,7 @@ use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
 use xsh::frontend::syntax::literal;
 use xsh::frontend::syntax::node::{
-    AssignOp, BinaryOp, CoreCommand, Effect, EnvGetKind, FormatSpecKind, RedirectionKind, RunKind,
+    AssignOp, BinaryOp, CoreCommand, Effect, FormatSpecKind, RedirectionKind, RunKind,
     UnaryOp,
 };
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
@@ -1421,6 +1421,7 @@ impl<'a> Writer<'a> {
         let kind = self.arena.assign_target(target_id).kind.clone();
         match &kind {
             ArenaAssignTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
+            ArenaAssignTargetKind::Env(name) => write_env_string(*name, output),
             ArenaAssignTargetKind::Field { base, name } => {
                 self.write_assign_target(*base, output);
                 output.push('.');
@@ -2210,16 +2211,7 @@ impl<'a> Writer<'a> {
                 }
                 output.push(']');
             }
-            ArenaExprKind::EnvGet { kind, name } => {
-                output.push_str("env.");
-                output.push_str(match kind {
-                    EnvGetKind::Str => "Str",
-                    EnvGetKind::Path => "Path",
-                    EnvGetKind::PathList => "PathList",
-                });
-                output.push('.');
-                output.push_str(name.as_str().as_str());
-            }
+            ArenaExprKind::EnvString(name) => write_env_string(*name, output),
             ArenaExprKind::EnvPathList => output.push_str("env.PATH"),
             ArenaExprKind::Pipeline { input, stages } => {
                 self.write_expr(*input, child(*input), output);
@@ -4011,7 +4003,8 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::FmtString(_)
             | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::PathStr(_)
-            | ArenaExprKind::GlobStr(_) => true,
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::EnvString(_) => true,
             ArenaExprKind::Call { callee, .. } => self.command_chain_base_can_be_bare(callee),
             ArenaExprKind::Index { base, index, .. } => {
                 self.command_chain_base_can_be_bare(base)
@@ -4035,7 +4028,8 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::FmtString(_)
             | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::PathStr(_)
-            | ArenaExprKind::GlobStr(_) => true,
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::EnvString(_) => true,
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
                 self.command_chain_base_can_be_bare(base)
             }
@@ -4326,6 +4320,14 @@ fn env_assignments_are_exprs(assignments: &[ArenaEnvAssignment]) -> bool {
     assignments
         .iter()
         .any(|assignment| matches!(assignment.value, ArenaEnvAssignmentValue::Expr(_)))
+}
+
+/// `e"NAME"`; the parser admits only identifier names, so nothing needs
+/// escaping.
+fn write_env_string(name: xsh::frontend::symbols::Name, output: &mut String) {
+    output.push_str("e\"");
+    output.push_str(name.as_str().as_str());
+    output.push('"');
 }
 
 fn write_quoted(value: &str, output: &mut String) {

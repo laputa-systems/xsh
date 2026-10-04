@@ -1240,9 +1240,7 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
                 | Tag::Loop
                 | Tag::Retry
                 | Tag::ValueBlock
-                | Tag::EnvGetStr
-                | Tag::EnvGetPath
-                | Tag::EnvGetPathList
+                | Tag::EnvString
                 | Tag::EnvPathList
         );
         if !logical && !holds_operand {

@@ -227,6 +227,14 @@ let out = ./target/build
 `List[Path]`. Globbing is a filesystem effect and is not allowed in pure
 functions. Nothing else globs.
 
+**Environment strings.** `e"NAME"` reads the environment variable `NAME` as
+`Result[Str]` (10.5), and `e"NAME" = value` sets it. The contents are one
+identifier, `[A-Za-z_][A-Za-z0-9_]*`, written on one line: there are no escapes,
+no interpolation, and no triple-quoted form (`parse.env-string-name`). A brace
+is reported as attempted interpolation; read a computed name with
+`env.get(name)`. Identifiers are the names `env NAME=value { ... }` can set, so
+one spelling both reads and sets a variable.
+
 **Numbers.** Integer literals are decimal or octal (`0o755`); a leading `-` is
 unary minus. Float literals need a digit after the decimal point or an
 exponent: `1.0`, `0.25`, `1.5e6`, `10e-3`.
@@ -1524,13 +1532,50 @@ directory and environment between pulls.
 
 ### 10.5 Environment access
 
-- `env.Str.NAME -> Result[Str]`, `env.Path.NAME -> Result[Path]`, and
-  `env.PathList.NAME -> Result[List[Path]]` read variables with static names.
-  `env.get(name)`, `env.get_or(name, fallback)`, `env.int`, `env.bool`,
-  `env.path`, and `env.path_list` read computed names.
-- A `Str` lookup fails when the variable is missing or not valid UTF-8; bytes
-  are never decoded lossily. Child processes still inherit non-UTF-8 values
-  unchanged.
+```xsh
+let home = e"HOME"? # e"HOME" is Result[Str], like env.Str.HOME
+let editor = e"VISUAL" ?? e"EDITOR" ?? "vi"
+let config = env.get(f"{prefix}_CONFIG_HOME") ?? f"{home}/.config"
+
+e"EDITOR" = editor # later child processes inherit it
+e"PORT" = 8080 # converted like an argv item
+env LC_ALL=C {
+  e"TZ" = "UTC" # undone when this scope ends
+  run date
+}
+```
+
+- `e"NAME"` has type `Result[Str]` and reads exactly what `env.Str.NAME` and
+  `env.get("NAME")` read, so `?`, `??`, and `match` handle it like any other
+  `Result`. `lint.prefer-env-string` rewrites `env.get("NAME")` and
+  `env.Str.NAME` with a literal identifier name to `e"NAME"`. It leaves
+  `env.get_or("NAME", fallback)` alone: that call fails on a value that is not
+  UTF-8, where `e"NAME" ?? fallback` falls back.
+- `env.Path.NAME -> Result[Path]` and `env.PathList.NAME -> Result[List[Path]]`
+  read static names as native bytes. `env.get(name)`,
+  `env.get_or(name, fallback)`, `env.int`, `env.bool`, `env.path`, and
+  `env.path_list` read computed names; the typed readers use their fallback
+  only for an unset variable and fail on a present value they cannot convert.
+- A `Str` lookup fails when the variable is missing (`env-missing`) or not
+  valid UTF-8 (`invalid-utf8`); bytes are never decoded lossily. Child
+  processes still inherit non-UTF-8 values unchanged.
+- `e"NAME" = value` is a statement that sets the variable in the evaluator
+  environment. It takes only `=` (`check.assign-target` otherwise). The value
+  is an expression or run form whose type converts to one argv item (11.4), as
+  `env NAME=value` values do; `null`, optionals, lists, and `Bytes` are
+  `check.env-value`, and a value containing NUL fails at runtime. A bare word
+  on the right is a binding, as everywhere in expressions: `e"CC" = clang`
+  names a binding `clang`, and the literal is `e"CC" = "clang"`. There is no
+  unset; scope a temporary change with `env (...) { ... }` instead.
+- The assignment lasts until the innermost enclosing `env` scope ends, which
+  restores the environment the scope entered with (10.4); outside any `env`
+  scope it lasts for the rest of the script. `cd` scopes restore only the
+  directory. The environment is evaluator state, not a binding, so an
+  assignment made in a called `proc` is visible to its caller. Every later
+  child process inherits the variable, and a `NAME=value` word on a `run`
+  still overrides it for that child alone.
+- Reads and assignments need the `env` effect and are rejected in `pure`
+  functions.
 - `env.PATH` is a scoped mutable view with `prepend(path)`, `append(path)`,
   `pop()`, and `in`/`not in`. Its operands must be `Path` values.
 

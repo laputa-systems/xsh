@@ -33,6 +33,7 @@ fn tag_name(tag: TokenTag) -> String {
         TokenTag::String => "STRING",
         TokenTag::PathString => "PATH",
         TokenTag::GlobString => "GLOB",
+        TokenTag::EnvString => "ENV_STRING",
         TokenTag::FmtString => "FMT_STRING",
         TokenTag::PathFmtString => "PATH_FMT",
         TokenTag::Bytes => "BYTES",

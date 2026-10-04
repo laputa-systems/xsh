@@ -530,7 +530,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("env", "get") => Some((
             "Reads one environment variable as text.",
-            "Missing variables and invalid host bytes remain distinguishable results.",
+            "Missing variables and invalid host bytes remain distinguishable results. A literal identifier name is written `e\"NAME\"`, which reads the same way.",
             &["env", "lookup", "utf8"],
         )),
         ("env", "get_or") => Some((

@@ -236,7 +236,9 @@ fn paint(source: &str, base: usize, kinds: &mut [Kind]) {
                 paint_token(kinds, Kind::Path);
                 paint_interpolations(source, base, token, kinds);
             }
-            TokenTag::DollarIdent | TokenTag::LastStatus => paint_token(kinds, Kind::Variable),
+            TokenTag::DollarIdent | TokenTag::LastStatus | TokenTag::EnvString => {
+                paint_token(kinds, Kind::Variable)
+            }
             TokenTag::DollarLBrace => {
                 braces.push(true);
                 paint_token(kinds, Kind::Variable);
@@ -327,6 +329,7 @@ fn ends_value(tag: TokenTag) -> bool {
             | TokenTag::String
             | TokenTag::PathString
             | TokenTag::GlobString
+            | TokenTag::EnvString
             | TokenTag::FmtString
             | TokenTag::PathFmtString
             | TokenTag::Bytes

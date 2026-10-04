@@ -13,5 +13,5 @@ env LC_ALL=C GREETING="hello world" {
   print f"child saw: {said.trim()}"
 }
 
-let outside = env.Str.GREETING ?? "(unset)"
+let outside = e"GREETING" ?? "(unset)"
 print f"after the block: {outside}"

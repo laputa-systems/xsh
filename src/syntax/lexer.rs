@@ -78,6 +78,7 @@ enum StringLiteralKind {
     Regex,
     Path,
     Glob,
+    Env,
 }
 
 impl<'a> Lexer<'a> {
@@ -159,6 +160,9 @@ impl<'a> Lexer<'a> {
                         }
                         QuotedLiteralKind::Glob => {
                             self.lex_string(StringLiteralKind::Glob, form.raw, start)
+                        }
+                        QuotedLiteralKind::Env => {
+                            self.lex_string(StringLiteralKind::Env, form.raw, start)
                         }
                     }
                 }
@@ -645,6 +649,9 @@ impl<'a> Lexer<'a> {
                         let _ = value;
                         self.push(TokenKind::GlobString, literal_start, self.offset);
                     }
+                    StringLiteralKind::Env => {
+                        self.push(TokenKind::EnvString, literal_start, self.offset)
+                    }
                     StringLiteralKind::Regex => {
                         self.push(TokenKind::Regex, literal_start, self.offset)
                     }
@@ -829,6 +836,7 @@ pub fn representative_token_texts() -> Vec<(TokenTag, String)> {
         (TokenTag::String, "\"\"\"s\"\"\""),
         (TokenTag::PathString, "p\"s\""),
         (TokenTag::GlobString, "g\"s\""),
+        (TokenTag::EnvString, "e\"S\""),
         (TokenTag::FmtString, "f\"s\""),
         (TokenTag::PathFmtString, "fp\"s\""),
         (TokenTag::Bytes, "b\"s\""),

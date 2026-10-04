@@ -260,13 +260,6 @@ impl DurationLiteral {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EnvGetKind {
-    Str,
-    Path,
-    PathList,
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SignalHookOptions {
     pub pre_cancel: Option<String>,

@@ -2,7 +2,7 @@ use crate::source::{SourceId, Span};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::lexer::Lexer;
 use crate::syntax::node::{
-    AssignOp, BinaryOp, BlockParam, CoreCommand, DurationLiteral, Effect, EnvGetKind, FloatLiteral,
+    AssignOp, BinaryOp, BlockParam, CoreCommand, DurationLiteral, Effect, FloatLiteral,
     FormatSpec, FormatSpecKind, IntLiteral, RedirectionKind, RunKind, SignalHookOptions,
     StreamStageKind, UnaryOp,
 };
@@ -2662,6 +2662,11 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_assign_target_kind(ArenaAssignTargetKind::Name(name))
     }
 
+    pub fn push_assign_target_env(&mut self, name: Name) -> AssignTargetId {
+        self.lowerer
+            .push_assign_target_kind(ArenaAssignTargetKind::Env(name))
+    }
+
     pub fn push_assign_target_field(&mut self, base: AssignTargetId, name: Name) -> AssignTargetId {
         self.lowerer
             .push_assign_target_kind(ArenaAssignTargetKind::Field { base, name })
@@ -3160,6 +3165,11 @@ impl<'a> ArenaProgramBuilder<'a> {
         let value = self.lowerer.lower_string_literal(value);
         self.lowerer
             .push_expr_kind(ArenaExprKind::PathStr(value), span)
+    }
+
+    pub fn push_env_string_expr(&mut self, name: Name, span: Span) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::EnvString(name), span)
     }
 
     pub fn push_glob_str_expr(&mut self, value: &Arc<str>, span: Span) -> ExprId {
@@ -4434,18 +4444,9 @@ impl AstArena {
                     guarded: self.expr_tags[id.index()] == ArenaExprTag::NullSafeSlice,
                 }
             }
-            ArenaExprTag::EnvGetStr => ArenaExprKind::EnvGet {
-                kind: EnvGetKind::Str,
-                name: Name::from_symbol(Symbol::from_raw(data.lhs)),
-            },
-            ArenaExprTag::EnvGetPath => ArenaExprKind::EnvGet {
-                kind: EnvGetKind::Path,
-                name: Name::from_symbol(Symbol::from_raw(data.lhs)),
-            },
-            ArenaExprTag::EnvGetPathList => ArenaExprKind::EnvGet {
-                kind: EnvGetKind::PathList,
-                name: Name::from_symbol(Symbol::from_raw(data.lhs)),
-            },
+            ArenaExprTag::EnvString => {
+                ArenaExprKind::EnvString(Name::from_symbol(Symbol::from_raw(data.lhs)))
+            }
             ArenaExprTag::EnvPathList => ArenaExprKind::EnvPathList,
             ArenaExprTag::Pipeline => {
                 let raw = range_slice(&self.extra, range_from_data(data));
@@ -5499,6 +5500,9 @@ pub enum ArenaAssignTargetKind {
     Name(Name),
     Field { base: AssignTargetId, name: Name },
     Index { base: AssignTargetId, index: ExprId },
+    /// `e"NAME" = value` sets an environment variable; it has no base, field,
+    /// or index and only takes plain `=`.
+    Env(Name),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -5611,9 +5615,7 @@ pub enum ArenaExprTag {
     NullSafeSlice,
     Index,
     Slice,
-    EnvGetStr,
-    EnvGetPath,
-    EnvGetPathList,
+    EnvString,
     EnvPathList,
     Pipeline,
     StructuredPipeline,
@@ -5776,10 +5778,9 @@ pub enum ArenaExprKind {
         end: Option<ExprId>,
         guarded: bool,
     },
-    EnvGet {
-        kind: EnvGetKind,
-        name: Name,
-    },
+    /// `e"NAME"`: the variable read as `Result[Str]`. The name is an
+    /// identifier, checked by the parser.
+    EnvString(Name),
     EnvPathList,
     Pipeline {
         input: ExprId,
@@ -6989,14 +6990,10 @@ impl ArenaLowerer<'_> {
                     data,
                 )
             }
-            ArenaExprKind::EnvGet { kind, name } => {
-                let tag = match kind {
-                    EnvGetKind::Str => ArenaExprTag::EnvGetStr,
-                    EnvGetKind::Path => ArenaExprTag::EnvGetPath,
-                    EnvGetKind::PathList => ArenaExprTag::EnvGetPathList,
-                };
-                (tag, ArenaExprData::new(name.symbol().raw(), 0))
-            }
+            ArenaExprKind::EnvString(name) => (
+                ArenaExprTag::EnvString,
+                ArenaExprData::new(name.symbol().raw(), 0),
+            ),
             ArenaExprKind::EnvPathList => (ArenaExprTag::EnvPathList, ArenaExprData::ZERO),
             ArenaExprKind::Pipeline { input, stages } => {
                 let data = self.push_expr_extra(&[raw_expr_id(input), stages.start, stages.len]);

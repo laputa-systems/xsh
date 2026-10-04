@@ -11,7 +11,6 @@ use crate::syntax::arena::{
     PatternId, RunFormId,
 };
 use crate::syntax::literal;
-use crate::syntax::node::EnvGetKind;
 
 pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
@@ -275,7 +274,9 @@ impl Checker {
         ty
     }
 
-    pub(super) fn check_env_get(&mut self, kind: EnvGetKind, span: Span) -> Type {
+    /// `e"NAME"` reads like `env.Str.NAME`: `Result[Str]`, failing when the
+    /// variable is unset or not UTF-8.
+    pub(super) fn check_env_string(&mut self, span: Span) -> Type {
         self.require_effect(Effect::Env, span, "environment lookup");
         if self.in_pure {
             self.error(
@@ -284,14 +285,7 @@ impl Checker {
                 DiagnosticCode::CheckPureEffect,
             );
         }
-        match kind {
-            EnvGetKind::Str => Type::Result(Box::new(Type::Str), Box::new(Type::Error)),
-            EnvGetKind::Path => Type::Result(Box::new(Type::Path), Box::new(Type::Error)),
-            EnvGetKind::PathList => Type::Result(
-                Box::new(Type::List(Box::new(Type::Path))),
-                Box::new(Type::Error),
-            ),
-        }
+        Type::Result(Box::new(Type::Str), Box::new(Type::Error))
     }
 
     pub(super) fn check_process_effect(&mut self, span: Span, form: &str) {
@@ -738,7 +732,7 @@ impl Checker {
                 end,
                 guarded,
             } => self.check_slice_arena(arena, source, *base, *start, *end, *guarded, expr.span),
-            ArenaExprKind::EnvGet { kind, .. } => self.check_env_get(*kind, expr.span),
+            ArenaExprKind::EnvString(_) => self.check_env_string(expr.span),
             ArenaExprKind::EnvPathList => {
                 self.require_effect(Effect::Env, expr.span, "environment path lookup");
                 Type::EnvPathList

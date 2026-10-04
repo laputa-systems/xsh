@@ -1297,6 +1297,15 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 })
             }
+            (TokenTag::EnvString, _) => {
+                let span = self.bump();
+                let name = self.env_string_name(span);
+                Some(ArenaOnlyExpr {
+                    id: arena.push_env_string_expr(name, span),
+                    span,
+                    bare_ident: None,
+                })
+            }
             (TokenTag::FmtString, _) => {
                 let flags = self
                     .token_table

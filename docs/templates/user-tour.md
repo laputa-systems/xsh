@@ -212,6 +212,9 @@ the script:
 {{.tour.scoped_env.output}}
 ```
 
+`e"GREETING"` reads a variable; [Environment Variables](#environment-variables)
+covers reading, setting, and what children inherit.
+
 ## Paths
 
 Paths are a type, not strings that happen to contain slashes. They hold native
@@ -307,6 +310,71 @@ anything that fails inside the block, so a bare "No such file or directory"
 becomes "No such file or directory (ctx: loading /etc/app.json)". `try { ... }`
 turns a block into a `Result` value when you want to collect failures as data
 instead of propagating them.
+
+## Environment Variables
+
+In shell, `$DEPLOY_TARGET` is the empty string whether the variable is unset,
+empty, or misspelled, and `export` changes every later command in the script.
+XSH reads a variable with an e-string, `e"NAME"`, whose value is a
+`Result[Str]`: a missing variable is an `Err` you handle like any other.
+
+```xsh
+{{.tour.env_read.source}}
+```
+
+<!-- expected-output -->
+
+```text
+{{.tour.env_read.output}}
+```
+
+`e"NAME"` is the same read as `env.Str.NAME` and `env.get("NAME")`, so `?`
+propagates a missing variable, `??` supplies a default, and `match` tells the
+cases apart. The name is a literal identifier and e-strings never interpolate;
+read a computed name with `env.get(f"{prefix}_HOME")`. Typed reads do the
+conversion and keep a malformed value an error: `env.int` and `env.bool` take a
+fallback used only when the variable is unset, and `env.Path.NAME` and
+`env.path` read native bytes.
+
+Environment values are bytes, which is the non-UTF-8 rule's reason for being:
+a text read of a value that is not valid UTF-8 fails rather than guessing,
+while a `Path` read and every child process get the bytes unchanged.
+
+Assigning to an e-string sets a variable:
+
+```xsh
+{{.tour.env_set.source}}
+```
+
+<!-- expected-output -->
+
+```text
+{{.tour.env_set.output}}
+```
+
+`e"NAME" = value` takes any value that converts to one command argument, the
+way `run` converts its arguments: a `Path` keeps its bytes and `3` becomes
+`"3"`. The right-hand side is an ordinary expression, so `e"CC" = clang` names
+a binding and the text is `"clang"`. There is no unset, and `null` is rejected
+rather than meaning one.
+
+An `env NAME=value { ... }` or `env (record) { ... }` block is a scope: when it
+ends, by finishing, failing, or returning early, the environment goes back to
+what it was when the block started. An assignment therefore lasts until the
+innermost enclosing `env` block ends, and outside any block for the rest of the
+script. A proc that sets a variable sets it for its caller too, because the
+environment belongs to the running script, not to a binding.
+
+A child process inherits XSH's environment as it is when the child starts:
+what the script started with, plus assignments, scope overlays, and `env.PATH`
+edits. A `NAME=value` word before a command adds to that child alone. XSH never
+changes its own process environment, so none of this leaks into the host.
+
+`env.PATH` is a typed view of `PATH`: `prepend`, `append`, and `pop` take and
+return `Path` values, and `dir in env.PATH` tests an exact entry, never a
+substring. Like an assignment, the edit ends with its `env` scope.
+
+Reading and setting are the `env` effect, so a `pure` function can do neither.
 
 ## Records, Lists, and Maps
 

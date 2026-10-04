@@ -253,7 +253,7 @@ env LC_ALL=C GREETING="hello world" {
   print f"child saw: {said.trim()}"
 }
 
-let outside = env.Str.GREETING ?? "(unset)"
+let outside = e"GREETING" ?? "(unset)"
 print f"after the block: {outside}"
 ```
 
@@ -264,6 +264,9 @@ inside: notes.txt
 child saw: hello world
 after the block: (unset)
 ```
+
+`e"GREETING"` reads a variable; [Environment Variables](#environment-variables)
+covers reading, setting, and what children inherit.
 
 ## Paths
 
@@ -406,6 +409,133 @@ anything that fails inside the block, so a bare "No such file or directory"
 becomes "No such file or directory (ctx: loading /etc/app.json)". `try { ... }`
 turns a block into a `Result` value when you want to collect failures as data
 instead of propagating them.
+
+## Environment Variables
+
+In shell, `$DEPLOY_TARGET` is the empty string whether the variable is unset,
+empty, or misspelled, and `export` changes every later command in the script.
+XSH reads a variable with an e-string, `e"NAME"`, whose value is a
+`Result[Str]`: a missing variable is an `Err` you handle like any other.
+
+```xsh
+# The first variable that is set wins; a missing one is an Err that `??`
+# replaces.
+let target = e"DEPLOY_TARGET" ?? e"DEFAULT_TARGET" ?? "staging"
+print f"target: {target}"
+
+env JOBS=8 VERBOSE=yes PREFIX=/opt/app {
+  let jobs = env.int("JOBS", 1)?
+  let verbose = env.bool("VERBOSE")?
+  let prefix = env.Path.PREFIX?
+  print f"jobs={jobs} verbose={verbose} bin={fp"{prefix}/bin"}"
+
+  # A value that is not what it claims is an error, not a silent default.
+  match env.int("VERBOSE", 1) {
+    Ok(n) => print f"verbose level {n}"
+    Err(error) => print f"VERBOSE: {error.message}"
+  }
+}
+
+# Text reads never decode bytes lossily; path reads keep them.
+let data = Path.parse_bytes(b"/srv/caf\xe9")?
+env ({DATA_DIR: data}) {
+  match e"DATA_DIR" {
+    Ok(text) => print f"text: {text}"
+    Err(error) => print f"as text: {error.message}"
+  }
+
+  print f"as a path, the bytes survive: {env.Path.DATA_DIR? == data}"
+}
+```
+
+<!-- expected-output -->
+
+```text
+target: staging
+jobs=8 verbose=true bin=/opt/app/bin
+VERBOSE: environment value is not an integer
+as text: environment value is not valid UTF-8
+as a path, the bytes survive: true
+```
+
+`e"NAME"` is the same read as `env.Str.NAME` and `env.get("NAME")`, so `?`
+propagates a missing variable, `??` supplies a default, and `match` tells the
+cases apart. The name is a literal identifier and e-strings never interpolate;
+read a computed name with `env.get(f"{prefix}_HOME")`. Typed reads do the
+conversion and keep a malformed value an error: `env.int` and `env.bool` take a
+fallback used only when the variable is unset, and `env.Path.NAME` and
+`env.path` read native bytes.
+
+Environment values are bytes, which is the non-UTF-8 rule's reason for being:
+a text read of a value that is not valid UTF-8 fails rather than guessing,
+while a `Path` read and every child process get the bytes unchanged.
+
+Assigning to an e-string sets a variable:
+
+```xsh
+e"STAGE" = "build" # set for the rest of the script
+
+env LC_ALL=C {
+  e"STAGE" = "test" # undone when this scope ends
+  e"RETRIES" = 3 # converted like an argv item
+  let seen = run.text printenv STAGE RETRIES ?
+  print f"child sees: {seen.lines().join(" ")}"
+}
+
+print f"after the scope: STAGE={e"STAGE"?} RETRIES={e"RETRIES" ?? "(unset)"}"
+
+# `NAME=value` before a command sets it for that one child.
+let once = run.text STAGE=deploy printenv STAGE ?
+print f"one command saw {once.trim()}; the script still has {e"STAGE"?}"
+
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let tools = scratch.host_path()?
+let tool = fp"{tools}/hello-tool"
+tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n")?
+tool.chmod(0o755)?
+
+env STAGE=release {
+  env.PATH.prepend(tools)?
+  run hello-tool
+}
+
+print f"tools on PATH afterwards: {tools in env.PATH}"
+```
+
+<!-- expected-output -->
+
+```text
+child sees: test 3
+after the scope: STAGE=build RETRIES=(unset)
+one command saw deploy; the script still has build
+hello from release
+tools on PATH afterwards: false
+```
+
+`e"NAME" = value` takes any value that converts to one command argument, the
+way `run` converts its arguments: a `Path` keeps its bytes and `3` becomes
+`"3"`. The right-hand side is an ordinary expression, so `e"CC" = clang` names
+a binding and the text is `"clang"`. There is no unset, and `null` is rejected
+rather than meaning one.
+
+An `env NAME=value { ... }` or `env (record) { ... }` block is a scope: when it
+ends, by finishing, failing, or returning early, the environment goes back to
+what it was when the block started. An assignment therefore lasts until the
+innermost enclosing `env` block ends, and outside any block for the rest of the
+script. A proc that sets a variable sets it for its caller too, because the
+environment belongs to the running script, not to a binding.
+
+A child process inherits XSH's environment as it is when the child starts:
+what the script started with, plus assignments, scope overlays, and `env.PATH`
+edits. A `NAME=value` word before a command adds to that child alone. XSH never
+changes its own process environment, so none of this leaks into the host.
+
+`env.PATH` is a typed view of `PATH`: `prepend`, `append`, and `pop` take and
+return `Path` values, and `dir in env.PATH` tests an exact entry, never a
+substring. Like an assignment, the edit ends with its `env` scope.
+
+Reading and setting are the `env` effect, so a `pure` function can do neither.
 
 ## Records, Lists, and Maps
 

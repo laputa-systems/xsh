@@ -121,7 +121,7 @@ pub const EFFECT_REFERENCES: &[EffectReference] = &[
     },
     EffectReference {
         name: "env",
-        covers: &["env.*", "cd", "system.*"],
+        covers: &["env.*", "e\"NAME\" reads and assignments", "cd", "system.*"],
     },
     EffectReference {
         name: "time",

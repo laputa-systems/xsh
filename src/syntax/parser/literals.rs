@@ -34,6 +34,35 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The variable an `e"NAME"` literal names. The name must be an
+    /// identifier, the same rule `env NAME=value { }` overlays apply, so one
+    /// spelling both reads and sets it. A malformed name is reported and kept
+    /// for recovery.
+    pub(super) fn env_string_name(&mut self, span: Span) -> crate::symbol::Name {
+        let triple = self.source[span.start()..span.end()].starts_with("e\"\"\"");
+        let name = self.quoted_content(span).to_owned();
+        if triple || !literal::is_env_string_name(&name) {
+            let (message, note) = if name.contains('{') {
+                (
+                    "e-strings do not interpolate",
+                    "read a computed name with `env.get(f\"...\")`",
+                )
+            } else {
+                (
+                    "an e-string names one environment variable",
+                    "write the name as an identifier on one line, such as `e\"HOME\"`",
+                )
+            };
+            self.diagnostics.push(
+                Diagnostic::error(message)
+                    .with_code(DiagnosticCode::ParseEnvStringName)
+                    .with_label(Label::primary(span, "invalid environment variable name"))
+                    .with_note(note),
+            );
+        }
+        crate::symbol::Name::intern(&name)
+    }
+
     pub(super) fn starts_bare_path_literal(&self) -> bool {
         literal::scan_bare_path_at(self.source, self.current_start()).is_some()
     }

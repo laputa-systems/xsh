@@ -894,6 +894,7 @@ impl<'a> Linter<'a> {
             ArenaAssignTargetKind::Name(name) => {
                 self.assigned_names.insert(name);
             }
+            ArenaAssignTargetKind::Env(_) => {}
             ArenaAssignTargetKind::Field { base, .. }
             | ArenaAssignTargetKind::Index { base, .. } => {
                 self.collect_assigned_names_target(base);
@@ -6540,6 +6541,7 @@ impl<'a> Linter<'a> {
     fn lint_assign_target(&mut self, target: AssignTargetId) {
         match self.arena.assign_target(target).kind.clone() {
             ArenaAssignTargetKind::Name(name) => self.mark_used(name.as_str().as_str()),
+            ArenaAssignTargetKind::Env(_) => {}
             ArenaAssignTargetKind::Field { base, .. } => self.lint_assign_target(base),
             ArenaAssignTargetKind::Index { base, index } => {
                 self.lint_assign_target(base);
@@ -8229,6 +8231,73 @@ impl<'a> Linter<'a> {
                 replacement,
             ))
         });
+    }
+
+    /// `env.get("NAME")` and `env.Str.NAME` read exactly what `e"NAME"`
+    /// reads: the same lookup, the same `Result[Str]`, the same failures. Only
+    /// literal identifier names are rewritten. `env.get_or` is left alone:
+    /// it fails on a value that is not UTF-8, while `e"NAME" ?? fallback`
+    /// would fall back, and it returns a `Result` where `??` returns `Str`.
+    fn lint_env_string(&mut self, expr: ExprId) {
+        let outer = self.arena.expr(expr);
+        let name = match outer.kind {
+            ArenaExprKind::Call { callee, args }
+                if is_module_call(self.arena, callee, "env", "get") && args.len() == 1 =>
+            {
+                let argument = match self.arena.call_args(args)[0].kind {
+                    ArenaCallArgKind::Positional(value) => value,
+                    ArenaCallArgKind::Named { name, value, .. } if name == "name" => value,
+                    _ => return,
+                };
+                let ArenaExprKind::Str(text) = self.arena.expr(argument).kind else {
+                    return;
+                };
+                self.arena.string_literal(text).to_string()
+            }
+            ArenaExprKind::Field { base, name } => {
+                let ArenaExprKind::Field {
+                    base: module,
+                    name: kind,
+                } = self.arena.expr(base).kind
+                else {
+                    return;
+                };
+                if kind != "Str"
+                    || !matches!(self.arena.expr(module).kind, ArenaExprKind::Ident(module) if module == "env")
+                {
+                    return;
+                }
+                name.as_str().to_string()
+            }
+            _ => return,
+        };
+        // The checked type proves `env` is the module, and the spelling
+        // check keeps `$env.Str.NAME` command words and comments untouched.
+        let text = &self.source[outer.span.range()];
+        if !xsh::frontend::syntax::literal::is_env_string_name(&name)
+            || self.scopes.iter().any(|scope| scope.contains_key("env"))
+            || self.expr_types.get(&outer.span)
+                != Some(&Type::Result(Box::new(Type::Str), Box::new(Type::Error)))
+            || !text.starts_with("env.")
+            || text.contains('#')
+            || self.source[..outer.span.start()].ends_with('$')
+        {
+            return;
+        }
+        let replacement = format!("e\"{name}\"");
+        self.diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                "read an environment variable with a literal name as an e-string",
+            )
+            .with_code(DiagnosticCode::LintPreferEnvString)
+            .with_label(Label::secondary(outer.span, "this reads one named variable"))
+            .with_fix_hint(FixHint::replacement(
+                outer.span,
+                format!("write `{replacement}`"),
+                replacement,
+            )),
+        );
     }
 
     fn lint_prefer_slice(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
@@ -10240,7 +10309,7 @@ fn lazy_visit_assign_target(
     out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     match arena.assign_target(target).kind.clone() {
-        ArenaAssignTargetKind::Name(_) => {}
+        ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {}
         ArenaAssignTargetKind::Field { base, .. } => lazy_visit_assign_target(arena, base, out),
         ArenaAssignTargetKind::Index { base, index } => {
             lazy_visit_assign_target(arena, base, out);
@@ -10568,7 +10637,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Capture(_)
@@ -10760,7 +10829,9 @@ fn stmt_assigns_non_push_to(
     name: xsh::frontend::symbols::Name,
 ) -> bool {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Assign { target, .. } if assign_target_root_name(arena, target) == name => {
+        ArenaStmtKind::Assign { target, .. }
+            if assign_target_root_name(arena, target) == Some(name) =>
+        {
             !stmt_is_push_assignment(arena, stmt, name)
         }
         ArenaStmtKind::If {
@@ -10797,12 +10868,15 @@ fn stmt_assigns_non_push_to(
     }
 }
 
+/// The binding an assignment writes through; an environment variable target
+/// has none.
 fn assign_target_root_name(
     arena: &AstArena,
     target: AssignTargetId,
-) -> xsh::frontend::symbols::Name {
+) -> Option<xsh::frontend::symbols::Name> {
     match arena.assign_target(target).kind.clone() {
-        ArenaAssignTargetKind::Name(name) => name,
+        ArenaAssignTargetKind::Name(name) => Some(name),
+        ArenaAssignTargetKind::Env(_) => None,
         ArenaAssignTargetKind::Field { base, .. } | ArenaAssignTargetKind::Index { base, .. } => {
             assign_target_root_name(arena, base)
         }
@@ -11083,7 +11157,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList => false,
     }
 }
@@ -11430,7 +11504,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList
         | ArenaExprKind::Run(_) => false,
     }
@@ -11626,6 +11700,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_list_splicing(expr);
             self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);
+            self.linter.lint_env_string(expr);
             self.linter.lint_comparison_chain(expr);
             self.linter.lint_lookup_sentinel(expr);
 
@@ -11894,7 +11969,7 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
-            | ArenaExprKind::EnvGet { .. }
+            | ArenaExprKind::EnvString(_)
             | ArenaExprKind::EnvPathList
             | ArenaExprKind::Item
             | ArenaExprKind::LastStatus => {}
@@ -12497,7 +12572,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::NullSafeField { .. }
         | ArenaExprKind::Index { .. }
         | ArenaExprKind::Slice { .. }
-        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList
         | ArenaExprKind::Pipeline { .. }
         | ArenaExprKind::StructuredPipeline { .. }
@@ -12587,7 +12662,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         }
         ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvString(_)
         | ArenaExprKind::Pipeline { .. }
         | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_)
@@ -13369,7 +13444,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Item
             | ArenaExprKind::LastStatus
-            | ArenaExprKind::EnvGet { .. }
+            | ArenaExprKind::EnvString(_)
             | ArenaExprKind::EnvPathList => {}
         }
     }
@@ -13504,7 +13579,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
 
     fn scan_assign_target(&mut self, target: AssignTargetId) {
         match self.arena().assign_target(target).kind {
-            ArenaAssignTargetKind::Name(_) => {}
+            ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {}
             ArenaAssignTargetKind::Field { base, .. } => self.scan_assign_target(base),
             ArenaAssignTargetKind::Index { base, index } => {
                 self.scan_assign_target(base);
@@ -14192,7 +14267,7 @@ fn expr_flow(
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList => FlowSummary::fallthrough(),
     }
 }
@@ -14307,7 +14382,9 @@ fn assign_target_flow(
     terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match arena.assign_target(target).kind {
-        ArenaAssignTargetKind::Name(_) => FlowSummary::fallthrough(),
+        ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {
+            FlowSummary::fallthrough()
+        }
         ArenaAssignTargetKind::Field { base, .. } => {
             assign_target_flow(arena, base, terminating_call_spans)
         }

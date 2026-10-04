@@ -79,6 +79,7 @@ Quoted literal prefixes:
 | `b"` | `BYTES` | no |
 | `p"` | `PATH` | no |
 | `g"` | `GLOB` | no |
+| `e"` | `ENV_STRING` | yes |
 | `f"` | `FMT_STRING` | no |
 | `r"` | `STRING` | yes |
 | `"` | `STRING` | no |
@@ -196,7 +197,8 @@ signal_hook = "on" ( NAME | INT ) ( "-" ~"-" ( ~"pre-cancel" ) ~"=" ~DURATION )*
 ## Statements
 
 ```ebnf
-assignment = IDENT ( "." MEMBER | "[" expression "]" )* ( "=" | ( "+" | "-" | "*" | "/" | "%" ) ~"=" ) expression_or_run ;
+assignment = IDENT ( "." MEMBER | "[" expression "]" )* ( "=" | ( "+" | "-" | "*" | "/" | "%" ) ~"=" ) expression_or_run
+           | ENV_STRING "=" expression_or_run ;
 postfix_guard = ( "when" | "unless" ) expression ;
 guarded_value = expression_item postfix_guard? | run_form ( "?" postfix_guard? )? ;
 return_statement = "return" ( postfix_guard | guarded_value )? ;
@@ -294,7 +296,8 @@ literal = "null"
         | BYTES
         | PATH
         | PATH_FMT
-        | GLOB ;
+        | GLOB
+        | ENV_STRING ;
 list_literal = "[" list(( "@" NEWLINE* )? expression_item) "]" | "[" NEWLINE* expression NEWLINE* comprehension "]" ;
 comprehension = "for" binding_target "in" expression ( NEWLINE* ( "for" binding_target "in" expression | "if" expression ) )* NEWLINE* ;
 record_literal = "{" list(record_field) "}" ;
@@ -434,7 +437,7 @@ env_assignment = IDENT "=" command_argument ;
 command_argument = call_argument_chain
                  | "@" ( ~IDENT | ~GLOB | ~"(" expression ")" )
                  | "(" expression ")"
-                 | ( PATH | GLOB | PATH_FMT | FMT_STRING ) glued_postfix*
+                 | ( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) glued_postfix*
                  | word ;
 call_argument_chain = ( IDENT | STRING ) ( ~"?"? ~"." ~LABEL )* ( ~"(" call_arguments ")" | ~"?"? ~"[" index "]" ) glued_postfix* ;
 glued_postfix = ~"." member_access
@@ -443,7 +446,7 @@ glued_postfix = ~"." member_access
               | ~"?" ~"[" index "]"
               | ~"(" call_arguments ")"
               | ~"?" ;
-word = ( !( PATH | GLOB | PATH_FMT | FMT_STRING ) WORD_PART | STRING | dollar_name | "${" expression "}" ) ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )* ;
+word = ( !( PATH | GLOB | ENV_STRING | PATH_FMT | FMT_STRING ) WORD_PART | STRING | dollar_name | "${" expression "}" ) ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )* ;
 dollar_name = DOLLAR_NAME dollar_suffix* ;
 dollar_suffix = ~"." ~LABEL | ~"(" call_arguments ")" ;
 run_form = run_segment ( "|" run_segment )* ;

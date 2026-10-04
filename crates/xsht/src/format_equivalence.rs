@@ -496,6 +496,10 @@ impl CanonicalWriter<'_> {
     fn assign_target(&mut self, id: AssignTargetId) {
         match &self.arena.assign_target(id).kind {
             ArenaAssignTargetKind::Name(name) => self.debug(name),
+            ArenaAssignTargetKind::Env(name) => {
+                self.put("env:");
+                self.debug(name);
+            }
             ArenaAssignTargetKind::Field { base, name } => {
                 self.put("field;");
                 self.assign_target(*base);
@@ -804,7 +808,10 @@ impl CanonicalWriter<'_> {
                 self.opt_expr(*start);
                 self.opt_expr(*end);
             }
-            ArenaExprKind::EnvGet { kind, name } => self.debug(&(kind, name)),
+            ArenaExprKind::EnvString(name) => {
+                self.put("env-string:");
+                self.debug(name);
+            }
             ArenaExprKind::EnvPathList => self.put("env-path;"),
             ArenaExprKind::Pipeline { input, stages } => {
                 self.put("pipeline;");

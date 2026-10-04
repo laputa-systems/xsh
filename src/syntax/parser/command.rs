@@ -772,6 +772,7 @@ impl<'a> Parser<'a> {
             self.current_tag(),
             TokenTag::PathString
                 | TokenTag::GlobString
+                | TokenTag::EnvString
                 | TokenTag::PathFmtString
                 | TokenTag::FmtString
         ) {

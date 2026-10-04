@@ -123,6 +123,8 @@ pub enum RuntimeOp {
     NetCloseAllPools,
     EnvGet,
     EnvGetOr,
+    /// `e"NAME" = value`; a statement form, not a callable API.
+    EnvSet,
     EnvBool,
     EnvPath,
     EnvInt,

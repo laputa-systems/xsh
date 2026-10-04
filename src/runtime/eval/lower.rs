@@ -15,7 +15,7 @@ use crate::syntax::arena::{
     BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
 };
 use crate::syntax::node::{
-    AssignOp, BinaryOp, CommandWordRefSegment, CoreCommand, EnvGetKind, RunKind, StreamStageKind,
+    AssignOp, BinaryOp, CommandWordRefSegment, CoreCommand, RunKind, StreamStageKind,
     UnaryOp, parse_command_word_reference,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -405,6 +405,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::DnsNameservers
             | RuntimeOp::EnvGet
             | RuntimeOp::EnvGetOr
+            | RuntimeOp::EnvSet
             | RuntimeOp::EnvBool
             | RuntimeOp::EnvInt
             | RuntimeOp::EnvPath
@@ -2355,7 +2356,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::NullSafeField { .. } => 24,
         ArenaExprKind::Index { .. } => 25,
         ArenaExprKind::Slice { .. } => 26,
-        ArenaExprKind::EnvGet { .. } => 27,
+        ArenaExprKind::EnvString(_) => 27,
         ArenaExprKind::EnvPathList => 28,
         ArenaExprKind::Pipeline { .. } => 29,
         ArenaExprKind::StructuredPipeline { .. } => 30,
@@ -2408,7 +2409,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::NullSafeField { .. } => "null_safe_field",
         ArenaExprKind::Index { .. } => "index",
         ArenaExprKind::Slice { .. } => "slice",
-        ArenaExprKind::EnvGet { .. } => "env_get",
+        ArenaExprKind::EnvString(_) => "env_string",
         ArenaExprKind::EnvPathList => "env_path_list",
         ArenaExprKind::Pipeline { .. } => "pipeline",
         ArenaExprKind::StructuredPipeline { .. } => "structured_pipeline",
@@ -4033,8 +4034,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let ArenaAssignTargetKind::Name(target) =
                     self.program.arena.assign_target(target).kind
                 else {
-                    let root = self.assign_target_root_name(target)?;
-                    if !known.get(&root).is_some_and(|binding| binding.mutable) {
+                    // An environment assignment writes no binding.
+                    if let Some(root) = self.assign_target_root_name(target)
+                        && !known.get(&root).is_some_and(|binding| binding.mutable)
+                    {
                         return None;
                     }
                     let mut slots = top_level_slots(known);
@@ -5235,6 +5238,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     stmt,
                     BuildStmtRow::Let { slot, value }
                 ))
+            }
+            ArenaStmtKind::Assign { target, value, .. }
+                if let ArenaAssignTargetKind::Env(name) =
+                    self.program.arena.assign_target(target).kind =>
+            {
+                self.lower_env_assignment(id, name, value, slots, current_function, item_slot)
             }
             ArenaStmtKind::Assign { target, op, value } => {
                 let root_name = self.assign_target_root_name(target)?;
@@ -7980,18 +7989,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 ))
             }
-            ArenaExprKind::EnvGet { kind, name } => {
-                let op = match kind {
-                    EnvGetKind::Path => RuntimeOp::EnvPath,
-                    _ => RuntimeOp::EnvGet,
-                };
+            // `e"NAME"` is exactly `env.get("NAME")`.
+            ArenaExprKind::EnvString(name) => {
                 let name = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
                 Some(push_build_row!(
                     self,
                     expr,
                     BuildExprRow::ModuleCall {
                         cli_plan: None,
-                        op,
+                        op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
                     }
@@ -13809,6 +13815,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     _ => None,
                 }
             }
+            ArenaAssignTargetKind::Env(_) => None,
         }
     }
 
@@ -13821,6 +13828,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<Vec<LoweredAssignStep>> {
         match self.program.arena.assign_target(target).kind {
             ArenaAssignTargetKind::Name(_) => Some(Vec::new()),
+            ArenaAssignTargetKind::Env(_) => None,
             ArenaAssignTargetKind::Field { base, name } => {
                 let mut path = self.lower_assign_path(base, slots, current_function, item_slot)?;
                 path.push(LoweredAssignStep::Field(name));
@@ -13841,9 +13849,47 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    /// `e"NAME" = value` runs as an `EnvSet` call in statement position.
+    fn lower_env_assignment(
+        &mut self,
+        id: StmtId,
+        name: Name,
+        value: ArenaExprOrRun,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildStmtId> {
+        let span = self.program.arena.stmt(id).span;
+        let value = match value {
+            ArenaExprOrRun::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot)?,
+            ArenaExprOrRun::Run(run) => {
+                self.lower_run_binding_value(run, slots, current_function, item_slot)?
+            }
+        };
+        let name = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
+        let call = push_build_row!(
+            self,
+            expr,
+            BuildExprRow::ModuleCall {
+                cli_plan: None,
+                op: RuntimeOp::EnvSet,
+                args: vec![Some(name), Some(value)],
+                span,
+            }
+        );
+        Some(push_build_row!(
+            self,
+            stmt,
+            BuildStmtRow::Expr { value: call, span }
+        ))
+    }
+
+    /// The binding an assignment writes through; an environment variable
+    /// target has none.
     fn assign_target_root_name(&self, id: crate::syntax::arena::AssignTargetId) -> Option<Name> {
         match self.program.arena.assign_target(id).kind {
             ArenaAssignTargetKind::Name(name) => Some(name),
+            ArenaAssignTargetKind::Env(_) => None,
             ArenaAssignTargetKind::Field { base, .. }
             | ArenaAssignTargetKind::Index { base, .. } => self.assign_target_root_name(base),
         }
