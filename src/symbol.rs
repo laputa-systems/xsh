@@ -899,7 +899,10 @@ mod tests {
             Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
                 assert_record_type_fields_preloaded(inner)
             }
-            Type::Map(key, value) => { assert_record_type_fields_preloaded(key); assert_record_type_fields_preloaded(value); }
+            Type::Map(key, value) => {
+                assert_record_type_fields_preloaded(key);
+                assert_record_type_fields_preloaded(value);
+            }
             Type::Result(ok, err) => {
                 assert_record_type_fields_preloaded(ok);
                 assert_record_type_fields_preloaded(err);

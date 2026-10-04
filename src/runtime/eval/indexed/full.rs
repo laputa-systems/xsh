@@ -8,15 +8,17 @@ use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
-    BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredCallArg,
-    LoweredAssignPath, LoweredAssignStep, LoweredCompQualifier, LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
+    LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
+    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
-    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind, LoweredRunArg,
-    LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
+    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
+    LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
-    LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
+    LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck,
+    ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
 use crate::sema::check::CompactDeclOutput;
@@ -681,11 +683,18 @@ impl FullStore {
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
             + self.prepared_constants.capacity() * size_of::<PreparedConstantValue>()
-            + self.prepared_schemas.capacity() * size_of::<Arc<super::super::require::PreparedSchema>>()
-            + self.wire_enums.capacity() * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
-            + self.prepared_cli_plans.capacity() * size_of::<Arc<crate::modules::cli::CliDescriptorPlan>>()
+            + self.prepared_schemas.capacity()
+                * size_of::<Arc<super::super::require::PreparedSchema>>()
+            + self.wire_enums.capacity()
+                * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
+            + self.prepared_cli_plans.capacity()
+                * size_of::<Arc<crate::modules::cli::CliDescriptorPlan>>()
             + self.prepared_regexes.capacity() * size_of::<RegexValue>()
-            + self.prepared_regexes.iter().map(|value| value.pattern.capacity()).sum::<usize>()
+            + self
+                .prepared_regexes
+                .iter()
+                .map(|value| value.pattern.capacity())
+                .sum::<usize>()
             + self.locations.capacity() * size_of::<IrLocation>()
             + self.location_sources.capacity() * size_of::<SourceId>()
             + self.runtime_ops.capacity() * size_of::<RuntimeOp>()
@@ -1355,9 +1364,13 @@ impl<'a> FullFunctionView<'a> {
                 .semantic
                 .signature_return_type(function.signature)?,
         )?;
-        let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck {
-            name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None,
-        });
+        let return_check = return_type
+            .has_unsigned_constraint()
+            .then(|| LoweredTypeCheck {
+                name: Arc::from(return_type.to_string()),
+                ty: return_type.clone(),
+                schema: None,
+            });
         let return_kind = match return_type {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
@@ -1864,7 +1877,10 @@ impl FullBuilder {
                     .unwrap_or(IR_NONE);
                 let flags = u8::from(body.param_rest[index])
                     | u8::from(body.param_defaults[index].is_some()) << 1
-                    | u8::from(matches!(body.param_defaults[index], Some(LoweredValue::OmittedArgument))) << 2;
+                    | u8::from(matches!(
+                        body.param_defaults[index],
+                        Some(LoweredValue::OmittedArgument)
+                    )) << 2;
                 let name_id = self.intern_string(&name.as_str())?.raw();
                 let param = u32::try_from(self.store.params.len())
                     .map_err(|_| IrBuildError::format("parameter_overflow", None, 0, 0))?;
@@ -1895,8 +1911,11 @@ impl FullBuilder {
                 });
             }
             let return_type = if let Some(check) = &body.return_check {
-                self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
-            } else { self.intern_return_type(body.return_kind)? };
+                self.semantic
+                    .intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
+            } else {
+                self.intern_return_type(body.return_kind)?
+            };
             let signature = self.semantic.intern_signature_parts(
                 &mut self.store.semantic,
                 &signature_params,
@@ -2674,11 +2693,19 @@ impl FullBuilder {
         self.store.string_bytes.truncate(checkpoint.string_bytes);
         self.store.bytes.truncate(checkpoint.bytes);
         self.store.byte_data.truncate(checkpoint.byte_data);
-        self.store.prepared_regexes.truncate(checkpoint.prepared_regexes);
-        self.store.prepared_constants.truncate(checkpoint.prepared_constants);
+        self.store
+            .prepared_regexes
+            .truncate(checkpoint.prepared_regexes);
+        self.store
+            .prepared_constants
+            .truncate(checkpoint.prepared_constants);
         self.store.wire_enums.truncate(checkpoint.wire_enums);
-        self.store.prepared_schemas.truncate(checkpoint.prepared_schemas);
-        self.store.prepared_cli_plans.truncate(checkpoint.prepared_cli_plans);
+        self.store
+            .prepared_schemas
+            .truncate(checkpoint.prepared_schemas);
+        self.store
+            .prepared_cli_plans
+            .truncate(checkpoint.prepared_cli_plans);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -2835,7 +2862,10 @@ fn executable_type(ty: &Type) -> Type {
     match ty {
         Type::Unknown | Type::Invalid => Type::Any,
         Type::List(inner) => Type::List(Box::new(executable_type(inner))),
-        Type::Map(key, inner) => Type::Map(Box::new(executable_type(key)), Box::new(executable_type(inner))),
+        Type::Map(key, inner) => Type::Map(
+            Box::new(executable_type(key)),
+            Box::new(executable_type(inner)),
+        ),
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
         Type::Result(ok, error) => Type::Result(
@@ -2868,7 +2898,8 @@ fn executable_type(ty: &Type) -> Type {
                     };
                     (*name, export)
                 })
-                .collect::<BTreeMap<_, _>>().into(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
         ),
         ty => ty.clone(),
     }
@@ -2922,7 +2953,11 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) => LoweredType::Any,
-        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
+        Type::BuiltinParameter(_)
+        | Type::Inference(_)
+        | Type::Invalid
+        | Type::EnvPathList
+        | Type::ProcessError => {
             return Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ));
@@ -3374,9 +3409,17 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    fn pattern_list_cursor(&self, input: &mut FullCursor<'_>) -> Result<FullCursor<'a>, IrVerifyError> {
-        let block = IrBlockId::from_raw(input.raw()?).ok_or_else(|| IrVerifyError::new("pattern child list id is invalid"))?;
-        let block = self.store.blocks.get(block.index()).ok_or_else(|| IrVerifyError::new("pattern child list id is out of bounds"))?;
+    fn pattern_list_cursor(
+        &self,
+        input: &mut FullCursor<'_>,
+    ) -> Result<FullCursor<'a>, IrVerifyError> {
+        let block = IrBlockId::from_raw(input.raw()?)
+            .ok_or_else(|| IrVerifyError::new("pattern child list id is invalid"))?;
+        let block = self
+            .store
+            .blocks
+            .get(block.index())
+            .ok_or_else(|| IrVerifyError::new("pattern child list id is out of bounds"))?;
         // Inspection follows structural verification and must not claim block
         // ownership a second time while reading the same capture contract.
         Ok(FullCursor::new(self.store.payload(block.instructions)?))
@@ -3386,24 +3429,51 @@ impl<'a> FullDecoder<'a> {
         let mut slots = BTreeSet::new();
         let mut pending = vec![pattern];
         while let Some(pattern) = pending.pop() {
-            let tag = *self.store.patterns.get(pattern).ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-            let mut payload = FullCursor::new(self.store.payload(self.store.pattern_data[pattern].range())?);
+            let tag = *self
+                .store
+                .patterns
+                .get(pattern)
+                .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+            let mut payload = FullCursor::new(
+                self.store
+                    .payload(self.store.pattern_data[pattern].range())?,
+            );
             let mut captures = Vec::new();
             match tag {
                 FullPatternTag::Bind => captures.push(usize::decode(self, &mut payload)?),
-                FullPatternTag::Alias => { pending.push(payload.raw()? as usize); captures.push(usize::decode(self, &mut payload)?); }
-                FullPatternTag::Type => { Type::decode(self, &mut payload)?; captures.extend(Option::<usize>::decode(self, &mut payload)?); }
-                FullPatternTag::ResultOk | FullPatternTag::ResultErr => captures.extend(Option::<usize>::decode(self, &mut payload)?),
-                FullPatternTag::ResultTest => { bool::decode(self, &mut payload)?; pending.push(payload.raw()? as usize); }
+                FullPatternTag::Alias => {
+                    pending.push(payload.raw()? as usize);
+                    captures.push(usize::decode(self, &mut payload)?);
+                }
+                FullPatternTag::Type => {
+                    Type::decode(self, &mut payload)?;
+                    captures.extend(Option::<usize>::decode(self, &mut payload)?);
+                }
+                FullPatternTag::ResultOk | FullPatternTag::ResultErr => {
+                    captures.extend(Option::<usize>::decode(self, &mut payload)?)
+                }
+                FullPatternTag::ResultTest => {
+                    bool::decode(self, &mut payload)?;
+                    pending.push(payload.raw()? as usize);
+                }
                 FullPatternTag::Tag => {
                     // Enum payloads retain both the declaring type and variant names.
                     Name::decode(self, &mut payload)?;
                     Name::decode(self, &mut payload)?;
-                    captures.extend(BuildPatternIdSlots::decode(self, &mut payload)?.into_iter().flatten());
+                    captures.extend(
+                        BuildPatternIdSlots::decode(self, &mut payload)?
+                            .into_iter()
+                            .flatten(),
+                    );
                 }
                 FullPatternTag::ErrorVariant => {
-                    Name::decode(self, &mut payload)?; Name::decode(self, &mut payload)?;
-                    captures.extend(Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?.iter().filter_map(|(_, slot)| *slot));
+                    Name::decode(self, &mut payload)?;
+                    Name::decode(self, &mut payload)?;
+                    captures.extend(
+                        Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?
+                            .iter()
+                            .filter_map(|(_, slot)| *slot),
+                    );
                 }
                 FullPatternTag::List | FullPatternTag::TagTest | FullPatternTag::Alternation => {
                     if tag == FullPatternTag::TagTest {
@@ -3414,20 +3484,34 @@ impl<'a> FullDecoder<'a> {
                     let count = children.raw()? as usize;
                     for index in 0..count {
                         let child = children.raw()? as usize;
-                        if tag != FullPatternTag::Alternation || index == 0 { pending.push(child); }
+                        if tag != FullPatternTag::Alternation || index == 0 {
+                            pending.push(child);
+                        }
                     }
-                    if tag == FullPatternTag::List && bool::decode(self, &mut payload)? { pending.push(payload.raw()? as usize); }
+                    if tag == FullPatternTag::List && bool::decode(self, &mut payload)? {
+                        pending.push(payload.raw()? as usize);
+                    }
                 }
                 FullPatternTag::RecordTest | FullPatternTag::ErrorTest => {
-                    if tag == FullPatternTag::ErrorTest { Name::decode(self, &mut payload)?; Name::decode(self, &mut payload)?; }
+                    if tag == FullPatternTag::ErrorTest {
+                        Name::decode(self, &mut payload)?;
+                        Name::decode(self, &mut payload)?;
+                    }
                     let mut children = self.pattern_list_cursor(&mut payload)?;
                     let count = children.raw()? as usize;
-                    for _ in 0..count { Name::decode(self, &mut children)?; pending.push(children.raw()? as usize); }
+                    for _ in 0..count {
+                        Name::decode(self, &mut children)?;
+                        pending.push(children.raw()? as usize);
+                    }
                 }
                 _ => {}
             }
             for slot in captures {
-                if !slots.insert(slot) { return Err(IrVerifyError::new("pattern writes the same capture slot twice")); }
+                if !slots.insert(slot) {
+                    return Err(IrVerifyError::new(
+                        "pattern writes the same capture slot twice",
+                    ));
+                }
             }
         }
         Ok(slots)
@@ -3556,26 +3640,53 @@ impl<'a> FullDecoder<'a> {
     }
 
     #[inline(always)]
-    fn verify_comparison_chain_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
-        let id = IrBlockId::from_raw(payload.raw()?).ok_or_else(|| IrVerifyError::new("comparison chain block id is invalid"))?;
-        let block = self.store.blocks.get(id.index()).ok_or_else(|| IrVerifyError::new("comparison chain block is missing"))?;
+    fn verify_comparison_chain_shape(
+        &self,
+        mut payload: FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        let id = IrBlockId::from_raw(payload.raw()?)
+            .ok_or_else(|| IrVerifyError::new("comparison chain block id is invalid"))?;
+        let block = self
+            .store
+            .blocks
+            .get(id.index())
+            .ok_or_else(|| IrVerifyError::new("comparison chain block is missing"))?;
         let mut pairs = self.cursor(self.store.payload(block.instructions)?);
         let len = pairs.raw()? as usize;
-        if len < 2 { return Err(IrVerifyError::new("comparison chain requires at least two pairs")); }
+        if len < 2 {
+            return Err(IrVerifyError::new(
+                "comparison chain requires at least two pairs",
+            ));
+        }
         for _ in 0..len {
             let pair = pairs.raw()? as usize;
-            if self.store.tags.get(pair) != Some(&FullTag::ExprBinary) { return Err(IrVerifyError::new("comparison chain requires binary pairs")); }
+            if self.store.tags.get(pair) != Some(&FullTag::ExprBinary) {
+                return Err(IrVerifyError::new("comparison chain requires binary pairs"));
+            }
             let mut pair_payload = self.cursor(self.store.payload(self.store.data[pair].range())?);
             let op = BinaryOp::decode(self, &mut pair_payload)?;
-            if !matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) { return Err(IrVerifyError::new("comparison chain requires ordering operators")); }
+            if !matches!(
+                op,
+                BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+            ) {
+                return Err(IrVerifyError::new(
+                    "comparison chain requires ordering operators",
+                ));
+            }
         }
         pairs.finish()
     }
 
     fn verify_retry_selection(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
         payload.raw()?;
-        if bool::decode(self, &mut payload)? && !self.pattern_capture_slots(payload.raw()? as usize)?.is_empty() {
-            return Err(IrVerifyError::new("retry selection pattern cannot bind slots"));
+        if bool::decode(self, &mut payload)?
+            && !self
+                .pattern_capture_slots(payload.raw()? as usize)?
+                .is_empty()
+        {
+            return Err(IrVerifyError::new(
+                "retry selection pattern cannot bind slots",
+            ));
         }
         Ok(())
     }
@@ -3689,8 +3800,11 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 };
                 all_return &= indexed_block_can_return(store, block(body)?)?;
                 branch_words = if tag == FullTag::StmtPatternIf {
-                    rest.get(1..).ok_or_else(|| IrVerifyError::new("return-analysis captures are missing"))?
-                } else { rest };
+                    rest.get(1..)
+                        .ok_or_else(|| IrVerifyError::new("return-analysis captures are missing"))?
+                } else {
+                    rest
+                };
             }
             if !branch_words.is_empty() {
                 return Err(IrVerifyError::new(
@@ -3698,8 +3812,12 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 ));
             }
             let else_payload = if tag == FullTag::StmtPatternIf {
-                payload.get(1..payload.len().saturating_sub(1)).unwrap_or_default()
-            } else { payload.get(1..).unwrap_or_default() };
+                payload
+                    .get(1..payload.len().saturating_sub(1))
+                    .unwrap_or_default()
+            } else {
+                payload.get(1..).unwrap_or_default()
+            };
             let else_returns = match else_payload {
                 [1, body] => indexed_block_can_return(store, block(*body)?)?,
                 [0] => false,
@@ -3712,10 +3830,23 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
             all_return && else_returns
         }
         FullTag::StmtWith => {
-            let body = *payload.get(1).ok_or_else(|| IrVerifyError::new("return-analysis with body is missing"))?;
-            let else_index = match payload.get(2) { Some(0) => 3, Some(1) => 4, _ => return Err(IrVerifyError::new("return-analysis with parameter is invalid")) };
-            let else_body = *payload.get(else_index).ok_or_else(|| IrVerifyError::new("return-analysis with handler is missing"))?;
-            indexed_block_can_return(store, block(body)?)? && indexed_block_can_return(store, block(else_body)?)?
+            let body = *payload
+                .get(1)
+                .ok_or_else(|| IrVerifyError::new("return-analysis with body is missing"))?;
+            let else_index = match payload.get(2) {
+                Some(0) => 3,
+                Some(1) => 4,
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "return-analysis with parameter is invalid",
+                    ));
+                }
+            };
+            let else_body = *payload
+                .get(else_index)
+                .ok_or_else(|| IrVerifyError::new("return-analysis with handler is missing"))?;
+            indexed_block_can_return(store, block(body)?)?
+                && indexed_block_can_return(store, block(else_body)?)?
         }
         FullTag::StmtMatch => {
             let arms =
@@ -3861,11 +3992,22 @@ impl FullVerifier {
         let store = &program.store;
         let mut wire_types = rustc_hash::FxHashSet::default();
         for mapping in &store.wire_enums {
-            if mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len() {
-                return Err(IrVerifyError::new("wire enum mapping is empty or has duplicate strings"));
+            if mapping.variants.is_empty()
+                || mapping
+                    .variants
+                    .values()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != mapping.variants.len()
+            {
+                return Err(IrVerifyError::new(
+                    "wire enum mapping is empty or has duplicate strings",
+                ));
             }
             if !wire_types.insert(mapping.type_name) {
-                return Err(IrVerifyError::new("wire enum declaring identity has multiple mappings"));
+                return Err(IrVerifyError::new(
+                    "wire enum declaring identity has multiple mappings",
+                ));
             }
         }
         if store.tags.len() != store.data.len()
@@ -4050,28 +4192,56 @@ impl FullVerifier {
             let mut previous_default = None;
             for &instruction in body_payload.iter().skip(1) {
                 let tag = store.tags[instruction as usize];
-                if tag != FullTag::StmtDefaultParameter { entry_open = false; continue; }
-                if !entry_open { return Err(IrVerifyError::new("parameter defaults must precede the callable body")); }
+                if tag != FullTag::StmtDefaultParameter {
+                    entry_open = false;
+                    continue;
+                }
+                if !entry_open {
+                    return Err(IrVerifyError::new(
+                        "parameter defaults must precede the callable body",
+                    ));
+                }
                 let words = store.payload(store.data[instruction as usize].range())?;
                 let slot = words[0] as usize;
-                if slot >= params.len() || store.params[params.start + slot].flags & 4 == 0
-                    || previous_default.is_some_and(|previous| slot <= previous) {
-                    return Err(IrVerifyError::new("parameter default entry does not match its parameter"));
+                if slot >= params.len()
+                    || store.params[params.start + slot].flags & 4 == 0
+                    || previous_default.is_some_and(|previous| slot <= previous)
+                {
+                    return Err(IrVerifyError::new(
+                        "parameter default entry does not match its parameter",
+                    ));
                 }
                 previous_default = Some(slot);
                 default_slots.insert(slot);
             }
-            let entry_count = store.tags[decoder.instruction_range.clone()].iter()
-                .filter(|tag| **tag == FullTag::StmtDefaultParameter).count();
-            if entry_count != default_slots.len() { return Err(IrVerifyError::new("parameter default entry must belong to its callable prefix")); }
+            let entry_count = store.tags[decoder.instruction_range.clone()]
+                .iter()
+                .filter(|tag| **tag == FullTag::StmtDefaultParameter)
+                .count();
+            if entry_count != default_slots.len() {
+                return Err(IrVerifyError::new(
+                    "parameter default entry must belong to its callable prefix",
+                ));
+            }
             for (slot, param) in store.params[params.clone()].iter().enumerate() {
                 if param.flags & 4 != 0 {
-                    if param.flags & 2 == 0 || param.flags & 1 != 0 || !default_slots.contains(&slot) {
-                        return Err(IrVerifyError::new("expression default metadata requires a non-rest defaulted parameter entry"));
+                    if param.flags & 2 == 0
+                        || param.flags & 1 != 0
+                        || !default_slots.contains(&slot)
+                    {
+                        return Err(IrVerifyError::new(
+                            "expression default metadata requires a non-rest defaulted parameter entry",
+                        ));
                     }
-                    if store.param_cold.binary_search_by_key(&((params.start + slot) as u32), |cold| cold.param).ok()
-                        .is_some_and(|index| store.param_cold[index].default != IR_NONE) {
-                        return Err(IrVerifyError::new("expression defaults cannot also carry a prepared literal"));
+                    if store
+                        .param_cold
+                        .binary_search_by_key(&((params.start + slot) as u32), |cold| cold.param)
+                        .ok()
+                        .is_some_and(|index| store.param_cold[index].default != IR_NONE)
+                    {
+                        return Err(IrVerifyError::new(
+                            "expression defaults cannot also carry a prepared literal",
+                        ));
                     }
                 }
             }
@@ -4324,13 +4494,18 @@ macro_rules! impl_word_codec {
 }
 
 impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
-impl_word_codec!(crate::syntax::arena::ContextScopeKind,
-    |value: &crate::syntax::arena::ContextScopeKind| Ok(match value { crate::syntax::arena::ContextScopeKind::Cwd => 0, crate::syntax::arena::ContextScopeKind::Env => 1 }),
+impl_word_codec!(
+    crate::syntax::arena::ContextScopeKind,
+    |value: &crate::syntax::arena::ContextScopeKind| Ok(match value {
+        crate::syntax::arena::ContextScopeKind::Cwd => 0,
+        crate::syntax::arena::ContextScopeKind::Env => 1,
+    }),
     |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| match raw {
         0 => Ok(crate::syntax::arena::ContextScopeKind::Cwd),
         1 => Ok(crate::syntax::arena::ContextScopeKind::Env),
         _ => Err(IrVerifyError::new("context scope kind is invalid")),
-    }));
+    })
+);
 impl FullCodec for usize {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         if builder.current_owner.is_none() {
@@ -4865,18 +5040,34 @@ impl FullCodec for PreparedConstantValue {
         output.push(index);
         Ok(())
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
-        decoder.store.prepared_constants.get(input.raw()? as usize).cloned()
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        decoder
+            .store
+            .prepared_constants
+            .get(input.raw()? as usize)
+            .cloned()
             .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))
     }
     fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
-        let value = decoder.store.prepared_constants.get(input.raw()? as usize)
+        let value = decoder
+            .store
+            .prepared_constants
+            .get(input.raw()? as usize)
             .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))?;
         if !prepared_constant_is_data(&value.0, 0) {
-            return Err(IrVerifyError::new("prepared constant contains a runtime value"));
+            return Err(IrVerifyError::new(
+                "prepared constant contains a runtime value",
+            ));
         }
-        if !visit_value_wire_mappings(&value.0, &mut |mapping| wire_mapping_matches_pool(mapping, decoder.store)) {
-            return Err(IrVerifyError::new("prepared constant has a contradictory wire mapping"));
+        if !visit_value_wire_mappings(&value.0, &mut |mapping| {
+            wire_mapping_matches_pool(mapping, decoder.store)
+        }) {
+            return Err(IrVerifyError::new(
+                "prepared constant has a contradictory wire mapping",
+            ));
         }
         Ok(())
     }
@@ -4884,80 +5075,185 @@ impl FullCodec for PreparedConstantValue {
 
 // Constructors, constants, and schema conversions share one declaring mapping.
 // Verification rejects independently altered copies before they can disagree at a boundary.
-fn register_wire_mapping(builder: &mut FullBuilder, mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>) {
-    if !builder.store.wire_enums.iter().any(|stored| Arc::ptr_eq(stored, mapping)) {
+fn register_wire_mapping(
+    builder: &mut FullBuilder,
+    mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>,
+) {
+    if !builder
+        .store
+        .wire_enums
+        .iter()
+        .any(|stored| Arc::ptr_eq(stored, mapping))
+    {
         builder.store.wire_enums.push(mapping.clone());
     }
 }
 
-fn wire_mapping_matches_pool(mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>, store: &FullStore) -> bool {
-    store.wire_enums.iter().find(|stored| stored.type_name == mapping.type_name)
+fn wire_mapping_matches_pool(
+    mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>,
+    store: &FullStore,
+) -> bool {
+    store
+        .wire_enums
+        .iter()
+        .find(|stored| stored.type_name == mapping.type_name)
         .is_some_and(|stored| stored.as_ref() == mapping.as_ref())
 }
 
-fn visit_value_wire_mappings(value: &LoweredValue, visit: &mut impl FnMut(&Arc<crate::sema::wire_enums::WireEnumMapping>) -> bool) -> bool {
+fn visit_value_wire_mappings(
+    value: &LoweredValue,
+    visit: &mut impl FnMut(&Arc<crate::sema::wire_enums::WireEnumMapping>) -> bool,
+) -> bool {
     match value {
-        LoweredValue::Tag(tag) => tag.wire.as_ref().is_none_or(&mut *visit)
-            && tag.fields.iter().all(|value| visit_value_wire_mappings(value, visit)),
-        LoweredValue::List(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
-        LoweredValue::SharedList(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
-        LoweredValue::Record(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
-        LoweredValue::Map(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Tag(tag) => {
+            tag.wire.as_ref().is_none_or(&mut *visit)
+                && tag
+                    .fields
+                    .iter()
+                    .all(|value| visit_value_wire_mappings(value, visit))
+        }
+        LoweredValue::List(values) => values
+            .iter()
+            .all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::SharedList(values) => values
+            .iter()
+            .all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Record(values) => values
+            .values()
+            .all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Map(values) => values
+            .values()
+            .all(|value| visit_value_wire_mappings(value, visit)),
         _ => true,
     }
 }
 
 impl FullCodec for Arc<crate::modules::cli::CliDescriptorPlan> {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let index = if let Some(index) = builder.store.prepared_cli_plans.iter().position(|plan| Arc::ptr_eq(plan, self)) { index }
-            else { let index = builder.store.prepared_cli_plans.len(); builder.store.prepared_cli_plans.push(Arc::clone(self)); index };
-        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("CLI plan pool overflow", None, 0, 0))?);
+        let index = if let Some(index) = builder
+            .store
+            .prepared_cli_plans
+            .iter()
+            .position(|plan| Arc::ptr_eq(plan, self))
+        {
+            index
+        } else {
+            let index = builder.store.prepared_cli_plans.len();
+            builder.store.prepared_cli_plans.push(Arc::clone(self));
+            index
+        };
+        output.push(
+            u32::try_from(index)
+                .map_err(|_| IrBuildError::format("CLI plan pool overflow", None, 0, 0))?,
+        );
         Ok(())
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
-        decoder.store.prepared_cli_plans.get(input.raw()? as usize).cloned()
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        decoder
+            .store
+            .prepared_cli_plans
+            .get(input.raw()? as usize)
+            .cloned()
             .ok_or_else(|| IrVerifyError::new("prepared CLI descriptor plan is out of bounds"))
     }
 }
 
 fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
-    if depth > 128 { return false; }
+    if depth > 128 {
+        return false;
+    }
     match value {
-        LoweredValue::Null | LoweredValue::Bool(_) | LoweredValue::Int(_) | LoweredValue::Float(_)
-        | LoweredValue::Duration(_) | LoweredValue::Str(_) | LoweredValue::Bytes(_)
-        | LoweredValue::Path(_) | LoweredValue::Regex(_) => true,
-        LoweredValue::List(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
-        LoweredValue::SharedList(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
-        LoweredValue::Record(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
-        LoweredValue::Map(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
-        LoweredValue::Tag(value) => value.fields.iter().all(|value| prepared_constant_is_data(value, depth + 1))
-            && value.wire.as_ref().is_none_or(|mapping| value.fields.is_empty()
-                && mapping.type_name == value.type_name
-                && mapping.variants.contains_key(&Name::intern(value.name.as_ref()))
-                && !mapping.variants.is_empty()
-                && mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() == mapping.variants.len()),
+        LoweredValue::Null
+        | LoweredValue::Bool(_)
+        | LoweredValue::Int(_)
+        | LoweredValue::Float(_)
+        | LoweredValue::Duration(_)
+        | LoweredValue::Str(_)
+        | LoweredValue::Bytes(_)
+        | LoweredValue::Path(_)
+        | LoweredValue::Regex(_) => true,
+        LoweredValue::List(values) => values
+            .iter()
+            .all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::SharedList(values) => values
+            .iter()
+            .all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Record(values) => values
+            .values()
+            .all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Map(values) => values
+            .values()
+            .all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Tag(value) => {
+            value
+                .fields
+                .iter()
+                .all(|value| prepared_constant_is_data(value, depth + 1))
+                && value.wire.as_ref().is_none_or(|mapping| {
+                    value.fields.is_empty()
+                        && mapping.type_name == value.type_name
+                        && mapping
+                            .variants
+                            .contains_key(&Name::intern(value.name.as_ref()))
+                        && !mapping.variants.is_empty()
+                        && mapping
+                            .variants
+                            .values()
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .len()
+                            == mapping.variants.len()
+                })
+        }
         _ => false,
     }
 }
 
 impl FullCodec for Arc<crate::sema::wire_enums::WireEnumMapping> {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let index = if let Some(index) = builder.store.wire_enums.iter().position(|mapping| Arc::ptr_eq(mapping, self)) {
+        let index = if let Some(index) = builder
+            .store
+            .wire_enums
+            .iter()
+            .position(|mapping| Arc::ptr_eq(mapping, self))
+        {
             index
         } else {
             let index = builder.store.wire_enums.len();
             builder.store.wire_enums.push(self.clone());
             index
         };
-        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("wire enum pool overflow", None, 0, 0))?);
+        output.push(
+            u32::try_from(index)
+                .map_err(|_| IrBuildError::format("wire enum pool overflow", None, 0, 0))?,
+        );
         Ok(())
     }
 
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
-        let mapping = decoder.store.wire_enums.get(input.raw()? as usize).cloned()
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        let mapping = decoder
+            .store
+            .wire_enums
+            .get(input.raw()? as usize)
+            .cloned()
             .ok_or_else(|| IrVerifyError::new("wire enum mapping is out of bounds"))?;
-        if !decoder.verified && (mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len()) {
-            return Err(IrVerifyError::new("wire enum mapping is empty or has duplicate strings"));
+        if !decoder.verified
+            && (mapping.variants.is_empty()
+                || mapping
+                    .variants
+                    .values()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != mapping.variants.len())
+        {
+            return Err(IrVerifyError::new(
+                "wire enum mapping is empty or has duplicate strings",
+            ));
         }
         Ok(mapping)
     }
@@ -4972,8 +5268,15 @@ impl FullCodec for RegexValue {
         Ok(())
     }
 
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
-        decoder.store.prepared_regexes.get(input.raw()? as usize).cloned()
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        decoder
+            .store
+            .prepared_regexes
+            .get(input.raw()? as usize)
+            .cloned()
             .ok_or_else(|| IrVerifyError::new("prepared regex is out of bounds"))
     }
 }
@@ -5130,7 +5433,12 @@ impl FullCodec for LoweredType {
 
 impl FullCodec for Arc<super::super::require::PreparedSchema> {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let index = if let Some(index) = builder.store.prepared_schemas.iter().position(|schema| Arc::ptr_eq(schema, self)) {
+        let index = if let Some(index) = builder
+            .store
+            .prepared_schemas
+            .iter()
+            .position(|schema| Arc::ptr_eq(schema, self))
+        {
             index
         } else {
             let index = builder.store.prepared_schemas.len();
@@ -5141,15 +5449,32 @@ impl FullCodec for Arc<super::super::require::PreparedSchema> {
             builder.store.prepared_schemas.push(self.clone());
             index
         };
-        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("schema pool overflow", None, 0, 0))?);
+        output.push(
+            u32::try_from(index)
+                .map_err(|_| IrBuildError::format("schema pool overflow", None, 0, 0))?,
+        );
         Ok(())
     }
 
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
-        let schema = decoder.store.prepared_schemas.get(input.raw()? as usize).cloned()
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        let schema = decoder
+            .store
+            .prepared_schemas
+            .get(input.raw()? as usize)
+            .cloned()
             .ok_or_else(|| IrVerifyError::new("prepared schema is out of bounds"))?;
-        if !decoder.verified && (!schema.valid() || !schema.visit_wire_mappings(&mut |mapping| wire_mapping_matches_pool(mapping, decoder.store))) {
-            return Err(IrVerifyError::new("prepared schema has an invalid or contradictory wire mapping"));
+        if !decoder.verified
+            && (!schema.valid()
+                || !schema.visit_wire_mappings(&mut |mapping| {
+                    wire_mapping_matches_pool(mapping, decoder.store)
+                }))
+        {
+            return Err(IrVerifyError::new(
+                "prepared schema has an invalid or contradictory wire mapping",
+            ));
         }
         Ok(schema)
     }
@@ -5171,8 +5496,15 @@ impl FullCodec for LoweredTypeCheck {
             name: Arc::<str>::decode(decoder, input)?,
             schema: Option::decode(decoder, input)?,
         };
-        if !decoder.verified && check.schema.as_ref().is_some_and(|schema| !schema.matches_type(&check.ty)) {
-            return Err(IrVerifyError::new("prepared schema does not match its checked type"));
+        if !decoder.verified
+            && check
+                .schema
+                .as_ref()
+                .is_some_and(|schema| !schema.matches_type(&check.ty))
+        {
+            return Err(IrVerifyError::new(
+                "prepared schema does not match its checked type",
+            ));
         }
         Ok(check)
     }
@@ -5274,10 +5606,17 @@ impl FullCodec for crate::map_key::MapKey {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         crate::runtime::eval::lowered_ops::lowered_map_key_value(self).encode(builder, output)
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
         let value = LoweredValue::decode(decoder, input)?;
-        crate::runtime::eval::lowered_ops::lowered_map_key_ref(&value, crate::source::Span::at(crate::source::SourceId::new(0), 0))
-            .map(|key| key.to_owned()).map_err(|_| IrVerifyError::new("map payload contains an invalid scalar key"))
+        crate::runtime::eval::lowered_ops::lowered_map_key_ref(
+            &value,
+            crate::source::Span::at(crate::source::SourceId::new(0), 0),
+        )
+        .map(|key| key.to_owned())
+        .map_err(|_| IrVerifyError::new("map payload contains an invalid scalar key"))
     }
 }
 impl_btree_codec!(Arc<str>, LoweredValue);
@@ -5286,7 +5625,9 @@ impl FullCodec for LoweredValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
-            Self::OmittedArgument => return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0)),
+            Self::OmittedArgument => {
+                return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0));
+            }
             Self::Null => FullValueTag::Null,
             Self::Unit => FullValueTag::Unit,
             Self::Int(value) => {
@@ -5429,7 +5770,9 @@ impl FullCodec for LoweredValue {
             FullValueTag::Bool => Self::Bool(bool::decode(decoder, &mut payload)?),
             FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
             FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
-            FullValueTag::Regex => Self::Regex(Box::new(RegexValue::decode(decoder, &mut payload)?)),
+            FullValueTag::Regex => {
+                Self::Regex(Box::new(RegexValue::decode(decoder, &mut payload)?))
+            }
             FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
             FullValueTag::Record => Self::Record(Arc::new(
                 BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
@@ -5444,7 +5787,10 @@ impl FullCodec for LoweredValue {
             },
             FullValueTag::StatsBlob => Self::StatsBlob(Box::new(LoweredStatsValue {
                 blanks: i64::decode(decoder, &mut payload)?,
-                blobs: BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(decoder, &mut payload)?,
+                blobs: BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(
+                    decoder,
+                    &mut payload,
+                )?,
                 code: i64::decode(decoder, &mut payload)?,
                 comments: i64::decode(decoder, &mut payload)?,
             })),
@@ -5452,10 +5798,10 @@ impl FullCodec for LoweredValue {
                 BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
             )),
             FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
-            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(
-                decoder,
-                &mut payload,
-            )?)),
+            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<
+                crate::map_key::MapKey,
+                LoweredValue,
+            >::decode(decoder, &mut payload)?)),
             FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
                 type_name: Name::decode(decoder, &mut payload)?,
                 wire: Option::decode(decoder, &mut payload)?,
@@ -5516,7 +5862,10 @@ impl FullCodec for LoweredValue {
             }
             FullValueTag::Tag => {
                 Name::verify(decoder, &mut payload)?;
-                Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::verify(decoder, &mut payload)?;
+                Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::verify(
+                    decoder,
+                    &mut payload,
+                )?;
                 Arc::<str>::verify(decoder, &mut payload)?;
                 Vec::<LoweredValue>::verify(decoder, &mut payload)?;
             }
@@ -5803,11 +6152,20 @@ impl FullCodec for LoweredRecordUpdates {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.0.encode(builder, output)
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
         let updates = Vec::<(Vec<Name>, BuildExprId, Span)>::decode(decoder, input)?;
         for (index, (path, _, _)) in updates.iter().enumerate() {
-            if path.is_empty() || updates[..index].iter().any(|(other, _, _)| path.starts_with(other) || other.starts_with(path)) {
-                return Err(IrVerifyError::new("record update paths must be nonempty and disjoint"));
+            if path.is_empty()
+                || updates[..index]
+                    .iter()
+                    .any(|(other, _, _)| path.starts_with(other) || other.starts_with(path))
+            {
+                return Err(IrVerifyError::new(
+                    "record update paths must be nonempty and disjoint",
+                ));
             }
         }
         Ok(Self(updates))
@@ -5917,7 +6275,10 @@ impl_fx_map_codec!(Vec<BuildStmtId>);
 impl FullCodec for LoweredCompTarget {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
-            Self::Discard => { output.push(2); Ok(()) }
+            Self::Discard => {
+                output.push(2);
+                Ok(())
+            }
             Self::Slot(slot) => {
                 output.push(0);
                 slot.encode(builder, output)
@@ -5948,20 +6309,34 @@ impl FullCodec for LoweredAssignPath {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.0.encode(builder, output)
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
         let steps = Vec::<LoweredAssignStep>::decode(decoder, input)?;
-        if steps.is_empty() { return Err(IrVerifyError::new("assignment path must select an element")); }
+        if steps.is_empty() {
+            return Err(IrVerifyError::new("assignment path must select an element"));
+        }
         Ok(Self(steps))
     }
 }
 impl FullCodec for LoweredAssignStep {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
-            Self::Field(name) => { output.push(0); name.encode(builder, output) }
-            Self::Index(expr) => { output.push(1); expr.encode(builder, output) }
+            Self::Field(name) => {
+                output.push(0);
+                name.encode(builder, output)
+            }
+            Self::Index(expr) => {
+                output.push(1);
+                expr.encode(builder, output)
+            }
         }
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
         match input.raw()? {
             0 => Ok(Self::Field(Name::decode(decoder, input)?)),
             1 => Ok(Self::Index(BuildExprId::decode(decoder, input)?)),
@@ -5976,10 +6351,15 @@ impl FullCodec for LoweredCompQualifiers {
         self.0.encode(builder, output)
     }
 
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
         let qualifiers = Vec::<LoweredCompQualifier>::decode(decoder, input)?;
         if !matches!(qualifiers.first(), Some(LoweredCompQualifier::For { .. })) {
-            return Err(IrVerifyError::new("comprehension qualifiers must start with for"));
+            return Err(IrVerifyError::new(
+                "comprehension qualifiers must start with for",
+            ));
         }
         Ok(Self(qualifiers))
     }
@@ -5988,14 +6368,33 @@ impl FullCodec for LoweredCompQualifiers {
 impl FullCodec for LoweredCompQualifier {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
-            Self::For { target, iter, span } => { output.push(0); target.encode(builder, output)?; iter.encode(builder, output)?; span.encode(builder, output) }
-            Self::If { condition, span } => { output.push(1); condition.encode(builder, output)?; span.encode(builder, output) }
+            Self::For { target, iter, span } => {
+                output.push(0);
+                target.encode(builder, output)?;
+                iter.encode(builder, output)?;
+                span.encode(builder, output)
+            }
+            Self::If { condition, span } => {
+                output.push(1);
+                condition.encode(builder, output)?;
+                span.encode(builder, output)
+            }
         }
     }
-    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
         match input.raw()? {
-            0 => Ok(Self::For { target: Box::decode(decoder, input)?, iter: BuildExprId::decode(decoder, input)?, span: Span::decode(decoder, input)? }),
-            1 => Ok(Self::If { condition: BuildExprId::decode(decoder, input)?, span: Span::decode(decoder, input)? }),
+            0 => Ok(Self::For {
+                target: Box::decode(decoder, input)?,
+                iter: BuildExprId::decode(decoder, input)?,
+                span: Span::decode(decoder, input)?,
+            }),
+            1 => Ok(Self::If {
+                condition: BuildExprId::decode(decoder, input)?,
+                span: Span::decode(decoder, input)?,
+            }),
             _ => Err(IrVerifyError::new("comprehension qualifier tag is invalid")),
         }
     }
@@ -6038,7 +6437,9 @@ impl FullCodec for LoweredCallArg {
             Self::Default(slot) => {
                 // This is a callable parameter index, not a caller frame slot.
                 output.push(2);
-                u32::try_from(*slot).map_err(|_| IrBuildError::format("argument_slot_overflow", None, 0, 0))?.encode(builder, output)
+                u32::try_from(*slot)
+                    .map_err(|_| IrBuildError::format("argument_slot_overflow", None, 0, 0))?
+                    .encode(builder, output)
             }
             Self::Single(value) => {
                 output.push(0);
@@ -6495,7 +6896,14 @@ impl FullCodec for BuildPatternRow {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
-            Self::TagType { type_name, variants } => { type_name.encode(builder, &mut payload)?; variants.encode(builder, &mut payload)?; FullPatternTag::TagType }
+            Self::TagType {
+                type_name,
+                variants,
+            } => {
+                type_name.encode(builder, &mut payload)?;
+                variants.encode(builder, &mut payload)?;
+                FullPatternTag::TagType
+            }
             Self::RecordTest { fields } => {
                 fields.encode(builder, &mut payload)?;
                 FullPatternTag::RecordTest
@@ -6505,13 +6913,21 @@ impl FullCodec for BuildPatternRow {
                 inner.encode(builder, &mut payload)?;
                 FullPatternTag::ResultTest
             }
-            Self::TagTest { type_name, name, fields } => {
+            Self::TagTest {
+                type_name,
+                name,
+                fields,
+            } => {
                 type_name.encode(builder, &mut payload)?;
                 name.encode(builder, &mut payload)?;
                 fields.encode(builder, &mut payload)?;
                 FullPatternTag::TagTest
             }
-            Self::ErrorTest { family, variant, fields } => {
+            Self::ErrorTest {
+                family,
+                variant,
+                fields,
+            } => {
                 family.encode(builder, &mut payload)?;
                 variant.encode(builder, &mut payload)?;
                 fields.encode(builder, &mut payload)?;
@@ -6575,7 +6991,11 @@ impl FullCodec for BuildPatternRow {
                 result_wrapped.encode(builder, &mut payload)?;
                 FullPatternTag::Facet
             }
-            Self::Tag { type_name, name, slots } => {
+            Self::Tag {
+                type_name,
+                name,
+                slots,
+            } => {
                 type_name.encode(builder, &mut payload)?;
                 name.encode(builder, &mut payload)?;
                 slots.encode(builder, &mut payload)?;
@@ -6602,17 +7022,38 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         let pattern = match tag {
-            FullPatternTag::TagType => Self::TagType { type_name: Name::decode(decoder, &mut payload)?, variants: Vec::decode(decoder, &mut payload)? },
-            FullPatternTag::RecordTest => Self::RecordTest { fields: Vec::decode(decoder, &mut payload)? },
-            FullPatternTag::ResultTest => Self::ResultTest { ok: bool::decode(decoder, &mut payload)?, inner: BuildPatternId::decode(decoder, &mut payload)? },
-            FullPatternTag::TagTest => Self::TagTest { type_name: Name::decode(decoder, &mut payload)?, name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
-            FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::TagType => Self::TagType {
+                type_name: Name::decode(decoder, &mut payload)?,
+                variants: Vec::decode(decoder, &mut payload)?,
+            },
+            FullPatternTag::RecordTest => Self::RecordTest {
+                fields: Vec::decode(decoder, &mut payload)?,
+            },
+            FullPatternTag::ResultTest => Self::ResultTest {
+                ok: bool::decode(decoder, &mut payload)?,
+                inner: BuildPatternId::decode(decoder, &mut payload)?,
+            },
+            FullPatternTag::TagTest => Self::TagTest {
+                type_name: Name::decode(decoder, &mut payload)?,
+                name: Name::decode(decoder, &mut payload)?,
+                fields: Vec::decode(decoder, &mut payload)?,
+            },
+            FullPatternTag::ErrorTest => Self::ErrorTest {
+                family: Name::decode(decoder, &mut payload)?,
+                variant: Name::decode(decoder, &mut payload)?,
+                fields: Vec::decode(decoder, &mut payload)?,
+            },
             FullPatternTag::List => Self::List {
                 elements: Vec::decode(decoder, &mut payload)?,
                 rest: Option::decode(decoder, &mut payload)?,
             },
-            FullPatternTag::Alias => Self::Alias { pattern: BuildPatternId::decode(decoder, &mut payload)?, slot: usize::decode(decoder, &mut payload)? },
-            FullPatternTag::Alternation => Self::Alternation { patterns: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::Alias => Self::Alias {
+                pattern: BuildPatternId::decode(decoder, &mut payload)?,
+                slot: usize::decode(decoder, &mut payload)?,
+            },
+            FullPatternTag::Alternation => Self::Alternation {
+                patterns: Vec::decode(decoder, &mut payload)?,
+            },
             FullPatternTag::Wildcard => Self::Wildcard,
             FullPatternTag::Bind => Self::Bind {
                 slot: usize::decode(decoder, &mut payload)?,
@@ -6668,8 +7109,13 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         match tag {
-            FullPatternTag::TagType => { Name::verify(decoder, &mut payload)?; Vec::<Name>::verify(decoder, &mut payload)?; },
-            FullPatternTag::RecordTest => Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?,
+            FullPatternTag::TagType => {
+                Name::verify(decoder, &mut payload)?;
+                Vec::<Name>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::RecordTest => {
+                Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?
+            }
             FullPatternTag::ResultTest => {
                 bool::verify(decoder, &mut payload)?;
                 BuildPatternId::verify(decoder, &mut payload)?;
@@ -6689,8 +7135,13 @@ impl FullCodec for BuildPatternRow {
                 let mut rest_payload = payload;
                 if bool::decode(decoder, &mut rest_payload)? {
                     let rest = rest_payload.raw()? as usize;
-                    if !matches!(decoder.store.patterns.get(rest), Some(FullPatternTag::Wildcard | FullPatternTag::Bind)) {
-                        return Err(IrVerifyError::new("list rest must be a wildcard or binding"));
+                    if !matches!(
+                        decoder.store.patterns.get(rest),
+                        Some(FullPatternTag::Wildcard | FullPatternTag::Bind)
+                    ) {
+                        return Err(IrVerifyError::new(
+                            "list rest must be a wildcard or binding",
+                        ));
                     }
                 }
                 Option::<BuildPatternId>::verify(decoder, &mut payload)?;
@@ -6705,13 +7156,19 @@ impl FullCodec for BuildPatternRow {
                 Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
                 let mut children = decoder.pattern_list_cursor(&mut alternatives)?;
                 let count = children.raw()? as usize;
-                if count < 2 { return Err(IrVerifyError::new("alternative pattern requires at least two choices")); }
+                if count < 2 {
+                    return Err(IrVerifyError::new(
+                        "alternative pattern requires at least two choices",
+                    ));
+                }
                 let mut common = None;
                 for _ in 0..count {
                     let child = children.raw()? as usize;
                     let captures = decoder.pattern_capture_slots(child)?;
                     if common.as_ref().is_some_and(|common| common != &captures) {
-                        return Err(IrVerifyError::new("pattern alternatives must publish identical capture slots"));
+                        return Err(IrVerifyError::new(
+                            "pattern alternatives must publish identical capture slots",
+                        ));
                     }
                     common = Some(captures);
                 }
@@ -8166,16 +8623,28 @@ run true
     #[test]
     fn builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/builtin-templates.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/builtin-templates.xsh");
             let program = Arc::new(fixture("builtin-templates.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for (name, expected) in [("nested_templates", Value::Int(7)), ("fresh_templates", Value::Int(8)), ("absent_templates", Value::Bool(true)), ("materialized_templates", Value::Int(6)), ("discarded_templates", Value::Unit)] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            for (name, expected) in [
+                ("nested_templates", Value::Int(7)),
+                ("fresh_templates", Value::Int(8)),
+                ("absent_templates", Value::Bool(true)),
+                ("materialized_templates", Value::Int(6)),
+                ("discarded_templates", Value::Unit),
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                    &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("template function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("template function exists");
                 assert_eq!(result.unwrap(), expected);
             }
         });
@@ -8190,12 +8659,17 @@ run true
             assert!(!program.store.tags.contains(&FullTag::ExprFunctionRef));
             let program = Arc::new(program);
             for (name, expected) in [("value", Value::Int(9)), ("results", Value::Bool(true))] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("stage callable function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("stage callable function exists");
                 assert_eq!(result.unwrap(), expected);
             }
         });
@@ -8206,8 +8680,16 @@ run true
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/typed-causes.xsh");
         let program = fixture("typed-causes.xsh", source);
         FullVerifier::verify(&program).unwrap();
-        let row = program.store.tags.iter().position(|tag| *tag == FullTag::ExprErr).unwrap();
-        let range = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let row = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::ExprErr)
+            .unwrap();
+        let range = program.store.data[row]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         assert_eq!(program.store.extra[range.start + 1], 1);
         for (offset, value) in [(1, 2), (2, u32::MAX)] {
             let mut invalid = program.clone();
@@ -8220,14 +8702,25 @@ run true
         let program = Arc::new(program);
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
         evaluator.indexed_program = Some(Arc::clone(&program));
-        let result = evaluator.call_indexed_direct(
-            LoweredFunctionKey::Name(program_name(&program, "translated_cause")), LoweredFunctionKind::Pure,
-            &[], Span::at(program.store.source_id, 0),
-        ).expect("typed constructor function exists").unwrap();
-        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else { panic!("constructor returns Result data") };
-        let Value::Error(outer) = error.as_ref() else { panic!("nominal outer error") };
+        let result = evaluator
+            .call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "translated_cause")),
+                LoweredFunctionKind::Pure,
+                &[],
+                Span::at(program.store.source_id, 0),
+            )
+            .expect("typed constructor function exists")
+            .unwrap();
+        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else {
+            panic!("constructor returns Result data")
+        };
+        let Value::Error(outer) = error.as_ref() else {
+            panic!("nominal outer error")
+        };
         assert_eq!(outer.family, "OuterCauseError");
-        let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else { panic!("typed cause") };
+        let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else {
+            panic!("typed cause")
+        };
         assert_eq!(inner.family, "InnerCauseError");
         assert_eq!(inner.span, None);
     }
@@ -8235,31 +8728,84 @@ run true
     #[test]
     fn empty_map_fold_inference_publishes_concrete_accumulator_types() {
         let source = "let counts = [\"one\", \"two\", \"one\"] |> fold(map.empty()) { |acc, item| acc.set(item, (acc.get(item) ?? 0) + 1) }\nprint ${counts.get(\"one\") ?? 0}\n";
-        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
+            crate::source::SourceId::new(0),
+            source,
+        );
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "full: {:?}", checked.diagnostics);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "full: {:?}",
+            checked.diagnostics
+        );
         let declarations = Checker::check_compact_declarations(&parsed.arena);
-        assert!(declarations.diagnostics.is_empty(), "decl: {:?}", declarations.diagnostics);
-        assert!(declarations.bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "decl: {:?}",
+            declarations.diagnostics
+        );
+        assert!(
+            declarations
+                .bodies
+                .expr_types
+                .values()
+                .all(|ty| !ty.contains_inference())
+        );
         let _ = fixture("empty-map-fold.xsh", source);
     }
 
     #[test]
     fn local_collection_inference_publishes_concrete_indexed_call_and_slot_types() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
-        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
+            crate::source::SourceId::new(0),
+            source,
+        );
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         parsed.arena.symbol_owner().with_current(|| {
-            let function = parsed.arena.arena.function_defs.iter().find(|function| function.name == "gather").unwrap();
-            let body_span = parsed.arena.arena.span(parsed.arena.arena.block(function.body).span);
-            assert_eq!(declarations.function_return_types[&body_span], Type::List(Box::new(Type::Path)));
-            assert!(declarations.local_binding_types.values().all(|ty| !ty.contains_inference()));
-            assert!(declarations.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Path))));
+            let function = parsed
+                .arena
+                .arena
+                .function_defs
+                .iter()
+                .find(|function| function.name == "gather")
+                .unwrap();
+            let body_span = parsed
+                .arena
+                .arena
+                .span(parsed.arena.arena.block(function.body).span);
+            assert_eq!(
+                declarations.function_return_types[&body_span],
+                Type::List(Box::new(Type::Path))
+            );
+            assert!(
+                declarations
+                    .local_binding_types
+                    .values()
+                    .all(|ty| !ty.contains_inference())
+            );
+            assert!(
+                declarations
+                    .local_binding_types
+                    .values()
+                    .any(|ty| *ty == Type::List(Box::new(Type::Path)))
+            );
         });
-        assert!(declarations.bodies.expr_types.values().all(|ty| !ty.contains_inference()));
-        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(&parsed.arena, &declarations, source);
+        assert!(
+            declarations
+                .bodies
+                .expr_types
+                .values()
+                .all(|ty| !ty.contains_inference())
+        );
+        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(
+            &parsed.arena,
+            &declarations,
+            source,
+        );
         assert_eq!(constructed.blocker_events, 0, "{constructed:?}");
         let _ = fixture("local-inference.xsh", source);
     }
@@ -8411,10 +8957,14 @@ pure selected() -> Str {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Pure, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("enum payload function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("enum payload function exists");
             assert_eq!(result.unwrap(), Value::Str("one:two:other".into()));
         });
     }
@@ -8532,21 +9082,57 @@ pure selected() -> Str {
     #[test]
     fn prepared_constant_pool_reuses_data_and_rejects_invalid_values() {
         run_with_large_stack(|| {
-            let program = Arc::new(fixture("prepared-constant.xsh", "const data: List[Int] = [1, 2]\nproc constant() -> List[Int] { data }\n"));
+            let program = Arc::new(fixture(
+                "prepared-constant.xsh",
+                "const data: List[Int] = [1, 2]\nproc constant() -> List[Int] { data }\n",
+            ));
             program.symbol_owner().with_current(|| {
-                let header = program.function_view(LoweredFunctionKey::Name(Name::intern("constant")), LoweredFunctionKind::Proc).unwrap().unwrap().header().unwrap();
-                assert!(header.captures.iter().all(|capture| capture.name != Name::intern("data")));
+                let header = program
+                    .function_view(
+                        LoweredFunctionKey::Name(Name::intern("constant")),
+                        LoweredFunctionKind::Proc,
+                    )
+                    .unwrap()
+                    .unwrap()
+                    .header()
+                    .unwrap();
+                assert!(
+                    header
+                        .captures
+                        .iter()
+                        .all(|capture| capture.name != Name::intern("data"))
+                );
             });
             let (result, _, _) = run_full(Arc::clone(&program), program_name(&program, "constant"));
-            assert_eq!(result.unwrap(), Value::List(vec![Value::Int(1), Value::Int(2)]));
-            let shared = program.store.prepared_constants.iter().find_map(|constant| match &constant.0 {
-                LoweredValue::SharedList(values) => Some(Arc::clone(values)), _ => None,
-            }).expect("prepared list pool");
-            let decoder = FullDecoder { store: &program.store, owner: 0, instruction_range: 0..0, instruction_states: None, block_states: None, slot_count: 0, pattern_ceiling: Cell::new(usize::MAX), verified: false };
+            assert_eq!(
+                result.unwrap(),
+                Value::List(vec![Value::Int(1), Value::Int(2)])
+            );
+            let shared = program
+                .store
+                .prepared_constants
+                .iter()
+                .find_map(|constant| match &constant.0 {
+                    LoweredValue::SharedList(values) => Some(Arc::clone(values)),
+                    _ => None,
+                })
+                .expect("prepared list pool");
+            let decoder = FullDecoder {
+                store: &program.store,
+                owner: 0,
+                instruction_range: 0..0,
+                instruction_states: None,
+                block_states: None,
+                slot_count: 0,
+                pattern_ceiling: Cell::new(usize::MAX),
+                verified: false,
+            };
             let mut words = vec![0];
             let mut cursor = FullCursor::new(&words);
             let decoded = PreparedConstantValue::decode(&decoder, &mut cursor).unwrap();
-            let LoweredValue::SharedList(values) = decoded.0 else { panic!("shared list"); };
+            let LoweredValue::SharedList(values) = decoded.0 else {
+                panic!("shared list");
+            };
             assert!(Arc::ptr_eq(&shared, &values));
             let mut broken = (*program).clone();
             broken.store.prepared_constants.clear();
@@ -8556,7 +9142,9 @@ pure selected() -> Str {
             assert!(FullVerifier::verify(&broken).is_err());
             let mut builder = FullBuilder::new(SourceId::new(0));
             let checkpoint = builder.checkpoint();
-            PreparedConstantValue(LoweredValue::Int(1)).encode(&mut builder, &mut words).unwrap();
+            PreparedConstantValue(LoweredValue::Int(1))
+                .encode(&mut builder, &mut words)
+                .unwrap();
             builder.rewind(checkpoint);
             assert!(builder.store.prepared_constants.is_empty());
         });
@@ -8565,7 +9153,12 @@ pure selected() -> Str {
     #[test]
     fn prepared_cli_plan_pool_rewinds_with_builder_checkpoint() {
         run_with_large_stack(|| {
-            let program = fixture("cli-constant-descriptors.xsh", include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"));
+            let program = fixture(
+                "cli-constant-descriptors.xsh",
+                include_str!(
+                    "../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"
+                ),
+            );
             let plan = Arc::clone(&program.store.prepared_cli_plans[0]);
             let mut builder = FullBuilder::new(SourceId::new(0));
             let checkpoint = builder.checkpoint();
@@ -8582,7 +9175,10 @@ pure selected() -> Str {
         let checkpoint = builder.checkpoint();
         let value = RegexValue {
             pattern: "[a-z]+".to_string(),
-            regex: Arc::new(crate::modules::regex::compile("[a-z]+", Span::new(SourceId::new(0), 0, 0)).unwrap()),
+            regex: Arc::new(
+                crate::modules::regex::compile("[a-z]+", Span::new(SourceId::new(0), 0, 0))
+                    .unwrap(),
+            ),
         };
         let mut words = Vec::new();
         value.encode(&mut builder, &mut words).unwrap();
@@ -8594,23 +9190,35 @@ pure selected() -> Str {
     #[test]
     fn prepared_regex_pool_survives_frontend_and_evaluator_reuse() {
         run_with_large_stack(|| {
-            let program = Arc::new(fixture("prepared-regex.xsh", "proc literal() -> Regex { rx\"[a-z]+\" }\n"));
+            let program = Arc::new(fixture(
+                "prepared-regex.xsh",
+                "proc literal() -> Regex { rx\"[a-z]+\" }\n",
+            ));
             let prepared = Arc::clone(&program.store.prepared_regexes[0].regex);
             let name = program_name(&program, "literal");
             for _ in 0..3 {
                 let (result, _, _) = run_full(Arc::clone(&program), name);
-                let Value::Regex(value) = result.unwrap() else { panic!("expected prepared regex"); };
+                let Value::Regex(value) = result.unwrap() else {
+                    panic!("expected prepared regex");
+                };
                 assert!(Arc::ptr_eq(&prepared, &value.regex));
                 assert!(value.regex.is_match("text"));
             }
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             for _ in 0..3 {
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).unwrap().unwrap();
-                let Value::Regex(value) = result else { panic!("expected prepared regex"); };
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(name),
+                        LoweredFunctionKind::Proc,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .unwrap()
+                    .unwrap();
+                let Value::Regex(value) = result else {
+                    panic!("expected prepared regex");
+                };
                 assert!(Arc::ptr_eq(&prepared, &value.regex));
             }
             let mut broken = (*program).clone();
@@ -8860,34 +9468,66 @@ pure selected() -> Str {
     #[test]
     fn verifier_rejects_empty_record_update_path_and_bad_replacement_reference() {
         run_with_large_stack(|| {
-            let program = fixture("record-update.xsh", "pure value() -> Int { let base = {a: {b: 1, c: 0}}; return {...base, a.b: 2, a.c: 3}.a.b }\n");
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRecordUpdate).unwrap();
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let program = fixture(
+                "record-update.xsh",
+                "pure value() -> Int { let base = {a: {b: 1, c: 0}}; return {...base, a.b: 2, a.c: 3}.a.b }\n",
+            );
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprRecordUpdate)
+                .unwrap();
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let updates = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
-            let entries = program.store.blocks[updates.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let entries = program.store.blocks[updates.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
             let path = IrBlockId::from_raw(program.store.extra[entries.start + 1]).unwrap();
-            let names = program.store.blocks[path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let names = program.store.blocks[path.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut empty = program.clone();
             empty.store.extra[names.start] = 0;
             empty.store.blocks[path.index()].instructions.len = 1;
             let error = FullVerifier::verify(&empty).unwrap_err();
-            assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
+            assert!(
+                error.message.contains("nonempty and disjoint"),
+                "{}",
+                error.message
+            );
             let mut bad_child = program.clone();
             bad_child.store.extra[entries.start + 2] = u32::MAX;
             assert!(FullVerifier::verify(&bad_child).is_err());
             let mut overlapping = program.clone();
             let second_path = IrBlockId::from_raw(program.store.extra[entries.start + 4]).unwrap();
-            let second_names = program.store.blocks[second_path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let second_names = program.store.blocks[second_path.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
             overlapping.store.extra[second_names.start + 2] = program.store.extra[names.start + 2];
             let error = FullVerifier::verify(&overlapping).unwrap_err();
-            assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
+            assert!(
+                error.message.contains("nonempty and disjoint"),
+                "{}",
+                error.message
+            );
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "value")),
-                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("update function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "value")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("update function exists");
             assert_eq!(result.unwrap(), Value::Int(2));
         });
     }
@@ -8895,15 +9535,20 @@ pure selected() -> Str {
     #[test]
     fn fs_root_methods_keep_opaque_identity_and_defaults_on_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/fs-root-methods.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/fs-root-methods.xsh");
             let program = Arc::new(fixture("fs-root-methods.xsh", source));
             FullVerifier::verify(&program).unwrap();
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "root_methods")),
-                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("filesystem root fixture exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "root_methods")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("filesystem root fixture exists");
             assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("payload"))));
         });
     }
@@ -8911,7 +9556,9 @@ pure selected() -> Str {
     #[test]
     fn cli_command_descriptor_plans_execute_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-commands.xsh");
+            let source = include_str!(
+                "../../../../tests/fixtures/frontend-indexed/cli-constant-commands.xsh"
+            );
             let program = fixture("cli-constant-commands.xsh", source);
             assert_eq!(program.store.prepared_cli_plans.len(), 1);
             assert!(program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliCommands));
@@ -8920,37 +9567,73 @@ pure selected() -> Str {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "command_values")),
-                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("command descriptor function exists");
-            assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("workspace/build"))));
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "command_values")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("command descriptor function exists");
+            assert_eq!(
+                result.unwrap(),
+                Value::ok(Value::Str(Arc::from("workspace/build")))
+            );
         });
     }
 
     #[test]
     fn cli_descriptor_plans_share_preparation_and_execute_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh");
+            let source = include_str!(
+                "../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"
+            );
             let program = fixture("cli-constant-descriptors.xsh", source);
             assert_eq!(program.store.prepared_cli_plans.len(), 2);
             FullVerifier::verify(&program).unwrap();
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprModuleCall).unwrap();
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprModuleCall)
+                .unwrap();
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut broken = program.clone();
             broken.store.extra[payload.start + 2] = u32::MAX;
-            assert!(FullVerifier::verify(&broken).unwrap_err().message.contains("CLI descriptor plan is out of bounds"));
+            assert!(
+                FullVerifier::verify(&broken)
+                    .unwrap_err()
+                    .message
+                    .contains("CLI descriptor plan is out of bounds")
+            );
             let mut wrong_policy = program.clone();
-            let applet = program.store.prepared_cli_plans.iter().position(|plan| plan.matches_operation(RuntimeOp::CliApplet)).unwrap();
+            let applet = program
+                .store
+                .prepared_cli_plans
+                .iter()
+                .position(|plan| plan.matches_operation(RuntimeOp::CliApplet))
+                .unwrap();
             wrong_policy.store.extra[payload.start + 2] = applet as u32;
-            assert!(FullVerifier::verify(&wrong_policy).unwrap_err().message.contains("operation policy"));
+            assert!(
+                FullVerifier::verify(&wrong_policy)
+                    .unwrap_err()
+                    .message
+                    .contains("operation policy")
+            );
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
-                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("descriptor function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("descriptor function exists");
             assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("6/4/3"))));
         });
     }
@@ -8963,42 +9646,85 @@ pure selected() -> Str {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             let argument = Value::Path(PathValue::new(b"raw\xff name".to_vec()).unwrap());
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "native_path")),
-                LoweredFunctionKind::Pure, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
-            ).expect("native path function exists");
-            assert_eq!(result.unwrap(), Value::Path(PathValue::new(b"prefix/raw\xff name/../end".to_vec()).unwrap()));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "native_plan")),
-                LoweredFunctionKind::Proc, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
-            ).expect("native command plan exists");
-            let Value::Command(plan) = result.unwrap() else { panic!("command plan"); };
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "native_path")),
+                    LoweredFunctionKind::Pure,
+                    std::slice::from_ref(&argument),
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("native path function exists");
+            assert_eq!(
+                result.unwrap(),
+                Value::Path(PathValue::new(b"prefix/raw\xff name/../end".to_vec()).unwrap())
+            );
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "native_plan")),
+                    LoweredFunctionKind::Proc,
+                    std::slice::from_ref(&argument),
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("native command plan exists");
+            let Value::Command(plan) = result.unwrap() else {
+                panic!("command plan");
+            };
             assert_eq!(plan.argv.last().unwrap(), b"--target=raw\xff name");
-            let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0] else { panic!("file input redirection"); };
+            let crate::runtime::value::CommandRedirection::File { path, .. } =
+                &plan.redirections[0]
+            else {
+                panic!("file input redirection");
+            };
             assert_eq!(path.bytes, b"before/raw\xff name");
-            let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1] else { panic!("file output redirection"); };
+            let crate::runtime::value::CommandRedirection::File { path, .. } =
+                &plan.redirections[1]
+            else {
+                panic!("file output redirection");
+            };
             assert_eq!(path.bytes, b"raw\xff name/after");
         });
     }
 
     #[test]
     fn verifier_rejects_empty_or_unknown_comprehension_qualifiers() {
-        let program = fixture("indexed-comprehension.xsh", "pure values() -> List[Int] { return [inner for outer in [1] if outer > 0 for inner in [outer]] }\n");
-        let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListComp).unwrap();
-        let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+        let program = fixture(
+            "indexed-comprehension.xsh",
+            "pure values() -> List[Int] { return [inner for outer in [1] if outer > 0 for inner in [outer]] }\n",
+        );
+        let instruction = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::ExprListComp)
+            .unwrap();
+        let payload = program.store.data[instruction]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
-        let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let entries = program.store.blocks[block.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
 
         let mut empty = program.clone();
         empty.store.extra[entries.start] = 0;
         empty.store.blocks[block.index()].instructions.len = 1;
         let error = FullVerifier::verify(&empty).unwrap_err();
-        assert!(error.message.contains("must start with for"), "{}", error.message);
+        assert!(
+            error.message.contains("must start with for"),
+            "{}",
+            error.message
+        );
 
         let mut unknown = program;
         unknown.store.extra[entries.start + 1] = u32::MAX;
         let error = FullVerifier::verify(&unknown).unwrap_err();
-        assert!(error.message.contains("qualifier tag is invalid"), "{}", error.message);
+        assert!(
+            error.message.contains("qualifier tag is invalid"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
@@ -9059,37 +9785,74 @@ pure selected() -> Str {
 
     #[test]
     fn pattern_aliases_and_alternatives_publish_only_complete_capture_sets() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
         let program = fixture("pattern-aliases.xsh", source);
         program.symbol_owner().with_current(|| {
-            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("select")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let view = program
+                .function_view(
+                    LoweredFunctionKey::Name(Name::intern("select")),
+                    LoweredFunctionKind::Pure,
+                )
+                .unwrap()
+                .unwrap();
             let execution = view.execution().unwrap();
             let mut slots = vec![LoweredValue::Unit; view.header().unwrap().slot_count];
-            let pattern = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::Alias).unwrap() as u32;
+            let pattern = program
+                .store
+                .patterns
+                .iter()
+                .position(|tag| *tag == FullPatternTag::Alias)
+                .unwrap() as u32;
             let span = Span::new(crate::source::SourceId::new(0), 0, 0);
-            let failed = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(1)]), LoweredValue::List(vec![LoweredValue::Int(2)])]);
-            assert!(!Evaluator::indexed_pattern_matches(&execution, pattern, &failed, &mut slots, span).unwrap());
+            let failed = LoweredValue::List(vec![
+                LoweredValue::List(vec![LoweredValue::Int(1)]),
+                LoweredValue::List(vec![LoweredValue::Int(2)]),
+            ]);
+            assert!(
+                !Evaluator::indexed_pattern_matches(&execution, pattern, &failed, &mut slots, span)
+                    .unwrap()
+            );
             assert!(slots.iter().all(|slot| matches!(slot, LoweredValue::Unit)));
-            let matched = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(99)]), LoweredValue::List(vec![LoweredValue::Int(7), LoweredValue::Int(8)])]);
-            assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &matched, &mut slots, span).unwrap());
+            let matched = LoweredValue::List(vec![
+                LoweredValue::List(vec![LoweredValue::Int(99)]),
+                LoweredValue::List(vec![LoweredValue::Int(7), LoweredValue::Int(8)]),
+            ]);
+            assert!(
+                Evaluator::indexed_pattern_matches(&execution, pattern, &matched, &mut slots, span)
+                    .unwrap()
+            );
             assert!(slots.iter().any(|slot| *slot == LoweredValue::Int(7)));
-            assert!(slots.iter().any(|slot| *slot == LoweredValue::List(vec![LoweredValue::Int(8)])));
+            assert!(
+                slots
+                    .iter()
+                    .any(|slot| *slot == LoweredValue::List(vec![LoweredValue::Int(8)]))
+            );
             assert!(slots.contains(&matched));
         });
     }
 
     #[test]
     fn pattern_aliases_compact_facts_preserve_captured_subject_and_element_types() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
         let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         parsed.arena.symbol_owner().with_current(|| {
             for (id, ty) in &declarations.bodies.expr_types {
                 match parsed.arena.arena.expr(*id).kind {
-                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "value" || name == "left" || name == "right" => assert_eq!(*ty, Type::Int),
-                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "tail" => assert_eq!(*ty, Type::List(Box::new(Type::Int))),
-                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "original" => assert_eq!(*ty, Type::List(Box::new(Type::List(Box::new(Type::Int))))),
+                    crate::syntax::arena::ArenaExprKind::Ident(name)
+                        if name == "value" || name == "left" || name == "right" =>
+                    {
+                        assert_eq!(*ty, Type::Int)
+                    }
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "tail" => {
+                        assert_eq!(*ty, Type::List(Box::new(Type::Int)))
+                    }
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "original" => {
+                        assert_eq!(*ty, Type::List(Box::new(Type::List(Box::new(Type::Int)))))
+                    }
                     _ => {}
                 }
             }
@@ -9098,18 +9861,40 @@ pure selected() -> Str {
 
     #[test]
     fn verifier_rejects_incompatible_alternative_and_alias_capture_slots() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
         let program = fixture("pattern-aliases.xsh", source);
-        let alias = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::Alias).unwrap();
-        let alias_payload = program.store.pattern_data[alias].range().bounds(program.store.extra.len()).unwrap();
+        let alias = program
+            .store
+            .patterns
+            .iter()
+            .position(|tag| *tag == FullPatternTag::Alias)
+            .unwrap();
+        let alias_payload = program.store.pattern_data[alias]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut bad_alias = program.clone();
         bad_alias.store.extra[alias_payload.start + 1] = u32::MAX;
         assert!(FullVerifier::verify(&bad_alias).is_err());
         let mut alias_cycle = program.clone();
         alias_cycle.store.extra[alias_payload.start] = alias as u32;
-        assert!(FullVerifier::verify(&alias_cycle).unwrap_err().message.contains("nested pattern"));
-        let bind = program.store.patterns.iter().rposition(|tag| *tag == FullPatternTag::Bind).unwrap();
-        let range = program.store.pattern_data[bind].range().bounds(program.store.extra.len()).unwrap();
+        assert!(
+            FullVerifier::verify(&alias_cycle)
+                .unwrap_err()
+                .message
+                .contains("nested pattern")
+        );
+        let bind = program
+            .store
+            .patterns
+            .iter()
+            .rposition(|tag| *tag == FullPatternTag::Bind)
+            .unwrap();
+        let range = program.store.pattern_data[bind]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut duplicate = program.clone();
         duplicate.store.extra[range.start] = 0;
         assert!(FullVerifier::verify(&duplicate).is_err());
@@ -9118,7 +9903,8 @@ pure selected() -> Str {
     #[test]
     fn direct_scalar_iteration_runs_after_frontend_drop() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/scalar-iteration.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/scalar-iteration.xsh");
             let program = Arc::new(fixture("scalar-iteration.xsh", source));
             let execute = |name: &str| {
                 let name = program_name(&program, name);
@@ -9127,12 +9913,29 @@ pure selected() -> Str {
             for (name, expected) in [("scalar_count", 261), ("scalar_comp", 3)] {
                 assert_eq!(execute(name), Value::Int(expected));
             }
-            let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = execute("scalar_result") else { panic!("Result iterable") };
+            let Value::Result(crate::runtime::value::ResultValue::Ok(value)) =
+                execute("scalar_result")
+            else {
+                panic!("Result iterable")
+            };
             assert_eq!(*value, Value::Int(255));
-            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = execute("scalar_failure") else { panic!("source failure") };
-            let Value::Error(error) = *error else { panic!("nominal source failure") };
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) =
+                execute("scalar_failure")
+            else {
+                panic!("source failure")
+            };
+            let Value::Error(error) = *error else {
+                panic!("nominal source failure")
+            };
             assert_eq!(error.kind, "ScalarFailure.Missing");
-            assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), [Some("scalar source")]);
+            assert_eq!(
+                error
+                    .contexts
+                    .iter()
+                    .map(|context| context.message.as_deref())
+                    .collect::<Vec<_>>(),
+                [Some("scalar source")]
+            );
         });
     }
 
@@ -9143,10 +9946,30 @@ pure selected() -> Str {
         let value = program_name(&program, "contextual_value");
         assert_eq!(run_full(program.clone(), value).0.unwrap(), Value::Int(7));
         let failure = program_name(&program, "contextual_failure");
-        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = run_full(program, failure).0.unwrap() else { panic!("expected propagated error") };
-        let Value::Error(error) = *error else { panic!("expected error") };
-        assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), vec![Some("inner"), Some("outer")]);
-        assert!(error.contexts.iter().all(|context| context.span.is_some_and(|span| source.get(span.range()).is_some_and(|text| text.starts_with("ctx ")))));
+        let Value::Result(crate::runtime::value::ResultValue::Err(error)) =
+            run_full(program, failure).0.unwrap()
+        else {
+            panic!("expected propagated error")
+        };
+        let Value::Error(error) = *error else {
+            panic!("expected error")
+        };
+        assert_eq!(
+            error
+                .contexts
+                .iter()
+                .map(|context| context.message.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("inner"), Some("outer")]
+        );
+        assert!(
+            error
+                .contexts
+                .iter()
+                .all(|context| context.span.is_some_and(|span| source
+                    .get(span.range())
+                    .is_some_and(|text| text.starts_with("ctx "))))
+        );
         assert_eq!(error.kind, "validation");
     }
 
@@ -9155,32 +9978,93 @@ pure selected() -> Str {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-patterns.xsh");
         let program = fixture("list-patterns.xsh", source);
         program.symbol_owner().with_current(|| {
-            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("nested")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let view = program
+                .function_view(
+                    LoweredFunctionKey::Name(Name::intern("nested")),
+                    LoweredFunctionKind::Pure,
+                )
+                .unwrap()
+                .unwrap();
             let execution = view.execution().unwrap();
             let count = view.header().unwrap().slot_count;
-            let pattern = program.store.patterns.iter().rposition(|tag| *tag == FullPatternTag::List).unwrap() as u32;
+            let pattern = program
+                .store
+                .patterns
+                .iter()
+                .rposition(|tag| *tag == FullPatternTag::List)
+                .unwrap() as u32;
             let span = Span::new(crate::source::SourceId::new(0), 0, 0);
-            let list = |last| LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(2)]), LoweredValue::List(vec![LoweredValue::Int(last)])]);
+            let list = |last| {
+                LoweredValue::List(vec![
+                    LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(2)]),
+                    LoweredValue::List(vec![LoweredValue::Int(last)]),
+                ])
+            };
             let mut slots = vec![LoweredValue::Unit; count];
-            assert!(!Evaluator::indexed_pattern_matches(&execution, pattern, &list(3), &mut slots, span).unwrap());
-            assert!(slots.iter().all(|value| matches!(value, LoweredValue::Unit)));
-            assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &list(99), &mut slots, span).unwrap());
+            assert!(
+                !Evaluator::indexed_pattern_matches(
+                    &execution,
+                    pattern,
+                    &list(3),
+                    &mut slots,
+                    span
+                )
+                .unwrap()
+            );
+            assert!(
+                slots
+                    .iter()
+                    .all(|value| matches!(value, LoweredValue::Unit))
+            );
+            assert!(
+                Evaluator::indexed_pattern_matches(
+                    &execution,
+                    pattern,
+                    &list(99),
+                    &mut slots,
+                    span
+                )
+                .unwrap()
+            );
             assert!(slots.iter().any(|value| *value == LoweredValue::Int(1)));
-            assert!(slots.iter().any(|value| *value == LoweredValue::List(vec![LoweredValue::Int(2)])));
+            assert!(
+                slots
+                    .iter()
+                    .any(|value| *value == LoweredValue::List(vec![LoweredValue::Int(2)]))
+            );
         });
     }
 
     #[test]
     fn verifier_rejects_binding_and_missing_retry_selection_patterns() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/selective-retry.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/selective-retry.xsh");
         let program = fixture("selective-retry.xsh", source);
         FullVerifier::verify(&program).unwrap();
-        let retry = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRetry).unwrap();
-        let payload = program.store.data[retry].range().bounds(program.store.extra.len()).unwrap();
-        let binding = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::ResultOk).unwrap();
+        let retry = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::ExprRetry)
+            .unwrap();
+        let payload = program.store.data[retry]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+        let binding = program
+            .store
+            .patterns
+            .iter()
+            .position(|tag| *tag == FullPatternTag::ResultOk)
+            .unwrap();
         let mut invalid = program.clone();
         invalid.store.extra[payload.start + 2] = binding as u32;
-        assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("cannot bind"));
+        assert!(
+            FullVerifier::verify(&invalid)
+                .unwrap_err()
+                .message
+                .contains("cannot bind")
+        );
         let mut missing = program.clone();
         missing.store.extra[payload.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
@@ -9190,11 +10074,24 @@ pure selected() -> Str {
     fn verifier_rejects_invalid_list_rest_patterns() {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-patterns.xsh");
         let program = fixture("list-patterns.xsh", source);
-        let parent = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::List).unwrap();
-        let range = program.store.pattern_data[parent].range().bounds(program.store.extra.len()).unwrap();
+        let parent = program
+            .store
+            .patterns
+            .iter()
+            .position(|tag| *tag == FullPatternTag::List)
+            .unwrap();
+        let range = program.store.pattern_data[parent]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut invalid = program.clone();
         invalid.store.extra[range.start + 2] = parent as u32;
-        assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("list rest"));
+        assert!(
+            FullVerifier::verify(&invalid)
+                .unwrap_err()
+                .message
+                .contains("list rest")
+        );
         let mut missing = program.clone();
         missing.store.extra[range.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
@@ -9202,42 +10099,89 @@ pure selected() -> Str {
 
     #[test]
     fn verifier_checks_with_binding_slots_and_both_branch_returns() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/block-parameters.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/block-parameters.xsh");
         let program = fixture("block-parameters.xsh", source);
         FullVerifier::verify(&program).unwrap();
-        let row = program.store.tags.iter().position(|tag| *tag == FullTag::StmtWith).unwrap();
-        let payload = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let row = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::StmtWith)
+            .unwrap();
+        let payload = program.store.data[row]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let bindings = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
-        let bindings = program.store.blocks[bindings.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let bindings = program.store.blocks[bindings.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut bad_slot = program.clone();
         bad_slot.store.extra[bindings.start + 1] = u32::MAX;
-        assert!(FullVerifier::verify(&bad_slot).unwrap_err().message.contains("slot"));
+        assert!(
+            FullVerifier::verify(&bad_slot)
+                .unwrap_err()
+                .message
+                .contains("slot")
+        );
         assert!(indexed_stmt_can_return(&program.store, row).unwrap());
     }
 
     #[test]
     fn verifier_checks_pattern_condition_capture_slots_and_branch_returns() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-conditionals.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/pattern-conditionals.xsh");
         let program = fixture("pattern-conditionals.xsh", source);
         FullVerifier::verify(&program).unwrap();
-        let row = program.store.tags.iter().position(|tag| *tag == FullTag::StmtPatternWhile).unwrap();
-        let payload = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let row = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::StmtPatternWhile)
+            .unwrap();
+        let payload = program.store.data[row]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let capture_block = IrBlockId::from_raw(program.store.extra[payload.start + 2]).unwrap();
-        let captures = program.store.blocks[capture_block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let captures = program.store.blocks[capture_block.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut bad_slot = program.clone();
         bad_slot.store.extra[captures.start + 1] = u32::MAX;
-        assert!(FullVerifier::verify(&bad_slot).unwrap_err().message.contains("slot"));
+        assert!(
+            FullVerifier::verify(&bad_slot)
+                .unwrap_err()
+                .message
+                .contains("slot")
+        );
     }
 
     #[test]
     fn verifier_rejects_nested_pattern_cycles_and_missing_children() {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-tests.xsh");
         let program = fixture("pattern-tests.xsh", source);
-        let parent = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::ResultTest).unwrap();
-        let range = program.store.pattern_data[parent].range().bounds(program.store.extra.len()).unwrap();
+        let parent = program
+            .store
+            .patterns
+            .iter()
+            .position(|tag| *tag == FullPatternTag::ResultTest)
+            .unwrap();
+        let range = program.store.pattern_data[parent]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut cycle = program.clone();
         cycle.store.extra[range.start + 1] = parent as u32;
-        assert!(FullVerifier::verify(&cycle).unwrap_err().message.contains("nested pattern"));
+        assert!(
+            FullVerifier::verify(&cycle)
+                .unwrap_err()
+                .message
+                .contains("nested pattern")
+        );
         let mut missing = program.clone();
         missing.store.extra[range.start + 1] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
@@ -9318,10 +10262,14 @@ pure selected() -> Str {
             assert!(program.store.tags.contains(&FullTag::ExprMethod));
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("known field function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("known field function exists");
             assert_eq!(result.unwrap(), Value::Int(8));
         });
     }
@@ -9329,24 +10277,124 @@ pure selected() -> Str {
     #[test]
     fn uint_mutation_checks_execute_both_indexed_routes_after_frontend_drop() {
         run_with_large_stack(|| {
-            let program = Arc::new(fixture("uint-mutation.xsh", include_str!("../../../../tests/fixtures/frontend-indexed/uint-mutation.xsh")));
+            let program = Arc::new(fixture(
+                "uint-mutation.xsh",
+                include_str!("../../../../tests/fixtures/frontend-indexed/uint-mutation.xsh"),
+            ));
             FullVerifier::verify(&program).unwrap();
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCheckedValue).expect("constructors and method operands retain checked values");
-            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprCheckedValue)
+                .expect("constructors and method operands retain checked values");
+            let words = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut malformed = (*program).clone();
             malformed.store.extra[words.start + 1] = u32::MAX;
-            assert!(FullVerifier::verify(&malformed).is_err(), "checked value types must refer to the semantic pool");
-            for name in ["scalar_failure", "compound_failure", "record_failure", "list_failure", "map_failure", "append_failure", "valid_updates", "argument_failure", "return_failure", "tail_failure", "default_failure", "list_default_failure", "list_return_failure", "map_return_failure", "record_return_failure", "list_argument_failure", "map_argument_failure", "record_argument_failure", "map_default_failure", "record_default_failure", "result_return_failure", "producer_failure", "nested_producer_failure", "accept", "negative_return", "defaulted", "list_defaulted", "map_defaulted", "record_defaulted", "tag_failure", "error_failure", "method_list_failure", "method_map_failure", "method_fallback_failure", "method_map_push_failure", "inferred_if_failure", "inferred_match_failure", "builtin_creation_failure", "branch_creation_failure"] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            assert!(
+                FullVerifier::verify(&malformed).is_err(),
+                "checked value types must refer to the semantic pool"
+            );
+            for name in [
+                "scalar_failure",
+                "compound_failure",
+                "record_failure",
+                "list_failure",
+                "map_failure",
+                "append_failure",
+                "valid_updates",
+                "argument_failure",
+                "return_failure",
+                "tail_failure",
+                "default_failure",
+                "list_default_failure",
+                "list_return_failure",
+                "map_return_failure",
+                "record_return_failure",
+                "list_argument_failure",
+                "map_argument_failure",
+                "record_argument_failure",
+                "map_default_failure",
+                "record_default_failure",
+                "result_return_failure",
+                "producer_failure",
+                "nested_producer_failure",
+                "accept",
+                "negative_return",
+                "defaulted",
+                "list_defaulted",
+                "map_defaulted",
+                "record_defaulted",
+                "tag_failure",
+                "error_failure",
+                "method_list_failure",
+                "method_map_failure",
+                "method_fallback_failure",
+                "method_map_push_failure",
+                "inferred_if_failure",
+                "inferred_match_failure",
+                "builtin_creation_failure",
+                "branch_creation_failure",
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let args = if matches!(name, "argument_failure" | "return_failure" | "list_return_failure" | "map_return_failure" | "record_return_failure" | "list_argument_failure" | "map_argument_failure" | "record_argument_failure" | "result_return_failure" | "producer_failure" | "nested_producer_failure" | "accept" | "negative_return" | "tag_failure" | "error_failure" | "method_list_failure" | "method_map_failure" | "method_fallback_failure" | "method_map_push_failure" | "inferred_if_failure" | "inferred_match_failure" | "builtin_creation_failure" | "branch_creation_failure") { vec![Value::Int(-1)] } else { Vec::new() };
-                let kind = if matches!(name, "producer_failure" | "nested_producer_failure") { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure };
-                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, name)), kind, &args, Span::new(program.store.source_id, 0, 0)).expect("UInt function exists");
-                if name == "valid_updates" { assert_eq!(result.unwrap(), Value::Int(8)); }
-                else {
+                let args = if matches!(
+                    name,
+                    "argument_failure"
+                        | "return_failure"
+                        | "list_return_failure"
+                        | "map_return_failure"
+                        | "record_return_failure"
+                        | "list_argument_failure"
+                        | "map_argument_failure"
+                        | "record_argument_failure"
+                        | "result_return_failure"
+                        | "producer_failure"
+                        | "nested_producer_failure"
+                        | "accept"
+                        | "negative_return"
+                        | "tag_failure"
+                        | "error_failure"
+                        | "method_list_failure"
+                        | "method_map_failure"
+                        | "method_fallback_failure"
+                        | "method_map_push_failure"
+                        | "inferred_if_failure"
+                        | "inferred_match_failure"
+                        | "builtin_creation_failure"
+                        | "branch_creation_failure"
+                ) {
+                    vec![Value::Int(-1)]
+                } else {
+                    Vec::new()
+                };
+                let kind = if matches!(name, "producer_failure" | "nested_producer_failure") {
+                    LoweredFunctionKind::Proc
+                } else {
+                    LoweredFunctionKind::Pure
+                };
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        kind,
+                        &args,
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("UInt function exists");
+                if name == "valid_updates" {
+                    assert_eq!(result.unwrap(), Value::Int(8));
+                } else {
                     let error = result.unwrap_err();
                     assert_eq!(error.kind, "type-error", "{name}");
-                    assert!(error.message.contains("UInt") || error.message.contains("UnsignedRow"), "{name}: {}", error.message);
+                    assert!(
+                        error.message.contains("UInt") || error.message.contains("UnsignedRow"),
+                        "{name}: {}",
+                        error.message
+                    );
                 }
             }
         });
@@ -9360,7 +10408,14 @@ pure selected() -> Str {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("typed Map function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("typed Map function exists");
             assert_eq!(result.unwrap(), Value::Int(13));
         });
     }
@@ -9376,22 +10431,34 @@ pure selected() -> Str {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             for (name, text, index, expected) in [
-                ("nullable", "é", 0, Value::Int(195)), ("nullable", "é", 2, Value::Null),
-                ("nullable", "é", -1, Value::Null), ("sentinel", "é", 0, Value::Int(195)),
-                ("sentinel", "é", 2, Value::Int(-1)), ("find", ":x", 0, Value::Int(0)),
-                ("find", "é:x", 0, Value::Int(2)), ("find", "é:x", 3, Value::Null),
+                ("nullable", "é", 0, Value::Int(195)),
+                ("nullable", "é", 2, Value::Null),
+                ("nullable", "é", -1, Value::Null),
+                ("sentinel", "é", 0, Value::Int(195)),
+                ("sentinel", "é", 2, Value::Int(-1)),
+                ("find", ":x", 0, Value::Int(0)),
+                ("find", "é:x", 0, Value::Int(2)),
+                ("find", "é:x", 3, Value::Null),
             ] {
                 let args = [Value::Str(Arc::from(text)), Value::Int(index)];
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &args,
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("lookup function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &args,
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("lookup function exists");
                 assert_eq!(result.unwrap(), expected, "{name} index {index}");
             }
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "present")), LoweredFunctionKind::Pure, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("present function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "present")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("present function exists");
             assert_eq!(result.unwrap(), Value::Null);
         });
     }
@@ -9401,10 +10468,21 @@ pure selected() -> Str {
         run_with_large_stack(|| {
             let source = "pure counts() -> Int {\n  let source: Map[Int] = {beta: 3}\n  let values: Map[Int] = {[\"alpha\"]: 1, alpha: 2, ...source}\n  return (values.get(\"alpha\") ?? 0) + (values.get(\"beta\") ?? 0)\n}\n";
             let program = fixture("computed-map.xsh", source);
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprMapLiteral).expect("Map literal instruction");
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprMapLiteral)
+                .expect("Map literal instruction");
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
-            let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let entries = program.store.blocks[block.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut bad_flag = program.clone();
             bad_flag.store.extra[entries.start + 1] = 2;
             assert!(FullVerifier::verify(&bad_flag).is_err());
@@ -9414,10 +10492,14 @@ pure selected() -> Str {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("Map function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("Map function exists");
             assert_eq!(result.unwrap(), Value::Int(5));
         });
     }
@@ -9425,15 +10507,32 @@ pure selected() -> Str {
     #[test]
     fn list_assignment_verifies_paths_and_executes_both_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-assignment.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/list-assignment.xsh");
             let program = fixture("list-assignment.xsh", source);
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssignPath).unwrap();
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::StmtAssignPath)
+                .unwrap();
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
-            let steps = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let steps = program.store.blocks[block.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut malformed = program.clone();
             malformed.store.extra[steps.start + 1] = u32::MAX;
-            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("assignment path step"));
+            assert!(
+                FullVerifier::verify(&malformed)
+                    .unwrap_err()
+                    .message
+                    .contains("assignment path step")
+            );
             let mut bad_index = program.clone();
             bad_index.store.extra[steps.start + 2] = u32::MAX;
             assert!(FullVerifier::verify(&bad_index).is_err());
@@ -9443,10 +10542,14 @@ pure selected() -> Str {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "updated")),
-                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("assignment function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "updated")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("assignment function exists");
             assert_eq!(result.unwrap(), Value::Int(16));
         });
     }
@@ -9456,23 +10559,43 @@ pure selected() -> Str {
         run_with_large_stack(|| {
             let source = "pure spliced() -> Int {\n  let middle = [2, 3]\n  let result = [1, @[], @middle, 4]\n  return result[0] + result[3]\n}\n";
             let program = fixture("list-splicing.xsh", source);
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListBuild).expect("mixed list instruction");
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprListBuild)
+                .expect("mixed list instruction");
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
-            let elements = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let elements = program.store.blocks[block.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut malformed = program.clone();
             malformed.store.extra[elements.start + 1] = 2;
-            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("boolean payload"));
+            assert!(
+                FullVerifier::verify(&malformed)
+                    .unwrap_err()
+                    .message
+                    .contains("boolean payload")
+            );
             let mut bad_child = program.clone();
             bad_child.store.extra[elements.start + 2] = u32::MAX;
             assert!(FullVerifier::verify(&bad_child).is_err());
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "spliced")),
-                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("splice function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "spliced")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("splice function exists");
             assert_eq!(result.unwrap(), Value::Int(5));
         });
     }
@@ -9480,9 +10603,20 @@ pure selected() -> Str {
     #[test]
     fn try_capture_verifies_body_ownership_and_preserves_result_data_on_both_routes() {
         run_with_large_stack(|| {
-            let program = fixture("try-capture.xsh", "proc capture() [error] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n");
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCapture).expect("capture instruction");
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let program = fixture(
+                "try-capture.xsh",
+                "proc capture() [error] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n",
+            );
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprCapture)
+                .expect("capture instruction");
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut missing_body = program.clone();
             missing_body.store.extra[payload.start] = u32::MAX;
             assert!(FullVerifier::verify(&missing_body).is_err());
@@ -9493,11 +10627,20 @@ pure selected() -> Str {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
-                &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("capture function exists");
-            assert_eq!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "capture")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("capture function exists");
+            assert_eq!(
+                result.unwrap(),
+                Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(
+                    Value::Int(7)
+                )))
+            );
         });
     }
 
@@ -9516,9 +10659,21 @@ proc configured() [] -> Int {
 }
 "#;
             let program = fixture("stage-named-configuration.xsh", source);
-            for (tag, configuration_offset) in [(FullStageTag::BatchLimits, 0), (FullStageTag::ReduceByConfigured, 3), (FullStageTag::TablePrintConfigured, 0)] {
-                let stage = program.store.stages.iter().position(|actual| *actual == tag).expect("configured stage opcode");
-                let payload = program.store.stage_data[stage].range().bounds(program.store.extra.len()).unwrap();
+            for (tag, configuration_offset) in [
+                (FullStageTag::BatchLimits, 0),
+                (FullStageTag::ReduceByConfigured, 3),
+                (FullStageTag::TablePrintConfigured, 0),
+            ] {
+                let stage = program
+                    .store
+                    .stages
+                    .iter()
+                    .position(|actual| *actual == tag)
+                    .expect("configured stage opcode");
+                let payload = program.store.stage_data[stage]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap();
                 let mut malformed = program.clone();
                 malformed.store.extra[payload.start + configuration_offset] = u32::MAX;
                 assert!(FullVerifier::verify(&malformed).is_err());
@@ -9526,12 +10681,20 @@ proc configured() [] -> Int {
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "configured")),
-                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("configuration function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "configured")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("configuration function exists");
             assert_eq!(result.unwrap(), Value::Int(5));
-            assert!(String::from_utf8(evaluator.stdout.clone()).unwrap().contains("row"));
+            assert!(
+                String::from_utf8(evaluator.stdout.clone())
+                    .unwrap()
+                    .contains("row")
+            );
         });
     }
 
@@ -9539,11 +10702,24 @@ proc configured() [] -> Int {
     fn core_assert_verifier_rejects_invalid_message_presence_and_expression() {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
         let program = fixture("assert.xsh", source);
-        let assertion = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssert).unwrap();
-        let payload = program.store.data[assertion].range().bounds(program.store.extra.len()).unwrap();
+        let assertion = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::StmtAssert)
+            .unwrap();
+        let payload = program.store.data[assertion]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut invalid_presence = program.clone();
         invalid_presence.store.extra[payload.start + 1] = 2;
-        assert!(FullVerifier::verify(&invalid_presence).unwrap_err().message.contains("optional payload"));
+        assert!(
+            FullVerifier::verify(&invalid_presence)
+                .unwrap_err()
+                .message
+                .contains("optional payload")
+        );
         let mut invalid_message = program.clone();
         invalid_message.store.extra[payload.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&invalid_message).is_err());
@@ -9557,19 +10733,32 @@ proc configured() [] -> Int {
         run_with_large_stack(|| {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
             let program = Arc::new(fixture("assert.xsh", source));
-            for (name, detail) in [("passes", None), ("fails", Some("1 == 2")), ("chain_fails", Some("3 < 2")), ("short_circuit_fails", Some("right operand skipped"))] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            for (name, detail) in [
+                ("passes", None),
+                ("fails", Some("1 == 2")),
+                ("chain_fails", Some("3 < 2")),
+                ("short_circuit_fails", Some("right operand skipped")),
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)),
-                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("assertion function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("assertion function exists");
                 if let Some(detail) = detail {
                     // Assertion failures propagate as ordinary Result errors.
-                    let Ok(Value::Result(crate::runtime::value::ResultValue::Err(error))) = result else {
+                    let Ok(Value::Result(crate::runtime::value::ResultValue::Err(error))) = result
+                    else {
                         panic!("false assertion propagates an error: {result:?}");
                     };
-                    let Value::Error(error) = *error else { panic!("assertion error payload: {error:?}") };
+                    let Value::Error(error) = *error else {
+                        panic!("assertion error payload: {error:?}")
+                    };
                     assert_eq!(error.family, "AssertionError");
                     assert_eq!(error.variant, "Failed");
                     assert_eq!(error.kind, "AssertionError.Failed");
@@ -9585,35 +10774,65 @@ proc configured() [] -> Int {
 
     #[test]
     fn comparison_chain_verifier_rejects_short_chains_and_non_ordering_pairs() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
         let program = fixture("comparison-chain.xsh", source);
-        let chain = program.store.tags.iter().position(|tag| *tag == FullTag::ExprComparisonChain).unwrap();
-        let payload = program.store.data[chain].range().bounds(program.store.extra.len()).unwrap();
+        let chain = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::ExprComparisonChain)
+            .unwrap();
+        let payload = program.store.data[chain]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
-        let pairs = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let pairs = program.store.blocks[block.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut short = program.clone();
         short.store.extra[pairs.start] = 1;
-        assert!(FullVerifier::verify(&short).unwrap_err().message.contains("at least two pairs"));
+        assert!(
+            FullVerifier::verify(&short)
+                .unwrap_err()
+                .message
+                .contains("at least two pairs")
+        );
         let first_pair = program.store.extra[pairs.start + 1] as usize;
-        let pair_payload = program.store.data[first_pair].range().bounds(program.store.extra.len()).unwrap();
+        let pair_payload = program.store.data[first_pair]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
         let mut mixed = program;
         let op = mixed.store.extra[pair_payload.start] as usize;
         mixed.store.binary_ops[op] = BinaryOp::Eq;
-        assert!(FullVerifier::verify(&mixed).unwrap_err().message.contains("ordering operators"));
+        assert!(
+            FullVerifier::verify(&mixed)
+                .unwrap_err()
+                .message
+                .contains("ordering operators")
+        );
     }
 
     #[test]
     fn record_proof_precise_types_and_unreachable_fallback_survive_frontend_drop() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/proof-provenance.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/proof-provenance.xsh");
             let program = Arc::new(fixture("proof-provenance.xsh", source));
             FullVerifier::verify(&program).unwrap();
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "verified")),
-                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-            ).expect("proof function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "verified")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("proof function exists");
             assert_eq!(result.unwrap(), Value::Str("ready".into()));
         });
     }
@@ -9621,33 +10840,57 @@ proc configured() [] -> Int {
     #[test]
     fn duration_arithmetic_retains_checked_operands_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/duration-arithmetic.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/duration-arithmetic.xsh");
             let program = Arc::new(fixture("duration-arithmetic.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            let duration = |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
+            let duration =
+                |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
             for (name, args, expected) in [
-                ("intervals", vec![duration(7000), duration(2000)], Value::Int(3)),
+                (
+                    "intervals",
+                    vec![duration(7000), duration(2000)],
+                    Value::Int(3),
+                ),
                 ("pause", vec![duration(250), Value::Int(3)], duration(751)),
             ] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                    &args, Span::new(program.store.source_id, 0, 0),
-                ).expect("Duration function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &args,
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("Duration function exists");
                 assert_eq!(result.unwrap(), expected);
             }
             for (name, code, expression) in [
                 ("underflow", "duration-underflow", "0ms - 1ms"),
-                ("overflow", "duration-overflow", "18446744073709551615ms + 1ms"),
-                ("count_overflow", "integer-overflow", "18446744073709551615ms / 1ms"),
+                (
+                    "overflow",
+                    "duration-overflow",
+                    "18446744073709551615ms + 1ms",
+                ),
+                (
+                    "count_overflow",
+                    "integer-overflow",
+                    "18446744073709551615ms / 1ms",
+                ),
             ] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                    &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("Duration function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("Duration function exists");
                 let error = result.expect_err("checked arithmetic failure");
                 assert_eq!(error.kind, code);
                 assert_eq!(&source[error.span.unwrap().range()], expression);
@@ -9660,17 +10903,35 @@ proc configured() [] -> Int {
         run_with_large_stack(|| {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/wire-enums.xsh");
             let program = Arc::new(fixture("wire-enums.xsh", source));
-            assert_eq!(program.store.wire_enums.len(), 1, "constructors share one declaring mapping");
+            assert_eq!(
+                program.store.wire_enums.len(),
+                1,
+                "constructors share one declaring mapping"
+            );
             FullVerifier::verify(&program).unwrap();
             let mut malformed = (*program).clone();
-            Arc::make_mut(&mut malformed.store.wire_enums[0]).variants.insert(program_name(&program, "Duplicate"), Arc::from("ready"));
-            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("duplicate strings"));
+            Arc::make_mut(&mut malformed.store.wire_enums[0])
+                .variants
+                .insert(program_name(&program, "Duplicate"), Arc::from("ready"));
+            assert!(
+                FullVerifier::verify(&malformed)
+                    .unwrap_err()
+                    .message
+                    .contains("duplicate strings")
+            );
             let mut missing = (*program).clone();
             missing.store.wire_enums.clear();
             assert!(FullVerifier::verify(&missing).is_err());
             let mut mismatched = (*program).clone();
-            mismatched.store.prepared_schemas[0] = Arc::new(super::super::super::require::PreparedSchema::Validate(Type::Int));
-            assert!(FullVerifier::verify(&mismatched).unwrap_err().message.contains("does not match"));
+            mismatched.store.prepared_schemas[0] = Arc::new(
+                super::super::super::require::PreparedSchema::Validate(Type::Int),
+            );
+            assert!(
+                FullVerifier::verify(&mismatched)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
             let mut missing_schema = (*program).clone();
             missing_schema.store.prepared_schemas.clear();
             assert!(FullVerifier::verify(&missing_schema).is_err());
@@ -9682,38 +10943,82 @@ proc configured() [] -> Int {
                         *mapping.variants.values_mut().next().unwrap() = Arc::from("different");
                         true
                     }
-                    PreparedSchema::Record(fields) => fields.iter_mut().any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
-                    PreparedSchema::List(schema) | PreparedSchema::Map(_, schema) | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    PreparedSchema::Record(fields) => fields
+                        .iter_mut()
+                        .any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
+                    PreparedSchema::List(schema)
+                    | PreparedSchema::Map(_, schema)
+                    | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
                     PreparedSchema::Validate(_) => false,
                 }
             }
             let mut contradictory = (*program).clone();
-            assert!(change_mapping(Arc::make_mut(&mut contradictory.store.prepared_schemas[0])));
-            assert!(FullVerifier::verify(&contradictory).is_err(), "schema and constructor mappings must agree");
+            assert!(change_mapping(Arc::make_mut(
+                &mut contradictory.store.prepared_schemas[0]
+            )));
+            assert!(
+                FullVerifier::verify(&contradictory).is_err(),
+                "schema and constructor mappings must agree"
+            );
             let mut duplicate = (*program).clone();
-            duplicate.store.wire_enums.push(duplicate.store.wire_enums[0].clone());
-            assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("multiple mappings"));
+            duplicate
+                .store
+                .wire_enums
+                .push(duplicate.store.wire_enums[0].clone());
+            assert!(
+                FullVerifier::verify(&duplicate)
+                    .unwrap_err()
+                    .message
+                    .contains("multiple mappings")
+            );
             let mut changed_constant = (*program).clone();
-            let tag = changed_constant.store.prepared_constants.iter_mut().find_map(|value| match &mut value.0 {
-                LoweredValue::Tag(tag) if tag.wire.is_some() => Some(tag),
-                _ => None,
-            }).expect("prepared enum constant");
-            *Arc::make_mut(tag.wire.as_mut().unwrap()).variants.values_mut().next().unwrap() = Arc::from("forged");
-            assert!(FullVerifier::verify(&changed_constant).unwrap_err().message.contains("contradictory"));
+            let tag = changed_constant
+                .store
+                .prepared_constants
+                .iter_mut()
+                .find_map(|value| match &mut value.0 {
+                    LoweredValue::Tag(tag) if tag.wire.is_some() => Some(tag),
+                    _ => None,
+                })
+                .expect("prepared enum constant");
+            *Arc::make_mut(tag.wire.as_mut().unwrap())
+                .variants
+                .values_mut()
+                .next()
+                .unwrap() = Arc::from("forged");
+            assert!(
+                FullVerifier::verify(&changed_constant)
+                    .unwrap_err()
+                    .message
+                    .contains("contradictory")
+            );
             let raw = "{\"state\":\"ready\",\"values\":[\"\"],\"optional\":null}";
             for (name, arguments, expected) in [
                 ("wire_direct", Vec::new(), "\"ready\""),
                 ("wire_prepared", Vec::new(), "\"ready\""),
                 ("wire_typed_map", Vec::new(), "[\"ready\",\"\"]"),
-                ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
-                ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
+                (
+                    "wire_round_trip",
+                    vec![Value::Str(Arc::from(raw))],
+                    "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}",
+                ),
+                (
+                    "wire_nested",
+                    vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))],
+                    "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}",
+                ),
             ] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                    &arguments, Span::new(program.store.source_id, 0, 0),
-                ).expect("wire enum function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &arguments,
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("wire enum function exists");
                 assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
             }
         });
@@ -9722,18 +11027,41 @@ proc configured() [] -> Int {
     #[test]
     fn inferred_require_targets_survive_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/inferred-require.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/inferred-require.xsh");
             let program = Arc::new(fixture("inferred-require.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            assert_eq!(program.store.prepared_schemas.iter().filter(|schema| matches!(schema.as_ref(), super::super::super::require::PreparedSchema::Record(_))).count(), 1, "both validation sites share the same checked record schema: {:?}", program.store.prepared_schemas);
+            assert_eq!(
+                program
+                    .store
+                    .prepared_schemas
+                    .iter()
+                    .filter(|schema| matches!(
+                        schema.as_ref(),
+                        super::super::super::require::PreparedSchema::Record(_)
+                    ))
+                    .count(),
+                1,
+                "both validation sites share the same checked record schema: {:?}",
+                program.store.prepared_schemas
+            );
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let raw = program.symbols.with_current(|| Value::Record(BTreeMap::from([(Arc::from("jobs"), Value::Int(4))]).into()));
+            let raw = program.symbols.with_current(|| {
+                Value::Record(BTreeMap::from([(Arc::from("jobs"), Value::Int(4))]).into())
+            });
             let arguments = vec![raw];
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "inferred_requirement_via_parameter")), LoweredFunctionKind::Pure,
-                &arguments, Span::new(program.store.source_id, 0, 0),
-            ).expect("prepared function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(
+                        &program,
+                        "inferred_requirement_via_parameter",
+                    )),
+                    LoweredFunctionKind::Pure,
+                    &arguments,
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("prepared function exists");
             assert_eq!(result.unwrap(), Value::ok(Value::Int(4)));
         });
     }
@@ -9848,10 +11176,19 @@ proc configured() [] -> Int {
     #[test]
     fn yield_delegation_verifies_operands_and_preserves_nominal_error_payload() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/yield-delegation.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/yield-delegation.xsh");
             let program = fixture("yield-delegation.xsh", source);
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::StmtYieldDelegate).unwrap();
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::StmtYieldDelegate)
+                .unwrap();
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut malformed = program.clone();
             malformed.store.extra[payload.start] = u32::MAX;
             assert!(FullVerifier::verify(&malformed).is_err());
@@ -9860,17 +11197,31 @@ proc configured() [] -> Int {
             assert!(FullVerifier::verify(&malformed).is_err());
             let program = Arc::new(program);
             program.symbol_owner().with_current(|| {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
                 let span = Span::new(program.store.source_id, 0, 0);
-                let value = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "parent")), LoweredFunctionKind::Pure, &[], span,
-                ).expect("producer function").expect("producer creation");
-                let Value::Stream(mut stream) = value else { panic!("producer returns stream"); };
+                let value = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "parent")),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        span,
+                    )
+                    .expect("producer function")
+                    .expect("producer creation");
+                let Value::Stream(mut stream) = value else {
+                    panic!("producer returns stream");
+                };
                 for expected in [1, 2, 3] {
-                    assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(expected)));
+                    assert_eq!(
+                        evaluator.stream_next(&mut stream, span).unwrap(),
+                        Some(Value::Int(expected))
+                    );
                 }
-                let error = evaluator.stream_next(&mut stream, span).expect_err("late delegated error");
+                let error = evaluator
+                    .stream_next(&mut stream, span)
+                    .expect_err("late delegated error");
                 assert_eq!(error.family, "RowsError");
                 assert_eq!(error.variant, "Late");
                 assert_eq!(error.payload.get("row"), Some(&Value::Int(4)));
@@ -9883,7 +11234,9 @@ proc configured() [] -> Int {
     #[test]
     fn accept_policy_operands_are_verified_on_capture_spawn_and_command_rows() {
         run_with_large_stack(|| {
-            let program = fixture("accept-policy-rows.xsh", r#"
+            let program = fixture(
+                "accept-policy-rows.xsh",
+                r#"
 proc checked() [process, error] {
   let text = run.text --accept=[0,1] sh -c "exit 1" ?
   let child = spawn run --accept=[0,1] sh -c "exit 1" ?
@@ -9891,12 +11244,29 @@ proc checked() [process, error] {
   print $text $child.pid
   let status = process.run(command)?
 }
-"#);
+"#,
+            );
             FullVerifier::verify(&program).unwrap();
-            for (tag, value_offset) in [(FullTag::ExprRunCapture, 4), (FullTag::ExprSpawnRun, 2), (FullTag::ExprProcessCommandArgv, 2)] {
-                let instruction = program.store.tags.iter().position(|actual| *actual == tag).expect("process row");
-                let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
-                assert_eq!(program.store.extra[payload.end - value_offset - 1], 1, "policy is present");
+            for (tag, value_offset) in [
+                (FullTag::ExprRunCapture, 4),
+                (FullTag::ExprSpawnRun, 2),
+                (FullTag::ExprProcessCommandArgv, 2),
+            ] {
+                let instruction = program
+                    .store
+                    .tags
+                    .iter()
+                    .position(|actual| *actual == tag)
+                    .expect("process row");
+                let payload = program.store.data[instruction]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap();
+                assert_eq!(
+                    program.store.extra[payload.end - value_offset - 1],
+                    1,
+                    "policy is present"
+                );
                 let mut invalid_value = program.clone();
                 invalid_value.store.extra[payload.end - value_offset] = u32::MAX;
                 assert!(FullVerifier::verify(&invalid_value).is_err());
@@ -9914,46 +11284,90 @@ proc checked() [process, error] {
         let symbols = crate::symbol::SymbolOwner::default();
         let _symbols = symbols.enter();
         let mut leaf = RuntimeError::new("inner", "resource payload");
-        leaf.payload = crate::runtime::value::RecordMap::from([("job".into(),
-            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7 })))]);
+        leaf.payload = crate::runtime::value::RecordMap::from([(
+            "job".into(),
+            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7 })),
+        )]);
         let mut chain = Value::Error(Box::new(leaf));
         for _ in 0..100_000 {
             chain = Value::Error(Box::new(RuntimeError::new("outer", "translation")))
-                .with_error_cause(chain).unwrap();
+                .with_error_cause(chain)
+                .unwrap();
         }
         let process = Value::RunError(Box::new(crate::runtime::value::RunError::from_status(
-            crate::runtime::process::ProcessStatus::exited(7))))
-            .with_error_cause(chain).unwrap();
+            crate::runtime::process::ProcessStatus::exited(7),
+        )))
+        .with_error_cause(chain)
+        .unwrap();
         let shared = Value::List(vec![process.clone(), process]);
         assert!(Evaluator::context_scope_runtime_value_escapes(&shared));
-        assert!(Evaluator::context_scope_value_escapes(&LoweredValue::ResultErr(Box::new(shared))));
+        assert!(Evaluator::context_scope_value_escapes(
+            &LoweredValue::ResultErr(Box::new(shared))
+        ));
     }
 
     #[test]
     fn context_scope_command_capture_tails_execute_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/context-scope-capture-tails.xsh");
+            let source = include_str!(
+                "../../../../tests/fixtures/frontend-indexed/context-scope-capture-tails.xsh"
+            );
             let program = Arc::new(fixture("context-scope-capture-tails.xsh", source));
             FullVerifier::verify(&program).unwrap();
             for (name, expected, stdout) in [
-                ("text_tail", Some(Value::ok(Value::Str(Arc::from("text")))), b"".as_slice()),
-                ("bytes_tail", Some(Value::ok(Value::Bytes(b"bytes".to_vec()))), b"bytes\n".as_slice()),
-                ("record_tail", Some(Value::ok(Value::Str(Arc::from("record")))), b"".as_slice()),
-                ("nested_tail", Some(Value::ok(Value::ok(Value::Str(Arc::from("nested"))))), b"".as_slice()),
-                ("discarded_tail", Some(Value::ok(Value::Unit)), b"".as_slice()),
+                (
+                    "text_tail",
+                    Some(Value::ok(Value::Str(Arc::from("text")))),
+                    b"".as_slice(),
+                ),
+                (
+                    "bytes_tail",
+                    Some(Value::ok(Value::Bytes(b"bytes".to_vec()))),
+                    b"bytes\n".as_slice(),
+                ),
+                (
+                    "record_tail",
+                    Some(Value::ok(Value::Str(Arc::from("record")))),
+                    b"".as_slice(),
+                ),
+                (
+                    "nested_tail",
+                    Some(Value::ok(Value::ok(Value::Str(Arc::from("nested"))))),
+                    b"".as_slice(),
+                ),
+                (
+                    "discarded_tail",
+                    Some(Value::ok(Value::Unit)),
+                    b"".as_slice(),
+                ),
                 ("failed_tail", None, b"".as_slice()),
             ] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                    .with_env_var(b"XSH_CAPTURE_TAIL".to_vec(), b"outer".to_vec());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                        .with_env_var(b"XSH_CAPTURE_TAIL".to_vec(), b"outer".to_vec());
                 let original_cwd = evaluator.cwd.clone();
                 let original_env = evaluator.env.snapshot_clone();
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Proc, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("capture tail fixture function exists").unwrap();
-                if let Some(expected) = expected { assert_eq!(result, expected, "{name}"); }
-                else { assert!(matches!(result, Value::Result(crate::runtime::value::ResultValue::Err(_))), "{name}: {result:?}"); }
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Proc,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("capture tail fixture function exists")
+                    .unwrap();
+                if let Some(expected) = expected {
+                    assert_eq!(result, expected, "{name}");
+                } else {
+                    assert!(
+                        matches!(
+                            result,
+                            Value::Result(crate::runtime::value::ResultValue::Err(_))
+                        ),
+                        "{name}: {result:?}"
+                    );
+                }
                 assert_eq!(evaluator.stdout, stdout, "{name}");
                 assert_eq!(evaluator.cwd, original_cwd, "{name}");
                 assert_eq!(evaluator.env.snapshot_clone(), original_env, "{name}");
@@ -9980,16 +11394,24 @@ proc local() [env, error] -> Int {
                 .with_env_var(b"XSH_SCOPE_ASSIGNMENT".to_vec(), b"outer".to_vec());
             let original_env = evaluator.env.snapshot_clone();
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("scope function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "scoped")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("scope function exists");
             assert_eq!(result.unwrap_err().kind, "context-scope-escape");
             assert_eq!(evaluator.env.snapshot_clone(), original_env);
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "local")), LoweredFunctionKind::Proc, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("scope function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "local")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("scope function exists");
             assert_eq!(result.unwrap(), Value::Int(7));
             assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
@@ -10014,10 +11436,14 @@ proc scoped() [io, error] -> Int {
             let original_cwd = evaluator.cwd.clone();
             let original_env = evaluator.env.snapshot_clone();
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("scope function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "scoped")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("scope function exists");
             assert!(result.unwrap_err().abort.is_some_and(|signal| signal.force));
             assert_eq!(evaluator.cwd, original_cwd);
             assert_eq!(evaluator.env.snapshot_clone(), original_env);
@@ -10029,8 +11455,16 @@ proc scoped() [io, error] -> Int {
         run_with_large_stack(|| {
             let source = "proc selected(value: Path) [env, error] -> Result[Int] { env ({XSH_NATIVE_SCOPE: value}) { 7 } }\n";
             let program = fixture("context-scope-native.xsh", source);
-            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprContextScope).expect("scope instruction");
-            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprContextScope)
+                .expect("scope instruction");
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
             let mut bad_kind = program.clone();
             bad_kind.store.extra[payload.start] = 2;
             assert!(FullVerifier::verify(&bad_kind).is_err());
@@ -10043,10 +11477,14 @@ proc scoped() [io, error] -> Int {
             let original_env = evaluator.env.snapshot_clone();
             evaluator.indexed_program = Some(Arc::clone(&program));
             let argument = Value::Path(PathValue::new(b"raw\xfe name".to_vec()).unwrap());
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, std::slice::from_ref(&argument),
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("scope function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")),
+                    LoweredFunctionKind::Proc,
+                    std::slice::from_ref(&argument),
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("scope function exists");
             assert!(result.is_ok(), "{result:?}");
             assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
@@ -10069,10 +11507,14 @@ proc scoped() [io, error] -> Int {
             let original_cwd = evaluator.cwd.clone();
             let original_env = evaluator.env.snapshot_clone();
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "fatal")), LoweredFunctionKind::Proc, &[],
-                Span::new(program.store.source_id, 0, 0),
-            ).expect("scope function exists");
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "fatal")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("scope function exists");
             assert!(result.unwrap_err().abort.is_none());
             assert_eq!(evaluator.cwd, original_cwd);
             assert_eq!(evaluator.env.snapshot_clone(), original_env);
@@ -10082,44 +11524,86 @@ proc scoped() [io, error] -> Int {
     #[test]
     fn default_parameter_calls_preserve_both_indexed_execution_routes_after_frontend_drop() {
         run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
+            let source =
+                include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
             let program = Arc::new(fixture("default-parameters.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9), ("alias_default", 4), ("alias_named", 11)] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            for (name, expected) in [
+                ("choose", 4),
+                ("nested", 5),
+                ("supplied", 9),
+                ("alias_default", 4),
+                ("alias_named", 11),
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                    &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("defaulted function exists");
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("defaulted function exists");
                 assert_eq!(result.unwrap(), Value::Int(expected));
             }
             for (name, succeeds) in [("caught", false), ("skipped", true)] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                 evaluator.indexed_program = Some(Arc::clone(&program));
-                let result = evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                    &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("defaulted Result function exists");
-                assert!(matches!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(_))) == succeeds);
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("defaulted Result function exists");
+                assert!(
+                    matches!(
+                        result.unwrap(),
+                        Value::Result(crate::runtime::value::ResultValue::Ok(_))
+                    ) == succeeds
+                );
             }
         });
     }
 
     #[test]
     fn default_parameter_verifier_rejects_missing_or_inconsistent_entry_metadata() {
-        let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
+        let source =
+            include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
         let program = fixture("default-parameters.xsh", source);
-        let parameter = program.store.params.iter().position(|param| param.flags & 4 != 0).unwrap();
+        let parameter = program
+            .store
+            .params
+            .iter()
+            .position(|param| param.flags & 4 != 0)
+            .unwrap();
         let mut missing_default = program.clone();
         missing_default.store.params[parameter].flags &= !2;
-        assert!(FullVerifier::verify(&missing_default).unwrap_err().message.contains("non-rest defaulted parameter entry"));
+        assert!(
+            FullVerifier::verify(&missing_default)
+                .unwrap_err()
+                .message
+                .contains("non-rest defaulted parameter entry")
+        );
         let mut inconsistent_entry = program.clone();
         inconsistent_entry.store.params[parameter].flags &= !4;
-        assert!(FullVerifier::verify(&inconsistent_entry).unwrap_err().message.contains("entry does not match"));
+        assert!(
+            FullVerifier::verify(&inconsistent_entry)
+                .unwrap_err()
+                .message
+                .contains("entry does not match")
+        );
         let mut rest_default = program;
         rest_default.store.params[parameter].flags |= 1;
-        assert!(FullVerifier::verify(&rest_default).unwrap_err().message.contains("non-rest defaulted parameter entry"));
+        assert!(
+            FullVerifier::verify(&rest_default)
+                .unwrap_err()
+                .message
+                .contains("non-rest defaulted parameter entry")
+        );
     }
-
 }

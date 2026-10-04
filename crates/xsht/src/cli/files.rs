@@ -328,8 +328,10 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         return LintConfig::default();
     };
     LintConfig {
-        prefer_inferred_pure_returns: ini_string(lint, "prefer-inferred-pure-returns").is_some_and(|value| value == "true"),
-        prefer_inferred_private_effects: ini_string(lint, "prefer-inferred-private-effects").is_some_and(|value| value == "true"),
+        prefer_inferred_pure_returns: ini_string(lint, "prefer-inferred-pure-returns")
+            .is_some_and(|value| value == "true"),
+        prefer_inferred_private_effects: ini_string(lint, "prefer-inferred-private-effects")
+            .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
 }
@@ -578,11 +580,26 @@ mod tests {
         let root = temp_root("private-proc-effects-config");
         let path = root.join("xsht-config.ini");
         fs::write(&path, "[lint]\nprefer-inferred-private-effects = true\n").unwrap();
-        assert!(load_config_from(&path).unwrap().lint.prefer_inferred_private_effects);
+        assert!(
+            load_config_from(&path)
+                .unwrap()
+                .lint
+                .prefer_inferred_private_effects
+        );
         fs::write(&path, "[lint]\nprefer-inferred-private-effects = false\n").unwrap();
-        assert!(!load_config_from(&path).unwrap().lint.prefer_inferred_private_effects);
+        assert!(
+            !load_config_from(&path)
+                .unwrap()
+                .lint
+                .prefer_inferred_private_effects
+        );
         fs::write(&path, "[lint]\n").unwrap();
-        assert!(!load_config_from(&path).unwrap().lint.prefer_inferred_private_effects);
+        assert!(
+            !load_config_from(&path)
+                .unwrap()
+                .lint
+                .prefer_inferred_private_effects
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

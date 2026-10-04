@@ -79,7 +79,9 @@ pub(super) fn ok_unit() -> Value {
 }
 
 pub(super) fn io_error(kind: &str, error: io::Error, span: Span) -> Value {
-    Value::err(Value::Error(Box::new(RuntimeError::host(kind, &error).with_span(span))))
+    Value::err(Value::Error(Box::new(
+        RuntimeError::host(kind, &error).with_span(span),
+    )))
 }
 
 pub(super) fn error_value(kind: &str, message: impl Into<String>, span: Span) -> Value {

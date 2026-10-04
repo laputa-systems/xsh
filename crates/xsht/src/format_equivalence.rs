@@ -29,8 +29,12 @@ pub(super) struct Canonical {
 impl Canonical {
     /// Source offset of the innermost node whose canonical text contains `index`.
     pub fn source_offset_at(&self, index: usize) -> Option<usize> {
-        let position = self.marks.partition_point(|&(text_index, _)| text_index <= index);
-        position.checked_sub(1).map(|position| self.marks[position].1)
+        let position = self
+            .marks
+            .partition_point(|&(text_index, _)| text_index <= index);
+        position
+            .checked_sub(1)
+            .map(|position| self.marks[position].1)
     }
 }
 
@@ -52,7 +56,11 @@ pub(super) fn canonical(program: &ArenaProgram, source: &str) -> Canonical {
 
 /// Layout-independent key for one subtree: two blocks or expressions get the
 /// same key exactly when `xsht fmt` could print one as the other.
-pub(crate) fn canonical_subtree(arena: &AstArena, source: &str, root: Result<BlockId, ExprId>) -> String {
+pub(crate) fn canonical_subtree(
+    arena: &AstArena,
+    source: &str,
+    root: Result<BlockId, ExprId>,
+) -> String {
     let mut writer = CanonicalWriter {
         arena,
         source,
@@ -86,9 +94,13 @@ impl CanonicalWriter<'_> {
         while let Some(at) = rest.find("Symbol(") {
             let digits = &rest[at + 7..];
             let end = digits.find(')').unwrap_or(0);
-            let Ok(raw) = digits[..end].parse::<u32>() else { break };
+            let Ok(raw) = digits[..end].parse::<u32>() else {
+                break;
+            };
             self.out.push_str(&rest[..at]);
-            let name = xsh::frontend::symbols::Name::from_symbol(xsh::frontend::symbols::Symbol::from_raw(raw));
+            let name = xsh::frontend::symbols::Name::from_symbol(
+                xsh::frontend::symbols::Symbol::from_raw(raw),
+            );
             let _ = write!(self.out, "{:?}", name.as_str().as_str());
             rest = &digits[end + 1..];
         }
@@ -174,7 +186,11 @@ impl CanonicalWriter<'_> {
                                     self.put("value;");
                                     self.ty(*ty);
                                 }
-                                ArenaModuleContractEntryKind::Proc { params, effects, return_ty } => {
+                                ArenaModuleContractEntryKind::Proc {
+                                    params,
+                                    effects,
+                                    return_ty,
+                                } => {
                                     self.put("proc;");
                                     self.params(*params);
                                     self.effects(*effects);
@@ -216,9 +232,21 @@ impl CanonicalWriter<'_> {
                     }
                 }
             }
-            ArenaStmtKind::Const { target, ty, initializer } => self.binding_stmt("const", *target, *ty, initializer),
-            ArenaStmtKind::Let { target, ty, initializer } => self.binding_stmt("let", *target, *ty, initializer),
-            ArenaStmtKind::Var { target, ty, initializer } => self.binding_stmt("var", *target, *ty, initializer),
+            ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
+            } => self.binding_stmt("const", *target, *ty, initializer),
+            ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer,
+            } => self.binding_stmt("let", *target, *ty, initializer),
+            ArenaStmtKind::Var {
+                target,
+                ty,
+                initializer,
+            } => self.binding_stmt("var", *target, *ty, initializer),
             ArenaStmtKind::Assign { target, op, value } => {
                 self.put("assign;");
                 self.assign_target(*target);
@@ -255,7 +283,10 @@ impl CanonicalWriter<'_> {
                 self.put("defer;");
                 self.expr_or_run(value);
             }
-            ArenaStmtKind::If { branches, else_block } => {
+            ArenaStmtKind::If {
+                branches,
+                else_block,
+            } => {
                 self.put("if;");
                 for branch in self.arena.if_branches(*branches) {
                     self.expr(branch.condition);
@@ -268,13 +299,21 @@ impl CanonicalWriter<'_> {
                 self.expr(*condition);
                 self.block(*block);
             }
-            ArenaStmtKind::For { target, iter, block } => {
+            ArenaStmtKind::For {
+                target,
+                iter,
+                block,
+            } => {
                 self.put("for;");
                 self.binding_target(*target);
                 self.expr(*iter);
                 self.block(*block);
             }
-            ArenaStmtKind::With { bindings, body, else_block } => {
+            ArenaStmtKind::With {
+                bindings,
+                body,
+                else_block,
+            } => {
                 self.put("with;");
                 for binding in self.arena.with_bindings(*bindings) {
                     self.debug(&binding.name);
@@ -287,17 +326,29 @@ impl CanonicalWriter<'_> {
                 self.put("loop;");
                 self.block(*block);
             }
-            ArenaStmtKind::Guard { target, ty, initializer, else_block } => {
+            ArenaStmtKind::Guard {
+                target,
+                ty,
+                initializer,
+                else_block,
+            } => {
                 self.binding_stmt("guard", *target, *ty, initializer);
                 self.block(*else_block);
             }
-            ArenaStmtKind::GuardedStmt { stmt, negate, condition } => {
+            ArenaStmtKind::GuardedStmt {
+                stmt,
+                negate,
+                condition,
+            } => {
                 self.put("guarded;");
                 self.debug(negate);
                 self.stmt(*stmt);
                 self.expr(*condition);
             }
-            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            ArenaStmtKind::BooleanGuard {
+                condition,
+                else_block,
+            } => {
                 self.put("guard-bool;");
                 self.expr(*condition);
                 self.block(*else_block);
@@ -331,7 +382,12 @@ impl CanonicalWriter<'_> {
                         self.debug(name);
                         self.command_args(*args);
                     }
-                    ArenaCommand::Core { name, args, env, block } => {
+                    ArenaCommand::Core {
+                        name,
+                        args,
+                        env,
+                        block,
+                    } => {
                         self.put("core;");
                         self.debug(name);
                         self.command_args(*args);
@@ -350,7 +406,13 @@ impl CanonicalWriter<'_> {
         self.put(")");
     }
 
-    fn binding_stmt(&mut self, keyword: &str, target: BindingTargetId, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
+    fn binding_stmt(
+        &mut self,
+        keyword: &str,
+        target: BindingTargetId,
+        ty: Option<TypeExprId>,
+        initializer: &ArenaExprOrRun,
+    ) {
         self.put(keyword);
         self.put(";");
         self.binding_target(target);
@@ -509,7 +571,11 @@ impl CanonicalWriter<'_> {
                     self.pattern(*arg);
                 }
             }
-            ArenaPatternKind::ErrorVariant { family, variant, fields } => {
+            ArenaPatternKind::ErrorVariant {
+                family,
+                variant,
+                fields,
+            } => {
                 self.put("error;");
                 self.debug(&(family, variant));
                 for field in self.arena.pattern_fields(*fields) {
@@ -623,7 +689,11 @@ impl CanonicalWriter<'_> {
                 self.expr(*expr);
                 self.comp_qualifiers(*qualifiers);
             }
-            ArenaExprKind::MapComp { key, value, qualifiers } => {
+            ArenaExprKind::MapComp {
+                key,
+                value,
+                qualifiers,
+            } => {
                 self.put("map-comp;");
                 self.expr(*key);
                 self.expr(*value);
@@ -661,7 +731,10 @@ impl CanonicalWriter<'_> {
                     }
                 }
             }
-            ArenaExprKind::If { branches, else_value } => {
+            ArenaExprKind::If {
+                branches,
+                else_value,
+            } => {
                 self.put("if;");
                 for branch in self.arena.if_expr_branches(*branches) {
                     self.expr(branch.condition);
@@ -671,7 +744,9 @@ impl CanonicalWriter<'_> {
             }
             ArenaExprKind::Match { value, arms } => self.match_expr("match", *value, *arms),
             ArenaExprKind::PatternTest { value, arms } => self.match_expr("is", *value, *arms),
-            ArenaExprKind::PatternCondition { value, arms } => self.match_expr("let", *value, *arms),
+            ArenaExprKind::PatternCondition { value, arms } => {
+                self.match_expr("let", *value, *arms)
+            }
             ArenaExprKind::Unary { op, expr } => {
                 self.debug(op);
                 self.expr(*expr);
@@ -707,13 +782,22 @@ impl CanonicalWriter<'_> {
                 self.expr(*base);
                 self.debug(name);
             }
-            ArenaExprKind::Index { base, index, guarded } => {
+            ArenaExprKind::Index {
+                base,
+                index,
+                guarded,
+            } => {
                 self.put("index;");
                 self.debug(guarded);
                 self.expr(*base);
                 self.expr(*index);
             }
-            ArenaExprKind::Slice { base, start, end, guarded } => {
+            ArenaExprKind::Slice {
+                base,
+                start,
+                end,
+                guarded,
+            } => {
                 self.put("slice;");
                 self.debug(guarded);
                 self.expr(*base);
@@ -773,7 +857,11 @@ impl CanonicalWriter<'_> {
                 self.put("loop;");
                 self.block(*block);
             }
-            ArenaExprKind::Retry { delays, pattern, block } => {
+            ArenaExprKind::Retry {
+                delays,
+                pattern,
+                block,
+            } => {
                 self.put("retry;");
                 for delay in self.arena.expr_ids(*delays).collect::<Vec<_>>() {
                     self.expr(delay);
@@ -792,7 +880,12 @@ impl CanonicalWriter<'_> {
                 self.expr(*message);
                 self.block(*block);
             }
-            ArenaExprKind::ContextScope { kind, input, block, value_body } => {
+            ArenaExprKind::ContextScope {
+                kind,
+                input,
+                block,
+                value_body,
+            } => {
                 self.put("scope;");
                 self.debug(&(kind, value_body));
                 self.expr(*input);

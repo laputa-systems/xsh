@@ -142,9 +142,8 @@ test test_ini_encode_rejects_invalid_names {
   test.error_kind(ini.encode({"a]b": "1"}), "ini-key")?
   test.error_kind(
     ini.encode({
-  """a
-b""": "1",
-}),
+      "a\nb": "1",
+    }),
     "ini-key",
   )?
 
@@ -156,11 +155,10 @@ b""": "1",
   test.error_kind(ini.encode({s: {"a]b": "1"}}), "ini-key")?
   test.error_kind(
     ini.encode({
-  s: {
-    """a
-b""": "1",
-  },
-}),
+      s: {
+        "a\nb": "1",
+      },
+    }),
     "ini-key",
   )?
 
@@ -171,11 +169,10 @@ b""": "1",
   test.error_kind(ini.encode({"a]b": {h: "1"}}), "ini-section")?
   test.error_kind(
     ini.encode({
-  """a
-b""": {
-  h: "1",
-},
-}),
+      "a\nb": {
+        h: "1",
+      },
+    }),
     "ini-section",
   )?
 

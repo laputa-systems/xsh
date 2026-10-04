@@ -84,7 +84,10 @@ fn require_clean_lint(run: &LintRun) -> Result<(), String> {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, ignore = "release-only performance gate: run `cargo dev check lint` or `cargo test --release`")]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "release-only performance gate: run `cargo dev check lint` or `cargo test --release`"
+)]
 fn repository_lint_is_clean_within_wall_budget() {
     let run = run_lint(&workspace_root(), REPOSITORY_LINT_BUDGET)
         .unwrap_or_else(|failure| panic!("{failure}"));
@@ -110,9 +113,14 @@ fn lint_gate_rejects_imported_diagnostics_without_writing_sources() {
     for (path, source) in sources {
         fs::write(root.path().join(path), source).expect("write lint source");
     }
-    let run = run_lint(root.path(), Duration::from_secs(5))
-        .unwrap_or_else(|failure| panic!("{failure}"));
-    assert_eq!(run.status.code(), Some(1), "stderr: {}", String::from_utf8_lossy(&run.stderr));
+    let run =
+        run_lint(root.path(), Duration::from_secs(5)).unwrap_or_else(|failure| panic!("{failure}"));
+    assert_eq!(
+        run.status.code(),
+        Some(1),
+        "stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
     let failure = require_clean_lint(&run).expect_err("diagnostics must reject the lint gate");
     assert!(failure.contains("lint.unused-callable"), "{failure}");
     for (path, source) in sources {
@@ -136,17 +144,26 @@ fn lint_gate_obeys_configured_diagnostic_fixture_exclusions() {
     let invalid_source = "let value: Int = \"wrong\"\n";
     fs::write(&fixture, invalid_source).expect("write diagnostic lint fixture");
 
-    let clean = run_lint(root.path(), Duration::from_secs(5))
-        .unwrap_or_else(|failure| panic!("{failure}"));
+    let clean =
+        run_lint(root.path(), Duration::from_secs(5)).unwrap_or_else(|failure| panic!("{failure}"));
     require_clean_lint(&clean).unwrap_or_else(|failure| panic!("{failure}"));
 
     fs::write(&config, "").expect("include diagnostic fixtures in lint discovery");
-    let rejected = run_lint(root.path(), Duration::from_secs(5))
-        .unwrap_or_else(|failure| panic!("{failure}"));
-    assert_eq!(rejected.status.code(), Some(2), "stderr: {}", String::from_utf8_lossy(&rejected.stderr));
-    let failure = require_clean_lint(&rejected).expect_err("checker errors must reject the lint gate");
+    let rejected =
+        run_lint(root.path(), Duration::from_secs(5)).unwrap_or_else(|failure| panic!("{failure}"));
+    assert_eq!(
+        rejected.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    let failure =
+        require_clean_lint(&rejected).expect_err("checker errors must reject the lint gate");
     assert!(failure.contains("check.type-mismatch"), "{failure}");
-    assert_eq!(fs::read_to_string(fixture).expect("read diagnostic fixture"), invalid_source);
+    assert_eq!(
+        fs::read_to_string(fixture).expect("read diagnostic fixture"),
+        invalid_source
+    );
 }
 
 #[test]

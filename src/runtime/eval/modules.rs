@@ -9,14 +9,14 @@ use crate::modules::net::{NetBody, NetHeader};
 use crate::runtime::process::{
     FileRedirectionMode, ProcessInvocation, ProcessRedirection, RedirectionStream,
 };
+#[cfg(feature = "native-tests")]
+use crate::runtime::value::ResultValue;
 use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream, PathValue,
     RecordMap, RunError, RuntimeError, Value,
 };
 #[cfg(feature = "native-tests")]
 use crate::sema::records::standard_record_type;
-#[cfg(feature = "native-tests")]
-use crate::runtime::value::ResultValue;
 #[cfg(feature = "native-tests")]
 use crate::sema::types::Type;
 use crate::source::Span;
@@ -74,7 +74,9 @@ impl Evaluator {
             .redirections
             .iter()
             .map(|redirection| match redirection {
-                CommandRedirection::Input { bytes } => ProcessRedirection::Input { bytes: bytes.clone() },
+                CommandRedirection::Input { bytes } => ProcessRedirection::Input {
+                    bytes: bytes.clone(),
+                },
                 CommandRedirection::File { stream, mode, path } => ProcessRedirection::File {
                     stream: match stream {
                         CommandRedirectionStream::Stdin => RedirectionStream::Stdin,
@@ -110,11 +112,15 @@ impl Evaluator {
 pub(super) fn assertion_error(message: impl Into<String>, span: Option<Span>) -> RuntimeError {
     let message = message.into();
     let mut error = RuntimeError::structured(
-        "AssertionError", "Failed",
+        "AssertionError",
+        "Failed",
         RecordMap::from([("message".into(), Value::Str(message.as_str().into()))]),
-        Vec::new(), message,
+        Vec::new(),
+        message,
     );
-    if let Some(span) = span { error = error.with_span(span); }
+    if let Some(span) = span {
+        error = error.with_span(span);
+    }
     error
 }
 
@@ -249,7 +255,9 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             _ => false,
         },
         Type::Map(key_ty, item_ty) => match value {
-            Value::Map(items) => items.iter().all(|(key, item)| super::map_key_matches_type(key, key_ty) && test_value_matches_type(item, item_ty)),
+            Value::Map(items) => items.iter().all(|(key, item)| {
+                super::map_key_matches_type(key, key_ty) && test_value_matches_type(item, item_ty)
+            }),
             _ => false,
         },
         Type::Stream(item_ty) => match value {
@@ -593,7 +601,13 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
             for (k, v) in map {
                 let k_enc = encode_cache_key_value(&k.clone().into_value())?;
                 let v_enc = encode_cache_key_value(v)?;
-                out.push_str(&format!(":{}:{}:{}:{}", k_enc.len(), k_enc, v_enc.len(), v_enc));
+                out.push_str(&format!(
+                    ":{}:{}:{}:{}",
+                    k_enc.len(),
+                    k_enc,
+                    v_enc.len(),
+                    v_enc
+                ));
             }
             out
         }

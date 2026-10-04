@@ -40,7 +40,9 @@ impl LinuxFake {
     }
 
     pub fn settings(&self) -> impl Iterator<Item = (&'static str, &str)> {
-        self.values.iter().map(|(key, value)| (*key, value.as_str()))
+        self.values
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
     }
 }
 
@@ -55,7 +57,12 @@ impl Evaluator {
     /// `native-tests` have no fake at all.
     fn linux_fake_setting(&self, key: &str) -> Option<&str> {
         #[cfg(feature = "native-tests")]
-        return self.linux_fake.as_deref()?.values.get(key).map(String::as_str);
+        return self
+            .linux_fake
+            .as_deref()?
+            .values
+            .get(key)
+            .map(String::as_str);
         #[cfg(not(feature = "native-tests"))]
         {
             let _ = key;
@@ -100,9 +107,8 @@ pub(super) fn append_fake_log(
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            RuntimeError::host(kind, &error).with_span(span)
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     }
     let mut json_fields = Vec::with_capacity(fields.len() + 1);
     json_fields.push(("op".to_string(), crate::modules::json::raw_json_string(op)));
@@ -112,18 +118,13 @@ pub(super) fn append_fake_log(
             crate::modules::json::raw_json_string(value.clone()),
         ));
     }
-    let line = crate::modules::json::compact_raw_json(&crate::modules::json::raw_json_object(
-        json_fields,
-    ));
+    let line =
+        crate::modules::json::compact_raw_json(&crate::modules::json::raw_json_object(json_fields));
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
-        .map_err(|error| {
-            RuntimeError::host(kind, &error).with_span(span)
-        })?;
-    writeln!(file, "{line}").map_err(|error| {
-        RuntimeError::host(kind, &error).with_span(span)
-    })
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    writeln!(file, "{line}").map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }

@@ -72,8 +72,12 @@ impl IndexedPipelineItems {
         let escape = evaluator.pending_value_block_flow.take();
         let result = if let Self::Live { stream, .. } = self {
             evaluator.stream_cancel(stream, span)
-        } else { Ok(()) };
-        if result.is_ok() { evaluator.pending_value_block_flow = escape; }
+        } else {
+            Ok(())
+        };
+        if result.is_ok() {
+            evaluator.pending_value_block_flow = escape;
+        }
         result
     }
 }
@@ -297,12 +301,8 @@ impl IndexedSerialPipeline {
                 IndexedLiveSerialStage::Tee { slot, body } => {
                     let Some(value) = item.as_ref() else { continue };
                     slots[*slot] = value.clone();
-                    let flow = evaluator.eval_indexed_statement_block(
-                        execution,
-                        *body,
-                        slots,
-                        call_span,
-                    )?;
+                    let flow = evaluator
+                        .eval_indexed_statement_block(execution, *body, slots, call_span)?;
                     slots[*slot] = LoweredValue::Unit;
                     match flow {
                         StmtFlow::None => {}
@@ -325,12 +325,8 @@ impl IndexedSerialPipeline {
                 IndexedLiveSerialStage::WhereBlock { slot, body, value } => {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
-                    let flow = evaluator.eval_indexed_statement_block(
-                        execution,
-                        *body,
-                        slots,
-                        call_span,
-                    )?;
+                    let flow = evaluator
+                        .eval_indexed_statement_block(execution, *body, slots, call_span)?;
                     match flow {
                         StmtFlow::None => {}
                         flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),
@@ -374,12 +370,8 @@ impl IndexedSerialPipeline {
                 } => {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
-                    let flow = evaluator.eval_indexed_statement_block(
-                        execution,
-                        *body,
-                        slots,
-                        call_span,
-                    )?;
+                    let flow = evaluator
+                        .eval_indexed_statement_block(execution, *body, slots, call_span)?;
                     match flow {
                         StmtFlow::None => {}
                         flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),
@@ -444,12 +436,8 @@ impl IndexedSerialPipeline {
                 } => {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
-                    let flow = evaluator.eval_indexed_statement_block(
-                        execution,
-                        *body,
-                        slots,
-                        call_span,
-                    )?;
+                    let flow = evaluator
+                        .eval_indexed_statement_block(execution, *body, slots, call_span)?;
                     match flow {
                         StmtFlow::None => {}
                         flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),

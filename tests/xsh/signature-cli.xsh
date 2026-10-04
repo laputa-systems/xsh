@@ -208,6 +208,7 @@ cli main(name: Str = "world") [io] {
 }
 """)?
   }
+
   let linted = cd (root) {
     run.capture --text "xsht" lint ?
   }?

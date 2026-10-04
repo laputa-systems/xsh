@@ -1,5 +1,5 @@
-use crate::diagnostic::DiagnosticCode;
 use super::{Keyword, Parser, TokenKindMatch, TokenTag};
+use crate::diagnostic::DiagnosticCode;
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_pattern_test_arena_only(
@@ -7,10 +7,15 @@ impl<'a> Parser<'a> {
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
         let (pattern, span) = self.parse_pattern_test_rhs_arena_only(arena)?;
-        if matches!(arena.ast_arena().pattern(pattern).kind, crate::syntax::arena::ArenaPatternKind::Alternation(_)) {
-            self.diagnostics.push(crate::diagnostic::Diagnostic::error("group alternatives in a pattern test")
-                .with_code(DiagnosticCode::ParsePatternTestAlternation)
-                .with_label(crate::diagnostic::Label::primary(span, "write `(P | Q)`")));
+        if matches!(
+            arena.ast_arena().pattern(pattern).kind,
+            crate::syntax::arena::ArenaPatternKind::Alternation(_)
+        ) {
+            self.diagnostics.push(
+                crate::diagnostic::Diagnostic::error("group alternatives in a pattern test")
+                    .with_code(DiagnosticCode::ParsePatternTestAlternation)
+                    .with_label(crate::diagnostic::Label::primary(span, "write `(P | Q)`")),
+            );
         }
         Some((self.normalize_pattern_test_names(arena, pattern), span))
     }
@@ -35,7 +40,11 @@ impl<'a> Parser<'a> {
             self.bump();
             while self.consume(TokenKindMatch::Dot).is_some() {
                 name.push('.');
-                name.push_str(&self.expect_ident("expected pattern name after `.`")?.as_str());
+                name.push_str(
+                    &self
+                        .expect_ident("expected pattern name after `.`")?
+                        .as_str(),
+                );
             }
             let span = self.span(start, self.previous_end());
             return Some((
@@ -44,7 +53,10 @@ impl<'a> Parser<'a> {
             ));
         }
         if self.current_name().is_some()
-            && matches!(self.peek_tag(offset), Some(TokenTag::LBracket | TokenTag::Question))
+            && matches!(
+                self.peek_tag(offset),
+                Some(TokenTag::LBracket | TokenTag::Question)
+            )
         {
             let start = self.current_start();
             let ty = self.parse_type_expr(arena)?;
@@ -67,7 +79,10 @@ impl<'a> Parser<'a> {
             Some(TokenTag::Dot) => self.peek_tag(field + 1) == Some(TokenTag::Dot),
             // `{}` is the payload when a body block or the next `with`
             // binding follows it.
-            Some(TokenTag::RBrace) => matches!(self.peek_tag(field + 1), Some(TokenTag::LBrace | TokenTag::Comma)),
+            Some(TokenTag::RBrace) => matches!(
+                self.peek_tag(field + 1),
+                Some(TokenTag::LBrace | TokenTag::Comma)
+            ),
             _ => false,
         }
     }
@@ -94,7 +109,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_alias_pattern_arena_only(
-        &mut self, arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
         let (mut pattern, mut span) = self.parse_type_pattern_arena_only(arena)?;
         while self.at_ident("as") {
@@ -102,9 +118,16 @@ impl<'a> Parser<'a> {
             let name_span = self.current_span();
             let name = self.expect_ident("expected a name after pattern alias `as`")?;
             if name == "_" {
-                self.diagnostics.push(crate::diagnostic::Diagnostic::error("pattern alias requires a non-discard name")
+                self.diagnostics.push(
+                    crate::diagnostic::Diagnostic::error(
+                        "pattern alias requires a non-discard name",
+                    )
                     .with_code(DiagnosticCode::ParsePatternAliasName)
-                    .with_label(crate::diagnostic::Label::primary(name_span, "choose a binding name")));
+                    .with_label(crate::diagnostic::Label::primary(
+                        name_span,
+                        "choose a binding name",
+                    )),
+                );
                 return None;
             }
             span = self.span(span.start(), self.previous_end());
@@ -114,21 +137,33 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn normalize_pattern_test_names(
-        &mut self, arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>, pattern: crate::syntax::arena::PatternId,
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+        pattern: crate::syntax::arena::PatternId,
     ) -> crate::syntax::arena::PatternId {
         use crate::syntax::arena::ArenaPatternKind;
         let node = arena.ast_arena().pattern(pattern).clone();
         let span = arena.ast_arena().span(node.span);
         match node.kind {
             ArenaPatternKind::Binding(name) => arena.push_pattern_test_name(name, span),
-            ArenaPatternKind::ErrorVariant { family, variant, fields } if fields.len == 0 => arena.push_pattern_test_name(crate::symbol::Name::intern(format!("{family}.{variant}")), span),
+            ArenaPatternKind::ErrorVariant {
+                family,
+                variant,
+                fields,
+            } if fields.len == 0 => arena.push_pattern_test_name(
+                crate::symbol::Name::intern(format!("{family}.{variant}")),
+                span,
+            ),
             ArenaPatternKind::Group(child) => {
                 let child = self.normalize_pattern_test_names(arena, child);
                 arena.push_pattern_group(child, span)
             }
             ArenaPatternKind::Alternation(children) => {
                 let children: Vec<_> = arena.ast_arena().pattern_ids(children).collect();
-                let children: Vec<_> = children.into_iter().map(|child| self.normalize_pattern_test_names(arena, child)).collect();
+                let children: Vec<_> = children
+                    .into_iter()
+                    .map(|child| self.normalize_pattern_test_names(arena, child))
+                    .collect();
                 arena.push_pattern_alternation(&children, span)
             }
             _ => pattern,
@@ -167,10 +202,16 @@ impl<'a> Parser<'a> {
         match self.current_tag() {
             TokenTag::LParen => {
                 self.bump();
-                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                    self.bump();
+                }
                 let (pattern, _) = self.parse_pattern_arena_only(arena)?;
-                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
-                let end = self.expect(TokenKindMatch::RParen, "expected `)` after grouped pattern")?.end();
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                    self.bump();
+                }
+                let end = self
+                    .expect(TokenKindMatch::RParen, "expected `)` after grouped pattern")?
+                    .end();
                 let span = self.span(span.start(), end);
                 Some((arena.push_pattern_group(pattern, span), span, None))
             }
@@ -292,7 +333,8 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let magnitude = self.parse_primary_arena_only(arena)?;
                 let span = self.span(span.start(), magnitude.span.end());
-                let expr = arena.push_unary_expr(crate::syntax::node::UnaryOp::Neg, magnitude.id, span);
+                let expr =
+                    arena.push_unary_expr(crate::syntax::node::UnaryOp::Neg, magnitude.id, span);
                 Some((arena.push_pattern_literal(expr, span), span, None))
             }
             TokenTag::Int
@@ -310,34 +352,54 @@ impl<'a> Parser<'a> {
             TokenTag::LBracket => {
                 let start = self.current_start();
                 self.bump();
-                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                    self.bump();
+                }
                 let mut elements = Vec::new();
                 let mut rest = None;
                 while !self.at(TokenKindMatch::RBracket) && !self.at(TokenKindMatch::Eof) {
                     if rest.is_some() {
-                        self.diagnostic_here("list rest must occur once, at the end", DiagnosticCode::ParseListPatternRest);
+                        self.diagnostic_here(
+                            "list rest must occur once, at the end",
+                            DiagnosticCode::ParseListPatternRest,
+                        );
                         return None;
                     }
                     if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot) {
                         let rest_start = self.current_start();
                         self.bump();
                         self.bump();
-                        let name = if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
+                        let name = if matches!(
+                            self.current_tag(),
+                            TokenTag::Ident | TokenTag::ProcIdent
+                        ) {
                             Some(self.expect_ident("expected rest binding")?)
-                        } else { None };
+                        } else {
+                            None
+                        };
                         let rest_span = self.span(rest_start, self.previous_end());
                         rest = Some(match name {
-                            Some(name) if name != "_" => arena.push_pattern_binding(name, rest_span),
+                            Some(name) if name != "_" => {
+                                arena.push_pattern_binding(name, rest_span)
+                            }
                             _ => arena.push_pattern_wildcard(rest_span),
                         });
                     } else {
                         elements.push(self.parse_pattern_arena_only(arena)?.0);
                     }
-                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
-                    if self.consume(TokenKindMatch::Comma).is_none() { break; }
-                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                        self.bump();
+                    }
+                    if self.consume(TokenKindMatch::Comma).is_none() {
+                        break;
+                    }
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                        self.bump();
+                    }
                 }
-                let end = self.expect(TokenKindMatch::RBracket, "expected `]` after list pattern")?.end();
+                let end = self
+                    .expect(TokenKindMatch::RBracket, "expected `]` after list pattern")?
+                    .end();
                 let span = self.span(start, end);
                 Some((arena.push_pattern_list(&elements, rest, span), span, None))
             }
@@ -382,7 +444,9 @@ impl<'a> Parser<'a> {
                 let pattern = if self.consume(TokenKindMatch::Colon).is_some() {
                     self.parse_pattern_arena_only(arena)?.0
                 } else {
-                    if !self.require_label_binding_name(label_tag, label_span) { return None; }
+                    if !self.require_label_binding_name(label_tag, label_span) {
+                        return None;
+                    }
                     arena.push_pattern_binding(name, self.span(field_start, self.previous_end()))
                 };
                 fields.push((name, pattern, self.span(field_start, self.previous_end())));

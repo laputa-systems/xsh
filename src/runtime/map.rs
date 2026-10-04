@@ -1,7 +1,7 @@
 //! Runtime conversions for prepared scalar map keys.
 
-use crate::map_key::{MapKey, MapKeyRef};
 use super::value::{DurationValue, PathValue, Value};
+use crate::map_key::{MapKey, MapKeyRef};
 
 impl MapKey {
     pub fn into_value(self) -> Value {
@@ -10,7 +10,9 @@ impl MapKey {
             Self::Int(value) => Value::Int(value),
             Self::Bool(value) => Value::Bool(value),
             Self::Bytes(value) => Value::Bytes(value.as_ref().to_vec()),
-            Self::Path(value) => Value::Path(PathValue { bytes: value.as_ref().to_vec() }),
+            Self::Path(value) => Value::Path(PathValue {
+                bytes: value.as_ref().to_vec(),
+            }),
             Self::Duration(millis) => Value::Duration(DurationValue { millis }),
         }
     }

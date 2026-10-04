@@ -59,6 +59,7 @@ pure negated_floats(values: List[Float]) -> List[Float] {
   for value in values {
     negated += [-value]
   }
+
   negated
 }
 

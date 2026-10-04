@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
-use crate::diagnostic::{DiagnosticCode, Severity};
 pub(crate) use crate::diagnostic::{Diagnostic, FixHint, Label};
+use crate::diagnostic::{DiagnosticCode, Severity};
 pub(crate) use crate::modules::{ApiArgCheck, MethodReceiver, MethodSig, ModuleFnSig, api_spec};
 use crate::runtime::signal::{normalize_hook_signal, signal_rejection_message};
 pub(crate) use crate::sema::records::standard_record_type;
@@ -11,38 +11,38 @@ pub(crate) use crate::symbol::{Name, QualifiedName};
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
+use callable_alias::CallableAlias;
+pub use callable_alias::StaticCallableAlias;
 pub(crate) use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-pub use callable_alias::StaticCallableAlias;
-use callable_alias::CallableAlias;
 
 #[path = "check/args.rs"]
 mod args;
-#[path = "check/callable_alias.rs"]
-mod callable_alias;
 #[path = "check/builder.rs"]
 mod builder;
 #[path = "check/call.rs"]
 mod call;
-mod record_require;
+#[path = "check/callable_alias.rs"]
+mod callable_alias;
 #[path = "check/command.rs"]
 mod command;
 #[path = "check/compact.rs"]
 mod compact;
 #[path = "check/decl.rs"]
 mod decl;
-#[path = "check/expr.rs"]
-mod expr;
 #[path = "check/expected.rs"]
 mod expected;
+#[path = "check/expr.rs"]
+mod expr;
+mod record_require;
 pub use expected::RequirementTarget;
 #[path = "check/infer_effects.rs"]
 mod infer_effects;
-#[path = "check/infer_return.rs"]
-mod infer_return;
 #[path = "check/infer_param.rs"]
 mod infer_param;
+#[path = "check/infer_return.rs"]
+mod infer_return;
 #[path = "check/local_inference.rs"]
 mod local_inference;
 #[path = "check/method.rs"]
@@ -79,10 +79,7 @@ pub use self::compact::{
 };
 use self::expr::expr_ty_auto_propagates;
 use self::stmt::block_has_exit_point_arena;
-use self::types::{
-    collection_item_ty, result_types,
-    tail_type_matches_expected,
-};
+use self::types::{collection_item_ty, result_types, tail_type_matches_expected};
 
 /// The checked purpose of a statement remains fixed when its value is unused.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -369,8 +366,10 @@ pub struct Checker {
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
-    argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
-    argument_projection_contexts: FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
+    argument_projection_sources:
+        FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
+    argument_projection_contexts:
+        FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
     expected_schema: Option<super::constants::SchemaExpectation>,
     return_schema: Option<super::constants::SchemaExpectation>,
@@ -466,13 +465,21 @@ pub struct Checker {
 
 impl Checker {
     pub(crate) fn prepare_regex_literals(program: &ArenaProgram) -> Vec<Diagnostic> {
-        program.arena.regex_literals.iter().filter_map(|literal| {
-            crate::modules::regex::prepare_literal(literal).as_ref().err().map(|message| {
-                Diagnostic::error(format!("invalid regex literal: {message}"))
-                    .with_code(DiagnosticCode::CheckRegexLiteral)
-                    .with_label(Label::primary(literal.span, "invalid regular expression"))
+        program
+            .arena
+            .regex_literals
+            .iter()
+            .filter_map(|literal| {
+                crate::modules::regex::prepare_literal(literal)
+                    .as_ref()
+                    .err()
+                    .map(|message| {
+                        Diagnostic::error(format!("invalid regex literal: {message}"))
+                            .with_code(DiagnosticCode::CheckRegexLiteral)
+                            .with_label(Label::primary(literal.span, "invalid regular expression"))
+                    })
             })
-        }).collect()
+            .collect()
     }
 
     pub fn check_arena(program: &crate::syntax::arena::ArenaProgram, source: &str) -> CheckOutput {
@@ -494,7 +501,10 @@ impl Checker {
 
     /// Check a program whose bodies will be lowered, including embedded
     /// implementation modules, so every lowered body has published facts.
-    pub(super) fn check_arena_for_lowering(program: &ArenaProgram, options: CheckOptions) -> CheckOutput {
+    pub(super) fn check_arena_for_lowering(
+        program: &ArenaProgram,
+        options: CheckOptions,
+    ) -> CheckOutput {
         Self::check_arena_impl(program, "", options, Arc::new(program.clone()), true)
     }
 
@@ -599,27 +609,61 @@ impl Checker {
         main.0.symbol_owner().with_current(|| {
             let mut checker = Self::new(CheckOptions::default());
             // One arena preserves declaration identities and private type dependencies across modules.
-            let mut builder = crate::syntax::arena::ArenaProgramBuilder::with_token_capacity_and_symbols(
-                main.1.len(), main.0.symbol_owner().clone(),
-            );
-            let entry_source = main.0.statement_ids().next().map(|id| main.0.arena.stmt(id).span.source_id)
+            let mut builder =
+                crate::syntax::arena::ArenaProgramBuilder::with_token_capacity_and_symbols(
+                    main.1.len(),
+                    main.0.symbol_owner().clone(),
+                );
+            let entry_source = main
+                .0
+                .statement_ids()
+                .next()
+                .map(|id| main.0.arena.stmt(id).span.source_id)
                 .unwrap_or(crate::source::SourceId::new(0));
-            let entry = crate::syntax::parser::Parser::parse_source_into_arena_builder(entry_source, main.1, &mut builder);
+            let entry = crate::syntax::parser::Parser::parse_source_into_arena_builder(
+                entry_source,
+                main.1,
+                &mut builder,
+            );
             checker.diagnostics.extend(entry.diagnostics);
             for (index, (key, name, arena, source)) in modules.iter().enumerate() {
-                let source_id = arena.statement_ids().next().map(|id| arena.arena.stmt(id).span.source_id)
+                let source_id = arena
+                    .statement_ids()
+                    .next()
+                    .map(|id| arena.arena.stmt(id).span.source_id)
                     .unwrap_or(crate::source::SourceId::new(index + 1));
-                let fragment = crate::syntax::parser::Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+                let fragment = crate::syntax::parser::Parser::parse_source_into_arena_builder(
+                    source_id,
+                    source,
+                    &mut builder,
+                );
                 checker.diagnostics.extend(fragment.diagnostics);
-                builder.push_arena_module((*key).to_string(), Name::intern(name), fragment.statements);
+                builder.push_arena_module(
+                    (*key).to_string(),
+                    Name::intern(name),
+                    fragment.statements,
+                );
             }
             let mut main_program = builder.finish_with_statements(entry.statements);
             for index in 0..main_program.arena.use_stmts.len() {
                 let import = &main_program.arena.use_stmts[index];
-                let path = main_program.arena.names(import.path).map(|name| name.to_string()).collect::<Vec<_>>().join(".");
+                let path = main_program
+                    .arena
+                    .names(import.path)
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>()
+                    .join(".");
                 // The legacy single-module fixture form accepts the caller's import spelling.
-                let resolved = modules.iter().find(|(key, name, ..)| *key == path || *name == path)
-                    .or_else(|| if modules.len() == 1 { modules.first() } else { None });
+                let resolved = modules
+                    .iter()
+                    .find(|(key, name, ..)| *key == path || *name == path)
+                    .or_else(|| {
+                        if modules.len() == 1 {
+                            modules.first()
+                        } else {
+                            None
+                        }
+                    });
                 if let Some((key, ..)) = resolved {
                     main_program.arena.use_stmts[index].resolved = Some(std::sync::Arc::from(*key));
                 }
@@ -762,7 +806,11 @@ impl Checker {
     fn register_builtin_process_error_family(&mut self) {
         // The built-in facet vocabulary is valid in patterns everywhere; user
         // `error` declarations extend it within their scope.
-        self.error_facets.extend(xsh_registry::errors::ErrorFacet::ALL.iter().map(|facet| Name::intern(facet.name())));
+        self.error_facets.extend(
+            xsh_registry::errors::ErrorFacet::ALL
+                .iter()
+                .map(|facet| Name::intern(facet.name())),
+        );
         for family in xsh_registry::errors::builtin_error_families() {
             let fields = family
                 .fields
@@ -780,7 +828,11 @@ impl Checker {
                     Name::intern(variant.name),
                     ErrorVariantInfo {
                         fields: fields.clone(),
-                        facets: variant.facets.iter().map(|facet| Name::intern(facet.name())).collect(),
+                        facets: variant
+                            .facets
+                            .iter()
+                            .map(|facet| Name::intern(facet.name()))
+                            .collect(),
                     },
                 );
             }
@@ -796,13 +848,23 @@ impl Checker {
 
     /// Removed vocabulary is recoverable for tooling, but always rejects execution.
     /// A fix is attached only after name resolution proves the canonical target.
-    pub(super) fn removed_compatibility_name(&mut self, span: Span, old: &str, canonical: &str, fix: bool) {
+    pub(super) fn removed_compatibility_name(
+        &mut self,
+        span: Span,
+        old: &str,
+        canonical: &str,
+        fix: bool,
+    ) {
         let message = format!("`{old}` was removed; use `{canonical}`");
         let mut diagnostic = Diagnostic::error(&message)
             .with_code(DiagnosticCode::CheckCompatibilityVocabulary)
             .with_label(Label::primary(span, &message));
         if fix {
-            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use the canonical spelling", canonical));
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                span,
+                "use the canonical spelling",
+                canonical,
+            ));
         } else if old == "ARGV" {
             diagnostic = diagnostic.with_note("A local `args` binding shadows script arguments; rename it or capture script arguments before entering that scope.");
         } else if old == "ls" {
@@ -831,19 +893,30 @@ impl Checker {
     ) {
         self.prepare_effect_declarations(program, None);
         self.prepare_local_inference(program);
-        self.diagnostics.extend(Self::prepare_regex_literals(program));
+        self.diagnostics
+            .extend(Self::prepare_regex_literals(program));
         if !self.collecting_effects {
-            self.diagnostics.extend(crate::syntax::grouping::grouping_diagnostics(program, source));
+            self.diagnostics
+                .extend(crate::syntax::grouping::grouping_diagnostics(
+                    program, source,
+                ));
         }
         self.record_constructors = RecordConstructors::collect(program);
-        self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
-        self.diagnostics.extend(self.prepared_constants.diagnostics.clone());
-        self.record_constructors.apply_prepared_defaults(program, &self.prepared_constants);
+        self.prepared_constants =
+            super::constants::PreparedConstants::collect(program, &self.record_constructors);
+        self.diagnostics
+            .extend(self.prepared_constants.diagnostics.clone());
+        self.record_constructors
+            .apply_prepared_defaults(program, &self.prepared_constants);
         for (expression, fact) in &self.prepared_constants.record_constructor_instances {
-            self.record_constructor_instances.insert(program.arena.expr(*expression).span, fact.clone());
+            self.record_constructor_instances
+                .insert(program.arena.expr(*expression).span, fact.clone());
         }
-        let (wire_enums, wire_diagnostics) = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr|
-            self.prepared_constants.analyze_expression(&program.arena, expr));
+        let (wire_enums, wire_diagnostics) =
+            crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr| {
+                self.prepared_constants
+                    .analyze_expression(&program.arena, expr)
+            });
         self.wire_enums = wire_enums;
         self.diagnostics.extend(wire_diagnostics);
         self.collect_user_modules_arena(program, type_program.clone(), source);
@@ -856,19 +929,39 @@ impl Checker {
         // A signature CLI `main`, or a `proc main` that the last statement does
         // not call, runs after the top level and supplies the exit status, so
         // no statement does.
-        let main_runs_after = statements.iter().any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)))
-            || statements.iter().any(|&stmt| defines_proc_main(program, stmt))
-                && !statements.last().is_some_and(|&stmt| calls_main(program, stmt));
-        self.exit_status_statement = statements.last().filter(|_| !main_runs_after).map(|&stmt| program.arena.stmt(stmt).span);
+        let main_runs_after = statements
+            .iter()
+            .any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)))
+            || statements
+                .iter()
+                .any(|&stmt| defines_proc_main(program, stmt))
+                && !statements
+                    .last()
+                    .is_some_and(|&stmt| calls_main(program, stmt));
+        self.exit_status_statement = statements
+            .last()
+            .filter(|_| !main_runs_after)
+            .map(|&stmt| program.arena.stmt(stmt).span);
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
         self.exit_status_statement = None;
         self.resolve_checked_types();
-        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
-            |parameter| self.checked_parameter_type(program, parameter).unwrap_or_else(|| self.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
+        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
+            program,
+            |parameter| {
+                self.checked_parameter_type(program, parameter)
+                    .unwrap_or_else(|| {
+                        self.record_constructors
+                            .resolve_type(&program.arena, parameter.ty, None)
+                    })
+            },
             |ty| self.record_constructors.cli_parser_type(&program.arena, ty),
-            |expr| self.prepared_constants.analyze_expression(&program.arena, expr));
+            |expr| {
+                self.prepared_constants
+                    .analyze_expression(&program.arena, expr)
+            },
+        );
         self.diagnostics.extend(diagnostics);
     }
 
@@ -1103,8 +1196,12 @@ fn defines_proc_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId)
 
 fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {
     use crate::syntax::arena::ArenaExprKind;
-    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else { return false; };
-    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind { expr = inner; }
+    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else {
+        return false;
+    };
+    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind {
+        expr = inner;
+    }
     matches!(program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. }
         if matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "main"))
 }

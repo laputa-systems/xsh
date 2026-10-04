@@ -18,7 +18,10 @@ pub(crate) fn migration_lint_code(code: Option<DiagnosticCode>) -> Option<Diagno
         DiagnosticCode::ParseStreamOptionMigration => Some(DiagnosticCode::LintStreamOptions),
         DiagnosticCode::ParseEnumMigration => Some(DiagnosticCode::LintEnumDeclaration),
         DiagnosticCode::CheckRemovedRecordRequire => Some(DiagnosticCode::LintRemovedRecordRequire),
-        DiagnosticCode::ParseCompatibilityVocabulary | DiagnosticCode::CheckCompatibilityVocabulary => Some(DiagnosticCode::LintCompatibilityVocabulary),
+        DiagnosticCode::ParseCompatibilityVocabulary
+        | DiagnosticCode::CheckCompatibilityVocabulary => {
+            Some(DiagnosticCode::LintCompatibilityVocabulary)
+        }
         DiagnosticCode::ParseEnvScopeMigration => Some(DiagnosticCode::LintEnvScope),
         _ => None,
     }
@@ -59,10 +62,13 @@ fn apply_cst_edits(
         && parsed.diagnostics.iter().all(|diagnostic| {
             migration_lint_code(diagnostic.code).is_some()
                 && diagnostic.fix_hints.iter().any(|hint| {
-                    hint.span.is_some_and(|span| edits.iter().any(|edit| {
-                        edit.start == span.start() && edit.end == span.end()
-                            && hint.replacement.as_ref() == Some(&edit.replacement)
-                    }))
+                    hint.span.is_some_and(|span| {
+                        edits.iter().any(|edit| {
+                            edit.start == span.start()
+                                && edit.end == span.end()
+                                && hint.replacement.as_ref() == Some(&edit.replacement)
+                        })
+                    })
                 })
         });
     if !parsed.diagnostics.is_empty() && !migrating_syntax {

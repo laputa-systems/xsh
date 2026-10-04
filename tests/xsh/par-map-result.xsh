@@ -95,12 +95,14 @@ test test_par_map_propagation_fails_the_enclosing_function_like_map {
       assert false, "expected the stage's first failure as the function's Err"
     }
   }
+
   assert divide_all([10, 20, 25], true)? == [10, 5, 4]
   if let Err(failure) = divide_total(items) {
     assert failure is TestError.DivisionByZero
   } else {
     assert false, "expected the fused stage's first failure as the function's Err"
   }
+
   assert divide_total([10, 20])?["all"] == 15
 }
 

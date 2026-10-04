@@ -21,7 +21,15 @@ pub enum Effect {
 
 impl Effect {
     /// Every effect, in declaration order.
-    pub const ALL: [Effect; 7] = [Self::Fs, Self::Net, Self::Process, Self::Env, Self::Time, Self::Error, Self::Io];
+    pub const ALL: [Effect; 7] = [
+        Self::Fs,
+        Self::Net,
+        Self::Process,
+        Self::Env,
+        Self::Time,
+        Self::Error,
+        Self::Io,
+    ];
 
     pub fn as_str(&self) -> &'static str {
         match self {

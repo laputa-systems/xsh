@@ -190,9 +190,7 @@ fn list_threads_stream(pid: Option<i64>, span: Span) -> Result<StreamValue, Runt
         vec![(owner_pid, path, uid)]
     } else {
         std::fs::read_dir("/proc")
-            .map_err(|error| {
-                RuntimeError::host("process-threads", &error).with_span(span)
-            })?
+            .map_err(|error| RuntimeError::host("process-threads", &error).with_span(span))?
             .flatten()
             .filter_map(|entry| {
                 let owner_pid = entry.file_name().to_str()?.parse::<i64>().ok()?;

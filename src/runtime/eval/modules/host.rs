@@ -226,7 +226,7 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
         redirections: Vec::new(),
         timeout: command.timeout,
         cpu_max: None,
-            accepted_exit_codes: None,
+        accepted_exit_codes: None,
     })
 }
 

@@ -175,7 +175,13 @@ impl Evaluator {
                 if let Some(status) = &error.status {
                     self.last_status = Some((**status).clone());
                 }
-                self.trace_wait_end(span, Some(handle.id), pid, error.status.as_deref().map(trace_status), Some(&error));
+                self.trace_wait_end(
+                    span,
+                    Some(handle.id),
+                    pid,
+                    error.status.as_deref().map(trace_status),
+                    Some(&error),
+                );
                 Ok(process_handle_error(error))
             }
         }
@@ -266,8 +272,18 @@ impl Evaluator {
                 }
                 Err(error) => {
                     let error = error.with_span(span);
-                    self.last_status = error.status.as_deref().cloned().or_else(|| self.last_status.clone());
-                    self.trace_wait_end(span, Some(handle.id), pid, error.status.as_deref().map(trace_status), Some(&error));
+                    self.last_status = error
+                        .status
+                        .as_deref()
+                        .cloned()
+                        .or_else(|| self.last_status.clone());
+                    self.trace_wait_end(
+                        span,
+                        Some(handle.id),
+                        pid,
+                        error.status.as_deref().map(trace_status),
+                        Some(&error),
+                    );
                     if first_error.is_none() {
                         first_error = Some(error);
                     }

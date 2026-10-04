@@ -16,7 +16,12 @@ pub fn associated_module_functions(
 ) -> &'static [(&'static str, &'static str)] {
     match receiver {
         MethodReceiver::Map => &[("map", "empty")],
-        MethodReceiver::FsRoot => &[("fs", "open_root"), ("fs", "tempdir"), ("fs", "project_root"), ("fs", "user_root")],
+        MethodReceiver::FsRoot => &[
+            ("fs", "open_root"),
+            ("fs", "tempdir"),
+            ("fs", "project_root"),
+            ("fs", "user_root"),
+        ],
         _ => &[],
     }
 }
@@ -1288,13 +1293,25 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
 fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
     if receiver == "FsRoot" {
         let legacy = match method {
-            "close" => "close_root", "host_path" => "root_path", "open_root" => "root",
-            "read_bytes" => "root_read", "read_text" => "root_read_text", "read_result" => "root_read_result",
-            "filesystem_stats" => "root_filesystem_stats", "children" => "root_children",
-            "write" => "root_write", "write_atomic" => "root_write_atomic", "metadata" => "root_metadata",
-            "exists" => "root_exists", "mkdir" => "root_mkdir", "remove" => "root_remove",
-            "readlink" => "root_readlink", "readlink_result" => "root_readlink_result",
-            "symlink" => "root_symlink", "chmod" => "root_chmod", _ => return None,
+            "close" => "close_root",
+            "host_path" => "root_path",
+            "open_root" => "root",
+            "read_bytes" => "root_read",
+            "read_text" => "root_read_text",
+            "read_result" => "root_read_result",
+            "filesystem_stats" => "root_filesystem_stats",
+            "children" => "root_children",
+            "write" => "root_write",
+            "write_atomic" => "root_write_atomic",
+            "metadata" => "root_metadata",
+            "exists" => "root_exists",
+            "mkdir" => "root_mkdir",
+            "remove" => "root_remove",
+            "readlink" => "root_readlink",
+            "readlink_result" => "root_readlink_result",
+            "symlink" => "root_symlink",
+            "chmod" => "root_chmod",
+            _ => return None,
         };
         return function_doc("fs", legacy);
     }
@@ -1631,13 +1648,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The method returns a new value and applies its character policy without changing byte data in place.",
             &["text", "transform"],
         )),
-        ("Str", "count_lines" | "count_words" | "count_chars" | "byte_len") => {
-            Some((
-                "Counts a text property.",
-                "Character, byte, and line counts are distinct UTF-8 measurements; select the method that matches the boundary.",
-                &["text", "count", "utf8"],
-            ))
-        }
+        ("Str", "count_lines" | "count_words" | "count_chars" | "byte_len") => Some((
+            "Counts a text property.",
+            "Character, byte, and line counts are distinct UTF-8 measurements; select the method that matches the boundary.",
+            &["text", "count", "utf8"],
+        )),
         ("Str", "byte_at") => Some((
             "Reads one byte as Int or null.",
             "The index is a nonnegative byte offset, independent of UTF-8 scalar boundaries. Negative and out-of-range indices return null; there is no configurable fallback argument.",

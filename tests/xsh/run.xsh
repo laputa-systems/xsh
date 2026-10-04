@@ -764,7 +764,7 @@ test test_pipeline_sigpipe_after_successful_downstream_exit_is_not_failure { |ct
 
 test test_pipeline_value_position_and_accept_rules { |ctx|
   let status = run true | run false
-  assert !status.success
+  assert ! status.success
   assert status.segments[1].code == 1
 
   run.status false | run false
@@ -815,7 +815,7 @@ test test_pipeline_capture_record_merges_stderr_and_reports_status {
   assert record.stdout == "out0\n"
   assert "err0\n" in record.stderr
   assert "err1\n" in record.stderr
-  assert !record.status.success
+  assert ! record.status.success
   assert record.status.segments[1].code == 3
 
   let raw_record = run.capture --bytes printf "x" | run cat ?
@@ -1195,6 +1195,7 @@ test test_filesystem_errors_name_their_paths { |ctx|
   } else {
     test.fail("expected a filesystem failure")?
   }
+
   for failure in [
     fs.mkdir(fp"{missing}/child"),
     fs.write(fp"{missing}/file.txt", "x"),

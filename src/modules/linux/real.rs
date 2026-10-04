@@ -147,9 +147,7 @@ impl LiveStream for UeventStream {
                     if error.kind() == io::ErrorKind::Interrupted {
                         continue;
                     }
-                    return Err(
-                        RuntimeError::host("linux-uevent", &error).with_span(span)
-                    );
+                    return Err(RuntimeError::host("linux-uevent", &error).with_span(span));
                 }
             };
             if len == 0 {

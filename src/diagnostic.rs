@@ -141,7 +141,8 @@ impl Diagnostic {
     /// when the code declares a default one.
     pub fn with_code(mut self, code: DiagnosticCode) -> Self {
         debug_assert!(
-            code.severity().is_none_or(|severity| severity == self.severity),
+            code.severity()
+                .is_none_or(|severity| severity == self.severity),
             "{code} is declared {:?} but emitted as {:?}",
             code.severity(),
             self.severity

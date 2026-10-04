@@ -21,7 +21,10 @@ fn output_text(bytes: &[u8]) -> String {
 
 #[test]
 fn grep_reaches_boolean_guard_condition_and_failure_body() {
-    let file = temp_xsh("boolean_guard", "proc work(value: Str) [] { guard value.contains(\"ready\") else { abort(7) } }\n");
+    let file = temp_xsh(
+        "boolean_guard",
+        "proc work(value: Str) [] { guard value.contains(\"ready\") else { abort(7) } }\n",
+    );
     for pattern in ["RECEIVER.contains(EXPR)", "abort(EXPR)"] {
         let output = grep_scripts(pattern, &paths(&file));
         assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
@@ -232,9 +235,18 @@ fn guarded_postfix_structural_matching_retains_each_guard() {
         ("EXPR?[1..]", "value?[1..]", "value[1..]"),
         ("EXPR?.trim()", "value?.trim()", "value.trim()"),
     ] {
-        let output = Command::new(release_bin!("xsht")).args(["grep", pattern]).arg(&path).output().unwrap();
+        let output = Command::new(release_bin!("xsht"))
+            .args(["grep", pattern])
+            .arg(&path)
+            .output()
+            .unwrap();
         let stdout = output_text(&output.stdout);
-        assert_eq!(output.status.code(), Some(0), "{}", output_text(&output.stderr));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            output_text(&output.stderr)
+        );
         assert!(stdout.contains(expected), "{stdout}");
         assert!(!stdout.contains(excluded), "{stdout}");
     }
@@ -244,8 +256,15 @@ fn guarded_postfix_structural_matching_retains_each_guard() {
 fn grep_list_splicing_distinguishes_spliced_and_nested_elements() {
     let root = TempDir::new().expect("create temp root");
     let file = root.path().join("list-splicing.xsh");
-    fs::write(&file, "let source = [1]\nlet nested = [source]\nlet spliced = [@source]\n").expect("write list fixture");
-    for (pattern, expected, excluded) in [("[@EXPR]", "[@source]", "[source]"), ("[EXPR]", "[source]", "[@source]")] {
+    fs::write(
+        &file,
+        "let source = [1]\nlet nested = [source]\nlet spliced = [@source]\n",
+    )
+    .expect("write list fixture");
+    for (pattern, expected, excluded) in [
+        ("[@EXPR]", "[@source]", "[source]"),
+        ("[EXPR]", "[source]", "[@source]"),
+    ] {
         let output = grep_scripts(pattern, &paths(&file));
         let stdout = output_text(&output.stdout);
         assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
@@ -258,7 +277,11 @@ fn grep_list_splicing_distinguishes_spliced_and_nested_elements() {
 fn grep_list_pattern_tests_distinguish_exact_lengths_rest_and_nested_elements() {
     let root = TempDir::new().unwrap();
     let file = root.path().join("list-pattern.xsh");
-    fs::write(&file, include_str!("../../../tests/fixtures/syntax/list-pattern.xsh")).unwrap();
+    fs::write(
+        &file,
+        include_str!("../../../tests/fixtures/syntax/list-pattern.xsh"),
+    )
+    .unwrap();
     let exact = grep_scripts("SUBJECT is [\"build\", _]", &paths(&file));
     assert_eq!(exact.status, 0, "{}", output_text(&exact.stderr));
     let stdout = output_text(&exact.stdout);
@@ -288,7 +311,10 @@ fn grep_regex_literal_compares_raw_patterns_across_delimiter_spellings() {
 
 #[test]
 fn grep_visits_delegated_source_expressions_with_original_spans() {
-    let file = temp_xsh("yield_delegation_source", "stream rows() -> Stream[Int] { yield @(load(\"α\")?) }\n");
+    let file = temp_xsh(
+        "yield_delegation_source",
+        "stream rows() -> Stream[Int] { yield @(load(\"α\")?) }\n",
+    );
     let output = grep_scripts("load(ARG)", &paths(&file));
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(output_text(&output.stdout).contains("load(\"α\")"));
@@ -307,22 +333,38 @@ fn field_label_grep_and_refactor_preserve_keyword_key_identity() {
     let output = refactor_scripts("EXPR.type", "EXPR.type", &paths(&file), false);
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let source = fs::read_to_string(&file).unwrap();
-    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &source);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        xsh::frontend::source::SourceId::new(0),
+        &source,
+    );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &source).diagnostics.is_empty());
+    assert!(
+        xsh::frontend::check::Checker::check_arena(&parsed.arena, &source)
+            .diagnostics
+            .is_empty()
+    );
 }
 
 #[test]
 fn grep_and_refactor_computed_map_entries_keep_static_labels_distinct() {
     let root = TempDir::new().expect("temporary workspace");
     let path = root.path().join("computed-map.xsh");
-    fs::write(&path, "let key = \"one\"\nlet dynamic = {[key]: 1}\nlet fixed = {key: 1}\n").unwrap();
+    fs::write(
+        &path,
+        "let key = \"one\"\nlet dynamic = {[key]: 1}\nlet fixed = {key: 1}\n",
+    )
+    .unwrap();
     let output = grep_scripts("{[KEY]: VALUE}", &paths(&path));
     let stdout = output_text(&output.stdout);
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(stdout.contains("{[key]: 1}"));
     assert!(!stdout.contains("{key: 1}"));
-    let output = refactor_scripts("{[KEY]: VALUE}", "{[KEY]: VALUE, [\"two\"]: 2}", &paths(&path), false);
+    let output = refactor_scripts(
+        "{[KEY]: VALUE}",
+        "{[KEY]: VALUE, [\"two\"]: 2}",
+        &paths(&path),
+        false,
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let updated = fs::read_to_string(&path).unwrap();
     assert!(updated.contains("{[key]: 1, [\"two\"]: 2}"), "{updated}");
@@ -333,7 +375,11 @@ fn grep_and_refactor_computed_map_entries_keep_static_labels_distinct() {
 fn grep_and_refactor_list_element_assignment_selectors_and_rhs() {
     let root = TempDir::new().unwrap();
     let file = root.path().join("list-assignment.xsh");
-    fs::write(&file, "var rows = [{count: 1}]\nrows[choose(0)].count += delta(2)\n").unwrap();
+    fs::write(
+        &file,
+        "var rows = [{count: 1}]\nrows[choose(0)].count += delta(2)\n",
+    )
+    .unwrap();
     for pattern in ["choose(EXPR)", "delta(EXPR)"] {
         let output = grep_scripts(pattern, &paths(&file));
         assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
@@ -343,7 +389,10 @@ fn grep_and_refactor_list_element_assignment_selectors_and_rhs() {
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let fixed = fs::read_to_string(&file).unwrap();
     assert!(fixed.contains("rows[selected(0)].count += delta(2)"));
-    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        xsh::frontend::source::SourceId::new(0),
+        &fixed,
+    );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
 }
 
@@ -356,10 +405,18 @@ fn grep_and_refactor_match_static_record_update_paths() {
     let output = grep_scripts("{...BASE, build.jobs: VALUE}", &paths(&file));
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(output_text(&output.stdout).contains("1 match"));
-    let output = refactor_scripts("{...BASE, build.jobs: VALUE}", "{...BASE, build.jobs: changed(VALUE)}", &paths(&file), false);
+    let output = refactor_scripts(
+        "{...BASE, build.jobs: VALUE}",
+        "{...BASE, build.jobs: changed(VALUE)}",
+        &paths(&file),
+        false,
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let updated = fs::read_to_string(&file).unwrap();
-    assert!(updated.contains("{...base, build.jobs: changed(2)}"), "{updated}");
+    assert!(
+        updated.contains("{...base, build.jobs: changed(2)}"),
+        "{updated}"
+    );
     assert!(updated.contains("{\"build.jobs\": 2}"));
 }
 
@@ -375,7 +432,10 @@ fn grep_try_capture_matches_boundary_and_nested_call() {
 
 #[test]
 fn refactor_try_capture_preserves_boundary_and_second_pass_is_empty() {
-    let file = temp_xsh("refactor_try_capture", "let result = try { load(\"α\")? }\n");
+    let file = temp_xsh(
+        "refactor_try_capture",
+        "let result = try { load(\"α\")? }\n",
+    );
     let output = refactor_scripts("load(ARG)", "read(ARG)", &paths(&file), false);
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let fixed = fs::read_to_string(&file).unwrap();
@@ -403,7 +463,10 @@ fn pattern_aliases_grep_matches_whole_subject_aliases_without_losing_precedence(
     let root = TempDir::new().unwrap();
     let file = root.path().join("pattern-aliases.xsh");
     fs::write(&file, "let whole = match 1 { (1 | 2) as original => original _ => 0 }\nlet separate = match 1 { 1 as original | 2 as original => original _ => 0 }\n").unwrap();
-    let output = grep_scripts("match SUBJECT { (1 | 2) as original => BODY _ => 0 }", &paths(&file));
+    let output = grep_scripts(
+        "match SUBJECT { (1 | 2) as original => BODY _ => 0 }",
+        &paths(&file),
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let stdout = output_text(&output.stdout);
     assert!(stdout.contains("(1 | 2) as original"));
@@ -414,16 +477,37 @@ fn pattern_aliases_grep_matches_whole_subject_aliases_without_losing_precedence(
 fn pattern_alternatives_refactor_uses_original_subject_span_and_converges() {
     let root = TempDir::new().unwrap();
     let file = root.path().join("pattern-alternatives.xsh");
-    fs::write(&file, "let value = 1 # café\nlet selected = value is (1 | 2)\nlet other = value is (2 | 3)\n").unwrap();
-    let output = refactor_scripts("SUBJECT is (1 | 2)", "SUBJECT is (1 | 2 | 3)", &paths(&file), false);
+    fs::write(
+        &file,
+        "let value = 1 # café\nlet selected = value is (1 | 2)\nlet other = value is (2 | 3)\n",
+    )
+    .unwrap();
+    let output = refactor_scripts(
+        "SUBJECT is (1 | 2)",
+        "SUBJECT is (1 | 2 | 3)",
+        &paths(&file),
+        false,
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let fixed = fs::read_to_string(&file).unwrap();
     assert!(fixed.contains("value is (1 | 2 | 3)"));
     assert!(fixed.contains("value is (2 | 3)"));
-    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        xsh::frontend::source::SourceId::new(0),
+        &fixed,
+    );
     assert!(parsed.diagnostics.is_empty());
-    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
-    let again = refactor_scripts("SUBJECT is (1 | 2)", "SUBJECT is (1 | 2 | 3)", &paths(&file), false);
+    assert!(
+        xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed)
+            .diagnostics
+            .is_empty()
+    );
+    let again = refactor_scripts(
+        "SUBJECT is (1 | 2)",
+        "SUBJECT is (1 | 2 | 3)",
+        &paths(&file),
+        false,
+    );
     assert_eq!(again.status, 1);
     assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
 }
@@ -437,7 +521,12 @@ fn grep_and_refactor_value_pipeline_holes_preserve_explicit_argument_placement()
     assert!(output_text(&output.stdout).contains("\"é\" |> render(\"[\", value: _)"));
     let wrong_name = grep_scripts("INPUT |> render(PREFIX, alternate: _)", &paths(&file));
     assert_eq!(wrong_name.status, 1, "{}", output_text(&wrong_name.stdout));
-    let output = refactor_scripts("INPUT |> render(PREFIX, value: _)", "INPUT |> render(PREFIX, value: _)", &paths(&file), false);
+    let output = refactor_scripts(
+        "INPUT |> render(PREFIX, value: _)",
+        "INPUT |> render(PREFIX, value: _)",
+        &paths(&file),
+        false,
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert_eq!(fs::read_to_string(file).unwrap(), source);
 }
@@ -445,17 +534,37 @@ fn grep_and_refactor_value_pipeline_holes_preserve_explicit_argument_placement()
 #[test]
 fn refactor_value_pipeline_holes_retains_optional_calls_and_result_boundaries() {
     for (name, source, pattern) in [
-        ("pipeline_result", "let value = \"3\" |> parse(_, radix: 10)?\n", "INPUT |> parse(_, radix: RADIX)?"),
-        ("pipeline_optional", "let value = \"a\" |> maybe?.replace(_, \"b\")\n", "INPUT |> RECEIVER?.replace(_, OTHER)"),
+        (
+            "pipeline_result",
+            "let value = \"3\" |> parse(_, radix: 10)?\n",
+            "INPUT |> parse(_, radix: RADIX)?",
+        ),
+        (
+            "pipeline_optional",
+            "let value = \"a\" |> maybe?.replace(_, \"b\")\n",
+            "INPUT |> RECEIVER?.replace(_, OTHER)",
+        ),
     ] {
         let file = temp_xsh(name, source);
         let output = refactor_scripts(pattern, pattern, &paths(&file), false);
         assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
         let fixed = fs::read_to_string(&file).unwrap();
-        assert!(!fixed.contains("INPUT") && !fixed.contains("RADIX") && !fixed.contains("RECEIVER") && !fixed.contains("OTHER"), "{fixed}");
-        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+        assert!(
+            !fixed.contains("INPUT")
+                && !fixed.contains("RADIX")
+                && !fixed.contains("RECEIVER")
+                && !fixed.contains("OTHER"),
+            "{fixed}"
+        );
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+            xsh::frontend::source::SourceId::new(0),
+            &fixed,
+        );
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        assert!(fixed.contains("|>") && fixed.contains('_') && fixed.contains('?'), "{fixed}");
+        assert!(
+            fixed.contains("|>") && fixed.contains('_') && fixed.contains('?'),
+            "{fixed}"
+        );
     }
 }
 
@@ -469,11 +578,22 @@ fn grep_and_refactor_visit_named_stream_configuration_and_spread_values() {
         assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
         assert!(output_text(&found.stdout).contains("1 match"));
     }
-    let changed = refactor_scripts("worker_limit(X)", "bounded_workers(X)", &paths(&file), false);
+    let changed = refactor_scripts(
+        "worker_limit(X)",
+        "bounded_workers(X)",
+        &paths(&file),
+        false,
+    );
     assert_eq!(changed.status, 0, "{}", output_text(&changed.stderr));
     let rewritten = fs::read_to_string(&file).unwrap();
-    assert!(rewritten.contains("jobs: bounded_workers(1)"), "{rewritten}");
-    assert!(rewritten.contains("sort(...{desc: direction(true)})"), "{rewritten}");
+    assert!(
+        rewritten.contains("jobs: bounded_workers(1)"),
+        "{rewritten}"
+    );
+    assert!(
+        rewritten.contains("sort(...{desc: direction(true)})"),
+        "{rewritten}"
+    );
     assert!(rewritten.contains("# retain"));
 }
 
@@ -488,7 +608,10 @@ fn grep_and_refactor_visit_static_stage_callable_descriptors() {
     let changed = refactor_scripts("normalize", "canonicalize", &paths(&file), false);
     assert_eq!(changed.status, 0, "{}", output_text(&changed.stderr));
     let rewritten = fs::read_to_string(&file).unwrap();
-    assert!(rewritten.contains("map(block: canonicalize)"), "{rewritten}");
+    assert!(
+        rewritten.contains("map(block: canonicalize)"),
+        "{rewritten}"
+    );
     assert!(rewritten.contains("# retain descriptor comment"));
 }
 
@@ -515,18 +638,29 @@ fn selective_retry_grep_and_refactor_preserve_filter_order_and_body() {
     let output = grep_scripts(pattern, &paths(&file));
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(output_text(&output.stdout).contains("1 match"));
-    let output = refactor_scripts(pattern, "retry [DELAY] on (FetchError.Busy | FetchError.Timeout) { load(ARG)? }", &paths(&file), false);
+    let output = refactor_scripts(
+        pattern,
+        "retry [DELAY] on (FetchError.Busy | FetchError.Timeout) { load(ARG)? }",
+        &paths(&file),
+        false,
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let fixed = fs::read_to_string(&file).unwrap();
     assert!(fixed.contains("{ load(\"café\")? }"), "{fixed}");
     assert!(fixed.contains("retry [0ms] { fetch(\"all\")? }"));
-    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        xsh::frontend::source::SourceId::new(0),
+        &fixed,
+    );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
 }
 
 #[test]
 fn duration_arithmetic_grep_preserves_units_and_operand_order() {
-    let file = temp_xsh("duration_arithmetic", "let first = 250ms * 3\nlet second = 3 * 250ms\nlet other = 250s * 3\n");
+    let file = temp_xsh(
+        "duration_arithmetic",
+        "let first = 250ms * 3\nlet second = 3 * 250ms\nlet other = 250s * 3\n",
+    );
     let output = grep_scripts("250ms * COUNT", &paths(&file));
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let stdout = output_text(&output.stdout);
@@ -542,16 +676,27 @@ fn grep_and_refactor_visit_named_spread_operands() {
     let found = grep_scripts("options()", &paths(&file));
     assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
     assert!(output_text(&found.stdout).contains("options()"));
-    let replaced = refactor_scripts("options()", "Pair(first: 4, second: 5)", &paths(&file), false);
+    let replaced = refactor_scripts(
+        "options()",
+        "Pair(first: 4, second: 5)",
+        &paths(&file),
+        false,
+    );
     assert_eq!(replaced.status, 0, "{}", output_text(&replaced.stderr));
     let changed = fs::read_to_string(&file).unwrap();
-    assert!(changed.contains("sum(...Pair(first: 4, second: 5))"), "{changed}");
+    assert!(
+        changed.contains("sum(...Pair(first: 4, second: 5))"),
+        "{changed}"
+    );
     fs::remove_file(file).unwrap();
 }
 
 #[test]
 fn named_argument_spread_matching_retains_splice_and_label_identity() {
-    let file = temp_xsh("spread_arg_identity", "let options = {first: 1}\nf(...options)\nf(@options)\nf(options)\nf(first: options)\n");
+    let file = temp_xsh(
+        "spread_arg_identity",
+        "let options = {first: 1}\nf(...options)\nf(@options)\nf(options)\nf(first: options)\n",
+    );
     let spread = grep_scripts("f(...EXPR)", &paths(&file));
     assert_eq!(spread.status, 0);
     let text = output_text(&spread.stdout);
@@ -571,16 +716,34 @@ fn named_argument_spread_matching_retains_splice_and_label_identity() {
 fn lexical_ctx_structural_grep_and_refactor_preserve_description_and_body() {
     let root = TempDir::new().unwrap();
     let file = root.path().join("context.xsh");
-    fs::write(&file, "let selected = ctx \"café\" { 7 }\nlet other = ctx \"other\" { 9 }\n").unwrap();
+    fs::write(
+        &file,
+        "let selected = ctx \"café\" { 7 }\nlet other = ctx \"other\" { 9 }\n",
+    )
+    .unwrap();
     let output = grep_scripts("ctx \"café\" { BODY }", &paths(&file));
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(output_text(&output.stdout).contains("ctx \"café\" { 7 }"));
     assert!(!output_text(&output.stdout).contains("other"));
-    let fixed = refactor_scripts("ctx \"café\" { BODY }", "ctx \"café updated\" { BODY }", &paths(&file), false);
+    let fixed = refactor_scripts(
+        "ctx \"café\" { BODY }",
+        "ctx \"café updated\" { BODY }",
+        &paths(&file),
+        false,
+    );
     assert_eq!(fixed.status, 0, "{}", output_text(&fixed.stderr));
     let source = fs::read_to_string(&file).unwrap();
     assert!(source.contains("ctx \"café updated\" { 7 }"));
-    assert_eq!(refactor_scripts("ctx \"café\" { BODY }", "ctx \"café updated\" { BODY }", &paths(&file), false).status, 1);
+    assert_eq!(
+        refactor_scripts(
+            "ctx \"café\" { BODY }",
+            "ctx \"café updated\" { BODY }",
+            &paths(&file),
+            false
+        )
+        .status,
+        1
+    );
     assert_eq!(fs::read_to_string(&file).unwrap(), source);
 }
 
@@ -588,15 +751,27 @@ fn lexical_ctx_structural_grep_and_refactor_preserve_description_and_body() {
 fn typed_map_keys_grep_refactor_preserve_computed_domains() {
     let root = TempDir::new().unwrap();
     let path = root.path().join("typed-map.xsh");
-    fs::write(&path, "var entries: Map[Int, Str] = {[20]: \"twenty\", [3]: \"three\"}\n").unwrap();
+    fs::write(
+        &path,
+        "var entries: Map[Int, Str] = {[20]: \"twenty\", [3]: \"three\"}\n",
+    )
+    .unwrap();
     let found = grep_scripts("{[KEY]: VALUE, [OTHER]: REST}", &paths(&path));
     assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
     assert!(output_text(&found.stdout).contains("[20]"));
-    let output = refactor_scripts("{[KEY]: VALUE, [OTHER]: REST}", "{[OTHER]: REST, [KEY]: VALUE}", &paths(&path), false);
+    let output = refactor_scripts(
+        "{[KEY]: VALUE, [OTHER]: REST}",
+        "{[OTHER]: REST, [KEY]: VALUE}",
+        &paths(&path),
+        false,
+    );
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let updated = fs::read_to_string(&path).unwrap();
     assert!(updated.contains("Map[Int, Str]"));
-    assert!(updated.contains("{[3]: \"three\", [20]: \"twenty\"}"), "{updated}");
+    assert!(
+        updated.contains("{[3]: \"three\", [20]: \"twenty\"}"),
+        "{updated}"
+    );
 }
 
 #[test]
@@ -612,9 +787,16 @@ fn scalar_iteration_structural_tools_keep_loop_and_comprehension_sources() {
     let fixed = fs::read_to_string(&file).unwrap();
     assert!(fixed.contains("# Unicode loop\nfor character in \"🙂\""));
     assert!(fixed.contains("[octet for octet in b\"\\x00\\xff\"]"));
-    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        xsh::frontend::source::SourceId::new(0),
+        &fixed,
+    );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+    assert!(
+        xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed)
+            .diagnostics
+            .is_empty()
+    );
     let output = refactor_scripts("\"é\"", "\"🙂\"", &paths(&file), false);
     assert_eq!(output.status, 1);
     assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
@@ -627,7 +809,12 @@ fn typed_cause_grep_and_refactor_keep_named_operand() {
     let found = grep_scripts("Err(OUTER, cause: CAUSE)", &paths(&file));
     assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
     assert!(output_text(&found.stdout).contains("cause: Inner.Failed"));
-    let fixed = refactor_scripts("Inner.Failed(message: VALUE)", "Inner.Failed(message: VALUE)", &paths(&file), false);
+    let fixed = refactor_scripts(
+        "Inner.Failed(message: VALUE)",
+        "Inner.Failed(message: VALUE)",
+        &paths(&file),
+        false,
+    );
     assert_eq!(fixed.status, 0, "{}", output_text(&fixed.stderr));
     let updated = fs::read_to_string(&file).unwrap();
     assert!(updated.contains("cause: Inner.Failed(message: \"inner\")"));
@@ -663,21 +850,37 @@ fn grep_and_refactor_reach_wire_enum_mapping_expressions() {
     let fixed = fs::read_to_string(&file).unwrap();
     assert!(fixed.contains("Ready = \"ready\""), "{fixed}");
     assert!(fixed.contains("Empty = \"\""), "{fixed}");
-    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        xsh::frontend::source::SourceId::new(0),
+        &fixed,
+    );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+    assert!(
+        xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed)
+            .diagnostics
+            .is_empty()
+    );
 }
 
 #[test]
 fn context_scope_grep_and_refactor_preserve_input_body_and_scope_kind() {
     let root = TempDir::new().unwrap();
     let file = root.path().join("scope.xsh");
-    fs::write(&file, "let selected = env ({X: 7}) { 9 }\nlet other = cd (p\".\") { 9 }\n").unwrap();
+    fs::write(
+        &file,
+        "let selected = env ({X: 7}) { 9 }\nlet other = cd (p\".\") { 9 }\n",
+    )
+    .unwrap();
     let output = grep_scripts("env (EXPR) { BODY }", &paths(&file));
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(output_text(&output.stdout).contains("env ({X: 7}) { 9 }"));
     assert!(!output_text(&output.stdout).contains("cd ("));
-    let fixed = refactor_scripts("env (EXPR) { BODY }", "env (EXPR) { BODY }", &paths(&file), false);
+    let fixed = refactor_scripts(
+        "env (EXPR) { BODY }",
+        "env (EXPR) { BODY }",
+        &paths(&file),
+        false,
+    );
     assert_eq!(fixed.status, 0, "{}", output_text(&fixed.stderr));
     let source = fs::read_to_string(&file).unwrap();
     assert!(source.contains("env ({X: 7}) {"));

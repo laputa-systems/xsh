@@ -126,7 +126,7 @@ test test_linux_entries_reach_the_host_without_a_gate {
   # fails on every host without changing anything.
   if system.uname()?.sysname == "Linux" {
     assert linux.meminfo()?.total > 0
-    let interfaces = linux.interfaces()? |> collect
+    let interfaces = linux.interfaces()? |> collect()
     assert interfaces |> any .name == "lo"
     assert linux.link_up("xsh-absent0") is Err(_)
   } else {

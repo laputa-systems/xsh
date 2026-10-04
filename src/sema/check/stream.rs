@@ -1,7 +1,4 @@
-use super::{
-    Binding, Checker, Name,
-
-};
+use super::{Binding, Checker, Name};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::Type;
 use crate::syntax::arena::{
@@ -32,17 +29,27 @@ impl Checker {
         };
         let mut current = if first.kind.is_adapter() {
             let output = self.check_adapter_stage_arena(arena, source, first, input_ty.clone());
-            self.stream_stage_types.insert((self.current_namespace, arena.arena.span(first.span)),
-                super::CheckedStreamStage { input: input_ty, output: output.clone() });
+            self.stream_stage_types.insert(
+                (self.current_namespace, arena.arena.span(first.span)),
+                super::CheckedStreamStage {
+                    input: input_ty,
+                    output: output.clone(),
+                },
+            );
             output
         } else {
             match stream_type_from_input(input_ty) {
                 Some(ty) => {
                     let output = self.check_stream_stage_arena(arena, source, first, ty.clone());
-                    self.stream_stage_types.insert((self.current_namespace, arena.arena.span(first.span)),
-                        super::CheckedStreamStage { input: ty, output: output.clone() });
+                    self.stream_stage_types.insert(
+                        (self.current_namespace, arena.arena.span(first.span)),
+                        super::CheckedStreamStage {
+                            input: ty,
+                            output: output.clone(),
+                        },
+                    );
                     output
-                },
+                }
                 None => {
                     self.error(
                         arena.arena.expr(input).span,
@@ -57,8 +64,13 @@ impl Checker {
         for stage in rest {
             let input = current;
             current = self.check_stream_stage_arena(arena, source, stage, input.clone());
-            self.stream_stage_types.insert((self.current_namespace, arena.arena.span(stage.span)),
-                super::CheckedStreamStage { input, output: current.clone() });
+            self.stream_stage_types.insert(
+                (self.current_namespace, arena.arena.span(stage.span)),
+                super::CheckedStreamStage {
+                    input,
+                    output: current.clone(),
+                },
+            );
         }
         match current {
             Type::Stream(item) => Type::List(item),
@@ -88,31 +100,69 @@ impl Checker {
                 self.check_expr_arena(arena, source, value, None);
             }
         }
-        match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| self.expr_types.get(&arena.arena.expr(expr).span).cloned()) {
+        match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| {
+            self.expr_types.get(&arena.arena.expr(expr).span).cloned()
+        }) {
             Ok(Some((entry, callee))) => {
                 if !self.stage_callable_is_static(arena, callee) {
-                    self.error(arena.arena.expr(callee).span, "stage callable must be a statically resolved named function or proc", DiagnosticCode::CheckStreamCallable);
+                    self.error(
+                        arena.arena.expr(callee).span,
+                        "stage callable must be a statically resolved named function or proc",
+                        DiagnosticCode::CheckStreamCallable,
+                    );
                     return Type::Unknown;
                 }
                 if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
                     && let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind
-                    && let Some(overloads) = super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
+                    && let Some(overloads) =
+                        super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
                 {
-                    let matches = overloads.iter().filter(|signature| super::args::module_sig_accepts_arity(1, signature)
-                        && signature.params.first().is_some_and(|parameter| item_ty.matches_expected(&parameter.ty))).count();
+                    let matches = overloads
+                        .iter()
+                        .filter(|signature| {
+                            super::args::module_sig_accepts_arity(1, signature)
+                                && signature.params.first().is_some_and(|parameter| {
+                                    item_ty.matches_expected(&parameter.ty)
+                                })
+                        })
+                        .count();
                     if matches != 1 {
-                        self.error(arena.arena.expr(callee).span, "stage callable requires a unique checked one-item signature", DiagnosticCode::CheckStreamCallableSignature);
+                        self.error(
+                            arena.arena.expr(callee).span,
+                            "stage callable requires a unique checked one-item signature",
+                            DiagnosticCode::CheckStreamCallableSignature,
+                        );
                         return Type::Unknown;
                     }
                 }
                 let mut temporary = arena.clone();
                 let mut normalized = stage.clone();
-                normalized.args = temporary.arena.append_call_arguments(&crate::sema::stage_arguments::stage_configuration_arguments(arena, stage, entry));
-                normalized.block = Some(temporary.arena.append_stage_callable_block(callee, arena.arena.expr(callee).span).0);
-                self.argument_bindings.entry(arena.arena.span(stage.span)).or_default().callable_entry = Some(entry);
-                return self.check_stream_stage_arena(&temporary, source, &normalized, Type::Stream(Box::new(item_ty)));
+                normalized.args = temporary.arena.append_call_arguments(
+                    &crate::sema::stage_arguments::stage_configuration_arguments(
+                        arena, stage, entry,
+                    ),
+                );
+                normalized.block = Some(
+                    temporary
+                        .arena
+                        .append_stage_callable_block(callee, arena.arena.expr(callee).span)
+                        .0,
+                );
+                self.argument_bindings
+                    .entry(arena.arena.span(stage.span))
+                    .or_default()
+                    .callable_entry = Some(entry);
+                return self.check_stream_stage_arena(
+                    &temporary,
+                    source,
+                    &normalized,
+                    Type::Stream(Box::new(item_ty)),
+                );
             }
-            Err((span, message)) => { self.error(span, &message, DiagnosticCode::CheckStreamCallable); return Type::Unknown; }
+            Err((span, message)) => {
+                self.error(span, &message, DiagnosticCode::CheckStreamCallable);
+                return Type::Unknown;
+            }
             Ok(None) => {}
         }
         let arguments = self.check_stage_arguments_arena(arena, source, stage);
@@ -128,7 +178,11 @@ impl Checker {
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let output_ty = actual;
                 if output_ty == Type::Unit {
-                    self.error(stage_span, "map requires a tail value", DiagnosticCode::CheckMapTail);
+                    self.error(
+                        stage_span,
+                        "map requires a tail value",
+                        DiagnosticCode::CheckMapTail,
+                    );
                 }
                 Type::Stream(Box::new(output_ty))
             }
@@ -166,7 +220,11 @@ impl Checker {
             }
             StreamStageKind::Sort => {
                 if stage.block.is_some() {
-                    self.error(stage_span, "sort does not accept a block", DiagnosticCode::CheckStreamStageBlock);
+                    self.error(
+                        stage_span,
+                        "sort does not accept a block",
+                        DiagnosticCode::CheckStreamStageBlock,
+                    );
                 }
                 if matches!(
                     item_ty,
@@ -209,7 +267,11 @@ impl Checker {
             }
             StreamStageKind::First | StreamStageKind::Last => {
                 if !stage.args.is_empty() || stage.block.is_some() {
-                    self.error(stage_span, "stage accepts no arguments", DiagnosticCode::CheckArity);
+                    self.error(
+                        stage_span,
+                        "stage accepts no arguments",
+                        DiagnosticCode::CheckArity,
+                    );
                 }
                 Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
@@ -232,12 +294,24 @@ impl Checker {
                 ]))))
             }
             StreamStageKind::Zip => {
-                let other_ty = arguments.first().and_then(Option::as_ref).map(|argument| argument.ty.clone()).unwrap_or(Type::Unknown);
+                let other_ty = arguments
+                    .first()
+                    .and_then(Option::as_ref)
+                    .map(|argument| argument.ty.clone())
+                    .unwrap_or(Type::Unknown);
                 let other_item = match stream_type_from_input(other_ty) {
                     Some(Type::Stream(item)) => *item,
                     _ => {
-                        let span = arguments.first().and_then(Option::as_ref).map(|argument| argument.span).unwrap_or(stage_span);
-                        self.error(span, "zip other must be a Stream or List", DiagnosticCode::CheckTypeMismatch);
+                        let span = arguments
+                            .first()
+                            .and_then(Option::as_ref)
+                            .map(|argument| argument.span)
+                            .unwrap_or(stage_span);
+                        self.error(
+                            span,
+                            "zip other must be a Stream or List",
+                            DiagnosticCode::CheckTypeMismatch,
+                        );
                         Type::Unknown
                     }
                 };
@@ -247,11 +321,23 @@ impl Checker {
                 ]))))
             }
             StreamStageKind::Range => {
-                if stage.block.is_some() { self.error(stage_span, "range does not accept a block", DiagnosticCode::CheckStreamStageBlock); }
+                if stage.block.is_some() {
+                    self.error(
+                        stage_span,
+                        "range does not accept a block",
+                        DiagnosticCode::CheckStreamStageBlock,
+                    );
+                }
                 Type::Stream(Box::new(Type::Int))
             }
             StreamStageKind::Repeat => {
-                if stage.block.is_some() { self.error(stage_span, "repeat does not accept a block", DiagnosticCode::CheckStreamStageBlock); }
+                if stage.block.is_some() {
+                    self.error(
+                        stage_span,
+                        "repeat does not accept a block",
+                        DiagnosticCode::CheckStreamStageBlock,
+                    );
+                }
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::Tee => {
@@ -270,16 +356,26 @@ impl Checker {
             }
             StreamStageKind::Sum => {
                 if !stage.args.is_empty() || stage.block.is_some() {
-                    self.error(stage_span, "sum() accepts no arguments", DiagnosticCode::CheckArity);
+                    self.error(
+                        stage_span,
+                        "sum() accepts no arguments",
+                        DiagnosticCode::CheckArity,
+                    );
                 }
                 self.expect_type(&Type::Int, &item_ty, stage_span);
                 Type::Int
             }
             StreamStageKind::Min | StreamStageKind::Max => {
                 if !stage.args.is_empty() || stage.block.is_some() {
-                    self.error(stage_span, "min/max accept no arguments", DiagnosticCode::CheckArity);
+                    self.error(
+                        stage_span,
+                        "min/max accept no arguments",
+                        DiagnosticCode::CheckArity,
+                    );
                 }
-                if item_ty == Type::Any { self.reject_dynamic_use("an ordering operand", None, stage_span); }
+                if item_ty == Type::Any {
+                    self.reject_dynamic_use("an ordering operand", None, stage_span);
+                }
                 Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
             StreamStageKind::GroupBy => {
@@ -291,7 +387,11 @@ impl Checker {
                 ]))))
             }
             StreamStageKind::Fold | StreamStageKind::Reduce => {
-                let acc_ty = arguments.first().and_then(Option::as_ref).map(|argument| argument.ty.clone()).unwrap_or(Type::Unknown);
+                let acc_ty = arguments
+                    .first()
+                    .and_then(Option::as_ref)
+                    .map(|argument| argument.ty.clone())
+                    .unwrap_or(Type::Unknown);
                 // A `fold`/`reduce` block binds the accumulator (typed by the
                 // initial value) before the stream item, so it accepts up to
                 // two parameters: `|acc, item| ...`. The tail must produce the
@@ -326,7 +426,13 @@ impl Checker {
                 Type::Bool
             }
             StreamStageKind::Shuffle => {
-                if stage.block.is_some() { self.error(stage_span, "shuffle does not accept a block", DiagnosticCode::CheckStreamStageBlock); }
+                if stage.block.is_some() {
+                    self.error(
+                        stage_span,
+                        "shuffle does not accept a block",
+                        DiagnosticCode::CheckStreamStageBlock,
+                    );
+                }
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::TablePrint => {
@@ -346,14 +452,31 @@ impl Checker {
             }
             StreamStageKind::Count => {
                 if !stage.args.is_empty() {
-                    self.error(stage_span, "count does not accept arguments", DiagnosticCode::CheckArity);
+                    self.error(
+                        stage_span,
+                        "count does not accept arguments",
+                        DiagnosticCode::CheckArity,
+                    );
                 }
                 if stage.block.is_some() {
-                    let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
+                    let key_ty =
+                        self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                     if key_ty == Type::Any {
                         self.reject_dynamic_use("a count key", None, stage_span);
-                    } else if !matches!(key_ty, Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Unknown | Type::Invalid) {
-                        self.error(stage_span, "count keys must be Str, Int, or Bool", DiagnosticCode::CheckStreamCountKey);
+                    } else if !matches!(
+                        key_ty,
+                        Type::Str
+                            | Type::Int
+                            | Type::UInt
+                            | Type::Bool
+                            | Type::Unknown
+                            | Type::Invalid
+                    ) {
+                        self.error(
+                            stage_span,
+                            "count keys must be Str, Int, or Bool",
+                            DiagnosticCode::CheckStreamCountKey,
+                        );
                     }
                     Type::Map(Box::new(Type::Str), Box::new(Type::Int))
                 } else {
@@ -372,7 +495,8 @@ impl Checker {
             }
             StreamStageKind::ReduceBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                let block_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
+                let block_ty =
+                    self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let expected = Type::Record(btree_map(vec![
                     ("key".to_string(), Type::Any),
                     ("value".to_string(), Type::Any),
@@ -412,27 +536,52 @@ impl Checker {
             std::slice::from_ref(item_ty),
             1,
             item_ty,
-            matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee).then_some(&Type::Unit),
+            matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee)
+                .then_some(&Type::Unit),
         )
     }
 
     /// A descriptor retains a checked declaration or immutable alias signature.
     /// Lexical values with erased callable types cannot supply that contract.
     pub(super) fn stage_callable_is_static(&self, arena: &ArenaProgram, callee: ExprId) -> bool {
-        if self.resolve_callable_alias_call(arena, callee).is_some() { return true; }
+        if self.resolve_callable_alias_call(arena, callee).is_some() {
+            return true;
+        }
         match arena.arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) => self.lookup(name).is_none()
-                && (self.pures.contains_key(&name) || self.procs.contains_key(&name)),
+            ArenaExprKind::Ident(name) => {
+                self.lookup(name).is_none()
+                    && (self.pures.contains_key(&name) || self.procs.contains_key(&name))
+            }
             ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else { return false; };
-                if self.scopes.iter().skip(1).any(|scope| scope.contains_key(&namespace)) { return false; }
+                let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
+                    return false;
+                };
+                if self
+                    .scopes
+                    .iter()
+                    .skip(1)
+                    .any(|scope| scope.contains_key(&namespace))
+                {
+                    return false;
+                }
                 let qualified = crate::symbol::QualifiedName::new(namespace, name);
-                self.qualified_pures.contains_key(&qualified) || self.qualified_procs.contains_key(&qualified)
-                    || crate::sema::stage_arguments::stage_namespace_is_imported(arena, namespace, self.current_namespace)
-                    && matches!(self.lookup(namespace).map(|binding| &binding.ty), Some(Type::Module(exports))
+                self.qualified_pures.contains_key(&qualified)
+                    || self.qualified_procs.contains_key(&qualified)
+                    || crate::sema::stage_arguments::stage_namespace_is_imported(
+                        arena,
+                        namespace,
+                        self.current_namespace,
+                    ) && matches!(self.lookup(namespace).map(|binding| &binding.ty), Some(Type::Module(exports))
                         if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. })))
-                    || self.lookup(namespace).is_none() && super::api_spec().module(&namespace.as_str())
-                        .is_some_and(|module| module.functions.iter().any(|function| function.name == name.as_str().as_str()))
+                    || self.lookup(namespace).is_none()
+                        && super::api_spec()
+                            .module(&namespace.as_str())
+                            .is_some_and(|module| {
+                                module
+                                    .functions
+                                    .iter()
+                                    .any(|function| function.name == name.as_str().as_str())
+                            })
             }
             _ => false,
         }
@@ -522,17 +671,28 @@ impl Checker {
         source: &str,
         stage: &ArenaStreamStage,
     ) -> Vec<Option<crate::sema::arguments::ExpandedArgument>> {
-        use crate::sema::arguments::{ArgumentValueSource, bind_static_arguments, expand_named_arguments};
+        use crate::sema::arguments::{
+            ArgumentValueSource, bind_static_arguments, expand_named_arguments,
+        };
         use xsh_registry::stream_parameters::{StageParameterValidation, stage_parameters};
         let contract = stage_parameters(stage.kind.as_str());
         let params = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
-        if params.is_empty() { return Vec::new(); }
+        if params.is_empty() {
+            return Vec::new();
+        }
         let args = arena.arena.call_args(stage.args);
         let mut positional = 0;
         for arg in args {
             let expected = match arg.kind {
-                ArenaCallArgKind::Named { name, .. } => params.iter().find(|param| param.name == name).map(|param| &param.ty),
-                ArenaCallArgKind::Positional(_) => { let expected = params.get(positional).map(|param| &param.ty); positional += 1; expected }
+                ArenaCallArgKind::Named { name, .. } => params
+                    .iter()
+                    .find(|param| param.name == name)
+                    .map(|param| &param.ty),
+                ArenaCallArgKind::Positional(_) => {
+                    let expected = params.get(positional).map(|param| &param.ty);
+                    positional += 1;
+                    expected
+                }
                 _ => None,
             };
             // A Value or Sequence parameter has no expected type; passing its
@@ -545,56 +705,100 @@ impl Checker {
                 self.check_call_arg_arena(arena, source, &arg.kind, expected);
             }
         }
-        let expanded = match expand_named_arguments(arena, args, |expr| self.expr_types.get(&arena.arena.expr(expr).span).cloned()) {
+        let expanded = match expand_named_arguments(arena, args, |expr| {
+            self.expr_types.get(&arena.arena.expr(expr).span).cloned()
+        }) {
             Ok(expanded) => expanded,
-            Err(error) => { self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread); return vec![None; params.len()]; }
+            Err(error) => {
+                self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
+                return vec![None; params.len()];
+            }
         };
         let binding = match bind_static_arguments(&params, &expanded) {
             Ok(binding) => binding,
             Err(error) => {
-                let span = if args.is_empty() { arena.arena.span(stage.span) } else { error.span };
+                let span = if args.is_empty() {
+                    arena.arena.span(stage.span)
+                } else {
+                    error.span
+                };
                 self.error(span, &error.message, DiagnosticCode::CheckNamedArg);
                 return vec![None; params.len()];
             }
         };
-        self.argument_bindings.entry(arena.arena.span(stage.span)).or_default().argument_slots = binding.argument_slots.clone();
+        self.argument_bindings
+            .entry(arena.arena.span(stage.span))
+            .or_default()
+            .argument_slots = binding.argument_slots.clone();
         let mut values = vec![None; params.len()];
         for (argument, slot) in expanded.into_iter().zip(binding.argument_slots) {
             if argument.name.is_none() && !contract[slot].positional {
-                self.error(argument.span, "stage configuration parameters must be named", DiagnosticCode::CheckNamedArg);
+                self.error(
+                    argument.span,
+                    "stage configuration parameters must be named",
+                    DiagnosticCode::CheckNamedArg,
+                );
             }
             self.expect_type(&params[slot].ty, &argument.ty, argument.span);
             if contract[slot].validation == StageParameterValidation::Positive
                 && let ArgumentValueSource::Expression(value) = argument.value
             {
-                let code = match contract[slot].name { "jobs" => DiagnosticCode::CheckStreamJobs, "size" => DiagnosticCode::CheckBytesChunks, _ => DiagnosticCode::CheckStreamBatch };
+                let code = match contract[slot].name {
+                    "jobs" => DiagnosticCode::CheckStreamJobs,
+                    "size" => DiagnosticCode::CheckBytesChunks,
+                    _ => DiagnosticCode::CheckStreamBatch,
+                };
                 self.check_static_positive_value_arena(arena, value, code);
             }
             values[slot] = Some(argument);
         }
-        let literal_bool = |argument: &crate::sema::arguments::ExpandedArgument| match argument.value {
-            ArgumentValueSource::Expression(expr) => match arena.arena.expr(expr).kind { ArenaExprKind::Bool(value) => Some(value), _ => None },
-            _ => None,
-        };
+        let literal_bool =
+            |argument: &crate::sema::arguments::ExpandedArgument| match argument.value {
+                ArgumentValueSource::Expression(expr) => match arena.arena.expr(expr).kind {
+                    ArenaExprKind::Bool(value) => Some(value),
+                    _ => None,
+                },
+                _ => None,
+            };
         if stage.kind == StreamStageKind::ReduceBy {
             let modes = &values[..3];
-            let enabled = modes.iter().flatten().filter(|argument| literal_bool(argument) == Some(true)).count();
-            let dynamic = modes.iter().flatten().any(|argument| literal_bool(argument).is_none());
+            let enabled = modes
+                .iter()
+                .flatten()
+                .filter(|argument| literal_bool(argument) == Some(true))
+                .count();
+            let dynamic = modes
+                .iter()
+                .flatten()
+                .any(|argument| literal_bool(argument).is_none());
             if enabled > 1 || !dynamic && enabled != 1 {
-                self.error(arena.arena.span(stage.span), "reduce-by requires exactly one enabled reduction mode", DiagnosticCode::CheckStreamReduceMode);
+                self.error(
+                    arena.arena.span(stage.span),
+                    "reduce-by requires exactly one enabled reduction mode",
+                    DiagnosticCode::CheckStreamReduceMode,
+                );
             }
         }
         if stage.kind == StreamStageKind::Batch
-            && values[0].is_none() && values[1].is_none()
-            && values[2].as_ref().is_none_or(|argument| literal_bool(argument) == Some(false))
+            && values[0].is_none()
+            && values[1].is_none()
+            && values[2]
+                .as_ref()
+                .is_none_or(|argument| literal_bool(argument) == Some(false))
         {
-            self.error(arena.arena.span(stage.span), "batch requires an enabled count or byte limit", DiagnosticCode::CheckStreamBatch);
+            self.error(
+                arena.arena.span(stage.span),
+                "batch requires an enabled count or byte limit",
+                DiagnosticCode::CheckStreamBatch,
+            );
         }
         values
     }
 
     fn check_stage_no_args_arena(&mut self, arena: &ArenaProgram, stage: &ArenaStreamStage) {
-        if !stage.args.is_empty() && xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty() {
+        if !stage.args.is_empty()
+            && xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty()
+        {
             self.error(
                 arena.arena.span(stage.span),
                 "stream stage does not accept call arguments",
@@ -619,13 +823,27 @@ impl Checker {
                 DiagnosticCode::CheckStreamStageBlock,
             );
         }
-        for (slot, argument) in arguments.iter().enumerate().skip(1).filter_map(|(slot, argument)| argument.as_ref().map(|argument| (slot, argument))) {
-            if slot == 2 && let crate::sema::arguments::ArgumentValueSource::Expression(expr) = argument.value
-                && matches!(arena.arena.expr(expr).kind, ArenaExprKind::Bool(false)) { continue; }
+        for (slot, argument) in arguments
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter_map(|(slot, argument)| argument.as_ref().map(|argument| (slot, argument)))
+        {
+            if slot == 2
+                && let crate::sema::arguments::ArgumentValueSource::Expression(expr) =
+                    argument.value
+                && matches!(arena.arena.expr(expr).kind, ArenaExprKind::Bool(false))
+            {
+                continue;
+            }
             if *item_ty == Type::Any {
                 self.reject_dynamic_use("a byte-bounded batch item", None, argument.span);
             } else if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
-                self.error(argument.span, "byte-bounded batches require argv-compatible items", DiagnosticCode::CheckStreamBatch);
+                self.error(
+                    argument.span,
+                    "byte-bounded batches require argv-compatible items",
+                    DiagnosticCode::CheckStreamBatch,
+                );
             }
         }
     }

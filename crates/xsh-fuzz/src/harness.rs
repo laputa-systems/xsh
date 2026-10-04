@@ -32,7 +32,10 @@ pub const INTERNAL_MARKERS: &[&str] = &[
 ];
 
 pub fn internal_marker(text: &str) -> Option<&'static str> {
-    INTERNAL_MARKERS.iter().copied().find(|marker| text.contains(marker))
+    INTERNAL_MARKERS
+        .iter()
+        .copied()
+        .find(|marker| text.contains(marker))
 }
 
 /// Text that marks a runtime type disagreement with the checker.
@@ -62,7 +65,10 @@ pub struct CheckReport {
 
 impl CheckReport {
     pub fn accepted(&self) -> bool {
-        self.panic.is_none() && self.parse.is_empty() && self.check.is_empty() && self.lower.is_empty()
+        self.panic.is_none()
+            && self.parse.is_empty()
+            && self.check.is_empty()
+            && self.lower.is_empty()
     }
 
     pub fn internal_error(&self) -> Option<String> {
@@ -96,14 +102,26 @@ fn span_problems(diagnostics: &[Diagnostic], sources: &SourceMap, out: &mut Vec<
             .span
             .iter()
             .chain(diagnostic.labels.iter().map(|label| &label.span))
-            .chain(diagnostic.fix_hints.iter().filter_map(|hint| hint.span.as_ref()));
+            .chain(
+                diagnostic
+                    .fix_hints
+                    .iter()
+                    .filter_map(|hint| hint.span.as_ref()),
+            );
         for span in spans {
             let valid = sources.get(span.source_id).is_some_and(|file| {
                 let text = file.text();
-                span.end() <= text.len() && text.is_char_boundary(span.start()) && text.is_char_boundary(span.end())
+                span.end() <= text.len()
+                    && text.is_char_boundary(span.start())
+                    && text.is_char_boundary(span.end())
             });
             if !valid {
-                out.push(format!("{} at {}..{}", describe(diagnostic), span.start(), span.end()));
+                out.push(format!(
+                    "{} at {}..{}",
+                    describe(diagnostic),
+                    span.start(),
+                    span.end()
+                ));
             }
         }
     }
@@ -127,9 +145,17 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
             file,
             text.to_string(),
             Vec::new(),
-            CheckOptions { interactive_commands: None, reveal_types: false, migration_diagnostics: true },
+            CheckOptions {
+                interactive_commands: None,
+                reveal_types: false,
+                migration_diagnostics: true,
+            },
         );
-        span_problems(&entry.parsed.diagnostics, &entry.sources, &mut report.bad_spans);
+        span_problems(
+            &entry.parsed.diagnostics,
+            &entry.sources,
+            &mut report.bad_spans,
+        );
         report.parse = entry
             .parsed
             .diagnostics
@@ -141,7 +167,9 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
             return report;
         }
         let Some(checked) = &entry.checked else {
-            report.check.push("no check output after a clean parse".into());
+            report
+                .check
+                .push("no check output after a clean parse".into());
             return report;
         };
         span_problems(&checked.diagnostics, &entry.sources, &mut report.bad_spans);
@@ -169,7 +197,10 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
     }));
     match result {
         Ok(report) => report,
-        Err(payload) => CheckReport { panic: Some(panic_text(&*payload)), ..CheckReport::default() },
+        Err(payload) => CheckReport {
+            panic: Some(panic_text(&*payload)),
+            ..CheckReport::default()
+        },
     }
 }
 
@@ -206,7 +237,12 @@ pub const DEFAULT_MEMORY_LIMIT: u64 = 256 << 20;
 
 impl Sandbox {
     pub fn new(exe: PathBuf) -> Self {
-        Self { exe, timeout: Duration::from_secs(10), output_cap: 1 << 20, memory_limit: DEFAULT_MEMORY_LIMIT }
+        Self {
+            exe,
+            timeout: Duration::from_secs(10),
+            output_cap: 1 << 20,
+            memory_limit: DEFAULT_MEMORY_LIMIT,
+        }
     }
 
     /// Runs `source` as a script in a fresh private directory.
@@ -279,7 +315,8 @@ pub fn footprint(pid: u32) -> Option<u64> {
     // SAFETY: with RUSAGE_INFO_V2, proc_pid_rusage writes one rusage_info_v2
     // into the buffer, which is that size; on failure it is left untouched
     // and not read.
-    let status = unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, info.as_mut_ptr().cast()) };
+    let status =
+        unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, info.as_mut_ptr().cast()) };
     // SAFETY: a zero status means the kernel filled the structure.
     (status == 0).then(|| unsafe { info.assume_init() }.ri_phys_footprint)
 }
@@ -320,7 +357,13 @@ fn read_capped(mut reader: impl Read, cap: usize) -> String {
 pub fn exec_worker(script: &Path) -> ! {
     use rustix::process::{Resource, Rlimit, setrlimit};
     let limit = |resource: Resource, value: u64| {
-        let _ = setrlimit(resource, Rlimit { current: Some(value), maximum: Some(value) });
+        let _ = setrlimit(
+            resource,
+            Rlimit {
+                current: Some(value),
+                maximum: Some(value),
+            },
+        );
     };
     limit(Resource::Cpu, 20);
     // No file may grow: generated programs have no filesystem effect.
@@ -351,7 +394,10 @@ pub enum Failure {
     /// The program failed at runtime.
     Runtime(String),
     /// The program ran but printed something other than the reference output.
-    WrongOutput { expected: String, actual: String },
+    WrongOutput {
+        expected: String,
+        actual: String,
+    },
     Timeout,
     /// A small well-typed program exceeded the memory limit.
     Memory(String),
@@ -373,14 +419,19 @@ impl Failure {
 
     pub fn detail(&self) -> String {
         match self {
-            Failure::Rejected(text) | Failure::Internal(text) | Failure::Runtime(text) | Failure::Memory(text) | Failure::Crash(text) => {
-                text.clone()
-            }
+            Failure::Rejected(text)
+            | Failure::Internal(text)
+            | Failure::Runtime(text)
+            | Failure::Memory(text)
+            | Failure::Crash(text) => text.clone(),
             Failure::WrongOutput { expected, actual } => {
                 let mut text = String::new();
                 for (index, (want, got)) in expected.lines().zip(actual.lines()).enumerate() {
                     if want != got {
-                        text.push_str(&format!("line {}: expected {want:?}\n         actual   {got:?}\n", index + 1));
+                        text.push_str(&format!(
+                            "line {}: expected {want:?}\n         actual   {got:?}\n",
+                            index + 1
+                        ));
                         break;
                     }
                 }
@@ -400,21 +451,34 @@ impl Failure {
 
 /// Checks a generated program and, when `sandbox` is given, runs it and
 /// compares stdout with `expected`.
-pub fn verify_generated(source: &str, expected: &str, sandbox: Option<&Sandbox>) -> Result<(), Failure> {
+pub fn verify_generated(
+    source: &str,
+    expected: &str,
+    sandbox: Option<&Sandbox>,
+) -> Result<(), Failure> {
     let report = check_text("program.xsh", source);
     if let Some(internal) = report.internal_error() {
         return Err(Failure::Internal(internal));
     }
     if !report.accepted() {
         let mut text = String::new();
-        for line in report.parse.iter().chain(&report.check).chain(&report.lower) {
+        for line in report
+            .parse
+            .iter()
+            .chain(&report.check)
+            .chain(&report.lower)
+        {
             text.push_str(line);
             text.push('\n');
         }
         return Err(Failure::Rejected(text));
     }
-    let Some(sandbox) = sandbox else { return Ok(()) };
-    let run = sandbox.run(source).map_err(|error| Failure::Crash(format!("spawn failed: {error}")))?;
+    let Some(sandbox) = sandbox else {
+        return Ok(());
+    };
+    let run = sandbox
+        .run(source)
+        .map_err(|error| Failure::Crash(format!("spawn failed: {error}")))?;
     if let Some(footprint) = run.memory_exceeded {
         return Err(Failure::Memory(format!(
             "killed at {} MiB, over the {} MiB limit",
@@ -426,7 +490,10 @@ pub fn verify_generated(source: &str, expected: &str, sandbox: Option<&Sandbox>)
         return Err(Failure::Timeout);
     }
     if let Some(signal) = run.signal {
-        return Err(Failure::Crash(format!("killed by signal {signal}\n{}", run.stderr)));
+        return Err(Failure::Crash(format!(
+            "killed by signal {signal}\n{}",
+            run.stderr
+        )));
     }
     if run.status != Some(0) {
         let kind = if let Some(marker) = internal_marker(&run.stderr) {
@@ -436,11 +503,16 @@ pub fn verify_generated(source: &str, expected: &str, sandbox: Option<&Sandbox>)
         } else {
             "runtime error".to_string()
         };
-        return Err(Failure::Runtime(format!("{kind}, status {:?}\n{}", run.status, run.stderr)));
+        return Err(Failure::Runtime(format!(
+            "{kind}, status {:?}\n{}",
+            run.status, run.stderr
+        )));
     }
     if run.stdout != expected {
-        return Err(Failure::WrongOutput { expected: expected.to_string(), actual: run.stdout });
+        return Err(Failure::WrongOutput {
+            expected: expected.to_string(),
+            actual: run.stdout,
+        });
     }
     Ok(())
 }
-

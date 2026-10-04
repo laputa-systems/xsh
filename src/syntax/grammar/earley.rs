@@ -84,7 +84,10 @@ impl<'g> Compiler<'g> {
     }
 
     fn rule_id(&self, name: &str) -> u32 {
-        *self.rule_ids.get(name).unwrap_or_else(|| panic!("grammar refers to undefined rule `{name}`"))
+        *self
+            .rule_ids
+            .get(name)
+            .unwrap_or_else(|| panic!("grammar refers to undefined rule `{name}`"))
     }
 
     /// Appends the symbols of `item` to `out`, introducing helper rules for
@@ -132,7 +135,11 @@ impl<'g> Compiler<'g> {
                 self.productions.push((id, again));
                 out.push(Symbol::Rule(id));
             }
-            Item::List { item: inner, lines, min_one } => {
+            Item::List {
+                item: inner,
+                lines,
+                min_one,
+            } => {
                 let expanded = list_items(inner, *lines, *min_one);
                 self.flatten(owner, &expanded, out);
             }
@@ -145,8 +152,14 @@ impl<'g> Compiler<'g> {
                 out.push(Symbol::Rule(id));
             }
             Item::Not(sequences) | Item::Peek(sequences) => {
-                let sequences = sequences.iter().map(|sequence| sequence.iter().map(|term| self.terminal(*term)).collect()).collect();
-                self.lookaheads.push(Lookahead { negative: matches!(item, Item::Not(_)), sequences });
+                let sequences = sequences
+                    .iter()
+                    .map(|sequence| sequence.iter().map(|term| self.terminal(*term)).collect())
+                    .collect();
+                self.lookaheads.push(Lookahead {
+                    negative: matches!(item, Item::Not(_)),
+                    sequences,
+                });
                 out.push(Symbol::Look((self.lookaheads.len() - 1) as u32));
             }
         }
@@ -158,18 +171,35 @@ impl<'g> Compiler<'g> {
 pub(crate) fn list_items(item: &Item, lines: bool, min_one: bool) -> Item {
     let newlines = || {
         if lines {
-            Item::Star(Box::new(Item::Term(Term { class: super::Class::Tag(TokenTag::Newline), glued: false })))
+            Item::Star(Box::new(Item::Term(Term {
+                class: super::Class::Tag(TokenTag::Newline),
+                glued: false,
+            })))
         } else {
             Item::Seq(Vec::new())
         }
     };
-    let comma = || Item::Term(Term { class: super::Class::Tag(TokenTag::Comma), glued: false });
+    let comma = || {
+        Item::Term(Term {
+            class: super::Class::Tag(TokenTag::Comma),
+            glued: false,
+        })
+    };
     let body = Item::Seq(vec![
         item.clone(),
-        Item::Star(Box::new(Item::Seq(vec![newlines(), comma(), newlines(), item.clone()]))),
+        Item::Star(Box::new(Item::Seq(vec![
+            newlines(),
+            comma(),
+            newlines(),
+            item.clone(),
+        ]))),
         Item::Opt(Box::new(Item::Seq(vec![newlines(), comma()]))),
     ]);
-    let body = if min_one { body } else { Item::Opt(Box::new(body)) };
+    let body = if min_one {
+        body
+    } else {
+        Item::Opt(Box::new(body))
+    };
     Item::Seq(vec![newlines(), body, newlines()])
 }
 
@@ -187,7 +217,11 @@ impl Recognizer {
         };
         for rule in &grammar.rules {
             let id = compiler.fresh(rule.name.to_string());
-            assert!(compiler.rule_ids.insert(rule.name, id).is_none(), "rule `{}` is defined twice", rule.name);
+            assert!(
+                compiler.rule_ids.insert(rule.name, id).is_none(),
+                "rule `{}` is defined twice",
+                rule.name
+            );
         }
         for rule in &compiler.grammar.rules {
             let id = compiler.rule_id(rule.name);
@@ -197,7 +231,9 @@ impl Recognizer {
         }
         let program = compiler.rule_id(Grammar::START);
         let start = compiler.fresh("start".to_string());
-        compiler.productions.push((start, vec![Symbol::Rule(program)]));
+        compiler
+            .productions
+            .push((start, vec![Symbol::Rule(program)]));
 
         let rule_count = compiler.names.len();
         let mut symbols = Vec::new();
@@ -290,7 +326,8 @@ impl Recognizer {
                     }
                     Symbol::Rule(id) => {
                         for word in 0..words {
-                            production_first[index * words + word] |= first[*id as usize * words + word];
+                            production_first[index * words + word] |=
+                                first[*id as usize * words + word];
                         }
                         if !may_be_empty[*id as usize] {
                             empty = false;
@@ -331,17 +368,30 @@ impl Recognizer {
     }
 
     fn token_terminals(&self, tokens: &[GrammarToken<'_>]) -> Vec<u64> {
-        let mut cache: FxHashMap<(TokenTag, Option<Keyword>, bool, &str), usize> = FxHashMap::default();
+        let mut cache: FxHashMap<(TokenTag, Option<Keyword>, bool, &str), usize> =
+            FxHashMap::default();
         let mut rows: Vec<u64> = Vec::new();
         let mut matches = Vec::with_capacity(tokens.len() * self.words);
         for token in tokens {
-            let text = if matches!(token.tag, TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Int) || token.text.len() <= 3 {
+            let text = if matches!(
+                token.tag,
+                TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Int
+            ) || token.text.len() <= 3
+            {
                 token.text
             } else {
                 // Only identifier-like words and short tokens are spelled in
                 // the grammar; other text never changes which terminals match
                 // except for bare-path parts, which are decided by character.
-                if token.text.chars().all(crate::syntax::literal::is_bare_path_literal_char) { "/" } else { "\"" }
+                if token
+                    .text
+                    .chars()
+                    .all(crate::syntax::literal::is_bare_path_literal_char)
+                {
+                    "/"
+                } else {
+                    "\""
+                }
             };
             let key = (token.tag, token.keyword, token.glued, text);
             let row = *cache.entry(key).or_insert_with(|| {
@@ -370,28 +420,40 @@ impl Recognizer {
         let words = self.words;
         let matches = self.token_terminals(tokens);
         let has = |position: usize, terminal: u32| -> bool {
-            position < tokens.len() && matches[position * words + terminal as usize / 64] & (1 << (terminal % 64)) != 0
+            position < tokens.len()
+                && matches[position * words + terminal as usize / 64] & (1 << (terminal % 64)) != 0
         };
         let look_passes = |look: u32, position: usize| -> bool {
             let lookahead = &self.lookaheads[look as usize];
-            let found = lookahead
-                .sequences
-                .iter()
-                .any(|sequence| sequence.iter().enumerate().all(|(offset, terminal)| has(position + offset, *terminal)));
-            if lookahead.negative { !found } else { found || position == tokens.len() }
+            let found = lookahead.sequences.iter().any(|sequence| {
+                sequence
+                    .iter()
+                    .enumerate()
+                    .all(|(offset, terminal)| has(position + offset, *terminal))
+            });
+            if lookahead.negative {
+                !found
+            } else {
+                found || position == tokens.len()
+            }
         };
         // Line breaks before each position, for single-line rules.
         let mut breaks = Vec::with_capacity(tokens.len() + 1);
         breaks.push(0u32);
         for token in tokens {
-            breaks.push(breaks.last().copied().unwrap_or(0) + u32::from(token.tag == TokenTag::Newline));
+            breaks.push(
+                breaks.last().copied().unwrap_or(0) + u32::from(token.tag == TokenTag::Newline),
+            );
         }
         let rule_count = self.names.len();
         let mut predicted = vec![u32::MAX; rule_count];
         let mut empty_completed = vec![u32::MAX; rule_count];
         // For every finished set: (waiting rule, position, origin), sorted.
         let mut waiting: Vec<Vec<(u32, u32, u32)>> = Vec::with_capacity(tokens.len() + 1);
-        let mut current: Vec<(u32, u32)> = vec![(self.production_start[self.productions_of[self.start as usize][0] as usize], 0)];
+        let mut current: Vec<(u32, u32)> = vec![(
+            self.production_start[self.productions_of[self.start as usize][0] as usize],
+            0,
+        )];
         let mut seen: FxHashSet<u64> = FxHashSet::default();
         let mut next: Vec<(u32, u32)> = Vec::new();
         let mut next_seen: FxHashSet<u64> = FxHashSet::default();
@@ -411,7 +473,9 @@ impl Recognizer {
                 match self.symbols[dot as usize] {
                     Symbol::End => {
                         let lhs = self.production_lhs[self.owner[dot as usize] as usize];
-                        if self.single_line[lhs as usize] && breaks[position] != breaks[origin as usize] {
+                        if self.single_line[lhs as usize]
+                            && breaks[position] != breaks[origin as usize]
+                        {
                             continue;
                         }
                         if origin == set {
@@ -429,13 +493,17 @@ impl Recognizer {
                         } else {
                             let items = &waiting[origin as usize];
                             let from = items.partition_point(|entry| entry.0 < lhs);
-                            for &(_, waiting_dot, waiting_origin) in items[from..].iter().take_while(|entry| entry.0 == lhs) {
+                            for &(_, waiting_dot, waiting_origin) in
+                                items[from..].iter().take_while(|entry| entry.0 == lhs)
+                            {
                                 add((waiting_dot + 1, waiting_origin), &mut current);
                             }
                         }
                     }
                     Symbol::Terminal(terminal) => {
-                        if has(position, terminal) && next_seen.insert(u64::from(dot + 1) << 32 | u64::from(origin)) {
+                        if has(position, terminal)
+                            && next_seen.insert(u64::from(dot + 1) << 32 | u64::from(origin))
+                        {
                             next.push((dot + 1, origin));
                         }
                     }
@@ -451,10 +519,16 @@ impl Recognizer {
                                 let viable = self.production_may_be_empty[production as usize]
                                     || (position < tokens.len()
                                         && (0..words).any(|word| {
-                                            self.production_first[production as usize * words + word] & matches[position * words + word] != 0
+                                            self.production_first
+                                                [production as usize * words + word]
+                                                & matches[position * words + word]
+                                                != 0
                                         }));
                                 if viable {
-                                    add((self.production_start[production as usize], set), &mut current);
+                                    add(
+                                        (self.production_start[production as usize], set),
+                                        &mut current,
+                                    );
                                 }
                             }
                         }
@@ -467,9 +541,15 @@ impl Recognizer {
 
             if position == tokens.len() {
                 let accepted = current.iter().any(|&(dot, origin)| {
-                    origin == 0 && self.symbols[dot as usize] == Symbol::End && self.production_lhs[self.owner[dot as usize] as usize] == self.start
+                    origin == 0
+                        && self.symbols[dot as usize] == Symbol::End
+                        && self.production_lhs[self.owner[dot as usize] as usize] == self.start
                 });
-                return if accepted { Ok(()) } else { Err(self.rejection(position, &current)) };
+                return if accepted {
+                    Ok(())
+                } else {
+                    Err(self.rejection(position, &current))
+                };
             }
             if next.is_empty() {
                 return Err(self.rejection(position, &current));
@@ -501,7 +581,10 @@ impl Recognizer {
             .collect();
         expected.sort();
         expected.dedup();
-        Rejection { token: position, expected }
+        Rejection {
+            token: position,
+            expected,
+        }
     }
 }
 
@@ -515,13 +598,27 @@ pub fn top_level_parts<'a, 's>(tokens: &'a [GrammarToken<'s>]) -> Vec<&'a [Gramm
     let mut start = 0;
     for (index, token) in tokens.iter().enumerate() {
         match token.tag {
-            TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace | TokenTag::DollarLBrace => depth += 1,
-            TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace => depth = depth.saturating_sub(1),
+            TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace | TokenTag::DollarLBrace => {
+                depth += 1
+            }
+            TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace => {
+                depth = depth.saturating_sub(1)
+            }
             TokenTag::Newline if depth == 0 && index > start => {
                 let begins_declaration = tokens.get(index + 1).is_some_and(|next| {
                     matches!(
                         next.keyword,
-                        Some(Keyword::Proc | Keyword::Pure | Keyword::Stream | Keyword::Let | Keyword::Const | Keyword::Use | Keyword::Type | Keyword::Enum | Keyword::Export)
+                        Some(
+                            Keyword::Proc
+                                | Keyword::Pure
+                                | Keyword::Stream
+                                | Keyword::Let
+                                | Keyword::Const
+                                | Keyword::Use
+                                | Keyword::Type
+                                | Keyword::Enum
+                                | Keyword::Export
+                        )
                     ) || (next.tag == TokenTag::Ident && matches!(next.text, "test" | "cli"))
                 });
                 if begins_declaration {

@@ -4,11 +4,11 @@ use super::{
     decode_interpolation_text_for, parse_interpolation_expr_arena_only_for,
 };
 use crate::diagnostic::DiagnosticCode;
-use crate::syntax::grammar;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgramBuilder, ArenaRange,
     ArenaRedirectionTarget, ExprId, RunFormId,
 };
+use crate::syntax::grammar;
 use std::sync::Arc;
 
 impl<'a> Parser<'a> {
@@ -145,7 +145,10 @@ impl<'a> Parser<'a> {
                     self.parse_command_args_arena_only_limit(true, 1, arena);
                 args = parsed_args;
                 if parsed_count > 1 {
-                    self.diagnostic_previous("`cd` accepts one path argument", DiagnosticCode::ParseCdArity);
+                    self.diagnostic_previous(
+                        "`cd` accepts one path argument",
+                        DiagnosticCode::ParseCdArity,
+                    );
                 }
                 if !self.at(TokenKindMatch::LBrace) {
                     self.diagnostics.push(
@@ -227,15 +230,23 @@ impl<'a> Parser<'a> {
         let mut kind = RunKind::Plain;
         // `run.text` selects a run form only when the dot touches `run`;
         // `run ./tool` runs a relative command path.
-        if self.current_start() == self.previous_end() && self.consume(TokenKindMatch::Dot).is_some() {
+        if self.current_start() == self.previous_end()
+            && self.consume(TokenKindMatch::Dot).is_some()
+        {
             let name = self.expect_member_name("expected run form after `run.`")?;
             if name == "builtin" {
                 let alias_span = self.span(start + 3, self.previous_end());
                 self.diagnostics.push(
-                    Diagnostic::error("`run.builtin` was removed; use the corresponding `run` form")
-                        .with_code(DiagnosticCode::ParseCompatibilityVocabulary)
-                        .with_label(Label::primary(alias_span, "redundant run qualifier"))
-                        .with_fix_hint(FixHint::replacement(alias_span, "remove the qualifier", "")),
+                    Diagnostic::error(
+                        "`run.builtin` was removed; use the corresponding `run` form",
+                    )
+                    .with_code(DiagnosticCode::ParseCompatibilityVocabulary)
+                    .with_label(Label::primary(alias_span, "redundant run qualifier"))
+                    .with_fix_hint(FixHint::replacement(
+                        alias_span,
+                        "remove the qualifier",
+                        "",
+                    )),
                 );
                 if self.consume(TokenKindMatch::Dot).is_some() {
                     let name =
@@ -299,23 +310,36 @@ impl<'a> Parser<'a> {
         if !grammar::run_form_takes_mode(name) {
             return Some(grammar::run_form(name, None).map_or_else(
                 || {
-                    self.diagnostic_previous("unknown run form", DiagnosticCode::ParseUnknownRunForm);
+                    self.diagnostic_previous(
+                        "unknown run form",
+                        DiagnosticCode::ParseUnknownRunForm,
+                    );
                     RunKind::Plain
                 },
                 |form| form.kind,
             ));
         }
         let mode = self.parse_command_word_text()?;
-        let form = mode.strip_prefix("--").and_then(|mode| grammar::run_form(name, Some(mode)));
+        let form = mode
+            .strip_prefix("--")
+            .and_then(|mode| grammar::run_form(name, Some(mode)));
         Some(form.map_or_else(
             || {
                 let (message, code) = if name == "stream" {
-                    ("expected `--text` or `--bytes` stream mode", DiagnosticCode::ParseStreamMode)
+                    (
+                        "expected `--text` or `--bytes` stream mode",
+                        DiagnosticCode::ParseStreamMode,
+                    )
                 } else {
-                    ("expected `--text` or `--bytes` capture mode", DiagnosticCode::ParseCaptureMode)
+                    (
+                        "expected `--text` or `--bytes` capture mode",
+                        DiagnosticCode::ParseCaptureMode,
+                    )
                 };
                 self.diagnostic_previous(message, code);
-                grammar::run_form(name, Some("text")).expect("every mode-taking run form has a text mode").kind
+                grammar::run_form(name, Some("text"))
+                    .expect("every mode-taking run form has a text mode")
+                    .kind
             },
             |form| form.kind,
         ))
@@ -359,14 +383,20 @@ impl<'a> Parser<'a> {
                 self.index = save;
                 break;
             };
-            self.expect(TokenKindMatch::Equals, &format!("expected `=` after `--{}`", option.name()));
+            self.expect(
+                TokenKindMatch::Equals,
+                &format!("expected `=` after `--{}`", option.name()),
+            );
             let slot = match option {
                 grammar::RunOption::Timeout => &mut timeout_id,
                 grammar::RunOption::CpuMax => &mut cpu_max_id,
                 grammar::RunOption::Accept => &mut accept_id,
             };
             if slot.is_some() {
-                self.diagnostic_previous(&format!("duplicate `--{}` option", option.name()), DiagnosticCode::ParseRunOption);
+                self.diagnostic_previous(
+                    &format!("duplicate `--{}` option", option.name()),
+                    DiagnosticCode::ParseRunOption,
+                );
             }
             if let Some(id) = self.parse_run_option_expr_arena_only(arena) {
                 *slot = Some(id);
@@ -448,16 +478,25 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_legacy_env_scope_arena_only(
-        &mut self, arena: &mut ArenaProgramBuilder<'_>,
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ExprId> {
         let start = self.current_start();
         let introducer = self.current_span();
         self.bump();
         let opening = self.expect(TokenKindMatch::LBrace, "expected environment assignments")?;
-        let mut diagnostic = Diagnostic::error("expression environment assignments require an explicit overlay")
-            .with_code(DiagnosticCode::ParseEnvScopeMigration)
-            .with_label(Label::primary(introducer, "use `env ({NAME: value}) { body }`"))
-            .with_fix_hint(FixHint::replacement(introducer, "open explicit overlay", "env ("));
+        let mut diagnostic =
+            Diagnostic::error("expression environment assignments require an explicit overlay")
+                .with_code(DiagnosticCode::ParseEnvScopeMigration)
+                .with_label(Label::primary(
+                    introducer,
+                    "use `env ({NAME: value}) { body }`",
+                ))
+                .with_fix_hint(FixHint::replacement(
+                    introducer,
+                    "open explicit overlay",
+                    "env (",
+                ));
         self.skip_separators();
         let mut fields = Vec::new();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
@@ -466,26 +505,51 @@ impl<'a> Parser<'a> {
             let equals = self.expect(TokenKindMatch::Equals, "expected `=` in env assignment")?;
             let value = self.parse_expr_id_arena_only(arena)?;
             let value_end = self.previous_end();
-            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(equals, "use a record field", ":"));
+            diagnostic =
+                diagnostic.with_fix_hint(FixHint::replacement(equals, "use a record field", ":"));
             if self.current_tag() == TokenTag::Semicolon {
-                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.current_span(), "separate overlay fields", ","));
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    self.current_span(),
+                    "separate overlay fields",
+                    ",",
+                ));
             } else {
-                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.span(value_end, value_end), "separate overlay fields", ","));
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    self.span(value_end, value_end),
+                    "separate overlay fields",
+                    ",",
+                ));
             }
-            fields.push(crate::syntax::arena::ArenaRecordFieldInput::Named { name, value, span: self.span(field_start, value_end) });
+            fields.push(crate::syntax::arena::ArenaRecordFieldInput::Named {
+                name,
+                value,
+                span: self.span(field_start, value_end),
+            });
             self.expect_terminator();
             self.skip_separators();
         }
         let closing = self.expect(TokenKindMatch::RBrace, "expected `}` after env assignments")?;
-        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(closing, "close explicit overlay", "})"));
+        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+            closing,
+            "close explicit overlay",
+            "})",
+        ));
         self.diagnostics.push(diagnostic);
         arena.begin_record_fields();
-        for field in fields { arena.push_record_field_input(field); }
+        for field in fields {
+            arena.push_record_field_input(field);
+        }
         let fields = arena.finish_record_fields();
         let input = arena.push_record_expr(fields, self.span(opening.start(), closing.end()));
         self.skip_separators();
         let block = self.parse_block_arena_only(arena)?;
-        Some(arena.push_context_scope_expr(crate::syntax::arena::ContextScopeKind::Env, input, block, false, self.span(start, self.previous_end())))
+        Some(arena.push_context_scope_expr(
+            crate::syntax::arena::ContextScopeKind::Env,
+            input,
+            block,
+            false,
+            self.span(start, self.previous_end()),
+        ))
     }
 
     pub(super) fn parse_redirection_arena_only(
@@ -521,9 +585,12 @@ impl<'a> Parser<'a> {
 
         let target_arg = if self.current_tag() == TokenTag::Bytes {
             let start = self.current_start();
-            let expr = self.with_command_arg_expr(|parser| parser.parse_expr_id_arena_only(arena))?;
+            let expr =
+                self.with_command_arg_expr(|parser| parser.parse_expr_id_arena_only(arena))?;
             arena.typed_command_arg(expr, self.span(start, self.previous_end()))
-        } else { self.parse_command_arg_arena_only(arena)? };
+        } else {
+            self.parse_command_arg_arena_only(arena)?
+        };
         let arena_target = match kind {
             RedirectionKind::StdoutDup | RedirectionKind::StdinDup => {
                 ArenaRedirectionTarget::Fd(target_arg)
@@ -630,7 +697,10 @@ impl<'a> Parser<'a> {
                 TokenTag::Question
                     if self.start_at(pos) == self.end_at(pos - 1)
                         && self.start_at(pos + 1) == self.end_at(pos)
-                        && matches!(self.token_table.tag_at(pos + 1), Some(TokenTag::Dot | TokenTag::LBracket)) =>
+                        && matches!(
+                            self.token_table.tag_at(pos + 1),
+                            Some(TokenTag::Dot | TokenTag::LBracket)
+                        ) =>
                 {
                     pos += 1;
                 }
@@ -751,7 +821,8 @@ impl<'a> Parser<'a> {
                 }
                 TokenTag::DollarLBrace => {
                     self.bump();
-                    let expr_id = self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena))?;
+                    let expr_id =
+                        self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena))?;
                     self.expect(TokenKindMatch::RBrace, "expected `}` after interpolation");
                     end = self.previous_end();
                     arena.push_interpolation_word_part_expr(expr_id);
@@ -768,7 +839,10 @@ impl<'a> Parser<'a> {
 
         if first {
             arena.discard_word_parts();
-            self.diagnostic_here("expected command argument", DiagnosticCode::ParseExpectedCommandArg);
+            self.diagnostic_here(
+                "expected command argument",
+                DiagnosticCode::ParseExpectedCommandArg,
+            );
             return None;
         }
 
@@ -829,8 +903,7 @@ impl<'a> Parser<'a> {
                     if self.peek_start(1) != Some(self.current_end()) {
                         break;
                     }
-                    let Some(name) = self.peek_label_name(1)
-                    else {
+                    let Some(name) = self.peek_label_name(1) else {
                         break;
                     };
                     self.bump();
@@ -916,8 +989,11 @@ impl<'a> Parser<'a> {
         for chunk in chunks {
             match chunk {
                 super::InterpolationChunk::Text { source, offset } => {
-                    let text = if raw_literal { Arc::from(source) } else {
-                        let (text, decode_diagnostics) = decode_interpolation_text_for(self.source_id, source, span, offset);
+                    let text = if raw_literal {
+                        Arc::from(source)
+                    } else {
+                        let (text, decode_diagnostics) =
+                            decode_interpolation_text_for(self.source_id, source, span, offset);
                         diagnostics.extend(decode_diagnostics);
                         Arc::from(text)
                     };
@@ -925,19 +1001,28 @@ impl<'a> Parser<'a> {
                     arena.push_quoted_word_part_text(&text, span, search_from, span.end());
                 }
                 super::InterpolationChunk::Expr { source, offset } => {
-                    let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(self.source_id, source, offset, arena);
+                    let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(
+                        self.source_id,
+                        source,
+                        offset,
+                        arena,
+                    );
                     diagnostics.extend(parse_diagnostics);
                     if let Some(expr_id) = expr_id {
                         any_part = true;
-                        if self.source[..offset].ends_with("${") { arena.push_interpolation_word_part_expr(expr_id); }
-                        else { arena.push_shorthand_word_part_expr(expr_id); }
+                        if self.source[..offset].ends_with("${") {
+                            arena.push_interpolation_word_part_expr(expr_id);
+                        } else {
+                            arena.push_shorthand_word_part_expr(expr_id);
+                        }
                     }
                 }
             }
         }
         self.diagnostics.extend(diagnostics);
-        if !any_part { arena.push_quoted_word_part_text(&Arc::from(""), span, search_from, span.end()); }
-
+        if !any_part {
+            arena.push_quoted_word_part_text(&Arc::from(""), span, search_from, span.end());
+        }
     }
 }
 

@@ -50,7 +50,9 @@ pub mod script {
         pub stderr: Vec<u8>,
     }
 
-    pub use crate::runner::{run_script, run_script_with_shared_stdio, run_startup, script_command_name};
+    pub use crate::runner::{
+        run_script, run_script_with_shared_stdio, run_startup, script_command_name,
+    };
 
     #[cfg(feature = "native-tests")]
     pub use crate::runner::{
@@ -62,10 +64,10 @@ pub mod value {
     pub use crate::runtime::value::{
         AbortSignal, CommandPlan, CommandRedirection, CommandRedirectionMode,
         CommandRedirectionStream, DigestValue, DurationValue, ErrorContext, FloatValue,
-        FsEntryKind, FsEntryValue, FunctionName, MapKey, MapKeyRef, PathValue, ProcessHandleValue, RecordIter,
-        RecordKeys, RecordMap, RecordShape, RecordShapeData, RecordValues, RegexValue, ResultValue,
-        RunError, RuntimeError, RuntimeShapeStats, SparseRecordMap, StreamItem, StreamValue, Value,
-        error_constructor, run_error_constructor, run_error_from_status, runtime_shape_stats,
-        structured_error_constructor,
+        FsEntryKind, FsEntryValue, FunctionName, MapKey, MapKeyRef, PathValue, ProcessHandleValue,
+        RecordIter, RecordKeys, RecordMap, RecordShape, RecordShapeData, RecordValues, RegexValue,
+        ResultValue, RunError, RuntimeError, RuntimeShapeStats, SparseRecordMap, StreamItem,
+        StreamValue, Value, error_constructor, run_error_constructor, run_error_from_status,
+        runtime_shape_stats, structured_error_constructor,
     };
 }

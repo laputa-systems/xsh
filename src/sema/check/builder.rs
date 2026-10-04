@@ -80,19 +80,36 @@ impl Checker {
             match &entry.kind {
                 ArenaBuilderEntryKind::Field { name, value } => {
                     if !seen_fields.insert(*name) {
-                        self.error(entry_span, "duplicate builder field", DiagnosticCode::CheckBuilderField);
+                        self.error(
+                            entry_span,
+                            "duplicate builder field",
+                            DiagnosticCode::CheckBuilderField,
+                        );
                     }
                     let expected = builder_field_type(kind, &name.as_str());
                     if expected.is_none() && !builder_allows_field(kind, &name.as_str()) {
-                        self.error(entry_span, "unknown builder field", DiagnosticCode::CheckBuilderField);
+                        self.error(
+                            entry_span,
+                            "unknown builder field",
+                            DiagnosticCode::CheckBuilderField,
+                        );
                     }
                     let byte_input = kind == BuilderKind::ProcessCommand && *name == "stdin";
-                    let actual = self.check_expr_arena(arena, source, *value, if byte_input { None } else { expected.as_ref() });
-                    if let Some(expected) = expected && !(byte_input && actual == Type::Bytes) {
+                    let actual = self.check_expr_arena(
+                        arena,
+                        source,
+                        *value,
+                        if byte_input { None } else { expected.as_ref() },
+                    );
+                    if let Some(expected) = expected
+                        && !(byte_input && actual == Type::Bytes)
+                    {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(&expected, &actual, value_span);
                     }
-                    if kind == BuilderKind::ProcessCommand && *name == "accept" { self.check_static_accepted_exit_codes(arena, *value); }
+                    if kind == BuilderKind::ProcessCommand && *name == "accept" {
+                        self.check_static_accepted_exit_codes(arena, *value);
+                    }
                     if kind == BuilderKind::ProcessCommand && *name == "cpu_max" {
                         self.check_static_positive_builder_int_arena(
                             arena,
@@ -104,7 +121,11 @@ impl Checker {
                 ArenaBuilderEntryKind::Entry { name, args, block } => {
                     seen_entries.insert(*name);
                     if !builder_allows_entry(kind, &name.as_str()) {
-                        self.error(entry_span, "unknown builder entry", DiagnosticCode::CheckBuilderEntry);
+                        self.error(
+                            entry_span,
+                            "unknown builder entry",
+                            DiagnosticCode::CheckBuilderEntry,
+                        );
                     }
                     for arg in arena.arena.command_args(*args) {
                         self.check_command_arg_arena(arena, source, arg, Some(&Type::Str));

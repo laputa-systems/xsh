@@ -71,7 +71,8 @@ impl OperatorToken {
         match self {
             Self::Tag(expected) => expected as u8 == tag as u8,
             Self::Keyword(expected) => {
-                matches!(tag, TokenTag::Keyword) && matches!(keyword, Some(found) if found as u8 == expected as u8)
+                matches!(tag, TokenTag::Keyword)
+                    && matches!(keyword, Some(found) if found as u8 == expected as u8)
             }
         }
     }
@@ -116,32 +117,128 @@ const fn operator(
 pub const BINARY_OPERATORS: [BinaryOperator; 16] = [
     BinaryOperator {
         associativity: Associativity::Right,
-        ..operator(BinaryOp::ResultFallback, "??", OperatorToken::Tag(TokenTag::QuestionQuestion), 1, OperatorFamily::Fallback)
+        ..operator(
+            BinaryOp::ResultFallback,
+            "??",
+            OperatorToken::Tag(TokenTag::QuestionQuestion),
+            1,
+            OperatorFamily::Fallback,
+        )
     },
-    operator(BinaryOp::Or, "or", OperatorToken::Keyword(Keyword::Or), 1, OperatorFamily::Logical),
-    operator(BinaryOp::And, "and", OperatorToken::Keyword(Keyword::And), 2, OperatorFamily::Logical),
-    operator(BinaryOp::Eq, "==", OperatorToken::Tag(TokenTag::EqEq), 3, OperatorFamily::Equality),
-    operator(BinaryOp::Ne, "!=", OperatorToken::Tag(TokenTag::BangEq), 3, OperatorFamily::Equality),
-    operator(BinaryOp::Lt, "<", OperatorToken::Tag(TokenTag::Lt), 4, OperatorFamily::Ordering),
-    operator(BinaryOp::Le, "<=", OperatorToken::Tag(TokenTag::Le), 4, OperatorFamily::Ordering),
-    operator(BinaryOp::Gt, ">", OperatorToken::Tag(TokenTag::Gt), 4, OperatorFamily::Ordering),
-    operator(BinaryOp::Ge, ">=", OperatorToken::Tag(TokenTag::Ge), 4, OperatorFamily::Ordering),
-    operator(BinaryOp::In, "in", OperatorToken::Keyword(Keyword::In), 4, OperatorFamily::Membership),
+    operator(
+        BinaryOp::Or,
+        "or",
+        OperatorToken::Keyword(Keyword::Or),
+        1,
+        OperatorFamily::Logical,
+    ),
+    operator(
+        BinaryOp::And,
+        "and",
+        OperatorToken::Keyword(Keyword::And),
+        2,
+        OperatorFamily::Logical,
+    ),
+    operator(
+        BinaryOp::Eq,
+        "==",
+        OperatorToken::Tag(TokenTag::EqEq),
+        3,
+        OperatorFamily::Equality,
+    ),
+    operator(
+        BinaryOp::Ne,
+        "!=",
+        OperatorToken::Tag(TokenTag::BangEq),
+        3,
+        OperatorFamily::Equality,
+    ),
+    operator(
+        BinaryOp::Lt,
+        "<",
+        OperatorToken::Tag(TokenTag::Lt),
+        4,
+        OperatorFamily::Ordering,
+    ),
+    operator(
+        BinaryOp::Le,
+        "<=",
+        OperatorToken::Tag(TokenTag::Le),
+        4,
+        OperatorFamily::Ordering,
+    ),
+    operator(
+        BinaryOp::Gt,
+        ">",
+        OperatorToken::Tag(TokenTag::Gt),
+        4,
+        OperatorFamily::Ordering,
+    ),
+    operator(
+        BinaryOp::Ge,
+        ">=",
+        OperatorToken::Tag(TokenTag::Ge),
+        4,
+        OperatorFamily::Ordering,
+    ),
+    operator(
+        BinaryOp::In,
+        "in",
+        OperatorToken::Keyword(Keyword::In),
+        4,
+        OperatorFamily::Membership,
+    ),
     BinaryOperator {
         second: Some(Keyword::In),
-        ..operator(BinaryOp::NotIn, "not in", OperatorToken::Keyword(Keyword::Not), 4, OperatorFamily::Membership)
+        ..operator(
+            BinaryOp::NotIn,
+            "not in",
+            OperatorToken::Keyword(Keyword::Not),
+            4,
+            OperatorFamily::Membership,
+        )
     },
-    operator(BinaryOp::Add, "+", OperatorToken::Tag(TokenTag::Plus), 5, OperatorFamily::Additive),
+    operator(
+        BinaryOp::Add,
+        "+",
+        OperatorToken::Tag(TokenTag::Plus),
+        5,
+        OperatorFamily::Additive,
+    ),
     BinaryOperator {
         continues_line: false,
-        ..operator(BinaryOp::Sub, "-", OperatorToken::Tag(TokenTag::Minus), 5, OperatorFamily::Additive)
+        ..operator(
+            BinaryOp::Sub,
+            "-",
+            OperatorToken::Tag(TokenTag::Minus),
+            5,
+            OperatorFamily::Additive,
+        )
     },
-    operator(BinaryOp::Mul, "*", OperatorToken::Tag(TokenTag::Star), 6, OperatorFamily::Multiplicative),
+    operator(
+        BinaryOp::Mul,
+        "*",
+        OperatorToken::Tag(TokenTag::Star),
+        6,
+        OperatorFamily::Multiplicative,
+    ),
     BinaryOperator {
         continues_line: false,
-        ..operator(BinaryOp::Div, "/", OperatorToken::Tag(TokenTag::Slash), 6, OperatorFamily::Multiplicative)
+        ..operator(
+            BinaryOp::Div,
+            "/",
+            OperatorToken::Tag(TokenTag::Slash),
+            6,
+            OperatorFamily::Multiplicative,
+        )
     },
-    operator(BinaryOp::Rem, "%", OperatorToken::Tag(TokenTag::Percent), 6, OperatorFamily::Multiplicative),
+    operator(
+        BinaryOp::Rem,
+        "%",
+        OperatorToken::Tag(TokenTag::Percent),
+        6,
+        OperatorFamily::Multiplicative,
+    ),
 ];
 
 pub const fn binary_operator(op: BinaryOp) -> &'static BinaryOperator {
@@ -171,10 +268,17 @@ pub const fn binary_right_operand_precedence(op: BinaryOp) -> u8 {
 
 /// The operator that a token (and, for `not in`, the keyword after it)
 /// spells, if any.
-pub fn binary_operator_at(tag: TokenTag, keyword: Option<Keyword>, next_keyword: Option<Keyword>) -> Option<&'static BinaryOperator> {
-    BINARY_OPERATORS
-        .iter()
-        .find(|operator| operator.first.matches(tag, keyword) && operator.second.is_none_or(|second| next_keyword == Some(second)))
+pub fn binary_operator_at(
+    tag: TokenTag,
+    keyword: Option<Keyword>,
+    next_keyword: Option<Keyword>,
+) -> Option<&'static BinaryOperator> {
+    BINARY_OPERATORS.iter().find(|operator| {
+        operator.first.matches(tag, keyword)
+            && operator
+                .second
+                .is_none_or(|second| next_keyword == Some(second))
+    })
 }
 
 /// What a line that begins with a continuation token continues.
@@ -201,7 +305,14 @@ pub fn line_continuation(
 ) -> Option<LineContinuation> {
     match first {
         TokenTag::PipeGt => Some(LineContinuation::Pipeline),
-        TokenTag::Dot if matches!(second, Some(TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword)) => Some(LineContinuation::Member),
+        TokenTag::Dot
+            if matches!(
+                second,
+                Some(TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword)
+            ) =>
+        {
+            Some(LineContinuation::Member)
+        }
         _ => binary_operator_at(first, first_keyword, second_keyword)
             .filter(|operator| operator.continues_line)
             .map(|_| LineContinuation::Operator),
@@ -284,7 +395,16 @@ impl StatementForm {
     pub const fn is_compound(self) -> bool {
         matches!(
             self,
-            Self::If | Self::While | Self::For | Self::Loop | Self::Match | Self::Proc | Self::Pure | Self::Stream | Self::Guard | Self::With
+            Self::If
+                | Self::While
+                | Self::For
+                | Self::Loop
+                | Self::Match
+                | Self::Proc
+                | Self::Pure
+                | Self::Stream
+                | Self::Guard
+                | Self::With
         )
     }
 }
@@ -318,7 +438,10 @@ pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 24] = [
 
 /// The statement form a keyword begins, if any.
 pub fn statement_form(keyword: Keyword) -> Option<StatementForm> {
-    STATEMENT_KEYWORDS.iter().find(|(candidate, _)| *candidate == keyword).map(|(_, form)| *form)
+    STATEMENT_KEYWORDS
+        .iter()
+        .find(|(candidate, _)| *candidate == keyword)
+        .map(|(_, form)| *form)
 }
 
 /// Keyword statements a builder block accepts as entries.
@@ -349,8 +472,15 @@ pub fn builder_api_accepts_block(module: &str, function: &str) -> bool {
 /// Keyword-led declarations that `export` publishes. `export` also accepts a
 /// signal hook (`on`) and an error family (`error`), which begin with
 /// contextual words.
-pub const EXPORTABLE_KEYWORDS: [Keyword; 7] =
-    [Keyword::Let, Keyword::Const, Keyword::Proc, Keyword::Pure, Keyword::Stream, Keyword::Enum, Keyword::Type];
+pub const EXPORTABLE_KEYWORDS: [Keyword; 7] = [
+    Keyword::Let,
+    Keyword::Const,
+    Keyword::Proc,
+    Keyword::Pure,
+    Keyword::Stream,
+    Keyword::Enum,
+    Keyword::Type,
+];
 
 /// Keywords that begin a primary expression.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -383,13 +513,22 @@ pub const PRIMARY_KEYWORDS: [(Keyword, PrimaryForm); 11] = [
 ];
 
 pub fn primary_form(keyword: Keyword) -> Option<PrimaryForm> {
-    PRIMARY_KEYWORDS.iter().find(|(candidate, _)| *candidate == keyword).map(|(_, form)| *form)
+    PRIMARY_KEYWORDS
+        .iter()
+        .find(|(candidate, _)| *candidate == keyword)
+        .map(|(_, form)| *form)
 }
 
 /// Keywords that a record shorthand field can never be: `{true}` and
 /// `{return}` open blocks.
-pub const BLOCK_ONLY_KEYWORDS: [Keyword; 6] =
-    [Keyword::True, Keyword::False, Keyword::Null, Keyword::Return, Keyword::Break, Keyword::Continue];
+pub const BLOCK_ONLY_KEYWORDS: [Keyword; 6] = [
+    Keyword::True,
+    Keyword::False,
+    Keyword::Null,
+    Keyword::Return,
+    Keyword::Break,
+    Keyword::Continue,
+];
 
 /// A quoted literal form, selected by the bytes before its opening quote.
 #[derive(Clone, Copy, Debug)]
@@ -403,22 +542,62 @@ pub struct QuotedLiteralForm {
 
 /// Every quoted literal prefix, longest first so the first match wins.
 pub const QUOTED_LITERALS: [QuotedLiteralForm; 8] = [
-    QuotedLiteralForm { prefix: "rx", kind: QuotedLiteralKind::Regex, raw: true, token: TokenTag::Regex },
-    QuotedLiteralForm { prefix: "fp", kind: QuotedLiteralKind::PathFmt, raw: false, token: TokenTag::PathFmtString },
-    QuotedLiteralForm { prefix: "b", kind: QuotedLiteralKind::Bytes, raw: false, token: TokenTag::Bytes },
-    QuotedLiteralForm { prefix: "p", kind: QuotedLiteralKind::Path, raw: false, token: TokenTag::PathString },
-    QuotedLiteralForm { prefix: "g", kind: QuotedLiteralKind::Glob, raw: false, token: TokenTag::GlobString },
-    QuotedLiteralForm { prefix: "f", kind: QuotedLiteralKind::Fmt, raw: false, token: TokenTag::FmtString },
-    QuotedLiteralForm { prefix: "r", kind: QuotedLiteralKind::Str, raw: true, token: TokenTag::String },
-    QuotedLiteralForm { prefix: "", kind: QuotedLiteralKind::Str, raw: false, token: TokenTag::String },
+    QuotedLiteralForm {
+        prefix: "rx",
+        kind: QuotedLiteralKind::Regex,
+        raw: true,
+        token: TokenTag::Regex,
+    },
+    QuotedLiteralForm {
+        prefix: "fp",
+        kind: QuotedLiteralKind::PathFmt,
+        raw: false,
+        token: TokenTag::PathFmtString,
+    },
+    QuotedLiteralForm {
+        prefix: "b",
+        kind: QuotedLiteralKind::Bytes,
+        raw: false,
+        token: TokenTag::Bytes,
+    },
+    QuotedLiteralForm {
+        prefix: "p",
+        kind: QuotedLiteralKind::Path,
+        raw: false,
+        token: TokenTag::PathString,
+    },
+    QuotedLiteralForm {
+        prefix: "g",
+        kind: QuotedLiteralKind::Glob,
+        raw: false,
+        token: TokenTag::GlobString,
+    },
+    QuotedLiteralForm {
+        prefix: "f",
+        kind: QuotedLiteralKind::Fmt,
+        raw: false,
+        token: TokenTag::FmtString,
+    },
+    QuotedLiteralForm {
+        prefix: "r",
+        kind: QuotedLiteralKind::Str,
+        raw: true,
+        token: TokenTag::String,
+    },
+    QuotedLiteralForm {
+        prefix: "",
+        kind: QuotedLiteralKind::Str,
+        raw: false,
+        token: TokenTag::String,
+    },
 ];
 
 /// The quoted literal form whose prefix and opening quote start at `start`.
 pub fn quoted_literal_at(bytes: &[u8], start: usize) -> Option<&'static QuotedLiteralForm> {
     let rest = bytes.get(start..)?;
-    QUOTED_LITERALS
-        .iter()
-        .find(|form| rest.starts_with(form.prefix.as_bytes()) && rest.get(form.prefix.len()) == Some(&b'"'))
+    QUOTED_LITERALS.iter().find(|form| {
+        rest.starts_with(form.prefix.as_bytes()) && rest.get(form.prefix.len()) == Some(&b'"')
+    })
 }
 
 /// Duration literal suffixes, longest first.
@@ -427,7 +606,9 @@ pub const DURATION_SUFFIXES: [&str; 4] = ["ms", "s", "m", "h"];
 /// The duration suffix written at `offset`, right after an integer's digits.
 pub fn duration_suffix_at(bytes: &[u8], offset: usize) -> Option<&'static str> {
     let rest = bytes.get(offset..)?;
-    DURATION_SUFFIXES.into_iter().find(|suffix| rest.starts_with(suffix.as_bytes()))
+    DURATION_SUFFIXES
+        .into_iter()
+        .find(|suffix| rest.starts_with(suffix.as_bytes()))
 }
 
 /// A `|>` stage that the parser reads as a structured stream stage rather
@@ -444,8 +625,18 @@ pub struct StreamStage {
     pub inline: bool,
 }
 
-const fn stage(kind: StreamStageKind, name: &'static str, block: bool, inline: bool) -> StreamStage {
-    StreamStage { kind, name, block, inline }
+const fn stage(
+    kind: StreamStageKind,
+    name: &'static str,
+    block: bool,
+    inline: bool,
+) -> StreamStage {
+    StreamStage {
+        kind,
+        name,
+        block,
+        inline,
+    }
 }
 
 /// Every stream stage, in `StreamStageKind` declaration order.
@@ -493,16 +684,25 @@ pub const fn stream_stage(kind: StreamStageKind) -> &'static StreamStage {
 
 /// The stage spelled `name` or, for a dotted stage, `name.member`.
 pub fn stream_stage_named(name: &str, member: Option<&str>) -> Option<&'static StreamStage> {
-    STREAM_STAGES.iter().find(|stage| match (stage.name.split_once('.'), member) {
-        (None, None) => stage.name == name,
-        (Some((namespace, stage_member)), Some(member)) => namespace == name && stage_member == member,
-        _ => false,
-    })
+    STREAM_STAGES
+        .iter()
+        .find(|stage| match (stage.name.split_once('.'), member) {
+            (None, None) => stage.name == name,
+            (Some((namespace, stage_member)), Some(member)) => {
+                namespace == name && stage_member == member
+            }
+            _ => false,
+        })
 }
 
 /// Whether `name` begins a dotted stage name such as `text.lines`.
 pub fn is_stream_stage_namespace(name: &str) -> bool {
-    STREAM_STAGES.iter().any(|stage| stage.name.split_once('.').is_some_and(|(namespace, _)| namespace == name))
+    STREAM_STAGES.iter().any(|stage| {
+        stage
+            .name
+            .split_once('.')
+            .is_some_and(|(namespace, _)| namespace == name)
+    })
 }
 
 /// A `run` form: `run`, or `run.MEMBER` with an optional capture mode.
@@ -515,24 +715,60 @@ pub struct RunForm {
 }
 
 pub const RUN_FORMS: [RunForm; 8] = [
-    RunForm { kind: RunKind::Plain, member: None, mode: None },
-    RunForm { kind: RunKind::Status, member: Some("status"), mode: None },
-    RunForm { kind: RunKind::CaptureText, member: Some("text"), mode: None },
-    RunForm { kind: RunKind::CaptureBytes, member: Some("bytes"), mode: None },
-    RunForm { kind: RunKind::CaptureTextRecord, member: Some("capture"), mode: Some("text") },
-    RunForm { kind: RunKind::CaptureBytesRecord, member: Some("capture"), mode: Some("bytes") },
-    RunForm { kind: RunKind::StreamText, member: Some("stream"), mode: Some("text") },
-    RunForm { kind: RunKind::StreamBytes, member: Some("stream"), mode: Some("bytes") },
+    RunForm {
+        kind: RunKind::Plain,
+        member: None,
+        mode: None,
+    },
+    RunForm {
+        kind: RunKind::Status,
+        member: Some("status"),
+        mode: None,
+    },
+    RunForm {
+        kind: RunKind::CaptureText,
+        member: Some("text"),
+        mode: None,
+    },
+    RunForm {
+        kind: RunKind::CaptureBytes,
+        member: Some("bytes"),
+        mode: None,
+    },
+    RunForm {
+        kind: RunKind::CaptureTextRecord,
+        member: Some("capture"),
+        mode: Some("text"),
+    },
+    RunForm {
+        kind: RunKind::CaptureBytesRecord,
+        member: Some("capture"),
+        mode: Some("bytes"),
+    },
+    RunForm {
+        kind: RunKind::StreamText,
+        member: Some("stream"),
+        mode: Some("text"),
+    },
+    RunForm {
+        kind: RunKind::StreamBytes,
+        member: Some("stream"),
+        mode: Some("bytes"),
+    },
 ];
 
 /// The run form spelled `run.member --mode`.
 pub fn run_form(member: &str, mode: Option<&str>) -> Option<&'static RunForm> {
-    RUN_FORMS.iter().find(|form| form.member == Some(member) && form.mode == mode)
+    RUN_FORMS
+        .iter()
+        .find(|form| form.member == Some(member) && form.mode == mode)
 }
 
 /// Whether `run.member` takes a capture mode word.
 pub fn run_form_takes_mode(member: &str) -> bool {
-    RUN_FORMS.iter().any(|form| form.member == Some(member) && form.mode.is_some())
+    RUN_FORMS
+        .iter()
+        .any(|form| form.member == Some(member) && form.mode.is_some())
 }
 
 /// A `--name=value` option of a run segment. Each is written at most once,
@@ -613,13 +849,25 @@ impl Class {
         match self {
             Self::Tag(tag) => token.tag == tag,
             Self::Keyword(keyword) => token.keyword == Some(keyword),
-            Self::Word(word) => matches!(token.tag, TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Int) && token.text == word,
+            Self::Word(word) => {
+                matches!(
+                    token.tag,
+                    TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Int
+                ) && token.text == word
+            }
             Self::Name => matches!(token.tag, TokenTag::Ident | TokenTag::ProcIdent),
             Self::Label => matches!(token.tag, TokenTag::Ident | TokenTag::Keyword),
-            Self::Member => matches!(token.tag, TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword),
+            Self::Member => matches!(
+                token.tag,
+                TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword
+            ),
             Self::WordPart => is_word_part(token.tag),
             Self::PathPart => {
-                !token.text.is_empty() && token.text.chars().all(crate::syntax::literal::is_bare_path_literal_char)
+                !token.text.is_empty()
+                    && token
+                        .text
+                        .chars()
+                        .all(crate::syntax::literal::is_bare_path_literal_char)
             }
         }
     }
@@ -680,7 +928,11 @@ pub enum Item {
     Plus(Box<Item>),
     /// `item ("," item)* ","?`. With `lines`, line breaks may surround each
     /// item and comma; `min_one` requires at least one item.
-    List { item: Box<Item>, lines: bool, min_one: bool },
+    List {
+        item: Box<Item>,
+        lines: bool,
+        min_one: bool,
+    },
     /// Zero-width: the following tokens do not begin with any of these
     /// sequences.
     Not(Vec<Vec<Term>>),
@@ -749,7 +1001,9 @@ impl Grammar {
 /// The XSH grammar.
 pub fn grammar() -> &'static Grammar {
     static GRAMMAR: OnceLock<Grammar> = OnceLock::new();
-    GRAMMAR.get_or_init(|| Grammar { rules: productions::rules() })
+    GRAMMAR.get_or_init(|| Grammar {
+        rules: productions::rules(),
+    })
 }
 
 /// A lexer token as a grammar terminal sees it.
@@ -767,7 +1021,9 @@ pub struct GrammarToken<'s> {
 /// continuation line is joined to the line before it, and each other run of
 /// line breaks becomes one `NEWLINE`. The end-of-input token is not included.
 pub fn grammar_tokens<'s>(source: &'s str, table: &TokenTable) -> Vec<GrammarToken<'s>> {
-    let length = table.len().saturating_sub(usize::from(table.tag_at(table.len().saturating_sub(1)) == Some(TokenTag::Eof)));
+    let length = table.len().saturating_sub(usize::from(
+        table.tag_at(table.len().saturating_sub(1)) == Some(TokenTag::Eof),
+    ));
     let text = |index: usize| -> &'s str {
         let start = table.start_at(index).expect("token start");
         let end = table.end_at(index, source).expect("token end");
@@ -782,7 +1038,12 @@ pub fn grammar_tokens<'s>(source: &'s str, table: &TokenTable) -> Vec<GrammarTok
             TokenTag::Comment => index += 1,
             TokenTag::Newline => {
                 let mut next = index;
-                while next < length && matches!(table.tag_at(next), Some(TokenTag::Newline | TokenTag::Comment)) {
+                while next < length
+                    && matches!(
+                        table.tag_at(next),
+                        Some(TokenTag::Newline | TokenTag::Comment)
+                    )
+                {
                     next += 1;
                 }
                 let joins = next < length
@@ -795,17 +1056,33 @@ pub fn grammar_tokens<'s>(source: &'s str, table: &TokenTable) -> Vec<GrammarTok
                     .is_some();
                 if joins {
                     continued = true;
-                } else if tokens.last().is_some_and(|token| token.tag != TokenTag::Newline) {
-                    tokens.push(GrammarToken { tag, keyword: None, text: "\n", glued: false });
+                } else if tokens
+                    .last()
+                    .is_some_and(|token| token.tag != TokenTag::Newline)
+                {
+                    tokens.push(GrammarToken {
+                        tag,
+                        keyword: None,
+                        text: "\n",
+                        glued: false,
+                    });
                 }
                 index = next;
             }
             _ => {
                 let start = table.start_at(index).expect("token start");
                 let adjacent = index > 0
-                    && !matches!(table.tag_at(index - 1), Some(TokenTag::Newline | TokenTag::Comment))
+                    && !matches!(
+                        table.tag_at(index - 1),
+                        Some(TokenTag::Newline | TokenTag::Comment)
+                    )
                     && table.end_at(index - 1, source) == Some(start);
-                tokens.push(GrammarToken { tag, keyword: table.keyword_at(index), text: text(index), glued: adjacent || continued });
+                tokens.push(GrammarToken {
+                    tag,
+                    keyword: table.keyword_at(index),
+                    text: text(index),
+                    glued: adjacent || continued,
+                });
                 continued = false;
                 index += 1;
             }
@@ -817,8 +1094,12 @@ pub fn grammar_tokens<'s>(source: &'s str, table: &TokenTable) -> Vec<GrammarTok
 /// Lexes `source` and returns its grammar terminals, or `None` when the lexer
 /// reports a diagnostic.
 pub fn lex_grammar_tokens(source: &str) -> Option<Vec<GrammarToken<'_>>> {
-    let lexed = crate::syntax::lexer::Lexer::new(crate::source::SourceId::new(0), source).lex_compact();
-    lexed.diagnostics.is_empty().then(|| grammar_tokens(source, &lexed.token_table))
+    let lexed =
+        crate::syntax::lexer::Lexer::new(crate::source::SourceId::new(0), source).lex_compact();
+    lexed
+        .diagnostics
+        .is_empty()
+        .then(|| grammar_tokens(source, &lexed.token_table))
 }
 
 /// Effect names, from the effect vocabulary.

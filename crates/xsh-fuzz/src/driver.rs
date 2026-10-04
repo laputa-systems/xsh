@@ -62,7 +62,12 @@ pub struct Stats {
 
 /// Minimizes a failing generated program to a smaller one that fails with
 /// the same kind.
-pub fn minimize(generated: &Generated, failure: &Failure, sandbox: Option<&Sandbox>, budget: usize) -> (Generated, Failure) {
+pub fn minimize(
+    generated: &Generated,
+    failure: &Failure,
+    sandbox: Option<&Sandbox>,
+    budget: usize,
+) -> (Generated, Failure) {
     let kind = failure.kind();
     let mut best = (generated.clone(), failure.clone());
     quiet_panics(|| {
@@ -71,7 +76,9 @@ pub fn minimize(generated: &Generated, failure: &Failure, sandbox: Option<&Sandb
             |candidate| {
                 // Candidates that delete a binding still in use make the
                 // reference evaluator panic; those are simply not failures.
-                let Ok(Some(candidate)) = catch_unwind(AssertUnwindSafe(|| finish(generated.seed, candidate.clone()))) else {
+                let Ok(Some(candidate)) = catch_unwind(AssertUnwindSafe(|| {
+                    finish(generated.seed, candidate.clone())
+                })) else {
                     return false;
                 };
                 match verify_generated(&candidate.source, &candidate.expected, sandbox) {
@@ -91,7 +98,9 @@ pub fn minimize(generated: &Generated, failure: &Failure, sandbox: Option<&Sandb
 static PANIC_HOOK: Mutex<()> = Mutex::new(());
 
 fn quiet_panics<T>(body: impl FnOnce() -> T) -> T {
-    let _guard = PANIC_HOOK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = PANIC_HOOK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let result = body();
@@ -103,16 +112,17 @@ fn quiet_panics<T>(body: impl FnOnce() -> T) -> T {
 /// it cannot wander to an unrelated mistake.
 fn same_failure(original: &Failure, found: &Failure) -> bool {
     match (original, found) {
-        (Failure::Rejected(a), Failure::Rejected(b)) | (Failure::Internal(a), Failure::Internal(b)) => {
-            a.lines().next() == b.lines().next()
-        }
+        (Failure::Rejected(a), Failure::Rejected(b))
+        | (Failure::Internal(a), Failure::Internal(b)) => a.lines().next() == b.lines().next(),
         (Failure::Runtime(a), Failure::Runtime(b)) => runtime_head(a) == runtime_head(b),
         _ => true,
     }
 }
 
 fn runtime_head(text: &str) -> Option<&str> {
-    text.lines().find(|line| line.starts_with("err[")).map(|line| line.split(':').next().unwrap_or(line))
+    text.lines()
+        .find(|line| line.starts_with("err["))
+        .map(|line| line.split(':').next().unwrap_or(line))
 }
 
 /// The first line of a failure with numbers (offsets, line:column) erased,
@@ -143,13 +153,17 @@ pub fn minimize_format(generated: &Generated, failure: &str, scratch: &Path) -> 
         shrink_program(
             &generated.program,
             |candidate| {
-                let Ok(Some(candidate)) = catch_unwind(AssertUnwindSafe(|| finish(generated.seed, candidate.clone()))) else {
+                let Ok(Some(candidate)) = catch_unwind(AssertUnwindSafe(|| {
+                    finish(generated.seed, candidate.clone())
+                })) else {
                     return false;
                 };
                 if verify_generated(&candidate.source, &candidate.expected, None).is_err() {
                     return false;
                 }
-                match catch_unwind(AssertUnwindSafe(|| format_invariants(&candidate.source, scratch))) {
+                match catch_unwind(AssertUnwindSafe(|| {
+                    format_invariants(&candidate.source, scratch)
+                })) {
                     Ok(Err(found)) if signature(&found) == head => {
                         best = (candidate.source, found);
                         true
@@ -165,7 +179,12 @@ pub fn minimize_format(generated: &Generated, failure: &str, scratch: &Path) -> 
 
 /// Writes a reproducer to `dir/<name>.xsh` with the failure text as a leading
 /// comment block, returning the path.
-pub fn write_failure(dir: &Path, name: &str, source: &str, failure: &str) -> std::io::Result<PathBuf> {
+pub fn write_failure(
+    dir: &Path,
+    name: &str,
+    source: &str,
+    failure: &str,
+) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join(format!("{name}.xsh"));
     let mut text = String::new();
@@ -180,7 +199,11 @@ pub fn write_failure(dir: &Path, name: &str, source: &str, failure: &str) -> std
 }
 
 /// Generates and verifies one seed.
-pub fn run_seed(seed: u64, config: &GenConfig, sandbox: Option<&Sandbox>) -> Result<Generated, (Generated, Failure)> {
+pub fn run_seed(
+    seed: u64,
+    config: &GenConfig,
+    sandbox: Option<&Sandbox>,
+) -> Result<Generated, (Generated, Failure)> {
     let generated = generate(seed, config);
     match verify_generated(&generated.source, &generated.expected, sandbox) {
         Ok(()) => Ok(generated),
@@ -206,14 +229,22 @@ impl Shared {
         let path = write_failure(&self.options.out, name, source, failure);
         let _guard = self.log.lock();
         match path {
-            Ok(path) => eprintln!("FAIL {name}: {} -> {}", failure.lines().next().unwrap_or(""), path.display()),
+            Ok(path) => eprintln!(
+                "FAIL {name}: {} -> {}",
+                failure.lines().next().unwrap_or(""),
+                path.display()
+            ),
             Err(error) => eprintln!("FAIL {name}: {failure} (could not write reproducer: {error})"),
         }
     }
 
     /// Minimize failures unless disabled or the campaign is out of time.
     fn should_shrink(&self) -> bool {
-        self.options.shrink && self.options.duration.is_none_or(|duration| self.started.elapsed() < duration)
+        self.options.shrink
+            && self
+                .options
+                .duration
+                .is_none_or(|duration| self.started.elapsed() < duration)
     }
 
     fn take_seed(&self) -> Option<u64> {
@@ -285,7 +316,10 @@ fn supervise(options: Options) -> Stats {
         for _ in 0..jobs {
             scope.spawn(|| {
                 loop {
-                    if options.duration.is_some_and(|duration| started.elapsed() >= duration) {
+                    if options
+                        .duration
+                        .is_some_and(|duration| started.elapsed() >= duration)
+                    {
                         break;
                     }
                     let first = next.fetch_add(options.shard_size, Ordering::Relaxed);
@@ -296,7 +330,9 @@ fn supervise(options: Options) -> Stats {
                         }
                         count = count.min(iterations - first);
                     }
-                    let remaining = options.duration.map(|duration| duration.saturating_sub(started.elapsed()));
+                    let remaining = options
+                        .duration
+                        .map(|duration| duration.saturating_sub(started.elapsed()));
                     if remaining.is_some_and(|remaining| remaining.is_zero()) {
                         break;
                     }
@@ -308,7 +344,13 @@ fn supervise(options: Options) -> Stats {
     stats
 }
 
-fn run_worker(options: &Options, first: u64, count: u64, remaining: Option<Duration>, stats: &Stats) {
+fn run_worker(
+    options: &Options,
+    first: u64,
+    count: u64,
+    remaining: Option<Duration>,
+    stats: &Stats,
+) {
     let mut command = std::process::Command::new(&options.exe);
     command
         .arg("shard")
@@ -357,9 +399,15 @@ fn run_worker(options: &Options, first: u64, count: u64, remaining: Option<Durat
         std::thread::sleep(Duration::from_millis(50));
     };
     let output = reader.join().unwrap_or_default();
-    match output.lines().find_map(|line| line.strip_prefix(STATS_PREFIX)) {
+    match output
+        .lines()
+        .find_map(|line| line.strip_prefix(STATS_PREFIX))
+    {
         Some(counts) => {
-            let counts: Vec<usize> = counts.split_whitespace().filter_map(|count| count.parse().ok()).collect();
+            let counts: Vec<usize> = counts
+                .split_whitespace()
+                .filter_map(|count| count.parse().ok())
+                .collect();
             if let [checked, mutants, formatted, ran, failures] = counts[..] {
                 stats.checked.fetch_add(checked, Ordering::Relaxed);
                 stats.mutants.fetch_add(mutants, Ordering::Relaxed);
@@ -435,11 +483,18 @@ fn watchdog(shared: &Shared) {
     while !shared.stop.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(250));
         for slot in &shared.current {
-            let current = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+            let current = slot
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
             if let Some((started, name, source)) = current
                 && started.elapsed() > limit
             {
-                shared.report(&name, &source, &format!("frontend hang: checking took over {}s", limit.as_secs()));
+                shared.report(
+                    &name,
+                    &source,
+                    &format!("frontend hang: checking took over {}s", limit.as_secs()),
+                );
                 std::process::exit(1);
             }
         }
@@ -450,7 +505,10 @@ fn work(shared: &Shared, worker: usize) {
     let config = GenConfig::default();
     let mut sandbox = Sandbox::new(shared.options.exe.clone());
     sandbox.timeout = shared.options.timeout;
-    let scratch = tempfile::Builder::new().prefix("xsh-fuzz-lint-").tempdir().expect("scratch directory");
+    let scratch = tempfile::Builder::new()
+        .prefix("xsh-fuzz-lint-")
+        .tempdir()
+        .expect("scratch directory");
     while let Some(index) = shared.take_seed() {
         let seed = shared.options.seed.wrapping_add(index);
         let mode = match shared.options.mode {
@@ -465,11 +523,21 @@ fn work(shared: &Shared, worker: usize) {
     }
 }
 
-fn guarded<T>(shared: &Shared, worker: usize, name: &str, source: &str, body: impl FnOnce() -> T) -> T {
-    *shared.current[worker].lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+fn guarded<T>(
+    shared: &Shared,
+    worker: usize,
+    name: &str,
+    source: &str,
+    body: impl FnOnce() -> T,
+) -> T {
+    *shared.current[worker]
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) =
         Some((Instant::now(), name.to_string(), source.to_string()));
     let result = body();
-    *shared.current[worker].lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    *shared.current[worker]
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     result
 }
 
@@ -478,45 +546,107 @@ fn run_iteration(shared: &Shared, seed: u64, config: &GenConfig, sandbox: &Sandb
     let generated = generate(seed, config);
     let result = verify_generated(&generated.source, &generated.expected, Some(sandbox));
     shared.stats.ran.fetch_add(1, Ordering::Relaxed);
-    shared.stats.run_time_us.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+    shared
+        .stats
+        .run_time_us
+        .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
     if let Err(failure) = result {
-        let (small, failure) = if shared.should_shrink() { minimize(&generated, &failure, Some(sandbox), 1500) } else { (generated, failure) };
-        shared.report(&seed.to_string(), &small.source, &format!("{} (run mode, seed {seed})\n{}", failure.kind(), failure.detail()));
+        let (small, failure) = if shared.should_shrink() {
+            minimize(&generated, &failure, Some(sandbox), 1500)
+        } else {
+            (generated, failure)
+        };
+        shared.report(
+            &seed.to_string(),
+            &small.source,
+            &format!(
+                "{} (run mode, seed {seed})\n{}",
+                failure.kind(),
+                failure.detail()
+            ),
+        );
     }
 }
 
-fn check_iteration(shared: &Shared, worker: usize, seed: u64, index: u64, config: &GenConfig, scratch: &Path) {
+fn check_iteration(
+    shared: &Shared,
+    worker: usize,
+    seed: u64,
+    index: u64,
+    config: &GenConfig,
+    scratch: &Path,
+) {
     let started = Instant::now();
     let generated = generate(seed, config);
     let name = seed.to_string();
-    let result = guarded(shared, worker, &name, &generated.source, || verify_generated(&generated.source, &generated.expected, None));
+    let result = guarded(shared, worker, &name, &generated.source, || {
+        verify_generated(&generated.source, &generated.expected, None)
+    });
     shared.stats.checked.fetch_add(1, Ordering::Relaxed);
     if let Err(failure) = result {
-        let (small, failure) = if shared.should_shrink() { minimize(&generated, &failure, None, 1500) } else { (generated.clone(), failure) };
-        shared.report(&name, &small.source, &format!("{} (check mode, seed {seed})\n{}", failure.kind(), failure.detail()));
+        let (small, failure) = if shared.should_shrink() {
+            minimize(&generated, &failure, None, 1500)
+        } else {
+            (generated.clone(), failure)
+        };
+        shared.report(
+            &name,
+            &small.source,
+            &format!(
+                "{} (check mode, seed {seed})\n{}",
+                failure.kind(),
+                failure.detail()
+            ),
+        );
         return;
     }
     if shared.options.format_every > 0 && index.is_multiple_of(shared.options.format_every) {
-        let outcome = guarded(shared, worker, &format!("{seed}-format"), &generated.source, || {
-            catch_unwind(AssertUnwindSafe(|| format_invariants(&generated.source, scratch)))
-        });
+        let outcome = guarded(
+            shared,
+            worker,
+            &format!("{seed}-format"),
+            &generated.source,
+            || {
+                catch_unwind(AssertUnwindSafe(|| {
+                    format_invariants(&generated.source, scratch)
+                }))
+            },
+        );
         shared.stats.formatted.fetch_add(1, Ordering::Relaxed);
         match outcome {
             Ok(Ok(())) => {}
             Ok(Err(failure)) => {
-                let (source, failure) = if shared.should_shrink() { minimize_format(&generated, &failure, scratch) } else { (generated.source.clone(), failure) };
-                shared.report(&format!("{seed}-format"), &source, &format!("format (seed {seed})\n{failure}"));
+                let (source, failure) = if shared.should_shrink() {
+                    minimize_format(&generated, &failure, scratch)
+                } else {
+                    (generated.source.clone(), failure)
+                };
+                shared.report(
+                    &format!("{seed}-format"),
+                    &source,
+                    &format!("format (seed {seed})\n{failure}"),
+                );
             }
-            Err(_) => shared.report(&format!("{seed}-format"), &generated.source, "format: formatter or linter panicked"),
+            Err(_) => shared.report(
+                &format!("{seed}-format"),
+                &generated.source,
+                "format: formatter or linter panicked",
+            ),
         }
     }
     let mut rng = Rng::new(seed ^ 0x6D75_7461_6E74);
     for mutant_index in 0..shared.options.mutants {
         let (origin, file, text) = if mutant_index % 2 == 0 || shared.corpus.is_empty() {
-            ("generated".to_string(), "program.xsh".to_string(), generated.source.clone())
+            (
+                "generated".to_string(),
+                "program.xsh".to_string(),
+                generated.source.clone(),
+            )
         } else {
             let path = shared.corpus[rng.below(shared.corpus.len())].clone();
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             (path.display().to_string(), MUTANT_FILE.to_string(), text)
         };
         let mut mutant = mutate(&text, &mut rng);
@@ -524,19 +654,32 @@ fn check_iteration(shared: &Shared, worker: usize, seed: u64, index: u64, config
             mutant = mutate(&mutant, &mut rng);
         }
         let name = format!("{seed}-mutant-{mutant_index}");
-        let outcome = guarded(shared, worker, &name, &mutant, || check_mutant(&file, &mutant));
+        let outcome = guarded(shared, worker, &name, &mutant, || {
+            check_mutant(&file, &mutant)
+        });
         shared.stats.mutants.fetch_add(1, Ordering::Relaxed);
         if let Err(failure) = outcome {
             let small = if shared.should_shrink() {
                 let head = signature(&failure);
                 quiet_panics(|| {
-                    shrink_text(&mutant, |candidate| matches!(check_mutant(&file, candidate), Err(found) if signature(&found) == head), 400)
+                    shrink_text(
+                        &mutant,
+                        |candidate| matches!(check_mutant(&file, candidate), Err(found) if signature(&found) == head),
+                        400,
+                    )
                 })
             } else {
                 mutant
             };
-            shared.report(&name, &small, &format!("frontend defect on a mutant of {origin} (seed {seed})\n{failure}"));
+            shared.report(
+                &name,
+                &small,
+                &format!("frontend defect on a mutant of {origin} (seed {seed})\n{failure}"),
+            );
         }
     }
-    shared.stats.check_time_us.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+    shared
+        .stats
+        .check_time_us
+        .fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
 }

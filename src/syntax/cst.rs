@@ -441,21 +441,35 @@ impl SyntaxTree {
     /// while retaining its closing delimiter and postfix operations. Source
     /// replacements must include both sides of every such group.
     pub fn expression_source_span(&self, mut span: Span) -> Span {
-        if span.source_id != self.source_id { return span; }
+        if span.source_id != self.source_id {
+            return span;
+        }
         loop {
             let previous = span;
             for node in &self.nodes {
-                if node.kind != SyntaxKind::Group(SyntaxGroupKind::Paren) { continue; }
-                let (Some(open), Some(close)) = (node.open, node.close) else { continue; };
+                if node.kind != SyntaxKind::Group(SyntaxGroupKind::Paren) {
+                    continue;
+                }
+                let (Some(open), Some(close)) = (node.open, node.close) else {
+                    continue;
+                };
                 let open = self.token_span(open);
                 let close = self.token_span(close);
-                if open.start() < span.start() && close.start() >= span.start() && close.end() <= span.end() {
+                if open.start() < span.start()
+                    && close.start() >= span.start()
+                    && close.end() <= span.end()
+                {
                     span = Span::new(span.source_id, open.start(), span.end());
-                } else if open.start() >= span.start() && open.end() <= span.end() && close.end() > span.end() {
+                } else if open.start() >= span.start()
+                    && open.end() <= span.end()
+                    && close.end() > span.end()
+                {
                     span = Span::new(span.source_id, span.start(), close.end());
                 }
             }
-            if span == previous { return span; }
+            if span == previous {
+                return span;
+            }
         }
     }
 

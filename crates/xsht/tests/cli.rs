@@ -21,7 +21,9 @@ fn cli_workers_check_and_lint_nested_schema_constructors_without_stack_environme
         constructor = format!("{name}(child: {constructor})");
         previous = name;
     }
-    source.push_str(&format!("pure build() -> {previous} {{ {constructor} }}\nlet value = build()\nlet _ = value\n"));
+    source.push_str(&format!(
+        "pure build() -> {previous} {{ {constructor} }}\nlet value = build()\nlet _ = value\n"
+    ));
     fs::write(&script, &source).expect("write nested constructors");
     for command in ["check", "lint"] {
         let output = Command::new(release_bin!("xsht"))
@@ -29,11 +31,18 @@ fn cli_workers_check_and_lint_nested_schema_constructors_without_stack_environme
             .current_dir(root.path())
             .env_remove("RUST_MIN_STACK")
             .env_remove("XSH_MODULE_PATH")
-            .output().expect("run nested constructor tooling");
+            .output()
+            .expect("run nested constructor tooling");
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(if command == "check" { output.status.success() }
-            else { matches!(output.status.code(), Some(0 | 1)) },
-            "{command}: {:?}\n{stderr}", output.status);
+        assert!(
+            if command == "check" {
+                output.status.success()
+            } else {
+                matches!(output.status.code(), Some(0 | 1))
+            },
+            "{command}: {:?}\n{stderr}",
+            output.status
+        );
         assert!(!stderr.contains("stack overflow"), "{command}: {stderr}");
         assert_eq!(fs::read_to_string(&script).unwrap(), source);
     }
@@ -46,35 +55,76 @@ fn mixed_enum_and_record_require_migration_rechecks_import_graph_and_converges_i
     let module = root.path().join("choice.xsh");
     fs::write(&module, "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty # retained café\n").unwrap();
     fs::write(&entry, "use choice as c\n## A name.\nexport type Name = {name: Str}\nlet _ = record.require({name: \"café\"}, {name: \"Str\"})? # retained receiver\nlet choice: c.Choice = c.Selected(7)\nprint \"café\"\nmatch choice { c.Selected(number) => print $number; c.Empty => print \"empty\" }\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
-        .args(arguments).current_dir(root.path()).output().unwrap();
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+    };
     let before = run(&["check", "entry.xsh"]);
     assert!(!before.status.success());
     let first = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let fixed_entry = fs::read_to_string(&entry).unwrap();
     let fixed_module = fs::read_to_string(&module).unwrap();
-    assert!(fixed_entry.contains("{name: \"café\"}.require(Name)? # retained receiver"), "{fixed_entry}");
-    assert!(fixed_module.contains("export enum Choice {"), "{fixed_module}");
+    assert!(
+        fixed_entry.contains("{name: \"café\"}.require(Name)? # retained receiver"),
+        "{fixed_entry}"
+    );
+    assert!(
+        fixed_module.contains("export enum Choice {"),
+        "{fixed_module}"
+    );
     assert!(fixed_module.contains("# retained café"), "{fixed_module}");
     let checked = run(&["check", "entry.xsh"]);
-    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
     let executed = run(&["trace", "entry.xsh"]);
-    assert!(executed.status.success(), "{}", String::from_utf8_lossy(&executed.stderr));
+    assert!(
+        executed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
     assert_eq!(String::from_utf8_lossy(&executed.stdout), "café\n7\n");
     // Exact syntax/API repair makes ordinary lints available on the next pass;
     // they can then remove identity schema validation and normalize layout.
     let second = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     let canonical_entry = fs::read_to_string(&entry).unwrap();
     let canonical_module = fs::read_to_string(&module).unwrap();
-    assert!(canonical_entry.contains("# retained receiver"), "{canonical_entry}");
-    assert!(canonical_module.contains("# retained café"), "{canonical_module}");
+    assert!(
+        canonical_entry.contains("# retained receiver"),
+        "{canonical_entry}"
+    );
+    assert!(
+        canonical_module.contains("# retained café"),
+        "{canonical_module}"
+    );
     let after = run(&["trace", "entry.xsh"]);
-    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
     assert_eq!(executed.stdout, after.stdout);
     let third = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(third.status.success(), "{}", String::from_utf8_lossy(&third.stderr));
+    assert!(
+        third.status.success(),
+        "{}",
+        String::from_utf8_lossy(&third.stderr)
+    );
     assert_eq!(canonical_entry, fs::read_to_string(&entry).unwrap());
     assert_eq!(canonical_module, fs::read_to_string(&module).unwrap());
 }
@@ -84,15 +134,26 @@ fn mixed_enum_and_record_require_migration_refuses_unproved_identity() {
     let root = TempDir::new().expect("unproved mixed migration fixture");
     let entry = root.path().join("entry.xsh");
     let module = root.path().join("choice.xsh");
-    let module_source = "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty\n";
+    let module_source =
+        "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty\n";
     let entry_source = "use choice as c\ntype Name = {name: Str}\nlet _ = record.require({name: 7}, {name: \"Str\"})?\nlet choice: c.Choice = c.Selected(7)\n";
     fs::write(&entry, entry_source).unwrap();
     fs::write(&module, module_source).unwrap();
     let output = Command::new(release_bin!("xsht"))
-        .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
+        .args(["lint", "--fix", "entry.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
     assert!(!output.status.success());
-    let diagnostic_text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(diagnostic_text.contains("lint.removed-record-require"), "{diagnostic_text}");
+    let diagnostic_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        diagnostic_text.contains("lint.removed-record-require"),
+        "{diagnostic_text}"
+    );
     assert_eq!(entry_source, fs::read_to_string(&entry).unwrap());
     assert_eq!(module_source, fs::read_to_string(&module).unwrap());
 }
@@ -112,16 +173,26 @@ fn mixed_enum_and_record_require_migration_refuses_unrelated_import_graph_errors
             entry_source.push_str("print $value.name\n");
             "check.field-access"
         } else {
-            if broken_module { module_source.push_str("let broken: Int = \"wrong\"\n"); }
-            else { entry_source.push_str("let broken: Int = \"wrong\"\n"); }
+            if broken_module {
+                module_source.push_str("let broken: Int = \"wrong\"\n");
+            } else {
+                entry_source.push_str("let broken: Int = \"wrong\"\n");
+            }
             "check.type-mismatch"
         };
         fs::write(&entry, &entry_source).unwrap();
         fs::write(&module, &module_source).unwrap();
         let output = Command::new(release_bin!("xsht"))
-            .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
+            .args(["lint", "--fix", "entry.xsh"])
+            .current_dir(root.path())
+            .output()
+            .unwrap();
         assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains(expected_code), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(expected_code),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(entry_source, fs::read_to_string(&entry).unwrap());
         assert_eq!(module_source, fs::read_to_string(&module).unwrap());
     }
@@ -132,28 +203,57 @@ fn removed_record_require_cli_fix_rechecks_and_converges_in_stages() {
     let root = TempDir::new().expect("record migration fixture");
     let entry = root.path().join("entry.xsh");
     fs::write(&entry, "export type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint $value.name\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
-        .args(arguments).current_dir(root.path()).output().unwrap();
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+    };
     let before = run(&["check", "entry.xsh"]);
     assert_eq!(before.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&before.stderr).contains("check.removed-record-require"));
     let first = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let fixed = fs::read_to_string(&entry).unwrap();
     assert!(!fixed.contains("record.require"), "{fixed}");
     assert!(fixed.contains("café") || fixed.contains("caf\\u{e9}"));
     let after = run(&["check", "entry.xsh"]);
-    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
     let before_ordinary_fixes = run(&["trace", "entry.xsh"]);
-    assert!(before_ordinary_fixes.status.success(), "{}", String::from_utf8_lossy(&before_ordinary_fixes.stderr));
+    assert!(
+        before_ordinary_fixes.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before_ordinary_fixes.stderr)
+    );
     let second = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     let canonical = fs::read_to_string(&entry).unwrap();
     let third = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(third.status.success(), "{}", String::from_utf8_lossy(&third.stderr));
+    assert!(
+        third.status.success(),
+        "{}",
+        String::from_utf8_lossy(&third.stderr)
+    );
     assert_eq!(canonical, fs::read_to_string(&entry).unwrap());
     let executed = run(&["trace", "entry.xsh"]);
-    assert!(executed.status.success(), "{}", String::from_utf8_lossy(&executed.stderr));
+    assert!(
+        executed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
     assert_eq!(before_ordinary_fixes.stdout, executed.stdout);
     assert!(String::from_utf8_lossy(&executed.stdout).contains("café"));
 }
@@ -168,7 +268,10 @@ fn removed_record_require_cli_fix_preserves_unrelated_errors_and_comments() {
         let entry = root.path().join("entry.xsh");
         fs::write(&entry, source).unwrap();
         let output = Command::new(release_bin!("xsht"))
-            .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
+            .args(["lint", "--fix", "entry.xsh"])
+            .current_dir(root.path())
+            .output()
+            .unwrap();
         assert!(!output.status.success());
         assert_eq!(source, fs::read_to_string(&entry).unwrap());
     }
@@ -185,8 +288,14 @@ fn check_strict_option_reports_default_dynamic_policy_before_loading() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).expect("UTF-8 option diagnostic");
-    assert!(stderr.contains("`xsht check --strict` was removed"), "{stderr}");
-    assert!(stderr.contains("dynamic boundaries are checked by default"), "{stderr}");
+    assert!(
+        stderr.contains("`xsht check --strict` was removed"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("dynamic boundaries are checked by default"),
+        "{stderr}"
+    );
     assert!(!stderr.contains("failed to read"), "{stderr}");
 
     let help = Command::new(release_bin!("xsht"))
@@ -211,31 +320,58 @@ fn check_dynamic_boundary_rejects_disk_fixture_without_annotation_writes() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("err[check.dynamic-boundary]"));
-    assert_eq!(fs::read_to_string(fixture).expect("read rejected fixture"), source);
+    assert_eq!(
+        fs::read_to_string(fixture).expect("read rejected fixture"),
+        source
+    );
 }
 
 #[test]
 fn lint_fix_converges_when_tail_edits_contain_named_argument_edits() {
     let root = TempDir::new().expect("temporary lint fixture");
     let fixture = root.path().join("fixture.xsh");
-    fs::write(&fixture, include_str!("../../../tests/fixtures/syntax/valid/ergonomics-fix-convergence.xsh"))
-        .expect("write lint fixture");
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
-        .args(arguments)
-        .current_dir(root.path())
-        .output()
-        .expect("run isolated xsht fixture");
+    fs::write(
+        &fixture,
+        include_str!("../../../tests/fixtures/syntax/valid/ergonomics-fix-convergence.xsh"),
+    )
+    .expect("write lint fixture");
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .expect("run isolated xsht fixture")
+    };
     let before = run(&["trace", "fixture.xsh"]);
-    assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
+    assert!(
+        before.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before.stderr)
+    );
     let first = run(&["lint", "--fix", "fixture.xsh"]);
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let fixed = fs::read_to_string(&fixture).expect("read first fix");
     let second = run(&["lint", "--fix", "fixture.xsh"]);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
-    assert_eq!(fixed, fs::read_to_string(&fixture).expect("read second fix"));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        fixed,
+        fs::read_to_string(&fixture).expect("read second fix")
+    );
     assert!(fixed.contains("words.join(separator:)"), "{fixed}");
     let after = run(&["trace", "fixture.xsh"]);
-    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
     assert_eq!(before.stdout, after.stdout);
 }
 
@@ -292,19 +428,36 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
 
 #[test]
 fn xsht_grammar_prints_the_productions() {
-    let ebnf = Command::new(release_bin!("xsht")).arg("grammar").output().expect("run xsht grammar");
+    let ebnf = Command::new(release_bin!("xsht"))
+        .arg("grammar")
+        .output()
+        .expect("run xsht grammar");
     assert!(ebnf.status.success());
     let stdout = String::from_utf8(ebnf.stdout).unwrap();
     assert!(stdout.contains("(* Expressions *)"), "{stdout}");
     assert!(stdout.contains("\nprogram = "), "{stdout}");
 
-    let json = Command::new(release_bin!("xsht")).args(["grammar", "--format", "json"]).output().expect("run xsht grammar");
+    let json = Command::new(release_bin!("xsht"))
+        .args(["grammar", "--format", "json"])
+        .output()
+        .expect("run xsht grammar");
     assert!(json.status.success());
-    assert!(String::from_utf8(json.stdout).unwrap().starts_with("{\"sections\":["));
+    assert!(
+        String::from_utf8(json.stdout)
+            .unwrap()
+            .starts_with("{\"sections\":[")
+    );
 
-    let invalid = Command::new(release_bin!("xsht")).args(["grammar", "--format", "yaml"]).output().expect("run xsht grammar");
+    let invalid = Command::new(release_bin!("xsht"))
+        .args(["grammar", "--format", "yaml"])
+        .output()
+        .expect("run xsht grammar");
     assert!(!invalid.status.success());
-    assert!(String::from_utf8(invalid.stderr).unwrap().contains("must be ebnf or json"));
+    assert!(
+        String::from_utf8(invalid.stderr)
+            .unwrap()
+            .contains("must be ebnf or json")
+    );
 }
 
 #[test]
@@ -654,8 +807,11 @@ fn lint_explicit_directory_lints_xsh_files() {
     let project = root.path().join("project");
     fs::create_dir_all(project.join("nested")).expect("create project dirs");
     fs::write(project.join("main.xsh"), "const value = 1\n").expect("write main script");
-    fs::write(project.join("nested").join("helper.xsh"), "const value = 2\n")
-        .expect("write helper script");
+    fs::write(
+        project.join("nested").join("helper.xsh"),
+        "const value = 2\n",
+    )
+    .expect("write helper script");
 
     let output = Command::new(release_bin!("xsht"))
         .args(["lint", project.to_str().unwrap()])
@@ -769,23 +925,64 @@ fn lint_only_restricts_diagnostics_and_fixes_to_named_codes() {
     let script = root.path().join("main.xsh");
     let source = "let name: Str = \"x\"\nprint ${name.byte_len()}\n";
     fs::write(&script, source).expect("write script");
-    let lint = |args: &[&str]| Command::new(release_bin!("xsht"))
-        .arg("lint").args(args).arg("main.xsh")
-        .current_dir(root.path()).output().expect("run xsht lint");
-    let codes = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).lines()
-        .filter_map(|line| line.strip_prefix("warn[")?.split(']').next().map(str::to_owned))
-        .collect::<Vec<_>>();
+    let lint = |args: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .arg("lint")
+            .args(args)
+            .arg("main.xsh")
+            .current_dir(root.path())
+            .output()
+            .expect("run xsht lint")
+    };
+    let codes = |output: &std::process::Output| {
+        String::from_utf8_lossy(&output.stderr)
+            .lines()
+            .filter_map(|line| {
+                line.strip_prefix("warn[")?
+                    .split(']')
+                    .next()
+                    .map(str::to_owned)
+            })
+            .collect::<Vec<_>>()
+    };
 
     let all = lint(&[]);
-    assert_eq!(codes(&all), ["lint.prefer-const", "lint.needless-annotation", "lint.redundant-command-interpolation"]);
-    let selected = lint(&["--only", "lint.needless-annotation,lint.redundant-command-interpolation"]);
+    assert_eq!(
+        codes(&all),
+        [
+            "lint.prefer-const",
+            "lint.needless-annotation",
+            "lint.redundant-command-interpolation"
+        ]
+    );
+    let selected = lint(&[
+        "--only",
+        "lint.needless-annotation,lint.redundant-command-interpolation",
+    ]);
     assert_eq!(selected.status.code(), Some(1));
-    assert_eq!(codes(&selected), ["lint.needless-annotation", "lint.redundant-command-interpolation"]);
+    assert_eq!(
+        codes(&selected),
+        [
+            "lint.needless-annotation",
+            "lint.redundant-command-interpolation"
+        ]
+    );
 
     let fixed = lint(&["--only=lint.needless-annotation", "--fix"]);
-    assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
-    assert_eq!(fs::read_to_string(&script).expect("read fixed script"), "let name = \"x\"\nprint ${name.byte_len()}\n");
-    assert_eq!(codes(&lint(&[])), ["lint.prefer-const", "lint.redundant-command-interpolation"]);
+    assert_eq!(
+        fixed.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&script).expect("read fixed script"),
+        "let name = \"x\"\nprint ${name.byte_len()}\n"
+    );
+    assert_eq!(
+        codes(&lint(&[])),
+        ["lint.prefer-const", "lint.redundant-command-interpolation"]
+    );
 }
 
 #[test]
@@ -794,30 +991,73 @@ fn lint_fix_applies_the_bool_statement_assert_fix() {
     let script = root.path().join("main.xsh");
     let source = "let xs = [1, 2]\nxs == [1, 2] # comment stays\nproc note(value: Int) -> Int {\n    print \"eval ${value}\"\n    value\n}\nproc check(n: Int) {\n    match n {\n        1 => note(0) < note(n),\n        _ => {},\n    }\n    note(0) < note(n) < note(3)\n}\ncheck(1)?\ncheck(5)?\n";
     fs::write(&script, source).expect("write script");
-    let xsht = |args: &[&str]| Command::new(release_bin!("xsht"))
-        .args(args).current_dir(root.path()).output().expect("run xsht");
+    let xsht = |args: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(args)
+            .current_dir(root.path())
+            .output()
+            .expect("run xsht")
+    };
 
     let listed = xsht(&["lint", "main.xsh"]);
     assert_eq!(listed.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&listed.stderr);
-    assert_eq!(stderr.matches("err[check.bool-statement]").count(), 3, "{stderr}");
-    assert!(stderr.contains("help: insert `assert` in a braced match arm -> { assert note(0) < note(n) }"), "{stderr}");
+    assert_eq!(
+        stderr.matches("err[check.bool-statement]").count(),
+        3,
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "help: insert `assert` in a braced match arm -> { assert note(0) < note(n) }"
+        ),
+        "{stderr}"
+    );
 
     let fixed = xsht(&["lint", "--fix", "main.xsh"]);
-    assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
+    assert_eq!(
+        fixed.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
     let migrated = fs::read_to_string(&script).expect("read fixed script");
-    for statement in ["assert xs == [1, 2] # comment stays", "1 => assert note(0) < note(n)", "  assert note(0) < note(n) < note(3)"] {
-        assert!(migrated.contains(statement), "missing {statement:?}: {migrated}");
+    for statement in [
+        "assert xs == [1, 2] # comment stays",
+        "1 => assert note(0) < note(n)",
+        "  assert note(0) < note(n) < note(3)",
+    ] {
+        assert!(
+            migrated.contains(statement),
+            "missing {statement:?}: {migrated}"
+        );
     }
     assert_eq!(xsht(&["lint", "--fix", "main.xsh"]).status.code(), Some(0));
-    assert_eq!(fs::read_to_string(&script).expect("reread fixed script"), migrated, "a second fix makes no change");
+    assert_eq!(
+        fs::read_to_string(&script).expect("reread fixed script"),
+        migrated,
+        "a second fix makes no change"
+    );
 
     let traced = xsht(&["trace", "main.xsh"]);
     assert_eq!(traced.status.code(), Some(3));
-    assert_eq!(String::from_utf8_lossy(&traced.stdout).lines().take(8).collect::<Vec<_>>(),
-        ["eval 0", "eval 1", "eval 0", "eval 1", "eval 3", "eval 0", "eval 5", "eval 3"], "operands evaluate once, in order");
+    assert_eq!(
+        String::from_utf8_lossy(&traced.stdout)
+            .lines()
+            .take(8)
+            .collect::<Vec<_>>(),
+        [
+            "eval 0", "eval 1", "eval 0", "eval 1", "eval 3", "eval 0", "eval 5", "eval 3"
+        ],
+        "operands evaluate once, in order"
+    );
     let stderr = String::from_utf8_lossy(&traced.stderr);
-    assert!(stderr.contains("assertion failed: note(0) < note(n) < note(3)\nordering comparison failed: 5 < 3"), "{stderr}");
+    assert!(
+        stderr.contains(
+            "assertion failed: note(0) < note(n) < note(3)\nordering comparison failed: 5 < 3"
+        ),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -826,10 +1066,26 @@ fn lint_only_bool_statement_applies_only_its_assert_fix() {
     let script = root.path().join("main.xsh");
     fs::write(&script, "let name: Str = \"x\"\nname == \"x\"\n").expect("write script");
     let fixed = Command::new(release_bin!("xsht"))
-        .args(["lint", "--only", "check.bool-statement", "--fix", "main.xsh"])
-        .current_dir(root.path()).output().expect("run xsht lint");
-    assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
-    assert_eq!(fs::read_to_string(&script).expect("read fixed script"), "let name: Str = \"x\"\nassert name == \"x\"\n");
+        .args([
+            "lint",
+            "--only",
+            "check.bool-statement",
+            "--fix",
+            "main.xsh",
+        ])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint");
+    assert_eq!(
+        fixed.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&script).expect("read fixed script"),
+        "let name: Str = \"x\"\nassert name == \"x\"\n"
+    );
 }
 
 /// The discard fix prefixes the statement wherever it sits, including in an
@@ -841,30 +1097,82 @@ fn lint_only_ignored_result_discards_values_with_let() {
     fs::write(root.path().join("main.xsh"), "use helper\nproc data() [io] -> Int { print data; 1 }\ndata()\nif true { data() }\nmatch 1 {\n  1 => data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n").expect("write script");
     fs::write(root.path().join("helper.xsh"), "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  data()\n  print go\n}\n").expect("write module");
     fs::write(root.path().join("rejected.xsh"), "var items = [1]\nitems.push(2)\nproc parse() [error] -> Result[Int] { 1 }\nparse()\nprint ${items.len()}\n").expect("write rejected script");
-    let xsht = |args: &[&str]| Command::new(release_bin!("xsht"))
-        .args(args).current_dir(root.path()).output().expect("run xsht");
+    let xsht = |args: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(args)
+            .current_dir(root.path())
+            .output()
+            .expect("run xsht")
+    };
 
     // Each file is fixed by its own lint node; the importer's node may still
     // report the module's diagnostic from before that node ran, so the exit
     // status of the fixing run is not part of the contract. A rerun is clean.
-    let fixed = xsht(&["lint", "--only", "check.ignored-result", "--fix", "main.xsh", "helper.xsh"]);
-    assert!(matches!(fixed.status.code(), Some(0 | 2)), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
-    let rerun = xsht(&["lint", "--only", "check.ignored-result", "main.xsh", "helper.xsh"]);
-    assert_eq!(rerun.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&rerun.stderr));
-    assert_eq!(fs::read_to_string(root.path().join("main.xsh")).expect("read fixed script"),
-        "use helper\nproc data() [io] -> Int { print data; 1 }\nlet _ = data()\nif true { let _ = data() }\nmatch 1 {\n  1 => let _ = data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n");
-    assert_eq!(fs::read_to_string(root.path().join("helper.xsh")).expect("read fixed module"),
-        "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  let _ = data()\n  print go\n}\n");
+    let fixed = xsht(&[
+        "lint",
+        "--only",
+        "check.ignored-result",
+        "--fix",
+        "main.xsh",
+        "helper.xsh",
+    ]);
+    assert!(
+        matches!(fixed.status.code(), Some(0 | 2)),
+        "stderr: {}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
+    let rerun = xsht(&[
+        "lint",
+        "--only",
+        "check.ignored-result",
+        "main.xsh",
+        "helper.xsh",
+    ]);
+    assert_eq!(
+        rerun.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&rerun.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("main.xsh")).expect("read fixed script"),
+        "use helper\nproc data() [io] -> Int { print data; 1 }\nlet _ = data()\nif true { let _ = data() }\nmatch 1 {\n  1 => let _ = data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("helper.xsh")).expect("read fixed module"),
+        "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  let _ = data()\n  print go\n}\n"
+    );
     let ran = xsht(&["trace", "main.xsh"]);
-    assert_eq!(ran.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&ran.stderr));
-    assert_eq!(String::from_utf8_lossy(&ran.stdout), "data\ndata\ndata\nhelper\ngo\ndone\n");
+    assert_eq!(
+        ran.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "data\ndata\ndata\nhelper\ngo\ndone\n"
+    );
 
-    let rejected = xsht(&["lint", "--only", "check.ignored-result", "--fix", "rejected.xsh"]);
+    let rejected = xsht(&[
+        "lint",
+        "--only",
+        "check.ignored-result",
+        "--fix",
+        "rejected.xsh",
+    ]);
     assert_eq!(rejected.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&rejected.stderr);
-    assert_eq!(stderr.matches("err[check.ignored-result]").count(), 2, "{stderr}");
+    assert_eq!(
+        stderr.matches("err[check.ignored-result]").count(),
+        2,
+        "{stderr}"
+    );
     assert!(stderr.contains("`.push` returns a new list"), "{stderr}");
-    assert!(!stderr.contains("help: discard"), "a copy update or Result is never discarded mechanically: {stderr}");
+    assert!(
+        !stderr.contains("help: discard"),
+        "a copy update or Result is never discarded mechanically: {stderr}"
+    );
 }
 
 /// A scoped fix rewrites only its diagnosed spans; unformatted code elsewhere
@@ -875,29 +1183,59 @@ fn lint_only_fix_leaves_bytes_outside_edited_spans() {
     let script = root.path().join("main.xsh");
     let source = "let xs = [1,2,3]\nlet total: Int = xs.len()\nprint   f\"{total}\"  \nlet ys=[1, 2]\r\nprint f\"{ys.len()}\"\n";
     for (rule, expected) in [
-        ("lint.needless-annotation", source.replace("let total: Int =", "let total =")),
-        ("lint.prefer-const", source.replace("let xs", "const xs").replace("let ys", "const ys")),
+        (
+            "lint.needless-annotation",
+            source.replace("let total: Int =", "let total ="),
+        ),
+        (
+            "lint.prefer-const",
+            source
+                .replace("let xs", "const xs")
+                .replace("let ys", "const ys"),
+        ),
     ] {
         fs::write(&script, source).expect("write script");
         let fixed = Command::new(env!("CARGO_BIN_EXE_xsht"))
             .args(["lint", "--only", rule, "--fix", "main.xsh"])
-            .current_dir(root.path()).output().expect("run xsht lint");
-        assert_eq!(fixed.status.code(), Some(0), "{rule}: {}", String::from_utf8_lossy(&fixed.stderr));
-        assert_eq!(fs::read_to_string(&script).expect("read fixed script"), expected, "{rule}");
+            .current_dir(root.path())
+            .output()
+            .expect("run xsht lint");
+        assert_eq!(
+            fixed.status.code(),
+            Some(0),
+            "{rule}: {}",
+            String::from_utf8_lossy(&fixed.stderr)
+        );
+        assert_eq!(
+            fs::read_to_string(&script).expect("read fixed script"),
+            expected,
+            "{rule}"
+        );
     }
 }
 
 #[test]
 fn lint_only_rejects_unknown_codes() {
-    for args in [&["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..], &["lint", "--only"][..]] {
-        let output = Command::new(release_bin!("xsht")).args(args).output().expect("run xsht lint");
+    for args in [
+        &["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..],
+        &["lint", "--only"][..],
+    ] {
+        let output = Command::new(release_bin!("xsht"))
+            .args(args)
+            .output()
+            .expect("run xsht lint");
         assert_eq!(output.status.code(), Some(2));
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("--only"), "{stderr}");
     }
     let output = Command::new(release_bin!("xsht"))
-        .args(["lint", "--only", "check.unresolved-name", "."]).output().expect("run xsht lint");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown lint rule 'check.unresolved-name'"));
+        .args(["lint", "--only", "check.unresolved-name", "."])
+        .output()
+        .expect("run xsht lint");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("unknown lint rule 'check.unresolved-name'")
+    );
 }
 
 #[test]
@@ -1083,7 +1421,11 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(output.stderr.is_empty(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -1112,7 +1454,10 @@ fn test_reports_lazy_default_runtime_failure_without_panicking() {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("division by zero"), "stdout: {stdout}");
-        assert!(!stdout.contains("compact.indexed-build"), "stdout: {stdout}");
+        assert!(
+            !stdout.contains("compact.indexed-build"),
+            "stdout: {stdout}"
+        );
     }
 }
 
@@ -1290,7 +1635,10 @@ proc fallible() [error] -> Result[Str] {
         stderr.contains("parse.expected-expression"),
         "stderr: {stderr}"
     );
-    assert!(!stderr.contains("compact.indexed-build"), "stderr: {stderr}");
+    assert!(
+        !stderr.contains("compact.indexed-build"),
+        "stderr: {stderr}"
+    );
     assert!(stderr.contains("xsht check summary:"), "stderr: {stderr}");
     assert!(
         stderr.contains("parse.expected-expression: 1"),
@@ -2035,17 +2383,41 @@ fn membership_migration_after_removal_fixes_shared_import_once_and_is_idempotent
     let helper = root.path().join("helper.xsh");
     fs::write(&helper, "##! Membership fixture.\n## Tests membership.\nexport pure present(text: Str) -> Bool { return text.contains(\"needle\") }\n").unwrap();
     for entry in ["first.xsh", "second.xsh"] {
-        fs::write(root.path().join(entry), "use helper\nassert helper.present(\"needle\")\n").unwrap();
+        fs::write(
+            root.path().join(entry),
+            "use helper\nassert helper.present(\"needle\")\n",
+        )
+        .unwrap();
     }
-    let removed = Command::new(release_bin!("xsht")).args(["check", "first.xsh"]).current_dir(root.path()).output().unwrap();
+    let removed = Command::new(release_bin!("xsht"))
+        .args(["check", "first.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
     assert_eq!(removed.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&removed.stderr).contains("check.removed-membership"));
-    let fixed = Command::new(release_bin!("xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
-    assert!(fixed.status.success(), "{}", String::from_utf8_lossy(&fixed.stderr));
+    let fixed = Command::new(release_bin!("xsht"))
+        .args(["lint", "--fix", "first.xsh", "second.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        fixed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
     let text = fs::read_to_string(&helper).unwrap();
     assert!(text.contains("\"needle\" in text"), "{text}");
-    let second = Command::new(release_bin!("xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    let second = Command::new(release_bin!("xsht"))
+        .args(["lint", "--fix", "first.xsh", "second.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     assert_eq!(fs::read_to_string(helper).unwrap(), text);
 }
 
@@ -2053,17 +2425,38 @@ fn membership_migration_after_removal_fixes_shared_import_once_and_is_idempotent
 fn membership_migration_does_not_suppress_unrelated_checker_failure() {
     let root = TempDir::new().expect("create migration project");
     let script = root.path().join("main.xsh");
-    fs::write(&script, "let result: Int = \"abc\".contains(\"a\")\nlet count: Int = \"invalid\"\n").unwrap();
-    let output = Command::new(release_bin!("xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
-    assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+    fs::write(
+        &script,
+        "let result: Int = \"abc\".contains(\"a\")\nlet count: Int = \"invalid\"\n",
+    )
+    .unwrap();
+    let output = Command::new(release_bin!("xsht"))
+        .args(["lint", "--fix", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(String::from_utf8_lossy(&output.stderr).contains("check.type-mismatch"));
 }
 
 #[test]
 fn check_rejects_unreachable_invalid_regex_literals_without_execution() {
     let root = TempDir::new().unwrap();
-    fs::write(root.path().join("invalid.xsh"), "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n").unwrap();
-    let output = Command::new(release_bin!("xsht")).args(["check", "invalid.xsh"]).current_dir(root.path()).output().unwrap();
+    fs::write(
+        root.path().join("invalid.xsh"),
+        "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n",
+    )
+    .unwrap();
+    let output = Command::new(release_bin!("xsht"))
+        .args(["check", "invalid.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stdout).contains("must not execute"));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2076,27 +2469,64 @@ fn regex_literal_lint_fixture_preserves_execution_and_is_idempotent() {
     let root = TempDir::new().unwrap();
     let fixture = root.path().join("regex.xsh");
     fs::write(&fixture, "let assignment = regex.compile(\"^([A-Z]+)=([0-9]+)$\")? # keep\nprint ${assignment.matches(\"COUNT=42\")} ${assignment.captures(\"COUNT=42\")[2]} ${assignment.replace(\"COUNT=42\", \"$2\")}\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht")).args(arguments).current_dir(root.path()).output().unwrap();
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+    };
     let before = run(&["trace", "regex.xsh"]);
-    assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
+    assert!(
+        before.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before.stderr)
+    );
     let first = run(&["lint", "--fix", "regex.xsh"]);
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let fixed = fs::read_to_string(&fixture).unwrap();
-    assert!(fixed.contains("rx\"^([A-Z]+)=([0-9]+)$\" # keep"), "{fixed}");
+    assert!(
+        fixed.contains("rx\"^([A-Z]+)=([0-9]+)$\" # keep"),
+        "{fixed}"
+    );
     let second = run(&["lint", "--fix", "regex.xsh"]);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     assert_eq!(fixed, fs::read_to_string(&fixture).unwrap());
     let after = run(&["trace", "regex.xsh"]);
-    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
     assert_eq!(before.stdout, after.stdout);
 }
 
 #[test]
 fn check_validates_regex_literals_in_unused_imported_functions() {
     let root = TempDir::new().unwrap();
-    fs::write(root.path().join("main.xsh"), "use broken\nprint \"must not execute\"\n").unwrap();
-    fs::write(root.path().join("broken.xsh"), "pure never_called() -> Regex { rx\"[\" }\n").unwrap();
-    let output = Command::new(release_bin!("xsht")).args(["check", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    fs::write(
+        root.path().join("main.xsh"),
+        "use broken\nprint \"must not execute\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("broken.xsh"),
+        "pure never_called() -> Regex { rx\"[\" }\n",
+    )
+    .unwrap();
+    let output = Command::new(release_bin!("xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("check.regex-literal"), "{stderr}");
@@ -2107,14 +2537,38 @@ fn check_validates_regex_literals_in_unused_imported_functions() {
 fn private_pure_return_annotation_mode_and_lint_policy_preserve_each_other() {
     let root = TempDir::new().expect("temp root");
     let script = root.path().join("main.xsh");
-    fs::write(&script, "pure label(name: Str) { name.trim() }\nprint label(\"ready\")\n").unwrap();
-    fs::write(root.path().join("xsht-config.ini"), "[check]\nannotate = returns\n[lint]\nprefer-inferred-pure-returns = true\n").unwrap();
-    let output = Command::new(release_bin!("xsht")).args(["check", "--annotate", "main.xsh"]).current_dir(root.path()).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    fs::write(
+        &script,
+        "pure label(name: Str) { name.trim() }\nprint label(\"ready\")\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("xsht-config.ini"),
+        "[check]\nannotate = returns\n[lint]\nprefer-inferred-pure-returns = true\n",
+    )
+    .unwrap();
+    let output = Command::new(release_bin!("xsht"))
+        .args(["check", "--annotate", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let annotated = fs::read_to_string(&script).unwrap();
     assert!(annotated.contains("-> Str"), "{annotated}");
-    let output = Command::new(release_bin!("xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let output = Command::new(release_bin!("xsht"))
+        .args(["lint", "--fix", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(fs::read_to_string(&script).unwrap(), annotated);
 }
 
@@ -2124,12 +2578,26 @@ fn private_pure_return_annotation_removal_cli_is_opt_in_and_idempotent() {
     let script = root.path().join("main.xsh");
     let source = "pure label(name: Str) -> Str { name.trim() }\nprint label(\"ready\")\n";
     fs::write(&script, source).unwrap();
-    let run = || Command::new(release_bin!("xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    let run = || {
+        Command::new(release_bin!("xsht"))
+            .args(["lint", "--fix", "main.xsh"])
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+    };
     assert!(run().status.success());
     assert_eq!(fs::read_to_string(&script).unwrap(), source);
-    fs::write(root.path().join("xsht-config.ini"), "[lint]\nprefer-inferred-pure-returns = true\n").unwrap();
+    fs::write(
+        root.path().join("xsht-config.ini"),
+        "[lint]\nprefer-inferred-pure-returns = true\n",
+    )
+    .unwrap();
     let output = run();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let fixed = fs::read_to_string(&script).unwrap();
     assert!(!fixed.contains("-> Str"), "{fixed}");
     assert!(run().status.success());
@@ -2141,24 +2609,56 @@ fn value_pipeline_hole_lint_cli_converges_without_changing_execution() {
     let root = TempDir::new().unwrap();
     let script = root.path().join("main.xsh");
     fs::write(&script, "pure first(value: Int) -> Int { value + 1 }\npure second(prefix: Int, value: Int) -> Int { prefix + value }\npure third(value: Int) -> Int { value * 2 }\nlet initial = first(2)\nlet next = second(10, value: initial)\nlet final_value = third(next)\nprint $final_value\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht")).args(arguments).current_dir(root.path()).output().unwrap();
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+    };
     let before = run(&["trace", "main.xsh"]);
-    assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
+    assert!(
+        before.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before.stderr)
+    );
     let output = run(&["lint", "--fix", "main.xsh"]);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let fixed = fs::read_to_string(&script).unwrap();
-    assert!(fixed.contains("first(2) |> second(10, value: _) |> third(_)"), "{fixed}");
+    assert!(
+        fixed.contains("first(2) |> second(10, value: _) |> third(_)"),
+        "{fixed}"
+    );
     let output = run(&["lint", "--fix", "main.xsh"]);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(fixed, fs::read_to_string(&script).unwrap());
     let after = run(&["trace", "main.xsh"]);
-    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
     assert_eq!(before.stdout, after.stdout);
 }
 
 fn processes_with_marker(marker: &str) -> Vec<String> {
-    let listing = Command::new("ps").args(["-A", "-o", "pid=,args="]).output().expect("list processes");
-    String::from_utf8_lossy(&listing.stdout).lines().filter(|line| line.contains(marker)).map(str::to_owned).collect()
+    let listing = Command::new("ps")
+        .args(["-A", "-o", "pid=,args="])
+        .output()
+        .expect("list processes");
+    String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter(|line| line.contains(marker))
+        .map(str::to_owned)
+        .collect()
 }
 
 #[test]
@@ -2167,14 +2667,20 @@ fn test_runner_cancellation_stops_run_script_descendants() {
         let root = TempDir::new().expect("temporary descendant fixture");
         let marker = format!("xsht-descendant-{}-{signal}", std::process::id());
         fs::create_dir(root.path().join("tests")).expect("create test root");
-        fs::write(root.path().join("tests/spawn.xsh"), format!("\
+        fs::write(
+            root.path().join("tests/spawn.xsh"),
+            format!(
+                "\
 test spawns_descendants {{ |ctx|
   let output = test.run_script(ctx, \"\"\"
 run sh -c \"sleep 300; : {marker}-grandchild\"
 \"\"\", [\"{marker}-child\"])?
   assert output.success
 }}
-")).expect("write descendant fixture");
+"
+            ),
+        )
+        .expect("write descendant fixture");
         let mut runner = Command::new(release_bin!("xsht"))
             .args(["test", "--jobs", "1"])
             .current_dir(root.path())
@@ -2185,10 +2691,14 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
         let started = std::time::Instant::now();
         loop {
             let found = processes_with_marker(&marker);
-            if found.iter().any(|line| line.contains("-child")) && found.iter().any(|line| line.contains("-grandchild")) {
+            if found.iter().any(|line| line.contains("-child"))
+                && found.iter().any(|line| line.contains("-grandchild"))
+            {
                 break;
             }
-            if started.elapsed() > std::time::Duration::from_secs(120) || runner.try_wait().expect("poll runner").is_some() {
+            if started.elapsed() > std::time::Duration::from_secs(120)
+                || runner.try_wait().expect("poll runner").is_some()
+            {
                 let _ = runner.kill();
                 panic!("descendants never started: {found:?}");
             }
@@ -2196,7 +2706,11 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
         }
         assert_eq!(unsafe { libc::kill(runner.id() as libc::pid_t, signal) }, 0);
         let status = runner.wait().expect("wait for runner");
-        assert_eq!(std::os::unix::process::ExitStatusExt::signal(&status), None, "{status:?}");
+        assert_eq!(
+            std::os::unix::process::ExitStatusExt::signal(&status),
+            None,
+            "{status:?}"
+        );
         assert_eq!(status.code(), Some(128 + signal));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while !processes_with_marker(&marker).is_empty() && std::time::Instant::now() < deadline {
@@ -2211,7 +2725,10 @@ fn test_runner_times_out_hung_tests_and_stops_their_descendants() {
     let root = TempDir::new().expect("temporary timeout fixture");
     let marker = format!("xsht-timeout-{}", std::process::id());
     fs::create_dir(root.path().join("tests")).expect("create test root");
-    fs::write(root.path().join("tests/hang.xsh"), format!("\
+    fs::write(
+        root.path().join("tests/hang.xsh"),
+        format!(
+            "\
 test spins {{ |ctx|
   defer {{ print \"spins cleanup ran\" }}
   var n = 0
@@ -2242,7 +2759,10 @@ test own_longer_limit {{ |ctx|
 test passes {{ |ctx|
   assert 1 == 1
 }}
-")).expect("write timeout fixture");
+"
+        ),
+    )
+    .expect("write timeout fixture");
     let started = std::time::Instant::now();
     let mut runner = Command::new(release_bin!("xsht"))
         .args(["test", "--jobs", "2", "--timeout", "1s"])
@@ -2262,18 +2782,43 @@ test passes {{ |ctx|
         std::thread::sleep(std::time::Duration::from_millis(50));
     };
     let mut stdout = String::new();
-    std::io::Read::read_to_string(&mut runner.stdout.take().expect("runner stdout"), &mut stdout)
-        .expect("read runner stdout");
-    assert!(started.elapsed() < std::time::Duration::from_secs(30), "{stdout}");
+    std::io::Read::read_to_string(
+        &mut runner.stdout.take().expect("runner stdout"),
+        &mut stdout,
+    )
+    .expect("read runner stdout");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "{stdout}"
+    );
     assert_eq!(status.code(), Some(1), "{stdout}");
-    for name in ["spins", "sleeping_script", "sleeping_command", "own_shorter_limit"] {
-        assert!(stdout.contains(&format!("tests/hang.xsh::{name} ... TIMEOUT")), "{name}: {stdout}");
+    for name in [
+        "spins",
+        "sleeping_script",
+        "sleeping_command",
+        "own_shorter_limit",
+    ] {
+        assert!(
+            stdout.contains(&format!("tests/hang.xsh::{name} ... TIMEOUT")),
+            "{name}: {stdout}"
+        );
     }
-    assert!(stdout.contains("---- tests/hang.xsh::spins ----\nstdout:\nspins cleanup ran\nTIMEOUT after 1s\n"), "{stdout}");
+    assert!(
+        stdout.contains(
+            "---- tests/hang.xsh::spins ----\nstdout:\nspins cleanup ran\nTIMEOUT after 1s\n"
+        ),
+        "{stdout}"
+    );
     assert!(stdout.contains("TIMEOUT after 200ms"), "{stdout}");
-    assert!(stdout.contains("tests/hang.xsh::own_longer_limit ... ok"), "{stdout}");
+    assert!(
+        stdout.contains("tests/hang.xsh::own_longer_limit ... ok"),
+        "{stdout}"
+    );
     assert!(stdout.contains("tests/hang.xsh::passes ... ok"), "{stdout}");
-    assert!(stdout.contains("test result: FAILED. 2 passed; 4 failed; 0 skipped"), "{stdout}");
+    assert!(
+        stdout.contains("test result: FAILED. 2 passed; 4 failed; 0 skipped"),
+        "{stdout}"
+    );
     assert_eq!(processes_with_marker(&marker), Vec::<String>::new());
 
     let invalid = Command::new(release_bin!("xsht"))
@@ -2289,21 +2834,38 @@ test passes {{ |ctx|
 fn native_test_declaration_discovery_preserves_names_and_runs_each_once() {
     let root = TempDir::new().expect("temporary native declaration fixture");
     fs::create_dir(root.path().join("tests")).expect("create test root");
-    fs::write(root.path().join("tests/explicit.xsh"), "\
+    fs::write(
+        root.path().join("tests/explicit.xsh"),
+        "\
 pure helper() -> Int { 2 }
 proc ordinary_helper() { print helper() }
 proc test_named_helper(value: Int) -> Int { value }
 test test_old_name { assert test_named_helper(helper()) == 2 }
 test no_prefix { |ctx| assert \"no_prefix\" in ctx.name }
 test discarded { |_| }
-").expect("write native declaration fixture");
+",
+    )
+    .expect("write native declaration fixture");
     let list = Command::new(release_bin!("xsht"))
-        .args(["test", "--list"]).current_dir(root.path()).output().expect("list declarations");
+        .args(["test", "--list"])
+        .current_dir(root.path())
+        .output()
+        .expect("list declarations");
     assert!(list.status.success());
-    assert_eq!(String::from_utf8(list.stdout).unwrap(), "tests/explicit.xsh::discarded\ntests/explicit.xsh::no_prefix\ntests/explicit.xsh::test_old_name\n");
+    assert_eq!(
+        String::from_utf8(list.stdout).unwrap(),
+        "tests/explicit.xsh::discarded\ntests/explicit.xsh::no_prefix\ntests/explicit.xsh::test_old_name\n"
+    );
     let run = Command::new(release_bin!("xsht"))
-        .args(["test", "--jobs", "1"]).current_dir(root.path()).output().expect("run declarations");
-    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stdout));
+        .args(["test", "--jobs", "1"])
+        .current_dir(root.path())
+        .output()
+        .expect("run declarations");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stdout)
+    );
     assert!(String::from_utf8_lossy(&run.stdout).contains("3 passed; 0 failed"));
 }
 
@@ -2311,10 +2873,16 @@ test discarded { |_| }
 fn native_test_declaration_legacy_proc_has_actionable_failure() {
     let root = TempDir::new().expect("temporary legacy fixture");
     fs::create_dir(root.path().join("tests")).expect("create test root");
-    fs::write(root.path().join("tests/legacy.xsh"), "proc test_old(ctx: TestContext) -> Result[Unit] {}\n")
-        .expect("write legacy fixture");
+    fs::write(
+        root.path().join("tests/legacy.xsh"),
+        "proc test_old(ctx: TestContext) -> Result[Unit] {}\n",
+    )
+    .expect("write legacy fixture");
     let run = Command::new(release_bin!("xsht"))
-        .args(["test", "--jobs", "1"]).current_dir(root.path()).output().expect("run legacy fixture");
+        .args(["test", "--jobs", "1"])
+        .current_dir(root.path())
+        .output()
+        .expect("run legacy fixture");
     assert_eq!(run.status.code(), Some(1));
     let output = String::from_utf8_lossy(&run.stdout);
     assert!(output.contains("check.legacy-test-proc"), "{output}");
@@ -2322,7 +2890,9 @@ fn native_test_declaration_legacy_proc_has_actionable_failure() {
     assert!(!output.contains("0 passed; 0 failed"), "{output}");
     let filtered = Command::new(release_bin!("xsht"))
         .args(["test", "--exact", "tests/legacy.xsh::test_old"])
-        .current_dir(root.path()).output().expect("run exact legacy filter");
+        .current_dir(root.path())
+        .output()
+        .expect("run exact legacy filter");
     assert_eq!(filtered.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&filtered.stdout).contains("check.legacy-test-proc"));
 }
@@ -2333,11 +2903,21 @@ fn native_test_declaration_import_registers_without_execution_or_discovery() {
     fs::create_dir(root.path().join("tests")).expect("create test root");
     fs::write(root.path().join("tests/helper.xsh"), "##! Import registration fixture.\n## Returns the fixture value.\nexport pure value() -> Int { 7 }\ntest imported { assert false }\n")
         .expect("write imported module");
-    fs::write(root.path().join("tests/entry.xsh"), "use helper\ntest entry { assert helper.value() == 7 }\n")
-        .expect("write entry fixture");
+    fs::write(
+        root.path().join("tests/entry.xsh"),
+        "use helper\ntest entry { assert helper.value() == 7 }\n",
+    )
+    .expect("write entry fixture");
     let run = Command::new(release_bin!("xsht"))
-        .args(["test", "--jobs", "1", "tests/entry.xsh"]).current_dir(root.path()).output().expect("run imported fixture");
-    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stdout));
+        .args(["test", "--jobs", "1", "tests/entry.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run imported fixture");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stdout)
+    );
     let output = String::from_utf8_lossy(&run.stdout);
     assert!(output.contains("1 passed; 0 failed"), "{output}");
     assert!(!output.contains("::imported"), "{output}");
@@ -2347,18 +2927,34 @@ fn native_test_declaration_import_registers_without_execution_or_discovery() {
 fn native_test_declaration_duplicate_and_callable_collision_are_rejected() {
     let root = TempDir::new().expect("temporary colliding declaration fixture");
     let source = root.path().join("collision.xsh");
-    for text in ["test same {}\ntest same {}", "pure same() -> Int { 1 }\ntest same {}", "let same = 1\ntest same {}", "test same {}\nlet {same} = {same: 1}", "use env as same\ntest same {}"] {
+    for text in [
+        "test same {}\ntest same {}",
+        "pure same() -> Int { 1 }\ntest same {}",
+        "let same = 1\ntest same {}",
+        "test same {}\nlet {same} = {same: 1}",
+        "use env as same\ntest same {}",
+    ] {
         fs::write(&source, text).expect("write collision fixture");
         let output = Command::new(release_bin!("xsht"))
-            .arg("check").arg(&source).output().expect("check collision");
+            .arg("check")
+            .arg(&source)
+            .output()
+            .expect("check collision");
         assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
     }
     fs::write(&source, "use helper\ntest entry {}\n").expect("write importing collision fixture");
-    for text in ["test same {}\ntest same {}", "test same {}\npure same() -> Int { 1 }", "let same = 1\ntest same {}"] {
+    for text in [
+        "test same {}\ntest same {}",
+        "test same {}\npure same() -> Int { 1 }",
+        "let same = 1\ntest same {}",
+    ] {
         fs::write(root.path().join("helper.xsh"), text).expect("write module collision fixture");
         let output = Command::new(release_bin!("xsht"))
-            .arg("check").arg(&source).output().expect("check module collision");
+            .arg("check")
+            .arg(&source)
+            .output()
+            .expect("check module collision");
         assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
     }
@@ -2371,22 +2967,47 @@ fn enum_migration_fix_preserves_comments_aliases_and_imports() {
     fs::write(&module, "##! Nominal choices.\n## A choice.\nexport type Choice =\n  Selected(Int) # selected café\n  | Empty # absent\n## Same nominal identity.\nexport type Alias = Choice\n").expect("write legacy enum module");
     let entry = root.path().join("entry.xsh");
     fs::write(&entry, "use choice as c\nlet value: c.Alias = c.Selected(7)\nmatch value { c.Selected(number) => print $number; c.Empty => print \"empty\" }\n").expect("write enum entry");
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
-        .args(arguments).current_dir(root.path()).output().expect("run enum fixture");
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .expect("run enum fixture")
+    };
     let rejected = run(&["check", "entry.xsh"]);
     assert!(!rejected.status.success());
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("parse.enum-migration"));
     let first = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let fixed = fs::read_to_string(&module).expect("read migrated module");
-    for fragment in ["export enum Choice {", "# selected café", "# absent", "export type Alias = Choice"] {
+    for fragment in [
+        "export enum Choice {",
+        "# selected café",
+        "# absent",
+        "export type Alias = Choice",
+    ] {
         assert!(fixed.contains(fragment), "{fixed}");
     }
     let second = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
-    assert_eq!(fixed, fs::read_to_string(&module).expect("read stable module"));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        fixed,
+        fs::read_to_string(&module).expect("read stable module")
+    );
     let checked = run(&["check", "entry.xsh"]);
-    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
 }
 
 #[test]
@@ -2396,11 +3017,17 @@ fn enum_migration_fix_retains_unrelated_checker_errors() {
     let source = "type Choice = Selected(Int) | Empty\nlet value = Selected(\"wrong\")\n";
     fs::write(&entry, source).expect("write invalid enum use");
     let output = Command::new(release_bin!("xsht"))
-        .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().expect("check migration candidate");
+        .args(["lint", "--fix", "entry.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("check migration candidate");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("check.type-mismatch"), "{stderr}");
-    assert_eq!(source, fs::read_to_string(&entry).expect("read unchanged invalid source"));
+    assert_eq!(
+        source,
+        fs::read_to_string(&entry).expect("read unchanged invalid source")
+    );
 }
 
 #[test]
@@ -2408,9 +3035,20 @@ fn signature_cli_safe_fix_preserves_process_results_and_is_idempotent() {
     let root = TempDir::new().unwrap();
     let fixture = root.path().join("entry.xsh");
     fs::write(&fixture, "type Options = {jobs: Int, verbose: Bool}\nproc main(...argv: List[Str]) [error] {\n  let {jobs, verbose}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}, verbose: {kind: \"Bool\", default: false, help: \"Bool, default: false\"}})?\n  let shown = Options(jobs:, verbose:)\n  print $shown.jobs $shown.verbose\n}\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(release_bin!("xsht")).args(arguments)
-        .current_dir(root.path()).output().unwrap();
-    let cases = [vec![], vec!["--jobs=8", "--verbose"], vec!["--help"], vec!["--jobs=invalid"], vec!["--jobs=2", "--jobs=3"]];
+    let run = |arguments: &[&str]| {
+        Command::new(release_bin!("xsht"))
+            .args(arguments)
+            .current_dir(root.path())
+            .output()
+            .unwrap()
+    };
+    let cases = [
+        vec![],
+        vec!["--jobs=8", "--verbose"],
+        vec!["--help"],
+        vec!["--jobs=invalid"],
+        vec!["--jobs=2", "--jobs=3"],
+    ];
     let invoke = |arguments: &Vec<&str>| {
         let mut command = vec!["trace", "entry.xsh", "--"];
         command.extend(arguments.iter().copied());
@@ -2419,11 +3057,19 @@ fn signature_cli_safe_fix_preserves_process_results_and_is_idempotent() {
     };
     let before = cases.iter().map(invoke).collect::<Vec<_>>();
     let first = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let fixed = fs::read_to_string(&fixture).unwrap();
     assert!(fixed.contains("cli main("), "{fixed}");
     let second = run(&["lint", "--fix", "entry.xsh"]);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     assert_eq!(fixed, fs::read_to_string(&fixture).unwrap());
     assert_eq!(before, cases.iter().map(invoke).collect::<Vec<_>>());
 }
@@ -2442,5 +3088,9 @@ fn check_imported_error_annotation_retains_constructor_identity() {
         .current_dir(root.path())
         .output()
         .expect("check imported nominal identity");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

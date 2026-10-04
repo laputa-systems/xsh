@@ -6,9 +6,12 @@
 //! (overflow, division by zero, a missing index) means the generator should
 //! draw another program rather than that XSH went wrong.
 
-use crate::ast::{Arg, AssignOp, BinOp, Block, Elem, Exit, Expr, FmtPart, FnKind, IsPat, Pat, Program, Stage, Stmt, Target};
-use std::cmp::Ordering;
+use crate::ast::{
+    Arg, AssignOp, BinOp, Block, Elem, Exit, Expr, FmtPart, FnKind, IsPat, Pat, Program, Stage,
+    Stmt, Target,
+};
 use rustc_hash::FxHashMap as HashMap;
+use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
@@ -81,7 +84,11 @@ pub fn display_float(value: f64) -> String {
     if value.is_nan() {
         "NaN".into()
     } else if value.is_infinite() {
-        if value > 0.0 { "Infinity".into() } else { "-Infinity".into() }
+        if value > 0.0 {
+            "Infinity".into()
+        } else {
+            "-Infinity".into()
+        }
     } else {
         format!("{value}")
     }
@@ -146,8 +153,14 @@ impl<'a> Evaluator<'a> {
     fn lookup(&self, name: &str) -> Val {
         // Map entry bindings are referenced as `entry.key` / `entry.value`.
         if let Some((base, field)) = name.split_once('.') {
-            let Val::Rec(fields) = self.lookup(base) else { panic!("field path on non-record {name}") };
-            return fields.into_iter().find(|(label, _)| label == field).map(|(_, value)| value).expect("entry field");
+            let Val::Rec(fields) = self.lookup(base) else {
+                panic!("field path on non-record {name}")
+            };
+            return fields
+                .into_iter()
+                .find(|(label, _)| label == field)
+                .map(|(_, value)| value)
+                .expect("entry field");
         }
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(name) {
@@ -155,7 +168,12 @@ impl<'a> Evaluator<'a> {
             }
         }
         // A callable alias binds a function name, which has no value here.
-        if self.program.functions.iter().any(|function| function.name == name) {
+        if self
+            .program
+            .functions
+            .iter()
+            .any(|function| function.name == name)
+        {
             return Val::Null;
         }
         panic!("generator referenced unbound name {name}")
@@ -239,8 +257,13 @@ impl<'a> Evaluator<'a> {
                         *self.lookup_mut(name) = new;
                     }
                     Target::Field(name, field) => {
-                        let Val::Rec(mut fields) = self.lookup(name) else { panic!("field target") };
-                        let slot = fields.iter_mut().find(|(label, _)| label == field).expect("field");
+                        let Val::Rec(mut fields) = self.lookup(name) else {
+                            panic!("field target")
+                        };
+                        let slot = fields
+                            .iter_mut()
+                            .find(|(label, _)| label == field)
+                            .expect("field");
                         slot.1 = assign_value(*op, slot.1.clone(), rhs)?;
                         *self.lookup_mut(name) = Val::Rec(fields);
                     }
@@ -255,13 +278,17 @@ impl<'a> Evaluator<'a> {
                                 let new = match (op, old) {
                                     (AssignOp::Set, _) => rhs,
                                     (_, Some(old)) => assign_value(*op, old, rhs)?,
-                                    (_, None) => return domain("compound assignment to a missing key"),
+                                    (_, None) => {
+                                        return domain("compound assignment to a missing key");
+                                    }
                                 };
                                 map_insert(&mut entries, key, new);
                                 *self.lookup_mut(name) = Val::Map(entries);
                             }
                             Val::List(mut items) => {
-                                let Val::Int(index) = key else { panic!("list index") };
+                                let Val::Int(index) = key else {
+                                    panic!("list index")
+                                };
                                 if index < 0 || index as usize >= items.len() {
                                     return domain("list index out of range");
                                 }
@@ -274,7 +301,11 @@ impl<'a> Evaluator<'a> {
                     }
                 }
             }
-            Stmt::If { cond, then, otherwise } => {
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+            } => {
                 if self.truth(cond)? {
                     self.block(then)?;
                 } else if let Some(otherwise) = otherwise {
@@ -296,10 +327,16 @@ impl<'a> Evaluator<'a> {
                     }
                 }
             }
-            Stmt::While { counter, limit, body } => {
+            Stmt::While {
+                counter,
+                limit,
+                body,
+            } => {
                 self.bind(counter, Val::Int(0));
                 loop {
-                    let Val::Int(current) = self.lookup(counter) else { panic!("counter") };
+                    let Val::Int(current) = self.lookup(counter) else {
+                        panic!("counter")
+                    };
                     if current >= *limit {
                         break;
                     }
@@ -329,8 +366,14 @@ impl<'a> Evaluator<'a> {
             Stmt::AssertEq { expr, .. } => {
                 let value = self.expr(expr)?;
                 let key = std::ptr::from_ref(stmt) as usize;
-                let entry = self.assert_values.entry(key).or_insert_with(|| Some(value.clone()));
-                if entry.as_ref().is_some_and(|previous| !values_equal(previous, &value)) {
+                let entry = self
+                    .assert_values
+                    .entry(key)
+                    .or_insert_with(|| Some(value.clone()));
+                if entry
+                    .as_ref()
+                    .is_some_and(|previous| !values_equal(previous, &value))
+                {
                     *entry = None;
                 }
             }
@@ -340,7 +383,9 @@ impl<'a> Evaluator<'a> {
                 }
             }
             Stmt::Out(expr) => {
-                let Val::Str(text) = self.expr(expr)? else { panic!("out expects Str") };
+                let Val::Str(text) = self.expr(expr)? else {
+                    panic!("out expects Str")
+                };
                 self.out.push(text);
             }
             Stmt::ContinueWhen(cond) => {
@@ -371,7 +416,12 @@ impl<'a> Evaluator<'a> {
                     });
                 }
             }
-            Stmt::IfLet { pat, subject, then, otherwise } => {
+            Stmt::IfLet {
+                pat,
+                subject,
+                then,
+                otherwise,
+            } => {
                 let subject = self.expr(subject)?;
                 if let Some(binds) = self.matches(pat, &subject) {
                     self.scopes.push(binds);
@@ -384,7 +434,10 @@ impl<'a> Evaluator<'a> {
             }
             Stmt::Yield(value) => {
                 let value = self.expr(value)?;
-                self.yields.last_mut().expect("yield inside a stream producer").push(value);
+                self.yields
+                    .last_mut()
+                    .expect("yield inside a stream producer")
+                    .push(value);
             }
         }
         Ok(())
@@ -422,7 +475,10 @@ impl<'a> Evaluator<'a> {
                 true
             }
             (Pat::Err(name), Val::Err(message)) => {
-                binds.insert(name.clone(), Val::Rec(vec![("message".into(), Val::Str(message.clone()))]));
+                binds.insert(
+                    name.clone(),
+                    Val::Rec(vec![("message".into(), Val::Str(message.clone()))]),
+                );
                 true
             }
             (Pat::ListEmpty, Val::List(items)) => items.is_empty(),
@@ -457,7 +513,11 @@ impl<'a> Evaluator<'a> {
                 other => panic!("! on {other:?}"),
             },
             Expr::Neg(inner) => match self.expr(inner)? {
-                Val::Int(value) => Val::Int(value.checked_neg().ok_or_else(|| Flow::Domain("negation overflow".into()))?),
+                Val::Int(value) => Val::Int(
+                    value
+                        .checked_neg()
+                        .ok_or_else(|| Flow::Domain("negation overflow".into()))?,
+                ),
                 Val::Float(value) => Val::Float(-value),
                 other => panic!("- on {other:?}"),
             },
@@ -484,7 +544,10 @@ impl<'a> Evaluator<'a> {
             Expr::Call { func, args } => self.call(*func, args)?,
             Expr::Method { recv, name, args } => {
                 let recv = self.expr(recv)?;
-                let args = args.iter().map(|arg| self.expr(arg)).collect::<Res<Vec<_>>>()?;
+                let args = args
+                    .iter()
+                    .map(|arg| self.expr(arg))
+                    .collect::<Res<Vec<_>>>()?;
                 method(&recv, name, &args)?
             }
             Expr::OptMethod { recv, name, args } => {
@@ -492,7 +555,10 @@ impl<'a> Evaluator<'a> {
                 if recv == Val::Null {
                     Val::Null
                 } else {
-                    let args = args.iter().map(|arg| self.expr(arg)).collect::<Res<Vec<_>>>()?;
+                    let args = args
+                        .iter()
+                        .map(|arg| self.expr(arg))
+                        .collect::<Res<Vec<_>>>()?;
                     method(&recv, name, &args)?
                 }
             }
@@ -509,7 +575,12 @@ impl<'a> Evaluator<'a> {
                 }
                 Val::List(items)
             }
-            Expr::Comp { proj, var, iter, filter } => {
+            Expr::Comp {
+                proj,
+                var,
+                iter,
+                filter,
+            } => {
                 let source = iterate(self.expr(iter)?);
                 let mut items = Vec::new();
                 for item in source {
@@ -540,7 +611,12 @@ impl<'a> Evaluator<'a> {
                 }
                 Val::Map(map)
             }
-            Expr::MapComp { key, value, var, iter } => {
+            Expr::MapComp {
+                key,
+                value,
+                var,
+                iter,
+            } => {
                 let source = iterate(self.expr(iter)?);
                 let mut map = Vec::new();
                 for item in source {
@@ -567,10 +643,16 @@ impl<'a> Evaluator<'a> {
                 )
             }
             Expr::RecUpdate { base, updates } => {
-                let Val::Rec(mut fields) = self.expr(base)? else { panic!("update base") };
+                let Val::Rec(mut fields) = self.expr(base)? else {
+                    panic!("update base")
+                };
                 for (name, value) in updates {
                     let value = self.expr(value)?;
-                    fields.iter_mut().find(|(label, _)| label == name).expect("field").1 = value;
+                    fields
+                        .iter_mut()
+                        .find(|(label, _)| label == name)
+                        .expect("field")
+                        .1 = value;
                 }
                 Val::Rec(fields)
             }
@@ -592,10 +674,12 @@ impl<'a> Evaluator<'a> {
                         }
                         items[index as usize].clone()
                     }
-                    (Val::Map(entries), key) => match entries.into_iter().find(|(existing, _)| *existing == key) {
-                        Some((_, value)) => value,
-                        None => return domain("missing map key"),
-                    },
+                    (Val::Map(entries), key) => {
+                        match entries.into_iter().find(|(existing, _)| *existing == key) {
+                            Some((_, value)) => value,
+                            None => return domain("missing map key"),
+                        }
+                    }
                     (other, _) => panic!("index of {other:?}"),
                 }
             }
@@ -612,7 +696,10 @@ impl<'a> Evaluator<'a> {
                 slice(base, start, end)
             }
             Expr::Variant { en, variant, args } => {
-                let args = args.iter().map(|arg| self.expr(arg)).collect::<Res<Vec<_>>>()?;
+                let args = args
+                    .iter()
+                    .map(|arg| self.expr(arg))
+                    .collect::<Res<Vec<_>>>()?;
                 Val::Variant(*en, *variant, args)
             }
             Expr::Ok(inner) => Val::Ok(Box::new(self.expr(inner)?)),
@@ -656,7 +743,9 @@ impl<'a> Evaluator<'a> {
                                 '>' => text.push_str(&format!("{}{shown}", " ".repeat(pad))),
                                 '<' => text.push_str(&format!("{shown}{}", " ".repeat(pad))),
                                 _ => match shown.strip_prefix('-') {
-                                    Some(rest) => text.push_str(&format!("-{}{rest}", "0".repeat(pad))),
+                                    Some(rest) => {
+                                        text.push_str(&format!("-{}{rest}", "0".repeat(pad)))
+                                    }
                                     None => text.push_str(&format!("{}{shown}", "0".repeat(pad))),
                                 },
                             }
@@ -678,7 +767,9 @@ impl<'a> Evaluator<'a> {
                 let subject = self.expr(subject)?;
                 Val::Bool(match (pat, &subject) {
                     (IsPat::Ok, Val::Ok(_)) | (IsPat::Err, Val::Err(_)) => true,
-                    (IsPat::Variant { name, .. }, Val::Variant(en, variant, _)) => self.program.enums[*en].variants[*variant].0 == *name,
+                    (IsPat::Variant { name, .. }, Val::Variant(en, variant, _)) => {
+                        self.program.enums[*en].variants[*variant].0 == *name
+                    }
                     _ => false,
                 })
             }
@@ -691,14 +782,20 @@ impl<'a> Evaluator<'a> {
             Expr::AliasCall { func, args, .. } => self.call(*func, args)?,
             Expr::OptField(recv, field) => match self.expr(recv)? {
                 Val::Null => Val::Null,
-                Val::Rec(fields) => fields.into_iter().find(|(label, _)| label == field).map(|(_, value)| value).expect("field"),
+                Val::Rec(fields) => fields
+                    .into_iter()
+                    .find(|(label, _)| label == field)
+                    .map(|(_, value)| value)
+                    .expect("field"),
                 other => panic!("?. field of {other:?}"),
             },
         })
     }
 
     fn stage(&mut self, stage: &Stage, input: Val) -> Res<Val> {
-        let Val::List(items) = input else { panic!("pipeline input {input:?}") };
+        let Val::List(items) = input else {
+            panic!("pipeline input {input:?}")
+        };
         let empty = || Val::Err("stream was empty".into());
         Ok(match stage {
             Stage::Map { var, body } => {
@@ -735,16 +832,38 @@ impl<'a> Evaluator<'a> {
             Stage::Sum => {
                 let mut total: i64 = 0;
                 for item in items {
-                    let Val::Int(value) = item else { panic!("sum of {item:?}") };
-                    total = total.checked_add(value).ok_or_else(|| Flow::Domain("integer-overflow".into()))?;
+                    let Val::Int(value) = item else {
+                        panic!("sum of {item:?}")
+                    };
+                    total = total
+                        .checked_add(value)
+                        .ok_or_else(|| Flow::Domain("integer-overflow".into()))?;
                 }
                 Val::Int(total)
             }
             Stage::Count => Val::Int(items.len() as i64),
-            Stage::Min => items.into_iter().min_by(key_cmp).map_or_else(empty, |item| Val::Ok(Box::new(item))),
-            Stage::Max => items.into_iter().reduce(|best, item| if key_cmp(&item, &best) == Ordering::Greater { item } else { best }).map_or_else(empty, |item| Val::Ok(Box::new(item))),
-            Stage::First => items.into_iter().next().map_or_else(empty, |item| Val::Ok(Box::new(item))),
-            Stage::Last => items.into_iter().last().map_or_else(empty, |item| Val::Ok(Box::new(item))),
+            Stage::Min => items
+                .into_iter()
+                .min_by(key_cmp)
+                .map_or_else(empty, |item| Val::Ok(Box::new(item))),
+            Stage::Max => items
+                .into_iter()
+                .reduce(|best, item| {
+                    if key_cmp(&item, &best) == Ordering::Greater {
+                        item
+                    } else {
+                        best
+                    }
+                })
+                .map_or_else(empty, |item| Val::Ok(Box::new(item))),
+            Stage::First => items
+                .into_iter()
+                .next()
+                .map_or_else(empty, |item| Val::Ok(Box::new(item))),
+            Stage::Last => items
+                .into_iter()
+                .last()
+                .map_or_else(empty, |item| Val::Ok(Box::new(item))),
             Stage::Any { var, body } => {
                 for item in items {
                     if self.with_binding(var, item, body)? == Val::Bool(true) {
@@ -761,7 +880,12 @@ impl<'a> Evaluator<'a> {
                 }
                 Val::Bool(true)
             }
-            Stage::Fold { init, acc, item, body } => {
+            Stage::Fold {
+                init,
+                acc,
+                item,
+                body,
+            } => {
                 let mut state = self.expr(init)?;
                 for value in items {
                     self.scopes.push(HashMap::default());
@@ -819,7 +943,10 @@ impl<'a> Evaluator<'a> {
             let value = match supplied.remove(&param.name) {
                 Some(value) => value,
                 None => {
-                    let default = param.default.as_ref().expect("omitted parameter has a default");
+                    let default = param
+                        .default
+                        .as_ref()
+                        .expect("omitted parameter has a default");
                     self.expr(default)?
                 }
             };
@@ -842,7 +969,9 @@ impl<'a> Evaluator<'a> {
         self.scopes = saved;
         let wraps = decl.kind == FnKind::Proc || matches!(decl.ret, crate::ast::Ty::Res(..));
         match result {
-            Ok(value) if wraps && !matches!(decl.tail, crate::ast::Ty::Res(..)) => Ok(Val::Ok(Box::new(value))),
+            Ok(value) if wraps && !matches!(decl.tail, crate::ast::Ty::Res(..)) => {
+                Ok(Val::Ok(Box::new(value)))
+            }
             Ok(value) => Ok(value),
             Err(Flow::Return(value)) => Ok(value),
             Err(Flow::Propagate(message)) if wraps => Ok(Val::Err(message)),
@@ -862,9 +991,15 @@ impl<'a> Evaluator<'a> {
         let right = self.expr(right)?;
         let overflow = || Flow::Domain("integer-overflow".into());
         Ok(match (op, left, right) {
-            (BinOp::Add, Val::Int(a), Val::Int(b)) => Val::Int(a.checked_add(b).ok_or_else(overflow)?),
-            (BinOp::Sub, Val::Int(a), Val::Int(b)) => Val::Int(a.checked_sub(b).ok_or_else(overflow)?),
-            (BinOp::Mul, Val::Int(a), Val::Int(b)) => Val::Int(a.checked_mul(b).ok_or_else(overflow)?),
+            (BinOp::Add, Val::Int(a), Val::Int(b)) => {
+                Val::Int(a.checked_add(b).ok_or_else(overflow)?)
+            }
+            (BinOp::Sub, Val::Int(a), Val::Int(b)) => {
+                Val::Int(a.checked_sub(b).ok_or_else(overflow)?)
+            }
+            (BinOp::Mul, Val::Int(a), Val::Int(b)) => {
+                Val::Int(a.checked_mul(b).ok_or_else(overflow)?)
+            }
             (BinOp::Div, Val::Int(a), Val::Int(b)) => {
                 if b == 0 {
                     return domain("division-by-zero");
@@ -882,14 +1017,28 @@ impl<'a> Evaluator<'a> {
             (BinOp::Mul, Val::Float(a), Val::Float(b)) => finite(a * b)?,
             (BinOp::Div, Val::Float(a), Val::Float(b)) => finite(a / b)?,
             (BinOp::Add, Val::Str(a), Val::Str(b)) => Val::Str(a + &b),
-            (BinOp::Add, Val::Duration(a), Val::Duration(b)) => Val::Duration(a.checked_add(b).ok_or_else(|| Flow::Domain("duration-overflow".into()))?),
-            (BinOp::Sub, Val::Duration(a), Val::Duration(b)) => Val::Duration(a.checked_sub(b).ok_or_else(|| Flow::Domain("duration-underflow".into()))?),
-            (BinOp::Mul, Val::Duration(a), Val::Int(b)) | (BinOp::Mul, Val::Int(b), Val::Duration(a)) => {
-                let factor = u64::try_from(b).map_err(|_| Flow::Domain("duration-negative-factor".into()))?;
-                Val::Duration(a.checked_mul(factor).ok_or_else(|| Flow::Domain("duration-overflow".into()))?)
+            (BinOp::Add, Val::Duration(a), Val::Duration(b)) => Val::Duration(
+                a.checked_add(b)
+                    .ok_or_else(|| Flow::Domain("duration-overflow".into()))?,
+            ),
+            (BinOp::Sub, Val::Duration(a), Val::Duration(b)) => Val::Duration(
+                a.checked_sub(b)
+                    .ok_or_else(|| Flow::Domain("duration-underflow".into()))?,
+            ),
+            (BinOp::Mul, Val::Duration(a), Val::Int(b))
+            | (BinOp::Mul, Val::Int(b), Val::Duration(a)) => {
+                let factor = u64::try_from(b)
+                    .map_err(|_| Flow::Domain("duration-negative-factor".into()))?;
+                Val::Duration(
+                    a.checked_mul(factor)
+                        .ok_or_else(|| Flow::Domain("duration-overflow".into()))?,
+                )
             }
             (BinOp::Div, Val::Duration(a), Val::Int(b)) => {
-                let divisor = u64::try_from(b).ok().filter(|divisor| *divisor > 0).ok_or_else(|| Flow::Domain("division-by-zero".into()))?;
+                let divisor = u64::try_from(b)
+                    .ok()
+                    .filter(|divisor| *divisor > 0)
+                    .ok_or_else(|| Flow::Domain("division-by-zero".into()))?;
                 Val::Duration(a / divisor)
             }
             (BinOp::Div, Val::Duration(a), Val::Duration(b)) => {
@@ -908,7 +1057,9 @@ impl<'a> Evaluator<'a> {
                 let ordering = match (&a, &b) {
                     (Val::Int(a), Val::Int(b)) => a.cmp(b),
                     (Val::Str(a), Val::Str(b)) => a.cmp(b),
-                    (Val::Float(a), Val::Float(b)) => a.partial_cmp(b).ok_or_else(|| Flow::Domain("NaN comparison".into()))?,
+                    (Val::Float(a), Val::Float(b)) => a
+                        .partial_cmp(b)
+                        .ok_or_else(|| Flow::Domain("NaN comparison".into()))?,
                     (Val::Duration(a), Val::Duration(b)) => a.cmp(b),
                     other => panic!("ordering on {other:?}"),
                 };
@@ -921,7 +1072,9 @@ impl<'a> Evaluator<'a> {
             }
             (BinOp::In | BinOp::NotIn, needle, haystack) => {
                 let found = match (&needle, &haystack) {
-                    (needle, Val::List(items)) => items.iter().any(|item| values_equal(item, needle)),
+                    (needle, Val::List(items)) => {
+                        items.iter().any(|item| values_equal(item, needle))
+                    }
                     (Val::Str(needle), Val::Str(text)) => text.contains(needle.as_str()),
                     (key, Val::Map(entries)) => entries.iter().any(|(existing, _)| existing == key),
                     other => panic!("membership on {other:?}"),
@@ -934,13 +1087,19 @@ impl<'a> Evaluator<'a> {
 }
 
 fn finite(value: f64) -> Res<Val> {
-    if value.is_finite() { Ok(Val::Float(value)) } else { domain("non-finite float") }
+    if value.is_finite() {
+        Ok(Val::Float(value))
+    } else {
+        domain("non-finite float")
+    }
 }
 
 pub fn values_equal(left: &Val, right: &Val) -> bool {
     match (left, right) {
         (Val::Float(a), Val::Float(b)) => a.to_bits() == b.to_bits() || a == b,
-        (Val::List(a), Val::List(b)) => a.len() == b.len() && a.iter().zip(b).all(|(a, b)| values_equal(a, b)),
+        (Val::List(a), Val::List(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| values_equal(a, b))
+        }
         _ => left == right,
     }
 }
@@ -986,7 +1145,11 @@ fn weight(value: &Val, budget: usize) -> usize {
 }
 
 fn within_size_budget(value: Val) -> Res<Val> {
-    if weight(&value, SIZE_LIMIT) > SIZE_LIMIT { domain("size budget") } else { Ok(value) }
+    if weight(&value, SIZE_LIMIT) > SIZE_LIMIT {
+        domain("size budget")
+    } else {
+        Ok(value)
+    }
 }
 
 fn assign_value(op: AssignOp, old: Val, rhs: Val) -> Res<Val> {
@@ -997,14 +1160,23 @@ fn assign_value_unbounded(op: AssignOp, old: Val, rhs: Val) -> Res<Val> {
     let overflow = || Flow::Domain("integer-overflow".into());
     Ok(match (op, old, rhs) {
         (AssignOp::Set, _, rhs) => rhs,
-        (AssignOp::Add, Val::Int(a), Val::Int(b)) => Val::Int(a.checked_add(b).ok_or_else(overflow)?),
-        (AssignOp::Sub, Val::Int(a), Val::Int(b)) => Val::Int(a.checked_sub(b).ok_or_else(overflow)?),
-        (AssignOp::Mul, Val::Int(a), Val::Int(b)) => Val::Int(a.checked_mul(b).ok_or_else(overflow)?),
+        (AssignOp::Add, Val::Int(a), Val::Int(b)) => {
+            Val::Int(a.checked_add(b).ok_or_else(overflow)?)
+        }
+        (AssignOp::Sub, Val::Int(a), Val::Int(b)) => {
+            Val::Int(a.checked_sub(b).ok_or_else(overflow)?)
+        }
+        (AssignOp::Mul, Val::Int(a), Val::Int(b)) => {
+            Val::Int(a.checked_mul(b).ok_or_else(overflow)?)
+        }
         (AssignOp::Add, Val::Float(a), Val::Float(b)) => finite(a + b)?,
         (AssignOp::Sub, Val::Float(a), Val::Float(b)) => finite(a - b)?,
         (AssignOp::Mul, Val::Float(a), Val::Float(b)) => finite(a * b)?,
         (AssignOp::Add, Val::Str(a), Val::Str(b)) => Val::Str(a + &b),
-        (AssignOp::Add, Val::Duration(a), Val::Duration(b)) => Val::Duration(a.checked_add(b).ok_or_else(|| Flow::Domain("duration-overflow".into()))?),
+        (AssignOp::Add, Val::Duration(a), Val::Duration(b)) => Val::Duration(
+            a.checked_add(b)
+                .ok_or_else(|| Flow::Domain("duration-overflow".into()))?,
+        ),
         (AssignOp::Add, Val::List(mut a), Val::List(b)) => {
             a.extend(b);
             Val::List(a)
@@ -1021,7 +1193,10 @@ fn iterate(value: Val) -> Vec<Val> {
             .map(|(key, value)| Val::Rec(vec![("key".into(), key), ("value".into(), value)]))
             .collect(),
         Val::Str(text) => text.chars().map(|ch| Val::Str(ch.to_string())).collect(),
-        Val::Bytes(bytes) => bytes.into_iter().map(|byte| Val::Int(i64::from(byte))).collect(),
+        Val::Bytes(bytes) => bytes
+            .into_iter()
+            .map(|byte| Val::Int(i64::from(byte)))
+            .collect(),
         other => panic!("iterate {other:?}"),
     }
 }
@@ -1034,7 +1209,11 @@ fn clamp_bounds(len: usize, start: Option<i64>, end: Option<i64>) -> (usize, usi
     };
     let start = normalize(start.unwrap_or(0));
     let end = normalize(end.unwrap_or(len));
-    if end < start { (start as usize, start as usize) } else { (start as usize, end as usize) }
+    if end < start {
+        (start as usize, start as usize)
+    } else {
+        (start as usize, end as usize)
+    }
 }
 
 fn slice(base: Val, start: Option<i64>, end: Option<i64>) -> Val {
@@ -1079,7 +1258,9 @@ pub fn method(recv: &Val, name: &str, args: &[Val]) -> Res<Val> {
         (Val::Str(text), "ends_with") => Val::Bool(text.ends_with(str_arg(args, 0))),
         (Val::Str(text), "replace") => Val::Str(text.replace(str_arg(args, 0), str_arg(args, 1))),
         (Val::Str(text), "split") => Val::List(
-            text.split(str_arg(args, 0)).map(|part| Val::Str(part.to_string())).collect(),
+            text.split(str_arg(args, 0))
+                .map(|part| Val::Str(part.to_string()))
+                .collect(),
         ),
         (Val::Int(value), "float") => Val::Float(*value as f64),
         (Val::Float(value), "abs") => Val::Float(value.abs()),
@@ -1109,30 +1290,43 @@ pub fn method(recv: &Val, name: &str, args: &[Val]) -> Res<Val> {
         }
         (Val::List(items), "extend") => {
             let mut items = items.clone();
-            let Val::List(more) = &args[0] else { panic!("extend argument") };
+            let Val::List(more) = &args[0] else {
+                panic!("extend argument")
+            };
             items.extend(more.iter().cloned());
             Val::List(items)
         }
         (Val::Map(entries), "len") => Val::Int(entries.len() as i64),
         (Val::Map(entries), "get") => match entries.iter().find(|(key, _)| *key == args[0]) {
             Some((_, value)) => Val::Ok(Box::new(value.clone())),
-            None => Val::Err(format!("map has no key {}", match &args[0] {
-                Val::Str(key) => format!("Str({key:?})"),
-                Val::Int(key) => format!("Int({key})"),
-                Val::Bool(key) => format!("Bool({key})"),
-                other => panic!("map key {other:?}"),
-            })),
+            None => Val::Err(format!(
+                "map has no key {}",
+                match &args[0] {
+                    Val::Str(key) => format!("Str({key:?})"),
+                    Val::Int(key) => format!("Int({key})"),
+                    Val::Bool(key) => format!("Bool({key})"),
+                    other => panic!("map key {other:?}"),
+                }
+            )),
         },
-        (Val::Map(entries), "keys") => Val::List(entries.iter().map(|(key, _)| key.clone()).collect()),
-        (Val::Map(entries), "values") => Val::List(entries.iter().map(|(_, value)| value.clone()).collect()),
+        (Val::Map(entries), "keys") => {
+            Val::List(entries.iter().map(|(key, _)| key.clone()).collect())
+        }
+        (Val::Map(entries), "values") => {
+            Val::List(entries.iter().map(|(_, value)| value.clone()).collect())
+        }
         (Val::Map(entries), "set") => {
             let mut entries = entries.clone();
             map_insert(&mut entries, args[0].clone(), args[1].clone());
             Val::Map(entries)
         }
-        (Val::Map(entries), "remove") => {
-            Val::Map(entries.iter().filter(|(key, _)| *key != args[0]).cloned().collect())
-        }
+        (Val::Map(entries), "remove") => Val::Map(
+            entries
+                .iter()
+                .filter(|(key, _)| *key != args[0])
+                .cloned()
+                .collect(),
+        ),
         (Val::Bytes(bytes), "len") => Val::Int(bytes.len() as i64),
         (Val::Bytes(bytes), "starts_with") => match &args[0] {
             Val::Bytes(prefix) => Val::Bool(bytes.starts_with(prefix)),

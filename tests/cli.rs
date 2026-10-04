@@ -123,16 +123,42 @@ fn signature_cli_preflight_precedes_imported_and_entry_initializers() {
     );
     let script = root.join("entry.xsh");
     fs::write(&script, source).unwrap();
-    for (arguments, expected_status) in [(vec!["--help"], 0), (vec![], 2), (vec!["operand", "--jobs=nope"], 2), (vec!["operand", "--jobs=-1"], 2)] {
-        let output = Command::new(release_bin!("xsh")).arg(&script).args(arguments).output().unwrap();
-        assert_eq!(output.status.code(), Some(expected_status), "{}", String::from_utf8_lossy(&output.stderr));
+    for (arguments, expected_status) in [
+        (vec!["--help"], 0),
+        (vec![], 2),
+        (vec!["operand", "--jobs=nope"], 2),
+        (vec!["operand", "--jobs=-1"], 2),
+    ] {
+        let output = Command::new(release_bin!("xsh"))
+            .arg(&script)
+            .args(arguments)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected_status),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(!imported_marker.exists());
         assert!(!entry_marker.exists());
-        let usage = if expected_status == 0 { &output.stdout } else { &output.stderr };
+        let usage = if expected_status == 0 {
+            &output.stdout
+        } else {
+            &output.stderr
+        };
         assert!(String::from_utf8_lossy(usage).contains("usage:"));
     }
-    let output = Command::new(release_bin!("xsh")).arg(&script).args(["missing-path-is-allowed", "--jobs=8"]).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let output = Command::new(release_bin!("xsh"))
+        .arg(&script)
+        .args(["missing-path-is-allowed", "--jobs=8"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(output.stdout, b"1 1 8\n");
     assert!(imported_marker.exists());
     assert!(entry_marker.exists());
@@ -141,10 +167,24 @@ fn signature_cli_preflight_precedes_imported_and_entry_initializers() {
 
 #[test]
 fn signature_cli_preserves_entry_exit_status_and_errors() {
-    for (body, effects, expected_status) in [("abort(7)", "error", 7), ("error.fail(\"entry failed\")?", "error", 3)] {
-        let script = temp_script(&format!("xsh-signature-status-{expected_status}"), &format!("cli main() [{effects}] {{ {body} }}\n"));
-        let output = Command::new(release_bin!("xsh")).arg(&script).output().unwrap();
-        assert_eq!(output.status.code(), Some(expected_status), "{}", String::from_utf8_lossy(&output.stderr));
+    for (body, effects, expected_status) in [
+        ("abort(7)", "error", 7),
+        ("error.fail(\"entry failed\")?", "error", 3),
+    ] {
+        let script = temp_script(
+            &format!("xsh-signature-status-{expected_status}"),
+            &format!("cli main() [{effects}] {{ {body} }}\n"),
+        );
+        let output = Command::new(release_bin!("xsh"))
+            .arg(&script)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected_status),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         fs::remove_file(script).unwrap();
     }
 }

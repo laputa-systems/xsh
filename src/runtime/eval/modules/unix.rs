@@ -48,7 +48,9 @@ impl UnixFake {
     }
 
     pub fn settings(&self) -> impl Iterator<Item = (&'static str, &str)> {
-        self.values.iter().map(|(key, value)| (*key, value.as_str()))
+        self.values
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
     }
 }
 
@@ -63,7 +65,12 @@ impl Evaluator {
     /// `native-tests` have no fake at all.
     fn unix_fake_setting(&self, key: &str) -> Option<&str> {
         #[cfg(feature = "native-tests")]
-        return self.unix_fake.as_deref()?.values.get(key).map(String::as_str);
+        return self
+            .unix_fake
+            .as_deref()?
+            .values
+            .get(key)
+            .map(String::as_str);
         #[cfg(not(feature = "native-tests"))]
         {
             let _ = key;
@@ -136,7 +143,9 @@ impl Evaluator {
                 _ => ("process-kill", error.to_string()),
             };
             return Ok(Value::err(Value::Error(Box::new(
-                RuntimeError::new(kind, message).with_host_facet(&error).with_span(span),
+                RuntimeError::new(kind, message)
+                    .with_host_facet(&error)
+                    .with_span(span),
             ))));
         }
         let Some(signal) = signal_from_i32(signal.number) else {
@@ -168,7 +177,9 @@ impl Evaluator {
                     _ => ("process-kill", error.to_string()),
                 };
                 Ok(Value::err(Value::Error(Box::new(
-                    RuntimeError::new(kind, message).with_host_facet(&error).with_span(span),
+                    RuntimeError::new(kind, message)
+                        .with_host_facet(&error)
+                        .with_span(span),
                 ))))
             }
         }

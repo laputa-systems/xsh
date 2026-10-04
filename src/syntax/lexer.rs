@@ -145,11 +145,21 @@ impl<'a> Lexer<'a> {
                             self.offset = start;
                             self.lex_path_fmt_string();
                         }
-                        QuotedLiteralKind::Str => self.lex_string(StringLiteralKind::Str, form.raw, start),
-                        QuotedLiteralKind::Bytes => self.lex_string(StringLiteralKind::Bytes, form.raw, start),
-                        QuotedLiteralKind::Regex => self.lex_string(StringLiteralKind::Regex, form.raw, start),
-                        QuotedLiteralKind::Path => self.lex_string(StringLiteralKind::Path, form.raw, start),
-                        QuotedLiteralKind::Glob => self.lex_string(StringLiteralKind::Glob, form.raw, start),
+                        QuotedLiteralKind::Str => {
+                            self.lex_string(StringLiteralKind::Str, form.raw, start)
+                        }
+                        QuotedLiteralKind::Bytes => {
+                            self.lex_string(StringLiteralKind::Bytes, form.raw, start)
+                        }
+                        QuotedLiteralKind::Regex => {
+                            self.lex_string(StringLiteralKind::Regex, form.raw, start)
+                        }
+                        QuotedLiteralKind::Path => {
+                            self.lex_string(StringLiteralKind::Path, form.raw, start)
+                        }
+                        QuotedLiteralKind::Glob => {
+                            self.lex_string(StringLiteralKind::Glob, form.raw, start)
+                        }
                     }
                 }
                 Some(b'E')
@@ -256,7 +266,11 @@ impl<'a> Lexer<'a> {
                             // character boundary and a multi-byte character is
                             // reported once.
                             self.offset = start
-                                + self.source.get(start..).and_then(|rest| rest.chars().next()).map_or(1, char::len_utf8);
+                                + self
+                                    .source
+                                    .get(start..)
+                                    .and_then(|rest| rest.chars().next())
+                                    .map_or(1, char::len_utf8);
                             self.diagnostics.push(
                                 Diagnostic::error("unexpected character")
                                     .with_code(DiagnosticCode::LexUnexpectedCharacter)
@@ -477,7 +491,10 @@ impl<'a> Lexer<'a> {
     /// generic unexpected-character report.
     fn report_single_quoted_text(&mut self, start: usize) -> bool {
         let rest = &self.source[start + 1..];
-        let Some(close) = rest.find(['\'', '\n']).filter(|&index| rest.as_bytes()[index] == b'\'') else {
+        let Some(close) = rest
+            .find(['\'', '\n'])
+            .filter(|&index| rest.as_bytes()[index] == b'\'')
+        else {
             return false;
         };
         let text = &rest[..close];
@@ -487,7 +504,11 @@ impl<'a> Lexer<'a> {
             .with_code(DiagnosticCode::LexUnexpectedCharacter)
             .with_label(Label::primary(span, "XSH strings use double quotes"));
         if !text.contains(['"', '\\', '$', '{', '}']) {
-            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use double quotes", format!("\"{text}\"")));
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                span,
+                "use double quotes",
+                format!("\"{text}\""),
+            ));
         }
         self.diagnostics.push(diagnostic);
         true
@@ -519,7 +540,10 @@ impl<'a> Lexer<'a> {
         self.diagnostics.push(
             Diagnostic::error("`$(...)` command substitution is shell syntax")
                 .with_code(DiagnosticCode::LexUnexpectedCharacter)
-                .with_label(Label::primary(self.span(start, self.offset), "capture a command's output with `run.text COMMAND ?`")),
+                .with_label(Label::primary(
+                    self.span(start, self.offset),
+                    "capture a command's output with `run.text COMMAND ?`",
+                )),
         );
         true
     }
@@ -621,7 +645,9 @@ impl<'a> Lexer<'a> {
                         let _ = value;
                         self.push(TokenKind::GlobString, literal_start, self.offset);
                     }
-                    StringLiteralKind::Regex => self.push(TokenKind::Regex, literal_start, self.offset),
+                    StringLiteralKind::Regex => {
+                        self.push(TokenKind::Regex, literal_start, self.offset)
+                    }
                     StringLiteralKind::Bytes => unreachable!(),
                 },
                 Err(_) => self.diagnostics.push(
@@ -730,7 +756,9 @@ impl<'a> Lexer<'a> {
 
 /// The tokens of `source`, without the end-of-file token, with their text.
 pub fn lex_spellings(source: &str) -> Vec<(TokenTag, &str)> {
-    let table = Lexer::new(SourceId::new(0), source).lex_compact().token_table;
+    let table = Lexer::new(SourceId::new(0), source)
+        .lex_compact()
+        .token_table;
     (0..table.len())
         .filter_map(|index| {
             let tag = table.tag_at(index)?;
@@ -755,7 +783,11 @@ pub fn tokens_stay_separate(left: &str, right: &str) -> bool {
 pub fn join_tokens(left: &str, right: &str) -> String {
     let last = lex_spellings(left).last().map_or("", |(_, text)| *text);
     let first = lex_spellings(right).first().map_or("", |(_, text)| *text);
-    if tokens_stay_separate(last, first) { format!("{left}{right}") } else { format!("{left} {right}") }
+    if tokens_stay_separate(last, first) {
+        format!("{left}{right}")
+    } else {
+        format!("{left} {right}")
+    }
 }
 
 /// Source spellings that cover every token kind and every lexer decision
@@ -766,9 +798,17 @@ pub fn join_tokens(left: &str, right: &str) -> String {
 pub fn representative_token_texts() -> Vec<(TokenTag, String)> {
     let mut texts: Vec<(TokenTag, String)> = TokenTag::ALL
         .iter()
-        .filter_map(|tag| tag.fixed_text().filter(|text| !text.is_empty()).map(|text| (*tag, text.to_owned())))
+        .filter_map(|tag| {
+            tag.fixed_text()
+                .filter(|text| !text.is_empty())
+                .map(|text| (*tag, text.to_owned()))
+        })
         .collect();
-    texts.extend(Keyword::ALL.iter().map(|keyword| (TokenTag::Keyword, keyword.as_str().to_owned())));
+    texts.extend(
+        Keyword::ALL
+            .iter()
+            .map(|keyword| (TokenTag::Keyword, keyword.as_str().to_owned())),
+    );
     for byte in (0u8..128).filter(|byte| is_ident_start(*byte)) {
         texts.push((TokenTag::Ident, char::from(byte).to_string()));
     }
@@ -812,8 +852,8 @@ fn is_ident_continue(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::diagnostic::DiagnosticCode;
     use super::{Keyword, Lexer, SourceId, TokenTag};
+    use crate::diagnostic::DiagnosticCode;
 
     #[test]
     fn tokenizes_keywords_identifiers_strings_comments_and_eof() {
@@ -863,7 +903,10 @@ mod tests {
         let first = table.span_at(0, SourceId::new(0), source).unwrap();
         let second = table.span_at(1, SourceId::new(0), source).unwrap();
         assert_eq!(&source[first.range()], r#"rx"\d+\$\{name\}""#);
-        assert_eq!(&source[second.range()], "rx\"\"\"(?x)\n[a-z]+ # flags\n\"\"\"");
+        assert_eq!(
+            &source[second.range()],
+            "rx\"\"\"(?x)\n[a-z]+ # flags\n\"\"\""
+        );
     }
 
     #[test]

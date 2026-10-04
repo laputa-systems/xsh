@@ -1,15 +1,16 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    AssignOp, BlockParam, Diagnostic, FixHint, DurationLiteral, Effect, IntLiteral, Keyword, Label, Name,
-    Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
+    AssignOp, BlockParam, Diagnostic, DurationLiteral, Effect, FixHint, IntLiteral, Keyword, Label,
+    Name, Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr,
+    unknown_type_expr,
 };
 use crate::diagnostic::DiagnosticCode;
-use crate::syntax::grammar::{self, StatementForm};
 use crate::syntax::arena::{
     ArenaBuilderEntryKind, ArenaExprOrRun, ArenaModuleContractEntryKind, ArenaProgramBuilder,
     ArenaTypeDefBody, BindingTargetId, BuilderBlockId, ExprId, TypeExprId,
 };
+use crate::syntax::grammar::{self, StatementForm};
 use std::str::FromStr;
 
 impl<'a> Parser<'a> {
@@ -21,7 +22,9 @@ impl<'a> Parser<'a> {
         let start = self.current_start();
         if let Some(form) = self.current_keyword().and_then(grammar::statement_form) {
             return match form {
-                StatementForm::Binding => self.parse_binding_arena_only(start, !self.at_keyword(Keyword::Var), arena),
+                StatementForm::Binding => {
+                    self.parse_binding_arena_only(start, !self.at_keyword(Keyword::Var), arena)
+                }
                 StatementForm::Run => self.parse_command_statement_arena_only(start, arena),
                 StatementForm::Assert => self.parse_assert_arena_only(start, arena),
                 StatementForm::If => self.parse_if_arena_only(start, arena),
@@ -47,7 +50,9 @@ impl<'a> Parser<'a> {
         }
         match (self.current_tag(), self.current_keyword()) {
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
-                if self.current_name().is_some_and(|name| name == "env") && self.peek_tag(1) == Some(TokenTag::LBrace) {
+                if self.current_name().is_some_and(|name| name == "env")
+                    && self.peek_tag(1) == Some(TokenTag::LBrace)
+                {
                     let saved = self.index;
                     self.bump();
                     let legacy = self.lookahead_is_env_expr_assignment_block();
@@ -56,17 +61,25 @@ impl<'a> Parser<'a> {
                         let scope = self.parse_legacy_env_scope_arena_only(arena)?;
                         let value = if self.consume(TokenKindMatch::Question).is_some() {
                             arena.push_try_expr(scope, self.span(start, self.previous_end()))
-                        } else { scope };
+                        } else {
+                            scope
+                        };
                         let end = self.expect_terminator();
                         arena.push_expr_statement(value, self.span(start, end));
                         return Some(());
                     }
                 }
-                if self.current_name().is_some_and(|name| name == "env" || name == "cd") && self.lookahead_is_context_scope() {
+                if self
+                    .current_name()
+                    .is_some_and(|name| name == "env" || name == "cd")
+                    && self.lookahead_is_context_scope()
+                {
                     let scope = self.parse_context_scope_arena_only(arena, false)?;
                     let value = if self.consume(TokenKindMatch::Question).is_some() {
                         arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
-                    } else { scope.id };
+                    } else {
+                        scope.id
+                    };
                     let end = self.expect_terminator();
                     arena.push_expr_statement(value, self.span(start, end));
                     return Some(());
@@ -77,10 +90,19 @@ impl<'a> Parser<'a> {
                 {
                     self.parse_function_arena_only(start, true, arena)?;
                     arena.mark_last_function_as_cli_main();
-                    if self.block_depth != 0 { self.diagnostic_at(self.span(start, self.previous_end()), "`cli main` must be declared at the entry module's top level", DiagnosticCode::ParseCliEntryScope); }
+                    if self.block_depth != 0 {
+                        self.diagnostic_at(
+                            self.span(start, self.previous_end()),
+                            "`cli main` must be declared at the entry module's top level",
+                            DiagnosticCode::ParseCliEntryScope,
+                        );
+                    }
                     Some(())
                 } else if self.current_name().is_some_and(|name| name == "test")
-                    && matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
+                    && matches!(
+                        self.peek_tag(1),
+                        Some(TokenTag::Ident | TokenTag::ProcIdent)
+                    )
                 {
                     self.parse_test_declaration_arena_only(start, arena)
                 } else if self.lookahead_is_ctx_block() {
@@ -97,17 +119,29 @@ impl<'a> Parser<'a> {
                     self.diagnostics.push(
                         Diagnostic::error(format!("XSH has no `{operator}` operator"))
                             .with_code(DiagnosticCode::ParseForeignSyntax)
-                            .with_label(Label::primary(operator_span, format!("write `{}{replacement}`", self.current_name()?)))
-                            .with_fix_hint(FixHint::replacement(operator_span, format!("use `{}`", replacement.trim()), replacement)),
+                            .with_label(Label::primary(
+                                operator_span,
+                                format!("write `{}{replacement}`", self.current_name()?),
+                            ))
+                            .with_fix_hint(FixHint::replacement(
+                                operator_span,
+                                format!("use `{}`", replacement.trim()),
+                                replacement,
+                            )),
                     );
                     None
                 } else if let Some(spelling) = self.shell_declaration_keyword() {
                     let span = self.current_span();
                     self.diagnostics.push(
-                        Diagnostic::error(format!("XSH declares variables with `let` or `var`, not `{spelling}`"))
-                            .with_code(DiagnosticCode::ParseForeignSyntax)
-                            .with_label(Label::primary(span, "write `let name = value`, or `var` to allow reassignment"))
-                            .with_fix_hint(FixHint::replacement(span, "replace with `let`", "let")),
+                        Diagnostic::error(format!(
+                            "XSH declares variables with `let` or `var`, not `{spelling}`"
+                        ))
+                        .with_code(DiagnosticCode::ParseForeignSyntax)
+                        .with_label(Label::primary(
+                            span,
+                            "write `let name = value`, or `var` to allow reassignment",
+                        ))
+                        .with_fix_hint(FixHint::replacement(span, "replace with `let`", "let")),
                     );
                     self.parse_binding_arena_only(start, true, arena)
                 } else if let Some(spelling) = self.foreign_function_keyword() {
@@ -184,12 +218,21 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
-        let exported = self.current_keyword().filter(|keyword| grammar::EXPORTABLE_KEYWORDS.contains(keyword)).and_then(grammar::statement_form);
+        let exported = self
+            .current_keyword()
+            .filter(|keyword| grammar::EXPORTABLE_KEYWORDS.contains(keyword))
+            .and_then(grammar::statement_form);
         match (self.current_tag(), exported) {
-            (_, Some(StatementForm::Binding)) => self.parse_binding_arena_only(start, true, arena)?,
+            (_, Some(StatementForm::Binding)) => {
+                self.parse_binding_arena_only(start, true, arena)?
+            }
             (_, Some(StatementForm::Proc)) => self.parse_function_arena_only(start, true, arena)?,
-            (_, Some(StatementForm::Pure)) => self.parse_function_arena_only(start, false, arena)?,
-            (_, Some(StatementForm::Stream)) => self.parse_stream_function_arena_only(start, arena)?,
+            (_, Some(StatementForm::Pure)) => {
+                self.parse_function_arena_only(start, false, arena)?
+            }
+            (_, Some(StatementForm::Stream)) => {
+                self.parse_stream_function_arena_only(start, arena)?
+            }
             (_, Some(StatementForm::Enum)) => self.parse_enum_def_arena_only(start, arena)?,
             (_, Some(StatementForm::Type)) => self.parse_type_def_arena_only(start, arena)?,
             (TokenTag::Ident, _)
@@ -198,9 +241,7 @@ impl<'a> Parser<'a> {
             {
                 self.parse_signal_hook_arena_only(start, arena)?
             }
-            (TokenTag::Ident, _)
-                if self.lookahead_is_error_def() =>
-            {
+            (TokenTag::Ident, _) if self.lookahead_is_error_def() => {
                 self.parse_error_def_arena_only(start, arena)?
             }
             _ => {
@@ -208,7 +249,9 @@ impl<'a> Parser<'a> {
                 let mut diagnostic = Diagnostic::error(message)
                     .with_code(DiagnosticCode::ParseExportTarget)
                     .with_label(Label::primary(self.current_span(), message));
-                if matches!(self.current_tag(), TokenTag::Ident) && self.peek_tag(1) == Some(TokenTag::Equals) {
+                if matches!(self.current_tag(), TokenTag::Ident)
+                    && self.peek_tag(1) == Some(TokenTag::Equals)
+                {
                     diagnostic = diagnostic.with_note("XSH `export` publishes module definitions; set an environment variable for commands with `env NAME=value { ... }`");
                 }
                 self.diagnostics.push(diagnostic);
@@ -237,7 +280,10 @@ impl<'a> Parser<'a> {
             while self.consume(TokenKindMatch::Comma).is_some() {
                 parameters.push(self.expect_ident("expected record type parameter")?);
             }
-            self.expect(TokenKindMatch::RBracket, "expected `]` after record type parameters");
+            self.expect(
+                TokenKindMatch::RBracket,
+                "expected `]` after record type parameters",
+            );
         }
         self.expect(TokenKindMatch::Equals, "expected `=` in type definition");
         let body_start = self.index;
@@ -248,21 +294,38 @@ impl<'a> Parser<'a> {
             ArenaTypeDefBody::RecordSchema(self.parse_record_schema_arena_only(arena)?)
         } else if let Some(variants) = self.recover_legacy_tag_union_arena_only(arena) {
             let body_end = self.previous_end();
-            let mut diagnostic = Diagnostic::error("tagged unions use `enum Name { A, B }`; replace this `type` declaration")
-                .with_code(DiagnosticCode::ParseEnumMigration)
-                .with_label(Label::primary(self.span(start, body_end), "use an explicit enum declaration"))
-                .with_fix_hint(FixHint::replacement(self.span(introducer_start, introducer_start + 4), "use enum", "enum"));
+            let mut diagnostic = Diagnostic::error(
+                "tagged unions use `enum Name { A, B }`; replace this `type` declaration",
+            )
+            .with_code(DiagnosticCode::ParseEnumMigration)
+            .with_label(Label::primary(
+                self.span(start, body_end),
+                "use an explicit enum declaration",
+            ))
+            .with_fix_hint(FixHint::replacement(
+                self.span(introducer_start, introducer_start + 4),
+                "use enum",
+                "enum",
+            ));
             for index in body_start.saturating_sub(1)..self.index {
                 let tag = self.token_table.tag_at(index);
                 if tag == Some(TokenTag::Equals) || tag == Some(TokenTag::Pipe) {
                     diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-                        self.span_at(index).expect("migration delimiter token exists"), "use enum delimiters",
-                        if tag == Some(TokenTag::Equals) { "{" } else { "," },
+                        self.span_at(index)
+                            .expect("migration delimiter token exists"),
+                        "use enum delimiters",
+                        if tag == Some(TokenTag::Equals) {
+                            "{"
+                        } else {
+                            ","
+                        },
                     ));
                 }
             }
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-                self.span(body_end, body_end), "close enum body", " }",
+                self.span(body_end, body_end),
+                "close enum body",
+                " }",
             ));
             self.diagnostics.push(diagnostic);
             ArenaTypeDefBody::TagUnion(variants)
@@ -292,7 +355,10 @@ impl<'a> Parser<'a> {
         if wire_backed {
             let backing = self.expect_ident("expected Str enum backing type")?;
             if backing != "Str" {
-                self.diagnostic_previous("wire enums support only Str backing", DiagnosticCode::ParseEnumBacking);
+                self.diagnostic_previous(
+                    "wire enums support only Str backing",
+                    DiagnosticCode::ParseEnumBacking,
+                );
             }
         }
         self.expect(TokenKindMatch::LBrace, "expected `{` after enum name")?;
@@ -307,34 +373,58 @@ impl<'a> Parser<'a> {
                 while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
                     fields.push(self.parse_type_expr(arena)?);
                     self.skip_enum_trivia();
-                    if self.consume(TokenKindMatch::Comma).is_none() { break; }
+                    if self.consume(TokenKindMatch::Comma).is_none() {
+                        break;
+                    }
                     self.skip_enum_trivia();
                 }
-                self.expect(TokenKindMatch::RParen, "expected `)` after enum payload types")?;
+                self.expect(
+                    TokenKindMatch::RParen,
+                    "expected `)` after enum payload types",
+                )?;
             }
             let wire_value = if wire_backed {
                 if !fields.is_empty() {
-                    self.diagnostic_previous("Str-backed enum variants cannot have payload fields", DiagnosticCode::ParseEnumWirePayload);
+                    self.diagnostic_previous(
+                        "Str-backed enum variants cannot have payload fields",
+                        DiagnosticCode::ParseEnumWirePayload,
+                    );
                 }
-                self.expect(TokenKindMatch::Equals, "every Str-backed enum variant requires `= constant_string`")?;
+                self.expect(
+                    TokenKindMatch::Equals,
+                    "every Str-backed enum variant requires `= constant_string`",
+                )?;
                 Some(self.parse_expr_id_arena_only(arena)?)
             } else {
                 None
             };
-            let mut variant = arena.build_tag_variant(variant_name, &fields, self.span(variant_start, self.previous_end()));
+            let mut variant = arena.build_tag_variant(
+                variant_name,
+                &fields,
+                self.span(variant_start, self.previous_end()),
+            );
             variant.wire_value = wire_value;
             variants.push(variant);
             self.skip_enum_trivia();
-            if self.consume(TokenKindMatch::Comma).is_none() { break; }
+            if self.consume(TokenKindMatch::Comma).is_none() {
+                break;
+            }
             self.skip_enum_trivia();
         }
         self.expect(TokenKindMatch::RBrace, "expected `}` after enum variants")?;
         if variants.is_empty() {
-            self.diagnostic_previous("an enum requires at least one variant", DiagnosticCode::ParseEmptyEnum);
+            self.diagnostic_previous(
+                "an enum requires at least one variant",
+                DiagnosticCode::ParseEmptyEnum,
+            );
         }
         let variants = arena.push_tag_variant_range(variants);
         let end = self.expect_terminator();
-        arena.push_type_def(name, ArenaTypeDefBody::TagUnion(variants), self.span(start, end));
+        arena.push_type_def(
+            name,
+            ArenaTypeDefBody::TagUnion(variants),
+            self.span(start, end),
+        );
         Some(())
     }
 
@@ -611,7 +701,10 @@ impl<'a> Parser<'a> {
                     name
                 } else {
                     if variants.is_empty() {
-                        self.diagnostic_here("expected error variant", DiagnosticCode::ParseErrorVariant);
+                        self.diagnostic_here(
+                            "expected error variant",
+                            DiagnosticCode::ParseErrorVariant,
+                        );
                     }
                     break;
                 };
@@ -695,7 +788,9 @@ impl<'a> Parser<'a> {
         if self.at_keyword(Keyword::Run) {
             let (run_id, span) = self.parse_run_form_arena_only(arena)?;
             if self.at_run_pipeline() {
-                return Some(ArenaExprOrRun::Expr(self.parse_run_pipeline_arena_only(run_id, span, arena)?.id));
+                return Some(ArenaExprOrRun::Expr(
+                    self.parse_run_pipeline_arena_only(run_id, span, arena)?.id,
+                ));
             }
             let propagate = self.consume(TokenKindMatch::Question).is_some();
             if propagate {
@@ -753,7 +848,10 @@ impl<'a> Parser<'a> {
             TokenTag::Slash => AssignOp::Div,
             TokenTag::Percent => AssignOp::Rem,
             _ => {
-                self.diagnostic_here("expected assignment operator", DiagnosticCode::ParseExpectedToken);
+                self.diagnostic_here(
+                    "expected assignment operator",
+                    DiagnosticCode::ParseExpectedToken,
+                );
                 return AssignOp::Set;
             }
         };
@@ -826,10 +924,18 @@ impl<'a> Parser<'a> {
                         self.diagnostics.push(
                             Diagnostic::error("expected `:` or default value after parameter name")
                                 .with_code(DiagnosticCode::ParseExpectedParamType)
-                                .with_label(Label::primary(name_span, format!("parameters declare their types: write `{name}: Type`"))),
+                                .with_label(Label::primary(
+                                    name_span,
+                                    format!("parameters declare their types: write `{name}: Type`"),
+                                )),
                         );
                     }
-                    (unknown_type_expr(arena, name_span), false, None, name_span.end())
+                    (
+                        unknown_type_expr(arena, name_span),
+                        false,
+                        None,
+                        name_span.end(),
+                    )
                 } else {
                     self.diagnostic_here(
                         "expected `:` or default value after parameter name",
@@ -862,14 +968,22 @@ impl<'a> Parser<'a> {
         self.bump();
         let name = self.expect_ident("expected test name")?;
         if self.block_depth != 0 {
-            self.diagnostic_here("test declarations must be top-level", DiagnosticCode::ParseTestNested);
+            self.diagnostic_here(
+                "test declarations must be top-level",
+                DiagnosticCode::ParseTestNested,
+            );
         }
         let effects = self.parse_effect_list();
         let body = self.parse_block_arena_only(arena)?;
         if arena.block_parameter_count(body) > 1 {
-            self.diagnostic_here("test declarations accept at most one immutable TestContext parameter", DiagnosticCode::ParseTestParams);
+            self.diagnostic_here(
+                "test declarations accept at most one immutable TestContext parameter",
+                DiagnosticCode::ParseTestParams,
+            );
         }
-        let effects = effects.as_deref().map(|effects| arena.push_effects(effects));
+        let effects = effects
+            .as_deref()
+            .map(|effects| arena.push_effects(effects));
         let span = self.span(start, self.previous_end());
         arena.push_test_declaration(name, effects, body, span);
         Some(())
@@ -906,7 +1020,10 @@ impl<'a> Parser<'a> {
         } else if proc_def {
             (result_unit_type_expr(arena, self.current_span()), true)
         } else {
-            (arena.push_named_type_expr(Name::intern("Unit"), self.current_span()), true)
+            (
+                arena.push_named_type_expr(Name::intern("Unit"), self.current_span()),
+                true,
+            )
         };
         let body_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
@@ -975,7 +1092,10 @@ impl<'a> Parser<'a> {
     /// only to report that generic error families are unsupported.
     fn lookahead_is_error_def(&self) -> bool {
         if self.current_name() != Some(Name::intern("error"))
-            || !matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
+            || !matches!(
+                self.peek_tag(1),
+                Some(TokenTag::Ident | TokenTag::ProcIdent)
+            )
         {
             return false;
         }
@@ -1074,7 +1194,10 @@ impl<'a> Parser<'a> {
                 Name::intern(IntLiteral::from_text(self.span_text(span)).to_text())
             }
             _ => {
-                self.diagnostic_here("expected signal name after `on`", DiagnosticCode::ParseSignalHook);
+                self.diagnostic_here(
+                    "expected signal name after `on`",
+                    DiagnosticCode::ParseSignalHook,
+                );
                 return None;
             }
         };
@@ -1092,7 +1215,10 @@ impl<'a> Parser<'a> {
                     name
                 }
                 _ => {
-                    self.diagnostic_here("expected signal hook option name", DiagnosticCode::ParseSignalHook);
+                    self.diagnostic_here(
+                        "expected signal hook option name",
+                        DiagnosticCode::ParseSignalHook,
+                    );
                     break;
                 }
             };
@@ -1131,7 +1257,10 @@ impl<'a> Parser<'a> {
         let effects = if self.at(TokenKindMatch::LBracket) {
             self.parse_effect_list().unwrap_or_default()
         } else {
-            self.diagnostic_here("signal hooks require an effect list", DiagnosticCode::ParseSignalHook);
+            self.diagnostic_here(
+                "signal hooks require an effect list",
+                DiagnosticCode::ParseSignalHook,
+            );
             Vec::new()
         };
         let effects = arena.push_effects(&effects);
@@ -1259,24 +1388,46 @@ impl<'a> Parser<'a> {
             (TokenTag::Minus, TokenTag::Minus) => "--",
             _ => return None,
         };
-        let adjacent = self.peek_start(1)? == self.current_end() && self.peek_start(2)? == self.peek_end(1)?;
-        (adjacent && matches!(self.peek_tag(3), Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof | TokenTag::Comment)))
-            .then_some(operator)
+        let adjacent =
+            self.peek_start(1)? == self.current_end() && self.peek_start(2)? == self.peek_end(1)?;
+        (adjacent
+            && matches!(
+                self.peek_tag(3),
+                Some(
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Eof
+                        | TokenTag::Comment
+                )
+            ))
+        .then_some(operator)
     }
 
     /// Shell `cd DIR` on its own line. The command form reports the missing
     /// block instead of reading `cd /tmp` as a division of two names.
     fn lookahead_is_blockless_cd(&self) -> bool {
-        matches!(self.peek_tag(1), Some(TokenTag::Slash | TokenTag::Dot | TokenTag::PathString | TokenTag::String | TokenTag::DollarIdent))
-            && !matches!(self.peek_tag(2), Some(TokenTag::Equals))
+        matches!(
+            self.peek_tag(1),
+            Some(
+                TokenTag::Slash
+                    | TokenTag::Dot
+                    | TokenTag::PathString
+                    | TokenTag::String
+                    | TokenTag::DollarIdent
+            )
+        ) && !matches!(self.peek_tag(2), Some(TokenTag::Equals))
     }
 
     /// `local x=1` and friends declare a shell variable; parsing continues
     /// as the binding they stand for, so later uses of the name resolve.
     fn shell_declaration_keyword(&self) -> Option<&'static str> {
         let name = self.current_name()?;
-        let spelling = ["local", "declare", "readonly", "typeset"].into_iter().find(|spelling| name == *spelling)?;
-        (self.peek_tag(1) == Some(TokenTag::Ident) && self.peek_tag(2) == Some(TokenTag::Equals)).then_some(spelling)
+        let spelling = ["local", "declare", "readonly", "typeset"]
+            .into_iter()
+            .find(|spelling| name == *spelling)?;
+        (self.peek_tag(1) == Some(TokenTag::Ident) && self.peek_tag(2) == Some(TokenTag::Equals))
+            .then_some(spelling)
     }
 
     /// `function name() {` (shell) and `def name(` (Python) at the start of a
@@ -1284,9 +1435,15 @@ impl<'a> Parser<'a> {
     /// a name followed by `(` or `{`, is treated as the foreign keyword.
     fn foreign_function_keyword(&self) -> Option<&'static str> {
         let name = self.current_name()?;
-        let spelling = ["function", "def", "fn", "func"].into_iter().find(|spelling| name == *spelling)?;
-        let named = matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent));
-        (named && matches!(self.peek_tag(2), Some(TokenTag::LParen | TokenTag::LBrace))).then_some(spelling)
+        let spelling = ["function", "def", "fn", "func"]
+            .into_iter()
+            .find(|spelling| name == *spelling)?;
+        let named = matches!(
+            self.peek_tag(1),
+            Some(TokenTag::Ident | TokenTag::ProcIdent)
+        );
+        (named && matches!(self.peek_tag(2), Some(TokenTag::LParen | TokenTag::LBrace)))
+            .then_some(spelling)
     }
 
     /// The statement is reported once and skipped with its body by statement
@@ -1294,10 +1451,15 @@ impl<'a> Parser<'a> {
     fn report_foreign_function_keyword(&mut self, spelling: &str) {
         let span = self.current_span();
         self.diagnostics.push(
-            Diagnostic::error(format!("XSH declares functions with `proc` (or `pure`), not `{spelling}`"))
-                .with_code(DiagnosticCode::ParseForeignSyntax)
-                .with_label(Label::primary(span, "write `proc name(param: Type) { ... }`"))
-                .with_fix_hint(FixHint::replacement(span, "replace with `proc`", "proc")),
+            Diagnostic::error(format!(
+                "XSH declares functions with `proc` (or `pure`), not `{spelling}`"
+            ))
+            .with_code(DiagnosticCode::ParseForeignSyntax)
+            .with_label(Label::primary(
+                span,
+                "write `proc name(param: Type) { ... }`",
+            ))
+            .with_fix_hint(FixHint::replacement(span, "replace with `proc`", "proc")),
         );
     }
 
@@ -1333,24 +1495,42 @@ impl<'a> Parser<'a> {
     /// parse continues as if it were written there.
     pub(super) fn consume_else(&mut self) -> Option<bool> {
         let mut offset = 0;
-        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) {
+        while matches!(
+            self.peek_tag(offset),
+            Some(TokenTag::Newline | TokenTag::Comment)
+        ) {
             offset += 1;
         }
-        let is_else = self.peek_tag(offset) == Some(TokenTag::Keyword) && self.peek_keyword(offset) == Some(Keyword::Else);
+        let is_else = self.peek_tag(offset) == Some(TokenTag::Keyword)
+            && self.peek_keyword(offset) == Some(Keyword::Else);
         let is_elif = self.peek_tag(offset) == Some(TokenTag::Ident)
-            && self.peek_label_name(offset).is_some_and(|name| name == "elif")
-            && !matches!(self.peek_tag(offset + 1), Some(TokenTag::Equals | TokenTag::FatArrow | TokenTag::Newline | TokenTag::Eof));
+            && self
+                .peek_label_name(offset)
+                .is_some_and(|name| name == "elif")
+            && !matches!(
+                self.peek_tag(offset + 1),
+                Some(TokenTag::Equals | TokenTag::FatArrow | TokenTag::Newline | TokenTag::Eof)
+            );
         if !is_else && !is_elif {
             return None;
         }
         if offset > 0 {
             let gap = self.span(self.previous_end(), self.peek_start(offset)?);
             let keyword = self.span(self.peek_start(offset)?, self.peek_end(offset)?);
-            let mut diagnostic = Diagnostic::error("`else` must be on the same line as the `}` that closes the `if` block")
-                .with_code(DiagnosticCode::ParseDetachedElse)
-                .with_label(Label::primary(keyword, "a newline before `else` ends the `if` statement"));
+            let mut diagnostic = Diagnostic::error(
+                "`else` must be on the same line as the `}` that closes the `if` block",
+            )
+            .with_code(DiagnosticCode::ParseDetachedElse)
+            .with_label(Label::primary(
+                keyword,
+                "a newline before `else` ends the `if` statement",
+            ));
             if self.source[gap.range()].trim().is_empty() {
-                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(gap, "join `else` to the closing `}`", " "));
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    gap,
+                    "join `else` to the closing `}`",
+                    " ",
+                ));
             }
             self.diagnostics.push(diagnostic);
             for _ in 0..offset {
@@ -1363,7 +1543,11 @@ impl<'a> Parser<'a> {
                 Diagnostic::error("XSH spells `elif` as `else if`")
                     .with_code(DiagnosticCode::ParseForeignSyntax)
                     .with_label(Label::primary(span, "write `else if`"))
-                    .with_fix_hint(FixHint::replacement(span, "replace with `else if`", "else if")),
+                    .with_fix_hint(FixHint::replacement(
+                        span,
+                        "replace with `else if`",
+                        "else if",
+                    )),
             );
         }
         self.bump();
@@ -1410,7 +1594,10 @@ impl<'a> Parser<'a> {
                     while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
                         self.bump();
                     }
-                    let Some(target) = self.parse_binding_target_arena_only("expected binding name or record target", arena) else {
+                    let Some(target) = self.parse_binding_target_arena_only(
+                        "expected binding name or record target",
+                        arena,
+                    ) else {
                         arena.discard_destructure_fields();
                         return None;
                     };
@@ -1490,7 +1677,10 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump();
         if self.at_terminator() {
-            self.diagnostic_here("`yield` requires a value", DiagnosticCode::ParseRequiredValue);
+            self.diagnostic_here(
+                "`yield` requires a value",
+                DiagnosticCode::ParseRequiredValue,
+            );
             self.expect_terminator();
             return None;
         }
@@ -1523,9 +1713,9 @@ impl<'a> Parser<'a> {
         let value = if self.at(TokenKindMatch::LBrace) {
             let block_start = self.current_start();
             let block = self.parse_block_arena_only(arena)?;
-            ArenaExprOrRun::Expr(arena.push_value_block_expr(
-                block, self.span(block_start, self.previous_end()),
-            ))
+            ArenaExprOrRun::Expr(
+                arena.push_value_block_expr(block, self.span(block_start, self.previous_end())),
+            )
         } else {
             self.parse_expr_or_run_arena_only(arena)?
         };
@@ -1701,16 +1891,21 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
         let brace_start = self.current_start();
         let brace_end = self.current_end();
-        let mut diagnostic = Diagnostic::error("put error-handler parameters inside the block: `else { |failure| ... }`")
-            .with_code(DiagnosticCode::ParseBlockHeaderMigration)
-            .with_label(Label::primary(self.span(start, header_end), "move this header after `{`"));
-        if self.at(TokenKindMatch::LBrace)
-            && !self.source[start..brace_end].contains('#')
-        {
+        let mut diagnostic = Diagnostic::error(
+            "put error-handler parameters inside the block: `else { |failure| ... }`",
+        )
+        .with_code(DiagnosticCode::ParseBlockHeaderMigration)
+        .with_label(Label::primary(
+            self.span(start, header_end),
+            "move this header after `{`",
+        ));
+        if self.at(TokenKindMatch::LBrace) && !self.source[start..brace_end].contains('#') {
             let between = self.source[header_end..brace_start].trim_end_matches([' ', '\t']);
             let replacement = format!("{{ {}{between}", &self.source[start..header_end]);
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-                self.span(start, brace_end), "move the header inside the block", replacement,
+                self.span(start, brace_end),
+                "move the header inside the block",
+                replacement,
             ));
         }
         self.diagnostics.push(diagnostic);
@@ -1718,9 +1913,14 @@ impl<'a> Parser<'a> {
         if arena.block_parameter_count(block) == 0 {
             arena.recover_block_parameters(block, &params);
         } else {
-            self.diagnostics.push(Diagnostic::error("an error handler cannot have two parameter headers")
-                .with_code(DiagnosticCode::ParseBlockParams)
-                .with_label(Label::primary(self.span(start, brace_end), "remove the outside header")));
+            self.diagnostics.push(
+                Diagnostic::error("an error handler cannot have two parameter headers")
+                    .with_code(DiagnosticCode::ParseBlockParams)
+                    .with_label(Label::primary(
+                        self.span(start, brace_end),
+                        "remove the outside header",
+                    )),
+            );
         }
         Some(block)
     }
@@ -1816,7 +2016,9 @@ impl<'a> Parser<'a> {
         self.skip_comments();
         let start = self.current_start();
         match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(keyword)) if grammar::BUILDER_STATEMENT_KEYWORDS.contains(&keyword) => {
+            (TokenTag::Keyword, Some(keyword))
+                if grammar::BUILDER_STATEMENT_KEYWORDS.contains(&keyword) =>
+            {
                 self.parse_statement_arena_only(arena)?;
                 let stmt_id = arena.pop_last_statement();
                 let span = self.span(start, self.previous_end());
@@ -1859,7 +2061,10 @@ impl<'a> Parser<'a> {
             }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {}
             _ => {
-                self.diagnostic_here("expected builder entry", DiagnosticCode::ParseExpectedBuilderEntry);
+                self.diagnostic_here(
+                    "expected builder entry",
+                    DiagnosticCode::ParseExpectedBuilderEntry,
+                );
                 return None;
             }
         }

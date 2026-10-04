@@ -11,8 +11,8 @@ pub mod records;
 pub mod reference;
 pub mod runtime_op;
 pub mod signature;
-pub mod symbols;
 pub mod stream_parameters;
+pub mod symbols;
 pub mod types;
 
 pub use runtime_op::RuntimeOp;
@@ -48,6 +48,5 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
     "Result",
 ];
 
-pub const FIXED_SEMANTIC_SYMBOLS: &[&str] = &[
-    "Err", "Ok", "args", "false", "main", "module", "true",
-];
+pub const FIXED_SEMANTIC_SYMBOLS: &[&str] =
+    &["Err", "Ok", "args", "false", "main", "module", "true"];

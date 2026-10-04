@@ -6,8 +6,19 @@ pub const DEFAULT_PAR_MAP_WORKERS: usize = 6;
 /// These unary bodies can also be supplied as a statically resolved named call.
 /// The callable is a per-item descriptor, separate from fixed configuration.
 pub fn stage_accepts_callable(stage: &str) -> bool {
-    matches!(stage, "map" | "where" | "flat-map" | "each" | "tee" | "sort-by"
-        | "group-by" | "unique-by" | "any" | "all")
+    matches!(
+        stage,
+        "map"
+            | "where"
+            | "flat-map"
+            | "each"
+            | "tee"
+            | "sort-by"
+            | "group-by"
+            | "unique-by"
+            | "any"
+            | "all"
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,8 +62,20 @@ pub struct StageParameter {
     pub positional: bool,
 }
 
-const fn parameter(name: &'static str, ty: StageParameterType, default: StageParameterDefault, validation: StageParameterValidation, positional: bool) -> StageParameter {
-    StageParameter { name, ty, default, validation, positional }
+const fn parameter(
+    name: &'static str,
+    ty: StageParameterType,
+    default: StageParameterDefault,
+    validation: StageParameterValidation,
+    positional: bool,
+) -> StageParameter {
+    StageParameter {
+        name,
+        ty,
+        default,
+        validation,
+        positional,
+    }
 }
 
 /// Configuration is evaluated once when execution reaches the stage. Projection
@@ -64,22 +87,36 @@ pub fn stage_parameters(stage: &str) -> &'static [StageParameter] {
     match stage {
         "par-map" => const { &[parameter("jobs", Int, WorkerLimit, Positive, false)] },
         "sort" | "sort-by" => const { &[parameter("desc", Bool, False, None, false)] },
-        "batch" => const { &[
-            parameter("count", Int, Absent, Positive, false),
-            parameter("max_bytes", Int, Absent, Positive, false),
-            parameter("max_argv", Bool, False, BatchLimit, false),
-        ] },
-        "reduce-by" => const { &[
-            parameter("sum", Bool, False, ReductionMode, false),
-            parameter("min", Bool, False, ReductionMode, false),
-            parameter("max", Bool, False, ReductionMode, false),
-            parameter("jobs", Int, Serial, Positive, false),
-        ] },
-        "take" | "drop" | "repeat" => const { &[parameter("count", Int, Required, Nonnegative, true)] },
-        "range" => const { &[
-            parameter("start", Int, Required, None, true),
-            parameter("end", Int, Required, None, true),
-        ] },
+        "batch" => {
+            const {
+                &[
+                    parameter("count", Int, Absent, Positive, false),
+                    parameter("max_bytes", Int, Absent, Positive, false),
+                    parameter("max_argv", Bool, False, BatchLimit, false),
+                ]
+            }
+        }
+        "reduce-by" => {
+            const {
+                &[
+                    parameter("sum", Bool, False, ReductionMode, false),
+                    parameter("min", Bool, False, ReductionMode, false),
+                    parameter("max", Bool, False, ReductionMode, false),
+                    parameter("jobs", Int, Serial, Positive, false),
+                ]
+            }
+        }
+        "take" | "drop" | "repeat" => {
+            const { &[parameter("count", Int, Required, Nonnegative, true)] }
+        }
+        "range" => {
+            const {
+                &[
+                    parameter("start", Int, Required, None, true),
+                    parameter("end", Int, Required, None, true),
+                ]
+            }
+        }
         "bytes.chunks" => const { &[parameter("size", Int, Required, Positive, true)] },
         "zip" => const { &[parameter("other", Sequence, Required, None, true)] },
         "fold" | "reduce" => const { &[parameter("init", Value, Required, None, true)] },

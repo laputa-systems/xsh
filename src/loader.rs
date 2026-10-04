@@ -468,7 +468,9 @@ fn collect_exported_top_level_binding_name(
         return;
     };
     match program.arena.stmt(inner).kind {
-        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
+        ArenaStmtKind::Let { target, .. }
+        | ArenaStmtKind::Const { target, .. }
+        | ArenaStmtKind::Var { target, .. } => {
             if let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind {
                 names.insert(name);
             }
@@ -1164,7 +1166,8 @@ proc main() [io] {
             entry_path.to_str().expect("utf-8 temp path"),
             entry_source_from_text(
                 entry_path.to_str().expect("utf-8 temp path"),
-                "##! Entry values.\nuse helper as h\n## The answer.\nexport let answer = 1\n".to_string(),
+                "##! Entry values.\nuse helper as h\n## The answer.\nexport let answer = 1\n"
+                    .to_string(),
             ),
             Vec::new(),
         );

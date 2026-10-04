@@ -48,7 +48,10 @@ pub enum Type {
     EnvPathList,
     Error,
     ErrorFamily(Name),
-    ErrorVariant { family: Name, variant: Name },
+    ErrorVariant {
+        family: Name,
+        variant: Name,
+    },
     ErrorFacet(Name),
     ProcessError,
     Pure,
@@ -133,15 +136,28 @@ impl Type {
     pub(crate) fn has_unsigned_constraint(&self) -> bool {
         match self {
             Self::UInt => true,
-            Self::List(item) | Self::Stream(item) | Self::Optional(item) => item.has_unsigned_constraint(),
-            Self::Map(key, value) | Self::Result(key, value) => key.has_unsigned_constraint() || value.has_unsigned_constraint(),
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
+                item.has_unsigned_constraint()
+            }
+            Self::Map(key, value) | Self::Result(key, value) => {
+                key.has_unsigned_constraint() || value.has_unsigned_constraint()
+            }
             Self::Record(fields) => fields.values().any(Self::has_unsigned_constraint),
             _ => false,
         }
     }
 
     pub fn is_map_key(&self) -> bool {
-        matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
+        matches!(
+            self,
+            Self::Str
+                | Self::Int
+                | Self::UInt
+                | Self::Bool
+                | Self::Bytes
+                | Self::Path
+                | Self::Duration
+        )
     }
 
     /// Context restoration cannot outlive a producer or live host handle.
@@ -150,7 +166,9 @@ impl Type {
             Self::Stream(_) | Self::ProcessHandle | Self::NetJob => false,
             Self::List(item) | Self::Optional(item) => item.can_escape_context_scope(),
             Self::Map(_, item) => item.can_escape_context_scope(),
-            Self::Result(ok, error) => ok.can_escape_context_scope() && error.can_escape_context_scope(),
+            Self::Result(ok, error) => {
+                ok.can_escape_context_scope() && error.can_escape_context_scope()
+            }
             Self::Record(fields) => fields.values().all(Self::can_escape_context_scope),
             _ => true,
         }
@@ -166,11 +184,17 @@ impl Type {
                 (Name::intern("key"), (**key).clone()),
                 (Name::intern("value"), (**item).clone()),
             ]))),
-            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_, _) | Self::Str | Self::Bytes) => ok.iteration_item_type(),
+            Self::Result(ok, _)
+                if matches!(
+                    ok.as_ref(),
+                    Self::List(_) | Self::Stream(_) | Self::Map(_, _) | Self::Str | Self::Bytes
+                ) =>
+            {
+                ok.iteration_item_type()
+            }
             _ => None,
         }
     }
-
 
     /// Conservative owned-heap estimate for one semantic type tree.
     pub fn retained_bytes(&self) -> usize {
@@ -180,7 +204,11 @@ impl Type {
             Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
                 total = total.saturating_add(size_of::<Type>() + inner.retained_bytes());
             }
-            Self::Map(key, value) => { total = total.saturating_add(2 * size_of::<Type>() + key.retained_bytes() + value.retained_bytes()); }
+            Self::Map(key, value) => {
+                total = total.saturating_add(
+                    2 * size_of::<Type>() + key.retained_bytes() + value.retained_bytes(),
+                );
+            }
             Self::Result(ok, err) => {
                 total = total
                     .saturating_add(size_of::<Type>() + ok.retained_bytes())
@@ -217,10 +245,16 @@ impl Type {
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
             ))),
-            ArenaTypeExprTag::Map => Self::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Self::Str, |key| Self::from_arena(arena, key))), Box::new(Self::from_arena(
-                arena,
-                TypeExprId::from_index(data.lhs as usize),
-            ))),
+            ArenaTypeExprTag::Map => Self::Map(
+                Box::new(
+                    TypeExprId::from_optional_raw(data.rhs)
+                        .map_or(Self::Str, |key| Self::from_arena(arena, key)),
+                ),
+                Box::new(Self::from_arena(
+                    arena,
+                    TypeExprId::from_index(data.lhs as usize),
+                )),
+            ),
             ArenaTypeExprTag::Stream => Self::Stream(Box::new(Self::from_arena(
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
@@ -351,19 +385,30 @@ impl Type {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Inference(_) => return true,
-                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => pending.push(inner),
-                Self::Map(key, value) => { pending.push(key); pending.push(value); }
-                Self::Result(ok, error) => { pending.push(ok); pending.push(error); }
+                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+                    pending.push(inner)
+                }
+                Self::Map(key, value) => {
+                    pending.push(key);
+                    pending.push(value);
+                }
+                Self::Result(ok, error) => {
+                    pending.push(ok);
+                    pending.push(error);
+                }
                 Self::Record(fields) => pending.extend(fields.values()),
-                Self::Module(exports) => for export in exports.values() {
-                    match export {
-                        ModuleExportType::Value { ty, .. } => pending.push(ty),
-                        ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
-                            pending.push(&sig.return_ty);
-                            pending.extend(sig.params.iter().map(|param| &param.ty));
+                Self::Module(exports) => {
+                    for export in exports.values() {
+                        match export {
+                            ModuleExportType::Value { ty, .. } => pending.push(ty),
+                            ModuleExportType::Proc { sig, .. }
+                            | ModuleExportType::Pure { sig, .. } => {
+                                pending.push(&sig.return_ty);
+                                pending.extend(sig.params.iter().map(|param| &param.ty));
+                            }
                         }
                     }
-                },
+                }
                 _ => {}
             }
         }
@@ -373,9 +418,7 @@ impl Type {
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
-                inner.contains_any()
-            }
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => inner.contains_any(),
             Self::Map(key, value) => key.contains_any() || value.contains_any(),
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
@@ -399,12 +442,13 @@ impl Type {
             (Self::ErasedRecord, Self::Record(_)) => true,
             (Self::DynamicModule, Self::Module(_)) => true,
             (Self::List(actual), Self::List(expected))
-
             | (Self::Stream(actual), Self::Stream(expected))
             | (Self::Optional(actual), Self::Optional(expected)) => {
                 actual.any_flows_to_concrete(expected)
             }
-            (Self::Map(ak, av), Self::Map(ek, ev)) => ak.any_flows_to_concrete(ek) || av.any_flows_to_concrete(ev),
+            (Self::Map(ak, av), Self::Map(ek, ev)) => {
+                ak.any_flows_to_concrete(ek) || av.any_flows_to_concrete(ev)
+            }
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.any_flows_to_concrete(expected_ok)
                     || actual_err.any_flows_to_concrete(expected_err)
@@ -449,7 +493,10 @@ impl Type {
 
     pub fn matches_expected(&self, expected: &Type) -> bool {
         if self == expected
-            || matches!((self, expected), (Self::Int, Self::UInt) | (Self::UInt, Self::Int))
+            || matches!(
+                (self, expected),
+                (Self::Int, Self::UInt) | (Self::UInt, Self::Int)
+            )
             || matches!(self, Self::Unknown | Self::Invalid)
             || matches!(expected, Self::Any | Self::Unknown | Self::Invalid)
         {
@@ -457,8 +504,11 @@ impl Type {
         }
         match (self, expected) {
             (Self::Any, _) => false,
-            (Self::List(actual), Self::List(expected)) | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_invariant(expected),
-            (Self::Map(ak, actual), Self::Map(ek, expected)) => ak.matches_invariant(ek) && actual.matches_invariant(expected),
+            (Self::List(actual), Self::List(expected))
+            | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_invariant(expected),
+            (Self::Map(ak, actual), Self::Map(ek, expected)) => {
+                ak.matches_invariant(ek) && actual.matches_invariant(expected)
+            }
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.matches_expected(expected_ok) && actual_err.matches_expected(expected_err)
             }
@@ -510,11 +560,23 @@ impl Type {
             (Self::Int, Self::UInt) | (Self::UInt, Self::Int) => false,
             (Self::List(actual), Self::List(expected))
             | (Self::Stream(actual), Self::Stream(expected))
-            | (Self::Optional(actual), Self::Optional(expected)) => actual.matches_invariant(expected),
-            (Self::Map(ak, av), Self::Map(ek, ev)) => ak.matches_invariant(ek) && av.matches_invariant(ev),
-            (Self::Result(ao, ae), Self::Result(eo, ee)) => ao.matches_invariant(eo) && ae.matches_invariant(ee),
-            (Self::Record(actual), Self::Record(expected)) => actual.len() == expected.len()
-                && expected.iter().all(|(name, ty)| actual.get(name).is_some_and(|actual| actual.matches_invariant(ty))),
+            | (Self::Optional(actual), Self::Optional(expected)) => {
+                actual.matches_invariant(expected)
+            }
+            (Self::Map(ak, av), Self::Map(ek, ev)) => {
+                ak.matches_invariant(ek) && av.matches_invariant(ev)
+            }
+            (Self::Result(ao, ae), Self::Result(eo, ee)) => {
+                ao.matches_invariant(eo) && ae.matches_invariant(ee)
+            }
+            (Self::Record(actual), Self::Record(expected)) => {
+                actual.len() == expected.len()
+                    && expected.iter().all(|(name, ty)| {
+                        actual
+                            .get(name)
+                            .is_some_and(|actual| actual.matches_invariant(ty))
+                    })
+            }
             _ => self.matches_expected(expected) && expected.matches_expected(self),
         }
     }
@@ -549,7 +611,13 @@ impl Type {
     pub fn can_word_convert_to(&self) -> bool {
         matches!(
             self,
-            Self::Any | Self::Str | Self::Path | Self::Int | Self::UInt | Self::Bool | Self::Duration
+            Self::Any
+                | Self::Str
+                | Self::Path
+                | Self::Int
+                | Self::UInt
+                | Self::Bool
+                | Self::Duration
         )
     }
 
@@ -572,8 +640,12 @@ impl Type {
                 item.is_json_compatible_with(wire_enum)
             }
             Self::ErasedRecord => true,
-            Self::Map(key, value) => matches!(key.as_ref(), Self::Str) && value.is_json_compatible_with(wire_enum),
-            Self::Record(fields) => fields.values().all(|ty| ty.is_json_compatible_with(wire_enum)),
+            Self::Map(key, value) => {
+                matches!(key.as_ref(), Self::Str) && value.is_json_compatible_with(wire_enum)
+            }
+            Self::Record(fields) => fields
+                .values()
+                .all(|ty| ty.is_json_compatible_with(wire_enum)),
             Self::Tag(name) => wire_enum(*name),
             _ => false,
         }
@@ -604,7 +676,15 @@ impl Type {
             Self::Regex => Some("Regex".to_string()),
             Self::Path => Some("Path".to_string()),
             Self::List(inner) => Some(format!("List[{}]", inner.annotation_source()?)),
-            Self::Map(key, inner) => Some(if matches!(key.as_ref(), Self::Str) { format!("Map[{}]", inner.annotation_source()?) } else { format!("Map[{}, {}]", key.annotation_source()?, inner.annotation_source()?) }),
+            Self::Map(key, inner) => Some(if matches!(key.as_ref(), Self::Str) {
+                format!("Map[{}]", inner.annotation_source()?)
+            } else {
+                format!(
+                    "Map[{}, {}]",
+                    key.annotation_source()?,
+                    inner.annotation_source()?
+                )
+            }),
             Self::Stream(inner) => Some(format!("Stream[{}]", inner.annotation_source()?)),
             Self::Result(ok, err) => {
                 let ok = ok.annotation_source()?;
@@ -652,7 +732,13 @@ impl fmt::Display for Type {
             Self::Regex => write!(f, "Regex"),
             Self::Path => write!(f, "Path"),
             Self::List(inner) => write!(f, "List[{inner}]"),
-            Self::Map(key, inner) => if matches!(key.as_ref(), Self::Str) { write!(f, "Map[{inner}]") } else { write!(f, "Map[{key}, {inner}]") },
+            Self::Map(key, inner) => {
+                if matches!(key.as_ref(), Self::Str) {
+                    write!(f, "Map[{inner}]")
+                } else {
+                    write!(f, "Map[{key}, {inner}]")
+                }
+            }
             Self::Stream(inner) => write!(f, "Stream[{inner}]"),
             Self::ErasedRecord | Self::Record(_) => write!(f, "Record"),
             Self::Module(_) => write!(f, "Module"),
@@ -819,13 +905,22 @@ mod tests {
     #[test]
     fn module_contract_checks_member_kind_and_value_type() {
         let name = Name::intern("run");
-        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Str, false))])));
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+            name,
+            value(Type::Str, false),
+        )])));
         assert!(!Type::Module(std::sync::Arc::new(BTreeMap::new())).matches_expected(&expected));
         assert!(
-            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Int, false))])))
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(
+                name,
+                value(Type::Int, false)
+            )])))
+            .matches_expected(&expected)
+        );
+        assert!(
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, proc(None))])))
                 .matches_expected(&expected)
         );
-        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, proc(None))]))).matches_expected(&expected));
 
         let actual = Type::Module(std::sync::Arc::new(BTreeMap::from([
             (name, value(Type::Str, false)),
@@ -837,8 +932,14 @@ mod tests {
     #[test]
     fn module_contract_checks_callable_kind_and_signature_invariantly() {
         let name = Name::intern("run");
-        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(name, proc(Some(vec![Effect::Error])))])));
-        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, pure())]))).matches_expected(&expected));
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+            name,
+            proc(Some(vec![Effect::Error])),
+        )])));
+        assert!(
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, pure())])))
+                .matches_expected(&expected)
+        );
 
         let wrong_count = ModuleExportType::Proc {
             sig: CallableType {
@@ -848,7 +949,10 @@ mod tests {
             },
             optional: false,
         };
-        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_count)]))).matches_expected(&expected));
+        assert!(
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_count)])))
+                .matches_expected(&expected)
+        );
 
         let wrong_parameter = ModuleExportType::Proc {
             sig: CallableType {
@@ -864,7 +968,11 @@ mod tests {
             optional: false,
         };
         assert!(
-            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_parameter)]))).matches_expected(&expected)
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(
+                name,
+                wrong_parameter
+            )])))
+            .matches_expected(&expected)
         );
 
         let wrong_return = ModuleExportType::Proc {
@@ -880,21 +988,33 @@ mod tests {
             },
             optional: false,
         };
-        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_return)]))).matches_expected(&expected));
+        assert!(
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_return)])))
+                .matches_expected(&expected)
+        );
     }
 
     #[test]
     fn optional_module_export_must_match_when_present() {
         let name = Name::intern("description");
-        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Str, true))])));
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(
+            name,
+            value(Type::Str, true),
+        )])));
         assert!(Type::Module(std::sync::Arc::new(BTreeMap::new())).matches_expected(&expected));
         assert!(
-            Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Str, false))])))
-                .matches_expected(&expected)
+            Type::Module(std::sync::Arc::new(BTreeMap::from([(
+                name,
+                value(Type::Str, false)
+            )])))
+            .matches_expected(&expected)
         );
         assert!(
-            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Int, false))])))
-                .matches_expected(&expected)
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(
+                name,
+                value(Type::Int, false)
+            )])))
+            .matches_expected(&expected)
         );
     }
 }

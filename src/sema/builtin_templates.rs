@@ -30,7 +30,8 @@ impl BuiltinInstantiation {
         for parameter in &mut signature.params {
             parameter.ty = instantiate_type(&parameter.ty, &mut parameters, constraints, span);
         }
-        signature.return_ty = instantiate_type(&signature.return_ty, &mut parameters, constraints, span);
+        signature.return_ty =
+            instantiate_type(&signature.return_ty, &mut parameters, constraints, span);
         if let (Some(template), Some(actual)) = (receiver_template, receiver) {
             let template = instantiate_type(template, &mut parameters, constraints, span);
             constraints.constrain(&template, actual, span)?;
@@ -41,14 +42,24 @@ impl BuiltinInstantiation {
     }
 
     pub fn constrain_result(
-        &mut self, expected: &Type, constraints: &mut TypeConstraints, span: Span,
+        &mut self,
+        expected: &Type,
+        constraints: &mut TypeConstraints,
+        span: Span,
     ) -> Result<(), ConstraintConflict> {
-        if matches!(expected, Type::Unit | Type::Unknown | Type::Invalid) { return Ok(()); }
+        if matches!(expected, Type::Unit | Type::Unknown | Type::Invalid) {
+            return Ok(());
+        }
         // A Result-returning function supplies its success expectation to its
         // tail. Preserve a builtin's Result envelope while solving that payload.
         let result = if !expected.is_result() {
-            self.signature.return_ty.result_ok().unwrap_or(&self.signature.return_ty)
-        } else { &self.signature.return_ty };
+            self.signature
+                .return_ty
+                .result_ok()
+                .unwrap_or(&self.signature.return_ty)
+        } else {
+            &self.signature.return_ty
+        };
         if expected.contains_inference() {
             constraints.constrain(expected, result, span)?;
         } else {
@@ -64,13 +75,23 @@ impl BuiltinInstantiation {
         while let Some(ty) = pending.pop() {
             match ty {
                 Type::Map(key, value) => {
-                    if !key.is_map_key() && !matches!(key.as_ref(), Type::Inference(_) | Type::Unknown | Type::Invalid) {
+                    if !key.is_map_key()
+                        && !matches!(
+                            key.as_ref(),
+                            Type::Inference(_) | Type::Unknown | Type::Invalid
+                        )
+                    {
                         return Some((**key).clone());
                     }
                     pending.push(value);
                 }
-                Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => pending.push(inner),
-                Type::Result(ok, error) => { pending.push(ok); pending.push(error); }
+                Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+                    pending.push(inner)
+                }
+                Type::Result(ok, error) => {
+                    pending.push(ok);
+                    pending.push(error);
+                }
                 Type::Record(fields) => pending.extend(fields.values()),
                 _ => {}
             }
@@ -80,7 +101,9 @@ impl BuiltinInstantiation {
 
     pub fn resolve(&mut self, constraints: &TypeConstraints) {
         for parameter in &mut self.signature.params {
-            if let Ok(resolved) = constraints.resolve(&parameter.ty) { parameter.ty = resolved; }
+            if let Ok(resolved) = constraints.resolve(&parameter.ty) {
+                parameter.ty = resolved;
+            }
         }
         if let Ok(resolved) = constraints.resolve(&self.signature.return_ty) {
             self.signature.return_ty = resolved;
@@ -89,25 +112,48 @@ impl BuiltinInstantiation {
 }
 
 fn instantiate_type(
-    ty: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
-    constraints: &mut TypeConstraints, span: Span,
+    ty: &Type,
+    parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
+    constraints: &mut TypeConstraints,
+    span: Span,
 ) -> Type {
     match ty {
-        Type::BuiltinParameter(parameter) => parameters.entry(*parameter)
-            .or_insert_with(|| constraints.fresh(span)).clone(),
-        Type::List(inner) => Type::List(Box::new(instantiate_type(inner, parameters, constraints, span))),
+        Type::BuiltinParameter(parameter) => parameters
+            .entry(*parameter)
+            .or_insert_with(|| constraints.fresh(span))
+            .clone(),
+        Type::List(inner) => Type::List(Box::new(instantiate_type(
+            inner,
+            parameters,
+            constraints,
+            span,
+        ))),
         Type::Map(key, value) => Type::Map(
             Box::new(instantiate_type(key, parameters, constraints, span)),
             Box::new(instantiate_type(value, parameters, constraints, span)),
         ),
-        Type::Stream(inner) => Type::Stream(Box::new(instantiate_type(inner, parameters, constraints, span))),
-        Type::Optional(inner) => Type::Optional(Box::new(instantiate_type(inner, parameters, constraints, span))),
+        Type::Stream(inner) => Type::Stream(Box::new(instantiate_type(
+            inner,
+            parameters,
+            constraints,
+            span,
+        ))),
+        Type::Optional(inner) => Type::Optional(Box::new(instantiate_type(
+            inner,
+            parameters,
+            constraints,
+            span,
+        ))),
         Type::Result(ok, error) => Type::Result(
             Box::new(instantiate_type(ok, parameters, constraints, span)),
             Box::new(instantiate_type(error, parameters, constraints, span)),
         ),
-        Type::Record(fields) => Type::Record(fields.iter().map(|(name, ty)|
-            (*name, instantiate_type(ty, parameters, constraints, span))).collect()),
+        Type::Record(fields) => Type::Record(
+            fields
+                .iter()
+                .map(|(name, ty)| (*name, instantiate_type(ty, parameters, constraints, span)))
+                .collect(),
+        ),
         ty => ty.clone(),
     }
 }
@@ -115,14 +161,22 @@ fn instantiate_type(
 /// Checked receiver domains are authoritative even when they are empty records
 /// or Null. Reuse local inference identities; allocate no new receiver holes.
 fn seed_receiver_domains(
-    template: &Type, actual: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
+    template: &Type,
+    actual: &Type,
+    parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
 ) {
     match (template, actual) {
-        (Type::BuiltinParameter(parameter), actual) => { parameters.insert(*parameter, actual.clone()); }
-        (template, actual @ (Type::Any | Type::Unknown | Type::Invalid)) => seed_fixed_parameters(template, actual, parameters),
+        (Type::BuiltinParameter(parameter), actual) => {
+            parameters.insert(*parameter, actual.clone());
+        }
+        (template, actual @ (Type::Any | Type::Unknown | Type::Invalid)) => {
+            seed_fixed_parameters(template, actual, parameters)
+        }
         (Type::List(left), Type::List(right))
         | (Type::Stream(left), Type::Stream(right))
-        | (Type::Optional(left), Type::Optional(right)) => seed_receiver_domains(left, right, parameters),
+        | (Type::Optional(left), Type::Optional(right)) => {
+            seed_receiver_domains(left, right, parameters)
+        }
         (Type::Map(left_key, left_value), Type::Map(right_key, right_value)) => {
             seed_receiver_domains(left_key, right_key, parameters);
             seed_receiver_domains(left_value, right_value, parameters);
@@ -135,38 +189,67 @@ fn seed_receiver_domains(
     }
 }
 
-fn seed_fixed_parameters(template: &Type, domain: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>) {
+fn seed_fixed_parameters(
+    template: &Type,
+    domain: &Type,
+    parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
+) {
     match template {
-        Type::BuiltinParameter(parameter) => { parameters.insert(*parameter, domain.clone()); }
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => seed_fixed_parameters(inner, domain, parameters),
+        Type::BuiltinParameter(parameter) => {
+            parameters.insert(*parameter, domain.clone());
+        }
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            seed_fixed_parameters(inner, domain, parameters)
+        }
         Type::Map(key, value) | Type::Result(key, value) => {
             seed_fixed_parameters(key, domain, parameters);
             seed_fixed_parameters(value, domain, parameters);
         }
-        Type::Record(fields) => for field in fields.values() { seed_fixed_parameters(field, domain, parameters); },
+        Type::Record(fields) => {
+            for field in fields.values() {
+                seed_fixed_parameters(field, domain, parameters);
+            }
+        }
         _ => {}
     }
 }
 
 #[cfg(test)]
-pub(crate) fn concrete_method_signature(method: &crate::modules::signature::MethodSig, receiver: &Type) -> Option<ModuleFnSig> {
+pub(crate) fn concrete_method_signature(
+    method: &crate::modules::signature::MethodSig,
+    receiver: &Type,
+) -> Option<ModuleFnSig> {
     let mut constraints = TypeConstraints::default();
-    let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(receiver), &mut constraints, Span::at(crate::source::SourceId::new(0), 0)).ok()?;
+    let mut instance = BuiltinInstantiation::new(
+        &method.sig,
+        method.receiver_ty.as_ref(),
+        Some(receiver),
+        &mut constraints,
+        Span::at(crate::source::SourceId::new(0), 0),
+    )
+    .ok()?;
     instance.resolve(&constraints);
     (!instance.signature.return_ty.contains_inference()).then_some(instance.signature)
 }
 
 pub(crate) fn callable_parameters(signature: &ModuleFnSig) -> Vec<super::types::CallableParamType> {
-    signature.params.iter().map(|parameter| super::types::CallableParamType {
-        name: crate::symbol::Name::intern(parameter.name), ty: parameter.ty.clone(),
-        defaulted: parameter.defaulted, rest: false,
-    }).collect()
+    signature
+        .params
+        .iter()
+        .map(|parameter| super::types::CallableParamType {
+            name: crate::symbol::Name::intern(parameter.name),
+            ty: parameter.ty.clone(),
+            defaulted: parameter.defaulted,
+            rest: false,
+        })
+        .collect()
 }
 
 /// Projects declared receiver applications through the selected signature's
 /// parameter relationships. Concrete record shapes never supply application identity.
 pub(crate) fn parameter_schema_contexts(
-    signature: &ModuleFnSig, receiver_template: Option<&Type>,
+    signature: &ModuleFnSig,
+    receiver_template: Option<&Type>,
     receiver_context: Option<&super::constants::SchemaExpectation>,
 ) -> Vec<Option<super::constants::SchemaExpectation>> {
     use super::constants::{SchemaComponent, SchemaExpectation};
@@ -174,36 +257,68 @@ pub(crate) fn parameter_schema_contexts(
         match ty {
             Type::List(inner) | Type::Stream(inner) => vec![(SchemaComponent::Item, inner)],
             Type::Optional(inner) => vec![(SchemaComponent::Optional, inner)],
-            Type::Map(key, value) => vec![(SchemaComponent::Key, key), (SchemaComponent::Value, value)],
-            Type::Result(ok, error) => vec![(SchemaComponent::Success, ok), (SchemaComponent::Error, error)],
-            Type::Record(fields) => fields.iter().map(|(name, ty)| (SchemaComponent::Field(*name), ty)).collect(),
+            Type::Map(key, value) => {
+                vec![(SchemaComponent::Key, key), (SchemaComponent::Value, value)]
+            }
+            Type::Result(ok, error) => vec![
+                (SchemaComponent::Success, ok),
+                (SchemaComponent::Error, error),
+            ],
+            Type::Record(fields) => fields
+                .iter()
+                .map(|(name, ty)| (SchemaComponent::Field(*name), ty))
+                .collect(),
             _ => Vec::new(),
         }
     }
-    fn collect(ty: &Type, context: &SchemaExpectation, parameters: &mut BTreeMap<BuiltinTypeParameter, SchemaExpectation>) {
+    fn collect(
+        ty: &Type,
+        context: &SchemaExpectation,
+        parameters: &mut BTreeMap<BuiltinTypeParameter, SchemaExpectation>,
+    ) {
         if let Type::BuiltinParameter(parameter) = ty {
             parameters.insert(*parameter, context.clone());
         } else {
             for (component, child) in children(ty) {
-                if let Some(context) = context.children.get(&component) { collect(child, context, parameters); }
+                if let Some(context) = context.children.get(&component) {
+                    collect(child, context, parameters);
+                }
             }
         }
     }
-    fn project(ty: &Type, parameters: &BTreeMap<BuiltinTypeParameter, SchemaExpectation>) -> Option<SchemaExpectation> {
-        if let Type::BuiltinParameter(parameter) = ty { return parameters.get(parameter).cloned(); }
-        if matches!(ty, Type::Any | Type::Unknown | Type::Invalid | Type::Inference(_)) { return None; }
+    fn project(
+        ty: &Type,
+        parameters: &BTreeMap<BuiltinTypeParameter, SchemaExpectation>,
+    ) -> Option<SchemaExpectation> {
+        if let Type::BuiltinParameter(parameter) = ty {
+            return parameters.get(parameter).cloned();
+        }
+        if matches!(
+            ty,
+            Type::Any | Type::Unknown | Type::Invalid | Type::Inference(_)
+        ) {
+            return None;
+        }
         let mut result = SchemaExpectation::default();
         for (component, child) in children(ty) {
-            if let Some(context) = project(child, parameters) { result.children.insert(component, context); }
+            if let Some(context) = project(child, parameters) {
+                result.children.insert(component, context);
+            }
         }
         Some(result)
     }
     let mut parameters = BTreeMap::new();
     if let Some(context) = receiver_context {
         parameters.insert(BuiltinTypeParameter::Receiver, context.clone());
-        if let Some(template) = receiver_template { collect(template, context, &mut parameters); }
+        if let Some(template) = receiver_template {
+            collect(template, context, &mut parameters);
+        }
     }
-    signature.params.iter().map(|parameter| project(&parameter.ty, &parameters)).collect()
+    signature
+        .params
+        .iter()
+        .map(|parameter| project(&parameter.ty, &parameters))
+        .collect()
 }
 
 #[cfg(test)]
@@ -212,18 +327,26 @@ mod tests {
     use crate::modules::signature::{MethodReceiver, api_spec};
     use crate::source::SourceId;
 
-    fn span() -> Span { Span::at(SourceId::new(0), 0) }
+    fn span() -> Span {
+        Span::at(SourceId::new(0), 0)
+    }
 
     #[test]
     fn map_empty_occurrences_have_independent_key_and_value_parameters() {
         let signature = &api_spec().module_overloads("map", "empty").unwrap()[0];
         let mut constraints = TypeConstraints::default();
-        let mut first = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
-        let mut second = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        let mut first =
+            BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        let mut second =
+            BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
         let ints = Type::Map(Box::new(Type::Str), Box::new(Type::Int));
         let strings = Type::Map(Box::new(Type::Int), Box::new(Type::Str));
-        first.constrain_result(&ints, &mut constraints, span()).unwrap();
-        second.constrain_result(&strings, &mut constraints, span()).unwrap();
+        first
+            .constrain_result(&ints, &mut constraints, span())
+            .unwrap();
+        second
+            .constrain_result(&strings, &mut constraints, span())
+            .unwrap();
         first.resolve(&constraints);
         assert_eq!(first.signature.return_ty, ints);
         assert_eq!(second.signature.return_ty, strings);
@@ -233,26 +356,42 @@ mod tests {
     fn explicit_dynamic_value_domain_anchors_an_empty_map() {
         let signature = &api_spec().module_overloads("map", "empty").unwrap()[0];
         let mut constraints = TypeConstraints::default();
-        let mut instance = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        let mut instance =
+            BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
         let expected = Type::Map(Box::new(Type::Str), Box::new(Type::Any));
-        instance.constrain_result(&expected, &mut constraints, span()).unwrap();
+        instance
+            .constrain_result(&expected, &mut constraints, span())
+            .unwrap();
         assert_eq!(instance.signature.return_ty, expected);
         assert!(!instance.signature.return_ty.contains_inference());
     }
 
     #[test]
     fn dynamic_list_receiver_cannot_acquire_a_concrete_item_proof() {
-        let method = &api_spec().method_overloads(MethodReceiver::List, "get").unwrap()[0];
+        let method = &api_spec()
+            .method_overloads(MethodReceiver::List, "get")
+            .unwrap()[0];
         let receiver = Type::List(Box::new(Type::Any));
         let mut constraints = TypeConstraints::default();
-        let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&receiver), &mut constraints, span()).unwrap();
+        let mut instance = BuiltinInstantiation::new(
+            &method.sig,
+            method.receiver_ty.as_ref(),
+            Some(&receiver),
+            &mut constraints,
+            span(),
+        )
+        .unwrap();
         let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
-        let conflict = instance.constrain_result(&expected, &mut constraints, span())
+        let conflict = instance
+            .constrain_result(&expected, &mut constraints, span())
             .expect_err("an erased item cannot establish a concrete result domain");
         assert_eq!(conflict.expected, Type::Int);
         assert_eq!(conflict.actual, Type::Any);
         instance.resolve(&constraints);
-        assert_eq!(instance.signature.return_ty, Type::Result(Box::new(Type::Any), Box::new(Type::Error)));
+        assert_eq!(
+            instance.signature.return_ty,
+            Type::Result(Box::new(Type::Any), Box::new(Type::Error))
+        );
     }
 
     #[test]
@@ -260,21 +399,43 @@ mod tests {
         let error = Type::ErrorFamily(crate::symbol::Name::intern("Error"));
         let item = Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(error));
         let receiver = Type::List(Box::new(item.clone()));
-        let methods = api_spec().method_overloads(MethodReceiver::List, "get").unwrap();
-        assert_eq!(concrete_method_signature(&methods[0], &receiver).unwrap().return_ty,
-            Type::Result(Box::new(item.clone()), Box::new(Type::Error)));
-        let push = &api_spec().method_overloads(MethodReceiver::List, "push").unwrap()[0];
+        let methods = api_spec()
+            .method_overloads(MethodReceiver::List, "get")
+            .unwrap();
+        assert_eq!(
+            concrete_method_signature(&methods[0], &receiver)
+                .unwrap()
+                .return_ty,
+            Type::Result(Box::new(item.clone()), Box::new(Type::Error))
+        );
+        let push = &api_spec()
+            .method_overloads(MethodReceiver::List, "push")
+            .unwrap()[0];
         let push = concrete_method_signature(push, &receiver).unwrap();
         assert_eq!(push.return_ty, receiver);
         assert_eq!(push.params[0].ty, item);
     }
     #[test]
     fn success_expectation_preserves_a_declared_result_envelope() {
-        let method = &api_spec().method_overloads(MethodReceiver::Str, "parse_int").unwrap()[0];
+        let method = &api_spec()
+            .method_overloads(MethodReceiver::Str, "parse_int")
+            .unwrap()[0];
         let mut constraints = TypeConstraints::default();
-        let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&Type::Str), &mut constraints, span()).unwrap();
-        instance.constrain_result(&Type::Int, &mut constraints, span()).unwrap();
-        assert_eq!(instance.signature.return_ty, Type::Result(Box::new(Type::Int), Box::new(Type::Error)));
+        let mut instance = BuiltinInstantiation::new(
+            &method.sig,
+            method.receiver_ty.as_ref(),
+            Some(&Type::Str),
+            &mut constraints,
+            span(),
+        )
+        .unwrap();
+        instance
+            .constrain_result(&Type::Int, &mut constraints, span())
+            .unwrap();
+        assert_eq!(
+            instance.signature.return_ty,
+            Type::Result(Box::new(Type::Int), Box::new(Type::Error))
+        );
     }
 
     #[test]
@@ -282,19 +443,36 @@ mod tests {
         for (name, expected, result) in [
             ("trim", Type::Optional(Box::new(Type::Str)), Type::Str),
             ("trim", Type::Any, Type::Str),
-            ("parse_int", Type::Result(Box::new(Type::Any), Box::new(Type::Error)), Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
+            (
+                "parse_int",
+                Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
+                Type::Result(Box::new(Type::Int), Box::new(Type::Error)),
+            ),
         ] {
-            let method = &api_spec().method_overloads(MethodReceiver::Str, name).unwrap()[0];
+            let method = &api_spec()
+                .method_overloads(MethodReceiver::Str, name)
+                .unwrap()[0];
             let mut constraints = TypeConstraints::default();
-            let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&Type::Str), &mut constraints, span()).unwrap();
-            instance.constrain_result(&expected, &mut constraints, span()).unwrap();
+            let mut instance = BuiltinInstantiation::new(
+                &method.sig,
+                method.receiver_ty.as_ref(),
+                Some(&Type::Str),
+                &mut constraints,
+                span(),
+            )
+            .unwrap();
+            instance
+                .constrain_result(&expected, &mut constraints, span())
+                .unwrap();
             assert_eq!(instance.signature.return_ty, result);
         }
     }
 
     #[test]
     fn concrete_inert_receiver_domains_do_not_become_fresh_holes() {
-        let method = &api_spec().method_overloads(MethodReceiver::List, "get").unwrap()[0];
+        let method = &api_spec()
+            .method_overloads(MethodReceiver::List, "get")
+            .unwrap()[0];
         for item in [Type::Null, Type::Record(BTreeMap::new())] {
             let receiver = Type::List(Box::new(item.clone()));
             let signature = concrete_method_signature(method, &receiver).unwrap();
@@ -307,9 +485,11 @@ mod tests {
     fn discarded_unit_context_does_not_invent_an_empty_map_domain() {
         let signature = &api_spec().module_overloads("map", "empty").unwrap()[0];
         let mut constraints = TypeConstraints::default();
-        let mut instance = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
-        instance.constrain_result(&Type::Unit, &mut constraints, span()).unwrap();
+        let mut instance =
+            BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        instance
+            .constrain_result(&Type::Unit, &mut constraints, span())
+            .unwrap();
         assert!(instance.signature.return_ty.contains_inference());
     }
-
 }

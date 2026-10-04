@@ -10,9 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
-use xsh::frontend::check::{
-    AnnotationFact, AnnotationFactKind, CheckOptions, Checker,
-};
+use xsh::frontend::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
 use xsh::frontend::load::{self as loader, parse_load_check_file};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::parser::Parser;
@@ -32,7 +30,9 @@ pub enum AnnotationSelection {
 }
 
 impl AnnotationPolicy {
-    pub(crate) fn annotates_returns(self) -> bool { self.returns }
+    pub(crate) fn annotates_returns(self) -> bool {
+        self.returns
+    }
 
     pub fn defaults() -> Self {
         Self {
@@ -112,12 +112,7 @@ impl AnnotationPolicy {
 }
 
 pub fn check_script(script: &str) -> CliOutput {
-    check_one_script(
-        script,
-        None,
-        &[],
-        XshConfig::default().format.line_width,
-    )
+    check_one_script(script, None, &[], XshConfig::default().format.line_width)
 }
 
 pub fn check_paths_with_options(
@@ -242,28 +237,29 @@ pub fn check_paths_with_summary_options(
                 .name("xsht-check".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
                 .spawn_scoped(scope, move || {
-                while let Ok((
-                    file_index,
-                    program,
-                    source_id,
-                    sources,
-                    declarations,
-                    command_name,
-                )) = job_rx.recv()
-                {
-                    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
-                        &program,
+                    while let Ok((
+                        file_index,
+                        program,
                         source_id,
                         sources,
                         declarations,
-                        Vec::new(),
                         command_name,
-                    );
-                    if result_tx.send((file_index, diagnostics)).is_err() {
-                        break;
+                    )) = job_rx.recv()
+                    {
+                        let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
+                            &program,
+                            source_id,
+                            sources,
+                            declarations,
+                            Vec::new(),
+                            command_name,
+                        );
+                        if result_tx.send((file_index, diagnostics)).is_err() {
+                            break;
+                        }
                     }
-                }
-            }).expect("spawn checker worker");
+                })
+                .expect("spawn checker worker");
         }
         drop(result_tx);
         let mut submitted = 0;
@@ -604,12 +600,7 @@ pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
             };
         }
     };
-    check_one_script(
-        script,
-        annotation_policy,
-        &module_roots,
-        line_width,
-    )
+    check_one_script(script, annotation_policy, &module_roots, line_width)
 }
 
 fn check_one_script(
@@ -848,7 +839,8 @@ fn annotation_edits(
                     edits.push((offset, offset, format!(": {ty} ")));
                 }
             }
-            AnnotationFactKind::InferredPureReturn { body } | AnnotationFactKind::ExportedProcReturn { body } => {
+            AnnotationFactKind::InferredPureReturn { body }
+            | AnnotationFactKind::ExportedProcReturn { body } => {
                 if policy.returns && body.source_id == target_source {
                     edits.push((body.start(), body.start(), format!(" -> {ty} ")));
                 }

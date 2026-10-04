@@ -116,7 +116,9 @@ impl ApiSpec {
             if receiver.receiver == MethodReceiver::FsRoot {
                 for method in &receiver.methods {
                     for overload in &method.overloads {
-                        op_names.entry(overload.sig.op).or_insert_with(|| format!("FsRoot.{}", method.name));
+                        op_names
+                            .entry(overload.sig.op)
+                            .or_insert_with(|| format!("FsRoot.{}", method.name));
                     }
                 }
             }
@@ -391,7 +393,9 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
 
 pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
     match ty {
-        xsh_registry::types::Type::BuiltinParameter(parameter) => Type::BuiltinParameter(*parameter),
+        xsh_registry::types::Type::BuiltinParameter(parameter) => {
+            Type::BuiltinParameter(*parameter)
+        }
         xsh_registry::types::Type::Any => Type::Any,
         xsh_registry::types::Type::Unknown => Type::Unknown,
         xsh_registry::types::Type::Invalid => Type::Invalid,
@@ -406,7 +410,9 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Regex => Type::Regex,
         xsh_registry::types::Type::Path => Type::Path,
         xsh_registry::types::Type::List(inner) => Type::List(Box::new(convert_type(inner))),
-        xsh_registry::types::Type::Map(key, inner) => Type::Map(Box::new(convert_type(key)), Box::new(convert_type(inner))),
+        xsh_registry::types::Type::Map(key, inner) => {
+            Type::Map(Box::new(convert_type(key)), Box::new(convert_type(inner)))
+        }
         xsh_registry::types::Type::Stream(inner) => Type::Stream(Box::new(convert_type(inner))),
         xsh_registry::types::Type::Record(fields) if fields.is_empty() => Type::ErasedRecord,
         xsh_registry::types::Type::Record(fields) => Type::Record(
@@ -428,7 +434,8 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
                         },
                     )
                 })
-                .collect::<BTreeMap<_, _>>().into(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
         ),
         xsh_registry::types::Type::Result(ok, err) => {
             Type::Result(Box::new(convert_type(ok)), Box::new(convert_type(err)))
@@ -551,7 +558,10 @@ mod tests {
                         main_overload.sig.effect,
                         super::method_required_effect(main_receiver.receiver, main_overload.sig.op,)
                     );
-                    assert_eq!(main_overload.receiver_ty, registry_overload.receiver_ty.as_ref().map(convert_type));
+                    assert_eq!(
+                        main_overload.receiver_ty,
+                        registry_overload.receiver_ty.as_ref().map(convert_type)
+                    );
                 }
             }
         }

@@ -422,11 +422,17 @@ impl SemanticPools {
         }
         match tag {
             TypeTag::Map => {
-                let key = TypeId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("map key type id is invalid"))?;
-                let value = TypeId::from_raw(data.rhs).ok_or_else(|| IrVerifyError::new("map value type id is invalid"))?;
+                let key = TypeId::from_raw(data.lhs)
+                    .ok_or_else(|| IrVerifyError::new("map key type id is invalid"))?;
+                let value = TypeId::from_raw(data.rhs)
+                    .ok_or_else(|| IrVerifyError::new("map value type id is invalid"))?;
                 let key = self.display_type_inner(key, depth + 1)?;
                 let value = self.display_type_inner(value, depth + 1)?;
-                Ok(if key == "Str" { format!("Map[{value}]") } else { format!("Map[{key}, {value}]") })
+                Ok(if key == "Str" {
+                    format!("Map[{value}]")
+                } else {
+                    format!("Map[{key}, {value}]")
+                })
             }
             TypeTag::Result => {
                 let ok = TypeId::from_raw(data.lhs)
@@ -547,8 +553,20 @@ impl SemanticPools {
                     verify_type_raw(self, data.rhs, Some(index))?;
                     if tag == TypeTag::Map {
                         let key = TypeId::from_raw(data.lhs).expect("verified key type id");
-                        if !matches!(self.type_tags[key.index()], TypeTag::Any | TypeTag::Str | TypeTag::Int | TypeTag::UInt | TypeTag::Bool | TypeTag::Bytes | TypeTag::Path | TypeTag::Duration) {
-                            return Err(IrVerifyError::new("Map key type is not an ordered scalar domain"));
+                        if !matches!(
+                            self.type_tags[key.index()],
+                            TypeTag::Any
+                                | TypeTag::Str
+                                | TypeTag::Int
+                                | TypeTag::UInt
+                                | TypeTag::Bool
+                                | TypeTag::Bytes
+                                | TypeTag::Path
+                                | TypeTag::Duration
+                        ) {
+                            return Err(IrVerifyError::new(
+                                "Map key type is not an ordered scalar domain",
+                            ));
                         }
                     }
                 }
@@ -782,8 +800,12 @@ impl SemanticPoolBuilder {
             Type::Map(key, value) => {
                 let key = self.intern_type(pools, key)?;
                 let value = self.intern_type(pools, value)?;
-                (TypeKey::Pair(TypeTag::Map, key, value), IrData::new(key.raw(), value.raw()), Vec::new())
-            },
+                (
+                    TypeKey::Pair(TypeTag::Map, key, value),
+                    IrData::new(key.raw(), value.raw()),
+                    Vec::new(),
+                )
+            }
             Type::Stream(inner) => self.unary(pools, TypeTag::Stream, inner)?,
             Type::Record(fields) => {
                 let names = fields.keys().copied().collect::<Vec<_>>();
@@ -1032,8 +1054,13 @@ mod tests {
     fn typed_map_keys_semantic_pool_retains_both_types_and_rejects_float_keys() {
         let mut pools = super::SemanticPools::default();
         let mut builder = super::SemanticPoolBuilder::default();
-        let float = builder.intern_type(&mut pools, &crate::sema::types::Type::Float).unwrap();
-        let map = crate::sema::types::Type::Map(Box::new(crate::sema::types::Type::UInt), Box::new(crate::sema::types::Type::Str));
+        let float = builder
+            .intern_type(&mut pools, &crate::sema::types::Type::Float)
+            .unwrap();
+        let map = crate::sema::types::Type::Map(
+            Box::new(crate::sema::types::Type::UInt),
+            Box::new(crate::sema::types::Type::Str),
+        );
         let id = builder.intern_type(&mut pools, &map).unwrap();
         pools.verify().unwrap();
         assert_eq!(pools.to_type(id).unwrap(), map);
@@ -1123,16 +1150,33 @@ mod tests {
     fn erased_record_and_module_facts_remain_distinct_from_empty_shapes() {
         let mut pools = SemanticPools::default();
         let mut builder = SemanticPoolBuilder::default();
-        let erased_record = builder.intern_type(&mut pools, &Type::ErasedRecord).unwrap();
-        let empty_record = builder.intern_type(&mut pools, &Type::Record(BTreeMap::new())).unwrap();
-        let dynamic_module = builder.intern_type(&mut pools, &Type::DynamicModule).unwrap();
-        let empty_module = builder.intern_type(&mut pools, &Type::Module(std::sync::Arc::new(BTreeMap::new()))).unwrap();
+        let erased_record = builder
+            .intern_type(&mut pools, &Type::ErasedRecord)
+            .unwrap();
+        let empty_record = builder
+            .intern_type(&mut pools, &Type::Record(BTreeMap::new()))
+            .unwrap();
+        let dynamic_module = builder
+            .intern_type(&mut pools, &Type::DynamicModule)
+            .unwrap();
+        let empty_module = builder
+            .intern_type(
+                &mut pools,
+                &Type::Module(std::sync::Arc::new(BTreeMap::new())),
+            )
+            .unwrap();
         assert_ne!(erased_record, empty_record);
         assert_ne!(dynamic_module, empty_module);
         assert_eq!(pools.to_type(erased_record).unwrap(), Type::ErasedRecord);
-        assert_eq!(pools.to_type(empty_record).unwrap(), Type::Record(BTreeMap::new()));
+        assert_eq!(
+            pools.to_type(empty_record).unwrap(),
+            Type::Record(BTreeMap::new())
+        );
         assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
-        assert_eq!(pools.to_type(empty_module).unwrap(), Type::Module(std::sync::Arc::new(BTreeMap::new())));
+        assert_eq!(
+            pools.to_type(empty_module).unwrap(),
+            Type::Module(std::sync::Arc::new(BTreeMap::new()))
+        );
         pools.verify().unwrap();
     }
 

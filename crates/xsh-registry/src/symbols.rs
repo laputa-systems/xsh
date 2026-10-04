@@ -91,7 +91,10 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
                 collect_type_symbols(ty, output);
             }
         }
-        Type::Map(key, value) => { collect_type_symbols(key, output); collect_type_symbols(value, output); }
+        Type::Map(key, value) => {
+            collect_type_symbols(key, output);
+            collect_type_symbols(value, output);
+        }
         Type::Result(ok, err) => {
             collect_type_symbols(ok, output);
             collect_type_symbols(err, output);
@@ -252,13 +255,16 @@ mod tests {
                     assert_type_symbols_are_present(symbols, ty);
                 }
             }
-            Type::Map(key, value) => { assert_type_symbols_are_present(symbols, key); assert_type_symbols_are_present(symbols, value); }
+            Type::Map(key, value) => {
+                assert_type_symbols_are_present(symbols, key);
+                assert_type_symbols_are_present(symbols, value);
+            }
             Type::Result(ok, err) => {
                 assert_type_symbols_are_present(symbols, ok);
                 assert_type_symbols_are_present(symbols, err);
             }
             Type::BuiltinParameter(_)
-        | Type::Any
+            | Type::Any
             | Type::Unknown
             | Type::Invalid
             | Type::Null
@@ -275,7 +281,7 @@ mod tests {
             | Type::EnvPathList
             | Type::Error
             | Type::ErrorFamily(_)
-        | Type::ProcessError
+            | Type::ProcessError
             | Type::Pure
             | Type::Proc
             | Type::Command

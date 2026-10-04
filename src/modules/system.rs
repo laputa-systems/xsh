@@ -161,9 +161,7 @@ fn parse_memory(text: &str, span: Span) -> Result<SystemMemory, RuntimeError> {
 fn os_release_impl(span: Span) -> Result<SystemOsRelease, RuntimeError> {
     let text = std::fs::read_to_string("/etc/os-release")
         .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
-        .map_err(|error| {
-            RuntimeError::host("system-os-release", &error).with_span(span)
-        })?;
+        .map_err(|error| RuntimeError::host("system-os-release", &error).with_span(span))?;
     let values = parse_os_release(&text);
     let name = values
         .get("NAME")

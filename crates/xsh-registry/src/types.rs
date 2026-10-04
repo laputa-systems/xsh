@@ -61,11 +61,23 @@ builtin_type_names!(
 
 /// Fixed relationships used only by builtin signature templates.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum BuiltinTypeParameter { Receiver, Element, Key, Value, Error }
+pub enum BuiltinTypeParameter {
+    Receiver,
+    Element,
+    Key,
+    Value,
+    Error,
+}
 
 impl BuiltinTypeParameter {
     pub const fn label(self) -> &'static str {
-        match self { Self::Receiver => "Self", Self::Element => "T", Self::Key => "K", Self::Value => "V", Self::Error => "E" }
+        match self {
+            Self::Receiver => "Self",
+            Self::Element => "T",
+            Self::Key => "K",
+            Self::Value => "V",
+            Self::Error => "E",
+        }
     }
 }
 
@@ -109,7 +121,11 @@ pub enum Type {
 /// The full CLI outcome always contains this envelope, independently of the
 /// descriptor that determines the values record's fields.
 pub fn cli_full_fields<T>(values: T, sources: T, warnings: T) -> [(&'static str, T); 3] {
-    [("values", values), ("sources", sources), ("warnings", warnings)]
+    [
+        ("values", values),
+        ("sources", sources),
+        ("warnings", warnings),
+    ]
 }
 
 #[cfg(test)]

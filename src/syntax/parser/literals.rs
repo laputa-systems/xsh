@@ -2,10 +2,10 @@
 
 use super::{Diagnostic, EscapeIssueKind, InterpolationChunk, Label, Lexer, Parser, Span, literal};
 use crate::diagnostic::{DiagnosticCode, FixHint};
+use crate::syntax::arena::{ArenaProgramBuilder, ArenaRange, ExprId};
 use crate::syntax::literal::FmtIssueKind;
 use crate::syntax::node::{FormatSpec, FormatSpecKind};
 use crate::syntax::token::TokenTag;
-use crate::syntax::arena::{ArenaProgramBuilder, ArenaRange, ExprId};
 use std::sync::Arc;
 
 impl<'a> Parser<'a> {
@@ -105,9 +105,11 @@ impl<'a> Parser<'a> {
         let mut value = String::new();
         for chunk in chunks {
             if let InterpolationChunk::Text { source, offset } = chunk {
-                if raw_literal { value.push_str(source); }
-                else {
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(self.source_id, source, span, offset);
+                if raw_literal {
+                    value.push_str(source);
+                } else {
+                    let (text, decode_diagnostics) =
+                        decode_interpolation_text_for(self.source_id, source, span, offset);
                     diagnostics.extend(decode_diagnostics);
                     value.push_str(&text);
                 }
@@ -117,25 +119,46 @@ impl<'a> Parser<'a> {
         Arc::from(value)
     }
 
-    pub(super) fn quoted_text_chunks(&self, span: Span, interpolates: bool) -> (Vec<InterpolationChunk<'a>>, Vec<Diagnostic>) {
-        let Some(literal::QuotedScan::Terminated(quoted)) = literal::scan_quoted_literal(self.source, span.start(), true) else {
+    pub(super) fn quoted_text_chunks(
+        &self,
+        span: Span,
+        interpolates: bool,
+    ) -> (Vec<InterpolationChunk<'a>>, Vec<Diagnostic>) {
+        let Some(literal::QuotedScan::Terminated(quoted)) =
+            literal::scan_quoted_literal(self.source, span.start(), true)
+        else {
             return (Vec::new(), Vec::new());
         };
         let raw = &self.source[quoted.content_start..quoted.content_end];
         let mut diagnostics = Vec::new();
         let chunks = if !interpolates || quoted.raw {
-            vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }]
-        } else if matches!(quoted.kind, literal::QuotedLiteralKind::Fmt | literal::QuotedLiteralKind::PathFmt) {
+            vec![InterpolationChunk::Text {
+                source: raw,
+                offset: quoted.content_start,
+            }]
+        } else if matches!(
+            quoted.kind,
+            literal::QuotedLiteralKind::Fmt | literal::QuotedLiteralKind::PathFmt
+        ) {
             let (chunks, issues) = literal::fmt_chunks(self.source, quoted);
-            diagnostics.extend(issues.into_iter().map(|issue| self.fmt_issue_diagnostic(issue, quoted)));
+            diagnostics.extend(
+                issues
+                    .into_iter()
+                    .map(|issue| self.fmt_issue_diagnostic(issue, quoted)),
+            );
             chunks
         } else {
             // A quoted command word interpolates `${expr}` and `$name`.
             literal::interpolation_chunks(raw, quoted.content_start).unwrap_or_else(|| {
-                diagnostics.push(Diagnostic::error("unterminated string interpolation")
-                    .with_code(DiagnosticCode::ParseUnterminatedInterpolation)
-                    .with_label(Label::primary(span, "interpolation starts in this string")));
-                vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }]
+                diagnostics.push(
+                    Diagnostic::error("unterminated string interpolation")
+                        .with_code(DiagnosticCode::ParseUnterminatedInterpolation)
+                        .with_label(Label::primary(span, "interpolation starts in this string")),
+                );
+                vec![InterpolationChunk::Text {
+                    source: raw,
+                    offset: quoted.content_start,
+                }]
             })
         };
         let (chunks, issues) = literal::block_string_chunks(self.source, quoted, chunks);
@@ -147,7 +170,11 @@ impl<'a> Parser<'a> {
         (chunks, diagnostics)
     }
 
-    fn fmt_issue_diagnostic(&self, issue: literal::FmtIssue, quoted: literal::QuotedLiteral) -> Diagnostic {
+    fn fmt_issue_diagnostic(
+        &self,
+        issue: literal::FmtIssue,
+        quoted: literal::QuotedLiteral,
+    ) -> Diagnostic {
         let span = Span::new(self.source_id, issue.start, issue.end);
         match issue.kind {
             FmtIssueKind::LoneCloseBrace => {
@@ -157,7 +184,9 @@ impl<'a> Parser<'a> {
                     .with_fix_hint(FixHint::replacement(span, "write `}}`", "}}"));
                 // `{{` is always an escape, so `f"{{a: 1}.a}"` reaches here.
                 if self.source[quoted.content_start..issue.start].contains("{{") {
-                    diagnostic.with_note("an interpolation that starts with `{` needs a space: `{ {a: 1}.a }`")
+                    diagnostic.with_note(
+                        "an interpolation that starts with `{` needs a space: `{ {a: 1}.a }`",
+                    )
                 } else {
                     diagnostic
                 }
@@ -166,22 +195,31 @@ impl<'a> Parser<'a> {
                 .with_code(DiagnosticCode::ParseUnterminatedInterpolation)
                 .with_label(Label::primary(span, "this `{` has no matching `}`"))
                 .with_note("a literal brace is written `{{`"),
-            FmtIssueKind::Comment => Diagnostic::error("comments are not allowed inside an f-string interpolation")
-                .with_code(DiagnosticCode::ParseFmtInterpolationComment)
-                .with_label(Label::primary(span, "comment inside `{...}`")),
-            FmtIssueKind::LineBreak => Diagnostic::error("line break inside an interpolation of a single-line f-string")
-                .with_code(DiagnosticCode::ParseFmtInterpolationLineBreak)
-                .with_label(Label::primary(span, "the interpolation continues on the next line"))
-                .with_note("bind the value first, or use a block `f\"\"\"...\"\"\"` string"),
+            FmtIssueKind::Comment => {
+                Diagnostic::error("comments are not allowed inside an f-string interpolation")
+                    .with_code(DiagnosticCode::ParseFmtInterpolationComment)
+                    .with_label(Label::primary(span, "comment inside `{...}`"))
+            }
+            FmtIssueKind::LineBreak => {
+                Diagnostic::error("line break inside an interpolation of a single-line f-string")
+                    .with_code(DiagnosticCode::ParseFmtInterpolationLineBreak)
+                    .with_label(Label::primary(
+                        span,
+                        "the interpolation continues on the next line",
+                    ))
+                    .with_note("bind the value first, or use a block `f\"\"\"...\"\"\"` string")
+            }
             FmtIssueKind::Empty => Diagnostic::error("empty interpolation in f-string")
                 .with_code(DiagnosticCode::ParseFmtEmptyInterpolation)
                 .with_label(Label::primary(span, "expected an expression inside `{}`"))
                 .with_note("literal braces are written `{{}}`"),
-            FmtIssueKind::DollarBrace => Diagnostic::error("f-strings interpolate with `{expr}`, not `${expr}`")
-                .with_code(DiagnosticCode::ParseFmtDollarInterpolation)
-                .with_label(Label::primary(span, "`${` is command-word interpolation"))
-                .with_fix_hint(FixHint::replacement(span, "write `{`", "{"))
-                .with_note("a literal `$` before a brace is written `${{`"),
+            FmtIssueKind::DollarBrace => {
+                Diagnostic::error("f-strings interpolate with `{expr}`, not `${expr}`")
+                    .with_code(DiagnosticCode::ParseFmtDollarInterpolation)
+                    .with_label(Label::primary(span, "`${` is command-word interpolation"))
+                    .with_fix_hint(FixHint::replacement(span, "write `{`", "{"))
+                    .with_note("a literal `$` before a brace is written `${{`")
+            }
         }
     }
 
@@ -288,8 +326,12 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
         let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
         for diagnostic in &mut parser.diagnostics {
             diagnostic.span = diagnostic.span.map(shift);
-            for label in &mut diagnostic.labels { label.span = shift(label.span); }
-            for hint in &mut diagnostic.fix_hints { hint.span = hint.span.map(shift); }
+            for label in &mut diagnostic.labels {
+                label.span = shift(label.span);
+            }
+            for hint in &mut diagnostic.fix_hints {
+                hint.span = hint.span.map(shift);
+            }
         }
         (expr_id, parser.diagnostics)
     })
@@ -326,7 +368,11 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
                             Diagnostic::error("invalid f-string format spec")
                                 .with_code(DiagnosticCode::ParseFmtSpec)
                                 .with_label(Label::primary(
-                                    Span::new(source_id, expression_end, expression_end + 1 + text.len()),
+                                    Span::new(
+                                        source_id,
+                                        expression_end,
+                                        expression_end + 1 + text.len(),
+                                    ),
                                     "expected `:>N`, `:<N`, or `:0N` with a width of at least 1",
                                 )),
                         );
@@ -345,15 +391,23 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
         let mut diagnostics: Vec<Diagnostic> = lexed
             .diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic.span.is_none_or(|span| span.start() < expression_end))
+            .filter(|diagnostic| {
+                diagnostic
+                    .span
+                    .is_none_or(|span| span.start() < expression_end)
+            })
             .collect();
         diagnostics.append(&mut parser.diagnostics);
         arena.shift_spans_since(marks, offset);
         let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
         for diagnostic in &mut diagnostics {
             diagnostic.span = diagnostic.span.map(shift);
-            for label in &mut diagnostic.labels { label.span = shift(label.span); }
-            for hint in &mut diagnostic.fix_hints { hint.span = hint.span.map(shift); }
+            for label in &mut diagnostic.labels {
+                label.span = shift(label.span);
+            }
+            for hint in &mut diagnostic.fix_hints {
+                hint.span = hint.span.map(shift);
+            }
         }
         (expr_id, spec, diagnostics)
     })

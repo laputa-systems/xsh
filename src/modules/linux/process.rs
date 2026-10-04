@@ -23,9 +23,7 @@ pub(super) fn open_files_impl(
         vec![pid as i32]
     } else {
         fs::read_dir("/proc")
-            .map_err(|error| {
-                RuntimeError::host("linux-open-files", &error).with_span(span)
-            })?
+            .map_err(|error| RuntimeError::host("linux-open-files", &error).with_span(span))?
             .flatten()
             .filter_map(|entry| entry.file_name().to_str()?.parse::<i32>().ok())
             .collect()

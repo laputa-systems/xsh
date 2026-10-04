@@ -63,7 +63,9 @@ impl ErrorFacet {
             Self::Timeout => "The operation exceeded its time limit.",
             Self::Canceled => "Process work was canceled before it completed.",
             Self::CaptureLimit => "Captured process output exceeded its limit.",
-            Self::InvalidData => "Data was malformed, such as invalid UTF-8 or a NUL byte in a target.",
+            Self::InvalidData => {
+                "Data was malformed, such as invalid UTF-8 or a NUL byte in a target."
+            }
             Self::HostIo => "Any other host I/O failure.",
             Self::ProcessFailure => "A process could not be spawned, executed, or completed.",
         }
@@ -90,7 +92,10 @@ impl ErrorFacet {
 
 const HOST_IO_FACETS: &[(std::io::ErrorKind, ErrorFacet)] = &[
     (std::io::ErrorKind::NotFound, ErrorFacet::NotFound),
-    (std::io::ErrorKind::PermissionDenied, ErrorFacet::PermissionDenied),
+    (
+        std::io::ErrorKind::PermissionDenied,
+        ErrorFacet::PermissionDenied,
+    ),
     (std::io::ErrorKind::TimedOut, ErrorFacet::Timeout),
     (std::io::ErrorKind::InvalidData, ErrorFacet::InvalidData),
 ];
@@ -215,8 +220,14 @@ pub const PROCESS_ERROR_VARIANTS: &[ErrorVariant] = &[
 pub fn assertion_error_family() -> ErrorFamily {
     ErrorFamily {
         name: "AssertionError",
-        fields: vec![ErrorField { name: "message", ty: Type::Str }],
-        variants: &[ErrorVariant { name: "Failed", facets: &[] }],
+        fields: vec![ErrorField {
+            name: "message",
+            ty: Type::Str,
+        }],
+        variants: &[ErrorVariant {
+            name: "Failed",
+            facets: &[],
+        }],
     }
 }
 
@@ -235,18 +246,34 @@ mod tests {
     #[test]
     fn every_facet_is_implemented_by_a_builtin_source() {
         for facet in ErrorFacet::ALL {
-            let by_variant = builtin_error_families()
-                .iter()
-                .any(|family| family.variants.iter().any(|variant| variant.facets.contains(facet)));
+            let by_variant = builtin_error_families().iter().any(|family| {
+                family
+                    .variants
+                    .iter()
+                    .any(|variant| variant.facets.contains(facet))
+            });
             let by_host = *facet == ErrorFacet::HostIo || facet.host_io_kinds().next().is_some();
-            assert!(by_variant || by_host, "{} has no built-in source", facet.name());
+            assert!(
+                by_variant || by_host,
+                "{} has no built-in source",
+                facet.name()
+            );
         }
     }
 
     #[test]
     fn host_io_errors_map_onto_one_facet() {
-        assert_eq!(ErrorFacet::of_host_io(std::io::ErrorKind::NotFound), ErrorFacet::NotFound);
-        assert_eq!(ErrorFacet::of_host_io(std::io::ErrorKind::TimedOut), ErrorFacet::Timeout);
-        assert_eq!(ErrorFacet::of_host_io(std::io::ErrorKind::AlreadyExists), ErrorFacet::HostIo);
+        assert_eq!(
+            ErrorFacet::of_host_io(std::io::ErrorKind::NotFound),
+            ErrorFacet::NotFound
+        );
+        assert_eq!(
+            ErrorFacet::of_host_io(std::io::ErrorKind::TimedOut),
+            ErrorFacet::Timeout
+        );
+        assert_eq!(
+            ErrorFacet::of_host_io(std::io::ErrorKind::AlreadyExists),
+            ErrorFacet::HostIo
+        );
     }
 }

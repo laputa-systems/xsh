@@ -12,16 +12,17 @@
 //! explicit release/reaper operations.
 
 pub use crate::runtime::process::{
-    AcceptedExitCodes, CAPTURE_LIMIT, Cancellation, CancellationDecision, CancellationPolicy, ChildWaitOutcome,
-    FileRedirectionMode, ForegroundTerminal, InteractiveProcessGroupGuard, ManagedChild,
-    ManagedStdio, ProcessEnd, ProcessGroup, ProcessGroupConfig, ProcessInvocation, ProcessOutput,
-    ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind, ProcessStatus,
-    ProcessStatusKind, RedirectionStream, SignalHandlerGuard, SpawnManagedOptions, SpawnOptions,
-    SpawnedProcess, WaitMode, cancel_managed, cancellation_escalated_signal,
+    AcceptedExitCodes, CAPTURE_LIMIT, Cancellation, CancellationDecision, CancellationPolicy,
+    ChildWaitOutcome, FileRedirectionMode, ForegroundTerminal, InteractiveProcessGroupGuard,
+    ManagedChild, ManagedStdio, ProcessEnd, ProcessGroup, ProcessGroupConfig, ProcessInvocation,
+    ProcessOutput, ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind,
+    ProcessStatus, ProcessStatusKind, RedirectionStream, SignalHandlerGuard, SpawnManagedOptions,
+    SpawnOptions, SpawnedProcess, WaitMode, cancel_managed, cancellation_escalated_signal,
     cancellation_requested_signal, clear_cancellation_request,
-    initialize_interactive_process_group, install_cancellation_signal_handlers, install_interactive_signal_handlers,
-    path_bytes, poll_managed, release_to_reaper, resolve_executable, run_capture,
-    run_capture_with_policy, run_capture_with_stderr, run_capture_with_stderr_policy, run_inherit,
-    run_inherit_with_policy, run_pipeline_inherit, run_pipeline_inherit_with_policy,
-    run_quiet_with_policy, spawn_command, spawn_managed, wait_managed,
+    initialize_interactive_process_group, install_cancellation_signal_handlers,
+    install_interactive_signal_handlers, path_bytes, poll_managed, release_to_reaper,
+    resolve_executable, run_capture, run_capture_with_policy, run_capture_with_stderr,
+    run_capture_with_stderr_policy, run_inherit, run_inherit_with_policy, run_pipeline_inherit,
+    run_pipeline_inherit_with_policy, run_quiet_with_policy, spawn_command, spawn_managed,
+    wait_managed,
 };

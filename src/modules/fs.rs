@@ -175,8 +175,7 @@ pub(crate) fn mode_other_executable(mode: i64) -> bool {
 }
 
 pub(crate) fn open_root(path: PathBuf, span: Span) -> Result<Root, RuntimeError> {
-    Root::open(&path)
-        .map_err(|error| RuntimeError::host("fs-root", &error).with_span(span))
+    Root::open(&path).map_err(|error| RuntimeError::host("fs-root", &error).with_span(span))
 }
 
 pub(crate) fn rooted_open_root(root: &Root, path: &Path, span: Span) -> Result<Root, RuntimeError> {
@@ -1107,8 +1106,8 @@ impl LiveStream for DirectDirectoryStream {
         let Some(entry) = self.entries.next() else {
             return Ok(None);
         };
-        let entry = entry
-            .map_err(|error| RuntimeError::host("fs-ls", &error).with_span(self.span))?;
+        let entry =
+            entry.map_err(|error| RuntimeError::host("fs-ls", &error).with_span(self.span))?;
         let path = entry.path();
         direct_directory_entry_value(entry, path, self.stat, self.span).map(Some)
     }
@@ -1569,9 +1568,8 @@ pub(crate) fn copy_tree(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             if parents {
                 let parent = dest.parent().unwrap_or_else(|| Path::new("."));
-                std::fs::create_dir_all(parent).map_err(|error| {
-                    RuntimeError::host("fs-copy-tree", &error).with_span(span)
-                })?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
             }
         }
         Err(error) => {
@@ -1625,7 +1623,10 @@ pub(crate) fn remove_path_with_policy(
     span: Span,
 ) -> Result<(), RuntimeError> {
     let shown = path.display().to_string();
-    name_error_path(&shown, remove_path_with_policy_unnamed(path, recursive, missing_ok, span))
+    name_error_path(
+        &shown,
+        remove_path_with_policy_unnamed(path, recursive, missing_ok, span),
+    )
 }
 
 fn remove_path_with_policy_unnamed(
@@ -1685,9 +1686,8 @@ pub(crate) fn remove_manifest(
     prune_dirs: bool,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let root_metadata = std::fs::symlink_metadata(&root).map_err(|error| {
-        RuntimeError::host("fs-remove-manifest", &error).with_span(span)
-    })?;
+    let root_metadata = std::fs::symlink_metadata(&root)
+        .map_err(|error| RuntimeError::host("fs-remove-manifest", &error).with_span(span))?;
     if !root_metadata.file_type().is_dir() {
         return Err(
             RuntimeError::new("fs-remove-manifest", "root is not a directory").with_span(span),
@@ -1717,9 +1717,7 @@ pub(crate) fn remove_manifest(
                 stats.missing += 1;
             }
             Err(error) => {
-                return Err(
-                    RuntimeError::host("fs-remove-manifest", &error).with_span(span)
-                );
+                return Err(RuntimeError::host("fs-remove-manifest", &error).with_span(span));
             }
         }
     }
@@ -1742,9 +1740,7 @@ pub(crate) fn remove_manifest(
                         std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
                     ) => {}
                 Err(error) => {
-                    return Err(
-                        RuntimeError::host("fs-remove-manifest", &error).with_span(span)
-                    );
+                    return Err(RuntimeError::host("fs-remove-manifest", &error).with_span(span));
                 }
             }
         }
@@ -2100,25 +2096,21 @@ fn copy_tree_inner(
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(dest).map_err(|error| {
-                    RuntimeError::host("fs-copy-tree", &error).with_span(span)
-                })?;
+                std::fs::create_dir(dest)
+                    .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
                 stats.dirs += 1;
             }
             Err(error) => {
                 return Err(RuntimeError::host("fs-copy-tree", &error).with_span(span));
             }
         }
-        std::fs::set_permissions(dest, std::fs::Permissions::from_mode(metadata.mode())).map_err(
-            |error| RuntimeError::host("fs-copy-tree", &error).with_span(span),
-        )?;
+        std::fs::set_permissions(dest, std::fs::Permissions::from_mode(metadata.mode()))
+            .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
         let mut children = std::fs::read_dir(source)
             .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                RuntimeError::host("fs-copy-tree", &error).with_span(span)
-            })?;
+            .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
         children.sort_unstable_by_key(|path| path_bytes(path));
         for child in children {
             let name = child.file_name().ok_or_else(|| {
@@ -2137,9 +2129,8 @@ fn copy_tree_inner(
         copy_regular_file(source, dest, &metadata, overwrite, span)?;
         stats.files += 1;
     } else if metadata.file_type().is_symlink() {
-        let target = std::fs::read_link(source).map_err(|error| {
-            RuntimeError::host("fs-copy-tree", &error).with_span(span)
-        })?;
+        let target = std::fs::read_link(source)
+            .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
         copy_symlink(&target, dest, overwrite, span)?;
         stats.symlinks += 1;
     } else {
@@ -2210,9 +2201,8 @@ fn copy_symlink(
             return Err(RuntimeError::new("fs-copy-tree", "destination exists").with_span(span));
         }
         Ok(_) => {
-            std::fs::remove_file(path).map_err(|error| {
-                RuntimeError::host("fs-copy-tree", &error).with_span(span)
-            })?;
+            std::fs::remove_file(path)
+                .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
@@ -2361,9 +2351,7 @@ impl LiveStream for IgnoreWalkStream {
                     Err(error) => return Err(error),
                 },
                 Err(error) => {
-                    return Err(
-                        RuntimeError::host("fs-walk", &error).with_span(spec.span)
-                    );
+                    return Err(RuntimeError::host("fs-walk", &error).with_span(spec.span));
                 }
             };
             return item.record(spec.stat, spec.span).map(Some);

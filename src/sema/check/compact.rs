@@ -2,8 +2,8 @@
 
 use super::decl::is_builtin_or_standard_record_type_name;
 use super::{
-    BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo,
-    FxHashMap, FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
+    BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo, FxHashMap,
+    FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
@@ -18,7 +18,8 @@ use crate::syntax::node::Effect;
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
     // Namespace and source identity distinguish equal offsets in imported units.
-    pub stream_stage_types: BTreeMap<(Option<Name>, crate::source::Span), super::CheckedStreamStage>,
+    pub stream_stage_types:
+        BTreeMap<(Option<Name>, crate::source::Span), super::CheckedStreamStage>,
     pub static_callable_aliases: BTreeMap<crate::source::Span, super::StaticCallableAlias>,
     pub local_binding_types: BTreeMap<crate::source::Span, Type>,
     pub record_constructors: super::RecordConstructors,
@@ -92,33 +93,57 @@ pub struct CompactBodyFacts {
 }
 
 impl CompactBodyFacts {
-    fn collect(program: &ArenaProgram, checked: &super::CheckOutput) -> (Self, FxHashMap<ExprId, Type>) {
+    fn collect(
+        program: &ArenaProgram,
+        checked: &super::CheckOutput,
+    ) -> (Self, FxHashMap<ExprId, Type>) {
         let arena = &program.arena;
-        let mut facts = Self { argument_bindings: checked.argument_bindings.clone(), ..Self::default() };
+        let mut facts = Self {
+            argument_bindings: checked.argument_bindings.clone(),
+            ..Self::default()
+        };
         let mut record_constructor_types = FxHashMap::default();
         facts.expr_types.reserve(checked.expr_types.len());
         for index in 0..arena.expr_tags.len() {
             let id = ExprId::from_index(index);
             let expression = arena.expr(id);
             let span = expression.span;
-            if let Some(ty) = checked.expr_types.get(&span) { facts.expr_types.insert(id, ty.clone()); }
-            if let Some(target) = checked.requirement_targets.get(&span) { facts.requirement_targets.insert(id, target.clone()); }
-            if checked.projections.contains_key(&span) { facts.projections.insert(id); }
-            if checked.proven_nonnull_fallback_receivers.contains(&span) { facts.proven_nonnull_fallback_receivers.insert(id); }
-            if let Some(call) = checked.api_calls.get(&span) { facts.api_calls.insert(id, call.clone()); }
+            if let Some(ty) = checked.expr_types.get(&span) {
+                facts.expr_types.insert(id, ty.clone());
+            }
+            if let Some(target) = checked.requirement_targets.get(&span) {
+                facts.requirement_targets.insert(id, target.clone());
+            }
+            if checked.projections.contains_key(&span) {
+                facts.projections.insert(id);
+            }
+            if checked.proven_nonnull_fallback_receivers.contains(&span) {
+                facts.proven_nonnull_fallback_receivers.insert(id);
+            }
+            if let Some(call) = checked.api_calls.get(&span) {
+                facts.api_calls.insert(id, call.clone());
+            }
             if let ArenaExprKind::Call { callee, .. } = expression.kind
-                && let Some(fact) = checked.record_constructor_instances.get(&span) {
+                && let Some(fact) = checked.record_constructor_instances.get(&span)
+            {
                 record_constructor_types.insert(callee, fact.ty.clone());
             }
         }
         for index in 0..arena.stmt_tags.len() {
             let id = StmtId::from_index(index);
-            if let Some(position) = checked.statement_positions.get(&arena.stmt(id).span) { facts.statement_positions.insert(id, *position); }
+            if let Some(position) = checked.statement_positions.get(&arena.stmt(id).span) {
+                facts.statement_positions.insert(id, *position);
+            }
         }
         if !checked.handler_input_types.is_empty() {
             for index in 0..arena.blocks.len() {
                 let id = BlockId::from_index(index);
-                if let Some(ty) = checked.handler_input_types.get(&arena.span(arena.block(id).span)) { facts.handler_input_types.insert(id, ty.clone()); }
+                if let Some(ty) = checked
+                    .handler_input_types
+                    .get(&arena.span(arena.block(id).span))
+                {
+                    facts.handler_input_types.insert(id, ty.clone());
+                }
             }
         }
         (facts, record_constructor_types)
@@ -132,7 +157,10 @@ impl Checker {
         program.symbol_owner().with_current(|| {
             // Entry checking owns the `reveal_type` gate; `xsht check` admits it
             // and runtime lowering skips it, so this replay must not reject it.
-            let options = super::CheckOptions { reveal_types: true, ..super::CheckOptions::default() };
+            let options = super::CheckOptions {
+                reveal_types: true,
+                ..super::CheckOptions::default()
+            };
             let checked = Checker::check_arena_for_lowering(program, options);
             let (bodies, record_constructor_types) = CompactBodyFacts::collect(program, &checked);
             let mut collector = CompactDeclCollector {
@@ -151,26 +179,66 @@ impl Checker {
                     ..CompactDeclOutput::default()
                 },
             };
-            collector.output.error_families_by_name = Checker::new(super::CheckOptions::default()).error_families;
-            collector.diagnostics.extend(Self::prepare_regex_literals(program));
+            collector.output.error_families_by_name =
+                Checker::new(super::CheckOptions::default()).error_families;
+            collector
+                .diagnostics
+                .extend(Self::prepare_regex_literals(program));
             collector.collect_program(program);
             let mut output = collector.output;
-            output.prepared_constants = crate::sema::constants::PreparedConstants::collect(program, &output.record_constructors);
-            collector.diagnostics.extend(output.prepared_constants.diagnostics.clone());
-            output.record_constructors.apply_prepared_defaults(program, &output.prepared_constants);
-            let (wire_enums, wire_diagnostics) = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr|
-                output.prepared_constants.analyze_expression(&program.arena, expr));
+            output.prepared_constants = crate::sema::constants::PreparedConstants::collect(
+                program,
+                &output.record_constructors,
+            );
+            collector
+                .diagnostics
+                .extend(output.prepared_constants.diagnostics.clone());
+            output
+                .record_constructors
+                .apply_prepared_defaults(program, &output.prepared_constants);
+            let (wire_enums, wire_diagnostics) =
+                crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr| {
+                    output
+                        .prepared_constants
+                        .analyze_expression(&program.arena, expr)
+                });
             output.wire_enums = wire_enums;
             collector.diagnostics.extend(wire_diagnostics);
-            let (entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
-                |parameter| output.parameter_types.get(&program.arena.span(parameter.span)).cloned().unwrap_or_else(|| output.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
-                |ty| output.record_constructors.cli_parser_type(&program.arena, ty),
-                |expr| output.prepared_constants.analyze_expression(&program.arena, expr));
+            let (entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
+                program,
+                |parameter| {
+                    output
+                        .parameter_types
+                        .get(&program.arena.span(parameter.span))
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            output.record_constructors.resolve_type(
+                                &program.arena,
+                                parameter.ty,
+                                None,
+                            )
+                        })
+                },
+                |ty| {
+                    output
+                        .record_constructors
+                        .cli_parser_type(&program.arena, ty)
+                },
+                |expr| {
+                    output
+                        .prepared_constants
+                        .analyze_expression(&program.arena, expr)
+                },
+            );
             output.cli_entry = entry;
             collector.diagnostics.extend(diagnostics);
             output.diagnostics = collector.diagnostics;
-            output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
-                diagnostic.severity == crate::diagnostic::Severity::Error));
+            output.diagnostics.extend(
+                checked
+                    .diagnostics
+                    .into_iter()
+                    .filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error),
+            );
             output
         })
     }
@@ -210,7 +278,10 @@ impl CompactDeclCollector {
             }
             ArenaStmtKind::CliMain(def) => {
                 self.output.function_defs += 1;
-                self.output.params += program.arena.params(program.arena.function_def(def).params).len();
+                self.output.params += program
+                    .arena
+                    .params(program.arena.function_def(def).params)
+                    .len();
             }
             ArenaStmtKind::PureDef(def) => {
                 self.collect_function_def(program, def, CompactFunctionKind::Pure, span, namespace);
@@ -342,7 +413,10 @@ impl CompactDeclCollector {
                         ));
                     }
                     let info = TagVariantInfo {
-                        type_name: crate::sema::wire_enums::nominal_enum_name(namespace.or(program.root_nominal_namespace), def.name),
+                        type_name: crate::sema::wire_enums::nominal_enum_name(
+                            namespace.or(program.root_nominal_namespace),
+                            def.name,
+                        ),
                         field_count: field_types.len(),
                         field_types,
                     };
@@ -454,7 +528,11 @@ impl CompactDeclCollector {
             }
         }
         if !self.names.insert(def.name) {
-            self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
+            self.error(
+                span,
+                "duplicate top-level name",
+                DiagnosticCode::CheckDuplicateName,
+            );
         }
         let sig = self.function_sig(program, id, namespace);
         if let Some(namespace) = namespace {
@@ -490,25 +568,63 @@ impl CompactDeclCollector {
         }
     }
 
-    fn function_sig(&mut self, program: &ArenaProgram, id: FunctionDefId, namespace: Option<Name>) -> CompactFunctionSig {
+    fn function_sig(
+        &mut self,
+        program: &ArenaProgram,
+        id: FunctionDefId,
+        namespace: Option<Name>,
+    ) -> CompactFunctionSig {
         let def = program.arena.function_def(id);
         let mut params = self.param_sigs(program, def.params);
-        let parameter_schemas = program.arena.params(def.params).iter().zip(&mut params).map(|(syntax, param)| {
-            param.ty = self.output.record_constructors.resolve_type(&program.arena, syntax.ty, namespace);
-            self.output.record_constructors.annotation_expectation(&program.arena, syntax.ty, namespace).ok()
-        }).collect();
+        let parameter_schemas = program
+            .arena
+            .params(def.params)
+            .iter()
+            .zip(&mut params)
+            .map(|(syntax, param)| {
+                param.ty = self.output.record_constructors.resolve_type(
+                    &program.arena,
+                    syntax.ty,
+                    namespace,
+                );
+                self.output
+                    .record_constructors
+                    .annotation_expectation(&program.arena, syntax.ty, namespace)
+                    .ok()
+            })
+            .collect();
         let body_span = program.arena.span(program.arena.block(def.body).span);
-        let return_ty = self.output.function_return_types.get(&body_span).cloned()
+        let return_ty = self
+            .output
+            .function_return_types
+            .get(&body_span)
+            .cloned()
             .unwrap_or_else(|| Type::from_arena(&program.arena, def.return_ty));
-        let effects = self.output.function_effect_facts.get(&super::EffectDeclarationId { namespace, body: body_span })
+        let effects = self
+            .output
+            .function_effect_facts
+            .get(&super::EffectDeclarationId {
+                namespace,
+                body: body_span,
+            })
             .map(|fact| fact.effective.clone())
-            .unwrap_or_else(|| def.effects.map(|effects| program.arena.effects(effects).collect::<Vec<_>>()));
+            .unwrap_or_else(|| {
+                def.effects
+                    .map(|effects| program.arena.effects(effects).collect::<Vec<_>>())
+            });
         CompactFunctionSig {
             params,
             parameter_schemas,
             return_ty,
             return_type_expr: def.return_ty,
-            inferred_effects: self.output.function_effect_facts.get(&super::EffectDeclarationId { namespace, body: body_span }).is_some_and(|fact| fact.inferred),
+            inferred_effects: self
+                .output
+                .function_effect_facts
+                .get(&super::EffectDeclarationId {
+                    namespace,
+                    body: body_span,
+                })
+                .is_some_and(|fact| fact.inferred),
             effects,
         }
     }
@@ -538,7 +654,12 @@ impl CompactDeclCollector {
             .iter()
             .map(|param| CallableParamType {
                 name: param.name,
-                ty: self.output.parameter_types.get(&program.arena.span(param.span)).cloned().unwrap_or_else(|| Type::from_arena(&program.arena, param.ty)),
+                ty: self
+                    .output
+                    .parameter_types
+                    .get(&program.arena.span(param.span))
+                    .cloned()
+                    .unwrap_or_else(|| Type::from_arena(&program.arena, param.ty)),
                 defaulted: param.default.is_some(),
                 rest: param.rest,
             })
@@ -556,7 +677,11 @@ impl CompactDeclCollector {
         }
         self.check_standard_module_shadow(&name.as_str(), span);
         if !self.names.insert(name) {
-            self.error(span, "duplicate top-level name", DiagnosticCode::CheckDuplicateName);
+            self.error(
+                span,
+                "duplicate top-level name",
+                DiagnosticCode::CheckDuplicateName,
+            );
         }
     }
 

@@ -1,8 +1,9 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::runtime::process::{
-    completion_error, rejected_segment, CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, run_capture_with_policy,
-    run_capture_with_stderr_policy, run_pipeline_capture_with_policy, run_pipeline_inherit_with_policy,
+    CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, completion_error,
+    rejected_segment, run_capture_with_policy, run_capture_with_stderr_policy,
+    run_pipeline_capture_with_policy, run_pipeline_inherit_with_policy,
 };
 use crate::runtime::value::{RecordMap, RunError, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -47,10 +48,20 @@ fn run_status_form_with_policy(
             if let Some(error) = run_completion_error(&status, invocations, assert_success) {
                 let error = error.with_span(span);
                 end.error = Some(error.clone());
-                RunExecution { value: Ok(Value::err(Value::RunError(Box::new(error)))), end }
+                RunExecution {
+                    value: Ok(Value::err(Value::RunError(Box::new(error)))),
+                    end,
+                }
             } else {
                 let value = Value::Status(status);
-                RunExecution { value: Ok(if assert_success { Value::ok(value) } else { value }), end }
+                RunExecution {
+                    value: Ok(if assert_success {
+                        Value::ok(value)
+                    } else {
+                        value
+                    }),
+                    end,
+                }
             }
         }
         Err(error) => run_error_value(error, span),
@@ -82,7 +93,10 @@ fn run_capture_form_with_policy(
             if let Some(error) = run_completion_error(&status, invocations, !capture_stderr) {
                 let error = error.with_span(span);
                 output.end.error = Some(error.clone());
-                return RunExecution { value: Ok(Value::err(Value::RunError(Box::new(error)))), end: output.end };
+                return RunExecution {
+                    value: Ok(Value::err(Value::RunError(Box::new(error)))),
+                    end: output.end,
+                };
             }
 
             let value = match kind {
@@ -161,15 +175,26 @@ fn capture_record(
     ]))
 }
 
-pub(crate) fn run_completion_error(status: &ProcessStatus, invocations: &[ProcessInvocation], require_zero: bool) -> Option<RunError> {
-    let policies = invocations.iter().map(|invocation| invocation.accepted_exit_codes).collect::<Vec<_>>();
+pub(crate) fn run_completion_error(
+    status: &ProcessStatus,
+    invocations: &[ProcessInvocation],
+    require_zero: bool,
+) -> Option<RunError> {
+    let policies = invocations
+        .iter()
+        .map(|invocation| invocation.accepted_exit_codes)
+        .collect::<Vec<_>>();
     let mut error = completion_error(status, &policies, require_zero)?;
     let segment = rejected_segment(status, &policies, require_zero)?;
     if let Some(invocation) = invocations.get(segment.index) {
         error.message.push_str("\ncwd: ");
-        error.message.push_str(&invocation.cwd.display().to_string());
+        error
+            .message
+            .push_str(&invocation.cwd.display().to_string());
         error.message.push_str("\nargv: ");
-        error.message.push_str(&shell_escaped_argv(&invocation.target, &invocation.argv));
+        error
+            .message
+            .push_str(&shell_escaped_argv(&invocation.target, &invocation.argv));
     }
     Some(error)
 }

@@ -7,7 +7,7 @@
 #![allow(clippy::single_call_fn)]
 
 mod error_causes;
-pub use error_causes::{TraceErrorDetail, ERROR_CAUSE_DEPTH_LIMIT};
+pub use error_causes::{ERROR_CAUSE_DEPTH_LIMIT, TraceErrorDetail};
 
 use crate::source::{SourceMap, Span};
 use crate::symbol::NameText;
@@ -18,9 +18,9 @@ use std::fmt::Write as _;
 /// Trace renderers and syscall presentation are owned by `xsht`.
 pub mod model {
     pub use super::{
-        TraceArg, TraceEnv, TraceError, TraceErrorDetail, TraceEvent, TraceKind, TracePayload, TraceStatus,
-        TraceStatusKind, TraceTiming, Traceback, TracebackFrame, TracebackFrameKind, TracebackName,
-        TracebackRenderer,
+        TraceArg, TraceEnv, TraceError, TraceErrorDetail, TraceEvent, TraceKind, TracePayload,
+        TraceStatus, TraceStatusKind, TraceTiming, Traceback, TracebackFrame, TracebackFrameKind,
+        TracebackName, TracebackRenderer,
     };
 }
 
@@ -512,7 +512,9 @@ impl TracebackRenderer {
             render_error_detail(detail, sources, &mut output);
         } else {
             output.push_str(&traceback.error.kind);
-            if !traceback.error.message.is_empty() && traceback.error.message != traceback.error.kind {
+            if !traceback.error.message.is_empty()
+                && traceback.error.message != traceback.error.kind
+            {
                 output.push_str(": ");
                 output.push_str(&traceback.error.message);
             }
@@ -523,7 +525,9 @@ impl TracebackRenderer {
             render_error_detail(cause, sources, &mut output);
             output.push('\n');
         }
-        if traceback.error.causes_truncated { output.push_str("cause chain truncated\n"); }
+        if traceback.error.causes_truncated {
+            output.push_str("cause chain truncated\n");
+        }
 
         if let Some(span) = traceback.failing_span {
             output.push_str("at ");
@@ -553,14 +557,23 @@ impl TracebackRenderer {
     }
 }
 
-fn quote_error_text(text: &str) -> String { format!("{text:?}") }
+fn quote_error_text(text: &str) -> String {
+    format!("{text:?}")
+}
 
 fn render_error_detail(detail: &TraceErrorDetail, sources: &SourceMap, output: &mut String) {
-    let _ = write!(output, "{}.{}: {}", detail.family.escape_default(),
-        detail.variant.escape_default(), quote_error_text(&detail.message));
+    let _ = write!(
+        output,
+        "{}.{}: {}",
+        detail.family.escape_default(),
+        detail.variant.escape_default(),
+        quote_error_text(&detail.message)
+    );
     if let Some(status) = &detail.status {
         let _ = write!(output, " [{}", status.kind.as_str());
-        if let Some(code) = status.code { let _ = write!(output, " {code}"); }
+        if let Some(code) = status.code {
+            let _ = write!(output, " {code}");
+        }
         output.push(']');
     }
     if let Some(span) = detail.span {
@@ -584,7 +597,9 @@ fn render_error_span(span: Span, sources: &SourceMap, output: &mut String) {
     render_span_text(span, sources, &mut location);
     let mut characters = location.chars();
     let mut location: String = characters.by_ref().take(4096).collect();
-    if characters.next().is_some() { location.push('…'); }
+    if characters.next().is_some() {
+        location.push('…');
+    }
     output.push_str(&quote_error_text(&location));
 }
 
@@ -630,10 +645,18 @@ fn quote_bytes(bytes: &[u8]) -> String {
 
 /// Why a retry region finished after its most recent attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RetryStopReason { Success, Nonmatching, Exhausted }
+pub enum RetryStopReason {
+    Success,
+    Nonmatching,
+    Exhausted,
+}
 
 impl RetryStopReason {
     pub fn as_str(self) -> &'static str {
-        match self { Self::Success => "success", Self::Nonmatching => "nonmatching", Self::Exhausted => "exhausted" }
+        match self {
+            Self::Success => "success",
+            Self::Nonmatching => "nonmatching",
+            Self::Exhausted => "exhausted",
+        }
     }
 }

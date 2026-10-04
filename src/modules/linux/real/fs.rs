@@ -195,9 +195,8 @@ fn disk_usage_record(
     stat_path: &Path,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let stats = rfs::statvfs(stat_path).map_err(|error| {
-        RuntimeError::host("linux-disk-usage", &error).with_span(span)
-    })?;
+    let stats = rfs::statvfs(stat_path)
+        .map_err(|error| RuntimeError::host("linux-disk-usage", &error).with_span(span))?;
     let block_size = stats.f_bsize as u128;
     let total = blocks_to_i64(stats.f_blocks as u128, block_size);
     let used_blocks = stats.f_blocks.saturating_sub(stats.f_bfree);

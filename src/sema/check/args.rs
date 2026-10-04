@@ -27,7 +27,11 @@ impl Checker {
         span: Span,
     ) {
         if args.len() != names.len() {
-            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
+            self.error(
+                span,
+                "incorrect standard API arity",
+                DiagnosticCode::CheckArity,
+            );
         }
         for (index, arg) in args.iter().enumerate() {
             if let ArenaCallArgKind::Named { name, .. } = &arg.kind
@@ -54,7 +58,8 @@ impl Checker {
             return Type::Unknown;
         };
         let previous = self.expected_schema.take();
-        self.expected_schema = expected.map(|_| crate::sema::constants::SchemaExpectation::default());
+        self.expected_schema =
+            expected.map(|_| crate::sema::constants::SchemaExpectation::default());
         let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected);
         self.expected_schema = previous;
         if let Some(expected) = expected {
@@ -96,7 +101,10 @@ impl Checker {
             .map(|(index, arg)| {
                 let expected = common_module_overload_expected_arena(args, overloads, index);
                 let previous = self.expected_schema.take();
-                if overloads.len() == 1 && expected.is_some() { self.expected_schema = Some(crate::sema::constants::SchemaExpectation::default()); }
+                if overloads.len() == 1 && expected.is_some() {
+                    self.expected_schema =
+                        Some(crate::sema::constants::SchemaExpectation::default());
+                }
                 let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected.as_ref());
                 self.expected_schema = previous;
                 actual
@@ -122,7 +130,11 @@ impl Checker {
             .filter(|sig| module_sig_accepts_arity(args.len(), sig))
             .collect::<Vec<_>>();
         if arity_matches.is_empty() {
-            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
+            self.error(
+                span,
+                "incorrect standard API arity",
+                DiagnosticCode::CheckArity,
+            );
             return &overloads[0];
         }
         if arity_matches
@@ -140,7 +152,11 @@ impl Checker {
                     DiagnosticCode::CheckNamedArg,
                 );
             } else {
-                self.error(span, "unexpected named parameter", DiagnosticCode::CheckNamedArg);
+                self.error(
+                    span,
+                    "unexpected named parameter",
+                    DiagnosticCode::CheckNamedArg,
+                );
             }
             return arity_matches[0];
         }
@@ -184,12 +200,26 @@ impl Checker {
     }
 
     fn check_parameter_arg_arena(
-        &mut self, arena: &ArenaProgram, source: &str, arg: &ArenaCallArgKind,
-        expected: &Type, parameter: &FunctionParamSig,
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        arg: &ArenaCallArgKind,
+        expected: &Type,
+        parameter: &FunctionParamSig,
     ) -> Type {
         let schema = if parameter.rest {
-            parameter.schema_expectation.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Item)).cloned()
-        } else { parameter.schema_expectation.clone() };
+            parameter
+                .schema_expectation
+                .as_ref()
+                .and_then(|schema| {
+                    schema
+                        .children
+                        .get(&crate::sema::constants::SchemaComponent::Item)
+                })
+                .cloned()
+        } else {
+            parameter.schema_expectation.clone()
+        };
         let previous = std::mem::replace(&mut self.expected_schema, schema);
         let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
         self.expected_schema = previous;
@@ -204,36 +234,76 @@ impl Checker {
         params: &[FunctionParamSig],
         span: Span,
     ) {
-        if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. })) {
+        if args
+            .iter()
+            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. }))
+        {
             use crate::sema::arguments::{bind_static_arguments, expand_named_arguments};
-            let callable = params.iter().map(|param| crate::sema::types::CallableParamType {
-                name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest,
-            }).collect::<Vec<_>>();
-            let expanded = expand_named_arguments(arena, args, |_| None).expect("named spreads expanded before function binding");
+            let callable = params
+                .iter()
+                .map(|param| crate::sema::types::CallableParamType {
+                    name: param.name,
+                    ty: param.ty.clone(),
+                    defaulted: param.defaulted,
+                    rest: param.rest,
+                })
+                .collect::<Vec<_>>();
+            let expanded = expand_named_arguments(arena, args, |_| None)
+                .expect("named spreads expanded before function binding");
             match bind_static_arguments(&callable, &expanded).inspect(|binding| {
-                self.argument_bindings.insert(span, super::CheckedArguments { callable_entry: None, argument_slots: binding.argument_slots.clone() });
+                self.argument_bindings.insert(
+                    span,
+                    super::CheckedArguments {
+                        callable_entry: None,
+                        argument_slots: binding.argument_slots.clone(),
+                    },
+                );
             }) {
                 Err(error) => {
                     self.error(error.span, &error.message, DiagnosticCode::CheckNamedArg);
-                    for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
-                }
-                Ok(binding) => for (arg, slot) in args.iter().zip(binding.argument_slots) {
-                    let param = &params[slot];
-                    let expected = if param.rest { match &param.ty { Type::List(item) => item.as_ref(), other => other } } else { &param.ty };
-                    if let ArenaCallArgKind::Splice { value, .. } = arg.kind {
-                        let actual = self.check_expr_arena(arena, source, value, None);
-                        self.expect_type(&Type::List(Box::new(expected.clone())), &actual, call_arg_span_arena(arena, &arg.kind));
-                    } else {
-                        let actual = self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param);
-                        self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
+                    for arg in args {
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
                     }
-                },
+                }
+                Ok(binding) => {
+                    for (arg, slot) in args.iter().zip(binding.argument_slots) {
+                        let param = &params[slot];
+                        let expected = if param.rest {
+                            match &param.ty {
+                                Type::List(item) => item.as_ref(),
+                                other => other,
+                            }
+                        } else {
+                            &param.ty
+                        };
+                        if let ArenaCallArgKind::Splice { value, .. } = arg.kind {
+                            let actual = self.check_expr_arena(arena, source, value, None);
+                            self.expect_type(
+                                &Type::List(Box::new(expected.clone())),
+                                &actual,
+                                call_arg_span_arena(arena, &arg.kind),
+                            );
+                        } else {
+                            let actual = self.check_parameter_arg_arena(
+                                arena, source, &arg.kind, expected, param,
+                            );
+                            self.expect_type(
+                                expected,
+                                &actual,
+                                call_arg_span_arena(arena, &arg.kind),
+                            );
+                        }
+                    }
+                }
             }
             return;
         }
-        let has_splice = args
-            .iter()
-            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
+        let has_splice = args.iter().any(|arg| {
+            matches!(
+                arg.kind,
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }
+            )
+        });
         let required = params
             .iter()
             .filter(|param| !param.defaulted && !param.rest)
@@ -245,13 +315,23 @@ impl Checker {
         };
         if !has_splice && (args.len() < required || args.len() > max) {
             let expected = if required == max {
-                format!("{required} argument{}", if required == 1 { "" } else { "s" })
+                format!(
+                    "{required} argument{}",
+                    if required == 1 { "" } else { "s" }
+                )
             } else if max == usize::MAX {
                 format!("at least {required} arguments")
             } else {
                 format!("{required} to {max} arguments")
             };
-            self.error(span, &format!("incorrect function arity: expected {expected}, found {}", args.len()), DiagnosticCode::CheckArity);
+            self.error(
+                span,
+                &format!(
+                    "incorrect function arity: expected {expected}, found {}",
+                    args.len()
+                ),
+                DiagnosticCode::CheckArity,
+            );
         }
 
         let mut index = 0;
@@ -263,13 +343,18 @@ impl Checker {
                     Type::Any => Type::Any,
                     Type::Unknown => Type::Unknown,
                     _ => {
-                        self.error(span, "rest parameter requires List", DiagnosticCode::CheckRestType);
+                        self.error(
+                            span,
+                            "rest parameter requires List",
+                            DiagnosticCode::CheckRestType,
+                        );
                         Type::Unknown
                     }
                 };
                 for arg in &args[index..] {
                     match &arg.kind {
-                        ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } => {
+                        ArenaCallArgKind::Splice { value, span }
+                        | ArenaCallArgKind::NamedSpread { value, span } => {
                             let splice_span = arena.arena.span(*span);
                             let actual = self.check_expr_arena(arena, source, *value, None);
                             match actual {
@@ -288,8 +373,9 @@ impl Checker {
                             }
                         }
                         _ => {
-                            let actual =
-                                self.check_parameter_arg_arena(arena, source, &arg.kind, &item_ty, param);
+                            let actual = self.check_parameter_arg_arena(
+                                arena, source, &arg.kind, &item_ty, param,
+                            );
                             self.expect_type(
                                 &item_ty,
                                 &actual,
@@ -303,7 +389,9 @@ impl Checker {
             let Some(arg) = args.get(index) else {
                 continue;
             };
-            if let ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } = &arg.kind {
+            if let ArenaCallArgKind::Splice { value, span }
+            | ArenaCallArgKind::NamedSpread { value, span } = &arg.kind
+            {
                 let splice_span = arena.arena.span(*span);
                 let actual = self.check_expr_arena(arena, source, *value, None);
                 if !matches!(actual, Type::List(_) | Type::Any | Type::Unknown) {
@@ -329,7 +417,9 @@ impl Checker {
             let expected = can_check_following_positionals.then_some(&param.ty);
             let actual = if let Some(expected) = expected {
                 self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param)
-            } else { self.check_call_arg_arena(arena, source, &arg.kind, None) };
+            } else {
+                self.check_call_arg_arena(arena, source, &arg.kind, None)
+            };
             if let Some(expected) = expected {
                 self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
             }
@@ -349,8 +439,12 @@ impl Checker {
     }
 
     pub(super) fn check_module_sig_args_with_schema_arena(
-        &mut self, arena: &ArenaProgram, source: &str, args: &[ArenaCallArg],
-        sig: &ModuleFnSig, span: Span,
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        sig: &ModuleFnSig,
+        span: Span,
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
     ) {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
@@ -364,21 +458,43 @@ impl Checker {
         let binding = match crate::sema::arguments::bind_static_arguments(&params, &expanded) {
             Ok(binding) => binding,
             Err(error) => {
-                let required = params.iter().filter(|parameter| !parameter.defaulted).count();
-                let code = if args.len() < required || args.len() > params.len() { DiagnosticCode::CheckArity } else { DiagnosticCode::CheckNamedArg };
-                self.error(if args.is_empty() { span } else { error.span }, &error.message, code);
-                for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
+                let required = params
+                    .iter()
+                    .filter(|parameter| !parameter.defaulted)
+                    .count();
+                let code = if args.len() < required || args.len() > params.len() {
+                    DiagnosticCode::CheckArity
+                } else {
+                    DiagnosticCode::CheckNamedArg
+                };
+                self.error(
+                    if args.is_empty() { span } else { error.span },
+                    &error.message,
+                    code,
+                );
+                for arg in args {
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                }
                 return;
             }
         };
         for (arg, slot) in args.iter().zip(binding.argument_slots) {
-            let expected = self.type_constraints.resolve(&params[slot].ty).unwrap_or_else(|_| params[slot].ty.clone());
+            let expected = self
+                .type_constraints
+                .resolve(&params[slot].ty)
+                .unwrap_or_else(|_| params[slot].ty.clone());
             let previous_schema = self.expected_schema.clone();
-            self.expected_schema = schemas.get(slot).cloned().flatten().or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
+            self.expected_schema = schemas
+                .get(slot)
+                .cloned()
+                .flatten()
+                .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.expected_schema = previous_schema;
             let kind = arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind;
-            if expected == Type::Path && is_path_like_arena_expr(&kind, &actual) { continue; }
+            if expected == Type::Path && is_path_like_arena_expr(&kind, &actual) {
+                continue;
+            }
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
     }
@@ -394,9 +510,14 @@ impl Checker {
             ArenaCallArgKind::Positional(value) => {
                 self.check_expr_arena(arena, source, *value, expected)
             }
-            ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } => {
+            ArenaCallArgKind::Splice { value, span }
+            | ArenaCallArgKind::NamedSpread { value, span } => {
                 let span = arena.arena.span(*span);
-                self.error(span, "`@` splice is not valid here", DiagnosticCode::CheckCallSplice);
+                self.error(
+                    span,
+                    "`@` splice is not valid here",
+                    DiagnosticCode::CheckCallSplice,
+                );
                 self.check_expr_arena(arena, source, *value, None)
             }
             ArenaCallArgKind::Named { name, value, span } => {
@@ -410,7 +531,9 @@ impl Checker {
                     for diagnostic in &mut self.diagnostics[first_diagnostic..] {
                         if diagnostic.code == Some(DiagnosticCode::CheckCompatibilityVocabulary) {
                             for hint in &mut diagnostic.fix_hints {
-                                if hint.span == Some(value_span) && hint.replacement.as_deref() == Some("args") {
+                                if hint.span == Some(value_span)
+                                    && hint.replacement.as_deref() == Some("args")
+                                {
                                     hint.span = Some(argument_span);
                                     hint.replacement = Some("ARGV: args".to_string());
                                 }
@@ -503,7 +626,11 @@ impl Checker {
         let required = sig.params.iter().filter(|param| !param.defaulted).count();
         let max_positionals = sig.params.len().saturating_sub(flags.len());
         if positionals.len() < required || positionals.len() > max_positionals {
-            self.error(span, "incorrect module command arity", DiagnosticCode::CheckArity);
+            self.error(
+                span,
+                "incorrect module command arity",
+                DiagnosticCode::CheckArity,
+            );
         }
         let positional_params = sig
             .params
@@ -525,9 +652,9 @@ impl Checker {
 pub(super) fn call_arg_span_arena(arena: &ArenaProgram, kind: &ArenaCallArgKind) -> Span {
     match kind {
         ArenaCallArgKind::Positional(value) => arena.arena.expr(*value).span,
-        ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::NamedSpread { span, .. } | ArenaCallArgKind::Named { span, .. } => {
-            arena.arena.span(*span)
-        }
+        ArenaCallArgKind::Splice { span, .. }
+        | ArenaCallArgKind::NamedSpread { span, .. }
+        | ArenaCallArgKind::Named { span, .. } => arena.arena.span(*span),
     }
 }
 
@@ -535,7 +662,8 @@ pub(super) fn call_arg_span_arena(arena: &ArenaProgram, kind: &ArenaCallArgKind)
 pub(super) fn call_arg_expr_id_arena(kind: &ArenaCallArgKind) -> ExprId {
     match kind {
         ArenaCallArgKind::Positional(value)
-        | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. }
+        | ArenaCallArgKind::Splice { value, .. }
+        | ArenaCallArgKind::NamedSpread { value, .. }
         | ArenaCallArgKind::Named { value, .. } => *value,
     }
 }

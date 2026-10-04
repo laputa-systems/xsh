@@ -43,13 +43,11 @@ pub(super) fn blkid_info(device: &Path) -> io::Result<BlkidInfo> {
 
 pub(super) fn block_devices_impl(span: Span) -> Result<StreamValue, RuntimeError> {
     let mut entries = Vec::new();
-    let directory = fs::read_dir("/sys/block").map_err(|error| {
-        RuntimeError::host("linux-block-devices", &error).with_span(span)
-    })?;
+    let directory = fs::read_dir("/sys/block")
+        .map_err(|error| RuntimeError::host("linux-block-devices", &error).with_span(span))?;
     for entry in directory {
-        let entry = entry.map_err(|error| {
-            RuntimeError::host("linux-block-devices", &error).with_span(span)
-        })?;
+        let entry = entry
+            .map_err(|error| RuntimeError::host("linux-block-devices", &error).with_span(span))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let sys_path = entry.path();
         let dev_path = PathBuf::from("/dev").join(&name);
@@ -391,12 +389,10 @@ fn open_device(path: &Path, write: bool, span: Span) -> Result<Device, RuntimeEr
         .read(true)
         .write(write)
         .open(path)
-        .map_err(|error| {
-            RuntimeError::host("linux-partition-table", &error).with_span(span)
-        })?;
-    let metadata = file.metadata().map_err(|error| {
-        RuntimeError::host("linux-partition-table", &error).with_span(span)
-    })?;
+        .map_err(|error| RuntimeError::host("linux-partition-table", &error).with_span(span))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| RuntimeError::host("linux-partition-table", &error).with_span(span))?;
     let is_block = metadata.file_type().is_block_device();
     let sector_size = if is_block {
         let mut size = 0_i32;
@@ -441,9 +437,7 @@ fn read_lba(
         .file
         .seek(SeekFrom::Start(offset))
         .and_then(|_| device.file.read_exact(&mut buffer))
-        .map_err(|error| {
-            RuntimeError::host("linux-partition-table", &error).with_span(span)
-        })?;
+        .map_err(|error| RuntimeError::host("linux-partition-table", &error).with_span(span))?;
     Ok(buffer)
 }
 
@@ -455,9 +449,7 @@ fn write_lba(device: &mut Device, lba: u64, data: &[u8], span: Span) -> Result<(
         .file
         .seek(SeekFrom::Start(offset))
         .and_then(|_| device.file.write_all(data))
-        .map_err(|error| {
-            RuntimeError::host("linux-write-partition-table", &error).with_span(span)
-        })
+        .map_err(|error| RuntimeError::host("linux-write-partition-table", &error).with_span(span))
 }
 
 fn parse_mbr_partitions(sector0: &[u8]) -> Vec<PartitionRecord> {

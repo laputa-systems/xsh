@@ -7,11 +7,11 @@ use super::{
     archive_entry_type, btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type,
     elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
-    fs_root_type, group_record_type, linux_blkid_type,
+    fs_root_type, group_record_type, hash_check_line_type, linux_blkid_type,
     linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
     linux_interface_type, linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
     linux_module_type, linux_network_dump_type, linux_open_file_type, linux_partition_table_type,
-    linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type, hash_check_line_type,
+    linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type,
     mime_parse_type, module_sig, net_pool_type, net_response_type, param, patch_result_type,
     process_entry_type, process_port_type, process_stats_type, process_thread_type,
     process_wait_any_type, result, script_sig, script_sig_with_arg_check, sig, sig_with_arg_check,
@@ -477,9 +477,14 @@ fn cli_module() -> ModuleSig {
                     default_param("env", Type::Record(BTreeMap::new())),
                     default_param("command", Type::Str),
                 ],
-                result(Type::Record(BTreeMap::from(crate::types::cli_full_fields(
-                    Type::Record(BTreeMap::new()), Type::Record(BTreeMap::new()), Type::List(Box::new(Type::Str)),
-                ).map(|(name, ty)| (name.to_string(), ty))))),
+                result(Type::Record(BTreeMap::from(
+                    crate::types::cli_full_fields(
+                        Type::Record(BTreeMap::new()),
+                        Type::Record(BTreeMap::new()),
+                        Type::List(Box::new(Type::Str)),
+                    )
+                    .map(|(name, ty)| (name.to_string(), ty)),
+                ))),
                 true,
                 RuntimeOp::CliParseFull,
             ),
@@ -892,7 +897,16 @@ fn patch_module() -> ModuleSig {
 }
 
 fn map_module() -> ModuleSig {
-    let map_unknown = || Type::Map(Box::new(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Key)), Box::new(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Value)));
+    let map_unknown = || {
+        Type::Map(
+            Box::new(Type::BuiltinParameter(
+                crate::types::BuiltinTypeParameter::Key,
+            )),
+            Box::new(Type::BuiltinParameter(
+                crate::types::BuiltinTypeParameter::Value,
+            )),
+        )
+    };
     module_sig(vec![(
         "empty",
         sig(Vec::new(), map_unknown(), true, RuntimeOp::MapEmpty),
@@ -3277,7 +3291,10 @@ fn test_module() -> ModuleSig {
                     param("condition", Type::Bool),
                     default_param("message", Type::Str),
                 ],
-                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily("AssertionError"))),
+                Type::Result(
+                    Box::new(Type::Unit),
+                    Box::new(Type::ErrorFamily("AssertionError")),
+                ),
                 true,
                 RuntimeOp::TestOk,
             ),
@@ -3290,7 +3307,10 @@ fn test_module() -> ModuleSig {
                     param("right", unknown()),
                     default_param("message", Type::Str),
                 ],
-                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily("AssertionError"))),
+                Type::Result(
+                    Box::new(Type::Unit),
+                    Box::new(Type::ErrorFamily("AssertionError")),
+                ),
                 true,
                 RuntimeOp::TestEq,
             ),
@@ -3303,7 +3323,10 @@ fn test_module() -> ModuleSig {
                     param("right", unknown()),
                     default_param("message", Type::Str),
                 ],
-                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily("AssertionError"))),
+                Type::Result(
+                    Box::new(Type::Unit),
+                    Box::new(Type::ErrorFamily("AssertionError")),
+                ),
                 true,
                 RuntimeOp::TestNe,
             ),
@@ -3342,7 +3365,10 @@ fn test_module() -> ModuleSig {
         (
             "timeout",
             sig(
-                vec![param("ctx", test_context_type()), param("limit", Type::Duration)],
+                vec![
+                    param("ctx", test_context_type()),
+                    param("limit", Type::Duration),
+                ],
                 Type::Unit,
                 false,
                 RuntimeOp::TestTimeout,

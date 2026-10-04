@@ -301,37 +301,38 @@ impl LiveStream for RfkillStream {
         let Some((id, path)) = self.entries.next() else {
             return Ok(None);
         };
-        let record = crate::runtime::value::RecordMap::from([
-            (Arc::from("id"), Value::Int(id)),
-            (
-                Arc::from("name"),
-                str_value(read_trimmed(path.join("name")).map_err(|error| {
-                    RuntimeError::host("linux-rfkill", &error).with_span(span)
-                })?),
-            ),
-            (
-                Arc::from("type"),
-                str_value(read_trimmed(path.join("type")).map_err(|error| {
-                    RuntimeError::host("linux-rfkill", &error).with_span(span)
-                })?),
-            ),
-            (
-                Arc::from("soft_blocked"),
-                Value::Bool(
-                    read_trimmed(path.join("soft")).map_err(|error| {
+        let record =
+            crate::runtime::value::RecordMap::from([
+                (Arc::from("id"), Value::Int(id)),
+                (
+                    Arc::from("name"),
+                    str_value(read_trimmed(path.join("name")).map_err(|error| {
                         RuntimeError::host("linux-rfkill", &error).with_span(span)
-                    })? == "1",
+                    })?),
                 ),
-            ),
-            (
-                Arc::from("hard_blocked"),
-                Value::Bool(
-                    read_trimmed(path.join("hard")).map_err(|error| {
+                (
+                    Arc::from("type"),
+                    str_value(read_trimmed(path.join("type")).map_err(|error| {
                         RuntimeError::host("linux-rfkill", &error).with_span(span)
-                    })? == "1",
+                    })?),
                 ),
-            ),
-        ]);
+                (
+                    Arc::from("soft_blocked"),
+                    Value::Bool(
+                        read_trimmed(path.join("soft")).map_err(|error| {
+                            RuntimeError::host("linux-rfkill", &error).with_span(span)
+                        })? == "1",
+                    ),
+                ),
+                (
+                    Arc::from("hard_blocked"),
+                    Value::Bool(
+                        read_trimmed(path.join("hard")).map_err(|error| {
+                            RuntimeError::host("linux-rfkill", &error).with_span(span)
+                        })? == "1",
+                    ),
+                ),
+            ]);
         Ok(Some(Value::Record(record)))
     }
 }

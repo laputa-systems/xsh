@@ -9,16 +9,22 @@ pub(crate) fn source(id: &str) -> Option<String> {
         return Some(include_str!("../../../docs/snippets/api/fs-root-methods.xsh").to_string());
     }
     let source = match id {
-        "language.core.absence-lookups" => include_str!("../../../docs/snippets/api/absence-lookups.xsh"),
+        "language.core.absence-lookups" => {
+            include_str!("../../../docs/snippets/api/absence-lookups.xsh")
+        }
         "language.core.causes" => include_str!("../../../docs/snippets/api/core-causes.xsh"),
-        "language.core.duration-arithmetic" => include_str!("../../../docs/snippets/api/duration-arithmetic.xsh"),
+        "language.core.duration-arithmetic" => {
+            include_str!("../../../docs/snippets/api/duration-arithmetic.xsh")
+        }
         "module.archive" | "module.archive.tar_list" => {
             include_str!("../../../docs/snippets/api/archive-tar-list.xsh")
         }
         "language.core.regex-literals" | "module.regex.compile" => {
             include_str!("../../../docs/snippets/api/regex-literals.xsh")
         }
-        "language.core.compatibility-vocabulary" => include_str!("../../../docs/snippets/api/compatibility-vocabulary.xsh"),
+        "language.core.compatibility-vocabulary" => {
+            include_str!("../../../docs/snippets/api/compatibility-vocabulary.xsh")
+        }
         "language.core.bare-blocks" => include_str!("../../../docs/snippets/api/bare-blocks.xsh"),
         "language.core.bindings" => include_str!("../../../docs/snippets/api/record-bindings.xsh"),
         "module.bytes" => include_str!("../../../docs/snippets/api/bytes-base64.xsh"),
@@ -51,7 +57,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "method.Bytes.base64" => {
             include_str!("../../../docs/snippets/api/bytes-base64.xsh")
         }
-        "method.Bytes.slice" | "language.core.slicing" => include_str!("../../../docs/snippets/api/slicing.xsh"),
+        "method.Bytes.slice" | "language.core.slicing" => {
+            include_str!("../../../docs/snippets/api/slicing.xsh")
+        }
         "method.Bytes.utf8" => include_str!("../../../docs/snippets/api/bytes-utf8.xsh"),
         "method.Stream.collect" => {
             include_str!("../../../docs/snippets/api/stream-collect.xsh")
@@ -97,28 +105,40 @@ pub(crate) fn source(id: &str) -> Option<String> {
         }
         "language.stream.fold" => include_str!("../../../docs/snippets/api/stream-fold.xsh"),
         "language.stream.reduce" => include_str!("../../../docs/snippets/api/stream-reduce.xsh"),
-        "language.core.context-scopes" => include_str!("../../../docs/snippets/api/core-context-scopes.xsh"),
+        "language.core.context-scopes" => {
+            include_str!("../../../docs/snippets/api/core-context-scopes.xsh")
+        }
         "language.core.procs" => include_str!("../../../docs/snippets/api/core-procs.xsh"),
         "language.core.pure-functions" => {
             include_str!("../../../docs/snippets/api/core-pure-functions.xsh")
         }
-        "language.core.error-context" => include_str!("../../../docs/snippets/api/error-context.xsh"),
+        "language.core.error-context" => {
+            include_str!("../../../docs/snippets/api/error-context.xsh")
+        }
         "language.core.constants" => include_str!("../../../docs/snippets/api/core-constants.xsh"),
-        "language.core.value-pipelines" => include_str!("../../../docs/snippets/api/value-pipelines.xsh"),
-        "language.core.local-inference" => include_str!("../../../docs/snippets/api/local-inference.xsh"),
+        "language.core.value-pipelines" => {
+            include_str!("../../../docs/snippets/api/value-pipelines.xsh")
+        }
+        "language.core.local-inference" => {
+            include_str!("../../../docs/snippets/api/local-inference.xsh")
+        }
         "language.core.results" => include_str!("../../../docs/snippets/api/core-results.xsh"),
         "language.core.postfix-question" => {
             include_str!("../../../docs/snippets/api/core-postfix-question.xsh")
         }
         "language.core.streams" => include_str!("../../../docs/snippets/api/core-streams.xsh"),
-        "language.core.scalar-iteration" => include_str!("../../../docs/snippets/api/scalar-iteration.xsh"),
+        "language.core.scalar-iteration" => {
+            include_str!("../../../docs/snippets/api/scalar-iteration.xsh")
+        }
         "language.core.comprehensions" => {
             include_str!("../../../docs/snippets/api/core-comprehensions.xsh")
         }
         "language.core.optional-postfix" => {
             include_str!("../../../docs/snippets/api/core-optional-postfix.xsh")
         }
-        "language.core.block-strings" => include_str!("../../../docs/snippets/api/block-strings.xsh"),
+        "language.core.block-strings" => {
+            include_str!("../../../docs/snippets/api/block-strings.xsh")
+        }
         "language.core.field-labels" => include_str!("../../../docs/snippets/api/field-labels.xsh"),
         "language.core.map-literals" => include_str!("../../../docs/snippets/api/map-literals.xsh"),
         "language.core.records" => include_str!("../../../docs/snippets/api/core-records.xsh"),

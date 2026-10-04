@@ -9,9 +9,7 @@ use crate::xsht::help::{command_help as generated_command_help, root_help};
 use crate::xsht::test::{TestOptions, install_test_cancellation_signal_handlers, test_scripts};
 use std::process::ExitCode;
 use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
-use xsh::process::{
-    clear_cancellation_request, install_cancellation_signal_handlers,
-};
+use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
 pub fn main() -> ExitCode {
     let args: Vec<String> = match std::env::args_os()
@@ -173,8 +171,9 @@ pub(crate) const TEST_FAKE_RUN: &str = "__test-fake-run";
 ///
 /// `--fake MODULE` installs that module's fake; a setting installs it too.
 fn parse_test_fake_run(args: &[String]) -> Result<Command, String> {
-    let usage =
-        || format!("usage: xsht {TEST_FAKE_RUN} [--fake MODULE[.KEY=VALUE]]... SCRIPT -- [ARGS...]");
+    let usage = || {
+        format!("usage: xsht {TEST_FAKE_RUN} [--fake MODULE[.KEY=VALUE]]... SCRIPT -- [ARGS...]")
+    };
     let mut linux: Option<xsh::execution::evaluator::LinuxFake> = None;
     let mut unix: Option<xsh::execution::evaluator::UnixFake> = None;
     let mut rest = args;
@@ -357,8 +356,13 @@ fn parse_grammar(args: &[String]) -> Result<Command, String> {
         }
         match parsed.value("--format").unwrap_or("ebnf") {
             "ebnf" => Ok(Command::Text(reference::ebnf(grammar()))),
-            "json" => Ok(Command::Text(format!("{}\n", reference::reference_json(grammar())))),
-            other => Err(format!("`xsht grammar --format` must be ebnf or json, not '{other}'")),
+            "json" => Ok(Command::Text(format!(
+                "{}\n",
+                reference::reference_json(grammar())
+            ))),
+            other => Err(format!(
+                "`xsht grammar --format` must be ebnf or json, not '{other}'"
+            )),
         }
     })
 }
@@ -511,8 +515,14 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
 /// Every code `xsht lint --only` accepts: lint codes first, then the fixable
 /// codes of other stages, each in declaration order.
 fn lint_selectable_codes() -> impl Iterator<Item = DiagnosticCode> {
-    let lints = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() == DiagnosticFamily::Lint);
-    let fixable = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() != DiagnosticFamily::Lint && code.fixable());
+    let lints = DiagnosticCode::ALL
+        .iter()
+        .copied()
+        .filter(|code| code.family() == DiagnosticFamily::Lint);
+    let fixable = DiagnosticCode::ALL
+        .iter()
+        .copied()
+        .filter(|code| code.family() != DiagnosticFamily::Lint && code.fixable());
     lints.chain(fixable)
 }
 
@@ -520,7 +530,10 @@ fn lint_selectable_codes() -> impl Iterator<Item = DiagnosticCode> {
 fn lint_code_list(format: &str) -> Result<String, String> {
     let lines = match format {
         "text" => {
-            let width = lint_selectable_codes().map(|code| code.name().len()).max().unwrap_or(0);
+            let width = lint_selectable_codes()
+                .map(|code| code.name().len())
+                .max()
+                .unwrap_or(0);
             lint_selectable_codes()
                 .map(|code| format!("{:width$}  {}\n", code.name(), code.summary()))
                 .collect()

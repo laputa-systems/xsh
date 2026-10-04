@@ -42,22 +42,49 @@ mod tests {
         let checked = Checker::check_arena(&cloned, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let declarations = Checker::check_compact_declarations(&cloned);
-        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-        assert!(Arc::ptr_eq(&first, cloned.arena.regex_literals[0].prepared.get().unwrap().as_ref().unwrap()));
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        assert!(Arc::ptr_eq(
+            &first,
+            cloned.arena.regex_literals[0]
+                .prepared
+                .get()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+        ));
     }
 
     #[test]
     fn invalid_regex_literals_are_diagnosed_even_in_unreachable_functions() {
-        let source = "pure never_called() -> Regex { rx\"(\" }\npure another() -> Regex { rx\"[\" }\n";
+        let source =
+            "pure never_called() -> Regex { rx\"(\" }\npure another() -> Regex { rx\"[\" }\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        for checked in [Checker::check_arena(&parsed.arena, source), Checker::check_arena(&parsed.arena, source)] {
-            let errors = checked.diagnostics.iter().filter(|error| error.code == Some(DiagnosticCode::CheckRegexLiteral)).collect::<Vec<_>>();
+        for checked in [
+            Checker::check_arena(&parsed.arena, source),
+            Checker::check_arena(&parsed.arena, source),
+        ] {
+            let errors = checked
+                .diagnostics
+                .iter()
+                .filter(|error| error.code == Some(DiagnosticCode::CheckRegexLiteral))
+                .collect::<Vec<_>>();
             assert_eq!(errors.len(), 2, "{:?}", checked.diagnostics);
             for (error, literal) in errors.iter().zip(&parsed.arena.arena.regex_literals) {
                 assert_eq!(error.labels[0].span, literal.span);
             }
         }
-        assert!(parsed.arena.arena.regex_literals.iter().all(|literal| literal.prepared.get().unwrap().is_err()));
+        assert!(
+            parsed
+                .arena
+                .arena
+                .regex_literals
+                .iter()
+                .all(|literal| literal.prepared.get().unwrap().is_err())
+        );
     }
 }

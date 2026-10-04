@@ -1,7 +1,7 @@
 pub(in crate::syntax::parser) use crate::diagnostic::{Diagnostic, FixHint, Label, Severity};
+use crate::diagnostic::{DiagnosticCode, DiagnosticFamily};
 pub(in crate::syntax::parser) use crate::source::{SourceId, Span};
 pub(in crate::syntax::parser) use crate::symbol::Name;
-use crate::diagnostic::{DiagnosticCode, DiagnosticFamily};
 use crate::syntax::arena::{ArenaProgram, ArenaProgramBuilder, ArenaRange, TypeExprId};
 use crate::syntax::cst::LazyCst;
 use crate::syntax::grammar::{self, LineContinuation};
@@ -59,9 +59,18 @@ pub struct Parser<'a> {
 /// The binary operator a token spells (with the keyword after it, for
 /// `not in`), its precedence, and its token count, from the grammar's
 /// operator table.
-fn binary_op_for_token(tag: TokenTag, keyword: Option<Keyword>, next_keyword: Option<Keyword>) -> Option<(BinaryOp, u8, usize)> {
-    grammar::binary_operator_at(tag, keyword, next_keyword)
-        .map(|operator| (operator.op, operator.precedence, 1 + usize::from(operator.second.is_some())))
+fn binary_op_for_token(
+    tag: TokenTag,
+    keyword: Option<Keyword>,
+    next_keyword: Option<Keyword>,
+) -> Option<(BinaryOp, u8, usize)> {
+    grammar::binary_operator_at(tag, keyword, next_keyword).map(|operator| {
+        (
+            operator.op,
+            operator.precedence,
+            1 + usize::from(operator.second.is_some()),
+        )
+    })
 }
 
 impl<'a> Parser<'a> {
@@ -179,14 +188,21 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn current_binary_op(&self) -> Option<(BinaryOp, u8, usize)> {
-        binary_op_for_token(self.current_tag(), self.current_keyword(), self.peek_keyword(1))
+        binary_op_for_token(
+            self.current_tag(),
+            self.current_keyword(),
+            self.peek_keyword(1),
+        )
     }
 
     /// The line continuation that the first token after the line breaks and
     /// comments at `index` begins, with that token's index.
     fn line_continuation_at(&self, index: usize) -> Option<(LineContinuation, usize)> {
         let mut first = index;
-        while matches!(self.token_table.tag_at(first), Some(TokenTag::Newline | TokenTag::Comment)) {
+        while matches!(
+            self.token_table.tag_at(first),
+            Some(TokenTag::Newline | TokenTag::Comment)
+        ) {
             first += 1;
         }
         if first == index {
@@ -210,7 +226,11 @@ impl<'a> Parser<'a> {
         let (LineContinuation::Operator, first) = self.line_continuation_at(self.index)? else {
             return None;
         };
-        binary_op_for_token(self.token_table.tag_at(first)?, self.token_table.keyword_at(first), self.token_table.keyword_at(first + 1))
+        binary_op_for_token(
+            self.token_table.tag_at(first)?,
+            self.token_table.keyword_at(first),
+            self.token_table.keyword_at(first + 1),
+        )
     }
 
     /// Like `peek_tag(n)` but skips intervening newlines and comments.
@@ -280,8 +300,11 @@ impl<'a> Parser<'a> {
 
     pub(in crate::syntax::parser) fn at_pipe_stage_end(&mut self) -> bool {
         self.skip_comments();
-        self.at_terminator() || self.at(TokenKindMatch::Eof) || self.at(TokenKindMatch::PipeGt)
-            || self.at(TokenKindMatch::RParen) || self.at(TokenKindMatch::RBracket)
+        self.at_terminator()
+            || self.at(TokenKindMatch::Eof)
+            || self.at(TokenKindMatch::PipeGt)
+            || self.at(TokenKindMatch::RParen)
+            || self.at(TokenKindMatch::RBracket)
             || self.at(TokenKindMatch::Comma)
     }
 
@@ -306,14 +329,23 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_ctx_block(&self) -> bool {
-        if !self.at_ident("ctx") || self.peek_start(1) == Some(self.current_end()) { return false; }
+        if !self.at_ident("ctx") || self.peek_start(1) == Some(self.current_end()) {
+            return false;
+        }
         let mut depth = 0usize;
         for offset in 1.. {
             match self.peek_tag(offset) {
                 Some(TokenTag::LParen | TokenTag::LBracket) => depth += 1,
                 Some(TokenTag::RParen | TokenTag::RBracket) if depth > 0 => depth -= 1,
                 Some(TokenTag::LBrace) if depth == 0 => return true,
-                Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::Equals | TokenTag::RBrace) | None if depth == 0 => return false,
+                Some(
+                    TokenTag::Newline | TokenTag::Semicolon | TokenTag::Equals | TokenTag::RBrace,
+                )
+                | None
+                    if depth == 0 =>
+                {
+                    return false;
+                }
                 Some(TokenTag::Dot) if offset == 1 => return false,
                 None => return false,
                 _ => {}
@@ -328,9 +360,12 @@ impl<'a> Parser<'a> {
             match self.peek_tag(offset) {
                 Some(TokenTag::Dot) if self.peek_tag(offset + 1) != Some(TokenTag::Dot) => {
                     if self.peek_label_name(offset + 1).is_some()
-                        || self.peek_tag(offset + 1) == Some(TokenTag::ProcIdent) {
+                        || self.peek_tag(offset + 1) == Some(TokenTag::ProcIdent)
+                    {
                         offset += 2;
-                    } else { return false; }
+                    } else {
+                        return false;
+                    }
                 }
                 Some(TokenTag::LBracket) => {
                     offset += 1;
@@ -405,9 +440,25 @@ impl<'a> Parser<'a> {
         }
         self.token_table.tag_at(index + 1).is_some_and(|tag| {
             self.start_at(index + 1).is_some_and(|start| start > end)
-                && !matches!(tag, TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof | TokenTag::PipeGt)
-                && grammar::binary_operator_at(tag, self.token_table.keyword_at(index + 1), self.token_table.keyword_at(index + 2)).is_none()
-                && !(tag == TokenTag::Ident && self.token_table.name_at(index + 1).is_some_and(|name| name == "is"))
+                && !matches!(
+                    tag,
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Eof
+                        | TokenTag::PipeGt
+                )
+                && grammar::binary_operator_at(
+                    tag,
+                    self.token_table.keyword_at(index + 1),
+                    self.token_table.keyword_at(index + 2),
+                )
+                .is_none()
+                && !(tag == TokenTag::Ident
+                    && self
+                        .token_table
+                        .name_at(index + 1)
+                        .is_some_and(|name| name == "is"))
         })
     }
 
@@ -433,7 +484,9 @@ impl<'a> Parser<'a> {
     pub(in crate::syntax::parser) fn lookahead_is_expr_binary(&self) -> bool {
         self.peek_tag(1).is_some_and(|tag| {
             tag != TokenTag::Minus
-                && (self.peek_keyword(1) == Some(Keyword::Not) || grammar::binary_operator_at(tag, self.peek_keyword(1), self.peek_keyword(2)).is_some())
+                && (self.peek_keyword(1) == Some(Keyword::Not)
+                    || grammar::binary_operator_at(tag, self.peek_keyword(1), self.peek_keyword(2))
+                        .is_some())
         }) || (self.peek_tag(1) == Some(TokenTag::Minus)
             && (self.peek_start(1) == Some(self.current_end())
                 || self.peek_start(2) != self.peek_end(1)))
@@ -537,7 +590,10 @@ impl<'a> Parser<'a> {
             self.recover_statement();
             end
         } else {
-            self.diagnostic_here("expected statement terminator", DiagnosticCode::ParseExpectedTerminator);
+            self.diagnostic_here(
+                "expected statement terminator",
+                DiagnosticCode::ParseExpectedTerminator,
+            );
             self.current_start()
         }
     }
@@ -548,26 +604,48 @@ impl<'a> Parser<'a> {
     /// caller skips the rest of the statement, so it is reported once.
     fn foreign_statement_continuation(&self) -> Option<Diagnostic> {
         let previous = self.token_table.tag_at(self.index.checked_sub(1)?)?;
-        if previous == TokenTag::RBrace && self.current_name().is_some_and(|name| name == "catch" || name == "except") {
+        if previous == TokenTag::RBrace
+            && self
+                .current_name()
+                .is_some_and(|name| name == "catch" || name == "except")
+        {
             return Some(
                 Diagnostic::error("XSH has no `catch`: `try { ... }` produces a Result")
                     .with_code(DiagnosticCode::ParseForeignSyntax)
-                    .with_label(Label::primary(self.current_span(), "handle the Result with `??`, `match`, or `if let Err(error) = ...`")),
+                    .with_label(Label::primary(
+                        self.current_span(),
+                        "handle the Result with `??`, `match`, or `if let Err(error) = ...`",
+                    )),
             );
         }
         let mut offset = 0;
         let at_question = self.current_tag() == TokenTag::Question;
-        let ternary = (previous == TokenTag::Question || at_question) && loop {
-            match self.peek_tag(offset) {
-                Some(TokenTag::Colon) => break true,
-                None | Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::LBrace | TokenTag::RBrace | TokenTag::Eof) => break false,
-                _ => offset += 1,
-            }
-        };
+        let ternary = (previous == TokenTag::Question || at_question)
+            && loop {
+                match self.peek_tag(offset) {
+                    Some(TokenTag::Colon) => break true,
+                    None
+                    | Some(
+                        TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::LBrace
+                        | TokenTag::RBrace
+                        | TokenTag::Eof,
+                    ) => break false,
+                    _ => offset += 1,
+                }
+            };
         ternary.then(|| {
             Diagnostic::error("XSH has no `? :` conditional operator")
                 .with_code(DiagnosticCode::ParseForeignSyntax)
-                .with_label(Label::primary(if at_question { self.current_span() } else { self.previous_span() }, "write `if condition { a } else { b }`"))
+                .with_label(Label::primary(
+                    if at_question {
+                        self.current_span()
+                    } else {
+                        self.previous_span()
+                    },
+                    "write `if condition { a } else { b }`",
+                ))
         })
     }
 
@@ -620,7 +698,9 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn peek_label_name(&self, distance: usize) -> Option<Name> {
-        self.token_table.label_text_at(self.index + distance).map(Name::intern)
+        self.token_table
+            .label_text_at(self.index + distance)
+            .map(Name::intern)
     }
 
     pub(in crate::syntax::parser) fn expect_label_name(&mut self, message: &str) -> Option<Name> {
@@ -632,11 +712,22 @@ impl<'a> Parser<'a> {
         Some(name)
     }
 
-    pub(in crate::syntax::parser) fn require_label_binding_name(&mut self, tag: TokenTag, span: Span) -> bool {
-        if tag == TokenTag::Ident { return true; }
-        self.diagnostics.push(Diagnostic::error("field labels cannot declare a keyword binding")
-            .with_code(DiagnosticCode::ParseKeywordLabelBinding)
-            .with_label(Label::primary(span, "supply an explicit value or rename this field to a legal binding name")));
+    pub(in crate::syntax::parser) fn require_label_binding_name(
+        &mut self,
+        tag: TokenTag,
+        span: Span,
+    ) -> bool {
+        if tag == TokenTag::Ident {
+            return true;
+        }
+        self.diagnostics.push(
+            Diagnostic::error("field labels cannot declare a keyword binding")
+                .with_code(DiagnosticCode::ParseKeywordLabelBinding)
+                .with_label(Label::primary(
+                    span,
+                    "supply an explicit value or rename this field to a legal binding name",
+                )),
+        );
         false
     }
 
@@ -650,8 +741,11 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn current_member_name(&self) -> Option<Name> {
-        if self.current_tag() == TokenTag::ProcIdent { self.current_name() }
-        else { self.current_label_name() }
+        if self.current_tag() == TokenTag::ProcIdent {
+            self.current_name()
+        } else {
+            self.current_label_name()
+        }
     }
 
     pub(in crate::syntax::parser) fn expect_proc_ident(&mut self, message: &str) -> Option<Name> {
@@ -832,7 +926,11 @@ impl<'a> Parser<'a> {
         span
     }
 
-    pub(in crate::syntax::parser) fn diagnostic_here(&mut self, message: &str, code: DiagnosticCode) {
+    pub(in crate::syntax::parser) fn diagnostic_here(
+        &mut self,
+        message: &str,
+        code: DiagnosticCode,
+    ) {
         if self.follows_invalid_source() {
             return;
         }
@@ -847,15 +945,27 @@ impl<'a> Parser<'a> {
     /// `$(...)` substitution), and its diagnostic already names the mistake.
     /// A parse error at the token right after that gap is only its echo.
     fn follows_invalid_source(&self) -> bool {
-        let gap_start = if self.index == 0 { 0 } else { self.previous_end() };
+        let gap_start = if self.index == 0 {
+            0
+        } else {
+            self.previous_end()
+        };
         let gap_end = self.current_start();
         self.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code.is_some_and(|code| code.family() == DiagnosticFamily::Lex)
-                && diagnostic.labels.first().is_some_and(|label| label.span.start() >= gap_start && label.span.end() <= gap_end)
+            diagnostic
+                .code
+                .is_some_and(|code| code.family() == DiagnosticFamily::Lex)
+                && diagnostic.labels.first().is_some_and(|label| {
+                    label.span.start() >= gap_start && label.span.end() <= gap_end
+                })
         })
     }
 
-    pub(in crate::syntax::parser) fn diagnostic_previous(&mut self, message: &str, code: DiagnosticCode) {
+    pub(in crate::syntax::parser) fn diagnostic_previous(
+        &mut self,
+        message: &str,
+        code: DiagnosticCode,
+    ) {
         self.diagnostics.push(
             Diagnostic::error(message)
                 .with_code(code)

@@ -146,7 +146,8 @@ pub fn refactor_scripts(
                     begin..begin + new.len()
                 })
                 .collect::<Vec<_>>();
-            new_text = xsh::frontend::syntax::grouping::remove_redundant_parens(&new_text, &replaced).0;
+            new_text =
+                xsh::frontend::syntax::grouping::remove_redundant_parens(&new_text, &replaced).0;
             if let Err(err) = fs::write(file, &new_text) {
                 stderr.push_str(&format!("xsht refactor: failed to write '{file}': {err}\n"));
                 status = 4;

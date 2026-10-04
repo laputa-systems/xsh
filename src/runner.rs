@@ -1072,7 +1072,11 @@ print $root
         );
         assert!(!checked_program.parsed.diagnostics.is_empty());
         assert_eq!(
-            checked_program.sources.get(checked_program.entry_source_id).unwrap().text(),
+            checked_program
+                .sources
+                .get(checked_program.entry_source_id)
+                .unwrap()
+                .text(),
             source,
         );
         if let Some(parent) = path.parent() {

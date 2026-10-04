@@ -7,8 +7,8 @@
 //! clause, so the checker itself proves the program has no host effect.
 
 use crate::ast::{
-    Arg, AssignOp, BinOp, Block, Elem, EnumDecl, Exit, Expr, Fam, FmtPart, FnDecl, FnKind, IsPat, Param, Pat, Program, RecDecl, Stage,
-    Stmt, Target, Ty,
+    Arg, AssignOp, BinOp, Block, Elem, EnumDecl, Exit, Expr, Fam, FmtPart, FnDecl, FnKind, IsPat,
+    Param, Pat, Program, RecDecl, Stage, Stmt, Target, Ty,
 };
 use crate::eval::{Evaluator, Val};
 use crate::methods::{ORACLE_METHODS, OracleMethod, Shape};
@@ -86,7 +86,12 @@ pub fn finish(seed: u64, mut program: Program) -> Option<Generated> {
         expected.push_str(&line);
         expected.push('\n');
     }
-    Some(Generated { seed, program, source, expected })
+    Some(Generated {
+        seed,
+        program,
+        source,
+        expected,
+    })
 }
 
 fn literal_of(value: &Val) -> Option<Expr> {
@@ -112,19 +117,31 @@ fn fill_asserts(block: &mut Block, observed: &HashMap<usize, Option<Val>>) {
                 // run the expression twice, so discard it instead.
                 Some(_) => {
                     let value = expr.clone();
-                    *stmt = Stmt::Let { name: "_".into(), annot: None, value, mutable: false };
+                    *stmt = Stmt::Let {
+                        name: "_".into(),
+                        annot: None,
+                        value,
+                        mutable: false,
+                    };
                 }
                 // Never executed: `expr == expr` is a well-typed dead assertion.
                 None => {}
             },
-            Stmt::If { then, otherwise, .. } => {
+            Stmt::If {
+                then, otherwise, ..
+            } => {
                 fill_asserts(then, observed);
                 if let Some(otherwise) = otherwise {
                     fill_asserts(otherwise, observed);
                 }
             }
-            Stmt::For { body, .. } | Stmt::While { body, .. } | Stmt::Block(body) | Stmt::Defer(body) => fill_asserts(body, observed),
-            Stmt::IfLet { then, otherwise, .. } => {
+            Stmt::For { body, .. }
+            | Stmt::While { body, .. }
+            | Stmt::Block(body)
+            | Stmt::Defer(body) => fill_asserts(body, observed),
+            Stmt::IfLet {
+                then, otherwise, ..
+            } => {
                 fill_asserts(then, observed);
                 if let Some(otherwise) = otherwise {
                     fill_asserts(otherwise, observed);
@@ -190,7 +207,8 @@ struct Gen<'c> {
 }
 
 const ALPHABET: &[&str] = &[
-    "a", "b", "c", "x", "y", "z", "A", "Q", "0", "7", " ", "-", "_", ".", ",", ":", "/", "é", "ß", "🦀", "ab", "xy",
+    "a", "b", "c", "x", "y", "z", "A", "Q", "0", "7", " ", "-", "_", ".", ",", ":", "/", "é", "ß",
+    "🦀", "ab", "xy",
 ];
 
 fn fam_allows(prop: Option<Fam>, fam: Fam) -> bool {
@@ -221,7 +239,9 @@ fn starts_with_minus(expr: &Expr) -> bool {
         Expr::Neg(_) => true,
         Expr::Int(value) => *value < 0,
         Expr::Float(value) => value.is_sign_negative(),
-        Expr::Binary(_, left, _) | Expr::Fallback(left, _) | Expr::FallbackBlock(left, ..) => starts_with_minus(left),
+        Expr::Binary(_, left, _) | Expr::Fallback(left, _) | Expr::FallbackBlock(left, ..) => {
+            starts_with_minus(left)
+        }
         Expr::Method { recv, .. }
         | Expr::OptMethod { recv, .. }
         | Expr::Field(recv, _)
@@ -237,7 +257,9 @@ fn starts_with_brace(expr: &Expr) -> bool {
     match expr {
         Expr::MapComp { .. } | Expr::RecUpdate { .. } | Expr::BlockValue(_) => true,
         Expr::MapLit(entries) => !entries.is_empty(),
-        Expr::Binary(_, left, _) | Expr::Fallback(left, _) | Expr::FallbackBlock(left, ..) => starts_with_brace(left),
+        Expr::Binary(_, left, _) | Expr::Fallback(left, _) | Expr::FallbackBlock(left, ..) => {
+            starts_with_brace(left)
+        }
         Expr::Method { recv, .. }
         | Expr::OptMethod { recv, .. }
         | Expr::Field(recv, _)
@@ -253,7 +275,9 @@ fn starts_with_brace(expr: &Expr) -> bool {
 /// match cannot be a block tail. Parser defect, reported separately.
 fn brace_arm_match(expr: &Expr) -> bool {
     match expr {
-        Expr::Match(_, arms) => arms.iter().any(|(_, body)| starts_with_brace(body) || brace_arm_match(body)),
+        Expr::Match(_, arms) => arms
+            .iter()
+            .any(|(_, body)| starts_with_brace(body) || brace_arm_match(body)),
         _ => false,
     }
 }
@@ -261,7 +285,9 @@ fn brace_arm_match(expr: &Expr) -> bool {
 /// A statement starting with a field path followed by `not in` or `is`
 /// parses as a command. Parser defect, reported separately.
 fn field_not_in(expr: &Expr) -> bool {
-    let field_path = |expr: &Expr| matches!(expr, Expr::Field(..)) || matches!(expr, Expr::Var(name) if name.contains('.'));
+    let field_path = |expr: &Expr| {
+        matches!(expr, Expr::Field(..)) || matches!(expr, Expr::Var(name) if name.contains('.'))
+    };
     match expr {
         Expr::Binary(BinOp::NotIn, left, _) | Expr::Is(left, _) => field_path(left),
         Expr::Binary(_, left, _) | Expr::Fallback(left, _) => field_not_in(left),
@@ -278,7 +304,13 @@ impl<'c> Gen<'c> {
             enums: Vec::new(),
             functions: Vec::new(),
             scopes: Vec::new(),
-            ctx: Ctx { kind: Kind::Main, prop: None, in_loop: false, return_err: false, observe: false },
+            ctx: Ctx {
+                kind: Kind::Main,
+                prop: None,
+                in_loop: false,
+                return_err: false,
+                observe: false,
+            },
             next: 0,
             nesting: 0,
             globals: Vec::new(),
@@ -301,14 +333,21 @@ impl<'c> Gen<'c> {
             let mut fields = Vec::new();
             for field in 0..count {
                 let ty = self.field_ty(index);
-                let name = if self.rng.chance(15) { ["type", "in", "match"][field % 3].to_string() } else { format!("f{field}") };
+                let name = if self.rng.chance(15) {
+                    ["type", "in", "match"][field % 3].to_string()
+                } else {
+                    format!("f{field}")
+                };
                 if fields.iter().any(|(existing, _)| *existing == name) {
                     fields.push((format!("f{field}"), ty));
                 } else {
                     fields.push((name, ty));
                 }
             }
-            self.records.push(RecDecl { name: format!("R{index}"), fields });
+            self.records.push(RecDecl {
+                name: format!("R{index}"),
+                fields,
+            });
         }
         let enums = self.rng.below(self.config.max_enums + 1);
         for index in 0..enums {
@@ -322,21 +361,44 @@ impl<'c> Gen<'c> {
                 };
                 variants.push((format!("E{index}V{variant}"), payload));
             }
-            self.enums.push(EnumDecl { name: format!("E{index}"), variants });
+            self.enums.push(EnumDecl {
+                name: format!("E{index}"),
+                variants,
+            });
         }
         for index in 0..self.rng.below(3) {
-            let ty = self.rng.pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Float, Ty::Path, Ty::Duration]).clone();
+            let ty = self
+                .rng
+                .pick(&[
+                    Ty::Int,
+                    Ty::Str,
+                    Ty::Bool,
+                    Ty::Float,
+                    Ty::Path,
+                    Ty::Duration,
+                ])
+                .clone();
             let value = self.literal(&ty, true, 0);
             let name = format!("C{index}");
             self.consts.push((name.clone(), ty.clone(), value));
-            self.globals.push(Local { name, ty, mutable: false });
+            self.globals.push(Local {
+                name,
+                ty,
+                mutable: false,
+            });
         }
         let functions = self.rng.below(self.config.max_functions + 1);
         for index in 0..functions {
             let function = self.function(index);
             self.functions.push(function);
         }
-        self.ctx = Ctx { kind: Kind::Main, prop: Some(Fam::Error), in_loop: false, return_err: false, observe: true };
+        self.ctx = Ctx {
+            kind: Kind::Main,
+            prop: Some(Fam::Error),
+            in_loop: false,
+            return_err: false,
+            observe: true,
+        };
         self.scopes = vec![self.globals.clone(), Vec::new()];
         let count = 4 + self.rng.below(self.config.max_body_stmts);
         let mut stmts = Vec::new();
@@ -347,11 +409,19 @@ impl<'c> Gen<'c> {
         let locals: Vec<Local> = self.scopes[1].clone();
         for local in locals {
             if self.rng.chance(60) {
-                stmts.push(Stmt::Out(self.render(&Expr::Var(local.name.clone()), &local.ty)));
+                stmts.push(Stmt::Out(
+                    self.render(&Expr::Var(local.name.clone()), &local.ty),
+                ));
             }
         }
         self.scopes.clear();
-        Program { consts: self.consts, records: self.records, enums: self.enums, functions: self.functions, body: Block { stmts, tail: None } }
+        Program {
+            consts: self.consts,
+            records: self.records,
+            enums: self.enums,
+            functions: self.functions,
+            body: Block { stmts, tail: None },
+        }
     }
 
     fn scalar_ty(&mut self) -> Ty {
@@ -389,7 +459,11 @@ impl<'c> Gen<'c> {
             61 => Ty::Duration,
             62..=73 => Ty::list(self.elem_ty(depth + 1)),
             74..=78 => {
-                let key = if self.rng.chance(70) { Ty::Str } else { Ty::Int };
+                let key = if self.rng.chance(70) {
+                    Ty::Str
+                } else {
+                    Ty::Int
+                };
                 Ty::map(key, self.elem_ty(depth + 1))
             }
             79..=84 if !self.records.is_empty() => Ty::Rec(self.rng.below(self.records.len())),
@@ -397,7 +471,11 @@ impl<'c> Gen<'c> {
             90..=94 => Ty::opt(self.scalar_ty()),
             95 if !self.records.is_empty() => Ty::opt(Ty::Rec(self.rng.below(self.records.len()))),
             96..=99 => {
-                let fam = if self.rng.chance(50) { Fam::Fz } else { Fam::Error };
+                let fam = if self.rng.chance(50) {
+                    Fam::Fz
+                } else {
+                    Fam::Error
+                };
                 Ty::res(self.elem_ty(depth + 1), fam)
             }
             _ => Ty::Int,
@@ -430,9 +508,19 @@ impl<'c> Gen<'c> {
             if defaulted {
                 let infer_type = !needs_cx(&ty) && self.rng.chance(30) && ty.is_scalar();
                 let default = self.literal(&ty, !infer_type, 0);
-                params.push(Param { name, ty, default: Some(default), infer_type });
+                params.push(Param {
+                    name,
+                    ty,
+                    default: Some(default),
+                    infer_type,
+                });
             } else {
-                params.push(Param { name, ty, default: None, infer_type: false });
+                params.push(Param {
+                    name,
+                    ty,
+                    default: None,
+                    infer_type: false,
+                });
             }
         }
         let tail = self.elem_ty(0);
@@ -442,17 +530,35 @@ impl<'c> Gen<'c> {
         // Annotated Result returns admit `?` and early `Err` returns.
         // An inferred tail must establish its type without an expected type.
         let result_fam = if self.rng.chance(40) || kind == FnKind::Proc && needs_cx(&tail) {
-            Some(if self.rng.chance(50) { Fam::Fz } else { Fam::Error })
+            Some(if self.rng.chance(50) {
+                Fam::Fz
+            } else {
+                Fam::Error
+            })
         } else {
             None
         };
         let (ret, annotate, prop, return_err) = match (kind, result_fam) {
-            (FnKind::Pure, None) => (tail.clone(), needs_cx(&tail) || self.rng.chance(30), None, false),
-            (FnKind::Proc | FnKind::Stream, None) => (Ty::res(tail.clone(), Fam::Error), false, Some(Fam::Error), false),
+            (FnKind::Pure, None) => (
+                tail.clone(),
+                needs_cx(&tail) || self.rng.chance(30),
+                None,
+                false,
+            ),
+            (FnKind::Proc | FnKind::Stream, None) => (
+                Ty::res(tail.clone(), Fam::Error),
+                false,
+                Some(Fam::Error),
+                false,
+            ),
             (_, Some(fam)) => (Ty::res(tail.clone(), fam), true, Some(fam), true),
         };
         self.ctx = Ctx {
-            kind: if kind == FnKind::Pure { Kind::Pure } else { Kind::Proc },
+            kind: if kind == FnKind::Pure {
+                Kind::Pure
+            } else {
+                Kind::Proc
+            },
             prop,
             in_loop: false,
             return_err,
@@ -462,7 +568,11 @@ impl<'c> Gen<'c> {
             self.globals.clone(),
             params
                 .iter()
-                .map(|param| Local { name: param.name.clone(), ty: param.ty.clone(), mutable: false })
+                .map(|param| Local {
+                    name: param.name.clone(),
+                    ty: param.ty.clone(),
+                    mutable: false,
+                })
                 .collect(),
         ];
         let mut stmts = Vec::new();
@@ -479,19 +589,32 @@ impl<'c> Gen<'c> {
             ret,
             tail,
             annotate,
-            body: Block { stmts, tail: Some(tail_expr) },
+            body: Block {
+                stmts,
+                tail: Some(tail_expr),
+            },
         }
     }
 
     /// `stream fnN(params) [] -> Stream[T] { ... yield ... }`
     fn stream_function(&mut self, index: usize, params: Vec<Param>, item: Ty) -> FnDecl {
-        self.ctx = Ctx { kind: Kind::Stream, prop: None, in_loop: false, return_err: false, observe: false };
+        self.ctx = Ctx {
+            kind: Kind::Stream,
+            prop: None,
+            in_loop: false,
+            return_err: false,
+            observe: false,
+        };
         self.yield_ty = Some(item.clone());
         self.scopes = vec![
             self.globals.clone(),
             params
                 .iter()
-                .map(|param| Local { name: param.name.clone(), ty: param.ty.clone(), mutable: false })
+                .map(|param| Local {
+                    name: param.name.clone(),
+                    ty: param.ty.clone(),
+                    mutable: false,
+                })
                 .collect(),
         ];
         let mut stmts = Vec::new();
@@ -523,7 +646,9 @@ impl<'c> Gen<'c> {
             .functions
             .iter()
             .enumerate()
-            .filter(|(_, function)| function.kind == FnKind::Stream && item.is_none_or(|item| function.tail == *item))
+            .filter(|(_, function)| {
+                function.kind == FnKind::Stream && item.is_none_or(|item| function.tail == *item)
+            })
             .map(|(index, _)| index)
             .collect();
         if candidates.is_empty() {
@@ -539,7 +664,12 @@ impl<'c> Gen<'c> {
     fn locals(&self) -> impl Iterator<Item = &Local> {
         let mut seen = rustc_hash::FxHashSet::default();
         let mut visible = Vec::new();
-        for local in self.scopes.iter().rev().flat_map(|scope| scope.iter().rev()) {
+        for local in self
+            .scopes
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev())
+        {
             if seen.insert(local.name.as_str()) {
                 visible.push(local);
             }
@@ -548,7 +678,10 @@ impl<'c> Gen<'c> {
     }
 
     fn bind(&mut self, name: String, ty: Ty, mutable: bool) {
-        self.scopes.last_mut().expect("scope").push(Local { name, ty, mutable });
+        self.scopes
+            .last_mut()
+            .expect("scope")
+            .push(Local { name, ty, mutable });
     }
 
     fn var_of(&mut self, ty: &Ty) -> Option<Expr> {
@@ -603,7 +736,14 @@ impl<'c> Gen<'c> {
             } else if let Ty::Res(inner, fam) = &function.ret
                 && **inner == *ty
             {
-                candidates.push((index, if fam_allows(self.ctx.prop, *fam) && self.rng.chance(50) { 1 } else { 2 }));
+                candidates.push((
+                    index,
+                    if fam_allows(self.ctx.prop, *fam) && self.rng.chance(50) {
+                        1
+                    } else {
+                        2
+                    },
+                ));
             }
         }
         if candidates.is_empty() {
@@ -613,8 +753,14 @@ impl<'c> Gen<'c> {
         let call = match self.aliases.iter().find(|(_, func)| *func == index) {
             Some((alias, _)) if self.ctx.kind == Kind::Main && self.rng.chance(50) => {
                 let alias = alias.clone();
-                let Expr::Call { args, .. } = self.call(index, depth) else { unreachable!() };
-                Expr::AliasCall { alias, func: index, args }
+                let Expr::Call { args, .. } = self.call(index, depth) else {
+                    unreachable!()
+                };
+                Expr::AliasCall {
+                    alias,
+                    func: index,
+                    args,
+                }
             }
             _ => self.call(index, depth),
         };
@@ -630,7 +776,10 @@ impl<'c> Gen<'c> {
 
     fn call(&mut self, index: usize, depth: usize) -> Expr {
         let params = self.functions[index].params.clone();
-        let required = params.iter().filter(|param| param.default.is_none()).count();
+        let required = params
+            .iter()
+            .filter(|param| param.default.is_none())
+            .count();
         let supplied: Vec<&Param> = params
             .iter()
             .enumerate()
@@ -728,34 +877,57 @@ impl<'c> Gen<'c> {
             parts.push(["a", "bin", "x.txt", "lib", "..", "."][self.rng.below(6)]);
         }
         let joined = parts.join("/");
-        if self.rng.chance(30) { format!("/{joined}") } else { joined }
+        if self.rng.chance(30) {
+            format!("/{joined}")
+        } else {
+            joined
+        }
     }
 
     /// A literal of `ty`. `cx` says an expected type is available, which
     /// admits `null` and empty collections.
     fn literal(&mut self, ty: &Ty, cx: bool, depth: usize) -> Expr {
         match ty {
-            Ty::Int => Expr::Int(if self.rng.chance(85) { self.rng.range(-9, 40) } else { self.rng.range(-100_000, 100_000) }),
-            Ty::Float => Expr::Float(*self.rng.pick(&[0.5, 1.25, -2.0, 3.0, 0.1, 100.0, 0.001, -7.75, 2.5e3])),
+            Ty::Int => Expr::Int(if self.rng.chance(85) {
+                self.rng.range(-9, 40)
+            } else {
+                self.rng.range(-100_000, 100_000)
+            }),
+            Ty::Float => Expr::Float(
+                *self
+                    .rng
+                    .pick(&[0.5, 1.25, -2.0, 3.0, 0.1, 100.0, 0.001, -7.75, 2.5e3]),
+            ),
             Ty::Str => Expr::Str(self.string()),
             Ty::Bool => Expr::Bool(self.rng.chance(50)),
             Ty::Path => Expr::Path(self.path_text()),
             Ty::Duration => Expr::Duration(*self.rng.pick(&[0, 1, 250, 1000, 1500, 60_000])),
             Ty::Bytes => {
                 let len = self.rng.below(5);
-                Expr::Bytes((0..len).map(|_| *self.rng.pick(&[b'a', b'Z', b'0', b' ', 0, 255, 10, 128])).collect())
+                Expr::Bytes(
+                    (0..len)
+                        .map(|_| *self.rng.pick(&[b'a', b'Z', b'0', b' ', 0, 255, 10, 128]))
+                        .collect(),
+                )
             }
             Ty::List(element) => {
                 let min = usize::from(!cx || depth > 2);
                 let len = min + self.rng.below(3);
-                let items = (0..len).map(|_| Elem::Item(self.literal(element, cx, depth + 1))).collect();
+                let items = (0..len)
+                    .map(|_| Elem::Item(self.literal(element, cx, depth + 1)))
+                    .collect();
                 Expr::List(items)
             }
             Ty::Map(key, value) => {
                 let min = usize::from(!cx || depth > 2);
                 let len = min + self.rng.below(3);
                 let entries = (0..len)
-                    .map(|_| (self.literal(key, false, depth + 1), self.literal(value, cx, depth + 1)))
+                    .map(|_| {
+                        (
+                            self.literal(key, false, depth + 1),
+                            self.literal(value, cx, depth + 1),
+                        )
+                    })
                     .collect();
                 Expr::MapLit(entries)
             }
@@ -767,16 +939,30 @@ impl<'c> Gen<'c> {
                     .map(|(name, field_ty)| (name.clone(), self.literal(field_ty, true, depth + 1)))
                     .collect();
                 self.rng.shuffle(&mut fields);
-                Expr::RecCtor { rec: *index, fields }
+                Expr::RecCtor {
+                    rec: *index,
+                    fields,
+                }
             }
             Ty::Enum(index) => {
                 let variant = self.rng.below(self.enums[*index].variants.len());
                 let payload = self.enums[*index].variants[variant].1.clone();
-                let args = payload.iter().map(|ty| self.literal(ty, true, depth + 1)).collect();
-                Expr::Variant { en: *index, variant, args }
+                let args = payload
+                    .iter()
+                    .map(|ty| self.literal(ty, true, depth + 1))
+                    .collect();
+                Expr::Variant {
+                    en: *index,
+                    variant,
+                    args,
+                }
             }
             Ty::Opt(inner) => {
-                if self.rng.chance(35) { Expr::Null } else { self.literal(inner, true, depth + 1) }
+                if self.rng.chance(35) {
+                    Expr::Null
+                } else {
+                    self.literal(inner, true, depth + 1)
+                }
             }
             Ty::Res(inner, _) => {
                 if self.rng.chance(30) {
@@ -847,12 +1033,20 @@ impl<'c> Gen<'c> {
                 let cond = self.expr_or_literal(&Ty::Bool, false, next);
                 let then = self.value_block(ty, cx, next);
                 let otherwise = self.value_block(ty, cx, next);
-                Some(Expr::If(Box::new(cond), Box::new(then), Box::new(otherwise)))
+                Some(Expr::If(
+                    Box::new(cond),
+                    Box::new(then),
+                    Box::new(otherwise),
+                ))
             }
             4 if cx || !needs_cx(ty) => self.match_expr(ty, cx, next),
             5 => self.fallback(ty, cx, next),
             6 => {
-                let fam = if self.ctx.prop == Some(Fam::Fz) { Fam::Fz } else { *self.rng.pick(&[Fam::Fz, Fam::Error]) };
+                let fam = if self.ctx.prop == Some(Fam::Fz) {
+                    Fam::Fz
+                } else {
+                    *self.rng.pick(&[Fam::Fz, Fam::Error])
+                };
                 if !fam_allows(self.ctx.prop, fam) {
                     return None;
                 }
@@ -861,7 +1055,11 @@ impl<'c> Gen<'c> {
             }
             7 => self.pipeline_of(ty, next),
             8 => self.method_of(ty, next),
-            10 if (cx || !needs_cx(ty)) && !matches!(ty, Ty::Res(..)) && self.nesting < 2 && self.rng.chance(40) => {
+            10 if (cx || !needs_cx(ty))
+                && !matches!(ty, Ty::Res(..))
+                && self.nesting < 2
+                && self.rng.chance(40) =>
+            {
                 let block = self.value_block(ty, cx, next);
                 Some(Expr::Ctx(self.string(), Box::new(block)))
             }
@@ -874,7 +1072,11 @@ impl<'c> Gen<'c> {
                 let index = self.small_int(next);
                 let fallback = self.expr_or_literal(ty, true, next);
                 Some(Expr::Fallback(
-                    Box::new(Expr::Method { recv: Box::new(list), name: "get", args: vec![index] }),
+                    Box::new(Expr::Method {
+                        recv: Box::new(list),
+                        name: "get",
+                        args: vec![index],
+                    }),
                     Box::new(fallback),
                 ))
             }
@@ -910,7 +1112,10 @@ impl<'c> Gen<'c> {
         }
         let tail = self.tail_expr(ty, cx, depth);
         self.scopes.pop();
-        Block { stmts, tail: Some(tail) }
+        Block {
+            stmts,
+            tail: Some(tail),
+        }
     }
 
     /// A value block whose first statement is a `let`, so its braces never
@@ -929,7 +1134,10 @@ impl<'c> Gen<'c> {
         let tail = self.tail_expr(ty, cx, depth);
         self.scopes.pop();
         self.value_depth -= 1;
-        Block { stmts, tail: Some(tail) }
+        Block {
+            stmts,
+            tail: Some(tail),
+        }
     }
 
     fn match_expr(&mut self, ty: &Ty, cx: bool, depth: usize) -> Option<Expr> {
@@ -955,7 +1163,13 @@ impl<'c> Gen<'c> {
                         .collect();
                     let body = self.expr_or_literal(ty, cx, depth + 1);
                     self.scopes.pop();
-                    arms.push((Pat::Variant { name: name.clone(), binds }, body));
+                    arms.push((
+                        Pat::Variant {
+                            name: name.clone(),
+                            binds,
+                        },
+                        body,
+                    ));
                 }
                 if wildcard {
                     let body = self.expr_or_literal(ty, cx, depth + 1);
@@ -970,15 +1184,29 @@ impl<'c> Gen<'c> {
                 let rest = self.fresh("m");
                 let empty = self.expr_or_literal(ty, cx, depth + 1);
                 self.scopes.push(vec![
-                    Local { name: head.clone(), ty: element.clone(), mutable: false },
-                    Local { name: rest.clone(), ty: Ty::list(element), mutable: false },
+                    Local {
+                        name: head.clone(),
+                        ty: element.clone(),
+                        mutable: false,
+                    },
+                    Local {
+                        name: rest.clone(),
+                        ty: Ty::list(element),
+                        mutable: false,
+                    },
                 ]);
                 let cons = self.expr_or_literal(ty, cx, depth + 1);
                 self.scopes.pop();
                 let arms = if self.rng.chance(50) {
-                    vec![(Pat::ListEmpty, empty), (Pat::ListCons { head, rest }, cons)]
+                    vec![
+                        (Pat::ListEmpty, empty),
+                        (Pat::ListCons { head, rest }, cons),
+                    ]
                 } else {
-                    vec![(Pat::ListCons { head, rest }, cons), (Pat::ListEmpty, empty)]
+                    vec![
+                        (Pat::ListCons { head, rest }, cons),
+                        (Pat::ListEmpty, empty),
+                    ]
                 };
                 Some(Expr::Match(Box::new(subject), arms))
             }
@@ -987,7 +1215,10 @@ impl<'c> Gen<'c> {
                 let first = self.rng.chance(50);
                 let a = self.expr_or_literal(ty, cx, depth + 1);
                 let b = self.expr_or_literal(ty, cx, depth + 1);
-                Some(Expr::Match(Box::new(subject), vec![(Pat::Bool(first), a), (Pat::Bool(!first), b)]))
+                Some(Expr::Match(
+                    Box::new(subject),
+                    vec![(Pat::Bool(first), a), (Pat::Bool(!first), b)],
+                ))
             }
             2 => {
                 let subject = self.expr_or_literal(&Ty::Int, false, depth);
@@ -1001,7 +1232,11 @@ impl<'c> Gen<'c> {
                     arms.push((Pat::Wild, body));
                 } else {
                     let bind = self.fresh("m");
-                    self.scopes.push(vec![Local { name: bind.clone(), ty: Ty::Int, mutable: false }]);
+                    self.scopes.push(vec![Local {
+                        name: bind.clone(),
+                        ty: Ty::Int,
+                        mutable: false,
+                    }]);
                     let body = self.expr_or_literal(ty, cx, depth + 1);
                     self.scopes.pop();
                     arms.push((Pat::Bind(bind), body));
@@ -1014,7 +1249,11 @@ impl<'c> Gen<'c> {
                 let subject = self.expr(&Ty::res(inner.clone(), fam), false, depth)?;
                 let ok = self.fresh("m");
                 let err = self.fresh("m");
-                self.scopes.push(vec![Local { name: ok.clone(), ty: inner, mutable: false }]);
+                self.scopes.push(vec![Local {
+                    name: ok.clone(),
+                    ty: inner,
+                    mutable: false,
+                }]);
                 let ok_body = self.expr_or_literal(ty, cx, depth + 1);
                 self.scopes.pop();
                 let err_body = if *ty == Ty::Str && self.rng.chance(50) {
@@ -1057,7 +1296,14 @@ impl<'c> Gen<'c> {
                     self.tail_expr(ty, true, depth)
                 };
                 self.scopes.pop();
-                Some(Expr::FallbackBlock(Box::new(source), name, Box::new(Block { stmts: Vec::new(), tail: Some(tail) })))
+                Some(Expr::FallbackBlock(
+                    Box::new(source),
+                    name,
+                    Box::new(Block {
+                        stmts: Vec::new(),
+                        tail: Some(tail),
+                    }),
+                ))
             }
         }
     }
@@ -1089,17 +1335,45 @@ impl<'c> Gen<'c> {
         // Choose receiver parameters that make the result `ty`.
         let (element, key, value) = match ty {
             Ty::List(inner) => {
-                let key = if matches!(**inner, Ty::Str | Ty::Int | Ty::Bool) { (**inner).clone() } else { Ty::Str };
+                let key = if matches!(**inner, Ty::Str | Ty::Int | Ty::Bool) {
+                    (**inner).clone()
+                } else {
+                    Ty::Str
+                };
                 ((**inner).clone(), key, (**inner).clone())
             }
             Ty::Map(k, v) => (self.elem_ty(1), (**k).clone(), (**v).clone()),
-            Ty::Res(inner, Fam::Error) => ((**inner).clone(), if self.rng.chance(70) { Ty::Str } else { Ty::Int }, (**inner).clone()),
+            Ty::Res(inner, Fam::Error) => (
+                (**inner).clone(),
+                if self.rng.chance(70) {
+                    Ty::Str
+                } else {
+                    Ty::Int
+                },
+                (**inner).clone(),
+            ),
             other => {
-                let element = if entry.name == "join" { Ty::Str } else { self.elem_ty(1) };
-                (element, if self.rng.chance(70) { Ty::Str } else { Ty::Int }, other.clone())
+                let element = if entry.name == "join" {
+                    Ty::Str
+                } else {
+                    self.elem_ty(1)
+                };
+                (
+                    element,
+                    if self.rng.chance(70) {
+                        Ty::Str
+                    } else {
+                        Ty::Int
+                    },
+                    other.clone(),
+                )
             }
         };
-        let element = if entry.name == "join" { Ty::Str } else { element };
+        let element = if entry.name == "join" {
+            Ty::Str
+        } else {
+            element
+        };
         if Self::shape_ty(entry.ret, &element, &key, &value) != *ty {
             return None;
         }
@@ -1129,7 +1403,11 @@ impl<'c> Gen<'c> {
             args.push(arg);
         }
         let recv = self.expr(&recv_ty, false, depth)?;
-        Some(Expr::Method { recv: Box::new(recv), name: entry.name, args })
+        Some(Expr::Method {
+            recv: Box::new(recv),
+            name: entry.name,
+            args,
+        })
     }
 
     fn typed_production(&mut self, ty: &Ty, cx: bool, depth: usize) -> Option<Expr> {
@@ -1148,18 +1426,28 @@ impl<'c> Gen<'c> {
                     let divisor = *self.rng.pick(&[1, 2, 3, 7, -2, -5, 10]);
                     Expr::Binary(op, Box::new(left), Box::new(Expr::Int(divisor)))
                 }
-                3 if self.rng.chance(70) => Expr::Neg(Box::new(self.expr_or_literal(&Ty::Int, false, next))),
+                3 if self.rng.chance(70) => {
+                    Expr::Neg(Box::new(self.expr_or_literal(&Ty::Int, false, next)))
+                }
                 3 => {
                     // An interval count of two Durations.
                     let left = self.expr_or_literal(&Ty::Duration, false, next);
                     let divisor = *self.rng.pick(&[1, 250, 1000]);
-                    Expr::Binary(BinOp::Div, Box::new(left), Box::new(Expr::Duration(divisor)))
+                    Expr::Binary(
+                        BinOp::Div,
+                        Box::new(left),
+                        Box::new(Expr::Duration(divisor)),
+                    )
                 }
                 4 => {
                     // Length of a comprehension.
                     let element = self.elem_ty(1);
                     let comp = self.comprehension(&element, next)?;
-                    Expr::Method { recv: Box::new(comp), name: "len", args: Vec::new() }
+                    Expr::Method {
+                        recv: Box::new(comp),
+                        name: "len",
+                        args: Vec::new(),
+                    }
                 }
                 _ => return self.method_of(ty, next),
             }),
@@ -1172,7 +1460,11 @@ impl<'c> Gen<'c> {
                 }
                 1 => {
                     let left = self.expr_or_literal(&Ty::Float, false, next);
-                    Expr::Binary(BinOp::Div, Box::new(left), Box::new(Expr::Float(*self.rng.pick(&[2.0, 0.5, -4.0, 10.0]))))
+                    Expr::Binary(
+                        BinOp::Div,
+                        Box::new(left),
+                        Box::new(Expr::Float(*self.rng.pick(&[2.0, 0.5, -4.0, 10.0]))),
+                    )
                 }
                 2 => Expr::Neg(Box::new(self.expr_or_literal(&Ty::Float, false, next))),
                 _ => return self.method_of(ty, next),
@@ -1189,7 +1481,10 @@ impl<'c> Gen<'c> {
                         if self.rng.chance(40) {
                             parts.push(FmtPart::Lit(self.fmt_text()));
                         }
-                        let display = self.rng.pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Float, Ty::Path]).clone();
+                        let display = self
+                            .rng
+                            .pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Float, Ty::Path])
+                            .clone();
                         let value = self.expr_or_literal(&display, false, next);
                         parts.push(if self.rng.chance(20) {
                             let align = *self.rng.pick(&['>', '<', '0']);
@@ -1218,7 +1513,17 @@ impl<'c> Gen<'c> {
                     Expr::Binary(op, Box::new(left), Box::new(right))
                 }
                 2 => {
-                    let operand = self.rng.pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Path, Ty::Bytes, Ty::list(Ty::Int)]).clone();
+                    let operand = self
+                        .rng
+                        .pick(&[
+                            Ty::Int,
+                            Ty::Str,
+                            Ty::Bool,
+                            Ty::Path,
+                            Ty::Bytes,
+                            Ty::list(Ty::Int),
+                        ])
+                        .clone();
                     let op = *self.rng.pick(&[BinOp::Eq, BinOp::Ne]);
                     let left = self.expr_or_literal(&operand, false, next);
                     let right = self.expr_or_literal(&operand, false, next);
@@ -1232,7 +1537,11 @@ impl<'c> Gen<'c> {
                 }
                 4 => Expr::Not(Box::new(self.expr_or_literal(&Ty::Bool, false, next))),
                 5 => {
-                    let op = if self.rng.chance(70) { BinOp::In } else { BinOp::NotIn };
+                    let op = if self.rng.chance(70) {
+                        BinOp::In
+                    } else {
+                        BinOp::NotIn
+                    };
                     match self.rng.below(3) {
                         0 => {
                             let element = self.rng.pick(&[Ty::Int, Ty::Str]).clone();
@@ -1259,13 +1568,27 @@ impl<'c> Gen<'c> {
                     if !self.enums.is_empty() && self.rng.chance(60) {
                         let en = self.rng.below(self.enums.len());
                         let subject = self.expr(&Ty::Enum(en), false, next)?;
-                        let (name, payload) = self.rng.pick(&self.enums[en].variants.clone()).clone();
-                        Expr::Is(Box::new(subject), IsPat::Variant { name, arity: payload.len() })
+                        let (name, payload) =
+                            self.rng.pick(&self.enums[en].variants.clone()).clone();
+                        Expr::Is(
+                            Box::new(subject),
+                            IsPat::Variant {
+                                name,
+                                arity: payload.len(),
+                            },
+                        )
                     } else {
                         let inner = self.elem_ty(1);
                         let fam = *self.rng.pick(&[Fam::Fz, Fam::Error]);
                         let subject = self.expr(&Ty::res(inner, fam), false, next)?;
-                        Expr::Is(Box::new(subject), if self.rng.chance(50) { IsPat::Ok } else { IsPat::Err })
+                        Expr::Is(
+                            Box::new(subject),
+                            if self.rng.chance(50) {
+                                IsPat::Ok
+                            } else {
+                                IsPat::Err
+                            },
+                        )
                     }
                 }
                 6 => {
@@ -1307,7 +1630,11 @@ impl<'c> Gen<'c> {
                 }
                 _ => {
                     let duration = self.expr_or_literal(&Ty::Duration, false, next);
-                    Expr::Binary(BinOp::Div, Box::new(duration), Box::new(Expr::Int(self.rng.range(1, 4))))
+                    Expr::Binary(
+                        BinOp::Div,
+                        Box::new(duration),
+                        Box::new(Expr::Int(self.rng.range(1, 4))),
+                    )
                 }
             }),
             Ty::List(element) => match self.rng.below(6) {
@@ -1319,7 +1646,11 @@ impl<'c> Gen<'c> {
                 1 | 2 => self.comprehension(element, next),
                 3 if self.rng.chance(30) => {
                     let (call, _) = self.stream_call(Some(element), next)?;
-                    Some(Expr::Method { recv: Box::new(call), name: "collect", args: Vec::new() })
+                    Some(Expr::Method {
+                        recv: Box::new(call),
+                        name: "collect",
+                        args: Vec::new(),
+                    })
                 }
                 3 => {
                     let base = self.expr(ty, false, next)?;
@@ -1346,11 +1677,20 @@ impl<'c> Gen<'c> {
                     let element = self.elem_ty(1);
                     let iter = self.expr(&Ty::list(element.clone()), false, next)?;
                     let var = self.fresh("x");
-                    self.scopes.push(vec![Local { name: var.clone(), ty: element, mutable: false }]);
+                    self.scopes.push(vec![Local {
+                        name: var.clone(),
+                        ty: element,
+                        mutable: false,
+                    }]);
                     let key_expr = self.expr_or_literal(key, false, next);
                     let value_expr = self.expr_or_literal(value, false, next);
                     self.scopes.pop();
-                    Some(Expr::MapComp { key: Box::new(key_expr), value: Box::new(value_expr), var, iter: Box::new(iter) })
+                    Some(Expr::MapComp {
+                        key: Box::new(key_expr),
+                        value: Box::new(value_expr),
+                        var,
+                        iter: Box::new(iter),
+                    })
                 }
                 _ => self.method_of(ty, next),
             },
@@ -1361,42 +1701,68 @@ impl<'c> Gen<'c> {
                     let mut updates = Vec::new();
                     for (name, field_ty) in &fields {
                         if !needs_cx(field_ty) && (updates.is_empty() || self.rng.chance(30)) {
-                            updates.push((name.clone(), self.expr_or_literal(field_ty, false, next)));
+                            updates
+                                .push((name.clone(), self.expr_or_literal(field_ty, false, next)));
                         }
                     }
                     if updates.is_empty() {
                         return None;
                     }
-                    Some(Expr::RecUpdate { base: Box::new(base), updates })
+                    Some(Expr::RecUpdate {
+                        base: Box::new(base),
+                        updates,
+                    })
                 } else {
                     let mut values = Vec::new();
                     for (name, field_ty) in &fields {
                         values.push((name.clone(), self.expr_or_literal(field_ty, true, next)));
                     }
                     self.rng.shuffle(&mut values);
-                    Some(Expr::RecCtor { rec: *index, fields: values })
+                    Some(Expr::RecCtor {
+                        rec: *index,
+                        fields: values,
+                    })
                 }
             }
             Ty::Enum(index) => {
                 let variant = self.rng.below(self.enums[*index].variants.len());
                 let payload = self.enums[*index].variants[variant].1.clone();
-                let args = payload.iter().map(|ty| self.expr_or_literal(ty, true, next)).collect();
-                Some(Expr::Variant { en: *index, variant, args })
+                let args = payload
+                    .iter()
+                    .map(|ty| self.expr_or_literal(ty, true, next))
+                    .collect();
+                Some(Expr::Variant {
+                    en: *index,
+                    variant,
+                    args,
+                })
             }
             Ty::Opt(inner) => {
                 if cx {
-                    return Some(if self.rng.chance(30) { Expr::Null } else { self.expr_or_literal(inner, true, next) });
+                    return Some(if self.rng.chance(30) {
+                        Expr::Null
+                    } else {
+                        self.expr_or_literal(inner, true, next)
+                    });
                 }
                 // `opt?.method()` keeps the Optional layer.
                 if **inner == Ty::Str {
                     let source = self.expr(&Ty::opt(Ty::Str), false, next)?;
                     let name = *self.rng.pick(&["upper", "lower", "trim", "reverse"]);
-                    return Some(Expr::OptMethod { recv: Box::new(source), name, args: Vec::new() });
+                    return Some(Expr::OptMethod {
+                        recv: Box::new(source),
+                        name,
+                        args: Vec::new(),
+                    });
                 }
                 if **inner == Ty::Int && self.rng.chance(50) {
                     let source = self.expr(&Ty::opt(Ty::Str), false, next)?;
                     let name = *self.rng.pick(&["count_chars", "byte_len"]);
-                    return Some(Expr::OptMethod { recv: Box::new(source), name, args: Vec::new() });
+                    return Some(Expr::OptMethod {
+                        recv: Box::new(source),
+                        name,
+                        args: Vec::new(),
+                    });
                 }
                 // `record?.field` on an Optional record.
                 let candidates: Vec<(usize, String)> = self
@@ -1407,7 +1773,9 @@ impl<'c> Gen<'c> {
                         record
                             .fields
                             .iter()
-                            .filter(|(_, field_ty)| field_ty == &**inner || *field_ty == Ty::opt((**inner).clone()))
+                            .filter(|(_, field_ty)| {
+                                field_ty == &**inner || *field_ty == Ty::opt((**inner).clone())
+                            })
                             .map(move |(name, _)| (index, name.clone()))
                     })
                     .collect();
@@ -1441,7 +1809,11 @@ impl<'c> Gen<'c> {
                             self.yield_ty = yield_ty;
                         }
                         self.ctx = saved;
-                        Some(if retry { Expr::Retry(Box::new(block)) } else { Expr::Try(Box::new(block)) })
+                        Some(if retry {
+                            Expr::Retry(Box::new(block))
+                        } else {
+                            Expr::Try(Box::new(block))
+                        })
                     }
                     _ => None,
                 }
@@ -1477,29 +1849,52 @@ impl<'c> Gen<'c> {
             }
         };
         let var = self.fresh("x");
-        self.scopes.push(vec![Local { name: var.clone(), ty: var_ty, mutable: false }]);
+        self.scopes.push(vec![Local {
+            name: var.clone(),
+            ty: var_ty,
+            mutable: false,
+        }]);
         let proj = self.expr_or_literal(element, false, depth + 1);
-        let filter = if self.rng.chance(40) { Some(Box::new(self.expr_or_literal(&Ty::Bool, false, depth + 1))) } else { None };
+        let filter = if self.rng.chance(40) {
+            Some(Box::new(self.expr_or_literal(&Ty::Bool, false, depth + 1)))
+        } else {
+            None
+        };
         self.scopes.pop();
-        Some(Expr::Comp { proj: Box::new(proj), var, iter: Box::new(iter), filter })
+        Some(Expr::Comp {
+            proj: Box::new(proj),
+            var,
+            iter: Box::new(iter),
+            filter,
+        })
     }
 
     /// A Str expression rendering the value of `expr` (a name or field path)
     /// canonically; the reference evaluator computes the same text.
     fn render(&mut self, expr: &Expr, ty: &Ty) -> Expr {
-        let add = |left: Expr, right: Expr| Expr::Binary(BinOp::Add, Box::new(left), Box::new(right));
+        let add =
+            |left: Expr, right: Expr| Expr::Binary(BinOp::Add, Box::new(left), Box::new(right));
         let join = |comp: Expr, separator: &str| Expr::Method {
             recv: Box::new(comp),
             name: "join",
             args: vec![Expr::Str(separator.into())],
         };
         match ty {
-            Ty::Int | Ty::Float | Ty::Bool | Ty::Path => Expr::Fmt(vec![FmtPart::Interp(expr.clone())]),
+            Ty::Int | Ty::Float | Ty::Bool | Ty::Path => {
+                Expr::Fmt(vec![FmtPart::Interp(expr.clone())])
+            }
             Ty::Duration => Expr::Fmt(vec![
-                FmtPart::Interp(Expr::Binary(BinOp::Div, Box::new(expr.clone()), Box::new(Expr::Duration(1)))),
+                FmtPart::Interp(Expr::Binary(
+                    BinOp::Div,
+                    Box::new(expr.clone()),
+                    Box::new(Expr::Duration(1)),
+                )),
                 FmtPart::Lit("ms".into()),
             ]),
-            Ty::Str => add(add(Expr::Str("'".into()), expr.clone()), Expr::Str("'".into())),
+            Ty::Str => add(
+                add(Expr::Str("'".into()), expr.clone()),
+                Expr::Str("'".into()),
+            ),
             Ty::Bytes => {
                 let var = self.fresh("r");
                 let comp = Expr::Comp {
@@ -1508,21 +1903,40 @@ impl<'c> Gen<'c> {
                     iter: Box::new(expr.clone()),
                     filter: None,
                 };
-                add(add(Expr::Str("b[".into()), join(comp, " ")), Expr::Str("]".into()))
+                add(
+                    add(Expr::Str("b[".into()), join(comp, " ")),
+                    Expr::Str("]".into()),
+                )
             }
             Ty::List(element) => {
                 let var = self.fresh("r");
                 let proj = self.render(&Expr::Var(var.clone()), element);
-                let comp = Expr::Comp { proj: Box::new(proj), var, iter: Box::new(expr.clone()), filter: None };
-                add(add(Expr::Str("[".into()), join(comp, ",")), Expr::Str("]".into()))
+                let comp = Expr::Comp {
+                    proj: Box::new(proj),
+                    var,
+                    iter: Box::new(expr.clone()),
+                    filter: None,
+                };
+                add(
+                    add(Expr::Str("[".into()), join(comp, ",")),
+                    Expr::Str("]".into()),
+                )
             }
             Ty::Map(key, value) => {
                 let var = self.fresh("r");
                 let key_text = self.render(&Expr::Var(format!("{var}.key")), key);
                 let value_text = self.render(&Expr::Var(format!("{var}.value")), value);
                 let proj = add(add(key_text, Expr::Str(":".into())), value_text);
-                let comp = Expr::Comp { proj: Box::new(proj), var, iter: Box::new(expr.clone()), filter: None };
-                add(add(Expr::Str("{".into()), join(comp, ",")), Expr::Str("}".into()))
+                let comp = Expr::Comp {
+                    proj: Box::new(proj),
+                    var,
+                    iter: Box::new(expr.clone()),
+                    filter: None,
+                };
+                add(
+                    add(Expr::Str("{".into()), join(comp, ",")),
+                    Expr::Str("}".into()),
+                )
             }
             Ty::Rec(index) => {
                 let fields = self.records[*index].fields.clone();
@@ -1531,7 +1945,8 @@ impl<'c> Gen<'c> {
                     if position > 0 {
                         text = add(text, Expr::Str(",".into()));
                     }
-                    let field = self.render(&Expr::Field(Box::new(expr.clone()), name.clone()), field_ty);
+                    let field =
+                        self.render(&Expr::Field(Box::new(expr.clone()), name.clone()), field_ty);
                     text = add(text, field);
                 }
                 add(text, Expr::Str("}".into()))
@@ -1544,7 +1959,8 @@ impl<'c> Gen<'c> {
                     let mut text = Expr::Str(name.clone());
                     if !payload.is_empty() {
                         text = add(text, Expr::Str("(".into()));
-                        for (position, (bind, payload_ty)) in binds.iter().zip(&payload).enumerate() {
+                        for (position, (bind, payload_ty)) in binds.iter().zip(&payload).enumerate()
+                        {
                             if position > 0 {
                                 text = add(text, Expr::Str(",".into()));
                             }
@@ -1560,9 +1976,19 @@ impl<'c> Gen<'c> {
             Ty::Opt(inner) => {
                 let present = self.render(expr, inner);
                 Expr::If(
-                    Box::new(Expr::Binary(BinOp::Eq, Box::new(expr.clone()), Box::new(Expr::Null))),
-                    Box::new(Block { stmts: Vec::new(), tail: Some(Expr::Str("null".into())) }),
-                    Box::new(Block { stmts: Vec::new(), tail: Some(present) }),
+                    Box::new(Expr::Binary(
+                        BinOp::Eq,
+                        Box::new(expr.clone()),
+                        Box::new(Expr::Null),
+                    )),
+                    Box::new(Block {
+                        stmts: Vec::new(),
+                        tail: Some(Expr::Str("null".into())),
+                    }),
+                    Box::new(Block {
+                        stmts: Vec::new(),
+                        tail: Some(present),
+                    }),
                 )
             }
             Ty::Res(inner, _) => {
@@ -1572,11 +1998,17 @@ impl<'c> Gen<'c> {
                 Expr::Match(
                     Box::new(expr.clone()),
                     vec![
-                        (Pat::Ok(ok), add(add(Expr::Str("ok(".into()), ok_text), Expr::Str(")".into()))),
+                        (
+                            Pat::Ok(ok),
+                            add(add(Expr::Str("ok(".into()), ok_text), Expr::Str(")".into())),
+                        ),
                         (
                             Pat::Err(err.clone()),
                             add(
-                                add(Expr::Str("err(".into()), Expr::Field(Box::new(Expr::Var(err)), "message".into())),
+                                add(
+                                    Expr::Str("err(".into()),
+                                    Expr::Field(Box::new(Expr::Var(err)), "message".into()),
+                                ),
                                 Expr::Str(")".into()),
                             ),
                         ),
@@ -1593,7 +2025,11 @@ impl<'c> Gen<'c> {
         let name = self.fresh("v");
         let value = if annotate && mutable && matches!(ty, Ty::List(_)) && self.rng.chance(30) {
             Expr::List(Vec::new())
-        } else if self.ctx.kind == Kind::Main && self.nesting < 2 && (annotate || !needs_cx(&ty)) && self.rng.chance(8) {
+        } else if self.ctx.kind == Kind::Main
+            && self.nesting < 2
+            && (annotate || !needs_cx(&ty))
+            && self.rng.chance(8)
+        {
             // A value block initializer; its first statement is a `let`.
             Expr::BlockValue(Box::new(self.value_block_with_let(&ty, annotate, 1)))
         } else {
@@ -1602,7 +2038,12 @@ impl<'c> Gen<'c> {
                 None => self.literal(&ty, annotate, 0),
             }
         };
-        stmts.push(Stmt::Let { name: name.clone(), annot: annotate.then(|| ty.clone()), value, mutable });
+        stmts.push(Stmt::Let {
+            name: name.clone(),
+            annot: annotate.then(|| ty.clone()),
+            value,
+            mutable,
+        });
         self.bind(name, ty, mutable);
     }
 
@@ -1633,16 +2074,38 @@ impl<'c> Gen<'c> {
                 if !narrowed.is_empty() && self.rng.chance(40) {
                     // A presence test narrows an immutable Optional.
                     let local = self.rng.pick(&narrowed).clone();
-                    let Ty::Opt(inner) = &local.ty else { unreachable!() };
-                    let cond = Expr::Binary(BinOp::Ne, Box::new(Expr::Var(local.name.clone())), Box::new(Expr::Null));
-                    let then = self.block(vec![Local { name: local.name.clone(), ty: (**inner).clone(), mutable: false }]);
-                    stmts.push(Stmt::If { cond, then, otherwise: None });
+                    let Ty::Opt(inner) = &local.ty else {
+                        unreachable!()
+                    };
+                    let cond = Expr::Binary(
+                        BinOp::Ne,
+                        Box::new(Expr::Var(local.name.clone())),
+                        Box::new(Expr::Null),
+                    );
+                    let then = self.block(vec![Local {
+                        name: local.name.clone(),
+                        ty: (**inner).clone(),
+                        mutable: false,
+                    }]);
+                    stmts.push(Stmt::If {
+                        cond,
+                        then,
+                        otherwise: None,
+                    });
                     return;
                 }
                 let cond = self.expr_or_literal(&Ty::Bool, false, 1);
                 let then = self.block(Vec::new());
-                let otherwise = if self.rng.chance(50) { Some(self.block(Vec::new())) } else { None };
-                stmts.push(Stmt::If { cond, then, otherwise });
+                let otherwise = if self.rng.chance(50) {
+                    Some(self.block(Vec::new()))
+                } else {
+                    None
+                };
+                stmts.push(Stmt::If {
+                    cond,
+                    then,
+                    otherwise,
+                });
             }
             10 | 11 if nested => {
                 if self.rng.chance(20)
@@ -1651,7 +2114,11 @@ impl<'c> Gen<'c> {
                     let var = self.fresh("i");
                     let saved = self.ctx;
                     self.ctx.in_loop = true;
-                    let body = self.block(vec![Local { name: var.clone(), ty: item, mutable: false }]);
+                    let body = self.block(vec![Local {
+                        name: var.clone(),
+                        ty: item,
+                        mutable: false,
+                    }]);
                     self.ctx = saved;
                     stmts.push(Stmt::For { var, iter, body });
                     return;
@@ -1659,20 +2126,33 @@ impl<'c> Gen<'c> {
                 let (iter_ty, locals) = match self.rng.below(5) {
                     0 => (Ty::Str, vec![("", Ty::Str)]),
                     1 => {
-                        let key = if self.rng.chance(60) { Ty::Str } else { Ty::Int };
+                        let key = if self.rng.chance(60) {
+                            Ty::Str
+                        } else {
+                            Ty::Int
+                        };
                         let value = self.elem_ty(1);
-                        (Ty::map(key.clone(), value.clone()), vec![(".key", key), (".value", value)])
+                        (
+                            Ty::map(key.clone(), value.clone()),
+                            vec![(".key", key), (".value", value)],
+                        )
                     }
                     _ => {
                         let item = self.elem_ty(1);
                         (Ty::list(item.clone()), vec![("", item)])
                     }
                 };
-                let Some(iter) = self.expr(&iter_ty, false, 1) else { return };
+                let Some(iter) = self.expr(&iter_ty, false, 1) else {
+                    return;
+                };
                 let var = self.fresh("i");
                 let locals = locals
                     .into_iter()
-                    .map(|(suffix, ty)| Local { name: format!("{var}{suffix}"), ty, mutable: false })
+                    .map(|(suffix, ty)| Local {
+                        name: format!("{var}{suffix}"),
+                        ty,
+                        mutable: false,
+                    })
                     .collect();
                 let saved = self.ctx;
                 self.ctx.in_loop = true;
@@ -1685,13 +2165,23 @@ impl<'c> Gen<'c> {
                 let limit = self.rng.range(0, 4);
                 let saved = self.ctx;
                 self.ctx.in_loop = true;
-                let body = self.block(vec![Local { name: counter.clone(), ty: Ty::Int, mutable: false }]);
+                let body = self.block(vec![Local {
+                    name: counter.clone(),
+                    ty: Ty::Int,
+                    mutable: false,
+                }]);
                 self.ctx = saved;
-                stmts.push(Stmt::While { counter, limit, body });
+                stmts.push(Stmt::While {
+                    counter,
+                    limit,
+                    body,
+                });
             }
             13 if nested && !self.enums.is_empty() => {
                 let en = self.rng.below(self.enums.len());
-                let Some(subject) = self.expr(&Ty::Enum(en), false, 1) else { return };
+                let Some(subject) = self.expr(&Ty::Enum(en), false, 1) else {
+                    return;
+                };
                 let variants = self.enums[en].variants.clone();
                 let mut arms = Vec::new();
                 let wildcard = self.rng.chance(30);
@@ -1704,10 +2194,20 @@ impl<'c> Gen<'c> {
                     let locals = binds
                         .iter()
                         .zip(payload)
-                        .map(|(bind, ty)| Local { name: bind.clone(), ty: ty.clone(), mutable: false })
+                        .map(|(bind, ty)| Local {
+                            name: bind.clone(),
+                            ty: ty.clone(),
+                            mutable: false,
+                        })
                         .collect();
                     let body = self.block(locals);
-                    arms.push((Pat::Variant { name: name.clone(), binds }, body));
+                    arms.push((
+                        Pat::Variant {
+                            name: name.clone(),
+                            binds,
+                        },
+                        body,
+                    ));
                 }
                 stmts.push(Stmt::Match { subject, arms });
             }
@@ -1715,22 +2215,48 @@ impl<'c> Gen<'c> {
                 let ty = self.ty(0);
                 let name = self.fresh("o");
                 let value = self.expr_or_literal(&ty, true, 0);
-                stmts.push(Stmt::Let { name: name.clone(), annot: Some(ty.clone()), value, mutable: false });
+                stmts.push(Stmt::Let {
+                    name: name.clone(),
+                    annot: Some(ty.clone()),
+                    value,
+                    mutable: false,
+                });
                 stmts.push(Stmt::Out(self.render(&Expr::Var(name.clone()), &ty)));
                 self.bind(name, ty, false);
             }
             16 if self.ctx.observe && self.value_depth == 0 => {
-                let ty = self.rng.pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Float, Ty::Bytes, Ty::Path, Ty::Duration]).clone();
+                let ty = self
+                    .rng
+                    .pick(&[
+                        Ty::Int,
+                        Ty::Str,
+                        Ty::Bool,
+                        Ty::Float,
+                        Ty::Bytes,
+                        Ty::Path,
+                        Ty::Duration,
+                    ])
+                    .clone();
                 let expr = self.expr_or_literal(&ty, false, 1);
-                stmts.push(Stmt::AssertEq { expr, expected: None });
+                stmts.push(Stmt::AssertEq {
+                    expr,
+                    expected: None,
+                });
             }
             17 if self.ctx.in_loop => {
                 let cond = self.expr_or_literal(&Ty::Bool, false, 1);
-                stmts.push(if self.rng.chance(50) { Stmt::ContinueWhen(cond) } else { Stmt::BreakWhen(cond) });
+                stmts.push(if self.rng.chance(50) {
+                    Stmt::ContinueWhen(cond)
+                } else {
+                    Stmt::BreakWhen(cond)
+                });
             }
             18 if self.ctx.return_err => {
                 let cond = self.expr_or_literal(&Ty::Bool, false, 1);
-                stmts.push(Stmt::ReturnErrWhen { cond, message: self.string() });
+                stmts.push(Stmt::ReturnErrWhen {
+                    cond,
+                    message: self.string(),
+                });
             }
             19 if nested && self.ctx.kind == Kind::Main => {
                 self.scopes.push(Vec::new());
@@ -1742,7 +2268,10 @@ impl<'c> Gen<'c> {
                 }
                 self.nesting -= 1;
                 self.scopes.pop();
-                stmts.push(Stmt::Block(Block { stmts: inner, tail: None }));
+                stmts.push(Stmt::Block(Block {
+                    stmts: inner,
+                    tail: None,
+                }));
             }
             20 => self.extra_stmt(stmts),
             _ => self.let_stmt(stmts, true),
@@ -1761,19 +2290,30 @@ impl<'c> Gen<'c> {
             // Top-level defers would run after the entry's tail has taken
             // `out`, so they are generated only in nested blocks.
             1 if self.ctx.observe && self.nesting >= 1 && nested => {
-                let locals: Vec<Local> = self.locals().filter(|local| !local.name.contains('.')).cloned().collect();
+                let locals: Vec<Local> = self
+                    .locals()
+                    .filter(|local| !local.name.contains('.'))
+                    .cloned()
+                    .collect();
                 let text = if !locals.is_empty() && self.rng.chance(70) {
                     let local = self.rng.pick(&locals).clone();
                     self.render(&Expr::Var(local.name), &local.ty)
                 } else {
                     Expr::Str(format!("defer {}", self.string()))
                 };
-                stmts.push(Stmt::Defer(Block { stmts: vec![Stmt::Out(text)], tail: None }));
+                stmts.push(Stmt::Defer(Block {
+                    stmts: vec![Stmt::Out(text)],
+                    tail: None,
+                }));
             }
             2 if self.ctx.in_loop || self.ctx.return_err => {
                 let cond = self.expr_or_literal(&Ty::Bool, false, 1);
                 let exit = if self.ctx.in_loop {
-                    if self.rng.chance(60) { Exit::Continue } else { Exit::Break }
+                    if self.rng.chance(60) {
+                        Exit::Continue
+                    } else {
+                        Exit::Break
+                    }
                 } else {
                     Exit::ReturnErr(self.string())
                 };
@@ -1782,31 +2322,77 @@ impl<'c> Gen<'c> {
             3 if nested => {
                 if !self.enums.is_empty() && self.rng.chance(40) {
                     let en = self.rng.below(self.enums.len());
-                    let Some(subject) = self.expr(&Ty::Enum(en), false, 1) else { return };
+                    let Some(subject) = self.expr(&Ty::Enum(en), false, 1) else {
+                        return;
+                    };
                     let (name, payload) = self.rng.pick(&self.enums[en].variants.clone()).clone();
                     let binds: Vec<String> = payload.iter().map(|_| self.fresh("m")).collect();
-                    let locals = binds.iter().zip(&payload).map(|(bind, ty)| Local { name: bind.clone(), ty: ty.clone(), mutable: false }).collect();
+                    let locals = binds
+                        .iter()
+                        .zip(&payload)
+                        .map(|(bind, ty)| Local {
+                            name: bind.clone(),
+                            ty: ty.clone(),
+                            mutable: false,
+                        })
+                        .collect();
                     let then = self.block(locals);
-                    let otherwise = if self.rng.chance(50) { Some(self.block(Vec::new())) } else { None };
-                    stmts.push(Stmt::IfLet { pat: Pat::Variant { name, binds }, subject, then, otherwise });
+                    let otherwise = if self.rng.chance(50) {
+                        Some(self.block(Vec::new()))
+                    } else {
+                        None
+                    };
+                    stmts.push(Stmt::IfLet {
+                        pat: Pat::Variant { name, binds },
+                        subject,
+                        then,
+                        otherwise,
+                    });
                 } else {
                     let inner = self.elem_ty(1);
                     let fam = *self.rng.pick(&[Fam::Fz, Fam::Error]);
-                    let Some(subject) = self.expr(&Ty::res(inner.clone(), fam), false, 1) else { return };
+                    let Some(subject) = self.expr(&Ty::res(inner.clone(), fam), false, 1) else {
+                        return;
+                    };
                     let bind = self.fresh("m");
                     let (pat, local) = if self.rng.chance(60) {
-                        (Pat::Ok(bind.clone()), Local { name: bind, ty: inner, mutable: false })
+                        (
+                            Pat::Ok(bind.clone()),
+                            Local {
+                                name: bind,
+                                ty: inner,
+                                mutable: false,
+                            },
+                        )
                     } else {
                         // The error binding is read through `.message`.
-                        (Pat::Err(bind.clone()), Local { name: format!("{bind}.message"), ty: Ty::Str, mutable: false })
+                        (
+                            Pat::Err(bind.clone()),
+                            Local {
+                                name: format!("{bind}.message"),
+                                ty: Ty::Str,
+                                mutable: false,
+                            },
+                        )
                     };
                     let then = self.block(vec![local]);
-                    let otherwise = if self.rng.chance(50) { Some(self.block(Vec::new())) } else { None };
-                    stmts.push(Stmt::IfLet { pat, subject, then, otherwise });
+                    let otherwise = if self.rng.chance(50) {
+                        Some(self.block(Vec::new()))
+                    } else {
+                        None
+                    };
+                    stmts.push(Stmt::IfLet {
+                        pat,
+                        subject,
+                        then,
+                        otherwise,
+                    });
                 }
             }
             4 if self.ctx.kind == Kind::Main && self.nesting == 0 => {
-                let candidates: Vec<usize> = (0..self.functions.len()).filter(|index| self.callable(*index)).collect();
+                let candidates: Vec<usize> = (0..self.functions.len())
+                    .filter(|index| self.callable(*index))
+                    .collect();
                 if candidates.is_empty() {
                     return;
                 }
@@ -1841,20 +2427,42 @@ impl<'c> Gen<'c> {
         let orderable = |ty: &Ty| matches!(ty, Ty::Int | Ty::Str);
         // The terminal stage and the element type it consumes.
         let (terminal, mut element) = match ty {
-            Ty::List(element) if !needs_cx(element) => (if self.rng.chance(30) { Some(Stage::Collect) } else { None }, (**element).clone()),
+            Ty::List(element) if !needs_cx(element) => (
+                if self.rng.chance(30) {
+                    Some(Stage::Collect)
+                } else {
+                    None
+                },
+                (**element).clone(),
+            ),
             Ty::Int if self.rng.chance(40) => (Some(Stage::Sum), Ty::Int),
             Ty::Int if self.rng.chance(50) => (Some(Stage::Count), self.elem_ty(1)),
             Ty::Bool => {
                 let element = self.elem_ty(1);
                 let var = self.fresh("x");
-                self.scopes.push(vec![Local { name: var.clone(), ty: element.clone(), mutable: false }]);
+                self.scopes.push(vec![Local {
+                    name: var.clone(),
+                    ty: element.clone(),
+                    mutable: false,
+                }]);
                 let body = self.tail_expr(&Ty::Bool, false, next);
                 self.scopes.pop();
-                (Some(if self.rng.chance(50) { Stage::Any { var, body } } else { Stage::All { var, body } }), element)
+                (
+                    Some(if self.rng.chance(50) {
+                        Stage::Any { var, body }
+                    } else {
+                        Stage::All { var, body }
+                    }),
+                    element,
+                )
             }
             Ty::Res(inner, Fam::Error) if !needs_cx(inner) => {
                 let stage = if orderable(inner) && self.rng.chance(50) {
-                    if self.rng.chance(50) { Stage::Min } else { Stage::Max }
+                    if self.rng.chance(50) {
+                        Stage::Min
+                    } else {
+                        Stage::Max
+                    }
                 } else if self.rng.chance(50) {
                     Stage::First
                 } else {
@@ -1868,12 +2476,28 @@ impl<'c> Gen<'c> {
                 let acc = self.fresh("x");
                 let item = self.fresh("x");
                 self.scopes.push(vec![
-                    Local { name: acc.clone(), ty: other.clone(), mutable: false },
-                    Local { name: item.clone(), ty: element.clone(), mutable: false },
+                    Local {
+                        name: acc.clone(),
+                        ty: other.clone(),
+                        mutable: false,
+                    },
+                    Local {
+                        name: item.clone(),
+                        ty: element.clone(),
+                        mutable: false,
+                    },
                 ]);
                 let body = self.tail_expr(other, false, next);
                 self.scopes.pop();
-                (Some(Stage::Fold { init, acc, item, body }), element)
+                (
+                    Some(Stage::Fold {
+                        init,
+                        acc,
+                        item,
+                        body,
+                    }),
+                    element,
+                )
             }
             _ => return None,
         };
@@ -1887,7 +2511,11 @@ impl<'c> Gen<'c> {
                         from = self.elem_ty(1);
                     }
                     let var = self.fresh("x");
-                    self.scopes.push(vec![Local { name: var.clone(), ty: from.clone(), mutable: false }]);
+                    self.scopes.push(vec![Local {
+                        name: var.clone(),
+                        ty: from.clone(),
+                        mutable: false,
+                    }]);
                     let body = self.tail_expr(&element, false, next);
                     self.scopes.pop();
                     element = from;
@@ -1895,7 +2523,11 @@ impl<'c> Gen<'c> {
                 }
                 2 => {
                     let var = self.fresh("x");
-                    self.scopes.push(vec![Local { name: var.clone(), ty: element.clone(), mutable: false }]);
+                    self.scopes.push(vec![Local {
+                        name: var.clone(),
+                        ty: element.clone(),
+                        mutable: false,
+                    }]);
                     let body = self.tail_expr(&Ty::Bool, false, next);
                     self.scopes.pop();
                     Stage::Where { var, body }
@@ -1918,11 +2550,18 @@ impl<'c> Gen<'c> {
         if stages.is_empty() {
             stages.push(Stage::Collect);
         }
-        Some(Expr::Pipeline { source: Box::new(source), stages })
+        Some(Expr::Pipeline {
+            source: Box::new(source),
+            stages,
+        })
     }
 
     fn assign(&mut self, stmts: &mut Vec<Stmt>) {
-        let mutable: Vec<Local> = self.locals().filter(|local| local.mutable).cloned().collect();
+        let mutable: Vec<Local> = self
+            .locals()
+            .filter(|local| local.mutable)
+            .cloned()
+            .collect();
         if mutable.is_empty() {
             self.let_stmt(stmts, true);
             return;
@@ -1931,32 +2570,58 @@ impl<'c> Gen<'c> {
         let roll = self.rng.below(4);
         let stmt = match (&local.ty, roll) {
             (Ty::Int | Ty::Float, 0) => {
-                let op = *self.rng.pick(&[AssignOp::Add, AssignOp::Sub, AssignOp::Mul]);
+                let op = *self
+                    .rng
+                    .pick(&[AssignOp::Add, AssignOp::Sub, AssignOp::Mul]);
                 let value = self.expr_or_literal(&local.ty, false, 1);
-                Stmt::Assign { target: Target::Var(local.name.clone()), op, value }
+                Stmt::Assign {
+                    target: Target::Var(local.name.clone()),
+                    op,
+                    value,
+                }
             }
             (Ty::List(_), 0) => {
                 let value = self.expr_or_literal(&local.ty, true, 1);
-                Stmt::Assign { target: Target::Var(local.name.clone()), op: AssignOp::Add, value }
+                Stmt::Assign {
+                    target: Target::Var(local.name.clone()),
+                    op: AssignOp::Add,
+                    value,
+                }
             }
             (Ty::Rec(index), 1) => {
                 let fields = self.records[*index].fields.clone();
                 let (field, field_ty) = self.rng.pick(&fields).clone();
                 let value = self.expr_or_literal(&field_ty, true, 1);
-                Stmt::Assign { target: Target::Field(local.name.clone(), field), op: AssignOp::Set, value }
+                Stmt::Assign {
+                    target: Target::Field(local.name.clone(), field),
+                    op: AssignOp::Set,
+                    value,
+                }
             }
             (Ty::Map(key, value_ty), 1) if **key == Ty::Str => {
                 let key = Expr::Str(self.string());
                 let value = self.expr_or_literal(value_ty, true, 1);
-                Stmt::Assign { target: Target::Key(local.name.clone(), key), op: AssignOp::Set, value }
+                Stmt::Assign {
+                    target: Target::Key(local.name.clone(), key),
+                    op: AssignOp::Set,
+                    value,
+                }
             }
             (Ty::List(element), 2) => {
                 let value = self.expr_or_literal(element, true, 1);
-                Stmt::Assign { target: Target::Key(local.name.clone(), Expr::Int(0)), op: AssignOp::Set, value }
+                Stmt::Assign {
+                    target: Target::Key(local.name.clone(), Expr::Int(0)),
+                    op: AssignOp::Set,
+                    value,
+                }
             }
             _ => {
                 let value = self.expr_or_literal(&local.ty, true, 1);
-                Stmt::Assign { target: Target::Var(local.name.clone()), op: AssignOp::Set, value }
+                Stmt::Assign {
+                    target: Target::Var(local.name.clone()),
+                    op: AssignOp::Set,
+                    value,
+                }
             }
         };
         stmts.push(stmt);

@@ -13,13 +13,13 @@ mod release_binary;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use xsh::frontend::syntax::grammar::earley::Recognizer;
+use xsh::frontend::syntax::grammar::{grammar, lex_grammar_tokens};
 use xsh_fuzz::driver::{minimize, run_seed};
 use xsh_fuzz::generator::GenConfig;
 use xsh_fuzz::harness::Sandbox;
 use xsh_fuzz::mutate::{check_mutant, corpus_files, mutate};
 use xsh_fuzz::rng::Rng;
-use xsh::frontend::syntax::grammar::earley::Recognizer;
-use xsh::frontend::syntax::grammar::{grammar, lex_grammar_tokens};
 
 const GENERATED_SEEDS: u64 = 1500;
 const MUTANT_SEEDS: u64 = 1000;
@@ -29,7 +29,10 @@ fn sandbox() -> Sandbox {
 }
 
 fn jobs() -> usize {
-    std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get).div_ceil(2).clamp(1, 4)
+    std::thread::available_parallelism()
+        .map_or(2, std::num::NonZeroUsize::get)
+        .div_ceil(2)
+        .clamp(1, 4)
 }
 
 /// Runs `body` for every seed in `0..count` on a few threads, collecting
@@ -67,10 +70,22 @@ fn generated_programs_are_grammar_sentences() {
             return Some(format!("seed {seed}: the program does not lex\n{source}"));
         };
         let rejection = recognizer.recognize(&tokens).err()?;
-        let near: Vec<&str> = tokens[rejection.token.saturating_sub(4)..(rejection.token + 3).min(tokens.len())].iter().map(|token| token.text).collect();
-        Some(format!("seed {seed}: rejected near {near:?}; expected {}\n{source}", rejection.expected.join(" ")))
+        let near: Vec<&str> = tokens
+            [rejection.token.saturating_sub(4)..(rejection.token + 3).min(tokens.len())]
+            .iter()
+            .map(|token| token.text)
+            .collect();
+        Some(format!(
+            "seed {seed}: rejected near {near:?}; expected {}\n{source}",
+            rejection.expected.join(" ")
+        ))
     });
-    assert!(failures.is_empty(), "{} of {GENERATED_SEEDS} generated programs are not grammar sentences:\n\n{}", failures.len(), failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "{} of {GENERATED_SEEDS} generated programs are not grammar sentences:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 }
 
 #[test]
@@ -85,9 +100,19 @@ fn well_typed_programs_run_and_match_the_reference_evaluator() {
     let failures = for_seeds(GENERATED_SEEDS, |seed| {
         let (generated, failure) = run_seed(seed, &config, Some(&sandbox)).err()?;
         let (small, failure) = minimize(&generated, &failure, Some(&sandbox), 400);
-        Some(format!("seed {seed}: {}\n{}\n--- minimized program\n{}", failure.kind(), failure.detail(), small.source))
+        Some(format!(
+            "seed {seed}: {}\n{}\n--- minimized program\n{}",
+            failure.kind(),
+            failure.detail(),
+            small.source
+        ))
     });
-    assert!(failures.is_empty(), "{} of {GENERATED_SEEDS} generated programs went wrong:\n\n{}", failures.len(), failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "{} of {GENERATED_SEEDS} generated programs went wrong:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 }
 
 #[test]
@@ -99,7 +124,12 @@ fn accepted_registry_probes_run_without_internal_or_type_errors() {
         .iter()
         .map(|(probe, failure)| format!("{}: {}\n{failure}", probe.label, probe.call))
         .collect();
-    assert!(failures.is_empty(), "{} probe failures:\n\n{}", failures.len(), failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "{} probe failures:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
     // Every registered pure method or function contributes probes, and the
     // checker accepts the calling conventions the registry declares.
     assert!(summary.probes >= 300, "only {} probes", summary.probes);
@@ -125,19 +155,32 @@ fn mutants_get_ordinary_diagnostics() {
     let failures = for_seeds(MUTANT_SEEDS, |seed| {
         let mut rng = Rng::new(seed);
         let (file, text) = if seed % 2 == 0 {
-            ("program.xsh".to_string(), xsh_fuzz::generator::generate(seed, &config).source)
+            (
+                "program.xsh".to_string(),
+                xsh_fuzz::generator::generate(seed, &config).source,
+            )
         } else {
             let (path, text) = &corpus[rng.below(corpus.len())];
-            (format!("{} as {}", path.display(), xsh_fuzz::mutate::MUTANT_FILE), text.clone())
+            (
+                format!("{} as {}", path.display(), xsh_fuzz::mutate::MUTANT_FILE),
+                text.clone(),
+            )
         };
         let mut mutant = mutate(&text, &mut rng);
         for _ in 0..rng.below(3) {
             mutant = mutate(&mutant, &mut rng);
         }
         let failure = check_mutant(xsh_fuzz::mutate::MUTANT_FILE, &mutant).err()?;
-        Some(format!("seed {seed} ({file}): {failure}\n--- mutant\n{mutant}"))
+        Some(format!(
+            "seed {seed} ({file}): {failure}\n--- mutant\n{mutant}"
+        ))
     });
-    assert!(failures.is_empty(), "{} mutants broke the frontend:\n\n{}", failures.len(), failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "{} mutants broke the frontend:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 }
 
 #[test]
@@ -147,7 +190,9 @@ fn sandbox_kills_a_child_over_the_memory_limit() {
     let mut sandbox = sandbox();
     sandbox.memory_limit = 128 << 20;
     sandbox.timeout = std::time::Duration::from_secs(60);
-    let run = sandbox.run("var items = [0]\nwhile true {\n  items += items\n}\n").unwrap();
+    let run = sandbox
+        .run("var items = [0]\nwhile true {\n  items += items\n}\n")
+        .unwrap();
     assert!(run.memory_exceeded.is_some(), "{run:?}");
     assert!(run.elapsed < std::time::Duration::from_secs(30), "{run:?}");
 }

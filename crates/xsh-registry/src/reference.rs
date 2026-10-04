@@ -210,7 +210,6 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "assertions",
     "membership",
     "assert",
-
     "bare-blocks",
     "compatibility-vocabulary",
     "guarded-control",
@@ -226,7 +225,6 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "records",
     "field-labels",
     "map-literals",
-
     "enums",
     "list-concatenation",
     "list-splicing",
@@ -316,7 +314,10 @@ pub fn language_references() -> Vec<LanguageReference> {
         references.push(language_reference(format!("core.{item}"), doc));
     }
     for facet in ErrorFacet::ALL {
-        references.push(language_reference(format!("facet.{}", facet.name()), facet_doc(*facet)));
+        references.push(language_reference(
+            format!("facet.{}", facet.name()),
+            facet_doc(*facet),
+        ));
     }
     references
 }
@@ -334,7 +335,10 @@ fn facet_doc(facet: ErrorFacet) -> ReferenceDoc {
                 .map(|variant| format!("`{}.{}`", family.name, variant.name))
         })
         .collect::<Vec<_>>();
-    let host_kinds = facet.host_io_kinds().map(|kind| format!("`{kind:?}`")).collect::<Vec<_>>();
+    let host_kinds = facet
+        .host_io_kinds()
+        .map(|kind| format!("`{kind:?}`"))
+        .collect::<Vec<_>>();
     if facet == ErrorFacet::HostIo {
         sources.push("host OS errors of every kind without a more specific facet".to_string());
     } else if !host_kinds.is_empty() {
@@ -867,7 +871,11 @@ fn core_doc(item: &str) -> ReferenceDoc {
                 "A Bool statement evaluates once: true produces Unit; false propagates AssertionError.Failed(message: Str). Unit and Result[Unit] tails also assert. Bool, Any, Result[Bool], inferred retry tails, predicates, conditions, explicit returns, and `let _ = predicate()` remain value consumers. Assertions obey Result error-family compatibility, declared error effects, retry handling, and defer cleanup, and remain enabled without native tests.",
                 &["language", "assertion", "Bool", "AssertionError"],
                 "actual == expected; needle in output",
-                &["actual == expected", "needle in output", "let _ = predicate()"],
+                &[
+                    "actual == expected",
+                    "needle in output",
+                    "let _ = predicate()",
+                ],
             );
         }
         "membership" => {

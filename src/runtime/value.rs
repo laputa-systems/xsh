@@ -231,7 +231,28 @@ impl FsEntryValue {
 
     /// Presence does not fetch metadata or construct the field's value.
     pub fn has_field(&self, name: &str) -> bool {
-        matches!(name, "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" | "path" | "name" | "ext" | "kind" | "executable" | "group_executable" | "other_executable" | "owner_executable" | "setgid" | "setuid" | "sticky" | "world_writable")
+        matches!(
+            name,
+            "accessed"
+                | "blocks_512"
+                | "gid"
+                | "mode"
+                | "modified"
+                | "size"
+                | "uid"
+                | "path"
+                | "name"
+                | "ext"
+                | "kind"
+                | "executable"
+                | "group_executable"
+                | "other_executable"
+                | "owner_executable"
+                | "setgid"
+                | "setuid"
+                | "sticky"
+                | "world_writable"
+        )
     }
 
     pub fn field_value(&self, name: &str) -> Option<Result<Value, RuntimeError>> {
@@ -1057,7 +1078,9 @@ pub struct CommandPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandRedirection {
-    Input { bytes: Arc<[u8]> },
+    Input {
+        bytes: Arc<[u8]>,
+    },
     File {
         stream: CommandRedirectionStream,
         mode: CommandRedirectionMode,
@@ -1162,7 +1185,13 @@ pub(crate) trait ScriptStream: Send {
 
     /// Removes an active child before cancellation, retaining parent scopes
     /// while the driver stops the child first.
-    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>);
+    fn take_delegated(
+        &mut self,
+    ) -> (
+        Option<ScriptStreamState>,
+        Vec<u64>,
+        Option<crate::runtime::eval::ScopedProducerContext>,
+    );
 
     /// Stops a producer early, running the defers its body registered.
     fn cancel(
@@ -1298,7 +1327,9 @@ impl StreamValue {
             // under `fs.walk`, a read error under `lines()`) is an ordinary
             // error at the pulling site, catchable like the opening call's.
             Some(source) => source.next(span).map_err(|mut error| {
-                if error.abort.is_none() { error.propagated = true; }
+                if error.abort.is_none() {
+                    error.propagated = true;
+                }
                 error
             }),
             None => Ok(None),
@@ -1678,7 +1709,11 @@ impl RunError {
 /// `expected`. Errors carry their family's declared name; an importer spells a
 /// module's family through its namespace (`mod.E`), which names the same family.
 pub fn error_family_matches(actual: Name, expected: Name) -> bool {
-    actual == expected || expected.as_str().rsplit_once('.').is_some_and(|(_, member)| member == actual.as_str().as_str())
+    actual == expected
+        || expected
+            .as_str()
+            .rsplit_once('.')
+            .is_some_and(|(_, member)| member == actual.as_str().as_str())
 }
 
 /// An OS error source that maps onto the built-in error facet vocabulary.
@@ -1741,7 +1776,10 @@ fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
 
 /// Names a failed segment: a lone command by its target, a pipeline segment by
 /// its index and target.
-pub(crate) fn run_error_segment_label(segment: &crate::runtime::process::ProcessSegmentStatus, pipeline: bool) -> String {
+pub(crate) fn run_error_segment_label(
+    segment: &crate::runtime::process::ProcessSegmentStatus,
+    pipeline: bool,
+) -> String {
     let target = String::from_utf8_lossy(&segment.target);
     if pipeline {
         format!("pipeline segment {} `{target}`", segment.index)
@@ -1750,14 +1788,20 @@ pub(crate) fn run_error_segment_label(segment: &crate::runtime::process::Process
     }
 }
 
-pub(crate) fn run_error_segment_summary(segment: &crate::runtime::process::ProcessSegmentStatus, pipeline: bool) -> (String, String) {
+pub(crate) fn run_error_segment_summary(
+    segment: &crate::runtime::process::ProcessSegmentStatus,
+    pipeline: bool,
+) -> (String, String) {
     let label = run_error_segment_label(segment, pipeline);
     if let Some(kind) = &segment.error_kind {
         let message = segment
             .error_message
             .clone()
             .unwrap_or_else(|| "process execution failed".to_string());
-        return (kind.clone(), format!("{label} failed to execute: {message}"));
+        return (
+            kind.clone(),
+            format!("{label} failed to execute: {message}"),
+        );
     }
 
     let status_text = match segment.kind {
@@ -1917,7 +1961,10 @@ mod tests {
         // Tag values retain one shared wire-mapping pointer alongside their
         // nominal name and fields; the compact enum budget includes that word.
         assert_eq!(size_of::<Value>(), 56);
-        assert_eq!(size_of::<Option<Arc<crate::sema::wire_enums::WireEnumMapping>>>(), 8);
+        assert_eq!(
+            size_of::<Option<Arc<crate::sema::wire_enums::WireEnumMapping>>>(),
+            8
+        );
     }
 
     #[test]

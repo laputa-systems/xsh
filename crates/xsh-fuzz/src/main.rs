@@ -40,7 +40,9 @@ fn fail(message: &str) -> ! {
 }
 
 fn number<T: std::str::FromStr>(args: &mut impl Iterator<Item = String>, flag: &str) -> T {
-    args.next().and_then(|text| text.parse().ok()).unwrap_or_else(|| fail(&format!("{flag} needs a number")))
+    args.next()
+        .and_then(|text| text.parse().ok())
+        .unwrap_or_else(|| fail(&format!("{flag} needs a number")))
 }
 
 fn repo_root() -> PathBuf {
@@ -68,7 +70,12 @@ fn main() {
             let started = Instant::now();
             let summary = xsh_fuzz::probes::run_corpus(&xsh_fuzz::probes::corpus(), &sandbox, 40);
             for (probe, failure) in &summary.failures {
-                println!("FAIL {}: {}\n  {}", probe.label, probe.call, failure.lines().take(8).collect::<Vec<_>>().join("\n  "));
+                println!(
+                    "FAIL {}: {}\n  {}",
+                    probe.label,
+                    probe.call,
+                    failure.lines().take(8).collect::<Vec<_>>().join("\n  ")
+                );
             }
             println!(
                 "{} probes, {} accepted, {} rejected, {} failures in {:.1}s",
@@ -83,7 +90,8 @@ fn main() {
         Some("reduce") => {
             args.next();
             let path = args.next().unwrap_or_else(|| fail("reduce needs a file"));
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|error| fail(&format!("{path}: {error}")));
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| fail(&format!("{path}: {error}")));
             let Err(failure) = xsh_fuzz::mutate::check_mutant(&path, &text) else {
                 println!("{path}: no frontend defect to reduce");
                 return;
@@ -180,16 +188,25 @@ fn parse_options(args: &mut impl Iterator<Item = String>, options: &mut Options)
         match arg.as_str() {
             "--seed" => options.seed = number(args, "--seed"),
             "--iterations" => options.iterations = Some(number(args, "--iterations")),
-            "--duration" => options.duration = Some(Duration::from_secs(number(args, "--duration"))),
+            "--duration" => {
+                options.duration = Some(Duration::from_secs(number(args, "--duration")))
+            }
             "--jobs" => options.jobs = number(args, "--jobs"),
-            "--out" => options.out = PathBuf::from(args.next().unwrap_or_else(|| fail("--out needs a directory"))),
+            "--out" => {
+                options.out = PathBuf::from(
+                    args.next()
+                        .unwrap_or_else(|| fail("--out needs a directory")),
+                )
+            }
             "--timeout" => options.timeout = Duration::from_secs(number(args, "--timeout")),
             "--mutants" => options.mutants = number(args, "--mutants"),
             "--format-every" => options.format_every = number(args, "--format-every"),
             "--no-shrink" => options.shrink = false,
             "--first" => options.first = number(args, "--first"),
             "--shard-size" => options.shard_size = number(args, "--shard-size"),
-            "--worker-memory" => options.worker_memory_limit = number::<u64>(args, "--worker-memory") << 20,
+            "--worker-memory" => {
+                options.worker_memory_limit = number::<u64>(args, "--worker-memory") << 20
+            }
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);

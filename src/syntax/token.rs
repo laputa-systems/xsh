@@ -409,7 +409,9 @@ impl TokenTable {
     pub fn label_text_at(&self, index: usize) -> Option<Arc<str>> {
         match self.tag_at(index)? {
             TokenTag::Ident => self.name_at(index).map(|name| name.as_str().into_arc()),
-            TokenTag::Keyword => self.keyword_at(index).map(|keyword| Arc::from(keyword.as_str())),
+            TokenTag::Keyword => self
+                .keyword_at(index)
+                .map(|keyword| Arc::from(keyword.as_str())),
             _ => None,
         }
     }
@@ -481,7 +483,8 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
         | TokenTag::GlobString
         | TokenTag::FmtString
         | TokenTag::PathFmtString
-        | TokenTag::Bytes | TokenTag::Regex => match literal::scan_quoted_literal(source, start, true) {
+        | TokenTag::Bytes
+        | TokenTag::Regex => match literal::scan_quoted_literal(source, start, true) {
             Some(QuotedScan::Terminated(literal)) => literal.end,
             Some(QuotedScan::Unterminated { end }) => end,
             None => start,

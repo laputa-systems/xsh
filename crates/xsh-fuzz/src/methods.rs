@@ -40,8 +40,18 @@ pub struct OracleMethod {
     pub ret: Shape,
 }
 
-const fn method(receiver: MethodReceiver, name: &'static str, params: &'static [Shape], ret: Shape) -> OracleMethod {
-    OracleMethod { receiver, name, params, ret }
+const fn method(
+    receiver: MethodReceiver,
+    name: &'static str,
+    params: &'static [Shape],
+    ret: Shape,
+) -> OracleMethod {
+    OracleMethod {
+        receiver,
+        name,
+        params,
+        ret,
+    }
 }
 
 pub const ORACLE_METHODS: &[OracleMethod] = &[
@@ -51,9 +61,19 @@ pub const ORACLE_METHODS: &[OracleMethod] = &[
     method(MethodReceiver::Str, "reverse", &[], Shape::Str),
     method(MethodReceiver::Str, "count_chars", &[], Shape::Int),
     method(MethodReceiver::Str, "byte_len", &[], Shape::Int),
-    method(MethodReceiver::Str, "starts_with", &[Shape::Str], Shape::Bool),
+    method(
+        MethodReceiver::Str,
+        "starts_with",
+        &[Shape::Str],
+        Shape::Bool,
+    ),
     method(MethodReceiver::Str, "ends_with", &[Shape::Str], Shape::Bool),
-    method(MethodReceiver::Str, "replace", &[Shape::Str, Shape::Str], Shape::Str),
+    method(
+        MethodReceiver::Str,
+        "replace",
+        &[Shape::Str, Shape::Str],
+        Shape::Str,
+    ),
     method(MethodReceiver::Str, "split", &[Shape::Str], Shape::ListStr),
     method(MethodReceiver::Int, "float", &[], Shape::Float),
     method(MethodReceiver::Float, "abs", &[], Shape::Float),
@@ -61,15 +81,30 @@ pub const ORACLE_METHODS: &[OracleMethod] = &[
     method(MethodReceiver::List, "get", &[Shape::Int], Shape::ResT),
     method(MethodReceiver::List, "join", &[Shape::Str], Shape::Str),
     method(MethodReceiver::List, "push", &[Shape::T], Shape::ListT),
-    method(MethodReceiver::List, "extend", &[Shape::ListT], Shape::ListT),
+    method(
+        MethodReceiver::List,
+        "extend",
+        &[Shape::ListT],
+        Shape::ListT,
+    ),
     method(MethodReceiver::Map, "len", &[], Shape::Int),
     method(MethodReceiver::Map, "get", &[Shape::K], Shape::ResV),
     method(MethodReceiver::Map, "keys", &[], Shape::ListK),
     method(MethodReceiver::Map, "values", &[], Shape::ListV),
-    method(MethodReceiver::Map, "set", &[Shape::K, Shape::V], Shape::MapKV),
+    method(
+        MethodReceiver::Map,
+        "set",
+        &[Shape::K, Shape::V],
+        Shape::MapKV,
+    ),
     method(MethodReceiver::Map, "remove", &[Shape::K], Shape::MapKV),
     method(MethodReceiver::Bytes, "len", &[], Shape::Int),
-    method(MethodReceiver::Bytes, "starts_with", &[Shape::Bytes], Shape::Bool),
+    method(
+        MethodReceiver::Bytes,
+        "starts_with",
+        &[Shape::Bytes],
+        Shape::Bool,
+    ),
 ];
 
 fn shape_of(ty: &Type) -> Option<Shape> {
@@ -128,7 +163,11 @@ pub fn verify_against_registry() -> Result<(), String> {
             sig.pure
                 && entry.params.len() >= required
                 && entry.params.len() <= sig.params.len()
-                && sig.params.iter().zip(entry.params).all(|(param, expected)| shape_of(&param.ty) == Some(*expected))
+                && sig
+                    .params
+                    .iter()
+                    .zip(entry.params)
+                    .all(|(param, expected)| shape_of(&param.ty) == Some(*expected))
                 && shape_of(&sig.return_ty) == Some(entry.ret)
         });
         if !matched {
@@ -138,7 +177,11 @@ pub fn verify_against_registry() -> Result<(), String> {
                 entry.name,
                 entry.params,
                 entry.ret,
-                named.overloads.iter().map(|overload| (&overload.sig.params, &overload.sig.return_ty)).collect::<Vec<_>>()
+                named
+                    .overloads
+                    .iter()
+                    .map(|overload| (&overload.sig.params, &overload.sig.return_ty))
+                    .collect::<Vec<_>>()
             ));
         }
     }

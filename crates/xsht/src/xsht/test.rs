@@ -411,13 +411,18 @@ enum TestOutcomeKind {
     Skipped(String),
     /// The test overran `limit`; `detail` is whatever the canceled evaluator
     /// reported while unwinding.
-    TimedOut { limit: Duration, detail: String },
+    TimedOut {
+        limit: Duration,
+        detail: String,
+    },
 }
 
 /// Only explicitly registered declarations are harness entrypoints.
 fn registered_test_declaration(program: &ArenaProgram, id: StmtId) -> Option<FunctionDefId> {
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::ProcDef(def) if program.arena.function_def(def).test_declaration => Some(def),
+        ArenaStmtKind::ProcDef(def) if program.arena.function_def(def).test_declaration => {
+            Some(def)
+        }
         _ => None,
     }
 }
@@ -454,16 +459,19 @@ fn test_file_may_match(file: &Path, file_name: &str, options: &TestOptions) -> b
 }
 
 fn test_file_matches(program: &ArenaProgram, file: &str, options: &TestOptions) -> bool {
-    test_id_matches(file, options) || program.statement_ids().any(|id| {
-        let kind = match program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
-            kind => kind,
-        };
-        let ArenaStmtKind::ProcDef(def) = kind else { return false };
-        let def = program.arena.function_def(def);
-        (def.test_declaration || def.name.as_str().starts_with("test_"))
-            && test_id_matches(&format!("{file}::{}", def.name), options)
-    })
+    test_id_matches(file, options)
+        || program.statement_ids().any(|id| {
+            let kind = match program.arena.stmt(id).kind {
+                ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                kind => kind,
+            };
+            let ArenaStmtKind::ProcDef(def) = kind else {
+                return false;
+            };
+            let def = program.arena.function_def(def);
+            (def.test_declaration || def.name.as_str().starts_with("test_"))
+                && test_id_matches(&format!("{file}::{}", def.name), options)
+        })
 }
 
 fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
@@ -486,7 +494,8 @@ fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
 fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Const { .. }
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
@@ -568,13 +577,15 @@ fn discover_native_tests(
             let def_id = match kind {
                 ArenaStmtKind::ProcDef(def) => Some(def),
                 ArenaStmtKind::Export(inner) => match parsed.arena.arena.stmt(inner).kind {
-                    ArenaStmtKind::ProcDef(def) => Some(def), _ => None,
+                    ArenaStmtKind::ProcDef(def) => Some(def),
+                    _ => None,
                 },
                 _ => None,
             };
             if let Some(def_id) = def_id {
                 let def = parsed.arena.arena.function_def(def_id);
-                if !def.test_declaration && def.name.as_str().starts_with("test_")
+                if !def.test_declaration
+                    && def.name.as_str().starts_with("test_")
                     && native_test_signature_uses_ctx(&parsed.arena, def_id).is_ok()
                 {
                     top_level_errors.push(Diagnostic::error("legacy native test proc requires migration: replace its signature with `test NAME { |ctx| ... }`; extract callable shared work into an ordinary helper")
@@ -726,7 +737,13 @@ fn run_native_test_with_timeout(
         std::thread::Builder::new()
             .name(format!("xsht-test-{index}"))
             .spawn(move || {
-                let _ = tx.send(run_native_test(case, index, &run_id, &options, cancellation));
+                let _ = tx.send(run_native_test(
+                    case,
+                    index,
+                    &run_id,
+                    &options,
+                    cancellation,
+                ));
             })
     };
     if let Err(error) = spawned {
@@ -750,7 +767,9 @@ fn run_native_test_with_timeout(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 return TestOutcome {
-                    kind: TestOutcomeKind::Failed("test thread exited without a result".to_string()),
+                    kind: TestOutcomeKind::Failed(
+                        "test thread exited without a result".to_string(),
+                    ),
                     duration: Duration::ZERO,
                     stdout: Vec::new(),
                     stderr: Vec::new(),
@@ -860,9 +879,13 @@ fn run_native_test(
     if let Some(dir) = &nested_coverage_dir {
         env_overlay.push((XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir)));
     }
-    let evaluated =
-        case.prepared
-            .eval_test(&case.name, ctx, options.collect_coverage(), env_overlay, cancellation);
+    let evaluated = case.prepared.eval_test(
+        &case.name,
+        ctx,
+        options.collect_coverage(),
+        env_overlay,
+        cancellation,
+    );
 
     let mut detail = String::new();
     if !evaluated.output.diagnostics.is_empty() {
@@ -912,9 +935,7 @@ fn native_test_host(
     request: NativeTestRunRequest,
     module_path: Option<&OsString>,
 ) -> Result<Value, RuntimeError> {
-    let script_path = PathBuf::from(OsString::from_vec(
-        request.script_path.bytes.clone(),
-    ));
+    let script_path = PathBuf::from(OsString::from_vec(request.script_path.bytes.clone()));
     if let Some(parent) = script_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
@@ -1010,7 +1031,10 @@ fn native_test_host(
     })?;
     let _group = ChildGroupRegistration::new(
         child.id() as libc::pid_t,
-        request.cancellation.as_ref().map_or(0, TestCancellation::id),
+        request
+            .cancellation
+            .as_ref()
+            .map_or(0, TestCancellation::id),
     );
     if !request.stdin.is_empty()
         && let Some(mut child_stdin) = child.stdin.take()

@@ -86,7 +86,7 @@ iface eth0 inet dhcp
   let output = run_ifupdown(ctx, "ifup", ["-a"], interfaces, state, linux_log)
 
   # The fake has no DHCP server, so discovery wires the sockets then fails cleanly.
-  assert !output.success
+  assert ! output.success
   let linux_text = linux_log.read_text()?
   assert "\"op\":\"link_up\"" in linux_text
   assert "\"op\":\"dhcp_socket\"" in linux_text

@@ -155,24 +155,78 @@ test test_members_without_a_checked_type_are_checker_errors { |ctx|
   # Each of these used to check as Unknown or Any, then failed preparation
   # with an internal encode error or ran into a runtime type error.
   for case in [
-    {source: "let flag = false\nlet value = flag.upper()", code: "check.unknown-method"},
-    {source: "enum Level { Low, High }\nlet level = Low\nlet value = level.upper()", code: "check.unknown-method"},
-    {source: "let value = null.upper()", code: "check.unknown-method"},
-    {source: "pure pick(flag: Bool) -> Str? {\n  if flag { \"x\" } else { null }\n}\nlet value = pick(false).upper()", code: "check.optional-method"},
-    {source: "let value = p\"a/b\".missing", code: "check.unknown-field"},
-    {source: "let value = rx\"a\".missing", code: "check.unknown-field"},
-    {source: "error Failure = Bad(message: Str)\nlet failure = Failure.Bad(message: \"m\")\nlet value = failure.missing", code: "check.unknown-field"},
-    {source: "let maybe: Int? = 3\nlet value = maybe?.missing", code: "check.field-access"},
-    {source: "let value = fs.cwd", code: "check.module-member"},
-    {source: "let value = fs.no_such_function", code: "check.module-member"},
-    {source: "let value = system", code: "check.module-member"},
-    {source: "let value = 99999999999999999999", code: "check.int-literal"},
-    {source: "run echo @missing_words", code: "check.unresolved-name"},
-    {source: "let raw = json.decode(\"1.25\")?.require(Any)?\nlet value = raw.format(precision: 2)", code: "check.dynamic-boundary"},
-    {source: "pure helper(x: Int) -> Int { x }\nproc body() -> Int {\n  var total = 0\n  for helper in [{[1]: \"a\"}] {\n    total = helper(2)\n  }\n  total\n}\nlet value = body()", code: "check.call-target"},
-    {source: "let value = 18446744073709551616ms", code: "check.duration-literal"},
-    {source: "pure pick(flag: Bool) -> Int {\n  if flag {\n    1\n  } else {\n    let unused = 2\n  }\n}\nlet value = pick(false)", code: "check.type-mismatch"},
-    {source: "pure pick(flag: Bool) -> Int {\n  match flag {\n    true => { 1 }\n    false => {}\n  }\n}\nlet value = pick(false)", code: "check.type-mismatch"},
+    {
+      source: "let flag = false\nlet value = flag.upper()",
+      code: "check.unknown-method",
+    },
+    {
+      source: "enum Level { Low, High }\nlet level = Low\nlet value = level.upper()",
+      code: "check.unknown-method",
+    },
+    {
+      source: "let value = null.upper()",
+      code: "check.unknown-method",
+    },
+    {
+      source: "pure pick(flag: Bool) -> Str? {\n  if flag { \"x\" } else { null }\n}\nlet value = pick(false).upper()",
+      code: "check.optional-method",
+    },
+    {
+      source: "let value = p\"a/b\".missing",
+      code: "check.unknown-field",
+    },
+    {
+      source: "let value = rx\"a\".missing",
+      code: "check.unknown-field",
+    },
+    {
+      source: "error Failure = Bad(message: Str)\nlet failure = Failure.Bad(message: \"m\")\nlet value = failure.missing",
+      code: "check.unknown-field",
+    },
+    {
+      source: "let maybe: Int? = 3\nlet value = maybe?.missing",
+      code: "check.field-access",
+    },
+    {
+      source: "let value = fs.cwd",
+      code: "check.module-member",
+    },
+    {
+      source: "let value = fs.no_such_function",
+      code: "check.module-member",
+    },
+    {
+      source: "let value = system",
+      code: "check.module-member",
+    },
+    {
+      source: "let value = 99999999999999999999",
+      code: "check.int-literal",
+    },
+    {
+      source: "run echo @missing_words",
+      code: "check.unresolved-name",
+    },
+    {
+      source: "let raw = json.decode(\"1.25\")?.require(Any)?\nlet value = raw.format(precision: 2)",
+      code: "check.dynamic-boundary",
+    },
+    {
+      source: "pure helper(x: Int) -> Int { x }\nproc body() -> Int {\n  var total = 0\n  for helper in [{[1]: \"a\"}] {\n    total = helper(2)\n  }\n  total\n}\nlet value = body()",
+      code: "check.call-target",
+    },
+    {
+      source: "let value = 18446744073709551616ms",
+      code: "check.duration-literal",
+    },
+    {
+      source: "pure pick(flag: Bool) -> Int {\n  if flag {\n    1\n  } else {\n    let unused = 2\n  }\n}\nlet value = pick(false)",
+      code: "check.type-mismatch",
+    },
+    {
+      source: "pure pick(flag: Bool) -> Int {\n  match flag {\n    true => { 1 }\n    false => {}\n  }\n}\nlet value = pick(false)",
+      code: "check.type-mismatch",
+    },
   ] {
     let output = test.run_script(ctx, case.source + "\nprint ran\n")?
     assert ! output.success, case.source
@@ -207,6 +261,7 @@ test test_nested_declarations_are_checker_errors { |ctx|
       assert "compact.indexed-build" not in output.stderr, output.stderr
     }
   }
+
   let local = test.run_script(
     ctx,
     r"""proc body() -> Int {

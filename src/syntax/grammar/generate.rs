@@ -27,7 +27,12 @@ struct Emitted {
 
 impl Emitted {
     fn token(&self) -> GrammarToken<'_> {
-        GrammarToken { tag: self.tag, keyword: self.keyword, text: &self.text, glued: self.glued }
+        GrammarToken {
+            tag: self.tag,
+            keyword: self.keyword,
+            text: &self.text,
+            glued: self.glued,
+        }
     }
 }
 
@@ -52,7 +57,11 @@ pub struct Generator<'g> {
 
 impl<'g> Generator<'g> {
     pub fn new(grammar: &'g Grammar) -> Self {
-        let rules: FxHashMap<&'static str, &'g Item> = grammar.rules.iter().map(|rule| (rule.name, &rule.body)).collect();
+        let rules: FxHashMap<&'static str, &'g Item> = grammar
+            .rules
+            .iter()
+            .map(|rule| (rule.name, &rule.body))
+            .collect();
         let mut heights: FxHashMap<&'static str, u32> = FxHashMap::default();
         loop {
             let mut changed = false;
@@ -68,12 +77,26 @@ impl<'g> Generator<'g> {
                 break;
             }
         }
-        Self { rules, heights, state: 0, merged: false, single_line: 0, expanded: FxHashSet::default(), toward: None, steering: false }
+        Self {
+            rules,
+            heights,
+            state: 0,
+            merged: false,
+            single_line: 0,
+            expanded: FxHashSet::default(),
+            toward: None,
+            steering: false,
+        }
     }
 
     /// Rules with no finite derivation, which generation could never finish.
     pub fn underivable_rules(&self) -> Vec<&'static str> {
-        let mut missing: Vec<&'static str> = self.rules.keys().filter(|name| !self.heights.contains_key(*name)).copied().collect();
+        let mut missing: Vec<&'static str> = self
+            .rules
+            .keys()
+            .filter(|name| !self.heights.contains_key(*name))
+            .copied()
+            .collect();
         missing.sort_unstable();
         missing
     }
@@ -98,9 +121,18 @@ impl<'g> Generator<'g> {
     /// A candidate like [`Generator::sentence`] that takes the shortest way to
     /// expand `target` before choosing freely, so every production can be
     /// exercised from the start rule.
-    pub fn targeted_sentence(&mut self, start: &str, target: &str, seed: u64, depth: u32) -> Option<String> {
+    pub fn targeted_sentence(
+        &mut self,
+        start: &str,
+        target: &str,
+        seed: u64,
+        depth: u32,
+    ) -> Option<String> {
         let mut distance: FxHashMap<&'static str, u32> = FxHashMap::default();
-        let (target, _) = self.rules.get_key_value(target).unwrap_or_else(|| panic!("no rule `{target}`"));
+        let (target, _) = self
+            .rules
+            .get_key_value(target)
+            .unwrap_or_else(|| panic!("no rule `{target}`"));
         distance.insert(*target, 0);
         loop {
             let mut changed = false;
@@ -134,9 +166,17 @@ impl<'g> Generator<'g> {
         self.single_line = 0;
         self.expanded.clear();
         let mut out = Vec::new();
-        let (name, body) = self.rules.get_key_value(start).map(|(name, body)| (*name, *body)).unwrap_or_else(|| panic!("no rule `{start}`"));
+        let (name, body) = self
+            .rules
+            .get_key_value(start)
+            .map(|(name, body)| (*name, *body))
+            .unwrap_or_else(|| panic!("no rule `{start}`"));
         self.expanded.insert(name);
-        if self.toward.as_ref().is_some_and(|distance| distance.get(name) == Some(&0)) {
+        if self
+            .toward
+            .as_ref()
+            .is_some_and(|distance| distance.get(name) == Some(&0))
+        {
             self.toward = None;
         }
         self.expand(body, depth, &mut out);
@@ -150,11 +190,17 @@ impl<'g> Generator<'g> {
 
     /// Whether a targeted candidate still needs `item` to reach its target.
     fn leads_toward(&self, item: &Item) -> bool {
-        self.steering && self.toward.as_ref().is_some_and(|distance| item_distance(item, distance).is_some())
+        self.steering
+            && self
+                .toward
+                .as_ref()
+                .is_some_and(|distance| item_distance(item, distance).is_some())
     }
 
     fn rule(&self, name: &str) -> &'g Item {
-        self.rules.get(name).unwrap_or_else(|| panic!("grammar refers to undefined rule `{name}`"))
+        self.rules
+            .get(name)
+            .unwrap_or_else(|| panic!("grammar refers to undefined rule `{name}`"))
     }
 
     fn height(&self, item: &Item) -> u32 {
@@ -166,7 +212,11 @@ impl<'g> Generator<'g> {
             Item::Term(term) => self.emit(*term, out),
             Item::Rule(name) => {
                 self.expanded.insert(name);
-                if self.toward.as_ref().is_some_and(|distance| distance.get(name) == Some(&0)) {
+                if self
+                    .toward
+                    .as_ref()
+                    .is_some_and(|distance| distance.get(name) == Some(&0))
+                {
                     self.toward = None;
                 }
                 let body = self.rule(name);
@@ -174,23 +224,37 @@ impl<'g> Generator<'g> {
             }
             Item::Seq(items) => {
                 let steering = self.steering;
-                let closest = self.toward.as_ref().filter(|_| steering).and_then(|distance| {
-                    let steps: Vec<Option<u32>> = items.iter().map(|item| item_distance(item, distance)).collect();
-                    let least = steps.iter().flatten().min()?;
-                    steps.iter().position(|step| step == &Some(*least))
-                });
+                let closest = self
+                    .toward
+                    .as_ref()
+                    .filter(|_| steering)
+                    .and_then(|distance| {
+                        let steps: Vec<Option<u32>> = items
+                            .iter()
+                            .map(|item| item_distance(item, distance))
+                            .collect();
+                        let least = steps.iter().flatten().min()?;
+                        steps.iter().position(|step| step == &Some(*least))
+                    });
                 let mut index = 0;
                 while index < items.len() {
                     // A guarded item is the one after its lookahead.
-                    let guarded = usize::from(matches!(items[index], Item::Not(_) | Item::Peek(_)) && index + 1 < items.len());
+                    let guarded = usize::from(
+                        matches!(items[index], Item::Not(_) | Item::Peek(_))
+                            && index + 1 < items.len(),
+                    );
                     self.steering = steering && closest == Some(index + guarded);
                     match (&items[index], items.get(index + 1)) {
                         (Item::Not(sequences), Some(next)) => {
-                            self.guarded(next, depth, out, |emitted| !begins_with_any(emitted, sequences));
+                            self.guarded(next, depth, out, |emitted| {
+                                !begins_with_any(emitted, sequences)
+                            });
                             index += 2;
                         }
                         (Item::Peek(sequences), Some(next)) => {
-                            self.guarded(next, depth, out, |emitted| begins_with_any(emitted, sequences));
+                            self.guarded(next, depth, out, |emitted| {
+                                begins_with_any(emitted, sequences)
+                            });
                             index += 2;
                         }
                         (item, _) => {
@@ -202,16 +266,33 @@ impl<'g> Generator<'g> {
                 self.steering = steering;
             }
             Item::Alt(items) => {
-                let toward: Option<Vec<usize>> = self.toward.as_ref().filter(|_| self.steering).and_then(|distance| {
-                    let steps: Vec<Option<u32>> = items.iter().map(|item| item_distance(item, distance)).collect();
-                    let least = steps.iter().flatten().min()?;
-                    Some((0..items.len()).filter(|index| steps[*index] == Some(*least)).collect())
-                });
+                let toward: Option<Vec<usize>> = self
+                    .toward
+                    .as_ref()
+                    .filter(|_| self.steering)
+                    .and_then(|distance| {
+                        let steps: Vec<Option<u32>> = items
+                            .iter()
+                            .map(|item| item_distance(item, distance))
+                            .collect();
+                        let least = steps.iter().flatten().min()?;
+                        Some(
+                            (0..items.len())
+                                .filter(|index| steps[*index] == Some(*least))
+                                .collect(),
+                        )
+                    });
                 let choice = if let Some(closest) = toward {
                     closest[self.below(closest.len())]
                 } else if depth == 0 {
-                    let least = items.iter().map(|item| self.height(item)).min().unwrap_or(0);
-                    let shortest: Vec<usize> = (0..items.len()).filter(|index| self.height(&items[*index]) == least).collect();
+                    let least = items
+                        .iter()
+                        .map(|item| self.height(item))
+                        .min()
+                        .unwrap_or(0);
+                    let shortest: Vec<usize> = (0..items.len())
+                        .filter(|index| self.height(&items[*index]) == least)
+                        .collect();
                     shortest[self.below(shortest.len())]
                 } else {
                     self.below(items.len())
@@ -224,8 +305,15 @@ impl<'g> Generator<'g> {
                 }
             }
             Item::Star(inner) | Item::Plus(inner) => {
-                let mut count = usize::from(matches!(item, Item::Plus(_)) || self.leads_toward(inner));
-                let line_break = matches!(**inner, Item::Term(Term { class: Class::Tag(TokenTag::Newline), .. }));
+                let mut count =
+                    usize::from(matches!(item, Item::Plus(_)) || self.leads_toward(inner));
+                let line_break = matches!(
+                    **inner,
+                    Item::Term(Term {
+                        class: Class::Tag(TokenTag::Newline),
+                        ..
+                    })
+                );
                 if depth > 0 && !(line_break && self.single_line > 0) {
                     while count < 3 && self.chance(45) {
                         count += 1;
@@ -235,7 +323,11 @@ impl<'g> Generator<'g> {
                     self.expand(inner, depth, out);
                 }
             }
-            Item::List { item: inner, lines, min_one } => {
+            Item::List {
+                item: inner,
+                lines,
+                min_one,
+            } => {
                 let mut count = usize::from(*min_one || self.leads_toward(inner));
                 if depth > 0 {
                     while count < 3 && self.chance(50) {
@@ -271,7 +363,13 @@ impl<'g> Generator<'g> {
 
     /// Expands `item` until its tokens satisfy `accept`, keeping the last
     /// attempt if none does.
-    fn guarded(&mut self, item: &Item, depth: u32, out: &mut Vec<Emitted>, accept: impl Fn(&[Emitted]) -> bool) {
+    fn guarded(
+        &mut self,
+        item: &Item,
+        depth: u32,
+        out: &mut Vec<Emitted>,
+        accept: impl Fn(&[Emitted]) -> bool,
+    ) {
         let mut attempt = Vec::new();
         for _ in 0..64 {
             attempt.clear();
@@ -295,17 +393,29 @@ impl<'g> Generator<'g> {
                 _ => true,
             };
             if separate {
-                out.push(Emitted { tag, keyword, text, glued: term.glued });
+                out.push(Emitted {
+                    tag,
+                    keyword,
+                    text,
+                    glued: term.glued,
+                });
                 return;
             }
         }
         self.merged = true;
         let (tag, keyword, text) = self.sample(term.class);
-        out.push(Emitted { tag, keyword, text, glued: term.glued });
+        out.push(Emitted {
+            tag,
+            keyword,
+            text,
+            glued: term.glued,
+        });
     }
 
     fn sample(&mut self, class: Class) -> (TokenTag, Option<Keyword>, String) {
-        let pick = |generator: &mut Self, options: &[&str]| options[generator.below(options.len())].to_string();
+        let pick = |generator: &mut Self, options: &[&str]| {
+            options[generator.below(options.len())].to_string()
+        };
         match class {
             Class::Tag(tag) => {
                 let text = match tag {
@@ -323,11 +433,18 @@ impl<'g> Generator<'g> {
                     TokenTag::Regex => "rx\"a+\"".to_string(),
                     TokenTag::Newline => "\n".to_string(),
                     TokenTag::DollarIdent => "$a".to_string(),
-                    other => other.fixed_text().expect("punctuation has fixed text").to_string(),
+                    other => other
+                        .fixed_text()
+                        .expect("punctuation has fixed text")
+                        .to_string(),
                 };
                 (tag, None, text)
             }
-            Class::Keyword(keyword) => (TokenTag::Keyword, Some(keyword), keyword.as_str().to_string()),
+            Class::Keyword(keyword) => (
+                TokenTag::Keyword,
+                Some(keyword),
+                keyword.as_str().to_string(),
+            ),
             Class::Word(word) => {
                 let tag = if word.bytes().all(|byte| byte.is_ascii_digit()) {
                     TokenTag::Int
@@ -348,7 +465,11 @@ impl<'g> Generator<'g> {
             Class::Label | Class::Member => {
                 if self.chance(10) {
                     let keyword = [Keyword::Type, Keyword::If, Keyword::Match][self.below(3)];
-                    (TokenTag::Keyword, Some(keyword), keyword.as_str().to_string())
+                    (
+                        TokenTag::Keyword,
+                        Some(keyword),
+                        keyword.as_str().to_string(),
+                    )
                 } else if class == Class::Member && self.chance(10) {
                     (TokenTag::ProcIdent, None, "a-b".to_string())
                 } else {
@@ -371,8 +492,13 @@ impl<'g> Generator<'g> {
                 (tag, None, text.to_string())
             }
             Class::PathPart => {
-                let options: [(TokenTag, &str); 5] =
-                    [(TokenTag::Ident, "usr"), (TokenTag::Ident, "bin"), (TokenTag::Slash, "/"), (TokenTag::Int, "1"), (TokenTag::Dot, ".")];
+                let options: [(TokenTag, &str); 5] = [
+                    (TokenTag::Ident, "usr"),
+                    (TokenTag::Ident, "bin"),
+                    (TokenTag::Slash, "/"),
+                    (TokenTag::Int, "1"),
+                    (TokenTag::Dot, "."),
+                ];
                 let (tag, text) = options[self.below(options.len())];
                 (tag, None, text.to_string())
             }
@@ -381,16 +507,26 @@ impl<'g> Generator<'g> {
 }
 
 fn comma() -> Term {
-    Term { class: Class::Tag(TokenTag::Comma), glued: false }
+    Term {
+        class: Class::Tag(TokenTag::Comma),
+        glued: false,
+    }
 }
 
 fn newline() -> Term {
-    Term { class: Class::Tag(TokenTag::Newline), glued: false }
+    Term {
+        class: Class::Tag(TokenTag::Newline),
+        glued: false,
+    }
 }
 
 fn begins_with_any(emitted: &[Emitted], sequences: &[Vec<Term>]) -> bool {
     sequences.iter().any(|sequence| {
-        sequence.len() <= emitted.len() && sequence.iter().zip(emitted).all(|(term, emitted)| term.matches(&emitted.token()))
+        sequence.len() <= emitted.len()
+            && sequence
+                .iter()
+                .zip(emitted)
+                .all(|(term, emitted)| term.matches(&emitted.token()))
     })
 }
 
@@ -399,8 +535,13 @@ fn begins_with_any(emitted: &[Emitted], sequences: &[Vec<Term>]) -> bool {
 fn item_distance(item: &Item, distance: &FxHashMap<&'static str, u32>) -> Option<u32> {
     match item {
         Item::Rule(name) => distance.get(name).copied(),
-        Item::Seq(items) | Item::Alt(items) => items.iter().filter_map(|item| item_distance(item, distance)).min(),
-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => item_distance(inner, distance),
+        Item::Seq(items) | Item::Alt(items) => items
+            .iter()
+            .filter_map(|item| item_distance(item, distance))
+            .min(),
+        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
+            item_distance(inner, distance)
+        }
         Item::List { item, .. } => item_distance(item, distance),
         Item::Term(_) | Item::Not(_) | Item::Peek(_) => None,
     }
@@ -411,10 +552,21 @@ fn item_height(item: &Item, heights: &FxHashMap<&'static str, u32>) -> Option<u3
     match item {
         Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) => Some(0),
         Item::Rule(name) => heights.get(name).copied(),
-        Item::Seq(items) => items.iter().try_fold(0, |height, item| item_height(item, heights).map(|item| height.max(item))),
-        Item::Alt(items) => items.iter().filter_map(|item| item_height(item, heights)).min(),
+        Item::Seq(items) => items.iter().try_fold(0, |height, item| {
+            item_height(item, heights).map(|item| height.max(item))
+        }),
+        Item::Alt(items) => items
+            .iter()
+            .filter_map(|item| item_height(item, heights))
+            .min(),
         Item::Plus(inner) | Item::Line(inner) => item_height(inner, heights),
-        Item::List { item, min_one, .. } => if *min_one { item_height(item, heights) } else { Some(0) },
+        Item::List { item, min_one, .. } => {
+            if *min_one {
+                item_height(item, heights)
+            } else {
+                Some(0)
+            }
+        }
     }
 }
 

@@ -146,7 +146,8 @@ impl DiagnosticCode {
     /// The candidate whose name `name` most plausibly misspells, for a
     /// "did you mean" hint on an unknown code.
     pub fn nearest(name: &str, candidates: impl Iterator<Item = Self>) -> Option<Self> {
-        crate::sema::check::nearest_name(name, candidates.map(Self::name)).and_then(|nearby| Self::from_name(&nearby))
+        crate::sema::check::nearest_name(name, candidates.map(Self::name))
+            .and_then(|nearby| Self::from_name(&nearby))
     }
 }
 
@@ -637,13 +638,20 @@ mod tests {
             assert!(names.insert(name), "duplicate code name {name}");
             assert_eq!(DiagnosticCode::from_name(name), Some(code));
             let prefix = code.family().prefix();
-            let separator = if code.family() == DiagnosticFamily::Format { '-' } else { '.' };
+            let separator = if code.family() == DiagnosticFamily::Format {
+                '-'
+            } else {
+                '.'
+            };
             assert!(
-                name.strip_prefix(prefix).is_some_and(|rest| rest.starts_with(separator)),
+                name.strip_prefix(prefix)
+                    .is_some_and(|rest| rest.starts_with(separator)),
                 "{name} is not in the {prefix} family"
             );
             assert!(
-                name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')),
+                name.bytes().all(|byte| byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'-')),
                 "{name} is not a lowercase kebab-case code"
             );
         }
@@ -668,7 +676,10 @@ mod tests {
     #[test]
     fn only_non_lint_codes_declare_fixable() {
         for &code in DiagnosticCode::ALL {
-            assert!(!(code.family() == DiagnosticFamily::Lint && code.fixable()), "{code}");
+            assert!(
+                !(code.family() == DiagnosticFamily::Lint && code.fixable()),
+                "{code}"
+            );
         }
     }
 
@@ -692,7 +703,8 @@ mod tests {
                 let path = format!("DiagnosticCode::{code:?}");
                 !sources.iter().any(|source| {
                     source.match_indices(&path).any(|(start, _)| {
-                        !source[start + path.len()..].starts_with(|next: char| next.is_ascii_alphanumeric())
+                        !source[start + path.len()..]
+                            .starts_with(|next: char| next.is_ascii_alphanumeric())
                     })
                 })
             })
@@ -705,19 +717,24 @@ mod tests {
     #[test]
     fn every_code_cited_in_docs_exists() {
         let mut files = Vec::new();
-        files_with_extension(&Path::new(env!("CARGO_MANIFEST_DIR")).join("docs"), "md", &mut files);
+        files_with_extension(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("docs"),
+            "md",
+            &mut files,
+        );
         let mut unknown = BTreeSet::new();
         for path in files {
             let text = std::fs::read_to_string(&path).unwrap();
             for family in FAMILY_PREFIXES {
                 let prefix = format!("{}.", family.prefix());
                 for (start, _) in text.match_indices(&prefix) {
-                    let at_word_start = text[..start]
-                        .chars()
-                        .next_back()
-                        .is_none_or(|before| !(before.is_ascii_alphanumeric() || matches!(before, '.' | '_' | '-' | '/')));
+                    let at_word_start = text[..start].chars().next_back().is_none_or(|before| {
+                        !(before.is_ascii_alphanumeric() || matches!(before, '.' | '_' | '-' | '/'))
+                    });
                     let rest = &text[start + prefix.len()..];
-                    let len = rest.find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')).unwrap_or(rest.len());
+                    let len = rest
+                        .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                        .unwrap_or(rest.len());
                     let name = text[start..start + prefix.len() + len].trim_end_matches('-');
                     if at_word_start && len > 0 && DiagnosticCode::from_name(name).is_none() {
                         unknown.insert(format!("{}: {name}", path.display()));
@@ -725,6 +742,9 @@ mod tests {
                 }
             }
         }
-        assert!(unknown.is_empty(), "documentation cites unknown diagnostic codes: {unknown:#?}");
+        assert!(
+            unknown.is_empty(),
+            "documentation cites unknown diagnostic codes: {unknown:#?}"
+        );
     }
 }

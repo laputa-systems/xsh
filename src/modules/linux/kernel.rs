@@ -33,9 +33,8 @@ pub(super) fn modinfo_impl_in_root(
         ModuleEntry {
             name: module_name_from_path(name),
             relative_path: path.to_string_lossy().into_owned(),
-            metadata: read_module_metadata(&path).map_err(|error| {
-                RuntimeError::host("linux-modinfo", &error).with_span(span)
-            })?,
+            metadata: read_module_metadata(&path)
+                .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?,
             path,
         }
     } else {
@@ -263,9 +262,8 @@ fn insmod_path(path: &Path, params: &str, span: Span) -> Result<(), RuntimeError
         let params = std::ffi::CString::new(params).map_err(|_| {
             RuntimeError::new("linux-modprobe", "params contain NUL").with_span(span)
         })?;
-        let file = File::open(path).map_err(|error| {
-            RuntimeError::host("linux-modprobe", &error).with_span(span)
-        })?;
+        let file = File::open(path)
+            .map_err(|error| RuntimeError::host("linux-modprobe", &error).with_span(span))?;
         let rc =
             unsafe { libc::syscall(libc::SYS_finit_module, file.as_raw_fd(), params.as_ptr(), 0) };
         if rc == 0 {

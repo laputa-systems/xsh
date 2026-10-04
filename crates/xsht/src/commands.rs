@@ -619,13 +619,18 @@ pub(crate) fn parse_command_args(
             (OptionArg::Flag, Some(_)) | (OptionArg::Value { equals: false, .. }, Some(_)) => {
                 return Err(unknown());
             }
-            (OptionArg::Value { .. }, Some(value)) | (OptionArg::OptionalEquals { .. }, Some(value)) => {
-                Some(value.to_string())
-            }
+            (OptionArg::Value { .. }, Some(value))
+            | (OptionArg::OptionalEquals { .. }, Some(value)) => Some(value.to_string()),
             (OptionArg::OptionalEquals { .. }, None) => None,
-            (OptionArg::Value { metavar, .. }, None) => Some(rest.next().cloned().ok_or_else(
-                || format!("`xsht {} {}` requires {metavar}", command.name, option.long()),
-            )?),
+            (OptionArg::Value { metavar, .. }, None) => {
+                Some(rest.next().cloned().ok_or_else(|| {
+                    format!(
+                        "`xsht {} {}` requires {metavar}",
+                        command.name,
+                        option.long()
+                    )
+                })?)
+            }
         };
         occurrences.push((option, value));
     }
@@ -681,11 +686,13 @@ mod tests {
                 }
             }
             // Nothing else in help looks like an option-list row.
-            let listed = help
-                .lines()
-                .filter(|line| line.starts_with("  -"))
-                .count();
-            assert_eq!(listed, command.options.len(), "`xsht {}` help", command.name);
+            let listed = help.lines().filter(|line| line.starts_with("  -")).count();
+            assert_eq!(
+                listed,
+                command.options.len(),
+                "`xsht {}` help",
+                command.name
+            );
         }
     }
 
@@ -741,7 +748,9 @@ mod tests {
         let usage = |name: &str| find(name).expect("command").usage_lines();
         assert_eq!(
             usage("check"),
-            ["xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]"]
+            [
+                "xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]"
+            ]
         );
         assert_eq!(
             usage("trace"),

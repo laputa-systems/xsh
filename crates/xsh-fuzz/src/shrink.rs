@@ -17,7 +17,9 @@ struct Site {
 
 fn child_blocks(stmt: &Stmt) -> Vec<&Block> {
     match stmt {
-        Stmt::If { then, otherwise, .. } => {
+        Stmt::If {
+            then, otherwise, ..
+        } => {
             let mut blocks = vec![then];
             if let Some(otherwise) = otherwise {
                 blocks.push(otherwise);
@@ -32,7 +34,9 @@ fn child_blocks(stmt: &Stmt) -> Vec<&Block> {
 
 fn child_blocks_mut(stmt: &mut Stmt) -> Vec<&mut Block> {
     match stmt {
-        Stmt::If { then, otherwise, .. } => {
+        Stmt::If {
+            then, otherwise, ..
+        } => {
             let mut blocks = vec![then];
             if let Some(otherwise) = otherwise {
                 blocks.push(otherwise);
@@ -45,7 +49,12 @@ fn child_blocks_mut(stmt: &mut Stmt) -> Vec<&mut Block> {
     }
 }
 
-fn collect_sites(block: &Block, function: Option<usize>, prefix: &[(usize, usize)], out: &mut Vec<Site>) {
+fn collect_sites(
+    block: &Block,
+    function: Option<usize>,
+    prefix: &[(usize, usize)],
+    out: &mut Vec<Site>,
+) {
     for (index, stmt) in block.stmts.iter().enumerate() {
         let mut path = prefix.to_vec();
         path.push((0, index));
@@ -104,7 +113,11 @@ fn apply(program: &Program, site: &Site, edit: &Edit) -> Option<Program> {
 
 /// Shrinks `program` while `still_fails` holds, within `budget` predicate
 /// evaluations.
-pub fn shrink_program(program: &Program, mut still_fails: impl FnMut(&Program) -> bool, budget: usize) -> Program {
+pub fn shrink_program(
+    program: &Program,
+    mut still_fails: impl FnMut(&Program) -> bool,
+    budget: usize,
+) -> Program {
     let mut current = program.clone();
     let mut spent = 0;
     loop {
@@ -129,11 +142,18 @@ pub fn shrink_program(program: &Program, mut still_fails: impl FnMut(&Program) -
         collect_sites(&current.body, None, &[], &mut sites);
         // Later statements first, so deleting one keeps earlier sites valid.
         for site in sites.iter().rev() {
-            for edit in [Edit::Delete, Edit::Inline(0), Edit::Inline(1), Edit::DropElse] {
+            for edit in [
+                Edit::Delete,
+                Edit::Inline(0),
+                Edit::Inline(1),
+                Edit::DropElse,
+            ] {
                 if spent >= budget {
                     return current;
                 }
-                let Some(candidate) = apply(&current, site, &edit) else { continue };
+                let Some(candidate) = apply(&current, site, &edit) else {
+                    continue;
+                };
                 spent += 1;
                 if still_fails(&candidate) {
                     current = candidate;

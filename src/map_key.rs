@@ -35,32 +35,48 @@ trait KeyQuery {
 }
 
 impl KeyQuery for MapKey {
-    fn key_ref(&self) -> MapKeyRef<'_> { self.as_ref() }
+    fn key_ref(&self) -> MapKeyRef<'_> {
+        self.as_ref()
+    }
 }
 
 impl KeyQuery for MapKeyRef<'_> {
-    fn key_ref(&self) -> MapKeyRef<'_> { *self }
+    fn key_ref(&self) -> MapKeyRef<'_> {
+        *self
+    }
 }
 
 impl PartialEq for dyn KeyQuery + '_ {
-    fn eq(&self, other: &Self) -> bool { self.key_ref() == other.key_ref() }
+    fn eq(&self, other: &Self) -> bool {
+        self.key_ref() == other.key_ref()
+    }
 }
 impl Eq for dyn KeyQuery + '_ {}
 impl PartialOrd for dyn KeyQuery + '_ {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl Ord for dyn KeyQuery + '_ {
-    fn cmp(&self, other: &Self) -> Ordering { self.key_ref().cmp(&other.key_ref()) }
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key_ref().cmp(&other.key_ref())
+    }
 }
 impl<'a> Borrow<dyn KeyQuery + 'a> for MapKey {
-    fn borrow(&self) -> &(dyn KeyQuery + 'a) { self }
+    fn borrow(&self) -> &(dyn KeyQuery + 'a) {
+        self
+    }
 }
 
 impl Ord for MapKey {
-    fn cmp(&self, other: &Self) -> Ordering { self.as_ref().cmp(&other.as_ref()) }
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_ref().cmp(&other.as_ref())
+    }
 }
 impl PartialOrd for MapKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl MapKey {
@@ -76,10 +92,11 @@ impl MapKey {
     }
 
     pub fn as_str(&self) -> Option<&str> {
-        match self { Self::Str(value) => Some(value), _ => None }
+        match self {
+            Self::Str(value) => Some(value),
+            _ => None,
+        }
     }
-
-
 }
 
 impl<'a> MapKeyRef<'a> {
@@ -116,13 +133,19 @@ impl<'a> MapKeyRef<'a> {
 }
 
 impl From<String> for MapKey {
-    fn from(value: String) -> Self { Self::Str(Arc::from(value)) }
+    fn from(value: String) -> Self {
+        Self::Str(Arc::from(value))
+    }
 }
 impl From<&str> for MapKey {
-    fn from(value: &str) -> Self { Self::Str(Arc::from(value)) }
+    fn from(value: &str) -> Self {
+        Self::Str(Arc::from(value))
+    }
 }
 impl From<Arc<str>> for MapKey {
-    fn from(value: Arc<str>) -> Self { Self::Str(value) }
+    fn from(value: Arc<str>) -> Self {
+        Self::Str(value)
+    }
 }
 
 #[cfg(test)]
@@ -131,8 +154,15 @@ mod tests {
 
     #[test]
     fn scalar_map_keys_keep_domains_and_canonical_order() {
-        let integers = BTreeMap::from([(MapKey::Int(20), "twenty"), (MapKey::Int(-2), "negative"), (MapKey::Int(3), "three")]);
-        assert_eq!(integers.keys().cloned().collect::<Vec<_>>(), [MapKey::Int(-2), MapKey::Int(3), MapKey::Int(20)]);
+        let integers = BTreeMap::from([
+            (MapKey::Int(20), "twenty"),
+            (MapKey::Int(-2), "negative"),
+            (MapKey::Int(3), "three"),
+        ]);
+        assert_eq!(
+            integers.keys().cloned().collect::<Vec<_>>(),
+            [MapKey::Int(-2), MapKey::Int(3), MapKey::Int(20)]
+        );
         assert_eq!(MapKeyRef::Int(3).get(&integers), Some(&"three"));
         assert_eq!(MapKeyRef::Str("3").get(&integers), None);
         let mut flags = BTreeMap::from([(MapKey::Bool(true), 1), (MapKey::Bool(false), 0)]);
@@ -148,7 +178,10 @@ mod tests {
     fn scalar_map_native_bytes_are_lossless_and_borrowed() {
         let first: Arc<[u8]> = Arc::from([0x61, 0x80]);
         let second: Arc<[u8]> = Arc::from([0x61, 0xff]);
-        let entries = BTreeMap::from([(MapKey::Path(second.clone()), 2), (MapKey::Path(first.clone()), 1)]);
+        let entries = BTreeMap::from([
+            (MapKey::Path(second.clone()), 2),
+            (MapKey::Path(first.clone()), 1),
+        ]);
         let query = [0x61, 0x80];
         assert_eq!(MapKeyRef::Path(&query).get(&entries), Some(&1));
         assert_eq!(MapKeyRef::Bytes(&query).get(&entries), None);

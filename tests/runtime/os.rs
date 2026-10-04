@@ -645,5 +645,8 @@ fn os_stress_signal_hooks_and_process_cancellation() {
 fn os_selective_retry_sleep_honors_signal_abort_after_attempt_cleanup() {
     let output = run_os_fixture("signal-checkpoint-selective-retry.xsh", &[os_probe()]);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "attempt\ncleanup\nhook\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "attempt\ncleanup\nhook\n"
+    );
 }

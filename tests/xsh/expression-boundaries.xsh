@@ -65,12 +65,11 @@ print shout(greeting() ?)
 }
 
 test test_a_run_form_heads_a_pipeline_in_any_position { |ctx|
-  let count = run.stream --text printf "a\nb\n" ? |> count()
+  let count = (run.stream --text printf "a\nb\n")? |> count()
   assert count == 2
-  let words = run.text printf "x y" ?
-    |> split(" ")
+  let words = (run.text printf "x y"?).split(" ")
   assert words == ["x", "y"]
-  assert (run.stream --text printf "c\n" ? |> collect()) == ["c"]
+  assert (run.stream --text printf "c\n"? |> collect()) == ["c"]
   let output = test.run_script(
     ctx,
     r"""run.stream --text printf "a\nb\n" ? |> each { |line| print $line }
@@ -87,7 +86,7 @@ test test_a_map_comprehension_has_exactly_one_entry { |ctx|
     "let m = {[\"a\"]: 1, [k]: 2 for k in [\"x\"]}\n",
   ] {
     let output = test.run_script(ctx, source)?
-    assert !output.success, source
+    assert ! output.success, source
     assert "parse.map-comprehension-entries" in output.stderr, output.stderr
   }
 }

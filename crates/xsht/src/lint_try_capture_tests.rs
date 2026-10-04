@@ -9,14 +9,25 @@ fn migration(source: &str) -> Vec<Diagnostic> {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    parsed.arena.symbol_owner().with_current(|| lint_try_capture_helpers(&parsed.arena, source))
+    parsed
+        .arena
+        .symbol_owner()
+        .with_current(|| lint_try_capture_helpers(&parsed.arena, source))
 }
 
 fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
-    let mut fixes = diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
+    let mut fixes = diagnostics
+        .iter()
+        .flat_map(|diagnostic| &diagnostic.fix_hints)
+        .collect::<Vec<_>>();
     fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
     let mut fixed = source.to_owned();
-    for fix in fixes { fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap()); }
+    for fix in fixes {
+        fixed.replace_range(
+            fix.span.unwrap().range(),
+            fix.replacement.as_deref().unwrap(),
+        );
+    }
     fixed
 }
 
@@ -25,9 +36,15 @@ fn single_use_read_port_helper_becomes_a_checked_local_capture() {
     let source = "proc read_port() [fs, error] -> Result[Int] {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n}\nlet port = read_port() ?? 8080\nprint $port\n";
     let diagnostics = migration(source);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-    assert_eq!(diagnostics[0].code, Some(DiagnosticCode::LintPreferTryCapture));
+    assert_eq!(
+        diagnostics[0].code,
+        Some(DiagnosticCode::LintPreferTryCapture)
+    );
     let fixed = apply(&diagnostics, source);
-    assert_eq!(fixed, "\nlet port = try {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n} ?? 8080\nprint $port\n");
+    assert_eq!(
+        fixed,
+        "\nlet port = try {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n} ?? 8080\nprint $port\n"
+    );
     assert!(migration(&fixed).is_empty());
 }
 
@@ -38,7 +55,9 @@ fn local_capture_helper_fix_preserves_success_parse_failure_and_missing_file() {
 
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("port");
-    let source = format!("proc read_port() [fs, error] -> Result[Int] {{\n  let content = p{path:?}.read_text()?\n  content.trim().parse_int()?\n}}\nlet port = read_port() ?? 8080\nprint $port\n");
+    let source = format!(
+        "proc read_port() [fs, error] -> Result[Int] {{\n  let content = p{path:?}.read_text()?\n  content.trim().parse_int()?\n}}\nlet port = read_port() ?? 8080\nprint $port\n"
+    );
     let fixed = apply(&migration(&source), &source);
     assert_ne!(source, fixed);
     let evaluate = |source: &str| {
@@ -47,9 +66,16 @@ fn local_capture_helper_fix_preserves_success_parse_failure_and_missing_file() {
         let parsed = Parser::parse_source_arena_only(id, source);
         Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, id)
     };
-    for (contents, expected) in [(Some(" 9090\n"), b"9090\n".as_slice()), (Some("invalid"), b"8080\n".as_slice()), (None, b"8080\n".as_slice())] {
-        if let Some(contents) = contents { std::fs::write(&path, contents).unwrap(); }
-        else { std::fs::remove_file(&path).unwrap(); }
+    for (contents, expected) in [
+        (Some(" 9090\n"), b"9090\n".as_slice()),
+        (Some("invalid"), b"8080\n".as_slice()),
+        (None, b"8080\n".as_slice()),
+    ] {
+        if let Some(contents) = contents {
+            std::fs::write(&path, contents).unwrap();
+        } else {
+            std::fs::remove_file(&path).unwrap();
+        }
         let before = evaluate(&source);
         let after = evaluate(&fixed);
         assert_eq!(before.status, 0, "{:?}", before.diagnostics);
@@ -95,7 +121,12 @@ fn local_capture_helper_migration_keeps_unrelated_comments_and_byte_offsets() {
     assert!(fixed.contains("# fallback remains\n# Report the observed value."));
     assert!(fixed.contains("let label = \"préfix\""));
     assert!(migration(&fixed).is_empty());
-    assert!(diagnostics[0].labels.iter().any(|label| label.message.as_deref().is_some_and(|message| message.contains("traceback frame"))));
+    assert!(diagnostics[0].labels.iter().any(|label| {
+        label
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("traceback frame"))
+    }));
 }
 
 #[test]
@@ -113,8 +144,13 @@ fn local_capture_helpers_leave_native_tests_and_statement_boundaries_unchanged()
 fn checked_local_capture_rule_is_exposed_by_the_linter_library() {
     let source = "proc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\nprint $port\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    let output = super::super::Linter::lint(&parsed.arena, source, super::super::LintOptions::default());
-    let diagnostics = output.diagnostics.into_iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTryCapture)).collect::<Vec<_>>();
+    let output =
+        super::super::Linter::lint(&parsed.arena, source, super::super::LintOptions::default());
+    let diagnostics = output
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTryCapture))
+        .collect::<Vec<_>>();
     assert_eq!(diagnostics.len(), 1);
     let fixed = apply(&diagnostics, source);
     assert!(fixed.contains("let port = try { \"7\".parse_int()? } ?? 8080"));
@@ -124,6 +160,8 @@ fn checked_local_capture_rule_is_exposed_by_the_linter_library() {
 #[test]
 fn local_capture_helpers_decline_bodies_beyond_the_bounded_expression_walk() {
     let expression = format!("\"7\"{}.parse_int()?", ".trim()".repeat(128));
-    let source = format!("proc read_port() [error] -> Result[Int] {{ {expression} }}\nlet port = read_port() ?? 8080\n");
+    let source = format!(
+        "proc read_port() [error] -> Result[Int] {{ {expression} }}\nlet port = read_port() ?? 8080\n"
+    );
     assert!(migration(&source).is_empty());
 }

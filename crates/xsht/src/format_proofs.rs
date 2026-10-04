@@ -5,18 +5,62 @@ use super::{Formatter, Parser, SourceId, format_equivalence};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::syntax::grouping::grouping_diagnostics;
 
-const OPERATORS: [&str; 16] = ["??", "or", "and", "==", "!=", "<", "<=", ">", ">=", "in", "not in", "+", "-", "*", "/", "%"];
+const OPERATORS: [&str; 16] = [
+    "??", "or", "and", "==", "!=", "<", "<=", ">", ">=", "in", "not in", "+", "-", "*", "/", "%",
+];
 
 /// One spelling of every expression form, by fixity and how it ends.
 fn children() -> Vec<String> {
     let mut children: Vec<String> = [
-        "a", "1", "\"s\"", "[a]", "{k: a}", "$?", "/tmp/x", "env.Str.HOME", ".", ".f", "f\"x{a}\"",
-        "-b", "! b", "b is Int", "b < c < d",
-        "b.f", "b?.f", "b[0]", "b?[0]", "b[0..1]", "b(c)", "b?", "b.require(Int)",
-        "if b { c } else { d }", "match b { _ => c }", "loop { break }", "try { c }", "retry [1s] { c }", "{|e| c}",
-        "cd (b) { c }", "ctx \"m\" { c }",
-        "run foo", "run foo -x", "run cat < b\"\"", "spawn run foo", "spawn f()", "wait c",
-        "b |> lines()", "b |> f(.)", "b |> map(c)", "b |> sort", "b |> take(1)", "b |> sum", "b |> map .f", "b |> where . > c", "{k: b for k in c}", "{[f\"{k}\"]: b for k in c}", "{k}", "{}",
+        "a",
+        "1",
+        "\"s\"",
+        "[a]",
+        "{k: a}",
+        "$?",
+        "/tmp/x",
+        "env.Str.HOME",
+        ".",
+        ".f",
+        "f\"x{a}\"",
+        "-b",
+        "! b",
+        "b is Int",
+        "b < c < d",
+        "b.f",
+        "b?.f",
+        "b[0]",
+        "b?[0]",
+        "b[0..1]",
+        "b(c)",
+        "b?",
+        "b.require(Int)",
+        "if b { c } else { d }",
+        "match b { _ => c }",
+        "loop { break }",
+        "try { c }",
+        "retry [1s] { c }",
+        "{|e| c}",
+        "cd (b) { c }",
+        "ctx \"m\" { c }",
+        "run foo",
+        "run foo -x",
+        "run cat < b\"\"",
+        "spawn run foo",
+        "spawn f()",
+        "wait c",
+        "b |> lines()",
+        "b |> f(.)",
+        "b |> map(c)",
+        "b |> sort",
+        "b |> take(1)",
+        "b |> sum",
+        "b |> map .f",
+        "b |> where . > c",
+        "{k: b for k in c}",
+        "{[f\"{k}\"]: b for k in c}",
+        "{k}",
+        "{}",
     ]
     .map(str::to_string)
     .to_vec();
@@ -27,18 +71,49 @@ fn children() -> Vec<String> {
 /// One template with the hole `H` for every slot an expression can fill.
 fn parents() -> Vec<String> {
     let mut parents: Vec<String> = [
-        "let v = -H", "let v = ! H", "let v = H is Int",
-        "let v = H.f", "let v = H?.f", "let v = H[0]", "let v = H?[0]", "let v = H[0..1]", "let v = H(1)", "let v = H?",
+        "let v = -H",
+        "let v = ! H",
+        "let v = H is Int",
+        "let v = H.f",
+        "let v = H?.f",
+        "let v = H[0]",
+        "let v = H?[0]",
+        "let v = H[0..1]",
+        "let v = H(1)",
+        "let v = H?",
         "let v = H.require(Int)",
-        "let v = xs[H..1]", "let v = xs[0..H]", "let v = xs[H]",
-        "let v = spawn H", "let v = wait H",
-        "let v = H |> lines()", "let v = H |> f(.)",
-        "let v = a < b < H", "let v = H < a < b",
-        "let v = H", "x = H", "proc p() {\n  return H when c\n}",
-        "H", "f()\nH", "let w = 1\nH", "if c {\n  w()\n}\nH", "proc p() {\n  H\n}",
-        "let v = match a { _ => H }", "match a {\n  _ => H\n}", "let v = if c { H } else { 1 }",
-        "f(H, 1)", "f(1, H)", "f(H?.f, 1)", "f(H?.f(), 1)", "[H, 1]", "{k: H}", "if H {\n  w()\n}", "while H {\n  w()\n}", "for x in H {\n  w()\n}",
-        "print f\"{H}\"", "assert H, \"m\"", "assert H",
+        "let v = xs[H..1]",
+        "let v = xs[0..H]",
+        "let v = xs[H]",
+        "let v = spawn H",
+        "let v = wait H",
+        "let v = H |> lines()",
+        "let v = H |> f(.)",
+        "let v = a < b < H",
+        "let v = H < a < b",
+        "let v = H",
+        "x = H",
+        "proc p() {\n  return H when c\n}",
+        "H",
+        "f()\nH",
+        "let w = 1\nH",
+        "if c {\n  w()\n}\nH",
+        "proc p() {\n  H\n}",
+        "let v = match a { _ => H }",
+        "match a {\n  _ => H\n}",
+        "let v = if c { H } else { 1 }",
+        "f(H, 1)",
+        "f(1, H)",
+        "f(H?.f, 1)",
+        "f(H?.f(), 1)",
+        "[H, 1]",
+        "{k: H}",
+        "if H {\n  w()\n}",
+        "while H {\n  w()\n}",
+        "for x in H {\n  w()\n}",
+        "print f\"{H}\"",
+        "assert H, \"m\"",
+        "assert H",
     ]
     .map(str::to_string)
     .to_vec();
@@ -51,7 +126,10 @@ fn parents() -> Vec<String> {
 
 fn canonical(source: &str) -> Option<String> {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    parsed.diagnostics.is_empty().then(|| format_equivalence::canonical(&parsed.arena, source).text)
+    parsed
+        .diagnostics
+        .is_empty()
+        .then(|| format_equivalence::canonical(&parsed.arena, source).text)
 }
 
 fn grouping(source: &str) -> Vec<Diagnostic> {
@@ -64,8 +142,14 @@ fn format(source: &str) -> String {
 }
 
 fn format_wide(source: &str, width: usize) -> String {
-    let formatted = Formatter::new().with_line_width(width).format_source(SourceId::new(0), source);
-    assert!(formatted.diagnostics.is_empty(), "{source}\n{:?}", formatted.diagnostics);
+    let formatted = Formatter::new()
+        .with_line_width(width)
+        .format_source(SourceId::new(0), source);
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{source}\n{:?}",
+        formatted.diagnostics
+    );
     formatted.formatted
 }
 
@@ -77,7 +161,13 @@ fn remove_redundant_parens(source: &str) -> String {
             .iter()
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRedundantParens))
             .flat_map(|diagnostic| &diagnostic.fix_hints)
-            .map(|hint| (hint.span.unwrap().start(), hint.span.unwrap().end(), hint.replacement.clone().unwrap()))
+            .map(|hint| {
+                (
+                    hint.span.unwrap().start(),
+                    hint.span.unwrap().end(),
+                    hint.replacement.clone().unwrap(),
+                )
+            })
             .collect();
         if fixes.is_empty() {
             return text;
@@ -106,12 +196,22 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
         for child in &children {
             let hole = parent.find('H').unwrap();
             let grouped = parent.replacen('H', &format!("({child})"), 1);
-            let Some(tree) = canonical(&grouped) else { continue };
+            let Some(tree) = canonical(&grouped) else {
+                continue;
+            };
             cases += 1;
             let formatted = format(&grouped);
-            assert_eq!(canonical(&formatted).as_ref(), Some(&tree), "{grouped}\nprinted as\n{formatted}");
+            assert_eq!(
+                canonical(&formatted).as_ref(),
+                Some(&tree),
+                "{grouped}\nprinted as\n{formatted}"
+            );
             assert_eq!(format(&formatted), formatted, "{grouped}");
-            assert!(grouping(&formatted).is_empty(), "{formatted}\n{:?}", grouping(&formatted));
+            assert!(
+                grouping(&formatted).is_empty(),
+                "{formatted}\n{:?}",
+                grouping(&formatted)
+            );
             let group_end = hole + child.len() + 2;
             let reported = grouping(&grouped).iter().any(|diagnostic| {
                 diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
@@ -121,12 +221,28 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
             let bare = parent.replacen('H', child, 1);
             let same_tree = canonical(&bare).as_ref() == Some(&tree);
             let bare_grouping = grouping(&bare);
-            let removable = same_tree && bare_grouping.iter().all(|d| !matches!(d.code, Some(DiagnosticCode::CheckMixedLogical | DiagnosticCode::CheckAmbiguousGrouping)));
+            let removable = same_tree
+                && bare_grouping.iter().all(|d| {
+                    !matches!(
+                        d.code,
+                        Some(
+                            DiagnosticCode::CheckMixedLogical
+                                | DiagnosticCode::CheckAmbiguousGrouping
+                        )
+                    )
+                });
             // The ambiguous-grouping fix restores exactly these parentheses.
-            if same_tree && let Some(fix) = bare_grouping.iter().find(|d| d.code == Some(DiagnosticCode::CheckAmbiguousGrouping)) {
+            if same_tree
+                && let Some(fix) = bare_grouping
+                    .iter()
+                    .find(|d| d.code == Some(DiagnosticCode::CheckAmbiguousGrouping))
+            {
                 let hint = &fix.fix_hints[0];
                 let mut fixed = bare.clone();
-                fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+                fixed.replace_range(
+                    hint.span.unwrap().range(),
+                    hint.replacement.as_deref().unwrap(),
+                );
                 assert_eq!(fixed, grouped, "ambiguous-grouping fix of\n{bare}");
                 ambiguous += 1;
             }
@@ -137,19 +253,32 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
                 kept += 1;
                 continue;
             }
-            assert_eq!(reported, removable, "parentheses in\n{grouped}\nreported redundant: {reported}; removable: {removable}");
-            if reported { redundant += 1 } else { required += 1 }
+            assert_eq!(
+                reported, removable,
+                "parentheses in\n{grouped}\nreported redundant: {reported}; removable: {removable}"
+            );
+            if reported {
+                redundant += 1
+            } else {
+                required += 1
+            }
         }
     }
     assert_eq!((parents.len(), children.len()), (75, 65));
-    assert_eq!((cases, required, redundant, kept, ambiguous), (4875, 1385, 3480, 10, 156));
+    assert_eq!(
+        (cases, required, redundant, kept, ambiguous),
+        (4875, 1385, 3480, 10, 156)
+    );
 }
 
 struct Generator(u64);
 
 impl Generator {
     fn next(&mut self, bound: usize) -> usize {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 33) as usize) % bound
     }
 
@@ -173,10 +302,23 @@ impl Generator {
             8 => format!("{}[{}]", operand(self), operand(self)),
             9 => format!("f({}, {})", operand(self), operand(self)),
             10 => format!("{} is Int", operand(self)),
-            11 => format!("if {} {{ {} }} else {{ {} }}", operand(self), operand(self), operand(self)),
+            11 => format!(
+                "if {} {{ {} }} else {{ {} }}",
+                operand(self),
+                operand(self),
+                operand(self)
+            ),
             12 => format!("[{} for x in {}]", operand(self), operand(self)),
             13 => format!("match {} {{ _ => {} }}", operand(self), operand(self)),
-            _ => ["run foo", "spawn f()", "b |> f(.)", "b?.f", "b |> sort", "b |> take(1)"][self.next(6)].to_string(),
+            _ => [
+                "run foo",
+                "spawn f()",
+                "b |> f(.)",
+                "b?.f",
+                "b |> sort",
+                "b |> take(1)",
+            ][self.next(6)]
+            .to_string(),
         }
     }
 }
@@ -196,14 +338,28 @@ fn generated_trees_round_trip_through_the_printer_and_redundancy_fixes() {
         let parent = &parents[generator.next(parents.len())];
         let expr = generator.expr(4);
         let source = parent.replacen('H', &format!("({expr})"), 1);
-        let Some(tree) = canonical(&source) else { continue };
+        let Some(tree) = canonical(&source) else {
+            continue;
+        };
         checked += 1;
         let formatted = wide(&source);
-        assert_eq!(canonical(&formatted).as_ref(), Some(&tree), "{source}\nprinted as\n{formatted}");
+        assert_eq!(
+            canonical(&formatted).as_ref(),
+            Some(&tree),
+            "{source}\nprinted as\n{formatted}"
+        );
         assert_eq!(wide(&formatted), formatted, "{source}");
-        assert!(grouping(&formatted).is_empty(), "{formatted}\n{:?}", grouping(&formatted));
+        assert!(
+            grouping(&formatted).is_empty(),
+            "{formatted}\n{:?}",
+            grouping(&formatted)
+        );
         let minimal = remove_redundant_parens(&source);
-        assert_eq!(canonical(&minimal).as_ref(), Some(&tree), "{source}\nfixed as\n{minimal}");
+        assert_eq!(
+            canonical(&minimal).as_ref(),
+            Some(&tree),
+            "{source}\nfixed as\n{minimal}"
+        );
         assert_eq!(wide(&minimal), formatted, "{source}\nfixed as\n{minimal}");
     }
     assert_eq!(checked, 5000);
@@ -236,7 +392,11 @@ fn nested_conditional_layouts_are_fixpoints() {
                 let nested = format!("proc p() {{\n  {}\n}}\n", statement.replace('\n', "\n  "));
                 for source in [format!("{statement}\n"), nested] {
                     let formatted = format_wide(&source, width);
-                    assert_eq!(format_wide(&formatted, width), formatted, "width {width}:\n{source}");
+                    assert_eq!(
+                        format_wide(&formatted, width),
+                        formatted,
+                        "width {width}:\n{source}"
+                    );
                 }
             }
         }

@@ -141,15 +141,13 @@ fn one_case_set_behaves_identically_across_supported_builds() {
         "missing release baseline: {}. Build {build_context}cargo build --release -p xsh --bin xsh{target_arg}",
         release.display()
     );
-    let alternatives = [
-        (
-            "release-no-default-features",
-            no_default_dir.join("release/xsh"),
-            format!(
-                "CARGO_TARGET_DIR={no_default_target_dir} cargo build --release -p xsh --bin xsh --no-default-features{target_arg}"
-            ),
+    let alternatives = [(
+        "release-no-default-features",
+        no_default_dir.join("release/xsh"),
+        format!(
+            "CARGO_TARGET_DIR={no_default_target_dir} cargo build --release -p xsh --bin xsh --no-default-features{target_arg}"
         ),
-    ];
+    )];
     let mut compared = vec![("release", release)];
     for (name, binary, command) in alternatives {
         if binary.is_file() {

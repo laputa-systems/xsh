@@ -38,14 +38,26 @@ fn main() {
 
 fn completion_output(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     use std::io::Write;
-    let code = args.next().and_then(|arg| arg.into_string().ok()).ok_or("exit code is required")?.parse::<i32>().map_err(|error| error.to_string())?;
-    let count = args.next().and_then(|arg| arg.into_string().ok()).ok_or("byte count is required")?.parse::<usize>().map_err(|error| error.to_string())?;
+    let code = args
+        .next()
+        .and_then(|arg| arg.into_string().ok())
+        .ok_or("exit code is required")?
+        .parse::<i32>()
+        .map_err(|error| error.to_string())?;
+    let count = args
+        .next()
+        .and_then(|arg| arg.into_string().ok())
+        .ok_or("byte count is required")?
+        .parse::<usize>()
+        .map_err(|error| error.to_string())?;
     let buffer = [b'x'; 8192];
     let mut stdout = std::io::stdout().lock();
     let mut remaining = count;
     while remaining > 0 {
         let count = remaining.min(buffer.len());
-        stdout.write_all(&buffer[..count]).map_err(|error| error.to_string())?;
+        stdout
+            .write_all(&buffer[..count])
+            .map_err(|error| error.to_string())?;
         remaining -= count;
     }
     stdout.flush().map_err(|error| error.to_string())?;
@@ -57,25 +69,44 @@ fn bytes_echo(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let copy_stderr = args.next().is_some_and(|arg| arg == "stderr");
     let mut buffer = [0u8; 8192];
     loop {
-        let count = std::io::stdin().read(&mut buffer).map_err(|error| error.to_string())?;
-        if count == 0 { return Ok(()); }
-        std::io::stdout().write_all(&buffer[..count]).map_err(|error| error.to_string())?;
-        if copy_stderr { std::io::stderr().write_all(&buffer[..count]).map_err(|error| error.to_string())?; }
+        let count = std::io::stdin()
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if count == 0 {
+            return Ok(());
+        }
+        std::io::stdout()
+            .write_all(&buffer[..count])
+            .map_err(|error| error.to_string())?;
+        if copy_stderr {
+            std::io::stderr()
+                .write_all(&buffer[..count])
+                .map_err(|error| error.to_string())?;
+        }
     }
 }
 
 fn bytes_prefix(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     use std::io::{Read, Write};
-    let count = args.next().and_then(|arg| arg.into_string().ok()).ok_or("count is required")?
-        .parse::<usize>().map_err(|error| error.to_string())?;
+    let count = args
+        .next()
+        .and_then(|arg| arg.into_string().ok())
+        .ok_or("count is required")?
+        .parse::<usize>()
+        .map_err(|error| error.to_string())?;
     let mut buffer = vec![0; count];
-    std::io::stdin().read_exact(&mut buffer).map_err(|error| error.to_string())?;
-    std::io::stdout().write_all(&buffer).map_err(|error| error.to_string())
+    std::io::stdin()
+        .read_exact(&mut buffer)
+        .map_err(|error| error.to_string())?;
+    std::io::stdout()
+        .write_all(&buffer)
+        .map_err(|error| error.to_string())
 }
 
 fn bytes_sink_marker(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let marker = required_path(&mut args, "marker")?;
-    let count = std::io::copy(&mut std::io::stdin(), &mut std::io::sink()).map_err(|error| error.to_string())?;
+    let count = std::io::copy(&mut std::io::stdin(), &mut std::io::sink())
+        .map_err(|error| error.to_string())?;
     write_file(&marker, count.to_string().as_bytes())
 }
 

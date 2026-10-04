@@ -4,17 +4,18 @@ use crate::records::{
     env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_children_result_type, fs_root_filesystem_stats_type, fs_root_read_result_type,
-    fs_root_readlink_result_type, fs_root_type, group_record_type, linux_blkid_type,
-    linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
-    linux_interface_type, linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
-    linux_module_type, linux_network_dump_type, linux_open_file_type, linux_partition_table_type,
-    linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type, hash_check_line_type,
-    mime_parse_type, net_pool_type, net_response_type, patch_result_type, process_entry_type,
-    process_port_type, process_stats_type, process_thread_type, process_wait_any_type,
-    regex_match_type, signal_record_type, spawn_record_type, system_execution_units_type,
-    system_memory_type, system_os_release_type, uname_record_type, unix_child_event_type,
-    unix_id_type, unix_kill_all_result_type, unix_logged_process_group_type, unix_pid1_event_type,
-    unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type, user_record_type,
+    fs_root_readlink_result_type, fs_root_type, group_record_type, hash_check_line_type,
+    linux_blkid_type, linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type,
+    linux_fsck_type, linux_interface_type, linux_loop_device_type, linux_meminfo_type,
+    linux_modinfo_type, linux_module_type, linux_network_dump_type, linux_open_file_type,
+    linux_partition_table_type, linux_rfkill_type, linux_route_type, linux_uevent_type,
+    measured_command_type, mime_info_type, mime_parse_type, net_pool_type, net_response_type,
+    patch_result_type, process_entry_type, process_port_type, process_stats_type,
+    process_thread_type, process_wait_any_type, regex_match_type, signal_record_type,
+    spawn_record_type, system_execution_units_type, system_memory_type, system_os_release_type,
+    uname_record_type, unix_child_event_type, unix_id_type, unix_kill_all_result_type,
+    unix_logged_process_group_type, unix_pid1_event_type, unix_pid1_shutdown_type,
+    unix_spawned_child_type, unix_tty_attrs_type, user_record_type,
 };
 #[cfg(feature = "native-tests")]
 use crate::records::{test_call_type, test_context_type, test_script_output_type};
@@ -223,7 +224,9 @@ impl SemanticRule {
         match op {
             RuntimeOp::CliCommands => Self::CliCommands,
             RuntimeOp::RecordGet => Self::ConstantKeyProjection,
-            RuntimeOp::CliParse | RuntimeOp::CliApplet | RuntimeOp::CliParseFull => Self::CliDescriptor,
+            RuntimeOp::CliParse | RuntimeOp::CliApplet | RuntimeOp::CliParseFull => {
+                Self::CliDescriptor
+            }
             _ => Self::Standard,
         }
     }
@@ -276,15 +279,24 @@ pub struct NamedMethodSigs {
 /// Receiver promotion must preserve source evaluation order and capability identity.
 pub fn legacy_fs_root_method(function: &str) -> Option<&'static str> {
     match function {
-        "close_root" => Some("close"), "root_path" => Some("host_path"),
-        "root" => Some("open_root"), "root_read" => Some("read_bytes"),
-        "root_read_text" => Some("read_text"), "root_read_result" => Some("read_result"),
-        "root_filesystem_stats" => Some("filesystem_stats"), "root_children" => Some("children"),
-        "root_write" => Some("write"), "root_write_atomic" => Some("write_atomic"),
-        "root_metadata" => Some("metadata"), "root_exists" => Some("exists"),
-        "root_mkdir" => Some("mkdir"), "root_remove" => Some("remove"),
-        "root_readlink" => Some("readlink"), "root_readlink_result" => Some("readlink_result"),
-        "root_symlink" => Some("symlink"), "root_chmod" => Some("chmod"),
+        "close_root" => Some("close"),
+        "root_path" => Some("host_path"),
+        "root" => Some("open_root"),
+        "root_read" => Some("read_bytes"),
+        "root_read_text" => Some("read_text"),
+        "root_read_result" => Some("read_result"),
+        "root_filesystem_stats" => Some("filesystem_stats"),
+        "root_children" => Some("children"),
+        "root_write" => Some("write"),
+        "root_write_atomic" => Some("write_atomic"),
+        "root_metadata" => Some("metadata"),
+        "root_exists" => Some("exists"),
+        "root_mkdir" => Some("mkdir"),
+        "root_remove" => Some("remove"),
+        "root_readlink" => Some("readlink"),
+        "root_readlink_result" => Some("readlink_result"),
+        "root_symlink" => Some("symlink"),
+        "root_chmod" => Some("chmod"),
         _ => None,
     }
 }
@@ -432,33 +444,110 @@ mod tests {
             (super::MethodReceiver::Map, "has"),
             (super::MethodReceiver::Record, "has"),
         ] {
-            assert!(!api_spec().methods.iter().any(|entry| entry.receiver == receiver && entry.methods.iter().any(|method| method.name == name)));
-            assert!(api_spec().docs(&super::method_api_id(receiver, name)).is_none());
+            assert!(
+                !api_spec()
+                    .methods
+                    .iter()
+                    .any(|entry| entry.receiver == receiver
+                        && entry.methods.iter().any(|method| method.name == name))
+            );
+            assert!(
+                api_spec()
+                    .docs(&super::method_api_id(receiver, name))
+                    .is_none()
+            );
         }
-        for (module, name) in [("set", "has"), ("test", "contains"), ("test", "not_contains")] {
-            assert!(!api_spec().modules.iter().any(|entry| entry.name == module && entry.sig.functions.iter().any(|function| function.name == name)));
-            assert!(api_spec().docs(&super::module_api_id(module, name)).is_none());
+        for (module, name) in [
+            ("set", "has"),
+            ("test", "contains"),
+            ("test", "not_contains"),
+        ] {
+            assert!(!api_spec().modules.iter().any(|entry| {
+                entry.name == module
+                    && entry
+                        .sig
+                        .functions
+                        .iter()
+                        .any(|function| function.name == name)
+            }));
+            assert!(
+                api_spec()
+                    .docs(&super::module_api_id(module, name))
+                    .is_none()
+            );
         }
-        assert!(crate::errors::builtin_error_families().iter().any(|family| family.name == "AssertionError"));
+        assert!(
+            crate::errors::builtin_error_families()
+                .iter()
+                .any(|family| family.name == "AssertionError")
+        );
     }
 
     #[test]
     fn semantic_preparation_rules_follow_canonical_operations() {
         use super::{MethodReceiver, SemanticRule};
         let spec = api_spec();
-        let cli = spec.modules.iter().find(|entry| entry.name == "cli").unwrap();
+        let cli = spec
+            .modules
+            .iter()
+            .find(|entry| entry.name == "cli")
+            .unwrap();
         for name in ["parse", "applet", "parse_full"] {
-            let entry = cli.sig.functions.iter().find(|entry| entry.name == name).unwrap();
-            assert!(entry.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliDescriptor));
+            let entry = cli
+                .sig
+                .functions
+                .iter()
+                .find(|entry| entry.name == name)
+                .unwrap();
+            assert!(
+                entry
+                    .overloads
+                    .iter()
+                    .all(|sig| sig.semantic_rule == SemanticRule::CliDescriptor)
+            );
         }
-        let commands = cli.sig.functions.iter().find(|entry| entry.name == "commands").unwrap();
-        assert!(commands.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliCommands));
-        let record = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::Record).unwrap();
-        let get = record.methods.iter().find(|entry| entry.name == "get").unwrap();
-        assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::ConstantKeyProjection));
-        let list = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::List).unwrap();
-        let get = list.methods.iter().find(|entry| entry.name == "get").unwrap();
-        assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::Standard));
+        let commands = cli
+            .sig
+            .functions
+            .iter()
+            .find(|entry| entry.name == "commands")
+            .unwrap();
+        assert!(
+            commands
+                .overloads
+                .iter()
+                .all(|sig| sig.semantic_rule == SemanticRule::CliCommands)
+        );
+        let record = spec
+            .methods
+            .iter()
+            .find(|entry| entry.receiver == MethodReceiver::Record)
+            .unwrap();
+        let get = record
+            .methods
+            .iter()
+            .find(|entry| entry.name == "get")
+            .unwrap();
+        assert!(
+            get.overloads
+                .iter()
+                .all(|sig| sig.sig.semantic_rule == SemanticRule::ConstantKeyProjection)
+        );
+        let list = spec
+            .methods
+            .iter()
+            .find(|entry| entry.receiver == MethodReceiver::List)
+            .unwrap();
+        let get = list
+            .methods
+            .iter()
+            .find(|entry| entry.name == "get")
+            .unwrap();
+        assert!(
+            get.overloads
+                .iter()
+                .all(|sig| sig.sig.semantic_rule == SemanticRule::Standard)
+        );
     }
 
     #[test]

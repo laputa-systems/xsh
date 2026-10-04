@@ -212,8 +212,12 @@ impl ArenaRange {
 pub struct ArenaListElementRange(ArenaRange);
 
 impl ArenaListElementRange {
-    pub fn len(self) -> usize { self.0.len() / 2 }
-    pub fn is_empty(self) -> bool { self.0.is_empty() }
+    pub fn len(self) -> usize {
+        self.0.len() / 2
+    }
+    pub fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -626,7 +630,10 @@ impl ArenaProgram {
     }
 
     pub fn cli_entry_doc(&self, statement: StmtId) -> Option<Span> {
-        self.docs.cli_entries.iter().find_map(|(entry, span)| (*entry == statement).then_some(*span))
+        self.docs
+            .cli_entries
+            .iter()
+            .find_map(|(entry, span)| (*entry == statement).then_some(*span))
     }
 
     pub(crate) fn attach_doc_comments(&mut self, source_id: SourceId, source: &str) {
@@ -672,10 +679,17 @@ fn doc_comments_for_statements(
             attached_export_doc_comment(source, span, &blocks).map(|doc| (statement, doc))
         })
         .collect::<Vec<_>>();
-    let cli_entries = statements.iter().copied().filter_map(|statement| {
-        if !matches!(arena.stmt(statement).kind, ArenaStmtKind::CliMain(_)) { return None; }
-        attached_export_doc_comment(source, arena.stmt(statement).span, &blocks).map(|doc| (statement, doc))
-    }).collect::<Vec<_>>();
+    let cli_entries = statements
+        .iter()
+        .copied()
+        .filter_map(|statement| {
+            if !matches!(arena.stmt(statement).kind, ArenaStmtKind::CliMain(_)) {
+                return None;
+            }
+            attached_export_doc_comment(source, arena.stmt(statement).span, &blocks)
+                .map(|doc| (statement, doc))
+        })
+        .collect::<Vec<_>>();
     let attached_starts = module
         .into_iter()
         .chain(exports.iter().map(|(_, span)| *span))
@@ -1014,7 +1028,8 @@ impl<'a> ArenaProgramBuilder<'a> {
             return;
         }
         let statement_ids = self.lowerer.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let docs = doc_comments_for_statements(&self.lowerer.arena, source_id, source, &statement_ids);
+        let docs =
+            doc_comments_for_statements(&self.lowerer.arena, source_id, source, &statement_ids);
         if let Some(module) = docs.module {
             self.docs.module_ranges.push((statements, module));
         }
@@ -1235,7 +1250,8 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn begin_list_elements(&mut self) {
-        self.list_element_input_starts.push(self.list_element_inputs.len());
+        self.list_element_input_starts
+            .push(self.list_element_inputs.len());
     }
 
     pub fn push_list_element_input(&mut self, element: ArenaListElementInput) {
@@ -1243,14 +1259,22 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn finish_list_elements(&mut self) -> ArenaListElementRange {
-        let start = self.list_element_input_starts.pop().expect("list element scope");
-        let range = self.lowerer.lower_list_element_range(&self.list_element_inputs[start..]);
+        let start = self
+            .list_element_input_starts
+            .pop()
+            .expect("list element scope");
+        let range = self
+            .lowerer
+            .lower_list_element_range(&self.list_element_inputs[start..]);
         self.list_element_inputs.truncate(start);
         range
     }
 
     pub fn discard_list_elements(&mut self) {
-        let start = self.list_element_input_starts.pop().expect("list element scope");
+        let start = self
+            .list_element_input_starts
+            .pop()
+            .expect("list element scope");
         self.list_element_inputs.truncate(start);
     }
 
@@ -1350,7 +1374,12 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     /// A predicate uses ordinary match control flow with true and false arms.
     /// Its subject stays a single expression, preserving evaluation count.
-    pub fn push_pattern_test_expr(&mut self, value: ExprId, pattern: PatternId, span: Span) -> ExprId {
+    pub fn push_pattern_test_expr(
+        &mut self,
+        value: ExprId,
+        pattern: PatternId,
+        span: Span,
+    ) -> ExprId {
         self.begin_match_expr_arms();
         let yes = self.push_bool_expr(true, span);
         self.push_match_expr_arm_input_id(pattern, None, yes, span);
@@ -1358,10 +1387,16 @@ impl<'a> ArenaProgramBuilder<'a> {
         let no = self.push_bool_expr(false, span);
         self.push_match_expr_arm_input_id(wildcard, None, no, span);
         let arms = self.finish_match_expr_arms();
-        self.lowerer.push_expr_kind(ArenaExprKind::PatternTest { value, arms }, span)
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::PatternTest { value, arms }, span)
     }
 
-    pub fn push_pattern_condition_expr(&mut self, value: ExprId, pattern: PatternId, span: Span) -> ExprId {
+    pub fn push_pattern_condition_expr(
+        &mut self,
+        value: ExprId,
+        pattern: PatternId,
+        span: Span,
+    ) -> ExprId {
         self.begin_match_expr_arms();
         let yes = self.push_bool_expr(true, span);
         self.push_match_expr_arm_input_id(pattern, None, yes, span);
@@ -1369,16 +1404,30 @@ impl<'a> ArenaProgramBuilder<'a> {
         let no = self.push_bool_expr(false, span);
         self.push_match_expr_arm_input_id(wildcard, None, no, span);
         let arms = self.finish_match_expr_arms();
-        self.lowerer.push_expr_kind(ArenaExprKind::PatternCondition { value, arms }, span)
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::PatternCondition { value, arms }, span)
     }
 
     pub fn push_pattern_group(&mut self, pattern: PatternId, span: Span) -> PatternId {
         self.push_pattern_kind(ArenaPatternKind::Group(pattern), span)
     }
 
-    pub fn push_pattern_alias(&mut self, pattern: PatternId, name: Name, name_span: Span, span: Span) -> PatternId {
+    pub fn push_pattern_alias(
+        &mut self,
+        pattern: PatternId,
+        name: Name,
+        name_span: Span,
+        span: Span,
+    ) -> PatternId {
         let name_span = self.lowerer.span(name_span);
-        self.push_pattern_kind(ArenaPatternKind::Alias { pattern, name, name_span }, span)
+        self.push_pattern_kind(
+            ArenaPatternKind::Alias {
+                pattern,
+                name,
+                name_span,
+            },
+            span,
+        )
     }
 
     pub fn push_pattern_wildcard(&mut self, span: Span) -> PatternId {
@@ -1389,7 +1438,9 @@ impl<'a> ArenaProgramBuilder<'a> {
         let text = name.as_str();
         let ty = if let Some((namespace, member)) = text.rsplit_once('.') {
             self.push_qualified_type_expr(Name::intern(namespace), Name::intern(member), span)
-        } else { self.push_named_type_expr(name, span) };
+        } else {
+            self.push_named_type_expr(name, span)
+        };
         self.push_pattern_kind(ArenaPatternKind::TestName { name, ty }, span)
     }
 
@@ -1441,7 +1492,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.push_pattern_kind(ArenaPatternKind::Tuple(range), span)
     }
 
-    pub fn push_pattern_list(&mut self, elements: &[PatternId], rest: Option<PatternId>, span: Span) -> PatternId {
+    pub fn push_pattern_list(
+        &mut self,
+        elements: &[PatternId],
+        rest: Option<PatternId>,
+        span: Span,
+    ) -> PatternId {
         let elements = self.push_pattern_id_range(elements);
         self.push_pattern_kind(ArenaPatternKind::List { elements, rest }, span)
     }
@@ -1975,8 +2031,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         let mut holes = Vec::new();
         for raw in (0..arena.stmt_tags.len()).rev() {
             let stmt = arena.stmt(StmtId::from_index(raw));
-            if stmt.span.source_id != span.source_id || stmt.span.start() < span.start() { break; }
-            if stmt.span.end() <= span.end() && matches!(stmt.kind, ArenaStmtKind::TailBareIdent(name) if name == "_") {
+            if stmt.span.source_id != span.source_id || stmt.span.start() < span.start() {
+                break;
+            }
+            if stmt.span.end() <= span.end()
+                && matches!(stmt.kind, ArenaStmtKind::TailBareIdent(name) if name == "_")
+            {
                 return Err(stmt.span);
             }
         }
@@ -1985,24 +2045,42 @@ impl<'a> ArenaProgramBuilder<'a> {
         for raw in (0..=stage.index()).rev() {
             let id = ExprId::from_index(raw);
             let expr = arena.expr(id);
-            if expr.span.source_id != span.source_id || expr.span.start() < span.start() { break; }
+            if expr.span.source_id != span.source_id || expr.span.start() < span.start() {
+                break;
+            }
             if matches!(expr.kind, ArenaExprKind::Ident(name) if name == "_")
                 && expr.span.end() <= span.end()
-                && !arena.record_fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Named { name, span, .. }
-                    if name == "_" && arena.span(span).start() == expr.span.start())) {
+                && !arena.record_fields.iter().any(|field| {
+                    matches!(field.kind, ArenaRecordFieldKind::Named { name, span, .. }
+                    if name == "_" && arena.span(span).start() == expr.span.start())
+                })
+            {
                 holes.push(id);
             }
         }
-        if holes.is_empty() { return Ok(None); }
-        if holes.len() != 1 { return Err(arena.expr(holes[1]).span); }
-        let call = match arena.expr(stage).kind { ArenaExprKind::Try(inner) => inner, _ => stage };
+        if holes.is_empty() {
+            return Ok(None);
+        }
+        if holes.len() != 1 {
+            return Err(arena.expr(holes[1]).span);
+        }
+        let call = match arena.expr(stage).kind {
+            ArenaExprKind::Try(inner) => inner,
+            _ => stage,
+        };
         if let ArenaExprKind::Call { args, .. } = arena.expr(call).kind {
             for arg in arena.call_args(args) {
                 let value = match arg.kind {
-                    ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value,
-                    ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => continue,
+                    ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => {
+                        value
+                    }
+                    ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
+                        continue;
+                    }
                 };
-                if value == holes[0] { return Ok(Some(value)); }
+                if value == holes[0] {
+                    return Ok(Some(value));
+                }
             }
         }
         Err(arena.expr(holes[0]).span)
@@ -2022,7 +2100,14 @@ impl<'a> ArenaProgramBuilder<'a> {
         if let Ok(Some(hole)) = self.value_pipeline_hole(stage) {
             let input_span = self.lowerer.arena.expr(input).span;
             let whole_span = Span::new(span.source_id, input_span.start(), span.end());
-            return Some(self.lowerer.push_expr_kind(ArenaExprKind::ValuePipelineCall { input, call: stage, hole }, whole_span));
+            return Some(self.lowerer.push_expr_kind(
+                ArenaExprKind::ValuePipelineCall {
+                    input,
+                    call: stage,
+                    hole,
+                },
+                whole_span,
+            ));
         }
         let (call, needs_try) = match self.lowerer.arena.expr(stage).kind {
             ArenaExprKind::Try(inner) => (inner, true),
@@ -2167,8 +2252,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         }
     }
 
-    pub fn push_const_binding_parts(&mut self, target: BindingTargetId, ty: Option<TypeExprId>, initializer: ArenaExprOrRun, span: Span) -> StmtId {
-        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::Const { target, ty, initializer }, span);
+    pub fn push_const_binding_parts(
+        &mut self,
+        target: BindingTargetId,
+        ty: Option<TypeExprId>,
+        initializer: ArenaExprOrRun,
+        span: Span,
+    ) -> StmtId {
+        let id = self.lowerer.push_stmt_kind(
+            ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
+            },
+            span,
+        );
         self.push_current_statement(id);
         id
     }
@@ -2208,11 +2306,28 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_type_expr_row(tag, data, span)
     }
 
-    pub fn push_applied_type_expr(&mut self, base: TypeExprId, arguments: &[TypeExprId], span: Span) -> TypeExprId {
+    pub fn push_applied_type_expr(
+        &mut self,
+        base: TypeExprId,
+        arguments: &[TypeExprId],
+        span: Span,
+    ) -> TypeExprId {
         let start = self.lowerer.arena.extra.len();
-        self.lowerer.arena.extra.push(u32::try_from(arguments.len()).expect("AST arena exceeded u32 type argument counts"));
-        self.lowerer.arena.extra.extend(arguments.iter().map(|id| id.index() as u32));
-        self.push_type_expr_row(ArenaTypeExprTag::Applied, ArenaTypeExprData::new(base.index() as u32, u32::try_from(start).expect("AST arena exceeded u32 type argument offsets")), span)
+        self.lowerer.arena.extra.push(
+            u32::try_from(arguments.len()).expect("AST arena exceeded u32 type argument counts"),
+        );
+        self.lowerer
+            .arena
+            .extra
+            .extend(arguments.iter().map(|id| id.index() as u32));
+        self.push_type_expr_row(
+            ArenaTypeExprTag::Applied,
+            ArenaTypeExprData::new(
+                base.index() as u32,
+                u32::try_from(start).expect("AST arena exceeded u32 type argument offsets"),
+            ),
+            span,
+        )
     }
 
     pub fn push_named_type_expr(&mut self, name: Name, span: Span) -> TypeExprId {
@@ -2248,7 +2363,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.push_typed_map_type_expr(None, inner, span)
     }
 
-    pub fn push_typed_map_type_expr(&mut self, key: Option<TypeExprId>, value: TypeExprId, span: Span) -> TypeExprId {
+    pub fn push_typed_map_type_expr(
+        &mut self,
+        key: Option<TypeExprId>,
+        value: TypeExprId,
+        span: Span,
+    ) -> TypeExprId {
         self.push_type_expr_row(
             ArenaTypeExprTag::Map,
             ArenaTypeExprData::new(raw_type_expr_id(value), optional_raw_type_expr_id(key)),
@@ -2314,7 +2434,9 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_yield_delegate(&mut self, value: ExprId, span: Span) -> StmtId {
-        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::YieldDelegate(value), span);
+        let id = self
+            .lowerer
+            .push_stmt_kind(ArenaStmtKind::YieldDelegate(value), span);
         self.push_current_statement(id);
         id
     }
@@ -2423,13 +2545,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         body: BlockId,
         span: Span,
     ) -> StmtId {
-        let header = self.lowerer.arena.block_params(self.lowerer.arena.block(body).params).to_vec();
+        let header = self
+            .lowerer
+            .arena
+            .block_params(self.lowerer.arena.block(body).params)
+            .to_vec();
         let context_ty = self.push_named_type_expr(Name::intern("TestContext"), span);
         let params_start = self.lowerer.arena.params.len();
         for param in header {
             self.lowerer.arena.params.push(ArenaParam {
-                name: param.name, ty: context_ty, ty_defaulted: false,
-                default: None, rest: false, span: param.span,
+                name: param.name,
+                ty: context_ty,
+                ty_defaulted: false,
+                default: None,
+                rest: false,
+                span: param.span,
             });
         }
         let params = ArenaRange::new(params_start, self.lowerer.arena.params.len() - params_start);
@@ -2437,7 +2567,9 @@ impl<'a> ArenaProgramBuilder<'a> {
         let return_ty = self.push_result_type_expr(unit, None, span);
         let def = self.push_arena_function_def(name, params, effects, return_ty, true, body);
         self.lowerer.arena.function_defs[def.index()].test_declaration = true;
-        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::ProcDef(def), span);
+        let id = self
+            .lowerer
+            .push_stmt_kind(ArenaStmtKind::ProcDef(def), span);
         self.push_current_statement(id);
         id
     }
@@ -2478,7 +2610,10 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn mark_last_function_as_cli_main(&mut self) {
         let statement = self.pop_last_statement();
-        assert_eq!(self.lowerer.arena.stmt_tags[statement.index()], ArenaStmtTag::ProcDef);
+        assert_eq!(
+            self.lowerer.arena.stmt_tags[statement.index()],
+            ArenaStmtTag::ProcDef
+        );
         self.lowerer.arena.stmt_tags[statement.index()] = ArenaStmtTag::CliMain;
         self.push_current_statement(statement);
     }
@@ -2589,8 +2724,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
-    pub fn push_assert(&mut self, condition: ExprId, message: Option<ExprId>, span: Span) -> StmtId {
-        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::Assert { condition, message }, span);
+    pub fn push_assert(
+        &mut self,
+        condition: ExprId,
+        message: Option<ExprId>,
+        span: Span,
+    ) -> StmtId {
+        let id = self
+            .lowerer
+            .push_stmt_kind(ArenaStmtKind::Assert { condition, message }, span);
         self.push_current_statement(id);
         id
     }
@@ -2663,8 +2805,19 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
-    pub fn push_boolean_guard(&mut self, condition: ExprId, else_block: BlockId, span: Span) -> StmtId {
-        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::BooleanGuard { condition, else_block }, span);
+    pub fn push_boolean_guard(
+        &mut self,
+        condition: ExprId,
+        else_block: BlockId,
+        span: Span,
+    ) -> StmtId {
+        let id = self.lowerer.push_stmt_kind(
+            ArenaStmtKind::BooleanGuard {
+                condition,
+                else_block,
+            },
+            span,
+        );
         self.push_current_statement(id);
         id
     }
@@ -2808,19 +2961,29 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
-    pub fn push_parameterized_type_def(&mut self, name: Name, parameters: Vec<Name>, body: ArenaTypeDefBody, span: Span) -> StmtId {
+    pub fn push_parameterized_type_def(
+        &mut self,
+        name: Name,
+        parameters: Vec<Name>,
+        body: ArenaTypeDefBody,
+        span: Span,
+    ) -> StmtId {
         let statement = self.push_type_def(name, body, span);
-        let ArenaStmtKind::TypeDef(id) = self.lowerer.arena.stmt(statement).kind else { unreachable!() };
-        self.lowerer.arena.type_defs[id.index()].type_parameters = self.push_name_range(&parameters);
+        let ArenaStmtKind::TypeDef(id) = self.lowerer.arena.stmt(statement).kind else {
+            unreachable!()
+        };
+        self.lowerer.arena.type_defs[id.index()].type_parameters =
+            self.push_name_range(&parameters);
         statement
     }
 
     pub fn push_type_def(&mut self, name: Name, body: ArenaTypeDefBody, span: Span) -> StmtId {
         let type_def_id = TypeDefId::new(self.lowerer.arena.type_defs.len());
-        self.lowerer
-            .arena
-            .type_defs
-            .push(ArenaTypeDef { name, type_parameters: ArenaRange::default(), body });
+        self.lowerer.arena.type_defs.push(ArenaTypeDef {
+            name,
+            type_parameters: ArenaRange::default(),
+            body,
+        });
         let id = self
             .lowerer
             .push_stmt_kind(ArenaStmtKind::TypeDef(type_def_id), span);
@@ -3010,14 +3173,22 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_list_expr_range(&mut self, items: ArenaRange, span: Span) -> ExprId {
-        let items = self.lowerer.arena.expr_ids(items)
-            .map(|value| ArenaListElementInput { value, splice_span: None }).collect::<Vec<_>>();
+        let items = self
+            .lowerer
+            .arena
+            .expr_ids(items)
+            .map(|value| ArenaListElementInput {
+                value,
+                splice_span: None,
+            })
+            .collect::<Vec<_>>();
         let range = self.lowerer.lower_list_element_range(&items);
         self.push_list_elements(range, span)
     }
 
     pub fn push_list_elements(&mut self, items: ArenaListElementRange, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::List(items), span)
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::List(items), span)
     }
 
     pub fn push_comp_qualifiers(&mut self, qualifiers: Vec<ArenaCompQualifier>) -> ArenaRange {
@@ -3027,12 +3198,31 @@ impl<'a> ArenaProgramBuilder<'a> {
         ArenaRange::new(start, len)
     }
 
-    pub fn push_list_comp_expr(&mut self, expr: ExprId, qualifiers: ArenaRange, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::ListComp { expr, qualifiers }, span)
+    pub fn push_list_comp_expr(
+        &mut self,
+        expr: ExprId,
+        qualifiers: ArenaRange,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::ListComp { expr, qualifiers }, span)
     }
 
-    pub fn push_map_comp_expr(&mut self, key: ExprId, value: ExprId, qualifiers: ArenaRange, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::MapComp { key, value, qualifiers }, span)
+    pub fn push_map_comp_expr(
+        &mut self,
+        key: ExprId,
+        value: ExprId,
+        qualifiers: ArenaRange,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::MapComp {
+                key,
+                value,
+                qualifiers,
+            },
+            span,
+        )
     }
 
     pub fn push_unary_expr(&mut self, op: UnaryOp, expr: ExprId, span: Span) -> ExprId {
@@ -3052,16 +3242,33 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_comparison_chain_expr(&mut self, pairs: &[ExprId], span: Span) -> ExprId {
-        assert!(pairs.len() >= 2, "comparison chains require at least two pairs");
+        assert!(
+            pairs.len() >= 2,
+            "comparison chains require at least two pairs"
+        );
         let mut previous = None;
         for pair in pairs {
-            let ArenaExprKind::Binary { op, left, right } = self.expr_kind(*pair) else { panic!("comparison chains require binary pairs") };
-            assert!(matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge), "comparison chains require ordering operators");
-            if let Some(previous) = previous { assert_eq!(previous, left, "comparison chain pairs share adjacent operands"); }
+            let ArenaExprKind::Binary { op, left, right } = self.expr_kind(*pair) else {
+                panic!("comparison chains require binary pairs")
+            };
+            assert!(
+                matches!(
+                    op,
+                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+                ),
+                "comparison chains require ordering operators"
+            );
+            if let Some(previous) = previous {
+                assert_eq!(
+                    previous, left,
+                    "comparison chain pairs share adjacent operands"
+                );
+            }
             previous = Some(right);
         }
         let range = self.lowerer.lower_expr_id_range(pairs);
-        self.lowerer.push_expr_kind(ArenaExprKind::ComparisonChain(range), span)
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::ComparisonChain(range), span)
     }
 
     pub fn push_field_expr(&mut self, base: ExprId, name: Name, span: Span) -> ExprId {
@@ -3075,8 +3282,14 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_index_expr(&mut self, base: ExprId, index: ExprId, span: Span) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::Index { base, index, guarded: false }, span)
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Index {
+                base,
+                index,
+                guarded: false,
+            },
+            span,
+        )
     }
 
     pub fn push_slice_expr(
@@ -3086,16 +3299,44 @@ impl<'a> ArenaProgramBuilder<'a> {
         end: Option<ExprId>,
         span: Span,
     ) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::Slice { base, start, end, guarded: false }, span)
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Slice {
+                base,
+                start,
+                end,
+                guarded: false,
+            },
+            span,
+        )
     }
 
     pub fn push_guarded_index_expr(&mut self, base: ExprId, index: ExprId, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::Index { base, index, guarded: true }, span)
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Index {
+                base,
+                index,
+                guarded: true,
+            },
+            span,
+        )
     }
 
-    pub fn push_guarded_slice_expr(&mut self, base: ExprId, start: Option<ExprId>, end: Option<ExprId>, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::Slice { base, start, end, guarded: true }, span)
+    pub fn push_guarded_slice_expr(
+        &mut self,
+        base: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Slice {
+                base,
+                start,
+                end,
+                guarded: true,
+            },
+            span,
+        )
     }
 
     pub fn push_call_expr(&mut self, callee: ExprId, args: ArenaRange, span: Span) -> ExprId {
@@ -3123,16 +3364,38 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_expr_kind(ArenaExprKind::Match { value, arms }, span)
     }
 
-    pub fn push_error_context_expr(&mut self, message: ExprId, block: BlockId, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::ErrorContext { message, block }, span)
+    pub fn push_error_context_expr(
+        &mut self,
+        message: ExprId,
+        block: BlockId,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::ErrorContext { message, block }, span)
     }
 
-    pub fn push_context_scope_expr(&mut self, kind: ContextScopeKind, input: ExprId, block: BlockId, value_body: bool, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::ContextScope { kind, input, block, value_body }, span)
+    pub fn push_context_scope_expr(
+        &mut self,
+        kind: ContextScopeKind,
+        input: ExprId,
+        block: BlockId,
+        value_body: bool,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::ContextScope {
+                kind,
+                input,
+                block,
+                value_body,
+            },
+            span,
+        )
     }
 
     pub fn push_value_block_expr(&mut self, block: BlockId, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::ValueBlock(block), span)
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::ValueBlock(block), span)
     }
 
     pub fn push_loop_expr(&mut self, block: BlockId, span: Span) -> ExprId {
@@ -3188,21 +3451,44 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_capture_expr(&mut self, block: BlockId, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::Capture(block), span)
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::Capture(block), span)
     }
 
-    pub fn push_retry_expr(&mut self, delays: ArenaRange, pattern: Option<PatternId>, block: BlockId, span: Span) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::Retry { delays, pattern, block }, span)
+    pub fn push_retry_expr(
+        &mut self,
+        delays: ArenaRange,
+        pattern: Option<PatternId>,
+        block: BlockId,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Retry {
+                delays,
+                pattern,
+                block,
+            },
+            span,
+        )
     }
 
     pub fn push_try_expr(&mut self, value: ExprId, span: Span) -> ExprId {
         self.lowerer.push_expr_kind(ArenaExprKind::Try(value), span)
     }
 
-    pub fn push_require_expr(&mut self, value: ExprId, schema: impl Into<Option<TypeExprId>>, span: Span) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::Require { value, schema: schema.into() }, span)
+    pub fn push_require_expr(
+        &mut self,
+        value: ExprId,
+        schema: impl Into<Option<TypeExprId>>,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Require {
+                value,
+                schema: schema.into(),
+            },
+            span,
+        )
     }
 
     /// Records that `expr` was written inside the parentheses spanning `span`.
@@ -3403,8 +3689,15 @@ pub struct AstArena {
 impl AstArena {
     /// Materialize the ordinary one-item call used by a static stage descriptor.
     /// The temporary block is private to checking/lowering; source syntax stays intact.
-    pub fn append_stage_callable_block(&mut self, callee: ExprId, span: Span) -> (BlockId, ExprId, ExprId, StmtId) {
-        let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };
+    pub fn append_stage_callable_block(
+        &mut self,
+        callee: ExprId,
+        span: Span,
+    ) -> (BlockId, ExprId, ExprId, StmtId) {
+        let mut lowerer = ArenaLowerer {
+            arena: std::mem::take(self),
+            source: None,
+        };
         let item = lowerer.push_expr_kind(ArenaExprKind::Item, span);
         let args = lowerer.commit_call_arg_input_range(&[ArenaCallArgInput::Positional(item)]);
         let call = lowerer.push_expr_kind(ArenaExprKind::Call { callee, args }, span);
@@ -3416,7 +3709,10 @@ impl AstArena {
 
     /// Append compiler-generated projections while keeping existing expression IDs stable.
     pub fn append_argument_projection(&mut self, base: ExprId, name: Name, span: Span) -> ExprId {
-        let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };
+        let mut lowerer = ArenaLowerer {
+            arena: std::mem::take(self),
+            source: None,
+        };
         let id = lowerer.push_expr_kind(ArenaExprKind::Field { base, name }, span);
         *self = lowerer.arena;
         id
@@ -3424,7 +3720,10 @@ impl AstArena {
 
     /// Append a statically expanded argument range without changing source arguments.
     pub fn append_call_arguments(&mut self, args: &[ArenaCallArgInput]) -> ArenaRange {
-        let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };
+        let mut lowerer = ArenaLowerer {
+            arena: std::mem::take(self),
+            source: None,
+        };
         let range = lowerer.commit_call_arg_input_range(args);
         *self = lowerer.arena;
         range
@@ -3871,7 +4170,9 @@ impl AstArena {
             ArenaStmtTag::ReturnRun => {
                 ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize))))
             }
-            ArenaStmtTag::YieldDelegate => ArenaStmtKind::YieldDelegate(ExprId::new(data.lhs as usize)),
+            ArenaStmtTag::YieldDelegate => {
+                ArenaStmtKind::YieldDelegate(ExprId::new(data.lhs as usize))
+            }
             ArenaStmtTag::YieldExpr => {
                 ArenaStmtKind::Yield(ArenaExprOrRun::Expr(ExprId::new(data.lhs as usize)))
             }
@@ -4086,7 +4387,11 @@ impl AstArena {
             },
             ArenaExprTag::ValuePipelineCall => {
                 let raw = range_slice(&self.extra, range_from_data(data));
-                ArenaExprKind::ValuePipelineCall { input: ExprId::new(raw[0] as usize), call: ExprId::new(raw[1] as usize), hole: ExprId::new(raw[2] as usize) }
+                ArenaExprKind::ValuePipelineCall {
+                    input: ExprId::new(raw[0] as usize),
+                    call: ExprId::new(raw[1] as usize),
+                    hole: ExprId::new(raw[2] as usize),
+                }
             }
             ArenaExprTag::Call => {
                 let raw = range_slice(&self.extra, range_from_data(data));
@@ -4168,10 +4473,21 @@ impl AstArena {
             },
             ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
-            ArenaExprTag::ErrorContext => ArenaExprKind::ErrorContext { message: ExprId::new(data.lhs as usize), block: BlockId::new(data.rhs as usize) },
-            ArenaExprTag::CdScope | ArenaExprTag::EnvScope | ArenaExprTag::CdStatementScope | ArenaExprTag::EnvStatementScope => ArenaExprKind::ContextScope {
-                kind: if matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::CdStatementScope) { ContextScopeKind::Cwd } else { ContextScopeKind::Env },
-                input: ExprId::new(data.lhs as usize), block: BlockId::new(data.rhs as usize),
+            ArenaExprTag::ErrorContext => ArenaExprKind::ErrorContext {
+                message: ExprId::new(data.lhs as usize),
+                block: BlockId::new(data.rhs as usize),
+            },
+            ArenaExprTag::CdScope
+            | ArenaExprTag::EnvScope
+            | ArenaExprTag::CdStatementScope
+            | ArenaExprTag::EnvStatementScope => ArenaExprKind::ContextScope {
+                kind: if matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::CdStatementScope) {
+                    ContextScopeKind::Cwd
+                } else {
+                    ContextScopeKind::Env
+                },
+                input: ExprId::new(data.lhs as usize),
+                block: BlockId::new(data.rhs as usize),
                 value_body: matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::EnvScope),
             },
             ArenaExprTag::Loop => ArenaExprKind::Loop {
@@ -4220,10 +4536,15 @@ impl AstArena {
         &self.use_stmts[id.index()]
     }
 
-    pub fn applied_type_arguments(&self, id: TypeExprId) -> impl ExactSizeIterator<Item = TypeExprId> + '_ {
+    pub fn applied_type_arguments(
+        &self,
+        id: TypeExprId,
+    ) -> impl ExactSizeIterator<Item = TypeExprId> + '_ {
         let start = self.type_expr_data[id.index()].rhs as usize;
         let len = self.extra[start] as usize;
-        self.extra[start + 1..start + 1 + len].iter().map(|raw| TypeExprId::from_index(*raw as usize))
+        self.extra[start + 1..start + 1 + len]
+            .iter()
+            .map(|raw| TypeExprId::from_index(*raw as usize))
     }
 
     pub fn type_def(&self, id: TypeDefId) -> &ArenaTypeDef {
@@ -4309,16 +4630,26 @@ impl AstArena {
             .map(|index| StmtId::new(index as usize))
     }
 
-    pub fn list_elements(&self, range: ArenaListElementRange) -> impl Iterator<Item = ArenaListElement> + '_ {
-        self.extra_range(range.0).as_chunks::<2>().0.iter().map(|&[value, splice]| ArenaListElement {
-            value: ExprId::new(value as usize),
-            splice_span: (splice != 0).then(|| SpanId::new(splice as usize - 1)),
-        })
+    pub fn list_elements(
+        &self,
+        range: ArenaListElementRange,
+    ) -> impl Iterator<Item = ArenaListElement> + '_ {
+        self.extra_range(range.0)
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[value, splice]| ArenaListElement {
+                value: ExprId::new(value as usize),
+                splice_span: (splice != 0).then(|| SpanId::new(splice as usize - 1)),
+            })
     }
 
     /// Visits the expressions evaluated by a literal, retaining their order.
     /// Use `list_elements` when the operation depends on whether an item splices.
-    pub fn list_element_exprs(&self, range: ArenaListElementRange) -> impl Iterator<Item = ExprId> + '_ {
+    pub fn list_element_exprs(
+        &self,
+        range: ArenaListElementRange,
+    ) -> impl Iterator<Item = ExprId> + '_ {
         self.list_elements(range).map(|item| item.value)
     }
 
@@ -4329,10 +4660,17 @@ impl AstArena {
             .map(|index| ExprId::new(index as usize))
     }
 
-    pub fn comparison_chain_operands(&self, pairs: ArenaRange) -> impl Iterator<Item = ExprId> + '_ {
+    pub fn comparison_chain_operands(
+        &self,
+        pairs: ArenaRange,
+    ) -> impl Iterator<Item = ExprId> + '_ {
         self.expr_ids(pairs).enumerate().flat_map(|(index, pair)| {
-            let ArenaExprKind::Binary { left, right, .. } = self.expr(pair).kind else { unreachable!() };
-            [if index == 0 { Some(left) } else { None }, Some(right)].into_iter().flatten()
+            let ArenaExprKind::Binary { left, right, .. } = self.expr(pair).kind else {
+                unreachable!()
+            };
+            [if index == 0 { Some(left) } else { None }, Some(right)]
+                .into_iter()
+                .flatten()
         })
     }
 
@@ -5160,9 +5498,16 @@ pub struct ArenaPattern {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaPatternKind {
     Group(PatternId),
-    Alias { pattern: PatternId, name: Name, name_span: SpanId },
+    Alias {
+        pattern: PatternId,
+        name: Name,
+        name_span: SpanId,
+    },
     Wildcard,
-    TestName { name: Name, ty: TypeExprId },
+    TestName {
+        name: Name,
+        ty: TypeExprId,
+    },
     Binding(Name),
     Type {
         binding: Option<Name>,
@@ -5301,21 +5646,36 @@ pub struct ArenaExpr {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArenaCompQualifier {
-    For { target: BindingTargetId, iter: ExprId, span: Span },
-    If { condition: ExprId, span: Span },
+    For {
+        target: BindingTargetId,
+        iter: ExprId,
+        span: Span,
+    },
+    If {
+        condition: ExprId,
+        span: Span,
+    },
 }
 
 impl ArenaCompQualifier {
     pub fn expr(self) -> ExprId {
-        match self { Self::For { iter, .. } => iter, Self::If { condition, .. } => condition }
+        match self {
+            Self::For { iter, .. } => iter,
+            Self::If { condition, .. } => condition,
+        }
     }
     pub fn span(self) -> Span {
-        match self { Self::For { span, .. } | Self::If { span, .. } => span }
+        match self {
+            Self::For { span, .. } | Self::If { span, .. } => span,
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ContextScopeKind { Cwd, Env }
+pub enum ContextScopeKind {
+    Cwd,
+    Env,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaExprKind {
@@ -5380,7 +5740,11 @@ pub enum ArenaExprKind {
     },
     /// The input is retained before evaluating the ordinary call. The hole
     /// identifies its sole immediate argument, preserving source spelling.
-    ValuePipelineCall { input: ExprId, call: ExprId, hole: ExprId },
+    ValuePipelineCall {
+        input: ExprId,
+        call: ExprId,
+        hole: ExprId,
+    },
     Field {
         base: ExprId,
         name: Name,
@@ -5435,8 +5799,16 @@ pub enum ArenaExprKind {
         block: BlockId,
     },
     ValueBlock(BlockId),
-    ErrorContext { message: ExprId, block: BlockId },
-    ContextScope { kind: ContextScopeKind, input: ExprId, block: BlockId, value_body: bool },
+    ErrorContext {
+        message: ExprId,
+        block: BlockId,
+    },
+    ContextScope {
+        kind: ContextScopeKind,
+        input: ExprId,
+        block: BlockId,
+        value_body: bool,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -5557,8 +5929,16 @@ pub struct ArenaRecordField {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaRecordFieldInput {
-    Computed { key: ExprId, value: ExprId, span: Span },
-    Path { path: Vec<Name>, value: ExprId, span: Span },
+    Computed {
+        key: ExprId,
+        value: ExprId,
+        span: Span,
+    },
+    Path {
+        path: Vec<Name>,
+        value: ExprId,
+        span: Span,
+    },
     Named {
         name: Name,
         value: ExprId,
@@ -5576,8 +5956,16 @@ pub enum ArenaRecordFieldInput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaRecordFieldKind {
-    Computed { key: ExprId, value: ExprId, span: SpanId },
-    Path { path: ArenaRange, value: ExprId, span: SpanId },
+    Computed {
+        key: ExprId,
+        value: ExprId,
+        span: SpanId,
+    },
+    Path {
+        path: ArenaRange,
+        value: ExprId,
+        span: SpanId,
+    },
     Named {
         name: Name,
         value: ExprId,
@@ -5601,7 +5989,10 @@ pub struct ArenaCallArg {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaCallArgInput {
     Positional(ExprId),
-    NamedSpread { value: ExprId, span: Span },
+    NamedSpread {
+        value: ExprId,
+        span: Span,
+    },
     Splice {
         value: ExprId,
         span: Span,
@@ -5616,7 +6007,10 @@ pub enum ArenaCallArgInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaCallArgKind {
     Positional(ExprId),
-    NamedSpread { value: ExprId, span: SpanId },
+    NamedSpread {
+        value: ExprId,
+        span: SpanId,
+    },
     Splice {
         value: ExprId,
         span: SpanId,
@@ -6073,13 +6467,21 @@ impl ArenaLowerer<'_> {
         Self::pushed_range(&mut self.arena.match_arms, start)
     }
 
-    fn lower_list_element_range(&mut self, items: &[ArenaListElementInput]) -> ArenaListElementRange {
+    fn lower_list_element_range(
+        &mut self,
+        items: &[ArenaListElementInput],
+    ) -> ArenaListElementRange {
         let start = self.arena.extra.len();
         for item in items {
-            let splice_span = item.splice_span.map(|span| {
-                u32::try_from(self.span(span).index() + 1).expect("AST splice span exceeds u32")
-            }).unwrap_or(0);
-            self.arena.extra.extend_from_slice(&[item.value.index() as u32, splice_span]);
+            let splice_span = item
+                .splice_span
+                .map(|span| {
+                    u32::try_from(self.span(span).index() + 1).expect("AST splice span exceeds u32")
+                })
+                .unwrap_or(0);
+            self.arena
+                .extra
+                .extend_from_slice(&[item.value.index() as u32, splice_span]);
         }
         ArenaListElementRange(self.pushed_extra_range(start))
     }
@@ -6153,9 +6555,16 @@ impl ArenaLowerer<'_> {
                 ArenaStmtTag::ErrorDef,
                 ArenaStmtData::new(raw_error_def_id(id), 0),
             ),
-            ArenaStmtKind::Const { target, ty, initializer } => {
-                let data = self.push_stmt_extra(&[raw_binding_target_id(target),
-                    optional_raw_type_expr_id(ty), raw_expr_or_run(initializer)]);
+            ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
+            } => {
+                let data = self.push_stmt_extra(&[
+                    raw_binding_target_id(target),
+                    optional_raw_type_expr_id(ty),
+                    raw_expr_or_run(initializer),
+                ]);
                 (ArenaStmtTag::Const, data)
             }
             ArenaStmtKind::Let {
@@ -6231,7 +6640,10 @@ impl ArenaLowerer<'_> {
                 ArenaStmtTag::ReturnRun,
                 ArenaStmtData::new(raw_run_form_id(id), 0),
             ),
-            ArenaStmtKind::YieldDelegate(id) => (ArenaStmtTag::YieldDelegate, ArenaStmtData::new(raw_expr_id(id), 0)),
+            ArenaStmtKind::YieldDelegate(id) => (
+                ArenaStmtTag::YieldDelegate,
+                ArenaStmtData::new(raw_expr_id(id), 0),
+            ),
             ArenaStmtKind::Yield(ArenaExprOrRun::Expr(id)) => (
                 ArenaStmtTag::YieldExpr,
                 ArenaStmtData::new(raw_expr_id(id), 0),
@@ -6307,7 +6719,10 @@ impl ArenaLowerer<'_> {
                 ]);
                 (ArenaStmtTag::Guard, data)
             }
-            ArenaStmtKind::BooleanGuard { condition, else_block } => (
+            ArenaStmtKind::BooleanGuard {
+                condition,
+                else_block,
+            } => (
                 ArenaStmtTag::BooleanGuard,
                 ArenaStmtData::new(raw_expr_id(condition), raw_block_id(else_block)),
             ),
@@ -6326,11 +6741,17 @@ impl ArenaLowerer<'_> {
                     ArenaStmtData::new(raw_stmt_id(stmt), raw_expr_id(condition)),
                 )
             }
-            ArenaStmtKind::Assert { condition, message: Some(message) } => (
+            ArenaStmtKind::Assert {
+                condition,
+                message: Some(message),
+            } => (
                 ArenaStmtTag::Assert,
                 ArenaStmtData::new(raw_expr_id(condition), raw_expr_id(message)),
             ),
-            ArenaStmtKind::Assert { condition, message: None } => (
+            ArenaStmtKind::Assert {
+                condition,
+                message: None,
+            } => (
                 ArenaStmtTag::AssertBare,
                 ArenaStmtData::new(raw_expr_id(condition), 0),
             ),
@@ -6451,15 +6872,9 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::Item => (ArenaExprTag::Item, ArenaExprData::ZERO),
             ArenaExprKind::LastStatus => (ArenaExprTag::LastStatus, ArenaExprData::ZERO),
             ArenaExprKind::List(range) => (ArenaExprTag::List, range_data(range.0)),
-            ArenaExprKind::ListComp {
-                expr,
-                qualifiers,
-            } => {
-                let data = self.push_expr_extra(&[
-                    raw_expr_id(expr),
-                    qualifiers.start,
-                    qualifiers.len,
-                ]);
+            ArenaExprKind::ListComp { expr, qualifiers } => {
+                let data =
+                    self.push_expr_extra(&[raw_expr_id(expr), qualifiers.start, qualifiers.len]);
                 (ArenaExprTag::ListComp, data)
             }
             ArenaExprKind::MapComp {
@@ -6503,13 +6918,19 @@ impl ArenaLowerer<'_> {
                 };
                 (tag, ArenaExprData::new(raw_expr_id(expr), 0))
             }
-            ArenaExprKind::ComparisonChain(pairs) => (ArenaExprTag::ComparisonChain, range_data(pairs)),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                (ArenaExprTag::ComparisonChain, range_data(pairs))
+            }
             ArenaExprKind::Binary { op, left, right } => (
                 binary_expr_tag(op),
                 ArenaExprData::new(raw_expr_id(left), raw_expr_id(right)),
             ),
             ArenaExprKind::ValuePipelineCall { input, call, hole } => {
-                let data = self.push_expr_extra(&[raw_expr_id(input), raw_expr_id(call), raw_expr_id(hole)]);
+                let data = self.push_expr_extra(&[
+                    raw_expr_id(input),
+                    raw_expr_id(call),
+                    raw_expr_id(hole),
+                ]);
                 (ArenaExprTag::ValuePipelineCall, data)
             }
             ArenaExprKind::Call { callee, args } => {
@@ -6524,17 +6945,37 @@ impl ArenaLowerer<'_> {
                 ArenaExprTag::NullSafeField,
                 ArenaExprData::new(raw_expr_id(base), name.symbol().raw()),
             ),
-            ArenaExprKind::Index { base, index, guarded } => (
-                if guarded { ArenaExprTag::NullSafeIndex } else { ArenaExprTag::Index },
+            ArenaExprKind::Index {
+                base,
+                index,
+                guarded,
+            } => (
+                if guarded {
+                    ArenaExprTag::NullSafeIndex
+                } else {
+                    ArenaExprTag::Index
+                },
                 ArenaExprData::new(raw_expr_id(base), raw_expr_id(index)),
             ),
-            ArenaExprKind::Slice { base, start, end, guarded } => {
+            ArenaExprKind::Slice {
+                base,
+                start,
+                end,
+                guarded,
+            } => {
                 let data = self.push_expr_extra(&[
                     raw_expr_id(base),
                     optional_raw_expr_id(start),
                     optional_raw_expr_id(end),
                 ]);
-                (if guarded { ArenaExprTag::NullSafeSlice } else { ArenaExprTag::Slice }, data)
+                (
+                    if guarded {
+                        ArenaExprTag::NullSafeSlice
+                    } else {
+                        ArenaExprTag::Slice
+                    },
+                    data,
+                )
             }
             ArenaExprKind::EnvGet { kind, name } => {
                 let tag = match kind {
@@ -6580,23 +7021,47 @@ impl ArenaLowerer<'_> {
                 ArenaExprTag::Require,
                 ArenaExprData::new(raw_expr_id(value), optional_raw_type_expr_id(schema)),
             ),
-            ArenaExprKind::Capture(block) => (ArenaExprTag::Capture, ArenaExprData::new(raw_block_id(block), 0)),
-            ArenaExprKind::ValueBlock(block) => (ArenaExprTag::ValueBlock, ArenaExprData::new(raw_block_id(block), 0)),
-            ArenaExprKind::ErrorContext { message, block } => (ArenaExprTag::ErrorContext, ArenaExprData::new(raw_expr_id(message), raw_block_id(block))),
-            ArenaExprKind::ContextScope { kind, input, block, value_body } => (
+            ArenaExprKind::Capture(block) => (
+                ArenaExprTag::Capture,
+                ArenaExprData::new(raw_block_id(block), 0),
+            ),
+            ArenaExprKind::ValueBlock(block) => (
+                ArenaExprTag::ValueBlock,
+                ArenaExprData::new(raw_block_id(block), 0),
+            ),
+            ArenaExprKind::ErrorContext { message, block } => (
+                ArenaExprTag::ErrorContext,
+                ArenaExprData::new(raw_expr_id(message), raw_block_id(block)),
+            ),
+            ArenaExprKind::ContextScope {
+                kind,
+                input,
+                block,
+                value_body,
+            } => (
                 match (kind, value_body) {
                     (ContextScopeKind::Cwd, true) => ArenaExprTag::CdScope,
                     (ContextScopeKind::Env, true) => ArenaExprTag::EnvScope,
                     (ContextScopeKind::Cwd, false) => ArenaExprTag::CdStatementScope,
                     (ContextScopeKind::Env, false) => ArenaExprTag::EnvStatementScope,
-                }, ArenaExprData::new(raw_expr_id(input), raw_block_id(block)),
+                },
+                ArenaExprData::new(raw_expr_id(input), raw_block_id(block)),
             ),
             ArenaExprKind::Loop { block } => (
                 ArenaExprTag::Loop,
                 ArenaExprData::new(raw_block_id(block), 0),
             ),
-            ArenaExprKind::Retry { delays, pattern, block } => {
-                let data = self.push_expr_extra(&[delays.start, delays.len, raw_block_id(block), pattern.map(|id| id.index() as u32).unwrap_or(ARENA_ABSENT)]);
+            ArenaExprKind::Retry {
+                delays,
+                pattern,
+                block,
+            } => {
+                let data = self.push_expr_extra(&[
+                    delays.start,
+                    delays.len,
+                    raw_block_id(block),
+                    pattern.map(|id| id.index() as u32).unwrap_or(ARENA_ABSENT),
+                ]);
                 (ArenaExprTag::Retry, data)
             }
         }
@@ -6615,11 +7080,17 @@ impl ArenaLowerer<'_> {
     fn lower_record_field_input(&mut self, field: &ArenaRecordFieldInput) -> ArenaRecordField {
         ArenaRecordField {
             kind: match field {
-                ArenaRecordFieldInput::Computed { key, value, span } => ArenaRecordFieldKind::Computed {
-                    key: *key, value: *value, span: self.span(*span),
-                },
+                ArenaRecordFieldInput::Computed { key, value, span } => {
+                    ArenaRecordFieldKind::Computed {
+                        key: *key,
+                        value: *value,
+                        span: self.span(*span),
+                    }
+                }
                 ArenaRecordFieldInput::Path { path, value, span } => ArenaRecordFieldKind::Path {
-                    path: self.lower_name_range(path), value: *value, span: self.span(*span),
+                    path: self.lower_name_range(path),
+                    value: *value,
+                    span: self.span(*span),
                 },
                 ArenaRecordFieldInput::Named { name, value, span } => ArenaRecordFieldKind::Named {
                     name: *name,
@@ -6644,7 +7115,10 @@ impl ArenaLowerer<'_> {
         ArenaCallArg {
             kind: match arg {
                 ArenaCallArgInput::Positional(expr) => ArenaCallArgKind::Positional(*expr),
-                ArenaCallArgInput::NamedSpread { value, span } => ArenaCallArgKind::NamedSpread { value: *value, span: self.span(*span) },
+                ArenaCallArgInput::NamedSpread { value, span } => ArenaCallArgKind::NamedSpread {
+                    value: *value,
+                    span: self.span(*span),
+                },
                 ArenaCallArgInput::Splice { value, span } => ArenaCallArgKind::Splice {
                     value: *value,
                     span: self.span(*span),

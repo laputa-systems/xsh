@@ -213,8 +213,6 @@ fn read_optional(path: &Path, span: Span, kind: &str) -> Result<String, RuntimeE
 
 fn write_atomic(path: &Path, text: &str, span: Span, kind: &str) -> Result<(), RuntimeError> {
     let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-    fs::write(&tmp, text)
-        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
-    fs::rename(&tmp, path)
-        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))
+    fs::write(&tmp, text).map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    fs::rename(&tmp, path).map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }

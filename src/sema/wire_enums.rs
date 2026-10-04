@@ -19,18 +19,29 @@ pub struct PreparedWireEnums {
 }
 
 pub fn nominal_enum_name(namespace: Option<Name>, name: Name) -> Name {
-    namespace.map_or(name, |namespace| Name::intern(format!("{namespace}.{name}")))
+    namespace.map_or(name, |namespace| {
+        Name::intern(format!("{namespace}.{name}"))
+    })
 }
 
 pub fn declaring_enum_name(program: &ArenaProgram, id: crate::syntax::arena::TypeDefId) -> Name {
-    let namespace = program.modules.iter().find(|module| program.module_statements(module).any(|statement| {
-        let kind = match program.arena.stmt(statement).kind {
-            ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
-            kind => kind,
-        };
-        matches!(kind, ArenaStmtKind::TypeDef(candidate) if candidate == id)
-    })).map(|module| module.name);
-    nominal_enum_name(namespace.or(program.root_nominal_namespace), program.arena.type_def(id).name)
+    let namespace = program
+        .modules
+        .iter()
+        .find(|module| {
+            program.module_statements(module).any(|statement| {
+                let kind = match program.arena.stmt(statement).kind {
+                    ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                    kind => kind,
+                };
+                matches!(kind, ArenaStmtKind::TypeDef(candidate) if candidate == id)
+            })
+        })
+        .map(|module| module.name);
+    nominal_enum_name(
+        namespace.or(program.root_nominal_namespace),
+        program.arena.type_def(id).name,
+    )
 }
 
 impl PreparedWireEnums {
@@ -40,19 +51,33 @@ impl PreparedWireEnums {
     ) -> (Self, Vec<Diagnostic>) {
         let mut prepared = Self::default();
         let mut diagnostics = Vec::new();
-        let scopes = std::iter::once((program.root_nominal_namespace, program.statement_ids().collect::<Vec<_>>()))
-            .chain(program.modules.iter().map(|module| (Some(module.name), program.module_statements(module).collect())));
+        let scopes = std::iter::once((
+            program.root_nominal_namespace,
+            program.statement_ids().collect::<Vec<_>>(),
+        ))
+        .chain(program.modules.iter().map(|module| {
+            (
+                Some(module.name),
+                program.module_statements(module).collect(),
+            )
+        }));
         for (namespace, statements) in scopes {
             for statement in statements {
                 let kind = match program.arena.stmt(statement).kind {
                     ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                     kind => kind,
                 };
-                let ArenaStmtKind::TypeDef(id) = kind else { continue; };
+                let ArenaStmtKind::TypeDef(id) = kind else {
+                    continue;
+                };
                 let definition = program.arena.type_def(id);
-                let ArenaTypeDefBody::TagUnion(range) = definition.body else { continue; };
+                let ArenaTypeDefBody::TagUnion(range) = definition.body else {
+                    continue;
+                };
                 let variants = program.arena.tag_variants(range);
-                if !variants.iter().any(|variant| variant.wire_value.is_some()) { continue; }
+                if !variants.iter().any(|variant| variant.wire_value.is_some()) {
+                    continue;
+                }
                 let mut mapping = BTreeMap::new();
                 let mut strings = BTreeMap::new();
                 let mut valid = true;
@@ -68,17 +93,31 @@ impl PreparedWireEnums {
                             None
                         }
                     } else {
-                        Some("every Str-backed enum variant requires a bounded constant Str mapping")
+                        Some(
+                            "every Str-backed enum variant requires a bounded constant Str mapping",
+                        )
                     };
                     if let Some(message) = message {
                         valid = false;
-                        diagnostics.push(Diagnostic::error(message).with_code(DiagnosticCode::CheckEnumWireMapping)
-                            .with_label(Label::primary(program.arena.span(variant.span), message)));
+                        diagnostics.push(
+                            Diagnostic::error(message)
+                                .with_code(DiagnosticCode::CheckEnumWireMapping)
+                                .with_label(Label::primary(
+                                    program.arena.span(variant.span),
+                                    message,
+                                )),
+                        );
                     }
                 }
                 if valid {
                     let type_name = nominal_enum_name(namespace, definition.name);
-                    prepared.mappings.insert(type_name, Arc::new(WireEnumMapping { type_name, variants: mapping }));
+                    prepared.mappings.insert(
+                        type_name,
+                        Arc::new(WireEnumMapping {
+                            type_name,
+                            variants: mapping,
+                        }),
+                    );
                 }
             }
         }

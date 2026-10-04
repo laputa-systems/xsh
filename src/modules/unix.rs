@@ -219,15 +219,12 @@ pub(crate) fn spawn_logged_process_group_native(
     let mut command = command_from_invocation(invocation, span)?;
     let mut logger_command = command_from_invocation(logger, span)?;
     let cgroup = invocation_cgroup(invocation, "xsh-unix", span)?;
-    let (reader, writer) = pipe_files().map_err(|error| {
-        RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span)
-    })?;
-    let stdout = duplicate_file(&writer).map_err(|error| {
-        RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span)
-    })?;
-    let stderr = duplicate_file(&writer).map_err(|error| {
-        RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span)
-    })?;
+    let (reader, writer) = pipe_files()
+        .map_err(|error| RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span))?;
+    let stdout = duplicate_file(&writer)
+        .map_err(|error| RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span))?;
+    let stderr = duplicate_file(&writer)
+        .map_err(|error| RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span))?;
     drop(writer);
 
     command.stdin(Stdio::null());
@@ -304,10 +301,16 @@ fn signal_process_group(pid: i64, signal: i32, span: Span) -> Result<bool, Runti
             Err(error) if error == rio::Errno::PERM => match rprocess::test_kill_process(pid) {
                 Ok(()) => Ok(true),
                 Err(kill_error) if kill_error == rio::Errno::SRCH => Ok(false),
-                Err(kill_error) => Err(RuntimeError::host("unix-kill-process-group", &io::Error::from(kill_error))
+                Err(kill_error) => Err(RuntimeError::host(
+                    "unix-kill-process-group",
+                    &io::Error::from(kill_error),
+                )
                 .with_span(span)),
             },
-            Err(error) => Err(RuntimeError::host("unix-kill-process-group", &io::Error::from(error))
+            Err(error) => Err(RuntimeError::host(
+                "unix-kill-process-group",
+                &io::Error::from(error),
+            )
             .with_span(span)),
         };
     }
@@ -329,7 +332,7 @@ fn signal_process_group(pid: i64, signal: i32, span: Span) -> Result<bool, Runti
                             Ok(false)
                         } else {
                             Err(RuntimeError::host("unix-kill-process-group", &kill_error)
-                            .with_span(span))
+                                .with_span(span))
                         }
                     }
                 }
@@ -1223,9 +1226,8 @@ fn int_field(fields: &crate::runtime::value::RecordMap, name: &str) -> Option<i6
 }
 
 fn supplementary_groups(span: Span) -> Result<Vec<Value>, RuntimeError> {
-    let mut gids = rprocess::getgroups().map_err(|e| {
-        RuntimeError::host("unix-id", &io::Error::from(e)).with_span(span)
-    })?;
+    let mut gids = rprocess::getgroups()
+        .map_err(|e| RuntimeError::host("unix-id", &io::Error::from(e)).with_span(span))?;
     let primary_raw = rprocess::getgid().as_raw();
     if !gids.iter().any(|g| g.as_raw() == primary_raw) {
         gids.push(rprocess::getgid());
@@ -1356,7 +1358,9 @@ fn ok_unit() -> Value {
 }
 
 fn io_error(kind: &str, error: io::Error, span: Span) -> Value {
-    Value::err(Value::Error(Box::new(RuntimeError::host(kind, &error).with_span(span))))
+    Value::err(Value::Error(Box::new(
+        RuntimeError::host(kind, &error).with_span(span),
+    )))
 }
 
 fn error_value(kind: &str, message: impl Into<String>, span: Span) -> Value {

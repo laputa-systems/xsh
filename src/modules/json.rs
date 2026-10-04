@@ -55,9 +55,15 @@ pub(crate) fn encode_json_lines(values: &Value, span: Span) -> Result<String, Ru
     Ok(output)
 }
 
-fn require_json_object_keys(fields: &std::collections::BTreeMap<crate::map_key::MapKey, Value>, span: Span) -> Result<(), RuntimeError> {
+fn require_json_object_keys(
+    fields: &std::collections::BTreeMap<crate::map_key::MapKey, Value>,
+    span: Span,
+) -> Result<(), RuntimeError> {
     if fields.keys().any(|key| key.as_str().is_none()) {
-        return Err(RuntimeError::new("json-compatible", "JSON objects require Str map keys").with_span(span));
+        return Err(
+            RuntimeError::new("json-compatible", "JSON objects require Str map keys")
+                .with_span(span),
+        );
     }
     Ok(())
 }
@@ -78,8 +84,11 @@ pub(crate) fn json_path_get(
                 })?,
                 Value::Map(fields) => {
                     require_json_object_keys(fields, span)?;
-                    MapKeyRef::Str(&key).get(fields).ok_or_else(|| RuntimeError::new("json-path", format!("missing object key `{key}`")).with_span(span))?
-                },
+                    MapKeyRef::Str(&key).get(fields).ok_or_else(|| {
+                        RuntimeError::new("json-path", format!("missing object key `{key}`"))
+                            .with_span(span)
+                    })?
+                }
                 other => {
                     return Err(RuntimeError::new(
                         "json-path",
@@ -210,7 +219,10 @@ fn set_at_path(
                         )
                         .with_span(span));
                     };
-                    fields.insert(key.clone().into(), set_at_path(child, rest, replacement, span)?);
+                    fields.insert(
+                        key.clone().into(),
+                        set_at_path(child, rest, replacement, span)?,
+                    );
                 }
                 Ok(Value::Map(fields))
             }
@@ -401,9 +413,22 @@ fn xsh_to_json(value: &Value, span: Span) -> Result<JsonValue, RuntimeError> {
         )
         .with_span(span)),
         Value::Str(value) => Ok(raw_json_string(value.as_ref())),
-        Value::Tag { type_name, name, fields, wire: Some(mapping) } if fields.is_empty() && *type_name == mapping.type_name => {
-            let value = mapping.variants.get(&Name::intern(name.as_ref())).ok_or_else(||
-                RuntimeError::new("json-compatible", "wire enum variant is absent from its declared mapping").with_span(span))?;
+        Value::Tag {
+            type_name,
+            name,
+            fields,
+            wire: Some(mapping),
+        } if fields.is_empty() && *type_name == mapping.type_name => {
+            let value = mapping
+                .variants
+                .get(&Name::intern(name.as_ref()))
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "json-compatible",
+                        "wire enum variant is absent from its declared mapping",
+                    )
+                    .with_span(span)
+                })?;
             Ok(raw_json_string(value.as_ref()))
         }
         Value::List(items) => {
@@ -416,7 +441,10 @@ fn xsh_to_json(value: &Value, span: Span) -> Result<JsonValue, RuntimeError> {
         Value::Map(fields) => {
             let mut values = Object::new();
             for (key, item) in fields {
-                let key = key.as_str().ok_or_else(|| RuntimeError::new("json-compatible", "JSON objects require Str map keys").with_span(span))?;
+                let key = key.as_str().ok_or_else(|| {
+                    RuntimeError::new("json-compatible", "JSON objects require Str map keys")
+                        .with_span(span)
+                })?;
                 values.insert(key.to_string(), xsh_to_json(item, span)?);
             }
             Ok(JsonValue::Object(values))

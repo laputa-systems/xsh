@@ -498,6 +498,7 @@ print "done"
     assert "check.ignored-result" in output.stderr, output.stderr
     assert "check.bool-statement" not in output.stderr, output.stderr
   }
+
   let integer = test.run_script(
     ctx,
     """proc check() -> Result[Unit] { let code = 7; (code) }

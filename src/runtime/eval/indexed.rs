@@ -154,7 +154,10 @@ impl IrVerifyError {
 
 #[cfg(test)]
 pub(super) mod tests {
-    pub(in crate::runtime::eval) fn collect_xsh_paths(path: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
+    pub(in crate::runtime::eval) fn collect_xsh_paths(
+        path: &std::path::Path,
+        paths: &mut Vec<std::path::PathBuf>,
+    ) {
         if path.is_file() {
             if path.extension().is_some_and(|extension| extension == "xsh") {
                 paths.push(path.to_path_buf());

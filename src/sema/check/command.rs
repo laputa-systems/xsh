@@ -31,8 +31,16 @@ pub(super) fn run_capture_result_type_arena(arena: &ArenaProgram, run: RunFormId
         RunKind::CaptureText => Type::Str,
         RunKind::CaptureBytes => Type::Bytes,
         RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
-            let output = if segment.kind == RunKind::CaptureTextRecord { Type::Str } else { Type::Bytes };
-            Type::Record(btree_map(vec![("status", Type::Status), ("stdout", output.clone()), ("stderr", output)]))
+            let output = if segment.kind == RunKind::CaptureTextRecord {
+                Type::Str
+            } else {
+                Type::Bytes
+            };
+            Type::Record(btree_map(vec![
+                ("status", Type::Status),
+                ("stdout", output.clone()),
+                ("stderr", output),
+            ]))
         }
         RunKind::StreamText => Type::Stream(Box::new(Type::Str)),
         RunKind::StreamBytes => Type::Stream(Box::new(Type::Bytes)),
@@ -102,7 +110,11 @@ impl Checker {
                 "signal" => Type::Optional(Box::new(Type::Str)),
                 "message" => Type::Str,
                 _ => {
-                    self.error(span, "unknown Status field", DiagnosticCode::CheckUnknownField);
+                    self.error(
+                        span,
+                        "unknown Status field",
+                        DiagnosticCode::CheckUnknownField,
+                    );
                     Type::Unknown
                 }
             },
@@ -125,7 +137,11 @@ impl Checker {
             Type::Any => Type::Any,
             Type::Record(_) | Type::Unknown => Type::Unknown,
             _ => {
-                self.error(span, "indexing requires List or Record", DiagnosticCode::CheckIndexType);
+                self.error(
+                    span,
+                    "indexing requires List or Record",
+                    DiagnosticCode::CheckIndexType,
+                );
                 Type::Unknown
             }
         }
@@ -153,12 +169,16 @@ impl Checker {
     /// for an `Any`.
     pub(super) fn reject_dynamic_word(&mut self, ty: &Type, span: Span) -> bool {
         let dynamic = *ty == Type::Any || matches!(ty, Type::List(item) if **item == Type::Any);
-        if dynamic { self.reject_dynamic_use("a command word or printed value", None, span); }
+        if dynamic {
+            self.reject_dynamic_use("a command word or printed value", None, span);
+        }
         dynamic
     }
 
     pub(super) fn check_external_splice_type(&mut self, ty: &Type, span: Span) {
-        if self.reject_dynamic_word(ty, span) { return; }
+        if self.reject_dynamic_word(ty, span) {
+            return;
+        }
         match ty {
             Type::List(item) if item.can_be_argv_item() => {}
             Type::List(_) => self.error(
@@ -197,8 +217,13 @@ impl Checker {
         if let ArenaCommand::Proc { name, args } = stmt.command
             && args.is_empty()
             && !self.procs.contains_key(&name)
-            && !self.options.interactive_commands.is_some_and(|is_command| is_command(name.as_str().as_str()))
-            && self.lookup(name).is_some_and(|binding| binding.ty == Type::Bool)
+            && !self
+                .options
+                .interactive_commands
+                .is_some_and(|is_command| is_command(name.as_str().as_str()))
+            && self
+                .lookup(name)
+                .is_some_and(|binding| binding.ty == Type::Bool)
         {
             self.reject_bool_statement(source, &Type::Bool, span);
             return;
@@ -212,15 +237,28 @@ impl Checker {
         }
         let ty = self.check_command_arena(arena, source, &stmt.command, span);
         if command_stmt_asserts_success_arena(arena, &stmt.command) {
-            self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
+            self.record_statement_error(
+                &Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)),
+                span,
+            );
             return;
         }
-        let value_ty = if stmt.propagate || command_ty_auto_propagates(&ty) { self.check_propagation(&ty, span) } else { ty };
+        let value_ty = if stmt.propagate || command_ty_auto_propagates(&ty) {
+            self.check_propagation(&ty, span)
+        } else {
+            ty
+        };
         // `run.status` discards its status in statement position. Only a run
         // form is also valid as a `let` initializer, so only it gets the
         // mechanical discard.
         if value_ty != Type::Status {
-            self.reject_discarded_value(&value_ty, span, span, matches!(stmt.command, ArenaCommand::Run(_)), None);
+            self.reject_discarded_value(
+                &value_ty,
+                span,
+                span,
+                matches!(stmt.command, ArenaCommand::Run(_)),
+                None,
+            );
         }
     }
 
@@ -266,12 +304,17 @@ impl Checker {
         span: Span,
     ) -> Type {
         if name == "_" {
-            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", DiagnosticCode::CheckPipelineHole);
+            self.error(
+                span,
+                "`_` is only a whole argument placeholder in an immediate value pipeline call",
+                DiagnosticCode::CheckPipelineHole,
+            );
             return Type::Invalid;
         }
 
-
-        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span) && let Some(ty) = self.prepared_constants.types.get(expr) {
+        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span)
+            && let Some(ty) = self.prepared_constants.types.get(expr)
+        {
             let ty = ty.clone();
             self.record_expr_type(span, ty.clone());
             return ty;
@@ -295,7 +338,11 @@ impl Checker {
         if let Some(binding) = self.lookup(name) {
             return binding.ty.clone();
         }
-        if self.tag_variants.get(&name).is_some_and(|info| info.field_count == 0) {
+        if self
+            .tag_variants
+            .get(&name)
+            .is_some_and(|info| info.field_count == 0)
+        {
             return self.lookup_expr_ident(name, span);
         }
         self.check_proc_command_arena(arena, source, &name.as_str(), ArenaRange::default(), span)
@@ -349,7 +396,11 @@ impl Checker {
     /// spelling; anything else is most likely an external program. The
     /// `print` fix is not auto-applied, since `echo` flags differ.
     fn report_unresolved_proc_command(&mut self, name: &str, span: Span) {
-        let name_span = Span::new(span.source_id, span.start(), (span.start() + name.len()).min(span.end()));
+        let name_span = Span::new(
+            span.source_id,
+            span.start(),
+            (span.start() + name.len()).min(span.end()),
+        );
         let mut diagnostic = Diagnostic::error(format!("unresolved proc command `{name}`"))
             .with_code(DiagnosticCode::CheckUnresolvedProcCommand)
             .with_label(Label::primary(span, "unresolved proc command"));
@@ -370,12 +421,19 @@ impl Checker {
 
     /// Conversion errors name the type that cannot convert. A Unit value is
     /// almost always a statement-like call interpolated by mistake.
-    pub(super) fn report_conversion(&mut self, span: Span, ty: &Type, failure: &str, code: DiagnosticCode) {
+    pub(super) fn report_conversion(
+        &mut self,
+        span: Span,
+        ty: &Type,
+        failure: &str,
+        code: DiagnosticCode,
+    ) {
         let mut diagnostic = Diagnostic::error(format!("value of type `{ty}` {failure}"))
             .with_code(code)
             .with_label(Label::primary(span, format!("this value is `{ty}`")));
         if *ty == Type::Unit {
-            diagnostic = diagnostic.with_note("this expression produces no value; run it as its own statement");
+            diagnostic = diagnostic
+                .with_note("this expression produces no value; run it as its own statement");
         }
         self.diagnostics.push(diagnostic);
     }
@@ -553,7 +611,11 @@ impl Checker {
             CoreCommand::Env => {
                 self.require_effect(Effect::Env, span, "`env`");
                 if !args.is_empty() {
-                    self.error(span, "`env` accepts assignments", DiagnosticCode::CheckCoreEnvArity);
+                    self.error(
+                        span,
+                        "`env` accepts assignments",
+                        DiagnosticCode::CheckCoreEnvArity,
+                    );
                 }
                 for assignment in arena.arena.env_assignments(env) {
                     self.check_env_assignment_arena(arena, source, assignment);
@@ -578,7 +640,12 @@ impl Checker {
         if self.reject_dynamic_word(&ty, arena.arena.span(arg.span)) {
         } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
             let arg_span = arena.arena.span(arg.span);
-            self.report_conversion(arg_span, &ty, "cannot be displayed by print", DiagnosticCode::CheckDisplayConversion);
+            self.report_conversion(
+                arg_span,
+                &ty,
+                "cannot be displayed by print",
+                DiagnosticCode::CheckDisplayConversion,
+            );
         }
     }
 
@@ -598,9 +665,24 @@ impl Checker {
             self.check_run_segment_arena(arena, source, segment);
         }
         let is_pipeline = segments.len() > 1;
-        if segments.iter().skip(1).any(|segment| arena.arena.redirections(segment.redirections).iter().any(|item|
-            matches!(item.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup))) {
-            self.error(run_span, "stdin redirection is only valid on the first byte pipeline segment", DiagnosticCode::CheckPipelineStdin);
+        if segments.iter().skip(1).any(|segment| {
+            arena
+                .arena
+                .redirections(segment.redirections)
+                .iter()
+                .any(|item| {
+                    matches!(
+                        item.kind,
+                        crate::syntax::node::RedirectionKind::StdinRead
+                            | crate::syntax::node::RedirectionKind::StdinDup
+                    )
+                })
+        }) {
+            self.error(
+                run_span,
+                "stdin redirection is only valid on the first byte pipeline segment",
+                DiagnosticCode::CheckPipelineStdin,
+            );
         }
         if is_pipeline {
             // The head segment chooses the form for the whole pipeline: a
@@ -651,9 +733,14 @@ impl Checker {
                     Type::Status
                 }
             }
-            RunKind::CaptureText | RunKind::CaptureBytes | RunKind::CaptureTextRecord
-            | RunKind::CaptureBytesRecord | RunKind::StreamText | RunKind::StreamBytes => {
-                let result = run_capture_result_type_arena(arena, run_id).expect("capture run kind");
+            RunKind::CaptureText
+            | RunKind::CaptureBytes
+            | RunKind::CaptureTextRecord
+            | RunKind::CaptureBytesRecord
+            | RunKind::StreamText
+            | RunKind::StreamBytes => {
+                let result =
+                    run_capture_result_type_arena(arena, run_id).expect("capture run kind");
                 if run.propagate {
                     self.check_propagation(&result, run_span)
                 } else {
@@ -690,8 +777,15 @@ impl Checker {
             let actual = self.check_expr_arena(arena, source, accept, Some(&expected));
             let span = arena.arena.expr(accept).span;
             self.expect_type(&expected, &actual, span);
-            self.require_effect(Effect::Error, span, "explicit process completion validation");
-            self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
+            self.require_effect(
+                Effect::Error,
+                span,
+                "explicit process completion validation",
+            );
+            self.record_statement_error(
+                &Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)),
+                span,
+            );
             self.check_static_accepted_exit_codes(arena, accept);
         }
         if matches!(
@@ -713,29 +807,56 @@ impl Checker {
             self.check_external_arg_arena(arena, source, arg);
         }
         let redirections = arena.arena.redirections(segment.redirections);
-        let stdin_sources = redirections.iter().filter(|item| matches!(item.kind,
-            crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup)).count();
+        let stdin_sources = redirections
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.kind,
+                    crate::syntax::node::RedirectionKind::StdinRead
+                        | crate::syntax::node::RedirectionKind::StdinDup
+                )
+            })
+            .count();
         let mut bytes_input = false;
         for redirection in redirections {
             bytes_input |= self.check_redirection_arena(arena, source, redirection);
         }
         if bytes_input && stdin_sources > 1 {
-            self.error(arena.arena.span(segment.span), "Bytes input cannot compete with another stdin source", DiagnosticCode::CheckStdinSource);
+            self.error(
+                arena.arena.span(segment.span),
+                "Bytes input cannot compete with another stdin source",
+                DiagnosticCode::CheckStdinSource,
+            );
         }
     }
 
     /// Validates bounded literal policies. Dynamic values use the earlier
     /// run-option conversion boundary before a child starts.
     pub(super) fn check_static_accepted_exit_codes(&mut self, arena: &ArenaProgram, expr: ExprId) {
-        let Some(crate::sema::constants::LiteralConstant::List(items)) = crate::sema::constants::LiteralConstant::analyze(
-            &arena.arena, expr, &rustc_hash::FxHashMap::default(),
-        ) else { return; };
-        let codes = items.iter().map(|item| match item {
-            crate::sema::constants::LiteralConstant::Int(value) => Some(*value),
-            _ => None,
-        }).collect::<Option<Vec<_>>>();
-        if let Some(codes) = codes && let Err(error) = crate::runtime::process::AcceptedExitCodes::new(&codes) {
-            self.error(arena.arena.expr(expr).span, &error.message, DiagnosticCode::CheckAcceptPolicy);
+        let Some(crate::sema::constants::LiteralConstant::List(items)) =
+            crate::sema::constants::LiteralConstant::analyze(
+                &arena.arena,
+                expr,
+                &rustc_hash::FxHashMap::default(),
+            )
+        else {
+            return;
+        };
+        let codes = items
+            .iter()
+            .map(|item| match item {
+                crate::sema::constants::LiteralConstant::Int(value) => Some(*value),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>();
+        if let Some(codes) = codes
+            && let Err(error) = crate::runtime::process::AcceptedExitCodes::new(&codes)
+        {
+            self.error(
+                arena.arena.expr(expr).span,
+                &error.message,
+                DiagnosticCode::CheckAcceptPolicy,
+            );
         }
     }
 
@@ -822,10 +943,13 @@ impl Checker {
             ArenaRedirectionTarget::Path(arg) => {
                 let ty = self.check_command_arg_arena(arena, source, arg, None);
                 let arg_span = arena.arena.span(arg.span);
-                if redirection.kind != crate::syntax::node::RedirectionKind::StdinRead || ty != Type::Bytes {
+                if redirection.kind != crate::syntax::node::RedirectionKind::StdinRead
+                    || ty != Type::Bytes
+                {
                     self.expect_command_value_conversion(&Type::Path, &ty, arg_span);
                 }
-                ty == Type::Bytes && redirection.kind == crate::syntax::node::RedirectionKind::StdinRead
+                ty == Type::Bytes
+                    && redirection.kind == crate::syntax::node::RedirectionKind::StdinRead
             }
             ArenaRedirectionTarget::Fd(arg) => {
                 let ty = self.check_command_arg_arena(arena, source, arg, None);
@@ -875,9 +999,15 @@ impl Checker {
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
                         if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
-                        } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
+                        } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid)
+                        {
                             let expr_span = arena.arena.expr(*expr_id).span;
-                            self.report_conversion(expr_span, &ty, "cannot convert to one command word", DiagnosticCode::CheckArgvConversion);
+                            self.report_conversion(
+                                expr_span,
+                                &ty,
+                                "cannot convert to one command word",
+                                DiagnosticCode::CheckArgvConversion,
+                            );
                         }
                     }
                 }
@@ -904,7 +1034,9 @@ impl Checker {
             }
             // An unresolved splice name used to type as Unknown and fail
             // preparation; resolve it like any other name.
-            ArenaCommandArgKind::SpliceName(name) => self.lookup_expr_ident(*name, arena.arena.span(arg.span)),
+            ArenaCommandArgKind::SpliceName(name) => {
+                self.lookup_expr_ident(*name, arena.arena.span(arg.span))
+            }
             ArenaCommandArgKind::SpliceExpr(expr_id) => {
                 self.check_expr_arena(arena, source, *expr_id, None)
             }
@@ -929,7 +1061,9 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                        if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) { continue; }
+                        if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
+                            continue;
+                        }
                         let valid = if standalone_interpolation {
                             ty.can_be_argv_item()
                                 || matches!(&ty, Type::List(item) if item.can_be_argv_item())
@@ -938,7 +1072,12 @@ impl Checker {
                         };
                         if !valid && !matches!(ty, Type::Unknown) {
                             let expr_span = arena.arena.expr(*expr_id).span;
-                            self.report_conversion(expr_span, &ty, "cannot be a command argument", DiagnosticCode::CheckArgvConversion);
+                            self.report_conversion(
+                                expr_span,
+                                &ty,
+                                "cannot be a command argument",
+                                DiagnosticCode::CheckArgvConversion,
+                            );
                         }
                     }
                 }
@@ -948,7 +1087,12 @@ impl Checker {
                 if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
                 } else if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
-                    self.report_conversion(expr_span, &ty, "cannot be a command argument", DiagnosticCode::CheckArgvConversion);
+                    self.report_conversion(
+                        expr_span,
+                        &ty,
+                        "cannot be a command argument",
+                        DiagnosticCode::CheckArgvConversion,
+                    );
                 }
             }
             ArenaCommandArgKind::SpliceName(name) => {

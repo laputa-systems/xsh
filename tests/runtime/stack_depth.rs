@@ -166,8 +166,10 @@ fn small_stack_projection_arguments_preserve_order_and_error_cleanup() {
         "stack-depth-projection-argument-order",
         include_str!("../fixtures/runtime/stack-depth/projection-argument-order.xsh"),
     );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(),
-        "base\nbase cleanup\nindex\nexpected\nbase\nbase cleanup\nouter cleanup\ntrue\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "base\nbase cleanup\nindex\nexpected\nbase\nbase cleanup\nouter cleanup\ntrue\n"
+    );
 }
 
 #[test]
@@ -243,19 +245,35 @@ fn small_stack_yield_delegation_pulls_and_cancels_deep_chains() {
         "stack-depth-yield-delegation",
         include_str!("../fixtures/runtime/stack-depth/yield-delegation.xsh"),
     );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "full 7\nfull 8\nclosed 0\nclosed 3000\nearly 7\nclosed 0\nclosed 3000\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "full 7\nfull 8\nclosed 0\nclosed 3000\nearly 7\nclosed 0\nclosed 3000\n"
+    );
 }
 
 #[test]
 fn small_stack_yield_delegation_late_error_unwinds_deep_chain() {
-    let _lock = small_stack_stress_lock().lock().expect("small-stack stress lock");
+    let _lock = small_stack_stress_lock()
+        .lock()
+        .expect("small-stack stress lock");
     let output = run_temp_script_with_env(
         "stack-depth-yield-delegation-error",
         include_str!("../fixtures/runtime/stack-depth/yield-delegation-error.xsh"),
         [],
         SMALL_STACK_ENV,
     );
-    assert_eq!(output.status.code(), Some(3), "delegation failure must be structured");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "row 7\nclosed 0\nclosed 3000\n");
-    assert!(String::from_utf8(output.stderr).unwrap().contains("late-delegation-error"));
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "delegation failure must be structured"
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "row 7\nclosed 0\nclosed 3000\n"
+    );
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("late-delegation-error")
+    );
 }

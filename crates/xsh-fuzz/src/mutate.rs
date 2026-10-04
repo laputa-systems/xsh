@@ -28,13 +28,17 @@ pub fn corpus_files(root: &Path) -> Vec<PathBuf> {
     for dir in CORPUS_DIRS {
         collect(&root.join(dir), &mut files);
     }
-    files.retain(|path| std::fs::metadata(path).is_ok_and(|metadata| metadata.len() <= MAX_CORPUS_BYTES));
+    files.retain(|path| {
+        std::fs::metadata(path).is_ok_and(|metadata| metadata.len() <= MAX_CORPUS_BYTES)
+    });
     files.sort();
     files
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -46,15 +50,111 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 const TOKENS: &[&str] = &[
-    "?", "??", "{", "}", "(", ")", "[", "]", ",", ".", ":", "=", "->", "|", "@", "...", "..", ";", "\n", "+", "-",
-    "*", "/", "%", "==", "!=", "<", ">=", "!", "and", "or", "in", "not in", "is", "let", "var", "if", "else",
-    "match", "for", "while", "return", "break", "continue", "try", "pure", "proc", "stream", "type", "enum",
-    "error", "yield", "defer", "assert", "guard", "with", "ctx", "cd", "env", "run", "spawn", "wait", "null",
-    "true", "0", "-1", "9223372036854775807", "1.5", "\"s\"", "p\"x\"", "b\"\\xff\"", "rx\"(\"", "f\"{", "f\"}", "\"\"\"",
-    "Ok(", "Err(", "Int", "Str", "List[", "Map[", "Result[", "?.", "?[", "=>", "_", "{ |x| ", "#", "`",
+    "?",
+    "??",
+    "{",
+    "}",
+    "(",
+    ")",
+    "[",
+    "]",
+    ",",
+    ".",
+    ":",
+    "=",
+    "->",
+    "|",
+    "@",
+    "...",
+    "..",
+    ";",
+    "\n",
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "==",
+    "!=",
+    "<",
+    ">=",
+    "!",
+    "and",
+    "or",
+    "in",
+    "not in",
+    "is",
+    "let",
+    "var",
+    "if",
+    "else",
+    "match",
+    "for",
+    "while",
+    "return",
+    "break",
+    "continue",
+    "try",
+    "pure",
+    "proc",
+    "stream",
+    "type",
+    "enum",
+    "error",
+    "yield",
+    "defer",
+    "assert",
+    "guard",
+    "with",
+    "ctx",
+    "cd",
+    "env",
+    "run",
+    "spawn",
+    "wait",
+    "null",
+    "true",
+    "0",
+    "-1",
+    "9223372036854775807",
+    "1.5",
+    "\"s\"",
+    "p\"x\"",
+    "b\"\\xff\"",
+    "rx\"(\"",
+    "f\"{",
+    "f\"}",
+    "\"\"\"",
+    "Ok(",
+    "Err(",
+    "Int",
+    "Str",
+    "List[",
+    "Map[",
+    "Result[",
+    "?.",
+    "?[",
+    "=>",
+    "_",
+    "{ |x| ",
+    "#",
+    "`",
 ];
 
-const TYPES: &[&str] = &["Int", "Str", "Bool", "Float", "Path", "Bytes", "List[Int]", "Map[Str]", "Int?", "Result[Int]", "Any", "Unit"];
+const TYPES: &[&str] = &[
+    "Int",
+    "Str",
+    "Bool",
+    "Float",
+    "Path",
+    "Bytes",
+    "List[Int]",
+    "Map[Str]",
+    "Int?",
+    "Result[Int]",
+    "Any",
+    "Unit",
+];
 
 fn char_boundary_floor(text: &str, mut index: usize) -> usize {
     index = index.min(text.len());
@@ -131,7 +231,8 @@ pub fn mutate(text: &str, rng: &mut Rng) -> String {
             if names.len() >= 2 {
                 let from = *rng.pick(&names);
                 let to = *rng.pick(&names);
-                let occurrences: Vec<usize> = joined.match_indices(from).map(|(at, _)| at).collect();
+                let occurrences: Vec<usize> =
+                    joined.match_indices(from).map(|(at, _)| at).collect();
                 let at = *rng.pick(&occurrences);
                 return format!("{}{}{}", &joined[..at], to, &joined[at + from.len()..]);
             }
@@ -139,11 +240,22 @@ pub fn mutate(text: &str, rng: &mut Rng) -> String {
         9 => {
             // Swap a type annotation.
             let joined = out.join("\n");
-            let types: Vec<usize> = TYPES.iter().flat_map(|ty| joined.match_indices(ty).map(|(at, _)| at)).collect();
+            let types: Vec<usize> = TYPES
+                .iter()
+                .flat_map(|ty| joined.match_indices(ty).map(|(at, _)| at))
+                .collect();
             if !types.is_empty() {
                 let at = *rng.pick(&types);
-                let old = TYPES.iter().find(|ty| joined[at..].starts_with(**ty)).expect("type");
-                return format!("{}{}{}", &joined[..at], rng.pick(TYPES), &joined[at + old.len()..]);
+                let old = TYPES
+                    .iter()
+                    .find(|ty| joined[at..].starts_with(**ty))
+                    .expect("type");
+                return format!(
+                    "{}{}{}",
+                    &joined[..at],
+                    rng.pick(TYPES),
+                    &joined[at + old.len()..]
+                );
             }
         }
         10 => {
@@ -190,17 +302,32 @@ pub fn format_invariants(source: &str, scratch: &Path) -> Result<(), String> {
     let formatter = xsht::format::Formatter::new();
     let first = formatter.format_source(SourceId::new(0), source);
     if !first.diagnostics.is_empty() {
-        let messages: Vec<String> = first.diagnostics.iter().map(|diagnostic| diagnostic.message.clone()).collect();
-        return Err(format!("formatter refused a checked program: {}", messages.join("; ")));
+        let messages: Vec<String> = first
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect();
+        return Err(format!(
+            "formatter refused a checked program: {}",
+            messages.join("; ")
+        ));
     }
     let second = formatter.format_source(SourceId::new(0), &first.formatted);
     if second.formatted != first.formatted {
-        return Err(format!("formatting is not idempotent\n--- first\n{}--- second\n{}", first.formatted, second.formatted));
+        return Err(format!(
+            "formatting is not idempotent\n--- first\n{}--- second\n{}",
+            first.formatted, second.formatted
+        ));
     }
     let report = check_text("formatted.xsh", &first.formatted);
     if !report.accepted() {
         let mut text = String::from("formatted program no longer checks:\n");
-        for line in report.parse.iter().chain(&report.check).chain(&report.lower) {
+        for line in report
+            .parse
+            .iter()
+            .chain(&report.check)
+            .chain(&report.lower)
+        {
             text.push_str(line);
             text.push('\n');
         }

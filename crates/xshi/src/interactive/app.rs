@@ -2206,7 +2206,7 @@ fn external_invocation(
             .collect(),
         timeout: None,
         cpu_max: None,
-            accepted_exit_codes: None,
+        accepted_exit_codes: None,
     })
 }
 
@@ -3563,7 +3563,11 @@ mod tests {
         // is a discarded value there.
         let list = execute_line(&mut session, "[1, 2]");
         assert_eq!(list.status, 2);
-        assert!(String::from_utf8_lossy(&list.stderr).contains("check.ignored-result"), "{}", String::from_utf8_lossy(&list.stderr));
+        assert!(
+            String::from_utf8_lossy(&list.stderr).contains("check.ignored-result"),
+            "{}",
+            String::from_utf8_lossy(&list.stderr)
+        );
     }
 
     #[test]

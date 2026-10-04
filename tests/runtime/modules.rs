@@ -2243,7 +2243,8 @@ impl LocalHttpServer {
             let (request_tx, request_rx) = crossbeam_channel::unbounded();
             let mut give_up_at = None;
             let mut workers = Vec::new();
-            while handled.load(Ordering::SeqCst) < expected && !server_stop.expired(&mut give_up_at) {
+            while handled.load(Ordering::SeqCst) < expected && !server_stop.expired(&mut give_up_at)
+            {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         connections.fetch_add(1, Ordering::SeqCst);
@@ -3098,7 +3099,8 @@ fn handle_local_https_connection(
 #[test]
 fn path_interpolation_preserves_native_bytes_in_literals_and_compound_argv() {
     let expected = hex(b"--target=raw\xff name/'\"");
-    let source = format!(r#"
+    let source = format!(
+        r#"
 let show = Path({show})
 let raw = Path.parse_bytes(b"raw\xff name/'\"")?
 let composed = fp"prefix/{{raw}}/../end"
@@ -3117,11 +3119,20 @@ let _ = process.run(stored)?
         show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
         expected = xsh_string_literal(&(expected.clone() + "\n")),
         spliced = xsh_string_literal(&(hex(b"raw\xff name/\'\"") + "\n\n")),
-        human = xsh_string_literal(&(hex(String::from_utf8_lossy(b"--target=raw\xff name/\'\"").as_bytes()) + "\n")),
+        human = xsh_string_literal(
+            &(hex(String::from_utf8_lossy(b"--target=raw\xff name/\'\"").as_bytes()) + "\n")
+        ),
     );
     let output = run_temp_script("native-path-interpolation", &source);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), format!("true\ntrue\ntrue\ntrue\n{expected}\n"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("true\ntrue\ntrue\ntrue\n{expected}\n")
+    );
 }
 
 #[test]
@@ -3131,7 +3142,7 @@ fn path_interpolation_preserves_real_native_filename_and_redirection_bytes() {
     let raw_name = std::ffi::OsString::from_vec(b"source\xff name".to_vec());
     let source_path = root.join(&raw_name);
     match std::fs::write(&source_path, b"native contents") {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(error) if cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EILSEQ) => {
             // Some macOS filesystems reject invalid UTF-8 names at creation.
             // The separate argv fixture still exercises native bytes there.
@@ -3142,7 +3153,8 @@ fn path_interpolation_preserves_real_native_filename_and_redirection_bytes() {
         Err(error) => panic!("create native filename: {error}"),
     }
     let output_path = root.join(std::ffi::OsString::from_vec(b"output\xff name".to_vec()));
-    let script = format!(r#"
+    let script = format!(
+        r#"
 let root = Path({root})
 let name = Path.parse_bytes(b"source\xff name")?
 let destination = Path.parse_bytes(b"output\xff name")?
@@ -3156,9 +3168,15 @@ let command = process.command {{
   run cat
 }}
 let _ = process.run(command)?
-"#, root = xsh_string_literal(root.to_str().unwrap()));
+"#,
+        root = xsh_string_literal(root.to_str().unwrap())
+    );
     let output = run_temp_script("native-path-file-redirections", &script);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(output.stdout, b"true\ntrue\n");
     assert_eq!(std::fs::read(output_path).unwrap(), b"native contents");
     std::fs::remove_dir_all(root).unwrap();

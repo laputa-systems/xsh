@@ -3,8 +3,8 @@
 //! `docs/reference/grammar.md`.
 
 use super::{
-    Associativity, BINARY_OPERATORS, Class, DURATION_SUFFIXES, Grammar, Item, OperatorFamily, QUOTED_LITERALS, RUN_FORMS, RunOption,
-    STREAM_STAGES, Section, line_continuation_spellings,
+    Associativity, BINARY_OPERATORS, Class, DURATION_SUFFIXES, Grammar, Item, OperatorFamily,
+    QUOTED_LITERALS, RUN_FORMS, RunOption, STREAM_STAGES, Section, line_continuation_spellings,
 };
 use crate::syntax::token::{Keyword, TokenTag};
 use std::fmt::Write as _;
@@ -42,21 +42,35 @@ fn tag_name(tag: TokenTag) -> String {
         TokenTag::Keyword => "KEYWORD",
         TokenTag::Comment => "COMMENT",
         TokenTag::Eof => "EOF",
-        other => return format!("\"{}\"", other.fixed_text().expect("punctuation has fixed text")),
+        other => {
+            return format!(
+                "\"{}\"",
+                other.fixed_text().expect("punctuation has fixed text")
+            );
+        }
     };
     name.to_string()
 }
 
 /// The terminals named in EBNF text, with what each stands for.
 pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
-    ("IDENT", "an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword"),
-    ("NAME", "an identifier that may also contain `-` after its first character"),
+    (
+        "IDENT",
+        "an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword",
+    ),
+    (
+        "NAME",
+        "an identifier that may also contain `-` after its first character",
+    ),
     ("LABEL", "an identifier or keyword used as a field label"),
     ("MEMBER", "a label or a hyphenated name after `.`"),
     ("INT", "a decimal or `0o` octal integer"),
     ("FLOAT", "a decimal number with a fraction or exponent"),
     ("DURATION", "an integer followed by a duration suffix"),
-    ("STRING", "a `\"...\"`, `\"\"\"...\"\"\"`, or raw `r\"...\"` string"),
+    (
+        "STRING",
+        "a `\"...\"`, `\"\"\"...\"\"\"`, or raw `r\"...\"` string",
+    ),
     ("FMT_STRING", "an interpolating `f\"...\"` string"),
     ("PATH", "a `p\"...\"` path"),
     ("PATH_FMT", "an interpolating `fp\"...\"` path"),
@@ -64,8 +78,14 @@ pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
     ("BYTES", "a `b\"...\"` byte string"),
     ("REGEX", "an `rx\"...\"` regular expression"),
     ("DOLLAR_NAME", "`$name` in a command word"),
-    ("NEWLINE", "a line break that ends a statement (see Line continuation)"),
-    ("WORD_PART", "any other token that can be part of a bare command word"),
+    (
+        "NEWLINE",
+        "a line break that ends a statement (see Line continuation)",
+    ),
+    (
+        "WORD_PART",
+        "any other token that can be part of a bare command word",
+    ),
     ("PATH_PART", "a token made only of bare-path characters"),
     ("KEYWORD", "a reserved keyword"),
 ];
@@ -81,17 +101,29 @@ pub fn render_item(item: &Item, nested: bool) -> String {
         Item::Seq(items) if items.is_empty() => "()".to_string(),
         Item::Seq(items) if items.len() == 1 => render_item(&items[0], nested),
         Item::Seq(items) => {
-            let text = items.iter().map(render_sequence_item).collect::<Vec<_>>().join(" ");
+            let text = items
+                .iter()
+                .map(render_sequence_item)
+                .collect::<Vec<_>>()
+                .join(" ");
             if nested { format!("( {text} )") } else { text }
         }
         Item::Alt(items) => {
-            let text = items.iter().map(|item| render_item(item, false)).collect::<Vec<_>>().join(" | ");
+            let text = items
+                .iter()
+                .map(|item| render_item(item, false))
+                .collect::<Vec<_>>()
+                .join(" | ");
             if nested { format!("( {text} )") } else { text }
         }
         Item::Opt(inner) => format!("{}?", render_item(inner, true)),
         Item::Star(inner) => format!("{}*", render_item(inner, true)),
         Item::Plus(inner) => format!("{}+", render_item(inner, true)),
-        Item::List { item, lines, min_one } => {
+        Item::List {
+            item,
+            lines,
+            min_one,
+        } => {
             let name = match (lines, min_one) {
                 (true, false) => "list",
                 (true, true) => "list1",
@@ -109,7 +141,11 @@ pub fn render_item(item: &Item, nested: bool) -> String {
 /// An item of a sequence; a nested sequence needs no parentheses there.
 fn render_sequence_item(item: &Item) -> String {
     match item {
-        Item::Seq(items) => items.iter().map(render_sequence_item).collect::<Vec<_>>().join(" "),
+        Item::Seq(items) => items
+            .iter()
+            .map(render_sequence_item)
+            .collect::<Vec<_>>()
+            .join(" "),
         item => render_item(item, true),
     }
 }
@@ -129,7 +165,11 @@ fn render_lookahead(sequences: &[Vec<super::Term>]) -> String {
         })
         .collect::<Vec<_>>()
         .join(" | ");
-    if sequences.len() == 1 && sequences[0].len() == 1 { text } else { format!("( {text} )") }
+    if sequences.len() == 1 && sequences[0].len() == 1 {
+        text
+    } else {
+        format!("( {text} )")
+    }
 }
 
 /// The production `name = body ;` wrapped at top-level alternatives.
@@ -185,7 +225,14 @@ fn json_array(items: impl IntoIterator<Item = String>) -> String {
 }
 
 fn json_object(fields: &[(&str, String)]) -> String {
-    format!("{{{}}}", fields.iter().map(|(key, value)| format!("{}:{value}", json_string(key))).collect::<Vec<_>>().join(","))
+    format!(
+        "{{{}}}",
+        fields
+            .iter()
+            .map(|(key, value)| format!("{}:{value}", json_string(key)))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 const fn family_name(family: OperatorFamily) -> &'static str {
@@ -209,34 +256,62 @@ pub fn reference_json(grammar: &Grammar) -> String {
             .iter()
             .filter(|rule| rule.section == *section)
             .map(|rule| render_rule(rule.name, &rule.body));
-        json_object(&[("title", json_string(section.title())), ("ebnf", json_string(&rules.collect::<Vec<_>>().join("\n")))])
+        json_object(&[
+            ("title", json_string(section.title())),
+            ("ebnf", json_string(&rules.collect::<Vec<_>>().join("\n"))),
+        ])
     });
-    let mut levels: Vec<u8> = BINARY_OPERATORS.iter().map(|operator| operator.precedence).collect();
+    let mut levels: Vec<u8> = BINARY_OPERATORS
+        .iter()
+        .map(|operator| operator.precedence)
+        .collect();
     levels.dedup();
     let operators = levels.iter().rev().map(|level| {
-        let row: Vec<_> = BINARY_OPERATORS.iter().filter(|operator| operator.precedence == *level).collect();
+        let row: Vec<_> = BINARY_OPERATORS
+            .iter()
+            .filter(|operator| operator.precedence == *level)
+            .collect();
         json_object(&[
             ("precedence", level.to_string()),
-            ("operators", json_string(&row.iter().map(|operator| format!("`{}`", operator.spelling)).collect::<Vec<_>>().join(" "))),
+            (
+                "operators",
+                json_string(
+                    &row.iter()
+                        .map(|operator| format!("`{}`", operator.spelling))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                ),
+            ),
             (
                 "associativity",
-                json_string(if row.iter().any(|operator| operator.associativity == Associativity::Right) {
-                    "right (`??`), left (others)"
-                } else {
-                    "left"
-                }),
+                json_string(
+                    if row
+                        .iter()
+                        .any(|operator| operator.associativity == Associativity::Right)
+                    {
+                        "right (`??`), left (others)"
+                    } else {
+                        "left"
+                    },
+                ),
             ),
             (
                 "families",
                 json_string(&{
-                    let mut families: Vec<&str> = row.iter().map(|operator| family_name(operator.family)).collect();
+                    let mut families: Vec<&str> = row
+                        .iter()
+                        .map(|operator| family_name(operator.family))
+                        .collect();
                     families.dedup();
                     families.join(", ")
                 }),
             ),
         ])
     });
-    let keywords = Keyword::ALL.iter().map(|keyword| keyword.as_str()).collect::<Vec<_>>();
+    let keywords = Keyword::ALL
+        .iter()
+        .map(|keyword| keyword.as_str())
+        .collect::<Vec<_>>();
     let mut sorted_keywords = keywords.clone();
     sorted_keywords.sort_unstable();
     let literals = QUOTED_LITERALS.iter().map(|form| {
@@ -250,7 +325,10 @@ pub fn reference_json(grammar: &Grammar) -> String {
         json_object(&[
             ("name", json_string(stage.name)),
             ("block", json_string(if stage.block { "yes" } else { "no" })),
-            ("inline", json_string(if stage.inline { "yes" } else { "no" })),
+            (
+                "inline",
+                json_string(if stage.inline { "yes" } else { "no" }),
+            ),
         ])
     });
     let run_forms = RUN_FORMS.iter().map(|form| {
@@ -263,20 +341,46 @@ pub fn reference_json(grammar: &Grammar) -> String {
         }
         json_string(&spelling)
     });
-    let terminals = TERMINAL_DESCRIPTIONS
-        .iter()
-        .map(|(name, description)| json_object(&[("name", json_string(name)), ("description", json_string(description))]));
+    let terminals = TERMINAL_DESCRIPTIONS.iter().map(|(name, description)| {
+        json_object(&[
+            ("name", json_string(name)),
+            ("description", json_string(description)),
+        ])
+    });
     json_object(&[
         ("sections", json_array(sections)),
         ("operators", json_array(operators)),
         ("prefix_precedence", super::PREFIX.to_string()),
-        ("continuation", json_string(&line_continuation_spellings().iter().map(|spelling| format!("`{spelling}`")).collect::<Vec<_>>().join(" "))),
+        (
+            "continuation",
+            json_string(
+                &line_continuation_spellings()
+                    .iter()
+                    .map(|spelling| format!("`{spelling}`"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+        ),
         ("keywords", json_string(&sorted_keywords.join(" "))),
         ("terminals", json_array(terminals)),
         ("literals", json_array(literals)),
-        ("duration_suffixes", json_string(&DURATION_SUFFIXES.map(|suffix| format!("`{suffix}`")).join(" "))),
+        (
+            "duration_suffixes",
+            json_string(
+                &DURATION_SUFFIXES
+                    .map(|suffix| format!("`{suffix}`"))
+                    .join(" "),
+            ),
+        ),
         ("stages", json_array(stages)),
         ("run_forms", json_array(run_forms)),
-        ("run_options", json_string(&RunOption::ALL.map(|option| format!("`--{}=`", option.name())).join(" "))),
+        (
+            "run_options",
+            json_string(
+                &RunOption::ALL
+                    .map(|option| format!("`--{}=`", option.name()))
+                    .join(" "),
+            ),
+        ),
     ])
 }

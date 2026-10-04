@@ -49,14 +49,20 @@ fn sample(ty: &Type, inst: &Inst) -> Option<String> {
             format!("{{{}}}", parts.join(", "))
         }
         Type::Result(ok, _) => format!("Ok({})", sample(ok, inst)?),
-        Type::BuiltinParameter(BuiltinTypeParameter::Element) => sample(&inst.element.clone(), inst)?,
+        Type::BuiltinParameter(BuiltinTypeParameter::Element) => {
+            sample(&inst.element.clone(), inst)?
+        }
         Type::BuiltinParameter(BuiltinTypeParameter::Key) => sample(&inst.key.clone(), inst)?,
         Type::BuiltinParameter(BuiltinTypeParameter::Value) => sample(&inst.value.clone(), inst)?,
         _ => return None,
     })
 }
 
-fn receiver_text(receiver: MethodReceiver, receiver_ty: Option<&Type>, inst: &Inst) -> Option<String> {
+fn receiver_text(
+    receiver: MethodReceiver,
+    receiver_ty: Option<&Type>,
+    inst: &Inst,
+) -> Option<String> {
     if let Some(ty) = receiver_ty {
         return match ty {
             Type::List(_) | Type::Map(..) => sample(ty, inst),
@@ -69,8 +75,16 @@ fn receiver_text(receiver: MethodReceiver, receiver_ty: Option<&Type>, inst: &In
         MethodReceiver::Float => "2.5".into(),
         MethodReceiver::Bytes => "b\"ab\\x0acd\"".into(),
         MethodReceiver::Path => "p\"dir/name.txt\"".into(),
-        MethodReceiver::List => format!("[{}, {}]", sample(&inst.element, inst)?, sample(&inst.element, inst)?),
-        MethodReceiver::Map => format!("{{[{}]: {}}}", sample(&inst.key, inst)?, sample(&inst.value, inst)?),
+        MethodReceiver::List => format!(
+            "[{}, {}]",
+            sample(&inst.element, inst)?,
+            sample(&inst.element, inst)?
+        ),
+        MethodReceiver::Map => format!(
+            "{{[{}]: {}}}",
+            sample(&inst.key, inst)?,
+            sample(&inst.value, inst)?
+        ),
         MethodReceiver::Record => "{a: 1, b: \"x\"}".into(),
         MethodReceiver::Regex => "rx\"a+\"".into(),
         _ => return None,
@@ -86,11 +100,25 @@ fn conventions(sig: &ModuleFnSig, inst: &Inst) -> Vec<(&'static str, String)> {
             None => return Vec::new(),
         }
     }
-    let positional = |items: &[(&str, String, bool)]| items.iter().map(|(_, value, _)| value.clone()).collect::<Vec<_>>().join(", ");
-    let named = |items: &[(&str, String, bool)]| {
-        items.iter().map(|(name, value, _)| format!("{name}: {value}")).collect::<Vec<_>>().join(", ")
+    let positional = |items: &[(&str, String, bool)]| {
+        items
+            .iter()
+            .map(|(_, value, _)| value.clone())
+            .collect::<Vec<_>>()
+            .join(", ")
     };
-    let required: Vec<_> = values.iter().filter(|(_, _, defaulted)| !defaulted).cloned().collect();
+    let named = |items: &[(&str, String, bool)]| {
+        items
+            .iter()
+            .map(|(name, value, _)| format!("{name}: {value}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let required: Vec<_> = values
+        .iter()
+        .filter(|(_, _, defaulted)| !defaulted)
+        .cloned()
+        .collect();
     let mut out = vec![("positional", positional(&values))];
     if required.len() != values.len() {
         out.push(("required", positional(&required)));
@@ -111,14 +139,34 @@ fn conventions(sig: &ModuleFnSig, inst: &Inst) -> Vec<(&'static str, String)> {
 fn instantiations(receiver: MethodReceiver) -> Vec<Inst> {
     match receiver {
         MethodReceiver::List => vec![
-            Inst { element: Type::Int, key: Type::Str, value: Type::Int },
-            Inst { element: Type::Str, key: Type::Str, value: Type::Str },
+            Inst {
+                element: Type::Int,
+                key: Type::Str,
+                value: Type::Int,
+            },
+            Inst {
+                element: Type::Str,
+                key: Type::Str,
+                value: Type::Str,
+            },
         ],
         MethodReceiver::Map => vec![
-            Inst { element: Type::Int, key: Type::Str, value: Type::Int },
-            Inst { element: Type::Int, key: Type::Int, value: Type::List(Box::new(Type::Str)) },
+            Inst {
+                element: Type::Int,
+                key: Type::Str,
+                value: Type::Int,
+            },
+            Inst {
+                element: Type::Int,
+                key: Type::Int,
+                value: Type::List(Box::new(Type::Str)),
+            },
         ],
-        _ => vec![Inst { element: Type::Int, key: Type::Str, value: Type::Int }],
+        _ => vec![Inst {
+            element: Type::Int,
+            key: Type::Str,
+            value: Type::Int,
+        }],
     }
 }
 
@@ -148,12 +196,19 @@ pub fn corpus() -> Vec<Probe> {
                     continue;
                 }
                 for inst in instantiations(receiver.receiver) {
-                    let Some(recv) = receiver_text(receiver.receiver, overload.receiver_ty.as_ref(), &inst) else { continue };
+                    let Some(recv) =
+                        receiver_text(receiver.receiver, overload.receiver_ty.as_ref(), &inst)
+                    else {
+                        continue;
+                    };
                     for (convention, args) in conventions(&overload.sig, &inst) {
                         let call = format!("{recv}.{}({args})", method.name);
                         if seen.insert(call.clone()) {
                             probes.push(Probe {
-                                label: format!("{:?}.{}#{index}/{convention}", receiver.receiver, method.name),
+                                label: format!(
+                                    "{:?}.{}#{index}/{convention}",
+                                    receiver.receiver, method.name
+                                ),
                                 call,
                             });
                         }
@@ -162,7 +217,11 @@ pub fn corpus() -> Vec<Probe> {
             }
         }
     }
-    let inst = Inst { element: Type::Int, key: Type::Str, value: Type::Int };
+    let inst = Inst {
+        element: Type::Int,
+        key: Type::Str,
+        value: Type::Int,
+    };
     for module in &spec.modules {
         for function in &module.sig.functions {
             for (index, overload) in function.overloads.iter().enumerate() {
@@ -172,7 +231,13 @@ pub fn corpus() -> Vec<Probe> {
                 for (convention, args) in conventions(overload, &inst) {
                     let call = format!("{}.{}({args})", module.name, function.name);
                     if seen.insert(call.clone()) {
-                        probes.push(Probe { label: format!("{}.{}#{index}/{convention}", module.name, function.name), call });
+                        probes.push(Probe {
+                            label: format!(
+                                "{}.{}#{index}/{convention}",
+                                module.name, function.name
+                            ),
+                            call,
+                        });
                     }
                 }
             }
@@ -185,7 +250,9 @@ pub fn corpus() -> Vec<Probe> {
 /// outcome is printed on its own line; a captured failure prints its message
 /// so internal errors and type disagreements stay visible.
 pub fn program(probes: &[&Probe]) -> String {
-    let mut text = String::from("proc fuzz_main() [] -> Result[List[Str]] {\n  try {\n    var out: List[Str] = []\n");
+    let mut text = String::from(
+        "proc fuzz_main() [] -> Result[List[Str]] {\n  try {\n    var out: List[Str] = []\n",
+    );
     for (index, probe) in probes.iter().enumerate() {
         text.push_str(&format!(
             "    let probe{index} = try {{\n      let _ = {}\n    }}\n    out += [match probe{index} {{ Ok(_) => \"{index} ok\", Err(failure) => \"{index} err \" + failure.message }}]\n",
@@ -217,7 +284,10 @@ fn suspicious(text: &str) -> Option<String> {
 /// Checks every probe and runs the accepted ones, one program per batch;
 /// a failing batch is rerun probe by probe to attribute the failure.
 pub fn run_corpus(probes: &[Probe], sandbox: &Sandbox, batch: usize) -> Summary {
-    let mut summary = Summary { probes: probes.len(), ..Summary::default() };
+    let mut summary = Summary {
+        probes: probes.len(),
+        ..Summary::default()
+    };
     let mut accepted = Vec::new();
     for probe in probes {
         let report = check_text("probe.xsh", &program(&[probe]));
@@ -278,7 +348,9 @@ fn run_group(group: &[&Probe], sandbox: &Sandbox) -> Vec<(Probe, String)> {
         return failures;
     }
     for line in run.stdout.lines() {
-        let Some((index, rest)) = line.split_once(' ') else { continue };
+        let Some((index, rest)) = line.split_once(' ') else {
+            continue;
+        };
         if let (Ok(index), Some(reason)) = (index.parse::<usize>(), suspicious(rest))
             && let Some(probe) = group.get(index)
         {

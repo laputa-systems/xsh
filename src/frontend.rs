@@ -6,13 +6,21 @@
 //! remain coupled to the compiler pipeline.
 
 pub mod check {
-    pub use crate::sema::arguments::{ArgumentExpansionError, ArgumentValueSource, ExpandedArgument, StaticArgumentBinding, expand_named_arguments, bind_static_arguments};
-    pub use crate::sema::check::{
-        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker, RequirementTarget, EffectDeclarationId, FunctionEffectFact, CheckedProjection, ProjectionOperation,
-        CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, CheckedStreamStage, StatementPosition,
-        ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo, StaticCallableAlias,
+    pub use crate::sema::arguments::{
+        ArgumentExpansionError, ArgumentValueSource, ExpandedArgument, StaticArgumentBinding,
+        bind_static_arguments, expand_named_arguments,
     };
-    pub use crate::sema::constants::{LiteralConstant, PreparedConstants, RecordConstructors, SchemaTypeError, SchemaInstance, SchemaExpectation, SchemaComponent, CheckedRecordConstructor};
+    pub use crate::sema::check::{
+        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
+        CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
+        CompactTypeDefInfo, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
+        FunctionEffectFact, ProjectionOperation, RequirementTarget, StatementPosition,
+        StaticCallableAlias, TagVariantInfo,
+    };
+    pub use crate::sema::constants::{
+        CheckedRecordConstructor, LiteralConstant, PreparedConstants, RecordConstructors,
+        SchemaComponent, SchemaExpectation, SchemaInstance, SchemaTypeError,
+    };
     pub use crate::sema::records::record_schemas;
     pub use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 }

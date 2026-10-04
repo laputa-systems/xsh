@@ -56,7 +56,10 @@ impl Ty {
     }
 
     pub fn is_scalar(&self) -> bool {
-        matches!(self, Ty::Int | Ty::Float | Ty::Str | Ty::Bool | Ty::Path | Ty::Bytes)
+        matches!(
+            self,
+            Ty::Int | Ty::Float | Ty::Str | Ty::Bool | Ty::Path | Ty::Bytes
+        )
     }
 
     /// Displayable directly inside an f-string interpolation.
@@ -84,7 +87,9 @@ impl Ty {
             Ty::Duration => "Duration".into(),
             Ty::List(element) => format!("List[{}]", element.render(program)),
             Ty::Map(key, value) if **key == Ty::Str => format!("Map[{}]", value.render(program)),
-            Ty::Map(key, value) => format!("Map[{}, {}]", key.render(program), value.render(program)),
+            Ty::Map(key, value) => {
+                format!("Map[{}, {}]", key.render(program), value.render(program))
+            }
             Ty::Rec(index) => program.records[*index].name.clone(),
             Ty::Enum(index) => program.enums[*index].name.clone(),
             Ty::Opt(inner) => format!("{}?", inner.render(program)),
@@ -144,30 +149,68 @@ pub struct Block {
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
-    Let { name: String, annot: Option<Ty>, value: Expr, mutable: bool },
-    Assign { target: Target, op: AssignOp, value: Expr },
-    If { cond: Expr, then: Block, otherwise: Option<Block> },
-    For { var: String, iter: Expr, body: Block },
+    Let {
+        name: String,
+        annot: Option<Ty>,
+        value: Expr,
+        mutable: bool,
+    },
+    Assign {
+        target: Target,
+        op: AssignOp,
+        value: Expr,
+    },
+    If {
+        cond: Expr,
+        then: Block,
+        otherwise: Option<Block>,
+    },
+    For {
+        var: String,
+        iter: Expr,
+        body: Block,
+    },
     /// `var counter = 0; while counter < limit { body; counter += 1 }`
-    While { counter: String, limit: i64, body: Block },
-    Match { subject: Expr, arms: Vec<(Pat, Block)> },
+    While {
+        counter: String,
+        limit: i64,
+        body: Block,
+    },
+    Match {
+        subject: Expr,
+        arms: Vec<(Pat, Block)>,
+    },
     /// `assert expr == <value>`; the evaluator fills in the value it first
     /// observes, so the assertion holds when it runs.
-    AssertEq { expr: Expr, expected: Option<Expr> },
+    AssertEq {
+        expr: Expr,
+        expected: Option<Expr>,
+    },
     Assert(Expr),
     /// `out += [expr]`
     Out(Expr),
     ContinueWhen(Expr),
     BreakWhen(Expr),
     /// `return Err(FzErr.Bad(message: ...)) when cond`
-    ReturnErrWhen { cond: Expr, message: String },
+    ReturnErrWhen {
+        cond: Expr,
+        message: String,
+    },
     Block(Block),
     /// `defer { ... }`
     Defer(Block),
     /// `guard cond else { continue | break | return Err(...) }`
-    Guard { cond: Expr, exit: Exit },
+    Guard {
+        cond: Expr,
+        exit: Exit,
+    },
     /// `if let pat = subject { ... } else { ... }`
-    IfLet { pat: Pat, subject: Expr, then: Block, otherwise: Option<Block> },
+    IfLet {
+        pat: Pat,
+        subject: Expr,
+        then: Block,
+        otherwise: Option<Block>,
+    },
     /// `yield expr` in a stream producer.
     Yield(Expr),
 }
@@ -201,13 +244,19 @@ pub enum Pat {
     Int(i64),
     Str(String),
     Bool(bool),
-    Variant { name: String, binds: Vec<String> },
+    Variant {
+        name: String,
+        binds: Vec<String>,
+    },
     Ok(String),
     Err(String),
     /// `[]`
     ListEmpty,
     /// `[head, ..rest]`
-    ListCons { head: String, rest: String },
+    ListCons {
+        head: String,
+        rest: String,
+    },
 }
 
 /// The non-binding right side of `value is ...`.
@@ -220,8 +269,14 @@ pub enum IsPat {
 
 #[derive(Clone, Debug)]
 pub enum Stage {
-    Map { var: String, body: Expr },
-    Where { var: String, body: Expr },
+    Map {
+        var: String,
+        body: Expr,
+    },
+    Where {
+        var: String,
+        body: Expr,
+    },
     Take(i64),
     Drop(i64),
     Sort,
@@ -233,9 +288,20 @@ pub enum Stage {
     Max,
     First,
     Last,
-    Any { var: String, body: Expr },
-    All { var: String, body: Expr },
-    Fold { init: Expr, acc: String, item: String, body: Expr },
+    Any {
+        var: String,
+        body: Expr,
+    },
+    All {
+        var: String,
+        body: Expr,
+    },
+    Fold {
+        init: Expr,
+        acc: String,
+        item: String,
+        body: Expr,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -288,21 +354,52 @@ pub enum Expr {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     If(Box<Expr>, Box<Block>, Box<Block>),
     Match(Box<Expr>, Vec<(Pat, Expr)>),
-    Call { func: usize, args: Vec<Arg> },
-    Method { recv: Box<Expr>, name: &'static str, args: Vec<Expr> },
+    Call {
+        func: usize,
+        args: Vec<Arg>,
+    },
+    Method {
+        recv: Box<Expr>,
+        name: &'static str,
+        args: Vec<Expr>,
+    },
     /// `recv?.name(args)` on an Optional receiver.
-    OptMethod { recv: Box<Expr>, name: &'static str, args: Vec<Expr> },
+    OptMethod {
+        recv: Box<Expr>,
+        name: &'static str,
+        args: Vec<Expr>,
+    },
     List(Vec<Elem>),
-    Comp { proj: Box<Expr>, var: String, iter: Box<Expr>, filter: Option<Box<Expr>> },
+    Comp {
+        proj: Box<Expr>,
+        var: String,
+        iter: Box<Expr>,
+        filter: Option<Box<Expr>>,
+    },
     /// Computed-key Map literal, `{[k]: v, ...}`; empty maps print as `map.empty()`.
     MapLit(Vec<(Expr, Expr)>),
-    MapComp { key: Box<Expr>, value: Box<Expr>, var: String, iter: Box<Expr> },
-    RecCtor { rec: usize, fields: Vec<(String, Expr)> },
-    RecUpdate { base: Box<Expr>, updates: Vec<(String, Expr)> },
+    MapComp {
+        key: Box<Expr>,
+        value: Box<Expr>,
+        var: String,
+        iter: Box<Expr>,
+    },
+    RecCtor {
+        rec: usize,
+        fields: Vec<(String, Expr)>,
+    },
+    RecUpdate {
+        base: Box<Expr>,
+        updates: Vec<(String, Expr)>,
+    },
     Field(Box<Expr>, String),
     Index(Box<Expr>, Box<Expr>),
     Slice(Box<Expr>, Option<Box<Expr>>, Option<Box<Expr>>),
-    Variant { en: usize, variant: usize, args: Vec<Expr> },
+    Variant {
+        en: usize,
+        variant: usize,
+        args: Vec<Expr>,
+    },
     Ok(Box<Expr>),
     Err(String),
     Try(Box<Block>),
@@ -316,14 +413,21 @@ pub enum Expr {
     BlockValue(Box<Block>),
     Duration(u64),
     /// `source |> stage |> ...`
-    Pipeline { source: Box<Expr>, stages: Vec<Stage> },
+    Pipeline {
+        source: Box<Expr>,
+        stages: Vec<Stage>,
+    },
     Is(Box<Expr>, IsPat),
     /// `retry [] { ... }`
     Retry(Box<Block>),
     /// `ctx "description" { ... }`
     Ctx(String, Box<Block>),
     /// A call through an immutable callable alias of `func`.
-    AliasCall { alias: String, func: usize, args: Vec<Arg> },
+    AliasCall {
+        alias: String,
+        func: usize,
+        args: Vec<Arg>,
+    },
     /// `recv?.field` on an Optional record.
     OptField(Box<Expr>, String),
 }
@@ -351,7 +455,11 @@ pub const ENTRY: &str = "fuzz_main";
 
 impl Program {
     pub fn print(&self) -> String {
-        let mut printer = Printer { program: self, out: String::new(), indent: 0 };
+        let mut printer = Printer {
+            program: self,
+            out: String::new(),
+            indent: 0,
+        };
         printer.program_text();
         strip_redundant_parens(printer.out)
     }
@@ -362,7 +470,10 @@ impl Program {
 /// parentheses it reports.
 fn strip_redundant_parens(mut source: String) -> String {
     for _ in 0..16 {
-        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &source);
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+            xsh::frontend::source::SourceId::new(0),
+            &source,
+        );
         if !parsed.diagnostics.is_empty() {
             return source;
         }
@@ -372,7 +483,13 @@ fn strip_redundant_parens(mut source: String) -> String {
             .iter()
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRedundantParens))
             .flat_map(|diagnostic| &diagnostic.fix_hints)
-            .filter_map(|hint| Some((hint.span?.start(), hint.span?.end(), hint.replacement.clone()?)))
+            .filter_map(|hint| {
+                Some((
+                    hint.span?.start(),
+                    hint.span?.end(),
+                    hint.replacement.clone()?,
+                ))
+            })
             .collect();
         if edits.is_empty() {
             return source;
@@ -448,7 +565,13 @@ fn expr_prec(expr: &Expr) -> u8 {
         Expr::Float(value) if value.is_sign_negative() => PREC_UNARY,
         // Keyword-introduced expressions extend as far as their braces; they
         // need grouping before a postfix operator or a following operand.
-        Expr::If(..) | Expr::Match(..) | Expr::Try(..) | Expr::BlockValue(_) | Expr::Pipeline { .. } | Expr::Retry(_) | Expr::Ctx(..) => 0,
+        Expr::If(..)
+        | Expr::Match(..)
+        | Expr::Try(..)
+        | Expr::BlockValue(_)
+        | Expr::Pipeline { .. }
+        | Expr::Retry(_)
+        | Expr::Ctx(..) => 0,
         Expr::Is(..) => grammar::PATTERN_TEST,
         _ => PREC_POSTFIX,
     }
@@ -486,7 +609,9 @@ fn fmt_text(text: &str, next: Option<char>) -> String {
             '\t' => out.push_str("\\t"),
             '{' => out.push_str("{{"),
             '}' => out.push_str("}}"),
-            '$' if following.is_some_and(|c| c == '{' || c == '_' || c.is_ascii_alphabetic()) => out.push_str("\\$"),
+            '$' if following.is_some_and(|c| c == '{' || c == '_' || c.is_ascii_alphabetic()) => {
+                out.push_str("\\$")
+            }
             _ => out.push(*ch),
         }
     }
@@ -496,7 +621,11 @@ fn fmt_text(text: &str, next: Option<char>) -> String {
 /// `{expr}` with an optional `:spec`; `{{` is a brace escape, so an
 /// expression that begins with `{` is set off by spaces.
 fn interpolation(expr: &str, spec: &str) -> String {
-    if expr.starts_with('{') { format!("{{ {expr}{spec} }}") } else { format!("{{{expr}{spec}}}") }
+    if expr.starts_with('{') {
+        format!("{{ {expr}{spec} }}")
+    } else {
+        format!("{{{expr}{spec}}}")
+    }
 }
 
 pub fn float_literal(value: f64) -> String {
@@ -540,7 +669,8 @@ impl Printer<'_> {
                     if payload.is_empty() {
                         name.clone()
                     } else {
-                        let tys: Vec<String> = payload.iter().map(|ty| ty.render(program)).collect();
+                        let tys: Vec<String> =
+                            payload.iter().map(|ty| ty.render(program)).collect();
                         format!("{name}({})", tys.join(", "))
                     }
                 })
@@ -592,7 +722,11 @@ impl Printer<'_> {
         } else {
             String::new()
         };
-        self.line(&format!("{keyword} {}({}){ret} {{", function.name, params.join(", ")));
+        self.line(&format!(
+            "{keyword} {}({}){ret} {{",
+            function.name,
+            params.join(", ")
+        ));
         self.indent += 1;
         self.block_stmts(&function.body);
         if let Some(tail) = &function.body.tail {
@@ -627,7 +761,12 @@ impl Printer<'_> {
     fn stmt(&mut self, stmt: &Stmt) {
         let program = self.program;
         match stmt {
-            Stmt::Let { name, annot, value, mutable } => {
+            Stmt::Let {
+                name,
+                annot,
+                value,
+                mutable,
+            } => {
                 let keyword = if *mutable { "var" } else { "let" };
                 let annot = annot
                     .as_ref()
@@ -651,7 +790,11 @@ impl Printer<'_> {
                 let value = self.expr_text(value, 0);
                 self.line(&format!("{target} {op} {value}"));
             }
-            Stmt::If { cond, then, otherwise } => {
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+            } => {
                 let cond = self.header_text(cond);
                 self.nested_block(&format!("if {cond}"), then);
                 if let Some(otherwise) = otherwise {
@@ -664,7 +807,11 @@ impl Printer<'_> {
                 self.nested_block(&format!("for {var} in {iter}"), body);
                 self.line("}");
             }
-            Stmt::While { counter, limit, body } => {
+            Stmt::While {
+                counter,
+                limit,
+                body,
+            } => {
                 // The increment comes first so `continue` cannot skip it.
                 self.line(&format!("var {counter} = 0"));
                 self.line(&format!("while {counter} < {limit} {{"));
@@ -688,7 +835,11 @@ impl Printer<'_> {
             }
             Stmt::AssertEq { expr, expected } => {
                 let right = expected.clone().unwrap_or_else(|| expr.clone());
-                let text = self.expr_raw(&Expr::Binary(BinOp::Eq, Box::new(expr.clone()), Box::new(right)));
+                let text = self.expr_raw(&Expr::Binary(
+                    BinOp::Eq,
+                    Box::new(expr.clone()),
+                    Box::new(right),
+                ));
                 self.line(&format!("assert {text}"));
             }
             Stmt::Assert(expr) => {
@@ -730,11 +881,18 @@ impl Printer<'_> {
                 let exit = match exit {
                     Exit::Continue => "continue".to_string(),
                     Exit::Break => "break".to_string(),
-                    Exit::ReturnErr(message) => format!("return Err(FzErr.Bad(message: {}))", quote_str(message)),
+                    Exit::ReturnErr(message) => {
+                        format!("return Err(FzErr.Bad(message: {}))", quote_str(message))
+                    }
                 };
                 self.line(&format!("guard {cond} else {{ {exit} }}"));
             }
-            Stmt::IfLet { pat, subject, then, otherwise } => {
+            Stmt::IfLet {
+                pat,
+                subject,
+                then,
+                otherwise,
+            } => {
                 let subject = self.header_text(subject);
                 self.nested_block(&format!("if let {} = {subject}", pat_text(pat)), then);
                 if let Some(otherwise) = otherwise {
@@ -750,7 +908,11 @@ impl Printer<'_> {
     }
 
     fn block_inline(&self, block: &Block) -> String {
-        let mut printer = Printer { program: self.program, out: String::new(), indent: self.indent + 1 };
+        let mut printer = Printer {
+            program: self.program,
+            out: String::new(),
+            indent: self.indent + 1,
+        };
         printer.block_stmts(block);
         if let Some(tail) = &block.tail {
             let text = printer.expr_text(tail, 0);
@@ -794,10 +956,25 @@ impl Printer<'_> {
         let operand_prec = expr_prec(operand);
         let needs = match operand {
             // Mixing `and`, `or`, and `??` always needs explicit grouping.
-            Expr::Binary(inner, ..) if matches!(op, BinOp::And | BinOp::Or) && matches!(inner, BinOp::And | BinOp::Or) && *inner != op => true,
-            Expr::Fallback(..) | Expr::FallbackBlock(..) if matches!(op, BinOp::And | BinOp::Or) => true,
+            Expr::Binary(inner, ..)
+                if matches!(op, BinOp::And | BinOp::Or)
+                    && matches!(inner, BinOp::And | BinOp::Or)
+                    && *inner != op =>
+            {
+                true
+            }
+            Expr::Fallback(..) | Expr::FallbackBlock(..)
+                if matches!(op, BinOp::And | BinOp::Or) =>
+            {
+                true
+            }
             // Comparisons and equality never chain implicitly here.
-            Expr::Binary(inner, ..) if (PREC_EQ..=PREC_CMP).contains(&prec) && (PREC_EQ..=PREC_CMP).contains(&binop_prec(*inner)) => true,
+            Expr::Binary(inner, ..)
+                if (PREC_EQ..=PREC_CMP).contains(&prec)
+                    && (PREC_EQ..=PREC_CMP).contains(&binop_prec(*inner)) =>
+            {
+                true
+            }
             _ if right => operand_prec <= prec,
             _ => operand_prec < prec,
         };
@@ -849,7 +1026,11 @@ impl Printer<'_> {
                         format!("{} => {body}", pat_text(pat))
                     })
                     .collect();
-                format!("match {} {{ {} }}", self.header_text(subject), arms.join(", "))
+                format!(
+                    "match {} {{ {} }}",
+                    self.header_text(subject),
+                    arms.join(", ")
+                )
             }
             Expr::Call { func, args } => {
                 let args: Vec<String> = args
@@ -860,7 +1041,9 @@ impl Printer<'_> {
                         Arg::Spread(fields) => {
                             let fields: Vec<String> = fields
                                 .iter()
-                                .map(|(name, value)| format!("{name}: {}", self.expr_text(value, 0)))
+                                .map(|(name, value)| {
+                                    format!("{name}: {}", self.expr_text(value, 0))
+                                })
                                 .collect();
                             format!("...{{{}}}", fields.join(", "))
                         }
@@ -869,10 +1052,18 @@ impl Printer<'_> {
                 format!("{}({})", program.functions[*func].name, args.join(", "))
             }
             Expr::Method { recv, name, args } => {
-                format!("{}.{name}({})", self.expr_text(recv, PREC_POSTFIX), self.args_text(args))
+                format!(
+                    "{}.{name}({})",
+                    self.expr_text(recv, PREC_POSTFIX),
+                    self.args_text(args)
+                )
             }
             Expr::OptMethod { recv, name, args } => {
-                format!("{}?.{name}({})", self.expr_text(recv, PREC_POSTFIX), self.args_text(args))
+                format!(
+                    "{}?.{name}({})",
+                    self.expr_text(recv, PREC_POSTFIX),
+                    self.args_text(args)
+                )
             }
             Expr::List(elems) => {
                 let parts: Vec<String> = elems
@@ -884,7 +1075,12 @@ impl Printer<'_> {
                     .collect();
                 format!("[{}]", parts.join(", "))
             }
-            Expr::Comp { proj, var, iter, filter } => {
+            Expr::Comp {
+                proj,
+                var,
+                iter,
+                filter,
+            } => {
                 let filter = filter
                     .as_ref()
                     .map(|filter| format!(" if {}", self.header_text(filter)))
@@ -899,11 +1095,18 @@ impl Printer<'_> {
             Expr::MapLit(entries) => {
                 let parts: Vec<String> = entries
                     .iter()
-                    .map(|(key, value)| format!("[{}]: {}", self.expr_text(key, 0), self.expr_text(value, 0)))
+                    .map(|(key, value)| {
+                        format!("[{}]: {}", self.expr_text(key, 0), self.expr_text(value, 0))
+                    })
                     .collect();
                 format!("{{{}}}", parts.join(", "))
             }
-            Expr::MapComp { key, value, var, iter } => format!(
+            Expr::MapComp {
+                key,
+                value,
+                var,
+                iter,
+            } => format!(
                 "{{[{}]: {} for {var} in {}}}",
                 self.expr_text(key, 0),
                 self.expr_text(value, 0),
@@ -925,13 +1128,22 @@ impl Printer<'_> {
             }
             Expr::Field(base, field) => format!("{}.{field}", self.expr_text(base, PREC_POSTFIX)),
             Expr::Index(base, index) => {
-                format!("{}[{}]", self.expr_text(base, PREC_POSTFIX), self.expr_text(index, 0))
+                format!(
+                    "{}[{}]",
+                    self.expr_text(base, PREC_POSTFIX),
+                    self.expr_text(index, 0)
+                )
             }
             Expr::Slice(base, start, end) => format!(
                 "{}[{}..{}]",
                 self.expr_text(base, PREC_POSTFIX),
-                start.as_ref().map(|start| self.expr_text(start, PREC_TERM)).unwrap_or_default(),
-                end.as_ref().map(|end| self.expr_text(end, PREC_TERM)).unwrap_or_default()
+                start
+                    .as_ref()
+                    .map(|start| self.expr_text(start, PREC_TERM))
+                    .unwrap_or_default(),
+                end.as_ref()
+                    .map(|end| self.expr_text(end, PREC_TERM))
+                    .unwrap_or_default()
             ),
             Expr::Variant { en, variant, args } => {
                 let name = &program.enums[*en].variants[*variant].0;
@@ -967,20 +1179,33 @@ impl Printer<'_> {
                             };
                             out.push_str(&fmt_text(text, next));
                         }
-                        FmtPart::Interp(value) => out.push_str(&interpolation(&self.expr_text(value, 0), "")),
+                        FmtPart::Interp(value) => {
+                            out.push_str(&interpolation(&self.expr_text(value, 0), ""))
+                        }
                         FmtPart::Width(value, align, width) => {
-                            out.push_str(&interpolation(&self.expr_text(value, 0), &format!(":{align}{width}")));
+                            out.push_str(&interpolation(
+                                &self.expr_text(value, 0),
+                                &format!(":{align}{width}"),
+                            ));
                         }
                     }
                 }
                 // Only a triple-quoted f-string may break lines inside `{...}`;
                 // text never starts with a raw line break, so no block layout
                 // applies.
-                if out.contains('\n') { format!("f\"\"\"{out}\"\"\"") } else { format!("f\"{out}\"") }
+                if out.contains('\n') {
+                    format!("f\"\"\"{out}\"\"\"")
+                } else {
+                    format!("f\"{out}\"")
+                }
             }
             Expr::BlockValue(block) => self.block_inline(block),
             Expr::Duration(millis) => {
-                if millis % 1000 == 0 && *millis > 0 { format!("{}s", millis / 1000) } else { format!("{millis}ms") }
+                if millis % 1000 == 0 && *millis > 0 {
+                    format!("{}s", millis / 1000)
+                } else {
+                    format!("{millis}ms")
+                }
             }
             Expr::Pipeline { source, stages } => {
                 let mut text = self.expr_text(source, PREC_POSTFIX);
@@ -993,14 +1218,20 @@ impl Printer<'_> {
             Expr::Is(subject, pat) => {
                 let pat = match pat {
                     IsPat::Variant { name, arity: 0 } => name.clone(),
-                    IsPat::Variant { name, arity } => format!("{name}({})", vec!["_"; *arity].join(", ")),
+                    IsPat::Variant { name, arity } => {
+                        format!("{name}({})", vec!["_"; *arity].join(", "))
+                    }
                     IsPat::Ok => "Ok(_)".into(),
                     IsPat::Err => "Err(_)".into(),
                 };
                 format!("{} is {pat}", self.expr_text(subject, PREC_CMP + 1))
             }
             Expr::Retry(block) => format!("retry [] {}", self.block_inline(block)),
-            Expr::Ctx(description, block) => format!("ctx {} {}", quote_str(description), self.block_inline(block)),
+            Expr::Ctx(description, block) => format!(
+                "ctx {} {}",
+                quote_str(description),
+                self.block_inline(block)
+            ),
             Expr::AliasCall { alias, args, .. } => {
                 let args: Vec<String> = args
                     .iter()
@@ -1010,7 +1241,9 @@ impl Printer<'_> {
                         Arg::Spread(fields) => {
                             let fields: Vec<String> = fields
                                 .iter()
-                                .map(|(name, value)| format!("{name}: {}", self.expr_text(value, 0)))
+                                .map(|(name, value)| {
+                                    format!("{name}: {}", self.expr_text(value, 0))
+                                })
                                 .collect();
                             format!("...{{{}}}", fields.join(", "))
                         }
@@ -1018,7 +1251,9 @@ impl Printer<'_> {
                     .collect();
                 format!("{alias}({})", args.join(", "))
             }
-            Expr::OptField(recv, field) => format!("{}?.{field}", self.expr_text(recv, PREC_POSTFIX)),
+            Expr::OptField(recv, field) => {
+                format!("{}?.{field}", self.expr_text(recv, PREC_POSTFIX))
+            }
         }
     }
 
@@ -1040,8 +1275,17 @@ impl Printer<'_> {
             Stage::Last => "last()".into(),
             Stage::Any { var, body: value } => format!("any {}", body(var, value)),
             Stage::All { var, body: value } => format!("all {}", body(var, value)),
-            Stage::Fold { init, acc, item, body: value } => {
-                format!("fold({}) {{ |{acc}, {item}| {} }}", self.expr_text(init, 0), self.expr_text(value, 0))
+            Stage::Fold {
+                init,
+                acc,
+                item,
+                body: value,
+            } => {
+                format!(
+                    "fold({}) {{ |{acc}, {item}| {} }}",
+                    self.expr_text(init, 0),
+                    self.expr_text(value, 0)
+                )
             }
         }
     }

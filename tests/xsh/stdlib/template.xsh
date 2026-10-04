@@ -31,10 +31,12 @@ test test_template_if_truthiness_and_else_chains {
   for key in falsy.keys() {
     assert template.render(f"{{{{if .{key}}}}}T{{{{else}}}}F{{{{end}}}}", falsy)? == "F", key
   }
+
   let truthy = {t: true, one: -1, real: 0.1, text: " ", list: [0], map: {a: null}}
   for key in truthy.keys() {
     assert template.render(f"{{{{if .{key}}}}}T{{{{else}}}}F{{{{end}}}}", truthy)? == "T", key
   }
+
   let source = "{{if .a}}A{{else if .b}}B{{else if .c}}C{{else}}none{{end}}"
   assert template.render(source, {a: 1, b: 1, c: 1})? == "A"
   assert template.render(source, {a: 0, b: 1, c: 1})? == "B"
@@ -71,15 +73,29 @@ test test_template_with_comments_and_trim_markers {
 }
 
 test test_template_pipeline_functions {
-  let data = {name: "Web", words: ["a", "b"], ports: [80, 443], empty: "", n: null, port: 8080, cfg: json.decode("{\"b\":[1,true],\"a\":\"x\"}")?}
+  let data = {
+    name: "Web",
+    words: ["a", "b"],
+    ports: [80, 443],
+    empty: "",
+    n: null,
+    port: 8080,
+    cfg: json.decode("{\"b\":[1,true],\"a\":\"x\"}")?,
+  }
   assert template.render("{{.name | upper}} {{.name | lower}} {{\"  pad \" | trim}}", data)? == "WEB web pad"
   assert template.render("{{len .words}} {{.name | len}} {{len .cfg}} {{len .}} {{len \"é\"}}", data)? == "2 3 2 7 1"
   assert template.render("{{join \", \" .words}} {{.ports | join \":\"}}", data)? == "a, b 80:443"
   assert template.render("{{.empty | default \"none\"}} {{.n | default 7}} {{.name | default \"x\"}}", data)? == "none 7 Web"
   assert template.render("{{.name | quote}} {{.port | quote}} {{\"a\\\"b\" | quote}}", data)? == "\"Web\" \"8080\" \"a\\\"b\""
   assert template.render("{{json .cfg}} {{.words | json}} {{json .n}}", data)? == "{\"a\":\"x\",\"b\":[1,true]} [\"a\",\"b\"] null"
-  assert template.render("{{if eq .name \"Web\"}}eq{{end}} {{if ne .port 80}}ne{{end}} {{if eq .n null}}null{{end}}", data)? == "eq ne null"
-  assert template.render("{{if not .empty}}not{{end}} {{and .name .port}} {{or .empty \"alt\"}} {{and .empty 1 | quote}}", data)? == "not 8080 alt \"\""
+  assert template.render(
+    "{{if eq .name \"Web\"}}eq{{end}} {{if ne .port 80}}ne{{end}} {{if eq .n null}}null{{end}}",
+    data,
+  )? == "eq ne null"
+  assert template.render(
+    "{{if not .empty}}not{{end}} {{and .name .port}} {{or .empty \"alt\"}} {{and .empty 1 | quote}}",
+    data,
+  )? == "not 8080 alt \"\""
 }
 
 test test_template_define_and_template_calls {
@@ -210,6 +226,7 @@ test test_template_large_range_renders_every_item {
     rows += [index]
     index += 1
   }
+
   let rendered = template.render("{{range $i, $v := .}}{{if $i}},{{end}}{{$v}}{{end}}", rows)?
   assert rendered.split(",").len() == 1000
   assert rendered.ends_with(",998,999")
