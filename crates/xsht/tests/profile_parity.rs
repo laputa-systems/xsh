@@ -87,7 +87,7 @@ b""")
     Err(failure) => { print f"{failure.message}" }
   }
   match json.get({a: {b: 1}}, ["a", "b"]) {
-    Ok(found) => { print f"{found}" }
+    Ok(found) => { print f"{found.require(Int)?}" }
     Err(failure) => { print f"{failure.message}" }
   }
   match json.get({a: 1}, ["missing"]) {
