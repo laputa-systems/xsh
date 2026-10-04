@@ -384,11 +384,7 @@ impl Checker {
         // to a runtime type error on a null Optional.
         if matches!(
             base_ty,
-            Type::Unknown
-                | Type::Invalid
-                | Type::Inference(_)
-                | Type::BuiltinParameter(_)
-                | Type::DynamicModule
+            Type::Unknown | Type::Invalid | Type::Inference(_) | Type::BuiltinParameter(_)
         ) {
             return Type::Unknown;
         }
@@ -404,6 +400,16 @@ impl Checker {
                 span,
                 format!("use `?.{name}(...)` or test for null before calling a {inner} method"),
             ))
+        } else if base_ty == Type::DynamicModule {
+            // A loaded module exposes nothing until `.require(Contract)`
+            // validates it; `.require` is its own expression, so any method
+            // reaching dispatch here has no callable to lower.
+            Diagnostic::error(format!("unknown method `{name}` on a loaded module"))
+                .with_code(DiagnosticCode::CheckUnknownMethod)
+                .with_label(Label::primary(
+                    span,
+                    "validate the module with `.require(Contract)` before calling its exports",
+                ))
         } else {
             Diagnostic::error(format!("unknown method `{name}` on {base_ty}"))
                 .with_code(DiagnosticCode::CheckUnknownMethod)

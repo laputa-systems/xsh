@@ -2862,3 +2862,56 @@ VendorCounter:widgets
       row.name == "MemFree"
     })
 }
+
+# Breaking out of the loop stops the producer while its body is suspended
+# inside a context-scope block that is the scrutinee of a match; stopping
+# runs the defers and restores the scope without finishing the match.
+test test_stream_break_inside_context_scope_match_stops_cleanly { |ctx|
+  let marker = test.temp_path(ctx, name: "ctx-match-marker")
+  let output = test.run_script(
+    ctx,
+    f"""
+enum E1 {{ E1V0, E1V1 }}
+stream numbers(marker: Path) [fs, error] -> Stream[Int] {{
+  defer marker.write("closed")?
+  match ctx "stream" {{
+    yield 1
+    E1V1
+  }} {{
+    E1V0 => {{}}
+    E1V1 => {{}}
+  }}
+  yield 2
+}}
+for value in numbers(Path("{marker}")) {{
+  print f"value={{value}}"
+  break
+}}
+print Path("{marker}").read_text()?
+""",
+  )?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  assert output.stdout == """value=1
+closed
+"""
+}
+
+# An empty producer body is the degenerate empty stream: consuming it yields
+# no items and completes without error.
+test test_stream_empty_body_yields_nothing { |ctx|
+  let output = test.run_script(
+    ctx,
+    """stream empty() [] -> Stream[Int] { }
+for value in empty() {
+  print f"item {value}"
+}
+print "done"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """done
+"""
+}

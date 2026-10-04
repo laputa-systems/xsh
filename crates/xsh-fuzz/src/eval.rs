@@ -94,6 +94,15 @@ pub fn display_float(value: f64) -> String {
     }
 }
 
+/// One stage of a `for`-consumed pipeline that is still pull-based.
+enum PullCursor<'a> {
+    Source(std::vec::IntoIter<Val>),
+    Map { var: &'a str, body: &'a Expr },
+    Where { var: &'a str, body: &'a Expr },
+    Take { remaining: i64 },
+    Drop { remaining: i64 },
+}
+
 pub struct Evaluator<'a> {
     program: &'a Program,
     scopes: Vec<HashMap<String, Val>>,
@@ -313,6 +322,12 @@ impl<'a> Evaluator<'a> {
                 }
             }
             Stmt::For { var, iter, body } => {
+                // A pipeline source is consumed item by item (13.2): serial
+                // stage blocks run per pull, interleaved with the loop body,
+                // so they observe mutations the body made between pulls.
+                if let Expr::Pipeline { source, stages } = iter {
+                    return self.for_pipeline(var, source, stages, body);
+                }
                 let items = iterate(self.expr(iter)?);
                 for item in items {
                     self.tick()?;
@@ -778,7 +793,20 @@ impl<'a> Evaluator<'a> {
                 Err(Flow::Propagate(message)) => Val::Err(message),
                 Err(other) => return Err(other),
             },
-            Expr::Ctx(_, block) => self.block(block)?,
+            // A failure leaving a ctx body gains one context frame, which the
+            // runtime folds into the message (`base (ctx: inner)`); a value
+            // returned as data is not annotated.
+            Expr::Ctx(description, block) => match self.block(block) {
+                Ok(value) => value,
+                Err(Flow::Propagate(message)) => {
+                    return Err(Flow::Propagate(if message.is_empty() {
+                        format!("ctx: {description}")
+                    } else {
+                        format!("{message} (ctx: {description})")
+                    }));
+                }
+                Err(other) => return Err(other),
+            },
             Expr::AliasCall { func, args, .. } => self.call(*func, args)?,
             Expr::OptField(recv, field) => match self.expr(recv)? {
                 Val::Null => Val::Null,
@@ -906,6 +934,88 @@ impl<'a> Evaluator<'a> {
         let result = self.expr(body);
         self.scopes.pop();
         result
+    }
+
+    /// A `for` loop over a pipeline pulls serial stages one item at a time.
+    /// A materializing stage (the spec's sort/repeat/collect set and every
+    /// terminal) drains its upstream exactly when it runs; everything before
+    /// it stays pull-based.
+    fn for_pipeline(&mut self, var: &str, source: &Expr, stages: &[Stage], body: &Block) -> Res<()> {
+        let source = iterate(self.expr(source)?);
+        let mut cursors = vec![PullCursor::Source(source.into_iter())];
+        for stage in stages {
+            match stage {
+                Stage::Map { var, body } => cursors.push(PullCursor::Map { var, body }),
+                Stage::Where { var, body } => cursors.push(PullCursor::Where { var, body }),
+                Stage::Take(count) => cursors.push(PullCursor::Take { remaining: *count }),
+                Stage::Drop(count) => cursors.push(PullCursor::Drop { remaining: *count }),
+                stage => {
+                    let mut items = Vec::new();
+                    while let Some(item) = self.pull_pipeline(&mut cursors)? {
+                        items.push(item);
+                    }
+                    let materialized = self.stage(stage, Val::List(items))?;
+                    cursors = vec![PullCursor::Source(iterate(materialized).into_iter())];
+                }
+            }
+        }
+        while let Some(item) = self.pull_pipeline(&mut cursors)? {
+            self.tick()?;
+            self.scopes.push(HashMap::default());
+            self.bind(var, item);
+            let result = self.block_in_scope(body);
+            self.scopes.pop();
+            match result {
+                Ok(_) | Err(Flow::Continue) => {}
+                Err(Flow::Break) => break,
+                Err(other) => return Err(other),
+            }
+        }
+        Ok(())
+    }
+
+    /// The next item of the pull-based pipeline `cursors`, running only the
+    /// stage blocks the item passes through.
+    fn pull_pipeline(&mut self, cursors: &mut [PullCursor<'_>]) -> Res<Option<Val>> {
+        let Some((last, rest)) = cursors.split_last_mut() else {
+            return Ok(None);
+        };
+        match last {
+            PullCursor::Source(items) => Ok(items.next()),
+            PullCursor::Map { var, body } => {
+                let Some(item) = self.pull_pipeline(rest)? else {
+                    return Ok(None);
+                };
+                Ok(Some(self.with_binding(var, item, body)?))
+            }
+            PullCursor::Where { var, body } => loop {
+                let Some(item) = self.pull_pipeline(rest)? else {
+                    return Ok(None);
+                };
+                if self.with_binding(var, item.clone(), body)? == Val::Bool(true) {
+                    return Ok(Some(item));
+                }
+            },
+            PullCursor::Take { remaining } => {
+                if *remaining <= 0 {
+                    return Ok(None);
+                }
+                let Some(item) = self.pull_pipeline(rest)? else {
+                    return Ok(None);
+                };
+                *remaining -= 1;
+                Ok(Some(item))
+            }
+            PullCursor::Drop { remaining } => {
+                while *remaining > 0 {
+                    *remaining -= 1;
+                    if self.pull_pipeline(rest)?.is_none() {
+                        return Ok(None);
+                    }
+                }
+                self.pull_pipeline(rest)
+            }
+        }
     }
 
     fn int(&mut self, expr: &Expr) -> Res<i64> {

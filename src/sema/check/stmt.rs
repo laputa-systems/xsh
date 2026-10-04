@@ -3479,7 +3479,8 @@ impl Checker {
             arm_list,
             &self.type_defs,
             &self.tag_variants,
-        ) {
+        ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
+        {
             let unguarded = arm_list
                 .iter()
                 .filter(|arm| arm.guard.is_none())
@@ -3491,6 +3492,28 @@ impl Checker {
             Type::Unknown
         } else {
             inferred.unwrap_or(Type::Unknown)
+        }
+    }
+
+    /// Whether a match scrutinee can only exit, never produce a value.
+    ///
+    /// Flow analysis types an always-exiting block as `Unknown`; without this,
+    /// a value match on such a scrutinee would be reported as non-exhaustive
+    /// even though no value ever reaches it.
+    pub(super) fn match_scrutinee_definitely_exits_arena(
+        &self,
+        arena: &ArenaProgram,
+        value: ExprId,
+    ) -> bool {
+        if self.expr_definitely_exits_arena(arena, value) {
+            return true;
+        }
+        match &arena.arena.expr(value).kind {
+            ArenaExprKind::ErrorContext { block, .. }
+            | ArenaExprKind::ContextScope { block, .. } => {
+                self.block_definitely_exits_arena(arena, *block)
+            }
+            _ => false,
         }
     }
 }

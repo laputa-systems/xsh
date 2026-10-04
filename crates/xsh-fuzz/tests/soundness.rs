@@ -115,6 +115,26 @@ fn well_typed_programs_run_and_match_the_reference_evaluator() {
     );
 }
 
+/// Seeds whose programs consume a `for` pipeline whose stage block reads a
+/// variable the loop body assigns between pulls, pinning the item-by-item
+/// consumption the runtime and the reference evaluator must agree on.
+const LAZY_PIPELINE_SEEDS: &[u64] = &[1791136586894360375];
+
+#[test]
+fn pipeline_stage_blocks_observe_loop_body_mutations() {
+    let sandbox = sandbox();
+    let config = GenConfig::default();
+    for &seed in LAZY_PIPELINE_SEEDS {
+        if let Err((_, failure)) = run_seed(seed, &config, Some(&sandbox)) {
+            panic!(
+                "seed {seed}: {}: {}",
+                failure.kind(),
+                failure.detail()
+            );
+        }
+    }
+}
+
 #[test]
 fn accepted_registry_probes_run_without_internal_or_type_errors() {
     let corpus = xsh_fuzz::probes::corpus();

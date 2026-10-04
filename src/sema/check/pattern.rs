@@ -571,44 +571,37 @@ impl Checker {
                             DiagnosticCode::CheckPatternType,
                         );
                     }
-                    if info.field_count == 0 {
-                        if arg.is_some() {
-                            self.error(
-                                span,
-                                &format!("tag variant `{name}` has no fields"),
-                                DiagnosticCode::CheckPatternArity,
-                            );
-                        }
-                    } else if let Some(arg) = arg {
-                        if info.field_count == 1 {
-                            self.check_pattern_arena(
-                                arena,
-                                source,
-                                *arg,
-                                &info.field_types[0].clone(),
-                            );
-                        } else if let ArenaPatternKind::Tuple(sub_patterns) =
-                            &arena.arena.pattern(*arg).kind
-                        {
-                            for (sub_id, field_ty) in arena
+                    // The parser wraps a constructor's arguments in a tuple
+                    // pattern only when it parses more than one; a lone
+                    // argument (or none) is the whole pattern. So the argument
+                    // count is the tuple length, 1, or 0.
+                    let args: Vec<PatternId> = match arg {
+                        None => Vec::new(),
+                        Some(arg) => match &arena.arena.pattern(*arg).kind {
+                            ArenaPatternKind::Tuple(sub_patterns) => arena
                                 .arena
                                 .pattern_ids(*sub_patterns)
-                                .zip(info.field_types.iter())
-                            {
-                                self.check_pattern_arena(arena, source, sub_id, field_ty);
-                            }
-                        } else {
-                            self.check_pattern_arena(arena, source, *arg, &Type::Unknown);
-                        }
-                    } else {
+                                .collect(),
+                            _ => vec![*arg],
+                        },
+                    };
+                    if args.len() != info.field_count {
                         self.error(
                             span,
                             &format!(
-                                "tag variant `{name}` has {} field(s) — provide a binding",
-                                info.field_count
+                                "tag variant `{name}` expects {} argument(s), got {}",
+                                info.field_count,
+                                args.len()
                             ),
                             DiagnosticCode::CheckPatternArity,
                         );
+                        for arg in args {
+                            self.check_pattern_arena(arena, source, arg, &Type::Unknown);
+                        }
+                    } else {
+                        for (arg, field_ty) in args.into_iter().zip(info.field_types.iter()) {
+                            self.check_pattern_arena(arena, source, arg, field_ty);
+                        }
                     }
                     return;
                 }

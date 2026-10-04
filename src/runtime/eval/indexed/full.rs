@@ -3743,6 +3743,34 @@ fn indexed_block_can_return(store: &FullStore, block: IrBlockId) -> Result<bool,
     Ok(false)
 }
 
+/// The literal truth value of a lowered branch condition instruction, when it
+/// is a boolean literal (`BoolBool` for bool chains, `ExprBool` for
+/// expression conditions). Any other instruction is not a literal.
+fn indexed_condition_bool_literal(
+    store: &FullStore,
+    instruction: u32,
+) -> Result<Option<bool>, IrVerifyError> {
+    let tag = store
+        .tags
+        .get(instruction as usize)
+        .copied()
+        .ok_or_else(|| IrVerifyError::new("return-analysis condition is out of bounds"))?;
+    if !matches!(tag, FullTag::BoolBool | FullTag::ExprBool) {
+        return Ok(None);
+    }
+    let data = *store
+        .data
+        .get(instruction as usize)
+        .ok_or_else(|| IrVerifyError::new("return-analysis condition data is out of bounds"))?;
+    match store.payload(data.range())? {
+        [0] => Ok(Some(false)),
+        [1] => Ok(Some(true)),
+        _ => Err(IrVerifyError::new(
+            "return-analysis condition literal is invalid",
+        )),
+    }
+}
+
 fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     let tag = store
         .tags
@@ -3788,9 +3816,13 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                     "return-analysis if branches are invalid",
                 ));
             };
-            let mut all_return = len != 0;
+            // A literal-false condition never runs its branch; a literal-true
+            // one makes every later branch and the else unreachable, so the
+            // chain's completion is that branch's.
+            let mut chain_can_return = true;
+            let mut chain_consumed = false;
             for _ in 0..len {
-                let Some((_, rest)) = branch_words.split_first() else {
+                let Some((&condition, rest)) = branch_words.split_first() else {
                     return Err(IrVerifyError::new(
                         "return-analysis if condition is missing",
                     ));
@@ -3798,7 +3830,21 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 let Some((&body, rest)) = rest.split_first() else {
                     return Err(IrVerifyError::new("return-analysis if body is missing"));
                 };
-                all_return &= indexed_block_can_return(store, block(body)?)?;
+                if !chain_consumed {
+                    match indexed_condition_bool_literal(store, condition)? {
+                        Some(false) => {}
+                        Some(true) => {
+                            chain_can_return =
+                                indexed_block_can_return(store, block(body)?)?;
+                            chain_consumed = true;
+                        }
+                        None => {
+                            if !indexed_block_can_return(store, block(body)?)? {
+                                chain_can_return = false;
+                            }
+                        }
+                    }
+                }
                 branch_words = if tag == FullTag::StmtPatternIf {
                     rest.get(1..)
                         .ok_or_else(|| IrVerifyError::new("return-analysis captures are missing"))?
@@ -3827,7 +3873,11 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                     ));
                 }
             };
-            all_return && else_returns
+            if chain_consumed {
+                chain_can_return
+            } else {
+                chain_can_return && else_returns
+            }
         }
         FullTag::StmtWith => {
             let body = *payload
@@ -4245,14 +4295,18 @@ impl FullVerifier {
                     }
                 }
             }
-            if body_payload.first().copied() == Some(0) {
+            let return_type = store
+                .semantic
+                .to_type(store.semantic.signature_return_type(function.signature)?)?;
+            // A stream producer's body ending ends the stream, so the empty
+            // body is the degenerate empty stream rather than a missing return.
+            if body_payload.first().copied() == Some(0)
+                && !matches!(return_type, Type::Stream(_))
+            {
                 return Err(IrVerifyError::new(format!(
                     "function {index} has an empty body"
                 )));
             }
-            let return_type = store
-                .semantic
-                .to_type(store.semantic.signature_return_type(function.signature)?)?;
             if !matches!(return_type, Type::Stream(_)) && !indexed_block_can_return(store, body_id)?
             {
                 return Err(IrVerifyError::new(format!(

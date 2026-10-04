@@ -1860,10 +1860,7 @@ impl Checker {
                 );
                 return;
             }
-            for (index, item) in arena.arena.list_elements(items).enumerate() {
-                if index == 0 && item.splice_span.is_none() {
-                    continue;
-                }
+            for item in arena.arena.list_elements(items) {
                 let actual = self.check_expr_arena(arena, source, item.value, None);
                 let item_ty = if let Some(splice_span) = item.splice_span {
                     match actual {

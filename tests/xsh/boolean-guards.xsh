@@ -176,3 +176,29 @@ test test_boolean_guard_failure_branch_owns_the_error {
     }
   }
 }
+
+# The guard exits the match's scrutinee block on every path, so flow analysis
+# types that block `Unknown`; the match is dead code and must not be reported
+# as non-exhaustive against that placeholder type.
+test test_boolean_guard_exiting_scrutinee_match_is_not_demanded_exhaustive { |ctx|
+  let output = test.run_script(
+    ctx,
+    """error FzErr = Bad(message: Str)
+pure classify() -> Result[Int, FzErr] {
+  match ctx "m" {
+    guard false else { return Err(FzErr.Bad(message: "stopped")) }
+    [1, 2]
+  } {
+    [head, ..rest] => head
+  }
+}
+match classify() {
+  Ok(value) => print \${value}
+  Err(failure) => print \${failure.message}
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """stopped
+"""
+}
