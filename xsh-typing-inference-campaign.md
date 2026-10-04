@@ -77,11 +77,7 @@ everything else is generated from it or checked against it.
     run.
   - `make docs` renders SPEC.md from a template, as it does the tour, and
     `docs-check` fails on drift.
-- **Error facets:** a typed facet enum in the registry replaces the copies in
-  `xsh-registry/src/errors.rs`, `value.rs::host_facet` and the SPEC table.
-  - The runtime maps OS errors onto it.
-  - The checker validates `is Facet` against it.
-  - The SPEC facet table is generated from it.
+- **Error facets (done):** one `ErrorFacet` enum in the registry; the SPEC table is generated.
 - **Diagnostic codes:** the `DiagnosticCode` work also checks that every code
   SPEC prose mentions exists in the enum.
 
