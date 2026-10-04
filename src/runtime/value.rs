@@ -16,6 +16,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
+use xsh_registry::errors::ErrorFacet;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecordShape {
@@ -1513,7 +1514,7 @@ impl RuntimeError {
     #[must_use]
     pub fn with_host_facet(mut self, error: &impl HostErrorFacet) -> Self {
         if let Some(facet) = error.host_facet() {
-            self.facets.push(facet.to_string());
+            self.facets.push(facet.name().to_string());
         }
         self
     }
@@ -1653,19 +1654,10 @@ impl RunError {
     }
 
     pub fn facets(&self) -> Vec<String> {
-        match self.variant_name() {
-            "NotFound" => vec!["NotFound".to_string()],
-            "PermissionDenied" => vec!["PermissionDenied".to_string()],
-            "NonzeroExit" => vec!["NonzeroExit".to_string()],
-            "Signal" => vec!["Signal".to_string()],
-            "Timeout" => vec!["Timeout".to_string()],
-            "Canceled" => vec!["Canceled".to_string()],
-            "CaptureLimit" => vec!["CaptureLimit".to_string()],
-            "InvalidUtf8" | "InvalidTarget" => vec!["InvalidData".to_string()],
-            "Io" | "Redirection" => vec!["HostIo".to_string()],
-            "PipelineFailure" | "ExecFailure" | "Spawn" | "UnexpectedExit" => vec!["ProcessFailure".to_string()],
-            _ => Vec::new(),
-        }
+        xsh_registry::errors::process_error_facets(self.variant_name())
+            .iter()
+            .map(|facet| facet.name().to_string())
+            .collect()
     }
 
     pub fn payload(&self) -> RecordMap {
@@ -1689,32 +1681,26 @@ pub fn error_family_matches(actual: Name, expected: Name) -> bool {
     actual == expected || expected.as_str().rsplit_once('.').is_some_and(|(_, member)| member == actual.as_str().as_str())
 }
 
-/// An OS error source that maps onto the `ProcessError` facet vocabulary.
+/// An OS error source that maps onto the built-in error facet vocabulary.
 pub trait HostErrorFacet {
-    fn host_facet(&self) -> Option<&'static str>;
+    fn host_facet(&self) -> Option<ErrorFacet>;
 }
 
 impl HostErrorFacet for std::io::Error {
-    fn host_facet(&self) -> Option<&'static str> {
-        Some(match self.kind() {
-            std::io::ErrorKind::NotFound => "NotFound",
-            std::io::ErrorKind::PermissionDenied => "PermissionDenied",
-            std::io::ErrorKind::TimedOut => "Timeout",
-            std::io::ErrorKind::InvalidData => "InvalidData",
-            _ => "HostIo",
-        })
+    fn host_facet(&self) -> Option<ErrorFacet> {
+        Some(ErrorFacet::of_host_io(self.kind()))
     }
 }
 
 impl HostErrorFacet for rustix::io::Errno {
-    fn host_facet(&self) -> Option<&'static str> {
+    fn host_facet(&self) -> Option<ErrorFacet> {
         std::io::Error::from(*self).host_facet()
     }
 }
 
 /// A walk failure has a facet only when the filesystem caused it.
 impl HostErrorFacet for ignore::Error {
-    fn host_facet(&self) -> Option<&'static str> {
+    fn host_facet(&self) -> Option<ErrorFacet> {
         self.io_error().and_then(HostErrorFacet::host_facet)
     }
 }

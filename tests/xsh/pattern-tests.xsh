@@ -445,6 +445,37 @@ test test_capitalized_unknown_pattern_names_are_rejected { |ctx|
   assert "is NotFound" in rejected.stderr
 }
 
+test test_unknown_error_facets_name_the_nearest_known_facet { |ctx|
+  let builtin = test.run_script(
+    ctx,
+    r"""match p"missing.log".read_text() {
+  Ok(_) => print "ok"
+  Err(is NotFoud) => print "caught"
+  Err(error) => print ${error.message}
+}
+""",
+  )?
+  assert ! builtin.success
+  assert "unknown error facet `NotFoud`" in builtin.stderr
+  assert "did you mean `NotFound`?" in builtin.stderr
+
+  let declared = test.run_script(
+    ctx,
+    """error StoreError = Gone(message: Str) : Vanished
+pure describe(failure: StoreError) -> Str {
+  match failure {
+    is Vanishd => return "gone"
+    _ => return "other"
+  }
+}
+print (describe(StoreError.Gone(message: "x")))
+""",
+  )?
+  assert ! declared.success
+  assert "did you mean `Vanished`?" in declared.stderr
+  assert "does not match value type" not in declared.stderr
+}
+
 test test_field_path_line_followed_by_not_in_or_is_is_an_expression {
   let r = {a: {b: 1}}
   let xs = [2, 3]

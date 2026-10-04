@@ -539,25 +539,24 @@ render the cause chain (bounded). Resources reachable from an error payload or
 cause move with the error like any other value.
 
 `ProcessError` is the family returned by process forms. Every variant carries
-`message` and `status: Status?`.
+`message` and `status: Status?`. Built-in families and host operations
+implement only the facets below (`xsht api language:facet`);
+`ProcessError.Unknown` (an invalid or already consumed handle) implements none.
 
-| Variants | Facet |
-|---|---|
-| `NotFound`, `PermissionDenied`, `NonzeroExit`, `Signal`, `Timeout`, `Canceled`, `CaptureLimit` | same name as the variant |
-| `InvalidUtf8`, `InvalidTarget` (NUL in a target) | `InvalidData` |
-| `Io`, `Redirection` | `HostIo` |
-| `ExecFailure`, `Spawn`, `PipelineFailure`, `UnexpectedExit` | `ProcessFailure` |
-| `Unknown` (an invalid or already consumed handle) | none |
+| Facet | Meaning | Contract |
+|---|---|---|
+{{- range .facets}}
+| `{{.name}}` | {{.summary}} | {{.contract}} |
+{{- end}}
 
 ```xsh
 {{.spec.error_match.source}}
 ```
 
 Host operations outside process forms (filesystem, path, and OS calls) fail
-with an `Error` that implements the facet of its OS error from the same
-vocabulary: `NotFound`, `PermissionDenied`, `Timeout`, `InvalidData`, or
-otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound` match a
-missing file alike.
+with an `Error` that implements the one facet its OS error kind maps to in the
+table above, or otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound`
+match a missing file alike.
 
 A failed `assert` produces `AssertionError.Failed(message: Str)`.
 

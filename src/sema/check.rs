@@ -759,6 +759,9 @@ impl Checker {
     }
 
     fn register_builtin_process_error_family(&mut self) {
+        // The built-in facet vocabulary is valid in patterns everywhere; user
+        // `error` declarations extend it within their scope.
+        self.error_facets.extend(xsh_registry::errors::ErrorFacet::ALL.iter().map(|facet| Name::intern(facet.name())));
         for family in xsh_registry::errors::builtin_error_families() {
             let fields = family
                 .fields
@@ -772,14 +775,11 @@ impl Checker {
                 .collect::<BTreeMap<_, _>>();
             let mut variants = BTreeMap::new();
             for variant in family.variants {
-                for facet in variant.facets {
-                    self.error_facets.insert(Name::intern(facet));
-                }
                 variants.insert(
                     Name::intern(variant.name),
                     ErrorVariantInfo {
                         fields: fields.clone(),
-                        facets: variant.facets.iter().map(Name::intern).collect(),
+                        facets: variant.facets.iter().map(|facet| Name::intern(facet.name())).collect(),
                     },
                 );
             }

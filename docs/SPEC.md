@@ -580,15 +580,22 @@ render the cause chain (bounded). Resources reachable from an error payload or
 cause move with the error like any other value.
 
 `ProcessError` is the family returned by process forms. Every variant carries
-`message` and `status: Status?`.
+`message` and `status: Status?`. Built-in families and host operations
+implement only the facets below (`xsht api language:facet`);
+`ProcessError.Unknown` (an invalid or already consumed handle) implements none.
 
-| Variants | Facet |
-|---|---|
-| `NotFound`, `PermissionDenied`, `NonzeroExit`, `Signal`, `Timeout`, `Canceled`, `CaptureLimit` | same name as the variant |
-| `InvalidUtf8`, `InvalidTarget` (NUL in a target) | `InvalidData` |
-| `Io`, `Redirection` | `HostIo` |
-| `ExecFailure`, `Spawn`, `PipelineFailure`, `UnexpectedExit` | `ProcessFailure` |
-| `Unknown` (an invalid or already consumed handle) | none |
+| Facet | Meaning | Contract |
+|---|---|---|
+| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`. |
+| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`. |
+| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, host OS errors of every kind without a more specific facet. |
+| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, host OS errors of kind `InvalidData`. |
+| `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
+| `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, host OS errors of kind `NotFound`. |
+| `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, host OS errors of kind `PermissionDenied`. |
+| `ProcessFailure` | A process could not be spawned, executed, or completed. | Implemented by `ProcessError.UnexpectedExit`, `ProcessError.PipelineFailure`, `ProcessError.ExecFailure`, `ProcessError.Spawn`. |
+| `Signal` | A process was terminated by a signal. | Implemented by `ProcessError.Signal`. |
+| `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, host OS errors of kind `TimedOut`. |
 
 ```xsh
 match process.run(command) {
@@ -600,10 +607,9 @@ match process.run(command) {
 ```
 
 Host operations outside process forms (filesystem, path, and OS calls) fail
-with an `Error` that implements the facet of its OS error from the same
-vocabulary: `NotFound`, `PermissionDenied`, `Timeout`, `InvalidData`, or
-otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound` match a
-missing file alike.
+with an `Error` that implements the one facet its OS error kind maps to in the
+table above, or otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound`
+match a missing file alike.
 
 A failed `assert` produces `AssertionError.Failed(message: Str)`.
 

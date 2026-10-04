@@ -706,7 +706,7 @@ impl RecordConstructors {
                 else if let Some(ty) = self.error_types.get(&(namespace, name)) { ty.clone() }
                 else if let Some(id) = self.definition(namespace, name) { self.instantiate(arena, id, &[], active)? }
                 else if xsh_registry::errors::builtin_error_families().iter().any(|family| family.name == name.as_str().as_str()) { Type::ErrorFamily(name) }
-                else if xsh_registry::errors::builtin_error_families().iter().any(|family| family.variants.iter().any(|variant| variant.facets.iter().any(|facet| *facet == name.as_str().as_str()))) { Type::ErrorFacet(name) }
+                else if xsh_registry::errors::ErrorFacet::from_name(&name.as_str()).is_some() { Type::ErrorFacet(name) }
                 else { return Err(SchemaTypeError::new("check.unknown-type", format!("unknown type `{name}`"))); }
             }
             ArenaTypeExprTag::Qualified => {
