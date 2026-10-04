@@ -2,11 +2,19 @@
 ##! with the stdlib `template` module, and checks that committed output is current.
 ##!
 ##! Template data is one record:
-##! - `snippets.NAME`: `{source, output, platform}` for `docs/snippets/tour/NN-NAME.xsh`
-##!   (`-` in NAME becomes `_`). `output` is the snippet's stdout when some template
-##!   references `.snippets.NAME.output`, and null otherwise, so only shown outputs run.
-##!   A snippet whose first line is `# platform: linux` is checked but never run; any
-##!   output shown for it is literal text in the template.
+##! - `tour.NAME` and `spec.NAME`: `{source, output, platform}` for the snippet
+##!   `docs/snippets/COLLECTION/NN-NAME.xsh` (`-` in NAME becomes `_`). `source` is the whole
+##!   file, or the concatenation of its `# begin example` ... `# end example` regions,
+##!   each dedented, so a fragment is checked inside a wrapper program the document
+##!   does not show. `output` is the snippet's stdout when some template references
+##!   `.COLLECTION.NAME.output`, and null otherwise, so only shown outputs run. A snippet
+##!   whose first line is `# platform: linux` is checked but never run; any output
+##!   shown for it is literal text in the template.
+##! - `docs/snippets/COLLECTION/rejected/NN-NAME.xsh` snippets show code that must fail to
+##!   check: `check` requires exactly the diagnostics their `# error: CODE` comments
+##!   name, on those lines, and every other snippet must check clean. Other `.xsh`
+##!   files directly in a collection directory are support modules that snippets import;
+##!   their names must not start with a digit.
 ##! - `project.KEY`: `{path, source}` for each file of `docs/snippets/tour/project/`,
 ##!   keyed by its relative path without the extension, non-alphanumeric runs as `_`.
 ##! - `stdlib`, `cli`, `lints`: reference data read from `xsht api`, the binaries'
@@ -21,6 +29,8 @@ export error DocsError = Stale(message: Str) | Snippet(message: Str) | Layout(me
 export type DocTools = {xsh: Path, xsht: Path}
 
 type Snippet = {source: Str, output: Str?, platform: Str}
+
+type SnippetFile = {name: Str, key: Str, path: Path, rejected: Bool}
 
 type ProjectFile = {path: Str, source: Str}
 
@@ -44,7 +54,26 @@ type LintCode = {code: Str, summary: Str}
 
 const snippet_name = rx"^[0-9][0-9]-([a-z0-9-]+)\.xsh$"
 
-const output_reference = rx"\.snippets\.[a-z0-9_]+\.output"
+const numbered_name = rx"^[0-9]"
+
+# Snippet collections, each rendered as `.COLLECTION.NAME` from `docs/snippets/COLLECTION/`.
+const snippet_collections = ["tour", "spec"]
+
+const output_reference = rx"\.(tour|spec)\.[a-z0-9_]+\.output"
+
+const region_begin = "# begin example"
+
+const region_end = "# end example"
+
+const leading_spaces = rx"^( *)"
+
+const error_annotation = rx"# error: ([a-z0-9._-]+)$"
+
+# `xsht check` reports a diagnostic as `SEVERITY[CODE]: message` followed by an
+# indented `PATH:LINE:COLUMN` line.
+const diagnostic_header = rx"^[a-z]+\[([a-z0-9._-]+)\]: "
+
+const diagnostic_location = rx"^ +.+:([0-9]+):[0-9]+$"
 
 const command_heading = rx"^([a-z]+) — "
 
@@ -54,6 +83,8 @@ const internal_modules = ["applet"]
 pure header(rel: Str) -> Str {
   let hint = if rel == "user-tour.md" {
     "edit the template and docs/snippets/tour/."
+  } else if rel == "SPEC.md" {
+    "edit the template and docs/snippets/spec/."
   } else {
     "edit the template or the code it documents."
   }
@@ -69,15 +100,70 @@ pure field_key(rel: Str) -> Str {
   rx"[^A-Za-z0-9]+".replace(rx"\.[A-Za-z0-9]+$".replace(rel, ""), "_")
 }
 
-pure shown_outputs(templates: List[Str]) -> List[Str] {
+# The names of the `collection` snippets whose output some template shows.
+pure shown_outputs(templates: List[Str], collection: Str) -> List[Str] {
   var names: List[Str] = []
   for source in templates {
     for found in output_reference.find(source) {
-      names += [found.text.split(".")[2]]
+      let parts = found.text.split(".")
+      if parts[1] == collection {
+        names += [parts[2]]
+      }
     }
   }
 
   names
+}
+
+pure indent(line: Str) -> Int {
+  leading_spaces.captures(line)[1].byte_len()
+}
+
+# Region lines without their common leading spaces; blank lines become empty.
+pure dedent(lines: List[Str]) -> List[Str] {
+  var width = -1
+  for line in lines {
+    if line.trim() != "" and (width < 0 or indent(line) < width) {
+      width = indent(line)
+    }
+  }
+
+  [if line.trim() == "" { "" } else { line.byte_slice(width) } for line in lines]
+}
+
+# The text a document shows for a snippet: the whole file when it has no
+# example region, otherwise its regions in order.
+pure shown_source(name: Str, source: Str) -> Result[Str] {
+  var shown: List[Str] = []
+  var region: List[Str] = []
+  var inside = false
+  var regions = 0
+  for line in source.lines() {
+    if line.trim() == region_begin {
+      guard ! inside else {
+        return Err(DocsError.Layout(message: f"{name} opens an example region inside another"))
+      }
+
+      inside = true
+      region = []
+    } else if line.trim() == region_end {
+      guard inside and region.len() > 0 else {
+        return Err(DocsError.Layout(message: f"{name} closes an example region that is not open or is empty"))
+      }
+
+      shown += dedent(region)
+      inside = false
+      regions += 1
+    } else if inside {
+      region += [line]
+    }
+  }
+
+  guard ! inside else {
+    return Err(DocsError.Layout(message: f"{name} leaves an example region open"))
+  }
+
+  if regions == 0 { body(source) } else { shown.join("\n") }
 }
 
 # Runs a trusted repository snippet in an empty directory with only `PATH` set.
@@ -99,38 +185,53 @@ proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -
   body(stdout.read_text()?)
 }
 
-proc snippets(root: Path, xsh: Path, shown: List[Str]) [fs, process, env, error] -> Result[Map[Str, Snippet]] {
-  let search_path = env.get_or("PATH", "")?
-  let files = fs.files(fp"{root}/docs/snippets/tour", exts: ["xsh"])?
-    |> where .path.parent().name() == "tour"
-    |> sort-by .name
-  let collected = files
-    |> par-map(jobs: 8) { |entry|
-      let parts = snippet_name.captures(entry.name)
-      guard parts.len() == 2 else {
-        return Err(DocsError.Layout(message: f"snippet {entry.name} is not named NN-name.xsh"))
-      }
+proc snippet_files(dir: Path) [fs, error] -> Result[List[SnippetFile]] {
+  let rejected_dir = fp"{dir}/rejected"
+  var files: List[SnippetFile] = []
+  for entry in fs.files(dir, exts: ["xsh"])? |> sort-by .name {
+    let parent = entry.path.parent()
+    continue unless parent == dir or parent == rejected_dir
+    let parts = snippet_name.captures(entry.name)
+    if parts.len() == 2 {
+      let key = parts[1].replace("-", "_")
+      files += [SnippetFile(name: entry.name, key:, path: entry.path, rejected: parent == rejected_dir)]
+    } else if numbered_name.matches(entry.name) or parent == rejected_dir {
+      return Err(DocsError.Layout(message: f"snippet {entry.name} is not named NN-name.xsh"))
+    }
+  }
 
-      let name = parts[1].replace("-", "_")
-      let source = entry.path.read_text()?
+  files
+}
+
+proc snippets(dir: Path, xsh: Path, shown: List[Str]) [fs, process, env, error] -> Result[Map[Str, Snippet]] {
+  let search_path = env.get_or("PATH", "")?
+  let collected = snippet_files(dir)?
+    |> par-map(jobs: 8) { |file|
+      let source = file.path.read_text()?
       let platform = if (source.lines().get(0) ?? "") == "# platform: linux" { "linux" } else { "any" }
-      let output: Str? = if name not in shown {
+      let output: Str? = if file.key not in shown {
         null
       } else if platform != "any" {
-        return Err(
-          DocsError.Snippet(message: f"a template shows the output of platform-specific {entry.name}"),
-        )
+        return Err(DocsError.Snippet(message: f"a template shows the output of platform-specific {file.name}"))
+      } else if file.rejected {
+        return Err(DocsError.Snippet(message: f"a template shows the output of rejected {file.name}"))
       } else {
-        run_snippet(xsh, entry.path, search_path)?
+        run_snippet(xsh, file.path, search_path)?
       }
 
-      {name, snippet: Snippet(source: body(source), output:, platform:)}
+      # `?` in a `par-map` callback escapes this function's Result, so layout
+      # failures return explicitly like the ones above.
+      guard let shown_text = shown_source(file.name, source) else { |failure|
+        return Err(failure)
+      }
+
+      {name: file.key, snippet: Snippet(source: shown_text, output:, platform:)}
     }
 
   var table: Map[Str, Snippet] = {}
   for {name, snippet} in collected {
     guard name not in table else {
-      return Err(DocsError.Layout(message: f"two tour snippets are named {name}"))
+      return Err(DocsError.Layout(message: f"two {dir.name()} snippets are named {name}"))
     }
 
     table[name] = snippet
@@ -138,11 +239,72 @@ proc snippets(root: Path, xsh: Path, shown: List[Str]) [fs, process, env, error]
 
   for name in shown {
     guard name in table else {
-      return Err(DocsError.Layout(message: f"a template shows the output of unknown snippet {name}"))
+      return Err(DocsError.Layout(message: f"a template shows the output of unknown snippet {dir.name()}.{name}"))
     }
   }
 
   table
+}
+
+# `LINE: CODE` for each `# error: CODE` comment in a snippet.
+pure expected_diagnostics(source: Str) -> List[Str] {
+  let lines = source.lines()
+  var expected: List[Str] = []
+  for index in range(lines.len()) {
+    if let [_, code] = error_annotation.captures(lines[index]) {
+      expected += [f"{index + 1}: {code}"]
+    }
+  }
+
+  expected
+}
+
+# `LINE: CODE` for each diagnostic in the `xsht check` report on one file.
+pure reported_diagnostics(report: Str) -> List[Str] {
+  var reported: List[Str] = []
+  var code = ""
+  for text in report.lines() {
+    if let [_, line] = diagnostic_location.captures(text) {
+      if code != "" {
+        reported += [f"{line}: {code}"]
+      }
+    }
+
+    let heading = diagnostic_header.captures(text)
+    code = if heading.len() == 2 { heading[1] } else { "" }
+  }
+
+  reported
+}
+
+# Checks each snippet of a collection on its own: a rejected snippet must report exactly
+# the diagnostics its `# error: CODE` comments name, on those lines, and any other
+# snippet must report nothing.
+proc check_snippet_diagnostics(dir: Path, xsht: Path) [fs, process, error] {
+  let failures = snippet_files(dir)?
+    |> par-map(jobs: 4) { |file|
+      let expected = expected_diagnostics(file.path.read_text()?)
+      let result = run.capture --text $xsht check $file.path ?
+      let reported = reported_diagnostics(result.stderr)
+      let missing = [d for d in expected if d not in reported]
+      let unexpected = [d for d in reported if d not in expected]
+      if file.rejected and expected.len() == 0 {
+        f"{file.name} is rejected but names no `# error: CODE`"
+      } else if ! file.rejected and expected.len() > 0 {
+        f"{file.name} names an expected error outside rejected/"
+      } else if ! result.status.ok and reported.len() == 0 {
+        f"xsht check {file.name} failed: {result.stderr.trim()}"
+      } else if missing.len() + unexpected.len() > 0 {
+        f"{file.name} lacks [{missing.join(", ")}] and reports [{unexpected.join(", ")}]"
+      } else {
+        ""
+      }
+    }
+
+  let problems = [failure for failure in failures if failure != ""]
+  guard problems.len() == 0 else {
+    return Err(DocsError.Snippet(message: f"snippet diagnostics differ: {problems.join("; ")}"))
+  }
 }
 
 proc project(root: Path) [fs, error] -> Result[Map[Str, ProjectFile]] {
@@ -257,8 +419,10 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
   let templates_dir = fp"{root}/docs/templates"
   let templates = fs.files(templates_dir, exts: ["md"])? |> sort-by .name
   let sources = [{rel: t.path.relative_to(templates_dir).display(), source: t.path.read_text()?} for t in templates]
+  let shown = [t.source for t in sources]
   let data = {
-    snippets: snippets(root, tools.xsh, shown_outputs([t.source for t in sources]))?,
+    tour: snippets(fp"{root}/docs/snippets/tour", tools.xsh, shown_outputs(shown, "tour"))?,
+    spec: snippets(fp"{root}/docs/snippets/spec", tools.xsh, shown_outputs(shown, "spec"))?,
     project: project(root)?,
     stdlib: stdlib(tools.xsht)?,
     cli: cli_reference(tools)?,
@@ -289,8 +453,9 @@ export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] 
   }
 }
 
-## Fails when committed generated docs differ from a fresh render, or when the
-## tour snippets stop checking or the tour project's tests fail.
+## Fails when committed generated docs differ from a fresh render, when a
+## snippet's check diagnostics differ from its `# error: CODE` comments, or when
+## the tour project's tests fail.
 export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit] {
   let stale = [
     f"docs/{doc.rel}"
@@ -301,24 +466,17 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
     return Err(DocsError.Stale(message: f"stale generated docs: {stale.join(", ")}; run `make docs`"))
   }
 
-  let tour = fp"{root}/docs/snippets/tour"
-  stages.execute(
-    stages.command(
-      "check-docs-snippets",
-      "docs",
-      tools.xsht.display(),
-      [tools.xsht.display(), "check", tour.display()],
-      root,
-      {},
-    ),
-  )?
+  for collection in snippet_collections {
+    check_snippet_diagnostics(fp"{root}/docs/snippets/{collection}", tools.xsht)?
+  }
+
   stages.execute(
     stages.command(
       "check-docs-project",
       "docs",
       tools.xsht.display(),
       [tools.xsht.display(), "test"],
-      fp"{tour}/project",
+      fp"{root}/docs/snippets/tour/project",
       {},
     ),
   )?

@@ -16,6 +16,21 @@ print "linux only"
   assert 1 + 1 == 2
 }
 """)?
+  fp"{root}/docs/snippets/spec/rejected".mkdir()?
+  fp"{root}/docs/snippets/spec/01-fragment.xsh".write("""pure double(n: Int) -> Int {
+  # begin example
+  n * 2
+  # end example
+}
+
+const offset = 1
+# begin example
+let total = double(20) + offset
+# end example
+print $total
+""")?
+  fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".write("""print $missing # error: check.unresolved-name
+""")?
   root
 }
 
@@ -27,11 +42,11 @@ test test_docs_check_names_stale_output_until_generate_rewrites_it { |ctx|
   let root = docs_tree(
     ctx,
     """```xsh
-{{.snippets.greet.source}}
+{{.tour.greet.source}}
 ```
 
 ```text
-{{.snippets.greet.output}}
+{{.tour.greet.output}}
 ```
 
 {{.project.tests_test_unit.path}} ({{len .lints}} lints)
@@ -58,10 +73,76 @@ tests/test-unit.xsh (""" in page, page
   docs.check(root, tools(ctx))?
 }
 
+test test_docs_show_dedented_example_regions_and_run_the_whole_snippet { |ctx|
+  let root = docs_tree(
+    ctx,
+    """```xsh
+{{.spec.fragment.source}}
+```
+
+```text
+{{.spec.fragment.output}}
+```
+""",
+  )?
+
+  docs.generate(root, tools(ctx))?
+  let page = fp"{root}/docs/page.md".read_text()?
+  assert """```xsh
+n * 2
+let total = double(20) + offset
+```
+
+```text
+41
+```""" in page, page
+  docs.check(root, tools(ctx))?
+}
+
+test test_docs_check_requires_exactly_the_annotated_diagnostics { |ctx|
+  let root = docs_tree(ctx, "")?
+  docs.generate(root, tools(ctx))?
+  docs.check(root, tools(ctx))?
+
+  fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".write("""print $missing # error: check.dynamic-boundary
+""")?
+  match docs.check(root, tools(ctx)) {
+    Ok(_) => assert false, "a rejected snippet must report the code its comment names"
+    Err(error) => assert "02-undefined.xsh lacks [1: check.dynamic-boundary] and reports [1: check.unresolved-name]" in error.message, error.message
+  }
+
+  fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".write("""print "fine"
+""")?
+  match docs.check(root, tools(ctx)) {
+    Ok(_) => assert false, "a rejected snippet must name its expected error"
+    Err(error) => assert "02-undefined.xsh is rejected but names no `# error: CODE`" in error.message, error.message
+  }
+
+  fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".remove()?
+  fp"{root}/docs/snippets/spec/02-undefined.xsh".write("""print $missing
+""")?
+  match docs.check(root, tools(ctx)) {
+    Ok(_) => assert false, "a snippet outside rejected/ must check clean"
+    Err(error) => assert "02-undefined.xsh lacks [] and reports [1: check.unresolved-name]" in error.message, error.message
+  }
+}
+
+test test_docs_refuse_an_unclosed_example_region { |ctx|
+  let root = docs_tree(ctx, "")?
+  fp"{root}/docs/snippets/spec/03-open.xsh".write("""# begin example
+print "open"
+""")?
+
+  match docs.generate(root, tools(ctx)) {
+    Ok(_) => assert false, "an unclosed region must fail"
+    Err(error) => assert "03-open.xsh leaves an example region open" in error.message, error.message
+  }
+}
+
 test test_docs_refuse_to_show_output_of_a_platform_specific_snippet { |ctx|
   let root = docs_tree(
     ctx,
-    """{{.snippets.proc.output}}
+    """{{.tour.proc.output}}
 """,
   )?
 

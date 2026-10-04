@@ -95,16 +95,22 @@ Repository gates (owner-run unless the task asks for them):
 | `cargo dev test xsh` | build release `xsh` and `xsht`, then the native suite through `target/release/xsht test` |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
 | `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/` |
-| `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check docs/snippets/tour` and `xsht test` in `docs/snippets/tour/project` |
+| `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check` on each snippet in `docs/snippets/spec` and `docs/snippets/tour`, and `xsht test` in `docs/snippets/tour/project` |
 
-Generated docs: `docs/user-tour.md` and `docs/reference/*.md` are rendered by
-`dev/docs.xsh` from `docs/templates/`; edit the template or the snippet in
-`docs/snippets/tour/`, run `make docs`, and commit both. A template that shows
-`{{.snippets.NAME.output}}` makes `make docs` run that snippet; other output
-blocks are literal template text. The repository's `xsht check` and `xsht lint`
-cover the snippets; `[format] exclude` in `xsht-config.ini` keeps them out of
-`xsht fmt --check` until the formatter keeps short blocks on one line, and
-deleting that line enables it. `dev/tests/test-docs.xsh` covers the generator.
+Generated docs: `docs/SPEC.md`, `docs/user-tour.md`, and `docs/reference/*.md`
+are rendered by `dev/docs.xsh` from `docs/templates/`; edit the template or the
+snippet in `docs/snippets/spec/` or `docs/snippets/tour/`, run `make docs`, and
+commit both. A snippet that is a fragment wraps the shown lines in
+`# begin example` / `# end example` inside a program that checks; an example
+that must fail lives in `docs/snippets/spec/rejected/` with a `# error: CODE`
+comment on each failing line. A template that shows
+`{{.spec.NAME.output}}` or `{{.tour.NAME.output}}` makes `make docs` run that
+snippet; other output blocks are literal template text. The repository's
+`xsht check` and `xsht lint` cover the snippets outside `rejected/` (excluded in
+`xsht-config.ini`); `[format] exclude` keeps all snippets out of
+`xsht fmt --check` until the formatter keeps short blocks on one line and
+leaves block-ending comments in place, and deleting that line enables it.
+`dev/tests/test-docs.xsh` covers the generator.
 
 `cargo test --release -p xsht --test integration lint_format_invariance::`
 checks that lint diagnostics are identical before and after formatting on the
