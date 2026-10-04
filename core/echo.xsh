@@ -150,10 +150,11 @@ proc main(...argv: List[Str]) [process, env, io, error] {
   if ! posix or (argv.len() > 0 and argv[0] == "-n") {
     while first < argv.len() {
       let word = argv[first]
-      let flags = word.byte_slice(1)
 
-      break when ! word.starts_with("-") or flags == ""
-      break when ! rx"^[neE]+$".matches(flags)
+      break when ! word.starts_with("-") or word == "-"
+      break when ! rx"^-[neE]+$".matches(word)
+
+      let flags = word.byte_slice(1)
 
       for index in range(flags.byte_len()) {
         let flag = flags.byte_slice(index, length: 1)
