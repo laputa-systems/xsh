@@ -16,7 +16,7 @@ echo "8080 is held by $(ps -o comm= -p "$pid") ($pid)"
 
 ```xsh
 for owner in process.port(8080)? |> where .state == "LISTEN" {
-  print f"8080 is held by ${owner.command} (${owner.pid})"
+  print f"8080 is held by {owner.command} ({owner.pid})"
 }
 ```
 

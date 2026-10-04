@@ -1,7 +1,7 @@
 test test_diff_unified { |ctx|
   let root = test.temp_dir(ctx, name: "diff")?
-  let original = fp"${root}/original.txt"
-  let modified = fp"${root}/modified.txt"
+  let original = fp"{root}/original.txt"
+  let modified = fp"{root}/modified.txt"
 
   original.write("""alpha
 beta

@@ -1,49 +1,49 @@
 pure context_source(root: Path) -> Str {
-  f"""{
-    root: p"${root}",
-    target_dir: p"${root}/target",
-    coverage_dir: p"${root}/target/cov",
-    artifact_dir: p"${root}/dist",
+  f"""{{
+    root: p"{root}",
+    target_dir: p"{root}/target",
+    coverage_dir: p"{root}/target/cov",
+    artifact_dir: p"{root}/dist",
     host_os: target_policy.Linux,
     host_arch: target_policy.X86_64,
     target: target_policy.resolve("x86_64-unknown-linux-musl")?,
     profile: "dist",
     darwin_deployment_target: "26.0",
-  }"""
+  }}"""
 }
 
 pure darwin_context_source(root: Path) -> Str {
-  f"""{
-    root: p"${root}",
-    target_dir: p"${root}/target",
-    coverage_dir: p"${root}/target/cov",
-    artifact_dir: p"${root}/dist",
+  f"""{{
+    root: p"{root}",
+    target_dir: p"{root}/target",
+    coverage_dir: p"{root}/target/cov",
+    artifact_dir: p"{root}/dist",
     host_os: target_policy.Darwin,
     host_arch: target_policy.Aarch64,
     target: target_policy.resolve("aarch64-apple-darwin")?,
     profile: "dist",
     darwin_deployment_target: "26.0",
-  }"""
+  }}"""
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"""#!${xsh}
-${body}
+  tool_path.write(f"""#!{xsh}
+{body}
 """)?
   fs.chmod(tool_path, 0o755)?
 }
 
 test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "build-failure")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
-  let cargo_marker = fp"${root}/cargo-marker"
+  let cargo_marker = fp"{root}/cargo-marker"
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""p"${cargo_marker}".write("cargo")?
+    f"""p"{cargo_marker}".write("cargo")?
 abort(23)""",
   )?
   let inherited_path = env.get_or("PATH", "")?
@@ -54,16 +54,16 @@ use build
 use context
 use targets as target_policy
 
-let ctx: context.Context = ${context_source(root)}
-match build.build(ctx) {
+let ctx: context.Context = {context_source(root)}
+match build.build(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
     {
-      PATH: f"${tools}:${inherited_path}",
-      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+      PATH: f"{tools}:{inherited_path}",
+      XSH_MODULE_PATH: fp"{repository}/dev".display(),
     },
   )?
   assert result.success, result.stderr
@@ -74,15 +74,15 @@ match build.build(ctx) {
 
 test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
   let root = test.temp_dir(ctx, name: "check-lint")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let cargo_marker = fp"${root}/cargo-argv"
+  let cargo_marker = fp"{root}/cargo-argv"
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""p"${cargo_marker}".write(args.join("|"))?
+    f"""p"{cargo_marker}".write(args.join("|"))?
 abort(23)""",
   )?
   let result = test.run_script(
@@ -92,14 +92,14 @@ use build
 use context
 use targets as target_policy
 
-let ctx: context.Context = ${context_source(root)}
-match build.check_lint(ctx) {
+let ctx: context.Context = {context_source(root)}
+match build.check_lint(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout
@@ -108,23 +108,23 @@ match build.check_lint(ctx) {
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
   let root = test.temp_dir(ctx, name: "lint-build-xsh")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
-  let target = fp"${root}/target"
+  let target = fp"{root}/target"
   target.mkdir()?
-  let debug = fp"${target}/debug"
+  let debug = fp"{target}/debug"
   debug.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let xsh_marker = fp"${root}/xsh-build-marker"
-  let xsht = fp"${debug}/xsht"
+  let xsh_marker = fp"{root}/xsh-build-marker"
+  let xsht = fp"{debug}/xsht"
 
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""if "--bin" in args and "xsh" in args {
-  p"${xsh_marker}".write(args.join("|"))?
-}
+    f"""if "--bin" in args and "xsh" in args {{
+  p"{xsh_marker}".write(args.join("|"))?
+}}
 """,
   )?
   write_fake_tool(xsht, xsh, "")?
@@ -136,14 +136,14 @@ use build
 use context
 use targets as target_policy
 
-let ctx: context.Context = ${context_source(root)}
+let ctx: context.Context = {context_source(root)}
 build.lint_fix(ctx)?
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
   )?
-  assert result.success, f"""${result.stdout}
-${result.stderr}"""
+  assert result.success, f"""{result.stdout}
+{result.stderr}"""
   assert xsh_marker.exists()?, "lint --fix did not rebuild the debug xsh binary"
   let xsh_arguments = xsh_marker.read_text()?
   let xsh_diagnostic = xsh_marker.read_text()?
@@ -152,20 +152,20 @@ ${result.stderr}"""
 
 test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
   let root = test.temp_dir(ctx, name: "container-cleanup")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let cargo_marker = fp"${root}/cargo-marker"
-  let cleanup_marker = fp"${root}/cleanup-marker"
-  write_fake_tool(fp"${tools}/git", xsh, "let configured = true")?
+  let cargo_marker = fp"{root}/cargo-marker"
+  let cleanup_marker = fp"{root}/cleanup-marker"
+  write_fake_tool(fp"{tools}/git", xsh, "let configured = true")?
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""p"${cargo_marker}".write("cargo")?
+    f"""p"{cargo_marker}".write("cargo")?
 abort(23)""",
   )?
-  write_fake_tool(fp"${tools}/chown", xsh, f"""p"${cleanup_marker}".write("cleanup")?""")?
+  write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")?
   let result = test.run_script(
     ctx,
     f"""
@@ -173,16 +173,16 @@ use context
 use internal
 use targets as target_policy
 
-let ctx: context.Context = ${context_source(root)}
-match internal.linux_ci_test(ctx) {
+let ctx: context.Context = {context_source(root)}
+match internal.linux_ci_test(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
     {
       PATH: tools.display(),
-      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+      XSH_MODULE_PATH: fp"{repository}/dev".display(),
       HOST_UID: "501",
       HOST_GID: "20",
     },
@@ -196,18 +196,18 @@ match internal.linux_ci_test(ctx) {
 
 test test_docker_image_and_container_failures_are_staged { |ctx|
   let root = test.temp_dir(ctx, name: "docker-failures")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let docker_marker = fp"${root}/docker-marker"
+  let docker_marker = fp"{root}/docker-marker"
   write_fake_tool(
-    fp"${tools}/docker",
+    fp"{tools}/docker",
     xsh,
-    f"""p"${docker_marker}".write(args.join("|"))?
-if "run" in args {
+    f"""p"{docker_marker}".write(args.join("|"))?
+if "run" in args {{
   abort(24)
-}
+}}
 """,
   )?
   let result = test.run_script(
@@ -217,14 +217,14 @@ use context
 use docker
 use targets as target_policy
 
-let ctx: context.Context = ${context_source(root)}
-match docker.run_internal(ctx, "dist", false, []) {
+let ctx: context.Context = {context_source(root)}
+match docker.run_internal(ctx, "dist", false, []) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
   )?
   assert result.success, result.stderr
   assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
@@ -235,15 +235,15 @@ match docker.run_internal(ctx, "dist", false, []) {
 
 test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
   let root = test.temp_dir(ctx, name: "docker-image-failure")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let docker_marker = fp"${root}/docker-marker"
+  let docker_marker = fp"{root}/docker-marker"
   write_fake_tool(
-    fp"${tools}/docker",
+    fp"{tools}/docker",
     xsh,
-    f"""p"${docker_marker}".write(args.join("|"))?
+    f"""p"{docker_marker}".write(args.join("|"))?
 abort(24)""",
   )?
   let result = test.run_script(
@@ -253,14 +253,14 @@ use context
 use docker
 use targets as target_policy
 
-let ctx: context.Context = ${context_source(root)}
-match docker.run_internal(ctx, "dist", false, []) {
+let ctx: context.Context = {context_source(root)}
+match docker.run_internal(ctx, "dist", false, []) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
   )?
   assert result.success, result.stderr
   assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
@@ -315,11 +315,11 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
   }
 
   let root = test.temp_dir(ctx, name: "make-facade")?
-  fp"${root}/Makefile".write(p"Makefile".read_text()?)?
-  let stale_dir = fp"${root}/target/debug"
+  fp"{root}/Makefile".write(p"Makefile".read_text()?)?
+  let stale_dir = fp"{root}/target/debug"
   stale_dir.mkdir()?
-  fp"${stale_dir}/xsh".write("stale binary")?
-  let output = fp"${root}/make-output.txt"
+  fp"{stale_dir}/xsh".write("stale binary")?
+  let output = fp"{root}/make-output.txt"
 
   let default = process.command {
     cwd = root
@@ -351,26 +351,26 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
 
 test test_codesign_failure_stops_darwin_installation { |ctx|
   let root = test.temp_dir(ctx, name: "codesign-failure")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
-  let release_dir = fp"${root}/target/aarch64-apple-darwin/release"
+  let release_dir = fp"{root}/target/aarch64-apple-darwin/release"
   release_dir.mkdir()?
-  fp"${release_dir}/xsh".write("binary")?
-  fs.chmod(fp"${release_dir}/xsh", 0o755)?
+  fp"{release_dir}/xsh".write("binary")?
+  fs.chmod(fp"{release_dir}/xsh", 0o755)?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let codesign_marker = fp"${root}/codesign-marker"
-  let cargo_marker = fp"${root}/cargo-argv"
+  let codesign_marker = fp"{root}/codesign-marker"
+  let cargo_marker = fp"{root}/cargo-argv"
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""p"${cargo_marker}".write(args.join("|"))?
+    f"""p"{cargo_marker}".write(args.join("|"))?
 """,
   )?
   write_fake_tool(
-    fp"${tools}/codesign",
+    fp"{tools}/codesign",
     xsh,
-    f"""p"${codesign_marker}".write("codesign")?
+    f"""p"{codesign_marker}".write("codesign")?
 abort(25)""",
   )?
   let result = test.run_script(
@@ -380,17 +380,17 @@ use context
 use install
 use targets as target_policy
 
-let ctx: context.Context = ${darwin_context_source(root)}
-match install.darwin(ctx) {
+let ctx: context.Context = {darwin_context_source(root)}
+match install.darwin(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
     {
       PATH: tools.display(),
-      HOME: fp"${root}/home".display(),
-      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+      HOME: fp"{root}/home".display(),
+      XSH_MODULE_PATH: fp"{repository}/dev".display(),
     },
   )?
   assert result.success, result.stderr
@@ -404,15 +404,15 @@ match install.darwin(ctx) {
 
 test test_darwin_install_rejects_linux_target_before_building { |ctx|
   let root = test.temp_dir(ctx, name: "darwin-rejects-linux")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let cargo_marker = fp"${root}/cargo-marker"
+  let cargo_marker = fp"{root}/cargo-marker"
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""p"${cargo_marker}".write("cargo")?
+    f"""p"{cargo_marker}".write("cargo")?
 """,
   )?
   let result = test.run_script(
@@ -422,27 +422,27 @@ use context
 use install
 use targets as target_policy
 
-let ctx: context.Context = {
-  root: p"${root}",
-  target_dir: p"${root}/target",
-  coverage_dir: p"${root}/target/cov",
-  artifact_dir: p"${root}/dist",
+let ctx: context.Context = {{
+  root: p"{root}",
+  target_dir: p"{root}/target",
+  coverage_dir: p"{root}/target/cov",
+  artifact_dir: p"{root}/dist",
   host_os: target_policy.Darwin,
   host_arch: target_policy.Aarch64,
   target: target_policy.resolve("x86_64-unknown-linux-musl")?,
   profile: "dist",
   darwin_deployment_target: "26.0",
-}
-match install.darwin(ctx) {
+}}
+match install.darwin(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
     {
       PATH: tools.display(),
-      HOME: fp"${root}/home".display(),
-      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+      HOME: fp"{root}/home".display(),
+      XSH_MODULE_PATH: fp"{repository}/dev".display(),
     },
   )?
   assert result.success, result.stderr
@@ -452,15 +452,15 @@ match install.darwin(ctx) {
 
 test test_linux_install_requires_native_musl_target { |ctx|
   let root = test.temp_dir(ctx, name: "linux-requires-native")?
-  let tools = fp"${root}/tools"
+  let tools = fp"{root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let cargo_marker = fp"${root}/cargo-marker"
+  let cargo_marker = fp"{root}/cargo-marker"
   write_fake_tool(
-    fp"${tools}/cargo",
+    fp"{tools}/cargo",
     xsh,
-    f"""p"${cargo_marker}".write("cargo")?
+    f"""p"{cargo_marker}".write("cargo")?
 """,
   )?
   let cross = test.run_script(
@@ -470,27 +470,27 @@ use context
 use install
 use targets as target_policy
 
-let ctx: context.Context = {
-  root: p"${root}",
-  target_dir: p"${root}/target",
-  coverage_dir: p"${root}/target/cov",
-  artifact_dir: p"${root}/dist",
+let ctx: context.Context = {{
+  root: p"{root}",
+  target_dir: p"{root}/target",
+  coverage_dir: p"{root}/target/cov",
+  artifact_dir: p"{root}/dist",
   host_os: target_policy.Linux,
   host_arch: target_policy.X86_64,
   target: target_policy.resolve("aarch64-unknown-linux-musl")?,
   profile: "dist",
   darwin_deployment_target: "26.0",
-}
-match install.linux_install(ctx) {
+}}
+match install.linux_install(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
     {
       PATH: tools.display(),
-      HOME: fp"${root}/home".display(),
-      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+      HOME: fp"{root}/home".display(),
+      XSH_MODULE_PATH: fp"{repository}/dev".display(),
     },
   )?
   assert cross.success, cross.stderr
@@ -504,27 +504,27 @@ use context
 use install
 use targets as target_policy
 
-let ctx: context.Context = {
-  root: p"${root}",
-  target_dir: p"${root}/target",
-  coverage_dir: p"${root}/target/cov",
-  artifact_dir: p"${root}/dist",
+let ctx: context.Context = {{
+  root: p"{root}",
+  target_dir: p"{root}/target",
+  coverage_dir: p"{root}/target/cov",
+  artifact_dir: p"{root}/dist",
   host_os: target_policy.Linux,
   host_arch: target_policy.X86_64,
   target: target_policy.resolve("aarch64-apple-darwin")?,
   profile: "dist",
   darwin_deployment_target: "26.0",
-}
-match install.linux_install(ctx) {
+}}
+match install.linux_install(ctx) {{
   Ok(_) => abort(1)
-  Err(error) => print \${error.message}
-}
+  Err(error) => print ${{error.message}}
+}}
 """,
     [],
     {
       PATH: tools.display(),
-      HOME: fp"${root}/home".display(),
-      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+      HOME: fp"{root}/home".display(),
+      XSH_MODULE_PATH: fp"{repository}/dev".display(),
     },
   )?
   assert non_linux.success, non_linux.stderr

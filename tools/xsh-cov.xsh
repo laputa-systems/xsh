@@ -25,9 +25,9 @@ type CoverageReport = {
 }
 
 pure repo_path(root: Path, value: Str) -> Path {
-  return fp"${value}" when value.starts_with("/")
+  return fp"{value}" when value.starts_with("/")
 
-  fp"${root}/${value}"
+  fp"{root}/{value}"
 }
 
 proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
@@ -43,7 +43,7 @@ proc xsht_path(root: Path) [env] -> Path {
 
   return repo_path(root, configured) when configured != ""
 
-  fp"${root}/target/release/xsht"
+  fp"{root}/target/release/xsht"
 }
 
 proc relative_display(root: Path, target: Path) [error] -> Result[Str] {
@@ -53,7 +53,7 @@ proc relative_display(root: Path, target: Path) [error] -> Result[Str] {
 pure suite_json_name(name: Str) -> Str {
   return "root.json" when name == "."
 
-  f"${name.replace("/", "__")}.json"
+  f"{name.replace("/", "__")}.json"
 }
 
 pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
@@ -67,14 +67,14 @@ pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
 proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
   var suites: List[Suite] = [{name: ".", path: root}]
   var seen = {[root.display()]: true}
-  let core = fp"${root}/core"
+  let core = fp"{root}/core"
 
-  if fp"${core}/tests".exists()? {
+  if fp"{core}/tests".exists()? {
     seen[core.display()] = true
     suites = suites.push({name: "core", path: core})
   }
 
-  let prototypes = fp"${root}/prototypes"
+  let prototypes = fp"{root}/prototypes"
 
   if prototypes.exists()? {
     for entry in fs.walk(prototypes)?
@@ -103,8 +103,8 @@ proc run_suites(
   var failed = false
 
   for suite in suites {
-    let suite_json = fp"${out_dir}/${suite_json_name(suite.name)}"
-    print f"coverage suite ${suite.name}"
+    let suite_json = fp"{out_dir}/{suite_json_name(suite.name)}"
+    print f"coverage suite {suite.name}"
 
     cd suite.path {
       let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json)) ?
@@ -204,7 +204,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
 
   for row in totals {
     let {group: group_name, covered, total, ..} = row
-    lines = lines.push(f"${group_name}: ${covered}/${total}")
+    lines = lines.push(f"{group_name}: {covered}/{total}")
   }
 
   lines += ["", "uncovered standard APIs"]
@@ -217,7 +217,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
 
     for api_id in uncovered {
       if count < 80 {
-        lines = lines.push(f"  ${api_id}")
+        lines = lines.push(f"  {api_id}")
       }
 
       count += 1
@@ -236,7 +236,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
   } else {
     for row in covered_rows {
       let {api_id, total, ..} = row
-      lines = lines.push(f"  ${api_id}: ${total}")
+      lines = lines.push(f"  {api_id}: {total}")
     }
   }
 
@@ -247,9 +247,9 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let _ = argv
   let root = fs.cwd()?
-  let out_dir = env_path(root, "XSH_COV_DIR", fp"${root}/target/xsh-cov")
-  let json_path = env_path(root, "XSH_COV_JSON", fp"${out_dir}/coverage.json")
-  let text_path = env_path(root, "XSH_COV_REPORT", fp"${out_dir}/coverage.txt")
+  let out_dir = env_path(root, "XSH_COV_DIR", fp"{root}/target/xsh-cov")
+  let json_path = env_path(root, "XSH_COV_JSON", fp"{out_dir}/coverage.json")
+  let text_path = env_path(root, "XSH_COV_REPORT", fp"{out_dir}/coverage.txt")
   let suites = discover_suites(root)?
   let inputs = run_suites(root, suites, out_dir, xsht_path(root))?
   let report = merge_reports(root, inputs)?
@@ -259,6 +259,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   json.write(json_path, report)?
   fs.write(text_path, report_text)?
   io.write_stdout(report_text)?
-  print f"coverage JSON: ${relative_display(root, json_path)?}"
-  print f"coverage text: ${relative_display(root, text_path)?}"
+  print f"coverage JSON: {relative_display(root, json_path)?}"
+  print f"coverage text: {relative_display(root, text_path)?}"
 }

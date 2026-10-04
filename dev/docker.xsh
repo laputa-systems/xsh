@@ -87,31 +87,31 @@ export pure internal_argv(
   }
 
   if stress_repeat.trim() != "" {
-    argv = argv.extend(["-e", f"XSH_OS_STRESS_REPEAT=${stress_repeat}"])
+    argv = argv.extend(["-e", f"XSH_OS_STRESS_REPEAT={stress_repeat}"])
   }
 
   argv = argv.extend(
     [
       "-v",
-      f"${ctx.root}:/work",
+      f"{ctx.root}:/work",
       "-v",
-      f"${ctx.target_dir}:/work/target",
+      f"{ctx.target_dir}:/work/target",
       "-v",
       "xsh-cargo-registry:/root/.cargo/registry",
       "-w",
       "/work",
       "-e",
-      f"TARGET=${ctx.target.triple}",
+      f"TARGET={ctx.target.triple}",
       "-e",
-      f"DIST_PROFILE=${ctx.profile}",
+      f"DIST_PROFILE={ctx.profile}",
       "-e",
       "CARGO_TARGET_DIR=/work/target",
       "-e",
       "CARGO_BUILD_WARNINGS=deny",
       "-e",
-      f"HOST_UID=${host_uid}",
+      f"HOST_UID={host_uid}",
       "-e",
-      f"HOST_GID=${host_gid}",
+      f"HOST_GID={host_gid}",
       image,
       "cargo",
       "run",
@@ -154,7 +154,7 @@ export proc run_internal(
   )
   stages.execute(
     stages.command(
-      f"docker-${operation}",
+      f"docker-{operation}",
       ctx.target.triple,
       "docker",
       argv,

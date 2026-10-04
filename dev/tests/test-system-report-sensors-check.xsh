@@ -82,9 +82,9 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   tools_root.chmod(p"xsh", 0o700)?
   let root_path = tools_root.host_path()?
   let result = sensors_reference.compare_live_sensors_json(
-    fp"${root_path}/xsh".display(),
-    fp"${root_path}/script".display(),
-    fp"${root_path}/sensors".display(),
+    fp"{root_path}/xsh".display(),
+    fp"{root_path}/script".display(),
+    fp"{root_path}/sensors".display(),
   )?
   assert result.comparison.compared == 1
   assert result.comparison.mismatches == []
@@ -114,11 +114,11 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   tools_root.chmod(p"sensors", 0o700)?
   tools_root.chmod(p"xsh", 0o700)?
   let root_path = tools_root.host_path()?
-  let sensors_path = fp"${root_path}/sensors"
-  let xsh_path = fp"${root_path}/xsh"
+  let sensors_path = fp"{root_path}/sensors"
+  let xsh_path = fp"{root_path}/xsh"
   let output = test.temp_path(ctx, name: "system-report-sensors-json.stdout")
   let stderr = test.temp_path(ctx, name: "system-report-sensors-json.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --compare-sensors-json --sensors-bin $sensors_path --xsh-bin $xsh_path --script $xsh_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --compare-sensors-json --sensors-bin $sensors_path --xsh-bin $xsh_path --script $xsh_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic

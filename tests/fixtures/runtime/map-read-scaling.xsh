@@ -11,7 +11,7 @@ proc main() [env, error, io] {
   var values: Map[Int] = map.empty()
   var index = 0
   while index < size {
-    values = values.set(f"k${index}", index)
+    values = values.set(f"k{index}", index)
     index = index + 1
   }
 
@@ -26,5 +26,5 @@ proc main() [env, error, io] {
     pass = pass + 1
   }
 
-  print f"${size} ${passes} ${total}"
+  print f"{size} {passes} {total}"
 }

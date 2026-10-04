@@ -90,7 +90,7 @@ test test_env_bool_accepts_only_the_baseline_spellings {
       {
         let assertion_actual = env.bool(name, true)?
         let assertion_expected = false
-        let assertion_message = f"${name} should not be true"
+        let assertion_message = f"{name} should not be true"
         assert assertion_actual == assertion_expected, assertion_message
       }
     }
@@ -187,11 +187,11 @@ test test_env_int_rejects_unparsable_and_out_of_range_text {
       "XSH_ENV_BAD_UNDER",
     ]
     for name in rejected {
-      test.error_kind(env.int(name, 7), "env-int", f"${name} should be rejected")?
+      test.error_kind(env.int(name, 7), "env-int", f"{name} should be rejected")?
       {
         let assertion_actual = int_failure(env.int(name, 7))
         let assertion_expected = "environment value is not an integer"
-        let assertion_message = f"${name} should report the baseline message"
+        let assertion_message = f"{name} should report the baseline message"
         assert assertion_actual == assertion_expected, assertion_message
       }
     }
@@ -225,9 +225,9 @@ test test_env_conversions_read_the_scoped_overlay {
 
 test test_env_functions_and_path_list { |ctx|
   let root = test.temp_dir(ctx, name: "env")?
-  let tool_dir = fp"${root}/bin"
+  let tool_dir = fp"{root}/bin"
   fs.mkdir(tool_dir)?
-  let tool = fp"${tool_dir}/xsh-env-helper"
+  let tool = fp"{tool_dir}/xsh-env-helper"
 
   fs.write(
     tool,
@@ -253,7 +253,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert tool_dir in env.path_list("PATH")?
     let path_entries = env.path_entries("PATH")?
     assert path_entries |> any .raw == tool_dir.display() and .path == tool_dir and ! .empty
-    let extra_dir = fp"${tool_dir}/extra"
+    let extra_dir = fp"{tool_dir}/extra"
     env.PATH.append(extra_dir)?
     assert env.PATH.pop()? == extra_dir
     assert env.Path.XSH_STDLIB_PATH? == root
@@ -262,7 +262,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert "yes|/tmp/xsh-stdlib-env|" in output
   } ?
 
-  env XSH_STDLIB_CUSTOM_PATH=f":${tool_dir}::" {
+  env XSH_STDLIB_CUSTOM_PATH=f":{tool_dir}::" {
     let entries = env.path_entries("XSH_STDLIB_CUSTOM_PATH")?
     assert entries.len() == 4
     assert entries[0].empty
@@ -274,7 +274,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
 
 test test_env_overlays_blocks_lookup_and_path_mutation_affect_children { |ctx|
   let root = test.temp_dir(ctx, name: "env-scope")?
-  let tool = fp"${root}/env-scope-tool"
+  let tool = fp"{root}/env-scope-tool"
 
   tool.write("""#!/bin/sh
 printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
@@ -321,7 +321,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
 test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
   let root = test.temp_dir(ctx, name: "sugar")?
   let child_name = "child"
-  let child = fp"${root}/${child_name}"
+  let child = fp"{root}/{child_name}"
   root.mkdir()?
 
   env ({
@@ -346,7 +346,7 @@ beta """.trim()
     assert lines[1] == "beta"
     assert b"abc".compare(b"abd").byte == 3
     let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
-    assert line == f"${root}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
+    assert line == f"{root}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
   }?
 }
 

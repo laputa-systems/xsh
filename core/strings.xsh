@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -12,7 +12,7 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
+    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 
@@ -23,7 +23,7 @@ proc read_bytes_input(applet_name: Str, paths: List[Str]) [fs, error, io] -> Res
 
   return io.stdin_bytes()? when paths[0] == "-"
 
-  fp"${paths[0]}".read_bytes()?
+  fp"{paths[0]}".read_bytes()?
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {

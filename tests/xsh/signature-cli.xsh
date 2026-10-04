@@ -4,7 +4,7 @@ test test_signature_cli_binds_typed_positionals_options_and_rest { |ctx|
     r"""
 cli main(zlabel: Str, count: Int, jobs: Int = 4, verbose: Bool = false, tags: List[Str] = ["base"], ...files: List[Path]) [error] {
   let names = [file.display() for file in files].join(",")
-  print $zlabel $count $jobs $verbose ${[f"$tag" for tag in tags].join(",")} $names
+  print $zlabel $count $jobs $verbose ${[f"{tag}" for tag in tags].join(",")} $names
 }
 """,
     [
@@ -121,7 +121,7 @@ const DEFAULT_COUNT = 2 + 2
 const DEFAULT_TAGS: Tags = [1, 2]
 ## Parse typed options without executing defaults.
 cli main(root: Path, worker_count: Count = DEFAULT_COUNT, tags: Tags = DEFAULT_TAGS, verbose: Bool = true, delay: Duration = 20ms) [] {
-  print ${root} $worker_count ${[f"$tag" for tag in tags].join(",")} $verbose $delay
+  print ${root} $worker_count ${[f"{tag}" for tag in tags].join(",")} $verbose $delay
 }
 """
   let defaults = test.run_script(ctx, source, ["nonexistent"], {}, b"", "signature-defaults.xsh")?
@@ -190,10 +190,10 @@ cli main(...operands: List[Str]) [] { print ${operands.join(",")} }
 
 test test_signature_cli_entry_scripts_lint_together_in_a_project { |ctx|
   let root = test.temp_dir(ctx, name: "cli-project")?
-  fp"${root}/xsht-config.ini".write("module_path = lib\n")?
-  fp"${root}/lib".mkdir()?
-  fp"${root}/bin".mkdir()?
-  fp"${root}/lib/greet.xsh".write(r"""##! Greetings.
+  fp"{root}/xsht-config.ini".write("module_path = lib\n")?
+  fp"{root}/lib".mkdir()?
+  fp"{root}/bin".mkdir()?
+  fp"{root}/lib/greet.xsh".write(r"""##! Greetings.
 
 ## Builds a greeting.
 export pure greeting(name: Str) -> Str {
@@ -201,7 +201,7 @@ export pure greeting(name: Str) -> Str {
 }
 """)?
   for name in ["tool", "other"] {
-    fp"${root}/bin/${name}.xsh".write(r"""use greet
+    fp"{root}/bin/{name}.xsh".write(r"""use greet
 
 cli main(name: Str = "world") [io] {
   print greet.greeting(name)

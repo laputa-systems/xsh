@@ -9,7 +9,7 @@ proc guarded() [] -> Str {
   guard let value = fail() else { |failure|
     return message(failure)
   }
-  f"${value}"
+  f"{value}"
 }
 print ${guarded()}
 with value = fail() {} else { |failure|
@@ -166,7 +166,7 @@ proc exercise() [] -> Int {
   defer { print outer }
   for item in [1, 2] {
     with value = Ok(item) {
-      defer { print f"cleanup:$value" }
+      defer { print f"cleanup:{value}" }
       print $value
       continue when value == 1
       return value
@@ -320,7 +320,7 @@ test test_with_headers_preserve_escaping_owned_prefix_values { |ctx|
 
 test test_block_header_migration_rechecks_imports_and_deduplicates_edits { |ctx|
   let directory = test.temp_dir(ctx, name: "header-imports")?
-  let shared = fp"${directory}/shared.xsh"
+  let shared = fp"{directory}/shared.xsh"
   let shared_source = r"""##! Shared header fixture.
 ## Recover an integer.
 export proc recover() [] -> Int {
@@ -330,7 +330,7 @@ export proc recover() [] -> Int {
 """
   shared.write(shared_source)?
   for name in ["first", "second"] {
-    fp"${directory}/${name}.xsh".write(r"""use shared as shared
+    fp"{directory}/{name}.xsh".write(r"""use shared as shared
 proc recover() [] -> Int {
   guard let value = "bad".parse_int() else |_| { return shared.recover() }
   value
@@ -372,7 +372,7 @@ error HeaderError = failed(message: Str)
 pure failed() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "compound")) }
 pure message(failure: HeaderError) -> Str { failure.message }
 proc selected() [error] -> Str {
-  with value = 1 + failed()? { return f"${value}" } else { |failure| return message(failure) }
+  with value = 1 + failed()? { return f"{value}" } else { |failure| return message(failure) }
 }
 print ${selected()}
 with value = 1 + failed()? { print unreachable } else { |failure| print ${message(failure)} }

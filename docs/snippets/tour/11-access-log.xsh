@@ -28,7 +28,7 @@ const sample = """
 
 let scratch = fs.tempdir()?
 defer scratch.close()?
-let log = fp"${scratch.host_path()?}/access.log"
+let log = fp"{scratch.host_path()?}/access.log"
 log.write(sample)?
 
 let failures = hits(log)
@@ -36,8 +36,8 @@ let failures = hits(log)
   |> count { |hit| hit.url }
 
 for {key, value} in failures {
-  print f"${value} ${key}"
+  print f"{value} {key}"
 }
 
 let heaviest = hits(log) |> sort-by(desc: true) .size |> take(2) |> map .client
-print f"heaviest clients: ${heaviest.join(" ")}"
+print f"heaviest clients: {heaviest.join(" ")}"

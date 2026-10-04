@@ -55,10 +55,10 @@ pure selected_by_glob(globs: List[Str], file_path: Path) -> Bool {
 }
 
 pure regex_pattern(pattern: Str, ignore_case: Bool, word: Bool, line: Bool) -> Str {
-  let word_pattern = if word { f"\\b(?:${pattern})\\b" } else { pattern }
-  let line_pattern = if line { f"^(?:${word_pattern})$" } else { word_pattern }
+  let word_pattern = if word { f"\\b(?:{pattern})\\b" } else { pattern }
+  let line_pattern = if line { f"^(?:{word_pattern})$" } else { word_pattern }
   if ignore_case {
-    f"(?i:${line_pattern})"
+    f"(?i:{line_pattern})"
   } else {
     line_pattern
   }
@@ -125,15 +125,15 @@ proc search_file(
       var out = line
 
       if color {
-        out = line.replace(pattern, f"[1;31m${pattern}[0m")
+        out = line.replace(pattern, f"[1;31m{pattern}[0m")
       }
 
       if show_file and line_numbers {
-        print f"${file_path}:${item.index + 1}:${out}"
+        print f"{file_path}:{item.index + 1}:{out}"
       } else if show_file {
-        print f"${file_path}:${out}"
+        print f"{file_path}:{out}"
       } else if line_numbers {
-        print f"${item.index + 1}:${out}"
+        print f"{item.index + 1}:{out}"
       } else {
         print $out
       }
@@ -143,7 +143,7 @@ proc search_file(
   if count {
     if matches > 0 or show_file {
       if show_file {
-        print f"${file_path}:${matches}"
+        print f"{file_path}:{matches}"
       } else {
         print $matches
       }
@@ -232,7 +232,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     opts.operands.get(0) ?? ""
   }
   let path_args = if opts.pattern_option != "" { opts.operands } else { opts.operands |> drop(1) }
-  var paths: List[Path] = [fp"${arg}" for arg in path_args]
+  var paths: List[Path] = [fp"{arg}" for arg in path_args]
   let {ignore_case, fixed, word, line_match, invert, line_numbers, with_filename, no_filename, list_files, count, quiet, hidden, ignore, globs, ..} = opts
   let color = opts.color == "always"
 

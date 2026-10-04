@@ -7,9 +7,9 @@ export proc read_text(paths: List[Str]) [fs, error, io] -> Result[Str] {
 
   for item in paths {
     if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
+      out = f"{out}{io.stdin_text()?}"
     } else {
-      out = f"${out}${fp"${item}".read_text()?}"
+      out = f"{out}{fp"{item}".read_text()?}"
     }
   }
 

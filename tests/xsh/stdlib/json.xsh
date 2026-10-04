@@ -51,10 +51,10 @@ test test_json_read_write_lines_and_paths { |ctx|
   assert json.get(removed, ["items", 0])? == 2
   assert "\"status\"" in json.encode(updated, pretty: true)?
   assert "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
-  let json_path = fp"${root}/data.json"
+  let json_path = fp"{root}/data.json"
   json.write(json_path, updated, pretty: false)?
   assert json.read(json_path)?["name"] == "pkg"
-  let lines_path = fp"${root}/lines.jsonl"
+  let lines_path = fp"{root}/lines.jsonl"
   json.write_lines(lines_path, [{a: 1}, {a: 2}])?
   assert lines_path.read_text()?.count_lines() == 2
   test.error_kind(json.decode("{"), "json")?
@@ -97,9 +97,9 @@ b"""
 
 pure json_label(value: Any) -> Result[Str] {
   match value {
-    i is Int => Ok(f"int ${i.float().format(precision: 1)}")
-    f is Float => Ok(f"float ${f.format(precision: 2)}")
-    s is Str => Ok(f"str ${s}")
+    i is Int => Ok(f"int {i.float().format(precision: 1)}")
+    f is Float => Ok(f"float {f.format(precision: 2)}")
+    s is Str => Ok(f"str {s}")
     _ is Null => Ok("null")
     _ is List[Int] => Ok("int-list")
     _ => Ok("other")
@@ -158,14 +158,14 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
 proc expect_map(label: Str, value: Any) [error] {
   match value {
     _ is Map[Any] => return test.ok(true, label)
-    _ => return test.fail(f"${label}: a Map came back as another container")
+    _ => return test.fail(f"{label}: a Map came back as another container")
   }
 }
 
 proc expect_record(label: Str, value: Any) [error] {
   match value {
     _ is Record => return test.ok(true, label)
-    _ => return test.fail(f"${label}: a Record came back as another container")
+    _ => return test.fail(f"{label}: a Record came back as another container")
   }
 }
 
@@ -455,7 +455,7 @@ type Event = {event: Str}
 let decoded_events = "{\"event\":\"start\"}\n{\"event\":\"stop\"}\n" |> json.lines
 let second = decoded_events[1].require(Event)?
 let summary = {events: decoded_events.len(), complete: second.event == "stop"}
-print f"${summary.events}:${summary.complete}"
+print f"{summary.events}:{summary.complete}"
 """,
   )?
   {

@@ -23,22 +23,22 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
     time.sleep(100ms)?
   }
 
-  Err(BusyboxTestError.ProcessList(message: f"spawned process ${pid} was not visible"))
+  Err(BusyboxTestError.ProcessList(message: f"spawned process {pid} was not visible"))
 }
 
 test test_pstree_renders_tree_with_pid_labels { |ctx|
   let child = spawn run sleep 30 ?
   let parent_pid = parent_for(child.pid)?
-  let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
-  assert f"[${parent_pid}]" in output
-  assert f"sleep [${child.pid}]" in output
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
+  assert f"[{parent_pid}]" in output
+  assert f"sleep [{child.pid}]" in output
   assert "├─" in output or "└─" in output or "|-" in output or "`-" in output
   assert ! ("->" in output)
 }
 
 test test_pstree_rejects_unknown_pid { |ctx|
   let err = test.temp_path(ctx, name: "pstree.err")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- 999999999 2> $err
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" -- 999999999 2> $err
   assert ! status.exited_with(0)
   assert "no such pid" in err.read_text()?
 }
@@ -51,7 +51,7 @@ test test_pstree_default_prints_visible_root { |ctx|
     }
   }
 
-  let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" ?
   assert output.trim() != ""
 
   if system.uname()?.sysname == "Darwin" {

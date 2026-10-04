@@ -34,7 +34,7 @@ test test_extended_map_iteration_keeps_typed_list_values {
   commands["second"] = ["skip"]
   commands["first"] = ["build", "app", "quiet"]
   let selected = [
-    f"${key}:${argument}"
+    f"{key}:{argument}"
     for {key, value} in commands
     if value is ["build", _, ..]
     for argument in extended_command(value)

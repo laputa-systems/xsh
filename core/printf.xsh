@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -19,13 +19,13 @@ pure unescape(raw: Str) -> Str {
 pure render_string_lines(values: List[Str]) -> Str {
   return "" when values.len() == 0
 
-  f"""${values.join("\n")}
+  f"""{values.join("\n")}
 """
 }
 
 pure render_pairs_between(values: List[Str], index: Int, lines: List[Str]) -> Str {
   while index < values.len() {
-    let next = lines.push(f"${values.get(index) ?? ""} ${values.get(index + 1) ?? ""}")
+    let next = lines.push(f"{values.get(index) ?? ""} {values.get(index + 1) ?? ""}")
     return render_pairs_between(values, index + 2, next)
   }
 

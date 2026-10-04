@@ -12,14 +12,14 @@ proc read_port(file: Path) [fs, error] -> Result[Int] {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let dir = scratch.host_path()?
-fp"${dir}/good".write("8080\n")?
-fp"${dir}/bad".write("eighty\n")?
+fp"{dir}/good".write("8080\n")?
+fp"{dir}/bad".write("eighty\n")?
 
-print f"good: ${read_port(fp"${dir}/good")?}"
-print f"missing, with default: ${read_port(fp"${dir}/none") ?? 80}"
+print f"good: {read_port(fp"{dir}/good")?}"
+print f"missing, with default: {read_port(fp"{dir}/none") ?? 80}"
 
-match read_port(fp"${dir}/bad") {
-  Ok(port) => print f"port ${port}"
-  Err(PortError.Invalid {text}) => print f"not a port: ${text}"
-  Err(error) => print f"unreadable: ${error.message}"
+match read_port(fp"{dir}/bad") {
+  Ok(port) => print f"port {port}"
+  Err(PortError.Invalid {text}) => print f"not a port: {text}"
+  Err(error) => print f"unreadable: {error.message}"
 }

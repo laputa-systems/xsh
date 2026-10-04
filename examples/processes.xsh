@@ -6,7 +6,7 @@ proc run_checks() [process, time, error] {
     run true
   }
   let measured = time.measure(command)?
-  print f"commands ${statuses[0].ok} ${statuses[1].ok} ${measured.status.ok} ${measured.duration_ms >= 0}"
+  print f"commands {statuses[0].ok} {statuses[1].ok} {measured.status.ok} {measured.duration_ms >= 0}"
 }
 
 let shell = process.which("sh")?

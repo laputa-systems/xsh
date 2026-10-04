@@ -8,7 +8,7 @@ proc main() [fs, io, env, error, time] {
     sink = sink + p"/proc/modules".read_text()?.byte_len()
     round = round + 1
   }
-  print f"read_text ${time.now() - read_start} ms sink=${sink}"
+  print f"read_text {time.now() - read_start} ms sink={sink}"
 
   round = 0
   let call_start = time.now()
@@ -17,7 +17,7 @@ proc main() [fs, io, env, error, time] {
     sink = sink + 1
     round = round + 1
   }
-  print f"modules_call ${time.now() - call_start} ms sink=${sink}"
+  print f"modules_call {time.now() - call_start} ms sink={sink}"
 
   round = 0
   let first_start = time.now()
@@ -26,7 +26,7 @@ proc main() [fs, io, env, error, time] {
     sink = sink + first.size
     round = round + 1
   }
-  print f"first_record ${time.now() - first_start} ms sink=${sink}"
+  print f"first_record {time.now() - first_start} ms sink={sink}"
 
   round = 0
   let full_start = time.now()
@@ -35,5 +35,5 @@ proc main() [fs, io, env, error, time] {
     sink = sink + modules.len() + modules[0].size
     round = round + 1
   }
-  print f"full_records ${time.now() - full_start} ms sink=${sink}"
+  print f"full_records {time.now() - full_start} ms sink={sink}"
 }

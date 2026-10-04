@@ -59,7 +59,7 @@ test test_record_contract_removal_keeps_cli_descriptor_strings {
 
 test test_record_removed_module_name_does_not_capture_user_module_callable { |ctx|
   let root = test.temp_dir(ctx, name: "record-user-module")?
-  fp"${root}/helper.xsh".write_atomic("""##! User module with an ordinary callable.
+  fp"{root}/helper.xsh".write_atomic("""##! User module with an ordinary callable.
 ## Returns its argument unchanged.
 export pure require(value: Str) -> Str { value }
 """)?

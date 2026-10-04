@@ -55,7 +55,7 @@ test test_block_strings_keep_interpolated_newlines_and_nested_source {
 no source margin"""
   let formatted = f"""
     before
-    $inserted
+    {inserted}
     after
     """
   assert formatted == """before
@@ -65,14 +65,14 @@ after"""
   let marker = r"${not_an_expression}"
   let rendered = f"""
     before
-    $marker
+    {marker}
     after
     """
   assert rendered == """before
 """ + marker + """\nafter"""
   let nested = f"""
     before
-    ${if true {
+    {if true {
       r"""nested
   exact"""
 } else { "other" }}
@@ -102,7 +102,7 @@ test test_block_strings_leave_nonblock_and_other_literal_domains_exact {
   assert path_value.display() == """\n    first
     """
   let formatted_path = fp"""
-    ${"first"}
+    {"first"}
     """
   assert formatted_path.display() == """\n    first
     """
@@ -121,7 +121,7 @@ test test_block_strings_reject_missing_exact_space_tab_prefix { |ctx|
 	\"""
 """,
     """let value = f\"""
-  \${1}
+  {1}
  wrong
   \"""
 """,
@@ -135,8 +135,8 @@ test test_block_strings_reject_missing_exact_space_tab_prefix { |ctx|
 test test_block_strings_keep_interpolation_evaluation_order { |ctx|
   let source = """proc part(label: Str) [io] -> Str { print $label; label + "\\nnext" }
 let value = f\"""
-  \${part("left")}
-  \${part("right")}
+  {part("left")}
+  {part("right")}
   \"""
 print $value
 """
@@ -175,7 +175,7 @@ let leading = "\\nfirst\\n"
 let inserted = "left\\nright"
 let formatted = f\"""
   before
-  $inserted
+  {inserted}
   after
   \"""
 print \${json.encode(text)?} \${json.encode(leading)?} \${json.encode(formatted)?}

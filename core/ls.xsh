@@ -19,9 +19,9 @@ proc print_entry_as(entry: FsEntry, name: Str, long_format: Bool, indicator: Str
   let suffix = if entry.kind == "dir" { indicator } else { "" }
 
   if long_format {
-    print f"${entry.kind}\t${entry.size}\t${name}${suffix}"
+    print f"{entry.kind}\t{entry.size}\t{name}{suffix}"
   } else {
-    print f"${name}${suffix}"
+    print f"{name}{suffix}"
   }
 }
 
@@ -86,7 +86,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   for item in targets {
-    let target = fp"${item}"
+    let target = fp"{item}"
     let meta = target.metadata()?
 
     if list_directory_itself or meta.kind != "dir" {

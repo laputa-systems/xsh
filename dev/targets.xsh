@@ -55,7 +55,7 @@ export pure host_os(sysname: Str) -> Result[Str] {
   match sysname {
     "Linux" => "linux"
     "Darwin" => "darwin"
-    _ => Err(TargetError.Unsupported(target: f"host OS ${sysname}"))
+    _ => Err(TargetError.Unsupported(target: f"host OS {sysname}"))
   }
 }
 
@@ -64,7 +64,7 @@ export pure host_os_tag(sysname: Str) -> Result[HostOs] {
   match sysname {
     "Linux" => Linux
     "Darwin" => Darwin
-    _ => Err(TargetError.Unsupported(target: f"host OS ${sysname}"))
+    _ => Err(TargetError.Unsupported(target: f"host OS {sysname}"))
   }
 }
 
@@ -73,7 +73,7 @@ export pure host_arch(machine: Str) -> Result[Str] {
   match machine {
     "x86_64" | "amd64" => "x86_64"
     "aarch64" | "arm64" => "aarch64"
-    _ => Err(TargetError.Unsupported(target: f"host architecture ${machine}"))
+    _ => Err(TargetError.Unsupported(target: f"host architecture {machine}"))
   }
 }
 
@@ -82,7 +82,7 @@ export pure host_arch_tag(machine: Str) -> Result[HostArch] {
   match machine {
     "x86_64" | "amd64" => X86_64
     "aarch64" | "arm64" => Aarch64
-    _ => Err(TargetError.Unsupported(target: f"host architecture ${machine}"))
+    _ => Err(TargetError.Unsupported(target: f"host architecture {machine}"))
   }
 }
 

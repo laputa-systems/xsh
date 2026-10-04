@@ -112,19 +112,19 @@ test test_release_names_and_core_paths_are_deterministic {
 
 test test_core_archive_stages_command_and_library_paths { |ctx|
   let root = test.temp_dir(ctx, name: "core-archive")?
-  fp"${root}/core".mkdir()?
-  fp"${root}/core/bin".mkdir()?
-  fp"${root}/core/lib".mkdir()?
-  fp"${root}/core/tests".mkdir()?
-  fp"${root}/core/bin/report.xsh-helper.xsh".write("""print "command"
+  fp"{root}/core".mkdir()?
+  fp"{root}/core/bin".mkdir()?
+  fp"{root}/core/lib".mkdir()?
+  fp"{root}/core/tests".mkdir()?
+  fp"{root}/core/bin/report.xsh-helper.xsh".write("""print "command"
 """)?
-  fp"${root}/core/lib/report.xsh-helper.xsh".write("""print "library"
+  fp"{root}/core/lib/report.xsh-helper.xsh".write("""print "library"
 """)?
-  fp"${root}/core/tests/ignored.xsh".write("""print "test"
+  fp"{root}/core/tests/ignored.xsh".write("""print "test"
 """)?
   let release_ctx = fixtures.linux_context(root, "dev")?
   releases.package_core(release_ctx, "fixture")?
-  let archive_path = fp"${root}/dist/core-fixture.tar.xz"
+  let archive_path = fp"{root}/dist/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let members = entries |> map .path.display()
   assert members.len() == 2
@@ -132,24 +132,24 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   assert "core/lib/report.xsh-helper.xsh" in members
   assert (entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
   assert (entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
-  let extracted = fp"${root}/extracted"
+  let extracted = fp"{root}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  assert fp"${extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
+  assert fp"{extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
 """
-  assert fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()? == """print "library"
+  assert fp"{extracted}/core/lib/report.xsh-helper.xsh".read_text()? == """print "library"
 """
-  assert ! fp"${extracted}/core/tests/ignored".exists()?
+  assert ! fp"{extracted}/core/tests/ignored".exists()?
   assert """  dist/core-fixture.tar.xz
-""" in fp"${root}/dist/core-fixture.sha256".read_text()?
+""" in fp"{root}/dist/core-fixture.sha256".read_text()?
 }
 
 test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|
   let root = test.temp_dir(ctx, name: "core-archive-conflict")?
-  fp"${root}/core".mkdir()?
-  fp"${root}/core/report.xsh".write("""print "ok"
+  fp"{root}/core".mkdir()?
+  fp"{root}/core/report.xsh".write("""print "ok"
 """)?
-  fp"${root}/dist".mkdir()?
-  let stale = fp"${root}/dist/unrelated.tar.xz"
+  fp"{root}/dist".mkdir()?
+  let stale = fp"{root}/dist/unrelated.tar.xz"
   stale.write("existing artifact")?
   let release_ctx = fixtures.linux_context(root, "dev")?
   match releases.package_core(release_ctx, "fixture") {
@@ -158,8 +158,8 @@ test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|
   }
 
   assert stale.read_text()? == "existing artifact"
-  assert ! fp"${root}/dist/core-fixture.tar.xz".exists()?
-  assert ! fp"${root}/dist/core-fixture.sha256".exists()?
+  assert ! fp"{root}/dist/core-fixture.tar.xz".exists()?
+  assert ! fp"{root}/dist/core-fixture.sha256".exists()?
 }
 
 test test_core_archive_contains_current_system_report { |ctx|
@@ -178,20 +178,20 @@ test test_core_archive_contains_current_system_report { |ctx|
     darwin_deployment_target: base.darwin_deployment_target,
   )
   releases.package_core(release_ctx, "fixture")?
-  let archive_path = fp"${artifact_dir}/core-fixture.tar.xz"
+  let archive_path = fp"{artifact_dir}/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let installed = entries |> where .path.display() == "core/system-report"
   assert installed.len() == 1
   assert installed[0].mode.bit_and(0o777) == 0o755
-  let extracted = fp"${artifact_dir}/extracted"
+  let extracted = fp"{artifact_dir}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  assert fp"${extracted}/core/system-report".read_bytes()? == fp"${repository}/core/system-report.xsh".read_bytes()?
-  assert fp"${extracted}/core/lib/system_report.xsh".exists()?
+  assert fp"{extracted}/core/system-report".read_bytes()? == fp"{repository}/core/system-report.xsh".read_bytes()?
+  assert fp"{extracted}/core/lib/system_report.xsh".exists()?
 }
 
 test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
   let root = test.temp_dir(ctx, name: "release-checksum")?
-  let artifact = fp"${root}/dist/xsh-release-x86_64-linux-musl"
+  let artifact = fp"{root}/dist/xsh-release-x86_64-linux-musl"
   artifact.parent().mkdir()?
   artifact.write("release artifact")?
   let checksum = releases.checksum_line(artifact, root)?
@@ -201,7 +201,7 @@ test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
 
 test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
   let root = test.temp_dir(ctx, name: "release-validation")?
-  let artifact_dir = fp"${root}/dist"
+  let artifact_dir = fp"{root}/dist"
   artifact_dir.mkdir()?
   let release_ctx = fixtures.linux_context(root)?
   let tag = "release-test"
@@ -214,15 +214,15 @@ test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
     let suffix = target_policy.release_suffix(triple)?
 
     for product in target_policy.products {
-      let artifact = fp"${artifact_dir}/${product}-${tag}-${suffix}"
+      let artifact = fp"{artifact_dir}/{product}-{tag}-{suffix}"
       artifact.write("release artifact")?
       fs.chmod(artifact, 0o755)?
-      fp"${artifact}.sha256".write(releases.checksum_line(artifact, root)?)?
+      fp"{artifact}.sha256".write(releases.checksum_line(artifact, root)?)?
     }
   }
 
   releases.validate_artifacts(release_ctx, tag)?
-  fp"${artifact_dir}/unexpected-file".write("not a release artifact")?
+  fp"{artifact_dir}/unexpected-file".write("not a release artifact")?
 
   match releases.validate_artifacts(release_ctx, tag) {
     Ok(_) => test.fail("unexpected artifact passed validation")?
@@ -265,7 +265,7 @@ test test_failed_stage_reports_its_stage_and_target {
 
 test test_subprocess_wrong_directory_has_a_named_failure { |ctx|
   let repository = fs.cwd()?
-  let module_path = fp"${repository}/dev".display()
+  let module_path = fp"{repository}/dev".display()
   let wrong_directory = test.run_script(
     ctx,
     """
@@ -281,14 +281,14 @@ cd p"/" {
     [],
     {XSH_MODULE_PATH: module_path},
   )?
-  assert wrong_directory.success, f"""${wrong_directory.stdout}
-${wrong_directory.stderr}"""
+  assert wrong_directory.success, f"""{wrong_directory.stdout}
+{wrong_directory.stderr}"""
   assert "ContextError.WrongDirectory" in wrong_directory.stdout, wrong_directory.stdout
 }
 
 test test_context_target_and_docker_platform_overrides { |ctx|
   let repository = fs.cwd()?
-  let module_path = fp"${repository}/dev".display()
+  let module_path = fp"{repository}/dev".display()
   let context_default = test.run_script(
     ctx,
     """
@@ -362,7 +362,7 @@ test test_dev_main_target_override_reaches_context { |ctx|
   let root = fs.cwd()?
   let output = test.temp_path(ctx, name: "dev-target.stdout")
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -371,7 +371,7 @@ test test_dev_main_target_override_reaches_context { |ctx|
 
 test test_rustybench_override_stays_a_direct_argv_prefix { |ctx|
   let repository = fs.cwd()?
-  let module_path = fp"${repository}/dev".display()
+  let module_path = fp"{repository}/dev".display()
 
   let rustybench = test.run_script(
     ctx,
@@ -399,7 +399,7 @@ print \${(bench.command_prefix(ctx)?).join("|")}
       RUSTYBENCH: "cargo run --quiet --manifest-path /tmp/rustybench/Cargo.toml --",
     },
   )?
-  assert rustybench.success, f"""${rustybench.stdout}
-${rustybench.stderr}"""
+  assert rustybench.success, f"""{rustybench.stdout}
+{rustybench.stderr}"""
   assert rustybench.stdout.trim() == "cargo|run|--quiet|--manifest-path|/tmp/rustybench/Cargo.toml|--", rustybench.stdout
 }

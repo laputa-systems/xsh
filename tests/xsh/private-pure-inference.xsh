@@ -118,7 +118,7 @@ print early() selected(true).len() reversed(false).len() (outcome("3")?) (option
 
 test test_private_pure_inference_module_private_capture { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-private-module")?
-  let module_path = fp"${root}/helper.xsh"
+  let module_path = fp"{root}/helper.xsh"
   module_path.write("""
 ##! Module with an inferred private helper.
 let prefix = "label:"
@@ -180,7 +180,7 @@ print selected(Ok(2)) expression(Ok(3)) looped(Ok(5)) recovered(Ok("ready"))
 
 test test_private_pure_inference_imported_module_tag_variants { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-tag-module")?
-  fp"${root}/inferred_tags.xsh".write("""
+  fp"{root}/inferred_tags.xsh".write("""
 ##! Inferred tag helper module.
 enum Selection { Included, Excluded }
 pure private_enabled(value: Selection) { value == Included }

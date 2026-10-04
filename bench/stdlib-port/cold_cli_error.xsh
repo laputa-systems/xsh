@@ -10,7 +10,7 @@ proc main() [io, error] {
       print "accepted"
     }
     Err(failure) => {
-      print f"${failure.message}"
+      print f"{failure.message}"
     }
   }
 }

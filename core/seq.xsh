@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -12,7 +12,7 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
+    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 
@@ -21,7 +21,7 @@ proc repeat_char(ch: Str, count: Int) [error, io] -> Str {
   var index = 0
 
   while index < count {
-    out = f"${out}${ch}"
+    out = f"{out}{ch}"
     index += 1
   }
 
@@ -39,9 +39,9 @@ proc pad_equal_width(raw: Str, width: Int) [error, io] -> Str {
 
   let padding = repeat_char("0", missing)
 
-  return f"-${padding}${raw.replace("-", "")}" when raw.starts_with("-")
+  return f"-{padding}{raw.replace("-", "")}" when raw.starts_with("-")
 
-  f"${padding}${raw}"
+  f"{padding}{raw}"
 }
 
 pure should_emit(value: Int, step: Int, last: Int) -> Bool {
@@ -97,7 +97,7 @@ proc main(...argv: List[Str]) [error, io] {
   var max_width = 0
 
   while should_emit(value, step, last) {
-    let rendered = f"${value}"
+    let rendered = f"{value}"
     values += [rendered]
 
     if rendered.count_chars() > max_width {
@@ -114,15 +114,15 @@ proc main(...argv: List[Str]) [error, io] {
     let item = if equal_width { pad_equal_width(rendered, max_width) } else { rendered }
 
     if pos > 0 {
-      out = f"${out}${separator}"
+      out = f"{out}{separator}"
     }
 
-    out = f"${out}${item}"
+    out = f"{out}{item}"
     pos += 1
   }
 
   if values.len() > 0 {
-    io.write_stdout(f"""${out}
+    io.write_stdout(f"""{out}
 """)?
   }
 }

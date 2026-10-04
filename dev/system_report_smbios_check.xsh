@@ -353,7 +353,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
 
     for field in fields {
       if field.unit == "string_index" and field.value > strings.len() {
-        invalid_indices = invalid_indices.push(f"${record_type}:${handle}.${field.name}")
+        invalid_indices = invalid_indices.push(f"{record_type}:{handle}.{field.name}")
       }
     }
 
@@ -396,14 +396,14 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   }
 
   for invalid in reference.invalid_indices {
-    unstable_fields = unstable_fields.push(f"${invalid}.string_index")
+    unstable_fields = unstable_fields.push(f"{invalid}.string_index")
   }
 
   var reference_by_key: Map[Int] = {}
   var candidate_by_key: Map[Int] = {}
   for index in range(reference.records.len()) {
     let item = reference.records[index]
-    let key = f"${item.record_type}:${item.handle}"
+    let key = f"{item.record_type}:{item.handle}"
     if key in reference_by_key {
       return Err(smbios_check_failure("SMBIOS reference repeats a type and handle"))
     }
@@ -413,7 +413,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
 
   for index in range(section.records.len()) {
     let item = section.records[index]
-    let key = f"${item.record_type}:${item.handle}"
+    let key = f"{item.record_type}:{item.handle}"
     if key in candidate_by_key {
       return Err(smbios_check_failure("candidate SMBIOS report repeats a type and handle"))
     }
@@ -424,7 +424,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   var matched_count = 0
   if before == after and reference.complete {
     for item in reference.records {
-      let key = f"${item.record_type}:${item.handle}"
+      let key = f"{item.record_type}:{item.handle}"
       if key not in candidate_by_key {
         missing_names += [key]
         continue
@@ -433,7 +433,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
       matched_count += 1
       let actual = section.records[candidate_by_key.get(key)?]
       if actual.formatted_length != item.formatted_length {
-        field_mismatches = field_mismatches.push(f"${key}.formatted_length")
+        field_mismatches = field_mismatches.push(f"{key}.formatted_length")
       }
 
       var actual_fields: Map[Int] = {}
@@ -448,31 +448,31 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
 
       for field in item.fields {
         if field.name not in actual_fields {
-          field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
+          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
         } else if actual.fields[actual_fields.get(field.name)?] != field {
-          field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
+          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
         }
       }
 
       for field in actual.fields {
         if ! (item.fields |> any .name == field.name) {
-          field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
+          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
         }
       }
 
       if actual.strings.len() != item.strings.len() {
-        field_mismatches = field_mismatches.push(f"${key}.strings")
+        field_mismatches = field_mismatches.push(f"{key}.strings")
       } else {
         for string_index in range(item.strings.len()) {
           if actual.strings[string_index] != item.strings[string_index] {
-            field_mismatches = field_mismatches.push(f"${key}.string.${string_index + 1}")
+            field_mismatches = field_mismatches.push(f"{key}.string.{string_index + 1}")
           }
         }
       }
     }
 
     for item in section.records {
-      let key = f"${item.record_type}:${item.handle}"
+      let key = f"{item.record_type}:{item.handle}"
       if key not in reference_by_key {
         unexpected_names += [key]
       }
@@ -769,7 +769,7 @@ pure dmidecode_hex_row(line: Str) -> Result[List[Int]] {
       return Err(smbios_check_failure("dmidecode hex row contains an invalid byte"))
     }
 
-    if let Ok(value) = f"0x${token}".parse_int() {
+    if let Ok(value) = f"0x{token}".parse_int() {
       if value < 0 or value > 255 {
         return Err(smbios_check_failure("dmidecode hex byte is out of range"))
       }
@@ -963,7 +963,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
   var decoded_by_key: Map[Int] = {}
   for index in range(reference.records.len()) {
     let item = reference.records[index]
-    let key = f"${item.record_type}:${item.handle}"
+    let key = f"{item.record_type}:{item.handle}"
     if key in reference_by_key {
       return Err(smbios_check_failure("raw SMBIOS table repeats a record identity"))
     }
@@ -973,7 +973,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
 
   for index in range(decoded.len()) {
     let item = decoded[index]
-    let key = f"${item.record_type}:${item.handle}"
+    let key = f"{item.record_type}:{item.handle}"
     if key in decoded_by_key {
       return Err(smbios_check_failure("dmidecode output repeats a record identity"))
     }
@@ -986,7 +986,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
   var field_mismatches: List[Str] = []
   var matched_count = 0
   for item in reference.records {
-    let key = f"${item.record_type}:${item.handle}"
+    let key = f"{item.record_type}:{item.handle}"
     if key not in decoded_by_key {
       missing_names += [key]
       continue
@@ -995,7 +995,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     matched_count += 1
     let actual = decoded[decoded_by_key.get(key)?]
     if actual.formatted.len() != item.formatted_length {
-      field_mismatches = field_mismatches.push(f"${key}.formatted_length")
+      field_mismatches = field_mismatches.push(f"{key}.formatted_length")
       continue
     }
 
@@ -1003,18 +1003,18 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     for field in item.fields {
       let matches = actual_fields |> where .name == field.name
       if matches.len() != 1 or matches[0] != field {
-        field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
+        field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
       }
     }
 
     for field in actual_fields {
       if ! (item.fields |> any .name == field.name) {
-        field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
+        field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
       }
     }
 
     if actual.strings.len() != item.strings.len() {
-      field_mismatches = field_mismatches.push(f"${key}.strings")
+      field_mismatches = field_mismatches.push(f"{key}.strings")
     } else {
       for string_index in range(item.strings.len()) {
         let raw = actual.strings[string_index]
@@ -1024,14 +1024,14 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
           {state: "malformed", value: null, raw_bytes_base64: raw.base64()}
         }
         if observed != item.strings[string_index] {
-          field_mismatches = field_mismatches.push(f"${key}.string.${string_index + 1}")
+          field_mismatches = field_mismatches.push(f"{key}.string.{string_index + 1}")
         }
       }
     }
   }
 
   for item in decoded {
-    let key = f"${item.record_type}:${item.handle}"
+    let key = f"{item.record_type}:{item.handle}"
     if key not in reference_by_key {
       unexpected_names += [key]
     }
@@ -1123,7 +1123,7 @@ export proc corroborate_smbios_bundle(
     "dmidecode-reference.json",
     "dmidecode-comparison.json",
   ] {
-    if bundle.exists(fp"${name}")? {
+    if bundle.exists(fp"{name}")? {
       return Err(smbios_check_failure("SMBIOS bundle already contains dmidecode corroboration"))
     }
   }
@@ -1151,8 +1151,8 @@ export proc corroborate_smbios_bundle(
       version_argv,
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/version",
-      stderr: fp"${scratch_path}/version-error",
+      stdout: fp"{scratch_path}/version",
+      stderr: fp"{scratch_path}/version-error",
     ),
   )?
   let version_ended = time.now()
@@ -1195,7 +1195,7 @@ export proc corroborate_smbios_bundle(
     return Err(smbios_check_failure("dmidecode version probe returned no version"))
   }
 
-  let dump_path = fp"${scratch_path}/dump.bin"
+  let dump_path = fp"{scratch_path}/dump.bin"
   let argv = [executable, "--no-quirks", "--dump", "--from-dump", dump_path.display()]
   let started = time.now()
   let status = process.run(
@@ -1204,8 +1204,8 @@ export proc corroborate_smbios_bundle(
       argv,
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/output",
-      stderr: fp"${scratch_path}/error",
+      stdout: fp"{scratch_path}/output",
+      stderr: fp"{scratch_path}/error",
     ),
   )?
   let ended = time.now()
@@ -1312,7 +1312,7 @@ export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, e
       [xsh_bin, script, "--", "--section", "firmware", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
+      stdout: fp"{scratch_path}/candidate",
     ),
   )?
   let candidate_ended = time.now()
@@ -1338,10 +1338,8 @@ export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, e
   }
 
   let compared = compare_smbios(candidate, before.data ?? b"", after.data ?? b"")?
-  print f"firmware.smbios: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
-  print f"reference: adapter=smbios-raw-rooted-v1; source=/sys/firmware/dmi/tables/DMI; bound=1 MiB, 4096 records; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(
-    host_claim,
-  )?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"firmware.smbios: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
+  print f"reference: adapter=smbios-raw-rooted-v1; source=/sys/firmware/dmi/tables/DMI; bound=1 MiB, 4096 records; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
   if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
     return Err(smbios_check_failure("SMBIOS records differ from the stable kernel-exported table"))
   }

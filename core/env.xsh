@@ -12,7 +12,7 @@ pure is_assignment(arg: Str) -> Bool {
 
 proc print_environment() [env] {
   for item in env.list() |> sort-by .name {
-    print f"${item.name}=${item.value}"
+    print f"{item.name}={item.value}"
   }
 }
 
@@ -63,7 +63,7 @@ proc main(...raw: List[Str]) [process, env, error] {
     match parts[0] {
       "PATH" => path_update = value
       "XSH_MODULE_PATH" => xsh_module_path_update = value
-      _ => return Err(EnvError.Usage(f"env: unsupported assignment ${parts[0]}"))
+      _ => return Err(EnvError.Usage(f"env: unsupported assignment {parts[0]}"))
     }
 
     index += 1

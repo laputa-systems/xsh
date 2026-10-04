@@ -25,8 +25,8 @@ proc main(...argv: List[Str]) [fs, error] {
   print "Filesystem 1024-blocks Used Available Capacity Mounted on"
 
   for item in targets {
-    let resolved = fp"${item}".resolve()?
+    let resolved = fp"{item}".resolve()?
     let mount = fs.mount_for(resolved)?
-    print f"${mount.filesystem} ${mount.blocks_1k} ${mount.used_1k} ${mount.available_1k} ${mount.capacity_percent}% ${mount.mounted_on}"
+    print f"{mount.filesystem} {mount.blocks_1k} {mount.used_1k} {mount.available_1k} {mount.capacity_percent}% {mount.mounted_on}"
   }
 }

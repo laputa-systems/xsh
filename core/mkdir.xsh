@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -23,7 +23,7 @@ pure common_mode(raw: Str) -> Result[Int] {
     "420" => 420
     "384" => 384
     "448" => 448
-    _ => Err(AppletError.Usage(f"unsupported mode '${raw}'"))
+    _ => Err(AppletError.Usage(f"unsupported mode '{raw}'"))
   }
 }
 
@@ -53,7 +53,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let mode = if opts.mode == "" { -1 } else { common_mode(opts.mode)? }
 
   for item in opts.directories {
-    let target = fp"${item}"
+    let target = fp"{item}"
     target.mkdir(parents: opts.parents)?
 
     if mode >= 0 {

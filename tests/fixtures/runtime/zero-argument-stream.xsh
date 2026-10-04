@@ -44,29 +44,29 @@ proc main() [io, env, error] {
   for item in items() {
     direct = direct + item
   }
-  print f"direct=${direct}"
+  print f"direct={direct}"
 
   let bound = items()
   var collected = bound.collect()
-  print f"bound=${collected.len()}"
+  print f"bound={collected.len()}"
 
-  print f"total=${total()}"
-  print f"doubled=${doubled().collect().len()}"
+  print f"total={total()}"
+  print f"doubled={doubled().collect().len()}"
 
   var mapped = items() |> map { |item| item + 1 } |> collect()
-  print f"mapped=${mapped.len()}"
+  print f"mapped={mapped.len()}"
 
   var taken = items() |> take(1) |> collect()
-  print f"taken=${taken.len()}"
+  print f"taken={taken.len()}"
 
   let first_taken = items() |> first()
-  print f"first=${first_taken ?? -1}"
+  print f"first={first_taken ?? -1}"
 
   # The log path comes from the environment so the fixture needs no argument
   # position: `main` must use the spread form to receive script arguments, and
   # the producer it drives is what this fixture is about.
   let log = Path(env.get("XSH_ZERO_ARGUMENT_STREAM_LOG")?)
   let stopped = guarded(log) |> first()
-  print f"stopped=${stopped ?? -1}"
+  print f"stopped={stopped ?? -1}"
   print log.read_text()?
 }

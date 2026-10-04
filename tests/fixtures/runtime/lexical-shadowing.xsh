@@ -72,7 +72,7 @@ pure shadowed_loop_variable(items: List[Str]) -> Str {
     out = out + item
   }
 
-  return f"${out}|${item}"
+  return f"{out}|{item}"
 }
 
 proc main() [error, io] {
@@ -81,7 +81,7 @@ proc main() [error, io] {
   print shadowed_words(" a ")
   print shadowed_in_block("outer", "inner")
   print shadowed_in_block("outer", "")
-  print f"${shadowed_assignment(7, 1)}"
+  print f"{shadowed_assignment(7, 1)}"
   print shadowed_loop_variable(["a", "b"])
   print shadowed_loop_variable([])
 }

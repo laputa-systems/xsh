@@ -158,9 +158,9 @@ let available = value != null
 """
   var previous = "available"
   for index in range(256) {
-    let name = f"available_${index}"
+    let name = f"available_{index}"
     let alias = f"""
-      let ${name} = ${previous} and ${previous}
+      let {name} = {previous} and {previous}
 
       """
     source = source + alias
@@ -168,7 +168,7 @@ let available = value != null
   }
 
   let guard_source = f"""
-    guard ${previous} else { abort(1) }
+    guard {previous} else {{ abort(1) }}
     let checked: Str = value
 
     """

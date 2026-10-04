@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -42,7 +42,7 @@ pure display_args(row: Process) -> Str {
 
   return "" when row.argv == "" or row.argv == argv0
 
-  let prefix = f"${argv0} "
+  let prefix = f"{argv0} "
 
   return row.argv.replace(prefix, "") when row.argv.starts_with(prefix)
 
@@ -50,12 +50,12 @@ pure display_args(row: Process) -> Str {
 }
 
 pure process_label(row: Process, show_args: Bool, show_pids: Bool) -> Str {
-  let out = if show_pids { f"${row.command} [${row.pid}]" } else { row.command }
+  let out = if show_pids { f"{row.command} [{row.pid}]" } else { row.command }
 
   if show_args {
     let arg_text = display_args(row)
 
-    return f"${out} ${arg_text}" when arg_text != ""
+    return f"{out} {arg_text}" when arg_text != ""
   }
 
   out
@@ -159,10 +159,10 @@ pure render_children(
   for item in children |> enumerate() {
     let child = item.value
     let child_is_last = item.index + 1 == child_count
-    output = f"""${output}${prefix}${connector(child_is_last, ascii)}${process_label(child, show_args, show_pids)}
+    output = f"""{output}{prefix}{connector(child_is_last, ascii)}{process_label(child, show_args, show_pids)}
 """
-    let child_prefix = if child_is_last { f"${prefix}  " } else { f"${prefix}${vertical(ascii)}" }
-    output = f"${output}${render_children(child.pid, child_prefix, show_args, show_pids, ascii, next_visited)}"
+    let child_prefix = if child_is_last { f"{prefix}  " } else { f"{prefix}{vertical(ascii)}" }
+    output = f"{output}{render_children(child.pid, child_prefix, show_args, show_pids, ascii, next_visited)}"
   }
 
   output
@@ -170,14 +170,14 @@ pure render_children(
 
 pure render_process(row: Process, show_args: Bool, show_pids: Bool, ascii: Bool) -> Str {
   let visited = []
-  f"""${process_label(row, show_args, show_pids)}
-${render_children(row.pid, "  ", show_args, show_pids, ascii, visited)}"""
+  f"""{process_label(row, show_args, show_pids)}
+{render_children(row.pid, "  ", show_args, show_pids, ascii, visited)}"""
 }
 
 proc print_pid_root(pid: Int, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
   let roots = process_by_pid(pid)
 
-  return Err(AppletError.Usage(f"pstree: no such pid '${pid}'")) when roots.len() == 0
+  return Err(AppletError.Usage(f"pstree: no such pid '{pid}'")) when roots.len() == 0
 
   print render_process(roots[0], show_args, show_pids, ascii)
 }
@@ -222,7 +222,7 @@ proc print_parent_chain(
 
   let rows = process_by_pid(pid)
 
-  return Err(AppletError.Usage(f"pstree: no such pid '${pid}'")) when rows.len() == 0
+  return Err(AppletError.Usage(f"pstree: no such pid '{pid}'")) when rows.len() == 0
 
   let row = rows[0]
   let next_visited = visited.push(pid)
@@ -234,8 +234,8 @@ proc print_parent_chain(
   }
 
   let prefix = print_parent_chain(row.parent_pid, show_args, show_pids, ascii, next_visited)?
-  print f"${prefix}${connector(true, ascii)}${process_label(row, show_args, show_pids)}"
-  f"${prefix}  "
+  print f"{prefix}{connector(true, ascii)}{process_label(row, show_args, show_pids)}"
+  f"{prefix}  "
 }
 
 type PstreeOptions = {

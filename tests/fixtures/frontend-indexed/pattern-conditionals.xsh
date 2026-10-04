@@ -1,5 +1,5 @@
 pure pattern_label(outcome: Result[Int]) -> Str {
-  if let Ok(value) = outcome { f"${value}" } else { "missing" }
+  if let Ok(value) = outcome { f"{value}" } else { "missing" }
 }
 
 proc main() [error] {

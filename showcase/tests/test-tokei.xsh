@@ -1,39 +1,39 @@
 test test_tokei_json_shape_counts_and_ignores { |ctx|
   let root = test.temp_dir(ctx, name: "tokei-root")?
 
-  fp"${root}/.tokeignore".write("""ignored
+  fp"{root}/.tokeignore".write("""ignored
 """)?
 
-  fp"${root}/ignored".mkdir()?
+  fp"{root}/ignored".mkdir()?
 
-  fp"${root}/ignored/skip.rs".write("""fn skipped() {}
+  fp"{root}/ignored/skip.rs".write("""fn skipped() {}
 """)?
 
-  fp"${root}/.hidden.json".write("""{"skip":true}
+  fp"{root}/.hidden.json".write("""{"skip":true}
 """)?
 
-  fp"${root}/build.bash".write("""echo bash
+  fp"{root}/build.bash".write("""echo bash
 # comment
 """)?
 
-  fp"${root}/run.sh".write("""echo shell
+  fp"{root}/run.sh".write("""echo shell
 # comment
 
 """)?
 
-  fp"${root}/data.json".write("""{"ok":true}
+  fp"{root}/data.json".write("""{"ok":true}
 """)?
 
-  fp"${root}/config.toml".write("""# comment
+  fp"{root}/config.toml".write("""# comment
 name = "demo"
 """)?
 
-  fp"${root}/app.js".write("""// top
+  fp"{root}/app.js".write("""// top
 const x = "/* no */";
 /* block */
 """)?
 
-  fp"${root}/index.html".write("""<!-- note -->
+  fp"{root}/index.html".write("""<!-- note -->
 <div>
 <script>
   // c
@@ -42,7 +42,7 @@ const x = "/* no */";
 </div>
 """)?
 
-  fp"${root}/README.md".write("""Intro
+  fp"{root}/README.md".write("""Intro
 
 ```bash
 echo hi
@@ -54,14 +54,14 @@ echo shell
 ```
 """)?
 
-  fp"${root}/component.mdx".write("""Intro
+  fp"{root}/component.mdx".write("""Intro
 
 ```tsx
 const x = 1;
 ```
 """)?
 
-  fp"${root}/main.rs".write("""/// # Doc
+  fp"{root}/main.rs".write("""/// # Doc
 /// 
 /// ```toml
 /// name = "nested"

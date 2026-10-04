@@ -44,10 +44,10 @@ proc main(...argv: List[Str]) [fs, error] {
   let ext_set = set.from(exts)
 
   if opts.verbose {
-    print f"pattern: ${opts.pattern}"
-    print f"root: ${root}"
-    print f"extensions: ${exts.join(" ")}"
-    print f"limit: ${opts.limit}"
+    print f"pattern: {opts.pattern}"
+    print f"root: {root}"
+    print f"extensions: {exts.join(" ")}"
+    print f"limit: {opts.limit}"
   }
 
   let files = fs.files(root)
@@ -71,19 +71,19 @@ proc main(...argv: List[Str]) [fs, error] {
 
   for result in file_results {
     for hit in result.hits {
-      print f"${hit.rel}:${hit.line}: ${hit.text}"
+      print f"{hit.rel}:{hit.line}: {hit.text}"
       total += 1
 
       if total >= opts.limit {
-        print f"limit of ${opts.limit} reached"
+        print f"limit of {opts.limit} reached"
         return
       }
     }
 
     if opts.verbose and result.hits.len() > 0 {
-      print f"  (${result.hits.len()} matches in ${result.rel})"
+      print f"  ({result.hits.len()} matches in {result.rel})"
     }
   }
 
-  print f"${total} matches across ${files.len()} files scanned"
+  print f"{total} matches across {files.len()} files scanned"
 }

@@ -34,7 +34,7 @@ test test_json_diff_rejects_non_object_roots { |ctx|
     let right = run.capture --text "xsh" "showcase/json-diff.xsh" -- $object $invalid ?
     for captured in [left, right] {
       let rejected = ! captured.status.exited_with(0)
-      let rejection_message = f"accepted root ${root}"
+      let rejection_message = f"accepted root {root}"
       assert rejected, rejection_message
       assert captured.stdout == ""
       assert "expected Record" in captured.stderr

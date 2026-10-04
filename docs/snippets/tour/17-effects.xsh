@@ -10,6 +10,6 @@ pure percent(part: Int, whole: Int) -> Int {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let dir = scratch.host_path()?
-fp"${dir}/data".write("hello\n")?
+fp"{dir}/data".write("hello\n")?
 
-print f"measured: ${disk_used_kb(dir)? > 0}; 3 of 4 is ${percent(3, 4)}%"
+print f"measured: {disk_used_kb(dir)? > 0}; 3 of 4 is {percent(3, 4)}%"

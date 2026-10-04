@@ -39,7 +39,7 @@ test test_run_retry_cancellation_reaps_child_descendants { |ctx|
   process.kill(wrapper.pid, signal: "TERM")?
   let status = wait wrapper?
   let canceled = status.exited_with(3)
-  let cancellation_message = f"canceled retry wrapper must exit with status 3, got ${status.exit_code() ?? -1}"
+  let cancellation_message = f"canceled retry wrapper must exit with status 3, got {status.exit_code() ?? -1}"
   assert canceled, cancellation_message
   time.sleep(1500ms)?
   assert ! leaked.exists()?, "canceled child group must not leave a descendant running"

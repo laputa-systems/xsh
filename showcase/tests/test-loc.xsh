@@ -1,12 +1,12 @@
 test test_loc { |ctx|
   let root = test.temp_dir(ctx, name: "loc-root")?
 
-  fp"${root}/main.rs".write("""fn main() {
+  fp"{root}/main.rs".write("""fn main() {
   println!("hello");
 }
 """)?
 
-  fp"${root}/lib.rs".write("""// empty
+  fp"{root}/lib.rs".write("""// empty
 """)?
 
   let output = run.text "xsh" "showcase/loc.xsh" -- $root ?

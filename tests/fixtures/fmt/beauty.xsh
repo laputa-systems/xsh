@@ -7,7 +7,7 @@ let fmt_encoded = bytes.from_text(
 )
 
 # Named and spliced arguments: preserve authored breaks and positional expansion.
-pure fmt_pair(first: Str, second: Str) -> Str { f"${first}/${second}" }
+pure fmt_pair(first: Str, second: Str) -> Str { f"{first}/{second}" }
 let fmt_named = process.command_argv(
   "echo",
   ["echo", "ready"],
@@ -93,5 +93,5 @@ print "done"
 # Width boundaries: do not split long literals, paths, or formatted strings.
 let fmt_source_url = "https://downloads.example.test/releases/xsh/generated/source-index/2026/07/30/package-with-a-deliberately-unbreakable-name.tar.zst"
 let fmt_source_path_literal = p"/var/lib/xsh/cache/generated/source-index/2026/07/30/package-with-a-deliberately-unbreakable-name.tar.zst"
-let fmt_label_text = f"source: ${fmt_source_path_literal.display()}"
+let fmt_label_text = f"source: {fmt_source_path_literal.display()}"
 let fmt_predicate = "a generated predicate with a long explanatory literal that should not be split".starts_with("a generated")

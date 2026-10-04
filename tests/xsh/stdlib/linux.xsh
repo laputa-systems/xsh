@@ -1,8 +1,8 @@
 test test_linux_fake_covers_module_surface { |ctx|
   let root = test.temp_dir(ctx, name: "linux")?
-  let log = fp"${root}/linux.jsonl"
-  let seed = fp"${root}/seed"
-  let random = fp"${root}/random"
+  let log = fp"{root}/linux.jsonl"
+  let seed = fp"{root}/seed"
+  let random = fp"{root}/random"
   fs.write(seed, "seed")?
 
   test.linux_fake(ctx, {log: log})?
@@ -48,10 +48,10 @@ test test_linux_fake_covers_module_surface { |ctx|
   let version = linux.file_version(seed)?
   linux.set_file_version(seed, version)?
   linux.chroot(root)?
-  linux.mknod(fp"${root}/null", "char", 1, 3)?
-  linux.insmod(fp"${root}/demo.ko", params: "debug=1")?
+  linux.mknod(fp"{root}/null", "char", 1, 3)?
+  linux.insmod(fp"{root}/demo.ko", params: "debug=1")?
   linux.rmmod("demo", force: true)?
-  linux.pivot_root(root, fp"${root}/oldroot")?
+  linux.pivot_root(root, fp"{root}/oldroot")?
   linux.switch_root(root, /sbin/init)?
   let epoch_ms = linux.hwclock()?
   linux.set_hwclock(epoch_ms)?
@@ -144,7 +144,7 @@ test test_linux_fake_rejects_unknown_settings { |ctx|
 
 test test_linux_fake_text_values_and_log { |ctx|
   let root = test.temp_dir(ctx, name: "linux-fake-text")?
-  let log = fp"${root}/linux.jsonl"
+  let log = fp"{root}/linux.jsonl"
 
   # The entries report fixed values while the fake is installed, and each call
   # appends one line naming its operation to the log file.
@@ -187,7 +187,7 @@ test test_linux_fake_disk_usage_and_sysctl_records { |ctx|
 
 test test_linux_fake_file_attrs_decode_seed_flags { |ctx|
   let root = test.temp_dir(ctx, name: "linux-file-attrs")?
-  let seed = fp"${root}/seed"
+  let seed = fp"{root}/seed"
   fs.write(seed, "seed")?
   test.linux_fake(ctx, {file_attrs_flags: 250111, file_version: 7})?
   let attrs = linux.file_attrs(seed)?
@@ -259,7 +259,7 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
 
 test test_linux_fake_log_appends_in_place { |ctx|
   let root = test.temp_dir(ctx, name: "linux-log-append")?
-  let log = fp"${root}/linux.jsonl"
+  let log = fp"{root}/linux.jsonl"
 
   # The log already holds bytes that are not valid UTF-8, with no trailing
   # newline. The baseline appends to the open file, so those bytes have to
@@ -282,14 +282,14 @@ test test_linux_fake_log_appends_in_place { |ctx|
   assert twice.len() - once.len() == once.len() - seeded.len()
 
   # A destination whose parent directories do not exist yet is created.
-  let fresh = fp"${root}/missing/deeper/linux.jsonl"
+  let fresh = fp"{root}/missing/deeper/linux.jsonl"
   test.linux_fake(ctx, {log: fresh})?
   let _ = linux.meminfo()?
   assert fresh.exists()?
   assert "\"op\":\"meminfo\"" in (fresh.read_text() ?? "")
 
   # A directory destination raises the native logging error.
-  let blocked = fp"${root}/a-directory"
+  let blocked = fp"{root}/a-directory"
   fs.mkdir(blocked)?
   test.linux_fake(ctx, {log: blocked})?
   let failed = test.run_script(ctx, "linux.meminfo()?")?
@@ -300,9 +300,9 @@ test test_linux_fake_log_appends_in_place { |ctx|
 
 test test_linux_text_log_failure_kind { |ctx|
   let root = test.temp_dir(ctx, name: "linux-text-log")?
-  let blocked = fp"${root}/file"
+  let blocked = fp"{root}/file"
   fs.write(blocked, "not a directory")?
-  let blocked_log = fp"${blocked}/linux.jsonl"
+  let blocked_log = fp"{blocked}/linux.jsonl"
   test.linux_fake(ctx, {log: blocked_log})?
   let meminfo_failed = test.run_script(ctx, "linux.meminfo()?")?
   assert ! meminfo_failed.success
@@ -388,11 +388,11 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
 
   let root = test.temp_dir(ctx, name: "linux-modules")?
   fs.write(
-    fp"${root}/demo-name.ko",
+    fp"{root}/demo-name.ko",
     "description=Demo module\0license=MIT\0version=2\0depends=dep,missing\0parm=debug:Enable debug (bool)\0parm=mode:Mode (charp)\0",
   )?
   fs.write(
-    fp"${root}/dep.ko",
+    fp"{root}/dep.ko",
     "description=dep module\0license=GPL\0version=1\0",
   )?
 
@@ -401,22 +401,22 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   # resolve them, and only the tree's path is substituted.
   let nested_template = """\nproc main() [io, fs, error] {
   let info = linux.modinfo(\"demo-name\")?
-  print f\"\${info.name}|\${info.description}|\${info.license}|\${info.version}\"
+  print f\"{info.name}|{info.description}|{info.license}|{info.version}\"
   for param in info.params {
-    print f\"param=\${param.name}|\${param.type}|\${param.description}\"
+    print f\"param={param.name}|{param.type}|{param.description}\"
   }
-  print f\"explicit=\${linux.modinfo(p\"{root}/demo-name.ko\".display())?.name}\"
+  print f\"explicit={linux.modinfo(p\"{ROOT_DIR}/demo-name.ko\".display())?.name}\"
   match linux.modinfo(\"nothing-here\") {
     Ok(_) => { print \"unexpected\" }
-    Err(failure) => { print f\"missing=\${failure.message}\" }
+    Err(failure) => { print f\"missing={failure.message}\" }
   }
   linux.depmod(\"\")?
-  print fs.read_text(p\"{root}/modules.dep\")?
+  print fs.read_text(p\"{ROOT_DIR}/modules.dep\")?
 }
 """
-  let source = nested_template.replace("{root}", f"${root}")
+  let source = nested_template.replace("{ROOT_DIR}", f"{root}")
 
-  let environment = {XSH_MODULES_DIR: f"${root}"}
+  let environment = {XSH_MODULES_DIR: f"{root}"}
 
   # Arguments are positional-only, so the empty argv and stdin are spelled out.
   let nested = test.run_script(
@@ -449,11 +449,11 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "linux-open-files")?
-  let source = fp"${root}/source.txt"
-  let ready = fp"${root}/ready"
-  let release = fp"${root}/release"
-  let closed = fp"${root}/closed"
-  let stop = fp"${root}/stop"
+  let source = fp"{root}/source.txt"
+  let ready = fp"{root}/ready"
+  let release = fp"{root}/release"
+  let closed = fp"{root}/closed"
+  let stop = fp"{root}/stop"
   source.write("payload")?
   let child = spawn process.command_argv(
     "sh",

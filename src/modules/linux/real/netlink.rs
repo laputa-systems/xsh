@@ -1348,9 +1348,9 @@ proc main() [fs, error, io] {\n\
         append_xsh_value(&snapshot_value(snapshot), &mut source);
         source.push_str(
             "\n  let result = collector.assemble_network_dump(dump)\n\
-  print f\"${result.status.enumeration_succeeded} ${result.links.len()} ${result.routes.len()} ${result.rules.len()}\"\n\
+  print f\"{result.status.enumeration_succeeded} {result.links.len()} {result.routes.len()} {result.rules.len()}\"\n\
   for link in result.links {\n\
-    print f\"${link.ifindex} ${link.addresses.len()}\"\n\
+    print f\"{link.ifindex} {link.addresses.len()}\"\n\
   }\n\
 }\nmain()?\n",
         );

@@ -34,12 +34,12 @@ type IRWireReport = {
 test test_ir_coverage_cli_retains_typed_report_and_scan_counts { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "ir-coverage-wire")?.resolve()?
-  fp"${root}/src/syntax".mkdir()?
-  fp"${root}/src/sema".mkdir()?
-  fp"${root}/src/sema/records.rs".write_atomic("")?
-  fp"${root}/src/runtime/eval/indexed".mkdir()?
-  fp"${root}/core".mkdir()?
-  fp"${root}/src/syntax/arena.rs".write_atomic("""
+  fp"{root}/src/syntax".mkdir()?
+  fp"{root}/src/sema".mkdir()?
+  fp"{root}/src/sema/records.rs".write_atomic("")?
+  fp"{root}/src/runtime/eval/indexed".mkdir()?
+  fp"{root}/core".mkdir()?
+  fp"{root}/src/syntax/arena.rs".write_atomic("""
 pub enum ArenaStmtKind {
     Let,
     Command,
@@ -51,7 +51,7 @@ pub enum ArenaTypeExprTag {
     Named,
 }
 """)?
-  fp"${root}/src/syntax/node.rs".write_atomic("""
+  fp"{root}/src/syntax/node.rs".write_atomic("""
 pub enum BinaryOp {
     Add,
 }
@@ -59,7 +59,7 @@ pub enum AssignOp {
     Set,
 }
 """)?
-  fp"${root}/src/runtime/eval.rs".write_atomic("""
+  fp"{root}/src/runtime/eval.rs".write_atomic("""
 pub enum LoweredPipelineStage {
     Map,
 }
@@ -70,23 +70,23 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "len",
 ];
 """)?
-  fp"${root}/src/runtime/eval/indexed/full.rs".write_atomic("""
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("""
 pub enum FullTag {
     StmtLet,
     ExprInt,
 }
 """)?
-  fp"${root}/core/sample.xsh".write_atomic("""
+  fp"{root}/core/sample.xsh".write_atomic("""
 pure identity(value: Int) -> Int { value }
 proc count() [] -> Int { 1 }
 let value = identity(1)
 let values = [1, 2] |> batch(count: 1)
 """)?
-  let report_path = fp"${root}/reports/ir.json"
-  let stdout_path = fp"${root}/stdout.txt"
-  let stderr_path = fp"${root}/stderr.txt"
+  let report_path = fp"{root}/reports/ir.json"
+  let stdout_path = fp"{root}/stdout.txt"
+  let stderr_path = fp"{root}/stderr.txt"
   let xsh = ctx.xsh_bin
-  let tool = fp"${repo}/tools/xsh-ir-coverage.xsh"
+  let tool = fp"{repo}/tools/xsh-ir-coverage.xsh"
   let command = process.command {
     stdout = stdout_path
     stderr = stderr_path
@@ -115,7 +115,7 @@ let values = [1, 2] |> batch(count: 1)
   let invalid = process.command {
     stdout = stdout_path
     stderr = stderr_path
-    run $xsh $tool -- --root fp"${root}/absent"
+    run $xsh $tool -- --root fp"{root}/absent"
   }
   assert ! process.run(invalid)?.exited_with(0)
   assert stderr_path.read_text()? != ""

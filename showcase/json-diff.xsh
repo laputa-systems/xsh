@@ -37,8 +37,8 @@ proc main(...argv: List[Str]) [fs, error] {
     }
   }
 
-  print f"a: ${opts.a}  (${keys_a.len()} keys)"
-  print f"b: ${opts.b}  (${keys_b.len()} keys)"
+  print f"a: {opts.a}  ({keys_a.len()} keys)"
+  print f"b: {opts.b}  ({keys_b.len()} keys)"
   print ""
 
   if removed.len() == 0 and added.len() == 0 and changed.len() == 0 {
@@ -47,40 +47,40 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if removed.len() > 0 {
-    print f"removed (${removed.len()}):"
+    print f"removed ({removed.len()}):"
 
     for key in removed {
       let v = json.encode(json_a.get(key)?)?
-      print f"  - ${key}: ${v}"
+      print f"  - {key}: {v}"
     }
 
     print ""
   }
 
   if added.len() > 0 {
-    print f"added (${added.len()}):"
+    print f"added ({added.len()}):"
 
     for key in added {
       let v = json.encode(json_b.get(key)?)?
-      print f"  + ${key}: ${v}"
+      print f"  + {key}: {v}"
     }
 
     print ""
   }
 
   if changed.len() > 0 {
-    print f"changed (${changed.len()}):"
+    print f"changed ({changed.len()}):"
 
     for key in changed {
       let va = json.encode(json_a.get(key)?)?
       let vb = json.encode(json_b.get(key)?)?
-      print f"  ~ ${key}"
-      print f"    < ${va}"
-      print f"    > ${vb}"
+      print f"  ~ {key}"
+      print f"    < {va}"
+      print f"    > {vb}"
     }
 
     print ""
   }
 
-  print f"same ${same}  removed ${removed.len()}  added ${added.len()}  changed ${changed.len()}"
+  print f"same {same}  removed {removed.len()}  added {added.len()}  changed {changed.len()}"
 }

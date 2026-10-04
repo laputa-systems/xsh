@@ -359,7 +359,7 @@ proc read_manifest(file: Path) -> Result[Manifest] {
     let rejected = test.run_xsh(ctx, declaration + caller)?
     assert rejected.status != 0
     assert "check.effect-violation" in rejected.stderr == true
-    assert f"effect `${missing}` required by `read_manifest`" in rejected.stderr == true
+    assert f"effect `{missing}` required by `read_manifest`" in rejected.stderr == true
   }
 }
 

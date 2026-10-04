@@ -32,7 +32,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
 
 test test_nominal_error_payload_and_facet_patterns {
   match missing(p"missing") {
-    Ok(text) => test.fail(f"unexpected ok ${text}")?
+    Ok(text) => test.fail(f"unexpected ok {text}")?
     Err(FsError.NotFound {file: file}) => assert file.display() == "missing"
     Err(is PermissionDenied) => test.fail("unexpected permission facet")?
     Err(error) => test.fail(error.message)?
@@ -73,17 +73,17 @@ test test_compact_sugar_forms { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-let root = p"${root}"
+let root = p"{root}"
 defer root.remove(missing_ok: true)?
 root.mkdir(parents: true)?
-fp"\${root}/a.txt".write("a")?
-fp"\${root}/b.log".write("b")?
+fp"{{root}}/a.txt".write("a")?
+fp"{{root}}/b.log".write("b")?
 var total = 1
 total += 2
-let files = g"${root}/*.txt"
-let label = if total == 3 { "three" } else { "other" }
-let value = match Ok(total) { Ok(count) => count, Err(_) => 0 }
-print \${label} \${value} \${files |> count()}
+let files = g"{root}/*.txt"
+let label = if total == 3 {{ "three" }} else {{ "other" }}
+let value = match Ok(total) {{ Ok(count) => count, Err(_) => 0 }}
+print ${{label}} ${{value}} ${{files |> count()}}
 """,
   )?
 
@@ -97,11 +97,11 @@ print \${label} \${value} \${files |> count()}
 test test_ergonomic_sugar_pass_forms { |ctx|
   let root = test.temp_dir(ctx, name: "ergonomic-sugar")?
   fs.remove(root, missing_ok: true)?
-  fs.mkdir(fp"${root}/nested/dir")?
-  let pkg = {name: "demo", version: "1", path: fp"${root}/nested/dir"}
+  fs.mkdir(fp"{root}/nested/dir")?
+  let pkg = {name: "demo", version: "1", path: fp"{root}/nested/dir"}
   let {name, version, ..} = pkg
   var {path: package_path, ..} = pkg
-  package_path = fp"${root}/changed"
+  package_path = fp"{root}/changed"
   var printed_path = ""
 
   for item in [pkg] {
@@ -110,10 +110,10 @@ test test_ergonomic_sugar_pass_forms { |ctx|
 
   let jobs = env.Str.XSH_ERGONOMIC_SUGAR_MISSING ?? "1"
   let ok = Ok("set") ?? env.Str.XSH_ERGONOMIC_SUGAR_MISSING?
-  json.write(fp"${root}/meta.json", {name, version, jobs, ok})?
-  let metadata = json.read(fp"${root}/meta.json")?
-  fs.remove(fp"${root}/missing", missing_ok: true)?
-  assert printed_path == fp"${root}/nested/dir".display()
+  json.write(fp"{root}/meta.json", {name, version, jobs, ok})?
+  let metadata = json.read(fp"{root}/meta.json")?
+  fs.remove(fp"{root}/missing", missing_ok: true)?
+  assert printed_path == fp"{root}/nested/dir".display()
   assert name == "demo"
   assert version == "1"
   assert jobs == "1"
@@ -148,7 +148,7 @@ test test_multi_clause_comprehension_bindings_are_lexical { |ctx|
 proc main() [io] {
   let value = 10
   let values = [value for value in [1, 2] for value in [value + 1]]
-  print f"${values[0]},${values[1]},${value}"
+  print f"{values[0]},{values[1]},{value}"
 }
 """,
   )?
@@ -175,16 +175,16 @@ test test_multi_clause_comprehension_evaluates_only_reached_clauses { |ctx|
     ctx,
     r"""
 proc inner(outer: Int) [io] -> List[Int] {
-  print f"iter ${outer}"
+  print f"iter {outer}"
   return [1, 2]
 }
 proc project(outer: Int, inner: Int) [io] -> Int {
-  print f"value ${outer}:${inner}"
+  print f"value {outer}:{inner}"
   return outer * 10 + inner
 }
 proc main() [io] {
   let values = [project(outer, item) for outer in [1, 2, 3] if outer != 2 for item in inner(outer) if item == 1]
-  print f"${values.len()}"
+  print f"{values.len()}"
 }
 """,
   )?
@@ -202,21 +202,21 @@ test test_multi_clause_comprehension_pulls_streams_lazily_and_closes { |ctx|
   let output = test.run_script(
     ctx,
     r"""
-proc closed(label: Str) [io] -> Unit { print f"close ${label}" }
+proc closed(label: Str) [io] -> Unit { print f"close {label}" }
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer closed(label)
   for number in [1, 2] {
-    print f"pull ${label}:${number}"
+    print f"pull {label}:{number}"
     yield number
   }
 }
 proc project(outer: Int, inner: Int) [io] -> Int {
-  print f"value ${outer}:${inner}"
+  print f"value {outer}:{inner}"
   return outer * 10 + inner
 }
 proc main() [io] {
   let values = [project(outer, inner) for outer in numbers("outer") if outer == 1 for inner in numbers("inner")]
-  print f"${values.len()}"
+  print f"{values.len()}"
 }
 """,
   )?
@@ -238,11 +238,11 @@ test test_multi_clause_comprehension_failure_closes_nested_streams { |ctx|
   let output = test.run_script(
     ctx,
     r"""
-proc closed(label: Str) [io] -> Unit { print f"close ${label}" }
+proc closed(label: Str) [io] -> Unit { print f"close {label}" }
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer closed(label)
   for number in [1, 2] {
-    print f"pull ${label}:${number}"
+    print f"pull {label}:{number}"
     yield number
   }
 }
@@ -252,7 +252,7 @@ proc failed() [error] -> Result[List[Int], FixtureError] {
 }
 proc main() [io, error] {
   let values = [value for outer in numbers("outer") for inner in numbers("inner") for value in failed()]
-  print f"${values.len()}"
+  print f"{values.len()}"
 }
 """,
   )?
@@ -294,7 +294,7 @@ test test_multi_clause_comprehension_propagation_retains_result_and_cleanup { |c
     ctx,
     r"""
 error FixtureError = Failure(message: Str)
-proc closed(label: Str) [io] -> Unit { print f"close ${label}" }
+proc closed(label: Str) [io] -> Unit { print f"close {label}" }
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer closed(label)
   yield 1
@@ -363,11 +363,11 @@ test test_list_literal_splicing_evaluates_left_to_right_once { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc item(value: Int) [io] -> Int {
-  print f"item $value"
+  print f"item {value}"
   return value
 }
 proc items(value: Int) [io] -> List[Int] {
-  print f"splice $value"
+  print f"splice {value}"
   return [value, value + 1]
 }
 let result = [item(1), @items(2), item(4), @items(5)]
@@ -389,7 +389,7 @@ test test_list_literal_splicing_propagates_before_later_elements { |ctx|
     ctx,
     r"""error SpliceFailure = Stopped(message: Str)
 proc item(value: Int) [io] -> Int {
-  print f"item $value"
+  print f"item {value}"
   return value
 }
 proc flags() [io] -> Result[List[Int], SpliceFailure] {
@@ -459,7 +459,7 @@ test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers 
     r"""
 error FixtureError = Failure(message: Str)
 stream numbers(label: Str) [io] -> Stream[Int] {
-  defer { print f"close ${label}" }
+  defer { print f"close {label}" }
   yield @[1, 2]
 }
 proc project() [error] -> Result[Int, FixtureError] {

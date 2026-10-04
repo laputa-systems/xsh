@@ -6,5 +6,5 @@ proc main(...argv: List[Str]) [fs, io, error] {
   let rejected = fs.walk(root, gitignore: false, stat: use_stat)
     |> where .kind == "impossible"
     |> count()
-  print f"${rejected}"
+  print f"{rejected}"
 }

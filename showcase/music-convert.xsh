@@ -98,11 +98,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> sort-by .path
 
   if files.len() == 0 {
-    print f"no audio files found in ${root}"
+    print f"no audio files found in {root}"
     return
   }
 
-  print f"found ${files.len()} audio files in ${root}"
+  print f"found {files.len()} audio files in {root}"
   var results: List[ConvertResult] = []
 
   for entry in files {
@@ -113,7 +113,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     let aac_kbps = nearest_aac_kbps(orig_kbps)
 
     if opts.verbose {
-      print f"  ${rel}: ${ext} ${orig_kbps}kbps → ${aac_kbps}kbps"
+      print f"  {rel}: {ext} {orig_kbps}kbps → {aac_kbps}kbps"
     }
 
     if opts.dry_run {
@@ -121,7 +121,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
       continue
     }
 
-    let dest = fp"${out_dir}/${rel}".with_ext("m4a")
+    let dest = fp"{out_dir}/{rel}".with_ext("m4a")
     dest.parent().mkdir()?
 
     let cmd = process.command_argv(
@@ -133,7 +133,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
         "-c:a",
         "aac_at",
         "-b:a",
-        f"${aac_kbps}k",
+        f"{aac_kbps}k",
         "-vn",
         "-y",
         dest.display(),
@@ -148,12 +148,12 @@ proc main(...argv: List[Str]) [fs, process, error] {
   }
 
   print ""
-  print f"${"source":<50} ${"ext":<5} ${"orig":>6} ${"aac":>6}  status"
-  print f"${"------":<50} ${"---":<5} ${"----":>6} ${"---":>6}  ------"
+  print f"{"source":<50} {"ext":<5} {"orig":>6} {"aac":>6}  status"
+  print f"{"------":<50} {"---":<5} {"----":>6} {"---":>6}  ------"
 
   for r in results {
     let st = if r.ok { "ok" } else { "FAIL" }
-    print f"${r.source:<50} ${r.ext:<5} ${r.orig_kbps:>5}k ${r.aac_kbps:>5}k  ${st}"
+    print f"{r.source:<50} {r.ext:<5} {r.orig_kbps:>5}k {r.aac_kbps:>5}k  {st}"
   }
 
   let ok_n = results
@@ -163,8 +163,8 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print ""
 
   if opts.dry_run {
-    print f"${results.len()} files would be converted (dry run)"
+    print f"{results.len()} files would be converted (dry run)"
   } else {
-    print f"${ok_n} converted  ${results.len() - ok_n} failed"
+    print f"{ok_n} converted  {results.len() - ok_n} failed"
   }
 }

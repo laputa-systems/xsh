@@ -4,14 +4,14 @@ error AppletError = Usage(message: Str) : Usage
 proc print_addr(filter: Str) [process, error] {
   for iface in linux.interfaces()? |> sort-by .name {
     continue when filter != "" and iface.name != filter
-    print f"${iface.name}: mtu ${iface.mtu} flags ${iface.flags.join(",")}"
+    print f"{iface.name}: mtu {iface.mtu} flags {iface.flags.join(",")}"
 
     if iface.mac != "" {
-      print f"    link/ether ${iface.mac}"
+      print f"    link/ether {iface.mac}"
     }
 
     for addr in iface.addresses {
-      print f"    ${addr.family} ${addr.addr}/${addr.prefix_len}"
+      print f"    {addr.family} {addr.addr}/{addr.prefix_len}"
     }
   }
 }
@@ -19,9 +19,9 @@ proc print_addr(filter: Str) [process, error] {
 proc print_route() [process, error] {
   for route in linux.routes()? {
     if route.gateway == "" or route.gateway == "0.0.0.0" or route.gateway == "::" {
-      print f"${route.dst} dev ${route.dev} metric ${route.metric}"
+      print f"{route.dst} dev {route.dev} metric {route.metric}"
     } else {
-      print f"${route.dst} via ${route.gateway} dev ${route.dev} metric ${route.metric}"
+      print f"{route.dst} via {route.gateway} dev {route.dev} metric {route.metric}"
     }
   }
 }

@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   for item in operands |> drop(1) {
-    let target = fp"${item}"
+    let target = fp"{item}"
 
     if recursive and target.metadata()?.kind == "dir" {
       # The walk chooses its traversal workers; group changes run in the

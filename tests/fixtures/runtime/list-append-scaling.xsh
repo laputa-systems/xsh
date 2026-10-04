@@ -7,5 +7,5 @@ proc main() [env, error, io] {
     items += [index]
     index += 1
   }
-  print f"${items.len()} ${items.get(size - 1)?}"
+  print f"{items.len()} {items.get(size - 1)?}"
 }

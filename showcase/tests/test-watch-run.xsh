@@ -1,6 +1,6 @@
 test test_watch_run_once { |ctx|
   let root = test.temp_dir(ctx, name: "watch")?
-  fp"${root}/input.txt".write("hello")?
+  fp"{root}/input.txt".write("hello")?
   let output = run.text "xsh" "showcase/watch-run.xsh" -- --root $root --once true ?
   assert "watching " in output
   assert "[run 1]" in output
@@ -48,7 +48,7 @@ test test_watch_run_cancellation_reaps_child_descendants { |ctx|
   process.kill(wrapper.pid, signal: "TERM")?
   let status = wait wrapper?
   let canceled = status.exited_with(3)
-  let cancellation_message = f"canceled watch wrapper must exit with status 3, got ${status.exit_code() ?? -1}"
+  let cancellation_message = f"canceled watch wrapper must exit with status 3, got {status.exit_code() ?? -1}"
   assert canceled, cancellation_message
   time.sleep(1500ms)?
   assert ! leaked.exists()?, "canceled child group must not leave a descendant running"

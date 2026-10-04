@@ -15,5 +15,5 @@ proc main() [io, env, error, time] {
     round = round + 1
   }
   let elapsed = time.now() - start
-  print f"modules_full ${elapsed} ms bytes=${sink}"
+  print f"modules_full {elapsed} ms bytes={sink}"
 }

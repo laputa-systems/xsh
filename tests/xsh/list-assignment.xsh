@@ -82,11 +82,11 @@ test test_list_assignment_rejects_indexing_bounds_after_rhs { |ctx|
       ctx,
       f"""
 var values = [1, 2]
-defer { print (json.encode(values)?) }
-values[${index}] = if true {
+defer {{ print (json.encode(values)?) }}
+values[{index}] = if true {{
   print "rhs"
   9
-} else { 0 }
+}} else {{ 0 }}
 """,
     )?
     assert ! output.success

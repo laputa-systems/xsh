@@ -22,10 +22,10 @@ proc print_entry(target: Path, name: Str, prefix: Str, is_last: Bool, kind: Str)
   var suffix = ""
 
   if kind == "symlink" {
-    suffix = f" -> ${target.readlink()?.display()}"
+    suffix = f" -> {target.readlink()?.display()}"
   }
 
-  print f"${prefix}${connector}${name}${suffix}"
+  print f"{prefix}{connector}{name}{suffix}"
 }
 
 proc print_children(
@@ -53,7 +53,7 @@ proc print_children(
 
     if entry.kind == "dir" {
       totals = add_counts(totals, {dirs: 1, files: 0})
-      let child_prefix = if is_last { f"${prefix}    " } else { f"${prefix}|   " }
+      let child_prefix = if is_last { f"{prefix}    " } else { f"{prefix}|   " }
       totals = add_counts(totals, print_children(entry.path, child_prefix, all, dirs_only, max_depth, depth + 1)?)
     } else if entry.kind == "file" or entry.kind == "symlink" {
       totals = add_counts(totals, {dirs: 0, files: 1})
@@ -64,14 +64,14 @@ proc print_children(
 }
 
 proc print_target(raw: Str, all: Bool, dirs_only: Bool, max_depth: Int) [fs, error] -> Result[Counts] {
-  let target = fp"${raw}"
+  let target = fp"{raw}"
   let meta = target.metadata()?
   print $raw
 
   if meta.kind == "dir" {
     return print_children(target, "", all, dirs_only, max_depth, 1)?
   } else if meta.kind == "symlink" {
-    print f" -> ${target.readlink()?.display()}"
+    print f" -> {target.readlink()?.display()}"
   }
 
   return {dirs: 0, files: 1} when meta.kind == "file" or meta.kind == "symlink"
@@ -128,9 +128,5 @@ proc main(...argv: List[Str]) [fs, error] {
 
   print ""
 
-  print f"${totals.dirs} ${plural(totals.dirs, "directory", "directories")}, ${totals.files} ${plural(
-    totals.files,
-    "file",
-    "files",
-  )}"
+  print f"{totals.dirs} {plural(totals.dirs, "directory", "directories")}, {totals.files} {plural(totals.files, "file", "files")}"
 }

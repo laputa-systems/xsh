@@ -105,7 +105,7 @@ pure parse_options(argv: List[Str]) -> Result[Options] {
   return Err(ScriptError.Failed("usage", usage())) when parsed.operands.len() != 1
 
   {
-    input: fp"${input}",
+    input: fp"{input}",
     comm: parsed.comm,
     include: parsed.include,
     exclude: parsed.exclude,
@@ -175,7 +175,7 @@ proc print_folded(counts: Map[Int], top: Int) [error] {
   let limit = if top <= 0 or top > sorted.len() { sorted.len() } else { top }
 
   for row in sorted |> take(limit) {
-    print f"${row.stack} ${row.count}"
+    print f"{row.stack} {row.count}"
   }
 }
 

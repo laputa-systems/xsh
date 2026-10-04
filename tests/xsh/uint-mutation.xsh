@@ -441,7 +441,7 @@ let rejected = absent ?? -1""",
 
 test test_uint_imported_constructor_payloads_keep_declared_domains { |ctx|
   let root = test.temp_dir(ctx, name: "uint-constructors")?
-  fp"${root}/counts.xsh".write_atomic("""##! Checked count payloads.
+  fp"{root}/counts.xsh".write_atomic("""##! Checked count payloads.
 ## A nonnegative count.
 export enum Count { Counted(UInt) }
 ## A nonnegative failure payload.

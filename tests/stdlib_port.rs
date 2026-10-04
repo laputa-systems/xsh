@@ -396,10 +396,10 @@ fn a_loaded_module_calls_prepared_implementations() {
              let loaded = module.load(p\"{}\" )?.require(Loaded)?\n  \
              let hex = loaded.digest_of(p\"{}\" )?\n  \
              loaded.check(p\"{}\" , hex)?\n  \
-             print f\"${{hex}}\"\n  \
+             print f\"{{hex}}\"\n  \
              match loaded.check(p\"{}\", \"00\") {{\n    \
              Ok(_) => {{ print \"unexpected-ok\" }}\n    \
-             Err(failure) => {{ print f\"${{failure.message}}\" }}\n  \
+             Err(failure) => {{ print f\"{{failure.message}}\" }}\n  \
              }}\n}}\n",
             loaded.display(),
             data.display(),
@@ -1031,7 +1031,7 @@ fn os_release_entry_reads_the_fixed_paths() {
             "\n",
             "proc main() [io, env, fs, error] {\n",
             "  let release = system.os_release()?\n",
-            "  print f\"${release.name}|${release.pretty_name}|${release.version}|${release.version_id}|${release.id}\"\n",
+            "  print f\"{release.name}|{release.pretty_name}|{release.version}|{release.version_id}|{release.id}\"\n",
             "}\n",
         ),
     );

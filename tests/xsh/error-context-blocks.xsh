@@ -64,7 +64,7 @@ test test_ctx_label_evaluates_once_and_failed_label_uses_only_enclosing_context 
     ctx,
     r"""proc label() -> Str { print "label"; "operation" }
 ctx label() { print "body" }
-ctx "enclosing" { ctx f"${"not an integer".parse_int()?}" { print "skipped" } }
+ctx "enclosing" { ctx f"{"not an integer".parse_int()?}" { print "skipped" } }
 """,
   )?
   assert ! output.success, output.stderr
@@ -159,7 +159,7 @@ test test_ctx_keeps_loop_transfers_and_value_evaluation_before_defers { |ctx|
     r"""var count = 0
 for item in [1, 2, 3] {
   ctx "loop" {
-    defer { print f"cleanup:$item" }
+    defer { print f"cleanup:{item}" }
     continue when item == 1
     break when item == 2
     count += item

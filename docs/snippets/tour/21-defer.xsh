@@ -1,12 +1,12 @@
 proc rotate(dir: Path) [fs, error] {
-  let lock = fp"${dir}/.rotate.lock"
+  let lock = fp"{dir}/.rotate.lock"
   lock.write("locked\n")?
   defer {
     lock.remove()?
     print "released lock"
   }
 
-  let staging = fp"${dir}/staging"
+  let staging = fp"{dir}/staging"
   staging.mkdir()?
   defer {
     staging.remove_dir()?
@@ -14,7 +14,7 @@ proc rotate(dir: Path) [fs, error] {
   }
 
   print "rotating"
-  let _ = fp"${dir}/missing.log".read_text()?
+  let _ = fp"{dir}/missing.log".read_text()?
   print "never reached"
 }
 
@@ -27,4 +27,4 @@ match rotate(dir) {
   Err(_) => print "rotate failed"
 }
 
-print f"left behind: ${fs.children(dir)? |> count()}"
+print f"left behind: {fs.children(dir)? |> count()}"

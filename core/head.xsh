@@ -8,7 +8,7 @@ type HeadOptions = {count: Str, quiet: Bool, verbose: Bool, paths: List[Str]}
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
+    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 
@@ -54,7 +54,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       }
 
       let label = if item == "-" { "standard input" } else { item }
-      print f"==> ${label} <=="
+      print f"==> {label} <=="
     }
 
     let input = text_input.read_text([item])?

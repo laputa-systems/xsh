@@ -13,7 +13,7 @@ test test_membership_operator_supports_strings_lists_bytes_and_paths {
 
 test test_path_methods { |ctx|
   let root = test.temp_dir(ctx, name: "path-methods")?
-  let file = fp"${root}/dir/file.txt"
+  let file = fp"{root}/dir/file.txt"
   file.parent().mkdir()?
   file.write("hello")?
   assert file.read_text()? == "hello"
@@ -22,7 +22,7 @@ test test_path_methods { |ctx|
   assert file.name() == "file.txt"
   assert file.ext() == "txt"
   assert file.basename() == "file.txt"
-  assert file.dirname().display() == fp"${root}/dir".display()
+  assert file.dirname().display() == fp"{root}/dir".display()
   assert p"/".basename() == "/"
   assert p".".basename() == "."
   assert p"a/.".dirname().display() == "a"
@@ -31,7 +31,7 @@ test test_path_methods { |ctx|
   assert p"file.".ext_or("none") == ""
   assert p"plain".ext_or("none") == "none"
   assert file.with_ext("log").name() == "file.log"
-  assert fp"${root}/dir/../dir/file.txt".normalize() == file
+  assert fp"{root}/dir/../dir/file.txt".normalize() == file
   assert file.strip_prefix(root)?.display() == "dir/file.txt"
   assert file.relative_to(root).display() == "dir/file.txt"
   assert file.resolve()?.display().ends_with("file.txt")
@@ -42,42 +42,42 @@ test test_path_methods { |ctx|
   file.chmod(0o600)?
   file.truncate(2)?
   assert file.read_text()? == "by"
-  let copied = fp"${root}/copy.txt"
+  let copied = fp"{root}/copy.txt"
   file.copy(copied)?
   assert copied.read_text()? == "by"
-  let renamed = fp"${root}/renamed.txt"
+  let renamed = fp"{root}/renamed.txt"
   copied.rename(renamed)?
   assert renamed.exists()?
-  let link = fp"${root}/link.txt"
+  let link = fp"{root}/link.txt"
   file.hardlink(link)?
   assert link.read_text()? == "by"
-  let symlink = fp"${root}/symlink.txt"
+  let symlink = fp"{root}/symlink.txt"
   fs.symlink(file, symlink)?
   assert symlink.readlink()?.display() == file.display()
   link.unlink()?
   assert ! link.exists()?
   renamed.remove()?
-  let empty_dir = fp"${root}/empty"
+  let empty_dir = fp"{root}/empty"
   empty_dir.mkdir()?
   empty_dir.remove_dir()?
-  let touched = fp"${root}/touched"
+  let touched = fp"{root}/touched"
   touched.touch()?
   touched.touch_from(file)?
   touched.remove(missing_ok: true)?
   let relative_text = "relative/path"
-  let parsed = fp"${relative_text}"
+  let parsed = fp"{relative_text}"
   assert parsed.display() == "relative/path"
   assert Path.parse_bytes(b"byte/path")?.display() == "byte/path"
 }
 
 test test_path_edge_cases_and_standard_record_schema { |ctx|
   let root = test.temp_dir(ctx, name: "path-edge")?
-  let spaced = fp"${root}/space name"
+  let spaced = fp"{root}/space name"
 
-  let lined = fp"""${root}/line
+  let lined = fp"""{root}/line
 name"""
 
-  let dashed = fp"${root}/-leading"
+  let dashed = fp"{root}/-leading"
   spaced.write("a")?
   lined.write("b")?
   dashed.write("c")?
@@ -110,17 +110,17 @@ pure path_entry_name(entry: FsEntry) -> Str {
 
 test test_absolute_glob_traverses_symlinked_literal_components { |ctx|
   let root = test.temp_dir(ctx, name: "absolute-glob-symlink")?
-  let real = fp"${root}/real"
-  let link = fp"${root}/link"
+  let real = fp"{root}/real"
+  let link = fp"{root}/link"
   real.mkdir()
-  fp"${real}/hit.txt".write("ok")?
+  fp"{real}/hit.txt".write("ok")?
   fs.symlink(real, link)?
 
   let output = test.run_script(
     ctx,
     f"""
-let files = g"${link}/*.txt" |> map { |entry_path| entry_path.name }
-print \${files[0]}
+let files = g"{link}/*.txt" |> map {{ |entry_path| entry_path.name }}
+print ${{files[0]}}
 """,
   )?
 
@@ -135,12 +135,12 @@ print \${files[0]}
 
 test test_path_interpolation_retains_native_bytes_and_text_boundaries { |ctx|
   let raw = Path.parse_bytes(b"raw\xff name")?
-  assert fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?
-  assert fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false"
-  assert fp"${raw:>12}" == Path.parse_bytes(b"   raw\xff name")?
-  assert f"${raw}" == raw.display()
+  assert fp"prefix/{raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?
+  assert fp"{p"left"}/{"right"}/{7}/{false}" == p"left/right/7/false"
+  assert fp"{raw:>12}" == Path.parse_bytes(b"   raw\xff name")?
+  assert f"{raw}" == raw.display()
   let shown = raw.display()
-  assert fp"${shown}" != raw
+  assert fp"{shown}" != raw
   let output = test.run_script(
     ctx,
     r"""
@@ -161,10 +161,10 @@ test test_path_text_conversions_remain_distinct_from_native_arguments { |ctx|
     r"""
 let raw = Path.parse_bytes(b"raw\xff name")?
 run printf "%s\n" "--target=${raw.display()}" ?
-run printf "%s\n" f"${raw.display()}" ?
-run printf "%s\n" f"${raw}" ?
+run printf "%s\n" f"{raw.display()}" ?
+run printf "%s\n" f"{raw}" ?
 run printf "%s\n" (Path(raw.display())) ?
-run printf "%s\n" (Path(f"${raw}/child")) ?
+run printf "%s\n" (Path(f"{raw}/child")) ?
 run printf "%s\n" (raw) ?
 """,
   )?
@@ -177,7 +177,7 @@ test test_path_interpolation_rejects_nul_and_keeps_effect_order { |ctx|
     ctx,
     r"""
 let text = "\0"
-let invalid = fp"prefix/${text}"
+let invalid = fp"prefix/{text}"
 print "unexpected"
 """,
   )?
@@ -196,7 +196,7 @@ run printf "%s" "value=$text" ?
   let bytes_failed = test.run_script(
     ctx,
     r"""
-let invalid = fp"${b"raw"}"
+let invalid = fp"{b"raw"}"
 """,
   )?
   assert ! bytes_failed.success
@@ -205,7 +205,7 @@ let invalid = fp"${b"raw"}"
     ctx,
     r"""
 proc piece(label: Str) [io] -> Path { print --flush $label; return Path(label) }
-let result = fp"${piece("first")}/${piece("second")}/../last"
+let result = fp"{piece("first")}/{piece("second")}/../last"
 print --flush $result
 run printf "%s\n" "${piece("third")}/${piece("fourth")}" ?
 """,
@@ -225,11 +225,11 @@ third/fourth
 
 test test_path_display_lint_fixes_drop_needless_text_conversions { |ctx|
   let source = r"""proc show(marker: Path, name: Str) {
-  let whole = Path(f"${marker.display()}")
-  let nested = Path(f"/tmp/${marker.display()}/y")
+  let whole = Path(f"{marker.display()}")
+  let nested = Path(f"/tmp/{marker.display()}/y")
   let text = Path(name)
   let label = marker.display()
-  print f"at ${marker.display()}"
+  print f"at {marker.display()}"
   run printf "%s\n" ${marker.display()} ?
   print $whole $nested $text $label
 }
@@ -246,10 +246,10 @@ show(p"m", "n")
   # A Str binding is an explicit text boundary, so `label` keeps its conversion.
   assert fixed == r"""proc show(marker: Path, name: Str) {
   let whole = marker
-  let nested = fp"/tmp/${marker}/y"
-  let text = fp"${name}"
+  let nested = fp"/tmp/{marker}/y"
+  let text = fp"{name}"
   let label = marker.display()
-  print f"at ${marker}"
+  print f"at {marker}"
   run printf "%s\n" $marker ?
   print $whole $nested $text $label
 }

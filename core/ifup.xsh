@@ -57,14 +57,14 @@ proc default_interfaces_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
     "/etc/network/interfaces"
   }
-  fp"${raw}"
+  fp"{raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_STATE") ?? { |_|
     "/run/network/ifstate"
   }
-  fp"${raw}"
+  fp"{raw}"
 }
 
 pure first_word(line: Str) -> Str {
@@ -112,7 +112,7 @@ pure append_current(config: Config, current: Interface) -> Config {
 }
 
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
-  let path_value = fp"${source}"
+  let path_value = fp"{source}"
 
   return parse_interfaces_file(path_value, config)? unless "*" in source
 
@@ -151,7 +151,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfupError.Config(f"${path_value}: source expects one path"))
+          return Err(IfupError.Config(f"{path_value}: source expects one path"))
         }
 
         result = parse_source_path(fields[1], result)?
@@ -161,10 +161,10 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfupError.Config(f"${path_value}: source-directory expects one path"))
+          return Err(IfupError.Config(f"{path_value}: source-directory expects one path"))
         }
 
-        let dir = fp"${fields[1]}"
+        let dir = fp"{fields[1]}"
 
         if dir.exists()? {
           for entry in fs.children(dir)?
@@ -183,28 +183,28 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         result = append_current(result, current)
 
         if fields.len() < 4 {
-          return Err(IfupError.Config(f"${path_value}: iface expects name, address family, and method"))
+          return Err(IfupError.Config(f"{path_value}: iface expects name, address family, and method"))
         }
 
         current = {...empty_interface(), logical: fields[1], family: fields[2], method: fields[3]}
       }
       "pre-up" => {
         if current.logical == "" {
-          return Err(IfupError.Config(f"${path_value}: pre-up outside iface stanza"))
+          return Err(IfupError.Config(f"{path_value}: pre-up outside iface stanza"))
         }
 
         current = {...current, pre_up: current.pre_up.push(rest_after_word(line))}
       }
       "up" => {
         if current.logical == "" {
-          return Err(IfupError.Config(f"${path_value}: up outside iface stanza"))
+          return Err(IfupError.Config(f"{path_value}: up outside iface stanza"))
         }
 
         current = {...current, up: current.up.push(rest_after_word(line))}
       }
       "post-up" => {
         if current.logical == "" {
-          return Err(IfupError.Config(f"${path_value}: post-up outside iface stanza"))
+          return Err(IfupError.Config(f"{path_value}: post-up outside iface stanza"))
         }
 
         current = {...current, post_up: current.post_up.push(rest_after_word(line))}
@@ -225,7 +225,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         }
       }
       "mapping" | "allow-auto" | "allow-hotplug" => return Err(
-        IfupError.Config(f"${path_value}: unsupported ifupdown directive ${fields[0]}"),
+        IfupError.Config(f"{path_value}: unsupported ifupdown directive {fields[0]}"),
       )
       _ => {}
     }
@@ -260,11 +260,11 @@ proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] 
   return when state_has_iface(text, physical)
 
   if text != "" and ! text.ends_with("\n") {
-    text = f"""${text}
+    text = f"""{text}
 """
   }
 
-  state_path.write_atomic(f"""${text}${physical}=${logical}
+  state_path.write_atomic(f"""{text}{physical}={logical}
 """)?
 }
 
@@ -287,7 +287,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
   let status = process.run(process.command_argv("/bin/sh", ["sh", "-c", command], env: env_record))?
 
   if ! status.ok {
-    return Err(IfupError.Hook(f"${phase} command failed for ${physical}: ${command}"))
+    return Err(IfupError.Hook(f"{phase} command failed for {physical}: {command}"))
   }
 }
 
@@ -314,7 +314,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 
     let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
 
-    return Err(IfupError.Hook(f"${entry.path} failed for ${physical}")) unless status.ok
+    return Err(IfupError.Hook(f"{entry.path} failed for {physical}")) unless status.ok
   }
 }
 
@@ -323,7 +323,7 @@ proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
     return stanza when stanza.logical == logical
   }
 
-  Err(IfupError.Config(f"unknown interface ${logical}"))
+  Err(IfupError.Config(f"unknown interface {logical}"))
 }
 
 pure hex_nibble(code: Int) -> Int {
@@ -371,7 +371,7 @@ pure ints_to_ip(octets: List[Int]) -> Str {
     return ""
   }
 
-  f"${octets[0]}.${octets[1]}.${octets[2]}.${octets[3]}"
+  f"{octets[0]}.{octets[1]}.{octets[2]}.{octets[3]}"
 }
 
 proc read_ip_octets(packet: Bytes, offset: Int) [error] -> Result[List[Int]] {
@@ -489,7 +489,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
   }
 
   if mac.len() != 6 {
-    return Err(IfupError.State(f"${physical}: could not read MAC address for DHCP"))
+    return Err(IfupError.State(f"{physical}: could not read MAC address for DHCP"))
   }
 
   linux.link_up(physical)?
@@ -515,7 +515,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
     attempt = attempt + 1
   }
 
-  return Err(IfupError.State(f"${physical}: no DHCP offer received")) unless offer.valid
+  return Err(IfupError.State(f"{physical}: no DHCP offer received")) unless offer.valid
 
   var lease = empty_lease()
   attempt = 0
@@ -536,7 +536,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
   }
 
   if ! lease.valid {
-    return Err(IfupError.State(f"${physical}: DHCP request was not acknowledged"))
+    return Err(IfupError.State(f"{physical}: DHCP request was not acknowledged"))
   }
 
   lease
@@ -548,7 +548,7 @@ proc write_resolv_conf(servers: List[Str]) [fs, error] {
   var body = ""
 
   for server in servers {
-    body = f"""${body}nameserver ${server}
+    body = f"""{body}nameserver {server}
 """
   }
 
@@ -559,9 +559,7 @@ proc configure_dhcp(physical: Str) [fs, process, time, error] {
   let lease = dhcp_request_lease(physical)?
   let address = ints_to_ip(lease.yiaddr)
 
-  if address == "" {
-    return Err(IfupError.State(f"${physical}: DHCP lease had no address"))
-  }
+  return Err(IfupError.State(f"{physical}: DHCP lease had no address")) when address == ""
 
   let netmask = if lease.netmask == "" { "255.255.255.0" } else { lease.netmask }
   linux.set_ipv4_address(physical, address, netmask)?
@@ -575,7 +573,7 @@ proc configure_dhcp(physical: Str) [fs, process, time, error] {
 
 proc configure_static(physical: Str, stanza: Interface) [process, error] {
   if stanza.address == "" or stanza.netmask == "" {
-    return Err(IfupError.Config(f"${stanza.logical}: static inet stanza requires address and netmask"))
+    return Err(IfupError.Config(f"{stanza.logical}: static inet stanza requires address and netmask"))
   }
 
   linux.link_up(physical)?
@@ -592,7 +590,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
   let stanza = find_stanza(config, logical)?
 
   if stanza.family != "inet" {
-    return Err(IfupError.Config(f"${stanza.logical}: unsupported address family ${stanza.family}"))
+    return Err(IfupError.Config(f"{stanza.logical}: unsupported address family {stanza.family}"))
   }
 
   for command in stanza.pre_up {
@@ -605,7 +603,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
     "loopback" | "manual" => linux.link_up(physical)?
     "static" => configure_static(physical, stanza)?
     "dhcp" => configure_dhcp(physical)?
-    _ => return Err(IfupError.Config(f"${stanza.logical}: unsupported method ${stanza.method}"))
+    _ => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.up {

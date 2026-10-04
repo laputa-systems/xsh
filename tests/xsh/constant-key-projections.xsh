@@ -7,7 +7,7 @@ type ProjectionPlugin = module {
 
 test test_constant_key_projection_module_index_and_callable { |ctx|
   let root = test.temp_dir(ctx, name: "constant-key-projection")?
-  let module_path = fp"${root}/plugin.xsh"
+  let module_path = fp"{root}/plugin.xsh"
   module_path.write("""
 ##! Provides known exports for projection checking.
 ## Parallel worker limit.
@@ -84,7 +84,7 @@ receiver
 
 test test_constant_key_projection_imported_const_key { |ctx|
   let root = test.temp_dir(ctx, name: "imported-projection-key")?
-  fp"${root}/keys.xsh".write_atomic(r"""##! Selection keys.
+  fp"{root}/keys.xsh".write_atomic(r"""##! Selection keys.
 ## Visible worker field.
 export const workers = "workers"
 """)?
@@ -126,11 +126,11 @@ type ProjectionNamedGet = module {
 
 test test_constant_key_projection_keeps_exported_get_function { |ctx|
   let root = test.temp_dir(ctx, name: "named-get-export")?
-  let module_path = fp"${root}/getter.xsh"
+  let module_path = fp"{root}/getter.xsh"
   module_path.write_atomic("""
 ##! User callable with a builtin method spelling.
 ## Formats the supplied value.
-export pure get(value: Str) -> Str { f"user:$value" }
+export pure get(value: Str) -> Str { f"user:{value}" }
 """)?
   let loaded = module.load(module_path)?.require(ProjectionNamedGet)?
   assert loaded.get("workers") == "user:workers"

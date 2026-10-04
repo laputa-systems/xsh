@@ -34,7 +34,7 @@ cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.ve
   let checked_delay: Duration = delay
   let checked_verbose: Bool = verbose
   let checked_tags: List[Int] = tags
-  print $checked_jobs $checked_delay $checked_verbose ${[f"$tag" for tag in checked_tags].join(",")}
+  print $checked_jobs $checked_delay $checked_verbose ${[f"{tag}" for tag in checked_tags].join(",")}
 }
 """
   let omitted = test.run_script(ctx, source)?
@@ -172,7 +172,7 @@ body
 
 test test_default_parameters_resolve_imported_constants { |ctx|
   let root = test.temp_dir(ctx, name: "default-module")?
-  fp"${root}/config.xsh".write_atomic(r"""##! Build defaults.
+  fp"{root}/config.xsh".write_atomic(r"""##! Build defaults.
 ## The default worker count.
 export const settings = {jobs: 6}
 """)?
@@ -319,7 +319,7 @@ test test_default_parameters_nested_calls_use_heap_frames { |ctx|
 """
   for index in range(1, 1201) {
     let step = f"""
-      pure step_${index}(value = step_${index - 1}()) -> Int { value }
+      pure step_{index}(value = step_{index - 1}()) -> Int {{ value }}
 
       """
     source = source + step
@@ -420,7 +420,7 @@ print ${callback.call(7).require(Int)?}
 
 test test_default_parameters_inferred_types_constrain_arguments_spreads_and_bodies { |ctx|
   let declaration = r"""const defaults = {jobs: 4, timeout: 30s}
-proc build(jobs = defaults.jobs, timeout = defaults.timeout) -> Str { f"$jobs $timeout" }
+proc build(jobs = defaults.jobs, timeout = defaults.timeout) -> Str { f"{jobs} {timeout}" }
 """
   let accepted = test.run_script(
     ctx,

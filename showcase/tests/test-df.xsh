@@ -11,5 +11,5 @@ test test_showcase_df_kp_path { |ctx|
   let mount = fs.mount_for(root)?
   let output = run.text "xsh" "showcase/df.xsh" -- -kP $root ?
   assert "1024-blocks" in output
-  assert f" ${mount.blocks_1k} " in output
+  assert f" {mount.blocks_1k} " in output
 }

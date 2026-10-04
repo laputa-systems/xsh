@@ -821,7 +821,7 @@ fn lint_only_bool_statement_applies_only_its_assert_fix() {
 fn lint_only_fix_leaves_bytes_outside_edited_spans() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
-    let source = "let xs = [1,2,3]\nlet total: Int = xs.len()\nprint   f\"${total}\"  \nlet ys=[1, 2]\r\nprint f\"${ys.len()}\"\n";
+    let source = "let xs = [1,2,3]\nlet total: Int = xs.len()\nprint   f\"{total}\"  \nlet ys=[1, 2]\r\nprint f\"{ys.len()}\"\n";
     for (rule, expected) in [
         ("lint.needless-annotation", source.replace("let total: Int =", "let total =")),
         ("lint.prefer-const", source.replace("let xs", "const xs").replace("let ys", "const ys")),
@@ -1478,7 +1478,7 @@ fn check_local_method_chain_types_flow_through_if_binding() {
   for raw in body.lines() {
     let stripped = raw.trim()
     let line = if stripped.starts_with(\"export \") { (stripped.split(\"export \").get(1) ?? \"\").trim() } else { stripped }
-    if line.starts_with(f\"${name}=\") {
+    if line.starts_with(f\"{name}=\") {
       return (line.split(\"=\").get(1) ?? \"\").trim().replace(\"\\\"\", \"\").replace(\"'\", \"\")
     }
   }

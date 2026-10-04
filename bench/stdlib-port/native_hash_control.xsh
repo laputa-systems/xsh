@@ -6,5 +6,5 @@ proc main() [io, fs, error] {
     sink = sink + hash.sha256(p"fixtures/unicode.txt")?.hex().byte_len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

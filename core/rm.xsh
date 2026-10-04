@@ -39,7 +39,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   for item in targets {
-    let target = fp"${item}"
+    let target = fp"{item}"
 
     if ! target.exists()? {
       continue when force
@@ -48,7 +48,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     if target.metadata()?.kind == "dir" {
       guard recursive else {
-        return Err(AppletError.Usage(f"rm: '${target}' is a directory"))
+        return Err(AppletError.Usage(f"rm: '{target}' is a directory"))
       }
 
       remove_tree(target)?

@@ -54,7 +54,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
   var seen_dirs: Map[List[Path]] = {}
 
   for part in parts {
-    let label = if part.empty { f"${opts.env_var}[${part.index}]" } else { part.raw }
+    let label = if part.empty { f"{opts.env_var}[{part.index}]" } else { part.raw }
 
     if part.empty {
       if ! opts.duplicates_only {
@@ -101,11 +101,11 @@ proc main(...argv: List[Str]) [fs, env, error] {
 
     if ! opts.duplicates_only {
       if meta.world_writable {
-        dir_findings = add_dir_finding(dir_findings, 1, "world-writable-directory", label, f"mode ${meta.mode}")
+        dir_findings = add_dir_finding(dir_findings, 1, "world-writable-directory", label, f"mode {meta.mode}")
       }
 
       if ! meta.executable {
-        dir_findings = add_dir_finding(dir_findings, 1, "non-executable-directory", label, f"mode ${meta.mode}")
+        dir_findings = add_dir_finding(dir_findings, 1, "non-executable-directory", label, f"mode {meta.mode}")
       }
     }
   }
@@ -125,7 +125,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
 
         if earlier.len() > 0 {
           shadows = shadows.push(
-            {name: child.name, path: child_path, detail: f"shadows ${earlier[0].path}"},
+            {name: child.name, path: child_path, detail: f"shadows {earlier[0].path}"},
           )
         } else {
           first_path[child.name] = same_display.push({name: exact_name, path: child_path})
@@ -134,14 +134,14 @@ proc main(...argv: List[Str]) [fs, env, error] {
     }
   }
 
-  let dir_rows = dir_findings |> sort-by f"${.severity}:${.path}:${.kind}"
-  let shadow_rows = shadows |> sort-by f"${.name}:${.path}"
+  let dir_rows = dir_findings |> sort-by f"{.severity}:{.path}:{.kind}"
+  let shadow_rows = shadows |> sort-by f"{.name}:{.path}"
 
   if dir_rows.len() > 0 {
     print "Directory problems"
 
     for row in dir_rows {
-      print f"${severity_label(row.severity)} ${row.kind} ${row.path} ${row.detail}"
+      print f"{severity_label(row.severity)} {row.kind} {row.path} {row.detail}"
     }
   }
 
@@ -149,12 +149,12 @@ proc main(...argv: List[Str]) [fs, env, error] {
     print "Command shadowing"
 
     for row in shadow_rows {
-      print f"warn shadowed-command ${row.name} ${row.path} ${row.detail}"
+      print f"warn shadowed-command {row.name} {row.path} {row.detail}"
     }
   }
 
   if dir_rows.len() == 0 and shadow_rows.len() == 0 and opts.show_ok {
-    print f"ok ${opts.env_var} entries=${parts.len()}"
+    print f"ok {opts.env_var} entries={parts.len()}"
   }
 
   if (dir_rows.len() > 0 or shadow_rows.len() > 0) and opts.fail {

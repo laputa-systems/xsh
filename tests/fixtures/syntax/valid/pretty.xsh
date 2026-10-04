@@ -9,7 +9,7 @@ let rows = [{name: "short"}, {name: "a deliberately long record value that force
 let nested = [{meta: {name: "short"}}, {meta: {name: "another deliberately long nested record value"}}]
 let filtered = [item.name for item in items if item.enabled]
 let by_name = {
-  item.name: f"${item.name}"
+  item.name: f"{item.name}"
   for item in items
   if item.enabled
 }

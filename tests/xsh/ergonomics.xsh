@@ -106,7 +106,7 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
     },
   ]
   let selected = [
-    f"${label}:${job}"
+    f"{label}:{job}"
     for {name: label, build: {jobs, ..}, ..} in packages
     if label != "first"
     for job in jobs

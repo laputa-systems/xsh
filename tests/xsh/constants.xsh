@@ -88,7 +88,7 @@ const value = Config(count: "bad")
 
 test test_constants_exports_are_ordinary_readonly_module_data { |ctx|
   let root = test.temp_dir(ctx, name: "constant-module")?
-  fp"${root}/config.xsh".write_atomic(r"""##! Immutable configuration.
+  fp"{root}/config.xsh".write_atomic(r"""##! Immutable configuration.
 ## A prepared scalar.
 export const size = 3
 ## A prepared collection.

@@ -4,7 +4,7 @@ pure ratio_text(used: Int, total: Int) -> Str {
     return "0%"
   }
 
-  f"${used * 100 / total}%"
+  f"{used * 100 / total}%"
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, error] {
@@ -23,17 +23,17 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   let memory = system.memory()?
   let root = fs.mount_for(/)?
   let mem_used = memory.total - memory.available
-  print f"${current.name}@${host}"
-  print f"OS      ${os.pretty_name}"
-  print f"Kernel  ${uname.release}"
-  print f"Arch    ${uname.machine}"
-  print f"Uptime  ${time.duration_compact(uptime)}"
-  print f"CPU     ${cpu.count()}"
-  print f"Memory  ${bytes.human(mem_used)} / ${bytes.human(memory.total)} (${ratio_text(mem_used, memory.total)})"
+  print f"{current.name}@{host}"
+  print f"OS      {os.pretty_name}"
+  print f"Kernel  {uname.release}"
+  print f"Arch    {uname.machine}"
+  print f"Uptime  {time.duration_compact(uptime)}"
+  print f"CPU     {cpu.count()}"
+  print f"Memory  {bytes.human(mem_used)} / {bytes.human(memory.total)} ({ratio_text(mem_used, memory.total)})"
 
   if let Ok(shell) = env.get("SHELL") {
-    print f"Shell   ${shell}"
+    print f"Shell   {shell}"
   }
 
-  print f"Root    ${bytes.human(root.used_1k * 1024)} / ${bytes.human(root.blocks_1k * 1024)} (${root.capacity_percent}%)"
+  print f"Root    {bytes.human(root.used_1k * 1024)} / {bytes.human(root.blocks_1k * 1024)} ({root.capacity_percent}%)"
 }

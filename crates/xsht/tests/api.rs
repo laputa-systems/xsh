@@ -928,7 +928,7 @@ fn api_path_interpolation_distinguishes_native_bytes_and_human_text() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("Path fragments as native bytes"), "{text}");
     assert!(text.contains("F-strings, print"), "{text}");
-    assert!(text.contains("${config_path}.sha256"), "{text}");
+    assert!(text.contains("{config_path}.sha256"), "{text}");
     let output = xsht(&["api", "language:core.command-interpolation"]);
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).unwrap();
@@ -954,7 +954,7 @@ fn api_block_strings_explains_exact_margin_source_boundaries_and_literal_domains
     let output = xsht(&["api", "language:core.block-strings"]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    for text in ["exact prefix", "no implicit trailing newline", "longest matching", "original source spans", "Bytes, Path, glob, regex", "name=$name"] {
+    for text in ["exact prefix", "no implicit trailing newline", "longest matching", "original source spans", "Bytes, Path, glob, regex", "name={name}"] {
         assert!(stdout.contains(text), "missing {text}: {stdout}");
     }
 }

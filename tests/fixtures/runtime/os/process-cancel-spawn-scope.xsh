@@ -1,6 +1,6 @@
-let ready = fp"${args[0]}"
-let leaked = fp"${args[1]}"
-let helper = fp"${args[2]}"
+let ready = fp"{args[0]}"
+let leaked = fp"{args[1]}"
+let helper = fp"{args[2]}"
 
 proc scoped(ready: Path, leaked: Path, helper: Path) [fs, process, time, error] {
   let _h = spawn process.command_argv(helper, ["os-probe", "group-leak", ready.display(), leaked.display()])?

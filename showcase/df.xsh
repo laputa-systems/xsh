@@ -29,27 +29,19 @@ pure parse_args(argv: List[Str]) -> Result[DfOpts] {
 pure size_text(size_1k: Int, human: Bool) -> Str {
   return bytes.human(size_1k * 1024) when human
 
-  f"${size_1k}"
+  f"{size_1k}"
 }
 
 pure percent_text(percent: Int) -> Str {
-  f"${percent}%"
+  f"{percent}%"
 }
 
 proc print_linux_row(mount: FsMount, human: Bool) [fs, env, error] {
-  print f"${mount.filesystem} ${size_text(mount.blocks_1k, human)} ${size_text(mount.used_1k, human)} ${size_text(
-    mount.available_1k,
-    human,
-  )} ${percent_text(mount.capacity_percent)} ${mount.mounted_on}"
+  print f"{mount.filesystem} {size_text(mount.blocks_1k, human)} {size_text(mount.used_1k, human)} {size_text(mount.available_1k, human)} {percent_text(mount.capacity_percent)} {mount.mounted_on}"
 }
 
 proc print_macos_row(mount: FsMount, human: Bool) [fs, env, error] {
-  print f"${mount.filesystem} ${size_text(mount.blocks_1k, human)} ${size_text(mount.used_1k, human)} ${size_text(
-    mount.available_1k,
-    human,
-  )} ${percent_text(mount.capacity_percent)} ${mount.files_used} ${mount.files_free} ${percent_text(
-    mount.files_capacity_percent,
-  )} ${mount.mounted_on}"
+  print f"{mount.filesystem} {size_text(mount.blocks_1k, human)} {size_text(mount.used_1k, human)} {size_text(mount.available_1k, human)} {percent_text(mount.capacity_percent)} {mount.files_used} {mount.files_free} {percent_text(mount.files_capacity_percent)} {mount.mounted_on}"
 }
 
 proc main(...argv: List[Str]) [fs, env, error] {
@@ -74,7 +66,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
     }
   } else {
     let size_label = if opts.human { "Size" } else { "1024-blocks" }
-    print f"Filesystem ${size_label} Used Available Capacity Mounted on"
+    print f"Filesystem {size_label} Used Available Capacity Mounted on"
 
     for mount in mounts {
       print_linux_row(mount, opts.human)

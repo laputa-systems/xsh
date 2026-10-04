@@ -5,7 +5,7 @@ proc fail() [] -> Result[Unit, DelegationError] {
 }
 
 proc close_depth(depth: Int) [io] {
-  if depth == 0 or depth == 3000 { print f"closed ${depth}" }
+  if depth == 0 or depth == 3000 { print f"closed {depth}" }
 }
 
 stream descend(depth: Int) [io, error] -> Stream[Int] {
@@ -20,5 +20,5 @@ stream descend(depth: Int) [io, error] -> Stream[Int] {
 }
 
 proc main() [io, error] {
-  for row in descend(3000) { print f"row ${row}" }
+  for row in descend(3000) { print f"row {row}" }
 }

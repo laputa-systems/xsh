@@ -20,13 +20,13 @@ pure entry_size(meta: FsEntry, apparent: Bool) -> Int {
 }
 
 pure size_label(size_1k: Int, opts: DuOptions) -> Str {
-  return f"${size_1k}" when opts.apparent
+  return f"{size_1k}" when opts.apparent
 
   return bytes.human(size_1k * 1024) when opts.human
 
-  return f"${ceil_div(size_1k, 1024)}" when opts.megabytes
+  return f"{ceil_div(size_1k, 1024)}" when opts.megabytes
 
-  f"${size_1k}"
+  f"{size_1k}"
 }
 
 proc disk_usage(target: Path, opts: DuOptions, top_level: Bool) [fs, error] -> Result[Int] {
@@ -40,7 +40,7 @@ proc disk_usage(target: Path, opts: DuOptions, top_level: Bool) [fs, error] -> R
   }
 
   if ! opts.summarize and (opts.all or meta.kind == "dir" or (top_level and meta.kind == "file")) {
-    print f"${size_label(size, opts)}\t${target}"
+    print f"{size_label(size, opts)}\t{target}"
   }
 
   size
@@ -104,16 +104,16 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: DuOptions = DuOptions(summarize:, all:, human:, apparent:, megabytes:)
 
   for item in targets {
-    let target = fp"${item}"
+    let target = fp"{item}"
     let size = disk_usage(target, opts, true)?
     grand_total += size
 
     if summarize {
-      print f"${size_label(size, opts)}\t${target}"
+      print f"{size_label(size, opts)}\t{target}"
     }
   }
 
   if total {
-    print f"${size_label(grand_total, opts)}\ttotal"
+    print f"{size_label(grand_total, opts)}\ttotal"
   }
 }

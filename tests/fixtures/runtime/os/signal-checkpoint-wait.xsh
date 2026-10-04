@@ -1,4 +1,4 @@
-let helper = fp"${args[0]}"
+let helper = fp"{args[0]}"
 
 on USR1 [] {
   print "hook"

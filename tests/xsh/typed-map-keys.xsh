@@ -64,7 +64,7 @@ test test_typed_map_inference_comprehension_null_and_empty {
   let first_value = inferred.values()[0]
   assert first_key == 3
   assert first_value == "three"
-  let comprehension = {item: f"${item}" for item in [20, 3]}
+  let comprehension = {item: f"{item}" for item in [20, 3]}
   assert comprehension.keys() == [3, 20]
   let entries = [key for {key, value} in comprehension if value != "20"]
   assert entries == [3]
@@ -115,7 +115,7 @@ test test_typed_map_json_rejects_non_string_keys {
   test.error_kind(json.encode(data), "json-compatible")?
   test.error_kind(json.encode(path_keys), "json-compatible")?
   test.error_kind(json.encode(duration), "json-compatible")?
-  let encoded = {[f"${key}"]: value for {key, value} in {[1]: 2}}
+  let encoded = {[f"{key}"]: value for {key, value} in {[1]: 2}}
   assert json.encode(encoded)? == "{\"1\":2}"
 }
 

@@ -474,7 +474,7 @@ print reached
 test test_dynamic_boundary_rejects_unchecked_result_return_payloads { |ctx|
   for body in ["values.get(0)", "return values.get(0)"] {
     let source = f"""
-      pure selected(values: List[Any]) -> Result[Int] { ${body} }
+      pure selected(values: List[Any]) -> Result[Int] {{ {body} }}
       let input: List[Any] = [7]
       let count = selected(input)?
       print reached
@@ -519,7 +519,7 @@ test test_dynamic_boundary_serializes_concrete_record_lists_without_erasing_them
     """type Row = {name: Str}
 let root = fs.tempdir()?
 defer root.close()?
-let row_path = fp"\${root.host_path()?}/rows.jsonl"
+let row_path = fp"{root.host_path()?}/rows.jsonl"
 let rows: List[Row] = [{name: "demo"}]
 json.write_lines(row_path, rows)?
 print row_path.read_text()?

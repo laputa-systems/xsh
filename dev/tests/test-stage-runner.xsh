@@ -2,7 +2,7 @@ use stage_contract
 
 test test_static_runner_satisfies_the_stage_contract { |ctx|
   let root = test.temp_dir(ctx, name: "stage-runner-contract")?
-  fp"${root}/stage_fake.xsh".write("""
+  fp"{root}/stage_fake.xsh".write("""
 ##! Static fake stage runner.
 use stage_contract
 
@@ -33,7 +33,7 @@ proc main() [process, error, io] -> Result[Unit] {
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: f"${root}:dev"},
+    {XSH_MODULE_PATH: f"{root}:dev"},
   )?
   assert result.success, result.stderr
 }

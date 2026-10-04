@@ -251,7 +251,7 @@ test material_empty_map_requires_a_concrete_contract { |ctx|
 
 test imported_callable_keeps_its_concrete_local_contract { |ctx|
   let root = test.temp_dir(ctx, name: "local-inference-module")?
-  fp"${root}/collect.xsh".write_atomic(r"""##! Concrete local collection contracts.
+  fp"{root}/collect.xsh".write_atomic(r"""##! Concrete local collection contracts.
 ## Collect two destinations with a fixed element type.
 export pure destinations() -> List[Path] {
   var entries = []

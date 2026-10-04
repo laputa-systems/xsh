@@ -145,7 +145,7 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
   }
 
   if failures > 0 and ! opts.ignore_failure {
-    print f"  Warning: command exited non-zero on ${failures} of ${opts.runs} runs."
+    print f"  Warning: command exited non-zero on {failures} of {opts.runs} runs."
   }
 
   let n = times_ns.len()
@@ -167,13 +167,11 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
 }
 
 proc report(summary: Summary, runs: Int) [io] {
-  print f"Benchmark: ${summary.name}"
+  print f"Benchmark: {summary.name}"
 
-  print f"  Time (mean ± σ):  ${summary.mean_ms.format(1)} ms ± ${summary.stddev_ms.format(1)} ms    [User: ${summary.user_ms.format(
-    1,
-  )} ms, System: ${summary.system_ms.format(1)} ms]"
+  print f"  Time (mean ± σ):  {summary.mean_ms.format(1)} ms ± {summary.stddev_ms.format(1)} ms    [User: {summary.user_ms.format(1)} ms, System: {summary.system_ms.format(1)} ms]"
 
-  print f"  Range (min … max):  ${summary.min_ms.format(1)} ms … ${summary.max_ms.format(1)} ms    ${runs} runs"
+  print f"  Range (min … max):  {summary.min_ms.format(1)} ms … {summary.max_ms.format(1)} ms    {runs} runs"
   print ""
 }
 
@@ -187,7 +185,7 @@ proc print_summary(results: List[Summary]) [error, io] {
   }
 
   print "Summary"
-  print f"  '${fastest.name}' ran"
+  print f"  '{fastest.name}' ran"
 
   for result in results {
     if result.name != fastest.name {
@@ -197,7 +195,7 @@ proc print_summary(results: List[Summary]) [error, io] {
       let r_rel = result.stddev_ms / result.mean_ms
       let f_rel = fastest.stddev_ms / fastest.mean_ms
       let ratio_sd = ratio * (r_rel * r_rel + f_rel * f_rel).sqrt()
-      print f"  ${ratio.format(2)} ± ${ratio_sd.format(2)} times faster than '${result.name}'"
+      print f"  {ratio.format(2)} ± {ratio_sd.format(2)} times faster than '{result.name}'"
     }
   }
 }
@@ -224,7 +222,7 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
   }
 
   let encoded = json.encode({results: entries}, pretty: true)?
-  fp"${dest}".write(encoded)?
+  fp"{dest}".write(encoded)?
 }
 
 proc main(...argv: List[Str]) [fs, process, time, error, io] {
@@ -267,7 +265,7 @@ proc main(...argv: List[Str]) [fs, process, time, error, io] {
   )?
 
   let startup = xsh_startup_baseline()?
-  print f"xsh interpreter startup (--startup): ${ns_to_ms(startup.wall_ns).format(1)} ms"
+  print f"xsh interpreter startup (--startup): {ns_to_ms(startup.wall_ns).format(1)} ms"
 
   if opts.subtract_startup {
     print "  (subtracting xsh startup from every run)"

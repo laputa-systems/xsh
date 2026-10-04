@@ -1,5 +1,5 @@
 pure cached_label(name: Str) -> Str {
-  f"cached ${name}"
+  f"cached {name}"
 }
 
 test test_utils_cache {

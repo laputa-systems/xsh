@@ -37,7 +37,7 @@ proc main(...argv: List[Str]) [net, time, error] {
 
   let started = time.now()
   let deadline = started + opts.timeout * 1000
-  print f"waiting for ${opts.url}  timeout=${opts.timeout}s  interval=${opts.interval}s"
+  print f"waiting for {opts.url}  timeout={opts.timeout}s  interval={opts.interval}s"
 
   while true {
     let remaining = deadline - time.now()
@@ -60,13 +60,13 @@ proc main(...argv: List[Str]) [net, time, error] {
 
       let elapsed = (time.now() - started) / 1000
       if ok and time.now() <= deadline {
-        print f"ready  status=${response.status}  elapsed=${elapsed}s"
+        print f"ready  status={response.status}  elapsed={elapsed}s"
         return
       }
 
-      print f"  ${elapsed}s  status=${response.status}  retrying"
+      print f"  {elapsed}s  status={response.status}  retrying"
     } else {
-      print f"  ${(time.now() - started) / 1000}s  no response  retrying"
+      print f"  {(time.now() - started) / 1000}s  no response  retrying"
     }
 
     let after_request = deadline - time.now()
@@ -80,6 +80,6 @@ proc main(...argv: List[Str]) [net, time, error] {
     time.sleep(time.millis(sleep_ms))?
   }
 
-  print f"timed out after ${opts.timeout}s"
+  print f"timed out after {opts.timeout}s"
   abort(1)
 }

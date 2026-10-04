@@ -8,5 +8,5 @@ for host in hosts {
 let statuses = wait probes?
 for i in range(hosts.len()) {
   let state = if statuses[i].ok { "up" } else { "down" }
-  print f"${hosts[i]} ${state}"
+  print f"{hosts[i]} {state}"
 }

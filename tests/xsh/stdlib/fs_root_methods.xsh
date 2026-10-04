@@ -108,7 +108,7 @@ fs.close_root(root)?
 
 test fs_root_removed_spellings_remain_usable_as_user_module_functions { |ctx|
   let root = test.temp_dir(ctx, name: "root-user-module")?
-  fp"${root}/helper.xsh".write_atomic("""
+  fp"{root}/helper.xsh".write_atomic("""
 ##! Caller-owned functions.
 ## Returns its argument unchanged.
 export pure root_path(value: Str) -> Str { value }

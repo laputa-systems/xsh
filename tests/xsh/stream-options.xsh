@@ -14,7 +14,7 @@ proc source() [] -> Stream[Int] {
   return numbers()
 }
 proc jobs() [] -> Int { print "jobs"; return 2 }
-proc mapped(value: Int) [] -> Int { print f"map:${value}"; return value }
+proc mapped(value: Int) [] -> Int { print f"map:{value}"; return value }
 proc main() [] {
   let values = source() |> map { |item| mapped(item) } |> par-map(jobs: jobs()) { |item| item }
   print values.len()

@@ -93,9 +93,9 @@ printf '{"source_mode":"live_linux","cpu":{"frequency_policies":[{"name":"policy
   tools_root.chmod(p"xsh", 0o700)?
   let root_path = tools_root.host_path()?
   let result = cpupower_reference.compare_live_cpupower(
-    fp"${root_path}/xsh".display(),
-    fp"${root_path}/script".display(),
-    fp"${root_path}/cpupower".display(),
+    fp"{root_path}/xsh".display(),
+    fp"{root_path}/script".display(),
+    fp"{root_path}/cpupower".display(),
   )?
   assert result.comparison.matched_fields == 6
   assert result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0

@@ -417,21 +417,21 @@ test test_system_report_usb_topology_rooted_reference_reads_devices_without_inte
       speed: "480",
     },
   ] {
-    let device_path = fp"sys/bus/usb/devices/${device.name}"
+    let device_path = fp"sys/bus/usb/devices/{device.name}"
     root.mkdir(device_path, parents: true)?
     root.write(
-      fp"${device_path}/busnum",
-      f"""${device.bus}
+      fp"{device_path}/busnum",
+      f"""{device.bus}
 """,
     )?
     root.write(
-      fp"${device_path}/devnum",
-      f"""${device.number}
+      fp"{device_path}/devnum",
+      f"""{device.number}
 """,
     )?
     root.write(
-      fp"${device_path}/speed",
-      f"""${device.speed}
+      fp"{device_path}/speed",
+      f"""{device.speed}
 """,
     )?
   }
@@ -540,42 +540,42 @@ test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values {
   let device_path = p"sys/bus/usb/devices/4-2"
   root.mkdir(device_path, parents: true)?
   root.write(
-    fp"${device_path}/idVendor",
+    fp"{device_path}/idVendor",
     """05e3
 """,
   )?
   root.write(
-    fp"${device_path}/idProduct",
+    fp"{device_path}/idProduct",
     """0625
 """,
   )?
   root.write(
-    fp"${device_path}/bcdDevice",
+    fp"{device_path}/bcdDevice",
     """9406
 """,
   )?
   root.write(
-    fp"${device_path}/bDeviceClass",
+    fp"{device_path}/bDeviceClass",
     """09
 """,
   )?
   root.write(
-    fp"${device_path}/bDeviceSubClass",
+    fp"{device_path}/bDeviceSubClass",
     """00
 """,
   )?
   root.write(
-    fp"${device_path}/bDeviceProtocol",
+    fp"{device_path}/bDeviceProtocol",
     """03
 """,
   )?
   root.write(
-    fp"${device_path}/manufacturer",
+    fp"{device_path}/manufacturer",
     """GenesysLogic
 """,
   )?
   root.write(
-    fp"${device_path}/product",
+    fp"{device_path}/product",
     """USB3.2 Hub
 """,
   )?
@@ -587,7 +587,7 @@ test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values {
   assert devices[0].class_code == {value: 9, complete: true}
   assert devices[0].manufacturer == {value: "GenesysLogic", complete: true}
   root.write(
-    fp"${device_path}/bDeviceClass",
+    fp"{device_path}/bDeviceClass",
     """9
 """,
   )?
@@ -656,29 +656,29 @@ test test_system_report_usb_power_rooted_reference_reads_runtime_and_configurati
   let root = fs.tempdir()?
   defer root.close()?
   let device_path = p"sys/bus/usb/devices/4-2"
-  root.mkdir(fp"${device_path}/power", parents: true)?
+  root.mkdir(fp"{device_path}/power", parents: true)?
   root.write(
-    fp"${device_path}/power/control",
+    fp"{device_path}/power/control",
     """auto
 """,
   )?
   root.write(
-    fp"${device_path}/power/autosuspend_delay_ms",
+    fp"{device_path}/power/autosuspend_delay_ms",
     """-1
 """,
   )?
   root.write(
-    fp"${device_path}/power/runtime_status",
+    fp"{device_path}/power/runtime_status",
     """active
 """,
   )?
   root.write(
-    fp"${device_path}/bNumConfigurations",
+    fp"{device_path}/bNumConfigurations",
     """2
 """,
   )?
   root.write(
-    fp"${device_path}/bConfigurationValue",
+    fp"{device_path}/bConfigurationValue",
     """1
 """,
   )?
@@ -689,7 +689,7 @@ test test_system_report_usb_power_rooted_reference_reads_runtime_and_configurati
   assert devices[0].runtime_status == {value: "active", complete: true}
   assert devices[0].configuration_count == {value: 2, complete: true}
   root.write(
-    fp"${device_path}/bNumConfigurations",
+    fp"{device_path}/bNumConfigurations",
     """-1
 """,
   )?
@@ -833,40 +833,40 @@ test test_system_report_usb_interface_rooted_reference_reads_driver_active_class
   root.mkdir(device_path, parents: true)?
   root.mkdir(interface_path, parents: true)?
   root.write(
-    fp"${device_path}/descriptors",
+    fp"{device_path}/descriptors",
     b"\t\x02\x19\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0",
   )?
   root.write(
-    fp"${interface_path}/bInterfaceNumber",
+    fp"{interface_path}/bInterfaceNumber",
     """00
 """,
   )?
   root.write(
-    fp"${interface_path}/bAlternateSetting",
+    fp"{interface_path}/bAlternateSetting",
     """0
 """,
   )?
   root.write(
-    fp"${interface_path}/bInterfaceClass",
+    fp"{interface_path}/bInterfaceClass",
     """ff
 """,
   )?
   root.write(
-    fp"${interface_path}/bInterfaceSubClass",
+    fp"{interface_path}/bInterfaceSubClass",
     """00
 """,
   )?
   root.write(
-    fp"${interface_path}/bInterfaceProtocol",
+    fp"{interface_path}/bInterfaceProtocol",
     """00
 """,
   )?
   root.write(
-    fp"${interface_path}/bNumEndpoints",
+    fp"{interface_path}/bNumEndpoints",
     """01
 """,
   )?
-  root.symlink(../../drivers/usbhid, fp"${interface_path}/driver")?
+  root.symlink(../../drivers/usbhid, fp"{interface_path}/driver")?
   let rows = report_checks.read_usb_interface_reference(root)?
   assert rows.len() == 1
   assert rows[0].driver == {value: "usbhid", complete: true}
@@ -874,7 +874,7 @@ test test_system_report_usb_interface_rooted_reference_reads_driver_active_class
   assert rows[0].active_endpoint_count == {value: 1, complete: true}
   assert rows[0].settings[0].endpoints[0].address == 129
   root.write(
-    fp"${interface_path}/bInterfaceNumber",
+    fp"{interface_path}/bInterfaceNumber",
     """01
 """,
   )?
@@ -968,17 +968,17 @@ test test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
   let battery = p"sys/class/power_supply/BAT0"
   root.mkdir(battery, parents: true)?
   root.write(
-    fp"${battery}/type",
+    fp"{battery}/type",
     """Battery
 """,
   )?
   root.write(
-    fp"${battery}/capacity",
+    fp"{battery}/capacity",
     """68
 """,
   )?
   root.write(
-    fp"${battery}/current_now",
+    fp"{battery}/current_now",
     """-250000
 """,
   )?
@@ -989,7 +989,7 @@ test test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
   assert supplies[0].current_now_ua == {value: -250000, complete: true}
   assert supplies[0].energy_now_uwh == {value: null, complete: true}
   root.write(
-    fp"${battery}/capacity",
+    fp"{battery}/capacity",
     """101
 """,
   )?
@@ -1062,7 +1062,7 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
 """,
     },
   ] {
-    source.write(fp"${battery}/${item.name}", item.value)?
+    source.write(fp"{battery}/{item.name}", item.value)?
   }
 
   report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
@@ -1072,13 +1072,13 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "power-supply-replay.stdout")
   let stderr = test.temp_path(ctx, name: "power-supply-replay.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-power-supply-bundle $bundle_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-power-supply-bundle $bundle_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
   assert "power supply raw replay: exact" in output.read_text()?
   bundle.write(
-    fp"${battery}/energy_now",
+    fp"{battery}/energy_now",
     """51000000
 """,
   )?
@@ -1253,45 +1253,45 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
   let root = fs.tempdir()?
   defer root.close()?
   let package = p"sys/class/powercap/intel-rapl:0"
-  let core = fp"${package}/intel-rapl:0:0"
+  let core = fp"{package}/intel-rapl:0:0"
   root.mkdir(core, parents: true)?
   root.write(
-    fp"${package}/name",
+    fp"{package}/name",
     """package-0
 """,
   )?
   root.write(
-    fp"${package}/energy_uj",
+    fp"{package}/energy_uj",
     """100
 """,
   )?
   root.write(
-    fp"${package}/max_energy_range_uj",
+    fp"{package}/max_energy_range_uj",
     """1000
 """,
   )?
   root.write(
-    fp"${package}/constraint_0_power_limit_uw",
+    fp"{package}/constraint_0_power_limit_uw",
     """45000000
 """,
   )?
   root.write(
-    fp"${package}/constraint_0_name",
+    fp"{package}/constraint_0_name",
     """long_term
 """,
   )?
   root.write(
-    fp"${package}/constraint_0_time_window_us",
+    fp"{package}/constraint_0_time_window_us",
     """1000000
 """,
   )?
   root.write(
-    fp"${package}/constraint_10_power_limit_uw",
+    fp"{package}/constraint_10_power_limit_uw",
     """80000000
 """,
   )?
   root.write(
-    fp"${core}/name",
+    fp"{core}/name",
     """core-0
 """,
   )?
@@ -1307,7 +1307,7 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
   assert (package_zone.constraints |> map .index) == [0, 10]
   assert core_zone.parent == {value: "intel-rapl:0", complete: true}
   root.write(
-    fp"${package}/constraint_10_power_limit_uw",
+    fp"{package}/constraint_10_power_limit_uw",
     """-1
 """,
   )?
@@ -1320,36 +1320,36 @@ test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
   let bundle = fs.tempdir()?
   defer bundle.close()?
   let package = p"sys/devices/virtual/powercap/intel-rapl/intel-rapl:0"
-  let core = fp"${package}/intel-rapl:0:0"
+  let core = fp"{package}/intel-rapl:0:0"
   source.mkdir(core, parents: true)?
   source.mkdir(p"sys/class/powercap", parents: true)?
   source.write(
-    fp"${package}/name",
+    fp"{package}/name",
     """package-0
 """,
   )?
   source.write(
-    fp"${package}/energy_uj",
+    fp"{package}/energy_uj",
     """100
 """,
   )?
   source.write(
-    fp"${package}/max_energy_range_uj",
+    fp"{package}/max_energy_range_uj",
     """1000
 """,
   )?
   source.write(
-    fp"${package}/constraint_10_power_limit_uw",
+    fp"{package}/constraint_10_power_limit_uw",
     """80000000
 """,
   )?
   source.write(
-    fp"${package}/constraint_10_name",
+    fp"{package}/constraint_10_name",
     """long_term
 """,
   )?
   source.write(
-    fp"${core}/name",
+    fp"{core}/name",
     """core-0
 """,
   )?
@@ -1364,7 +1364,7 @@ test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
   assert report_checks.replay_powercap_bundle(bundle)?.exact
   assert report_checks.validate_powercap_bundle(bundle)?.len() == 2
   bundle.write(
-    fp"${package}/constraint_10_power_limit_uw",
+    fp"{package}/constraint_10_power_limit_uw",
     """80000001
 """,
   )?
@@ -1386,7 +1386,7 @@ test test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated
   source.mkdir(rogue, parents: true)?
   source.mkdir(p"sys/devices/virtual/powercap", parents: true)?
   source.write(
-    fp"${rogue}/name",
+    fp"{rogue}/name",
     """rogue
 """,
   )?
@@ -1466,11 +1466,11 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
 """,
     },
   ] {
-    source.write(fp"${device}/${item.name}", item.value)?
+    source.write(fp"{device}/{item.name}", item.value)?
   }
 
-  source.symlink(../../../bus/pci/drivers/example, fp"${device}/driver")?
-  source.symlink(../../../kernel/iommu_groups/7, fp"${device}/iommu_group")?
+  source.symlink(../../../bus/pci/drivers/example, fp"{device}/driver")?
+  source.symlink(../../../kernel/iommu_groups/7, fp"{device}/iommu_group")?
   report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture")?
   let replay = report_checks.replay_pci_bundle(bundle)?
   assert replay.identity.exact_static
@@ -1478,17 +1478,17 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
   assert replay.link.exact
   assert replay.identity.matched_count == 1
   bundle.write(
-    fp"${device}/vendor",
+    fp"{device}/vendor",
     """0x8087
 """,
   )?
   test.error_kind(report_checks.validate_pci_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write(
-    fp"${device}/vendor",
+    fp"{device}/vendor",
     """0x8086
 """,
   )?
-  bundle.remove(fp"${device}/current_link_width")?
+  bundle.remove(fp"{device}/current_link_width")?
   test.error_kind(report_checks.validate_pci_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -1502,37 +1502,37 @@ test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
   source.mkdir(p"sys/class/hwmon", parents: true)?
   source.symlink(../../devices/platform/example/hwmon/hwmon3, p"sys/class/hwmon/hwmon3")?
   source.write(
-    fp"${chip}/name",
+    fp"{chip}/name",
     """example
 """,
   )?
   source.write(
-    fp"${chip}/temp1_input",
+    fp"{chip}/temp1_input",
     """42000
 """,
   )?
   source.write(
-    fp"${chip}/temp1_label",
+    fp"{chip}/temp1_label",
     """package
 """,
   )?
   source.write(
-    fp"${chip}/temp1_min",
+    fp"{chip}/temp1_min",
     """10000
 """,
   )?
   source.write(
-    fp"${chip}/temp1_max",
+    fp"{chip}/temp1_max",
     """75000
 """,
   )?
   source.write(
-    fp"${chip}/temp1_crit",
+    fp"{chip}/temp1_crit",
     """95000
 """,
   )?
   source.write(
-    fp"${chip}/temp1_alarm",
+    fp"{chip}/temp1_alarm",
     """0
 """,
   )?
@@ -1544,7 +1544,7 @@ test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
   assert replay.exact
   assert replay.matched_count == 1
   bundle.write(
-    fp"${chip}/temp1_input",
+    fp"{chip}/temp1_input",
     """43000
 """,
   )?
@@ -1590,27 +1590,27 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   let bundle = fs.tempdir()?
   defer bundle.close()?
   let disk = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
-  let partition = fp"${disk}/sda3"
+  let partition = fp"{disk}/sda3"
   let stacked = p"sys/devices/virtual/block/dm-0"
   source.mkdir(p"sys/class/block", parents: true)?
   for device in [disk, partition, stacked] {
-    source.mkdir(fp"${device}/holders", parents: true)?
+    source.mkdir(fp"{device}/holders", parents: true)?
     source.write(
-      fp"${device}/ro",
+      fp"{device}/ro",
       """0
 """,
     )?
   }
 
   for device in [disk, stacked] {
-    source.mkdir(fp"${device}/slaves", parents: true)?
+    source.mkdir(fp"{device}/slaves", parents: true)?
   }
 
   source.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda, p"sys/class/block/sda")?
   source.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda/sda3, p"sys/class/block/sda3")?
   source.symlink(../../devices/virtual/block/dm-0, p"sys/class/block/dm-0")?
-  source.symlink(../../../../../virtual/block/dm-0, fp"${disk}/holders/dm-0")?
-  source.symlink(../../../../pci0000:00/0000:00:01.0/block/sda, fp"${stacked}/slaves/sda")?
+  source.symlink(../../../../../virtual/block/dm-0, fp"{disk}/holders/dm-0")?
+  source.symlink(../../../../pci0000:00/0000:00:01.0/block/sda, fp"{stacked}/slaves/sda")?
   for item in [
     {
       device: disk,
@@ -1634,16 +1634,16 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
 """,
     },
   ] {
-    source.write(fp"${item.device}/dev", item.dev)?
-    source.write(fp"${item.device}/size", item.size)?
+    source.write(fp"{item.device}/dev", item.dev)?
+    source.write(fp"{item.device}/size", item.size)?
   }
 
   source.write(
-    fp"${partition}/partition",
+    fp"{partition}/partition",
     """3
 """,
   )?
-  source.mkdir(fp"${disk}/queue", parents: true)?
+  source.mkdir(fp"{disk}/queue", parents: true)?
   for item in [
     {
       name: "logical_block_size",
@@ -1681,16 +1681,16 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
 """,
     },
   ] {
-    source.write(fp"${disk}/queue/${item.name}", item.value)?
+    source.write(fp"{disk}/queue/{item.name}", item.value)?
   }
 
   source.write(
-    fp"${disk}/removable",
+    fp"{disk}/removable",
     """0
 """,
   )?
   source.write(
-    fp"${disk}/stat",
+    fp"{disk}/stat",
     """10 0 8 1 2 0 16 2 0 3 4
 """,
   )?
@@ -1702,25 +1702,25 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   assert replay.identity.reference_count == 3
   assert replay.identity.matched_edges == 2
   bundle.write(
-    fp"${partition}/size",
+    fp"{partition}/size",
     """129
 """,
   )?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write(
-    fp"${partition}/size",
+    fp"{partition}/size",
     """128
 """,
   )?
   bundle.write(
-    fp"${partition}/queue/logical_block_size",
+    fp"{partition}/queue/logical_block_size",
     """512
 """,
   )?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
-  bundle.remove(fp"${partition}/queue/logical_block_size")?
-  bundle.remove(fp"${disk}/holders/dm-0")?
-  bundle.symlink(../../dm-1, fp"${disk}/holders/dm-0")?
+  bundle.remove(fp"{partition}/queue/logical_block_size")?
+  bundle.remove(fp"{disk}/holders/dm-0")?
+  bundle.symlink(../../dm-1, fp"{disk}/holders/dm-0")?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -1877,7 +1877,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
 """,
     },
   ] {
-    source.write(fp"${device}/${item.name}", item.value)?
+    source.write(fp"{device}/{item.name}", item.value)?
   }
 
   report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture")?
@@ -1889,7 +1889,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
   let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "pci-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "pci-unavailable.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-pci-bundle $bundle_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-pci-bundle $bundle_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -1907,7 +1907,7 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
   source.mkdir(interface, parents: true)?
   source.mkdir(root_interface)?
   source.mkdir(p"sys/bus/usb/devices", parents: true)?
-  source.mkdir(fp"${device}/power", parents: true)?
+  source.mkdir(fp"{device}/power", parents: true)?
   source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")?
   source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0, p"sys/bus/usb/devices/usb1:1.0")?
   source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0, p"sys/bus/usb/devices/1-0:1.0")?
@@ -1993,21 +1993,21 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
 """,
     },
   ] {
-    source.write(fp"${device}/${item.name}", item.value)?
+    source.write(fp"{device}/{item.name}", item.value)?
   }
 
-  source.write(fp"${device}/descriptors", b"")?
+  source.write(fp"{device}/descriptors", b"")?
   source.write(
-    fp"${interface}/bInterfaceNumber",
+    fp"{interface}/bInterfaceNumber",
     """00
 """,
   )?
   source.write(
-    fp"${interface}/bAlternateSetting",
+    fp"{interface}/bAlternateSetting",
     """0
 """,
   )?
-  source.symlink(../../../bus/usb/drivers/hub, fp"${interface}/driver")?
+  source.symlink(../../../bus/usb/drivers/hub, fp"{interface}/driver")?
   report_checks.capture_usb_bundle(source, bundle, "synthetic_fixture")?
   let replay = report_checks.replay_usb_bundle(bundle)?
   assert replay.topology.exact
@@ -2015,17 +2015,17 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
   assert replay.power.exact
   assert replay.interface.exact
   bundle.write(
-    fp"${device}/idVendor",
+    fp"{device}/idVendor",
     """1d6c
 """,
   )?
   test.error_kind(report_checks.validate_usb_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write(
-    fp"${device}/idVendor",
+    fp"{device}/idVendor",
     """1d6b
 """,
   )?
-  bundle.write(fp"${device}/descriptors", b"corrupt")?
+  bundle.write(fp"{device}/descriptors", b"corrupt")?
   test.error_kind(report_checks.validate_usb_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -2052,12 +2052,12 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   source.mkdir(p"sys/bus/usb/devices", parents: true)?
   source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")?
   source.write(
-    fp"${device}/idVendor",
+    fp"{device}/idVendor",
     """1d6b
 """,
   )?
   source.write(
-    fp"${device}/idProduct",
+    fp"{device}/idProduct",
     """0002
 """,
   )?
@@ -2070,7 +2070,7 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "usb-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "usb-unavailable.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-usb-bundle $bundle_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-usb-bundle $bundle_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -2124,9 +2124,9 @@ test test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity
   let root = fs.tempdir()?
   defer root.close()?
   for entry in ["card0", "card1"] {
-    root.mkdir(fp"sys/class/sound/${entry}", parents: true)?
+    root.mkdir(fp"sys/class/sound/{entry}", parents: true)?
     root.write(
-      fp"sys/class/sound/${entry}/id",
+      fp"sys/class/sound/{entry}/id",
       """Shared label
 """,
     )?
@@ -2541,7 +2541,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   )?
   tool_root.chmod(p"dmidecode", 0o700)?
   let tool_path = tool_root.host_path()?
-  let result = smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display())?
+  let result = smbios_reference.corroborate_smbios_bundle(bundle, fp"{tool_path}/dmidecode".display())?
   assert result.comparison.exact
   assert result.comparison.reference_count == 1
   let metadata = bundle.read_text(p"dmidecode-reference.json")?
@@ -2551,7 +2551,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   assert "\"exit_status\": 0" in metadata
   assert "Handle 0x0000" in bundle.read_text(p"dmidecode-output.txt")?
   test.error_kind(
-    smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
+    smbios_reference.corroborate_smbios_bundle(bundle, fp"{tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
   )?
 }
@@ -2580,13 +2580,13 @@ if [ "$1" = "--version" ]; then
   printf 'dmidecode 3.7\n'
   exit 0
 fi
-/bin/cp "${tool_path}/changed-capture.json" "${bundle_path}/capture.json"
+/bin/cp "{tool_path}/changed-capture.json" "{bundle_path}/capture.json"
 printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n    7F 04 00 00\n'
 """,
   )?
   tool_root.chmod(p"dmidecode", 0o700)?
   test.error_kind(
-    smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
+    smbios_reference.corroborate_smbios_bundle(bundle, fp"{tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
   )?
   assert ! bundle.exists(p"dmidecode-comparison.json")?
@@ -2614,7 +2614,7 @@ exit 2
   tool_root.chmod(p"dmidecode", 0o700)?
   let tool_path = tool_root.host_path()?
   test.error_kind(
-    smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
+    smbios_reference.corroborate_smbios_bundle(bundle, fp"{tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
   )?
   assert "\"version_exit_status\": 2" in bundle.read_text(p"dmidecode-probe.json")?
@@ -2647,10 +2647,10 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   tool_root.chmod(p"dmidecode", 0o700)?
   let bundle_path = bundle.host_path()?
   let tool_root_path = tool_root.host_path()?
-  let executable = fp"${tool_root_path}/dmidecode"
+  let executable = fp"{tool_root_path}/dmidecode"
   let output = test.temp_path(ctx, name: "system-report-dmidecode.stdout")
   let stderr = test.temp_path(ctx, name: "system-report-dmidecode.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle_path --dmidecode-bin $executable > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle_path --dmidecode-bin $executable > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -2662,25 +2662,25 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy {
   let root = fs.tempdir()?
   defer root.close()?
   for policy_name in ["policy3", "policy9"] {
-    let base = fp"sys/devices/system/cpu/cpufreq/${policy_name}"
+    let base = fp"sys/devices/system/cpu/cpufreq/{policy_name}"
     root.mkdir(base, parents: true)?
     root.write(
-      fp"${base}/related_cpus",
+      fp"{base}/related_cpus",
       """0 2
 """,
     )?
     root.write(
-      fp"${base}/affected_cpus",
+      fp"{base}/affected_cpus",
       """0
 """,
     )?
     root.write(
-      fp"${base}/scaling_driver",
+      fp"{base}/scaling_driver",
       """fixture-driver
 """,
     )?
     root.write(
-      fp"${base}/scaling_governor",
+      fp"{base}/scaling_governor",
       if policy_name == "policy9" {
   """userspace
 """
@@ -2690,50 +2690,50 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy {
 },
     )?
     root.write(
-      fp"${base}/cpuinfo_min_freq",
+      fp"{base}/cpuinfo_min_freq",
       """800000
 """,
     )?
     root.write(
-      fp"${base}/cpuinfo_max_freq",
+      fp"{base}/cpuinfo_max_freq",
       """4000000
 """,
     )?
     root.write(
-      fp"${base}/scaling_min_freq",
+      fp"{base}/scaling_min_freq",
       """1000000
 """,
     )?
     root.write(
-      fp"${base}/scaling_max_freq",
+      fp"{base}/scaling_max_freq",
       """3000000
 """,
     )?
     root.write(
-      fp"${base}/cpuinfo_cur_freq",
+      fp"{base}/cpuinfo_cur_freq",
       """1800000
 """,
     )?
     root.write(
-      fp"${base}/scaling_cur_freq",
+      fp"{base}/scaling_cur_freq",
       """1700000
 """,
     )?
     if policy_name == "policy9" {
       root.write(
-        fp"${base}/scaling_setspeed",
+        fp"{base}/scaling_setspeed",
         """1900000
 """,
       )?
     }
 
     root.write(
-      fp"${base}/energy_performance_preference",
+      fp"{base}/energy_performance_preference",
       """balance_performance
 """,
     )?
     root.write(
-      fp"${base}/energy_performance_available_preferences",
+      fp"{base}/energy_performance_available_preferences",
       """performance balance_performance
 """,
     )?
@@ -2818,7 +2818,7 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
       value: "\n",
     },
   ] {
-    source.write(fp"${cpu_root}/${item.name}", item.value)?
+    source.write(fp"{cpu_root}/{item.name}", item.value)?
   }
 
   for item in [
@@ -2883,11 +2883,11 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
 """,
     },
   ] {
-    source.write(fp"${policy}/${item.name}", item.value)?
+    source.write(fp"{policy}/{item.name}", item.value)?
   }
 
   source.write(
-    fp"${cpu_root}/cpufreq/boost",
+    fp"{cpu_root}/cpufreq/boost",
     """1
 """,
   )?
@@ -2898,18 +2898,18 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
   assert replay.policies.exact_bounds
   assert replay.policies.exact_controls
   bundle.write(
-    fp"${policy}/related_cpus",
+    fp"{policy}/related_cpus",
     """1
 """,
   )?
   test.error_kind(report_checks.validate_cpufreq_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write(
-    fp"${policy}/related_cpus",
+    fp"{policy}/related_cpus",
     """0
 """,
   )?
   bundle.write(
-    fp"${cpu_root}/intel_pstate/no_turbo",
+    fp"{cpu_root}/intel_pstate/no_turbo",
     """1
 """,
   )?
@@ -2956,12 +2956,12 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
       value: "\n",
     },
   ] {
-    source.write(fp"${cpu_root}/${item.name}", item.value)?
+    source.write(fp"{cpu_root}/{item.name}", item.value)?
   }
 
   for id in [0, 1] {
-    let cpu_path = fp"${cpu_root}/cpu${id}"
-    source.mkdir(fp"${cpu_path}/topology", parents: true)?
+    let cpu_path = fp"{cpu_root}/cpu{id}"
+    source.mkdir(fp"{cpu_path}/topology", parents: true)?
     for item in [
       {
         name: "physical_package_id",
@@ -2984,10 +2984,10 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
 """,
       },
     ] {
-      source.write(fp"${cpu_path}/topology/${item.name}", item.value)?
+      source.write(fp"{cpu_path}/topology/{item.name}", item.value)?
     }
 
-    source.symlink(../../node/node0, fp"${cpu_path}/node0")?
+    source.symlink(../../node/node0, fp"{cpu_path}/node0")?
   }
 
   report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture")?
@@ -2996,17 +2996,17 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
   assert replay.topology.exact
   assert replay.topology.matched_count == 2
   bundle.write(
-    fp"${cpu_root}/cpu1/topology/core_id",
+    fp"{cpu_root}/cpu1/topology/core_id",
     """1
 """,
   )?
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write(
-    fp"${cpu_root}/cpu1/topology/core_id",
+    fp"{cpu_root}/cpu1/topology/core_id",
     """0
 """,
   )?
-  bundle.remove(fp"${cpu_root}/cpu1/node0")?
+  bundle.remove(fp"{cpu_root}/cpu1/node0")?
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -3016,7 +3016,7 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link {
   let bundle = fs.tempdir()?
   defer bundle.close()?
   let cpu_root = p"sys/devices/system/cpu"
-  source.mkdir(fp"${cpu_root}/cpu0/topology", parents: true)?
+  source.mkdir(fp"{cpu_root}/cpu0/topology", parents: true)?
   for item in [
     {
       name: "possible",
@@ -3038,10 +3038,10 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link {
       value: "\n",
     },
   ] {
-    source.write(fp"${cpu_root}/${item.name}", item.value)?
+    source.write(fp"{cpu_root}/{item.name}", item.value)?
   }
 
-  source.symlink(../../node/../rogue, fp"${cpu_root}/cpu0/node0")?
+  source.symlink(../../node/../rogue, fp"{cpu_root}/cpu0/node0")?
   test.error_kind(
     report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -3154,35 +3154,35 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state {
   )?
   for cpu_id in [0, 2] {
     for state_index in [0, 1] {
-      let base = fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle/state${state_index}"
+      let base = fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle/state{state_index}"
       root.mkdir(base, parents: true)?
       root.write(
-        fp"${base}/name",
+        fp"{base}/name",
         """C1
 """,
       )?
       root.write(
-        fp"${base}/disable",
+        fp"{base}/disable",
         """0
 """,
       )?
       root.write(
-        fp"${base}/latency",
+        fp"{base}/latency",
         """8
 """,
       )?
       root.write(
-        fp"${base}/residency",
+        fp"{base}/residency",
         """20
 """,
       )?
       root.write(
-        fp"${base}/usage",
+        fp"{base}/usage",
         """12
 """,
       )?
       root.write(
-        fp"${base}/time",
+        fp"{base}/time",
         """40
 """,
       )?
@@ -3218,7 +3218,7 @@ proc assert_bundle_operation_rejected(
 ) [fs, process, error] {
   let bundle = test.temp_path(ctx, name: "system-report-bundle")
   let stderr = test.temp_path(ctx, name: "system-report-bundle.stderr")
-  let main = fp"${core_dir.parent()}/dev/main.xsh"
+  let main = fp"{core_dir.parent()}/dev/main.xsh"
   let operation = arguments[0]
   let rest = arguments[1..]
   let status = run.status $xsh_bin $main -- system-report-check $operation $bundle $rest 2> $stderr
@@ -3426,40 +3426,40 @@ test test_system_report_cache_rooted_reference_reads_shared_instance_sources {
 """,
   )?
   for cpu_id in [0, 2] {
-    let base = fp"sys/devices/system/cpu/cpu${cpu_id}/cache/index7"
+    let base = fp"sys/devices/system/cpu/cpu{cpu_id}/cache/index7"
     root.mkdir(base, parents: true)?
     root.write(
-      fp"${base}/level",
+      fp"{base}/level",
       """2
 """,
     )?
     root.write(
-      fp"${base}/type",
+      fp"{base}/type",
       """Unified
 """,
     )?
     root.write(
-      fp"${base}/size",
+      fp"{base}/size",
       """1M
 """,
     )?
     root.write(
-      fp"${base}/coherency_line_size",
+      fp"{base}/coherency_line_size",
       """64
 """,
     )?
     root.write(
-      fp"${base}/number_of_sets",
+      fp"{base}/number_of_sets",
       """16384
 """,
     )?
     root.write(
-      fp"${base}/shared_cpu_list",
+      fp"{base}/shared_cpu_list",
       """0,2
 """,
     )?
     root.write(
-      fp"${base}/id",
+      fp"{base}/id",
       """9
 """,
     )?
@@ -5450,12 +5450,12 @@ test test_system_report_vulnerability_capture_validates_saved_files_and_oracle {
   let directory = p"sys/devices/system/cpu/vulnerabilities"
   source.mkdir(directory, parents: true)?
   source.write(
-    fp"${directory}/spectre_v1",
+    fp"{directory}/spectre_v1",
     """Mitigation: custom policy
 """,
   )?
   source.write(
-    fp"${directory}/mmio_stale_data",
+    fp"{directory}/mmio_stale_data",
     """Not affected
 """,
   )?
@@ -5471,18 +5471,18 @@ test test_system_report_vulnerability_capture_validates_saved_files_and_oracle {
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write_atomic(p"capture.json", metadata)?
   bundle.write(
-    fp"${directory}/spectre_v1",
+    fp"{directory}/spectre_v1",
     """Vulnerable
 """,
   )?
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
   bundle.write(
-    fp"${directory}/spectre_v1",
+    fp"{directory}/spectre_v1",
     """Mitigation: custom policy
 """,
   )?
   bundle.write(
-    fp"${directory}/extra",
+    fp"{directory}/extra",
     """Not affected
 """,
   )?
@@ -5752,7 +5752,7 @@ test test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable {
   test.error_kind(report_checks.validate_pressure_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
   while padding.count_chars() <= 16384 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   source.write(p"proc/pressure/cpu", padding)?
@@ -6046,7 +6046,7 @@ test test_system_report_traced_live_and_replay_paths_keep_host_effect_contract {
     return
   }
 
-  let script = fp"${ctx.core_dir.parent()}/core/system-report.xsh"
+  let script = fp"{ctx.core_dir.parent()}/core/system-report.xsh"
   report_checks.audit_no_subprocess(ctx.xsh_bin.display(), script.display())?
 }
 
@@ -6999,10 +6999,10 @@ test test_system_report_replay_trace_rejects_normalized_live_source_paths {
 test test_system_report_replay_trace_subtracts_exact_startup_reads {
   let startup = "42 open(\"/proc/sys/vm/overcommit_memory\", O_RDONLY) = 3"
   assert report_checks.replay_host_read_violations_after_baseline(startup, startup) == []
-  let repeated = f"""${startup}
-${startup}"""
+  let repeated = f"""{startup}
+{startup}"""
   assert report_checks.replay_host_read_violations_after_baseline(repeated, startup).len() == 1
-  let new_source = f"""${startup}
+  let new_source = f"""{startup}
 42 open("/proc/meminfo", O_RDONLY) = 3"""
   assert report_checks.replay_host_read_violations_after_baseline(new_source, startup).len() == 1
   let different_call = "42 newfstatat(AT_FDCWD, \"/proc/sys/vm/overcommit_memory\", 0x7fff, 0) = 0"
@@ -7335,13 +7335,13 @@ test test_system_report_proc_swaps_capture_marks_absent_malformed_and_truncated_
   test.error_kind(report_checks.validate_proc_swaps_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
   while padding.count_chars() <= 262144 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   source.write(
     p"proc/swaps",
     f"""Filename Type Size Used Priority
-${padding}""",
+{padding}""",
   )?
   let truncated = fs.tempdir()?
   defer truncated.close()?
@@ -7603,15 +7603,15 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
   root.mkdir(p"sys/bus/pci/devices", parents: true)?
   root.symlink(../../../devices/pci0001:02/0001:02:01.0, p"sys/bus/pci/devices/0001:02:01.0")?
   root.symlink(../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, p"sys/bus/pci/devices/0001:03:00.0")?
-  root.symlink(../../../../bus/pci/drivers/pcieport, fp"${bridge}/driver")?
-  root.symlink(../../../../kernel/iommu_groups/42, fp"${bridge}/iommu_group")?
+  root.symlink(../../../../bus/pci/drivers/pcieport, fp"{bridge}/driver")?
+  root.symlink(../../../../kernel/iommu_groups/42, fp"{bridge}/iommu_group")?
   root.write(
-    fp"${bridge}/numa_node",
+    fp"{bridge}/numa_node",
     """0
 """,
   )?
   root.write(
-    fp"${child}/numa_node",
+    fp"{child}/numa_node",
     """-1
 """,
   )?
@@ -7624,7 +7624,7 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
   assert reference[1].driver == null
   assert reference[1].numa_node == null
   root.write(
-    fp"${child}/numa_node",
+    fp"{child}/numa_node",
     """0x1
 """,
   )?
@@ -7680,32 +7680,32 @@ test test_system_report_thermal_rooted_reference_reads_indexed_sources {
   let zone = p"sys/class/thermal/thermal_zone3"
   root.mkdir(zone, parents: true)?
   root.write(
-    fp"${zone}/type",
+    fp"{zone}/type",
     """cpu_thermal
 """,
   )?
   root.write(
-    fp"${zone}/temp",
+    fp"{zone}/temp",
     """-500
 """,
   )?
   root.write(
-    fp"${zone}/trip_point_2_type",
+    fp"{zone}/trip_point_2_type",
     """passive
 """,
   )?
   root.write(
-    fp"${zone}/trip_point_2_temp",
+    fp"{zone}/trip_point_2_temp",
     """85000
 """,
   )?
   root.write(
-    fp"${zone}/trip_point_0_type",
+    fp"{zone}/trip_point_0_type",
     """critical
 """,
   )?
   root.write(
-    fp"${zone}/trip_point_0_temp",
+    fp"{zone}/trip_point_0_temp",
     """95000
 """,
   )?
@@ -7715,7 +7715,7 @@ test test_system_report_thermal_rooted_reference_reads_indexed_sources {
   assert (zones[0].trips |> map .index) == [0, 2]
   assert zones[0].trips[1].hysteresis_millidegrees == null
   root.write(
-    fp"${zone}/trip_point_02_temp",
+    fp"{zone}/trip_point_02_temp",
     """85000
 """,
   )?
@@ -7730,27 +7730,27 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering {
   let zone = p"sys/class/thermal/thermal_zone3"
   source.mkdir(zone, parents: true)?
   source.write(
-    fp"${zone}/type",
+    fp"{zone}/type",
     """cpu_thermal
 """,
   )?
   source.write(
-    fp"${zone}/temp",
+    fp"{zone}/temp",
     """42000
 """,
   )?
   source.write(
-    fp"${zone}/trip_point_2_type",
+    fp"{zone}/trip_point_2_type",
     """passive
 """,
   )?
   source.write(
-    fp"${zone}/trip_point_2_temp",
+    fp"{zone}/trip_point_2_temp",
     """85000
 """,
   )?
   source.write(
-    fp"${zone}/trip_point_2_hyst",
+    fp"{zone}/trip_point_2_hyst",
     """2000
 """,
   )?
@@ -7766,7 +7766,7 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering {
   bundle.write(p"capture.json", metadata)?
   assert report_checks.replay_thermal_bundle(bundle)?.exact
   bundle.write(
-    fp"${zone}/trip_point_2_temp",
+    fp"{zone}/trip_point_2_temp",
     """86000
 """,
   )?
@@ -7794,22 +7794,22 @@ test test_system_report_pci_link_rooted_reference_reads_bounded_attributes {
   root.mkdir(first, parents: true)?
   root.mkdir(second, parents: true)?
   root.write(
-    fp"${first}/current_link_speed",
+    fp"{first}/current_link_speed",
     """8.0 GT/s PCIe
 """,
   )?
   root.write(
-    fp"${first}/current_link_width",
+    fp"{first}/current_link_width",
     """4
 """,
   )?
   root.write(
-    fp"${first}/max_link_speed",
+    fp"{first}/max_link_speed",
     """16.0 GT/s PCIe
 """,
   )?
   root.write(
-    fp"${first}/max_link_width",
+    fp"{first}/max_link_width",
     """8
 """,
   )?
@@ -7819,13 +7819,13 @@ test test_system_report_pci_link_rooted_reference_reads_bounded_attributes {
   assert reference[0].current_width == 4
   assert reference[1].current_width == null
   root.write(
-    fp"${first}/current_link_width",
+    fp"{first}/current_link_width",
     """0x4
 """,
   )?
   test.error_kind(report_checks.read_pci_link_reference(root), "SystemReportCheckError.Invalid")?
   root.write(
-    fp"${first}/current_link_width",
+    fp"{first}/current_link_width",
     """9007199254740992
 """,
   )?
@@ -8608,7 +8608,7 @@ test test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_re
   assert reference[0].raw_bytes_base64 == b"\xff\n".base64()
   var padding = "x"
   while padding.count_chars() <= 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   source.write(p"proc/sys/kernel/pid_max", padding)?
@@ -8871,7 +8871,7 @@ test test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreabl
   test.error_kind(report_checks.validate_device_tree_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
   while padding.count_chars() <= 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   source.write(p"sys/firmware/devicetree/base/model", padding)?
@@ -9098,7 +9098,7 @@ test test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreab
   test.error_kind(report_checks.validate_dmi_identity_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
   while padding.count_chars() <= 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   source.write(p"sys/class/dmi/id/sys_vendor", padding)?
@@ -9142,7 +9142,7 @@ test test_system_report_device_tree_od_reference_reads_bounded_raw_source {
   defer scratch.close()?
   source.write(p"model", b"ARM\0")?
   let source_root = source.host_path()?
-  let source_path = fp"${source_root}/model"
+  let source_path = fp"{source_root}/model"
   let observed = report_checks.read_device_tree_raw_reference(scratch, source_path, 4, "model-before")?
   assert observed.state == "observed"
   assert observed.data == b"ARM\0"
@@ -9257,13 +9257,13 @@ test test_system_report_uptime_capture_keeps_absent_malformed_and_truncated_unsc
   test.error_kind(report_checks.validate_uptime_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
   while padding.count_chars() <= 4096 {
-    padding = f"${padding}${padding}"
+    padding = f"{padding}{padding}"
   }
 
   source.write(
     p"proc/uptime",
     f"""73.50 12.00
-${padding}""",
+{padding}""",
   )?
   let truncated = fs.tempdir()?
   defer truncated.close()?

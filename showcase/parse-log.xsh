@@ -16,7 +16,7 @@ proc main(input = "") [fs, error] {
 2026-01-15T10:00:06Z ERROR [api] upstream 198.51.100.7 unreachable
 """
 
-  let source = if input == "" { sample } else { fp"${input}".read_text()? }
+  let source = if input == "" { sample } else { fp"{input}".read_text()? }
 
   # compile patterns once
   let log_re = rx"^(\S+)\s+(INFO|WARN|ERROR|DEBUG)\s+\[(\w+)\]\s+(.+)$"
@@ -38,11 +38,11 @@ proc main(input = "") [fs, error] {
     counts[entry.level] = (counts.get(entry.level) ?? 0) + 1
   }
 
-  print f"parsed ${entries.len()} entries"
+  print f"parsed {entries.len()} entries"
 
   for level in counts.keys() {
     let n = counts.get(level)?
-    print f"  ${level}: ${n}"
+    print f"  {level}: {n}"
   }
 
   # fold message char lengths into a total
@@ -52,12 +52,12 @@ proc main(input = "") [fs, error] {
       acc + .
     }
 
-  print f"total message chars: ${total_chars}"
+  print f"total message chars: {total_chars}"
 
   # check properties with any / all
   let has_errors = entries |> any .level == "ERROR"
   let all_timestamped = entries |> all .timestamp != ""
-  print f"has errors: ${has_errors}  all timestamped: ${all_timestamped}"
+  print f"has errors: {has_errors}  all timestamped: {all_timestamped}"
 
   # find and redact IPs in each error message
   let errors: List[LogEntry] = entries |> where .level == "ERROR"
@@ -65,6 +65,6 @@ proc main(input = "") [fs, error] {
   for entry in errors {
     let hits: List[Match] = ip_re.find(entry.message)
     let redacted = ip_re.replace(entry.message, "<IP>")
-    print f"error [${entry.module}] IPs found: ${hits.len()}  redacted: ${redacted}"
+    print f"error [{entry.module}] IPs found: {hits.len()}  redacted: {redacted}"
   }
 }

@@ -155,8 +155,8 @@ test test_process_argv_words_rejects_shell_syntax {
     "{",
     "}",
   ] {
-    test.error_kind(process.argv_words(f"echo ${character}"), "argv-words")?
-    test.error_kind(process.argv_words(f"before${character}after"), "argv-words")?
+    test.error_kind(process.argv_words(f"echo {character}"), "argv-words")?
+    test.error_kind(process.argv_words(f"before{character}after"), "argv-words")?
   }
 
   # Escaping a shell syntax character outside quotes is rejected like an
@@ -208,7 +208,7 @@ test test_process_argv_words_reads_unicode_text {
     "\u{205f}",
     "\u{3000}",
   ] {
-    assert process.argv_words(f"a${space}b")? == ["a", "b"]
+    assert process.argv_words(f"a{space}b")? == ["a", "b"]
   }
 
   let only_space = process.argv_words("\u{2003}\u{205f}")?
@@ -220,8 +220,8 @@ test test_process_argv_words_reads_unicode_text {
 
 test test_process_command_redirections { |ctx|
   let root = test.temp_dir(ctx, name: "process-redirections")?
-  let input = fp"${root}/input.txt"
-  let log = fp"${root}/combined.log"
+  let input = fp"{root}/input.txt"
+  let log = fp"{root}/combined.log"
   input.write("from-stdin")?
 
   let command = process.command_argv(
@@ -234,7 +234,7 @@ test test_process_command_redirections { |ctx|
   assert process.run(command)?.exited_with(0)
   assert log.read_text()? == "from-stdinstderr-line"
 
-  let builder_log = fp"${root}/builder.log"
+  let builder_log = fp"{root}/builder.log"
   let builder = process.command {
     stdout = builder_log
     stderr = builder_log
@@ -249,7 +249,7 @@ test test_process_timeout_errors {
   match process.run(command) {
     Err(ProcessError.Timeout {message: message}) => assert "timed out" in message
     Err(is Timeout) => test.fail("timeout facet without nominal variant")?
-    Err(error) => test.fail(f"unexpected process error: ${error.message}")?
+    Err(error) => test.fail(f"unexpected process error: {error.message}")?
     Ok(_) => test.fail("timed-out process succeeded")?
   }
 }
@@ -281,7 +281,7 @@ test test_process_wait_and_handle_contracts {
   let duplicate = spawn run true ?
   match wait [duplicate, duplicate] {
     Err(ProcessError.Unknown {message: message}) => assert "already requested" in message
-    Err(error) => test.fail(f"unexpected duplicate wait error: ${error.message}")?
+    Err(error) => test.fail(f"unexpected duplicate wait error: {error.message}")?
     Ok(_) => test.fail("duplicate wait succeeded")?
   }
 
@@ -290,7 +290,7 @@ test test_process_wait_and_handle_contracts {
   let _ = wait alias?
   match wait alias_copy {
     Err(ProcessError.Unknown {message: message}) => assert "no longer live" in message
-    Err(error) => test.fail(f"unexpected alias wait error: ${error.message}")?
+    Err(error) => test.fail(f"unexpected alias wait error: {error.message}")?
     Ok(_) => test.fail("alias wait succeeded")?
   }
 }
@@ -299,14 +299,14 @@ test test_process_spawn_setup_errors {
   env PATH="/bin:/usr/bin" {
     match spawn run xsh-definitely-missing-command {
       Err(ProcessError.NotFound {message: message}) => assert "not found" in message
-      Err(error) => test.fail(f"unexpected spawn error: ${error.message}")?
+      Err(error) => test.fail(f"unexpected spawn error: {error.message}")?
       Ok(_) => test.fail("missing command spawned")?
     }
   }
 
   match spawn run true > /definitely/missing/xsh-spawn-output {
     Err(ProcessError.Redirection {message: message}) => assert message != ""
-    Err(error) => test.fail(f"unexpected redirection error: ${error.message}")?
+    Err(error) => test.fail(f"unexpected redirection error: {error.message}")?
     Ok(_) => test.fail("invalid redirection succeeded")?
   }
 }
@@ -336,7 +336,7 @@ test test_process_spawn_timeout_and_return_transfer {
   time.sleep(50ms)?
   match wait handle {
     Err(ProcessError.Timeout {message: message}) => assert "timed out" in message
-    Err(error) => test.fail(f"unexpected spawn timeout error: ${error.message}")?
+    Err(error) => test.fail(f"unexpected spawn timeout error: {error.message}")?
     Ok(_) => test.fail("spawn timeout did not expire")?
   }
 
@@ -438,7 +438,7 @@ run cat < (payload)
 
 test test_bytes_stdin_path_strings_and_once_only_expression { |ctx|
   let root = test.temp_dir(ctx, name: "bytes-stdin-path")?
-  let input = fp"${root}/input"
+  let input = fp"{root}/input"
   input.write("file content")?
   let file_name = input.display()
   assert run.text cat < $file_name? == "file content"

@@ -4,7 +4,7 @@ use lib.text_input as text_input
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -50,7 +50,7 @@ pure complement(chars: Str) -> Str {
 
   for ch in ascii_chars() {
     if ! (ch in expanded) {
-      out = f"${out}${ch}"
+      out = f"{out}{ch}"
     }
   }
 

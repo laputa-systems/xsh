@@ -259,19 +259,19 @@ done
 
 test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
   let root = test.temp_dir(ctx, name: "lexical-module")?
-  let module_path = fp"${root}/invalid.xsh"
+  let module_path = fp"{root}/invalid.xsh"
   module_path.write("""##! Invalid executable module.
 { print forbidden }
 ## Exported name.
 export let name = "invalid"
 """)?
   let source = f"""
-    let _ = module.load(p\"${module_path}\")?
+    let _ = module.load(p\"{module_path}\")?
 
     """
   let loaded = test.run_script(ctx, source)?
   let load_rejected = ! loaded.success
-  let load_details = f"loaded status=${loaded.status}: ${loaded.stderr}"
+  let load_details = f"loaded status={loaded.status}: {loaded.stderr}"
   assert load_rejected, load_details
   assert "check.module-top-level" in loaded.stderr
   let load_silent = "forbidden" not in loaded.stdout
@@ -297,11 +297,11 @@ export let name = "invalid"
 """,
   )?
   let succeeded = bare.success
-  let failure_details = f"bare status=${bare.status}: ${bare.stderr}"
+  let failure_details = f"bare status={bare.status}: {bare.stderr}"
   assert succeeded, failure_details
   let status = bare.status
   let expected_status = 0
-  let status_details = f"bare status=${bare.status}: ${bare.stderr}"
+  let status_details = f"bare status={bare.status}: {bare.stderr}"
   assert status == expected_status, status_details
 }
 

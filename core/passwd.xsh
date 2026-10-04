@@ -50,13 +50,13 @@ pure parse_passwd_args(argv: List[Str]) -> Result[PasswdOptions] {
 }
 
 proc read_new_password(user_name: Str, algorithm: Str) [process, error, io] -> Result[Str] {
-  print f"Changing password for ${user_name}"
+  print f"Changing password for {user_name}"
   let first = tui.read_secret("New password: ")?
   let second = tui.read_secret("Retype password: ")?
 
   if first != second {
     print "Passwords don't match"
-    return Err(auth.AuthError.Failed(f"password for ${user_name} is unchanged"))
+    return Err(auth.AuthError.Failed(f"password for {user_name} is unchanged"))
   }
 
   applet.hash_password(first, algorithm)?
@@ -69,7 +69,7 @@ proc target_user(options: PasswdOptions, passwd: List[auth.PasswdEntry]) [fs, pr
     return name when entry.name == name
   }
 
-  Err(auth.AuthError.Failed(f"unknown user ${name}"))
+  Err(auth.AuthError.Failed(f"unknown user {name}"))
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, error, io] -> Result[Int] {
@@ -91,7 +91,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] -> Result[Int]
       } else if options.action == "unlock" {
         password = auth.unlock_password(current.password)
       } else {
-        return auth.fail("passwd", f"invalid action ${options.action}")
+        return auth.fail("passwd", f"invalid action {options.action}")
       }
 
       auth.write_shadow_records(auth.upsert_shadow(records, name, password, auth.days_since_epoch()))?

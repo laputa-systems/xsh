@@ -31,7 +31,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   if ! opts.manifest.exists()? {
-    print f"error: ${opts.manifest} not found"
+    print f"error: {opts.manifest} not found"
     abort(1)
   }
 
@@ -73,7 +73,7 @@ proc main(...argv: List[Str]) [fs, error] {
     abort(1)
   }
 
-  let old_version = f"${major}.${minor}.${patch_component}"
+  let old_version = f"{major}.{minor}.{patch_component}"
   let new_major = if opts.component == "major" { major + 1 } else { major }
   let new_minor = if opts.component == "major" {
     0
@@ -85,12 +85,12 @@ proc main(...argv: List[Str]) [fs, error] {
     }
   }
   let new_patch = if opts.component == "patch" { patch_component + 1 } else { 0 }
-  let new_version = f"${new_major}.${new_minor}.${new_patch}"
-  let old_version_field = f"\"${old_version}\""
+  let new_version = f"{new_major}.{new_minor}.{new_patch}"
+  let old_version_field = f"\"{old_version}\""
   let parts = old_line.split(old_version_field, maxsplit: 1)
-  let new_line = f"${parts[0]}\"${new_version}\"${parts[1]}"
+  let new_line = f"{parts[0]}\"{new_version}\"{parts[1]}"
   print $manifest
-  print f"  ${old_version} → ${new_version}  (${opts.component} bump)"
+  print f"  {old_version} → {new_version}  ({opts.component} bump)"
 
   if opts.dry_run {
     print "dry run — not writing"

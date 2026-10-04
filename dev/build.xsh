@@ -14,13 +14,13 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
   return when ! libc.exists()? or ! libgcc.exists()?
 
   let sysroot_text: Str = run.text rustc --print sysroot ?
-  let sysroot = fp"${sysroot_text.trim()}/lib/rustlib/${ctx.target.triple}/lib"
-  fs.remove(fp"${sysroot}/libgcc_s.so", missing_ok: true)?
-  fs.remove(fp"${sysroot}/libgcc_s.so.1", missing_ok: true)?
-  fs.remove(fp"${sysroot}/libc.so", missing_ok: true)?
-  fs.symlink(libgcc, fp"${sysroot}/libgcc_s.so")?
-  fs.symlink(libgcc, fp"${sysroot}/libgcc_s.so.1")?
-  fs.symlink(libc, fp"${sysroot}/libc.so")?
+  let sysroot = fp"{sysroot_text.trim()}/lib/rustlib/{ctx.target.triple}/lib"
+  fs.remove(fp"{sysroot}/libgcc_s.so", missing_ok: true)?
+  fs.remove(fp"{sysroot}/libgcc_s.so.1", missing_ok: true)?
+  fs.remove(fp"{sysroot}/libc.so", missing_ok: true)?
+  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so")?
+  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so.1")?
+  fs.symlink(libc, fp"{sysroot}/libc.so")?
 }
 
 ## Builds the repository with the current development Cargo profile.
@@ -59,7 +59,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
     stages.StageError.Failed(
       stage: "check-libxsh-imports",
       target: ctx.target.triple,
-      detail: f"rg exited ${result.status.exit_code()?}",
+      detail: f"rg exited {result.status.exit_code()?}",
     ),
   )
 }
@@ -98,7 +98,7 @@ export proc check_docs(
   ctx: context.Context,
   tools: documentation.DocTools,
 ) [fs, process, env, error, io] -> Result[Unit] {
-  print f"[check-docs target=${ctx.target.triple}] render docs/templates and compare"
+  print f"[check-docs target={ctx.target.triple}] render docs/templates and compare"
   documentation.check(ctx.root, tools)?
 }
 
@@ -160,7 +160,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       {},
     ),
   )?
-  let xsht = fp"${ctx.target_dir}/release/xsht"
+  let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
       "check-xsh",
@@ -247,7 +247,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit] 
       {},
     ),
   )?
-  let xsht = fp"${ctx.target_dir}/debug/xsht"
+  let xsht = fp"{ctx.target_dir}/debug/xsht"
   stages.execute(
     stages.command(
       "lint-xsh",

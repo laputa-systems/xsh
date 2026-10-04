@@ -128,7 +128,7 @@ rejected
 
 test test_parametric_records_use_declaring_private_dependencies { |ctx|
   let root = test.temp_dir(ctx, name: "parametric-schema-module")?
-  fp"${root}/model.xsh".write_atomic("""##! Parameterized schemas with private dependencies.
+  fp"{root}/model.xsh".write_atomic("""##! Parameterized schemas with private dependencies.
 type Local = {name: Str}
 ## A record with a declaration-owned dependency.
 export type Box[T] = {value: T, owner: Local}

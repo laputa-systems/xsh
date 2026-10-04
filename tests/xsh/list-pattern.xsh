@@ -3,8 +3,8 @@ type ListEntry = {labels: List[Str], result: Result[Int]}
 pure list_shape(values: List[Int]) -> Str {
   match values {
     [] => "empty"
-    [first, second] => f"two:${first}:${second}"
-    [head, ..tail] => f"many:${head}:${tail.len()}"
+    [first, second] => f"two:{first}:{second}"
+    [head, ..tail] => f"many:{head}:{tail.len()}"
   }
 }
 
@@ -33,7 +33,7 @@ test test_list_pattern_nested_records_and_constructors {
   ]
   let selected = if let [{labels: ["build", target], result: Ok(count)}, ..rest] = values {
     let typed_rest: List[ListEntry] = rest
-    f"${target}:${count}:${typed_rest.len()}"
+    f"{target}:{count}:{typed_rest.len()}"
   } else {
     "other"
   }
@@ -83,7 +83,7 @@ test test_list_pattern_nonbinding_predicates {
 test test_list_pattern_dynamic_elements_keep_type_narrowing {
   let value = json.decode("[7, \"kernel\"]")?
   let selected = if let [count is Int, name is Str] = value {
-    f"${count + 1}:${name.upper()}"
+    f"{count + 1}:{name.upper()}"
   } else {
     "other"
   }

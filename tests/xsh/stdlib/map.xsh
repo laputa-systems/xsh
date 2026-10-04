@@ -50,7 +50,7 @@ test test_map_iteration_item_shape_order_and_snapshot {
   var counts: Map[Int] = {beta: 2, alpha: 1}
   var seen = []
   for entry in counts {
-    seen += [f"${entry.key}=${entry.value}"]
+    seen += [f"{entry.key}={entry.value}"]
     counts["alpha"] = 99
     counts = counts.remove("beta").set("gamma", 3)
   }
@@ -79,12 +79,12 @@ test test_map_iteration_nested_targets_and_qualifiers {
   }
   var selected = []
   for {key, value: {label: name, amount, ..}, ..} in values {
-    selected += [f"${key}:${name}:${amount}"]
+    selected += [f"{key}:{name}:{amount}"]
   }
 
   assert selected == ["first:one:1", "second:two:2"]
   let expanded = [
-    f"${key}:${item}"
+    f"{key}:{item}"
     for {key, value: payload, ..} in values
     if payload.amount > 1
     for item in [payload.label, payload.label.upper()]
@@ -178,9 +178,9 @@ proc gather() [io, error] -> Result[List[Str], SourceError] {
   defer close()
   return [entry.key for entry in failed()]
 }
-for entry in load() { print f"\${entry.key}=\${entry.value}" }
+for entry in load() { print f"{entry.key}={entry.value}" }
 match gather() {
-  Err(SourceError.Missing {code}) => print f"caught=\${code}"
+  Err(SourceError.Missing {code}) => print f"caught={code}"
   _ => print "unexpected"
 }
 """,
@@ -230,11 +230,11 @@ test test_map_literals_evaluate_keys_values_spreads_and_overwrites_once { |ctx|
   let output = test.run_script(
     ctx,
     r"""proc key(value: Str) [io] -> Str {
-  print f"key $value"
+  print f"key {value}"
   return value
 }
 proc value(amount: Int) [io] -> Int {
-  print f"value $amount"
+  print f"value {amount}"
   return amount
 }
 proc spread() [io] -> Map[Int] {

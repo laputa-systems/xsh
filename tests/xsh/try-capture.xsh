@@ -10,7 +10,7 @@ proc operation() -> Result[Int] {
 let value = try { operation()? }?
 let outer = try { operation() }?
 let nested = outer?
-print f"\${value} \${nested} \${calls}"
+print f"{value} {nested} {calls}"
 """,
   )?
   {
@@ -71,7 +71,7 @@ while rounds < 3 {
     break
   }
 }
-print f"\${value} \${cleaned} \${rounds}"
+print f"{value} {cleaned} {rounds}"
 """,
   )?
   {
@@ -209,7 +209,7 @@ test test_try_global_assignments_reach_cleanup_and_survive_transfer { |ctx|
     """
 var count = 0
 proc cleanup() -> Result[Unit] {
-  print f"cleanup \${count}"
+  print f"cleanup {count}"
   count += 10
 }
 let value: Result[Int] = try {
@@ -217,7 +217,7 @@ let value: Result[Int] = try {
   defer cleanup()?
   count
 }
-print f"\${value?} \${count}"
+print f"{value?} {count}"
 var rounds = 0
 while rounds < 2 {
   rounds += 1

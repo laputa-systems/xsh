@@ -6,10 +6,10 @@ test test_tui_helpers {
   assert tui.show_cursor() == "\u{1b}[?25h"
   assert tui.left_pad("x", 3) == "  x"
   assert tui.right_pad("x", 3) == "x  "
-  let styled = f"${tui.red()}x${tui.reset()}"
+  let styled = f"{tui.red()}x{tui.reset()}"
   assert styled == "\u{1b}[31mx\u{1b}[0m"
-  assert tui.left_pad(styled, 3) == f"  ${styled}"
-  assert tui.right_pad(styled, 3) == f"${styled}  "
+  assert tui.left_pad(styled, 3) == f"  {styled}"
+  assert tui.right_pad(styled, 3) == f"{styled}  "
   assert "\u{1b}[" in tui.reset()
   assert "\u{1b}[" in tui.red()
   assert "\u{1b}[" in tui.green()
@@ -87,15 +87,15 @@ test test_tui_pad_large_width_keeps_space_filler {
 # Escape sequences occupy no columns, so styled text pads to its displayed
 # width and the sequences stay intact around the inserted spaces.
 test test_tui_pad_ignores_escape_sequences {
-  let styled = f"${tui.red()}x${tui.reset()}"
+  let styled = f"{tui.red()}x{tui.reset()}"
   assert tui.left_pad(styled, 1) == styled
-  assert tui.left_pad(styled, 3) == f"  ${styled}"
-  assert tui.right_pad(styled, 3) == f"${styled}  "
-  assert tui.left_pad(f"${tui.bold()}wide${tui.reset()}", 6) == f"  ${tui.bold()}wide${tui.reset()}"
+  assert tui.left_pad(styled, 3) == f"  {styled}"
+  assert tui.right_pad(styled, 3) == f"{styled}  "
+  assert tui.left_pad(f"{tui.bold()}wide{tui.reset()}", 6) == f"  {tui.bold()}wide{tui.reset()}"
 
   # A value made only of escape sequences is zero columns wide.
-  assert tui.left_pad(tui.reset(), 2) == f"  ${tui.reset()}"
-  assert tui.right_pad(tui.clear(), 2) == f"${tui.clear()}  "
+  assert tui.left_pad(tui.reset(), 2) == f"  {tui.reset()}"
+  assert tui.right_pad(tui.clear(), 2) == f"{tui.clear()}  "
 }
 
 # Width counts Unicode scalar values, not display cells and not graphemes: a
@@ -158,7 +158,7 @@ test test_tui_read_secret_piped_lines { |ctx|
   let script = test.temp_file(
     ctx,
     name: "read-secret.xsh",
-    contents: b"let one = tui.read_secret(\"One: \")?\nlet two = tui.read_secret(\"Two: \")?\nprint f\"${one}:${two}\"\n",
+    contents: b"let one = tui.read_secret(\"One: \")?\nlet two = tui.read_secret(\"Two: \")?\nprint f\"{one}:{two}\"\n",
   )?
 
   let input = test.temp_file(ctx, name: "secret.in", contents: b"alpha\nbeta\n")?

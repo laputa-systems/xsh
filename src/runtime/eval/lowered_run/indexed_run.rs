@@ -8764,21 +8764,21 @@ pure pipeline(values: List[Int]) -> List[Int] {
     }
 
     for row in rows(3) {
-      print f"row ${row}"
+      print f"row {row}"
     }
-    print f"${nested(-5, 2)} ${with_defaults(1)} ${with_defaults(1, 7, 4, 5)}"
-    print f"${is_even(7)} ${is_odd(7)} ${is_even(8)}"
-    print f"${scaled("41")?}"
-    print f"${add_to_total(5)} ${add_to_total(6)} ${total}"
+    print f"{nested(-5, 2)} {with_defaults(1)} {with_defaults(1, 7, 4, 5)}"
+    print f"{is_even(7)} {is_odd(7)} {is_even(8)}"
+    print f"{scaled("41")?}"
+    print f"{add_to_total(5)} {add_to_total(6)} {total}"
     match scaled("nope") {
-      Ok(value) => print f"ok ${value}"
-      Err(error) => print f"rejected ${error.message}"
+      Ok(value) => print f"ok {value}"
+      Err(error) => print f"rejected {error.message}"
     }
     let values: List[Int] = [1, 2, 3, 4]
-    print f"${values |> where . > 1 |> map . * factor |> sum}"
+    print f"{values |> where . > 1 |> map . * factor |> sum}"
     if total > 0 {
       let seen = add_to_total(1) + total
-      print f"${seen} ${total}"
+      print f"{seen} {total}"
     }
     "#;
         let output = run_program(source);

@@ -698,7 +698,7 @@ add_one(4)
     fn compact_indexed_runner_attempt_covers_path_parse_and_print() {
         let path = temp_script(
             "compact-path-print",
-            r#"let root = fp"${args[0]}"
+            r#"let root = fp"{args[0]}"
 print $root
 "#,
         );
@@ -724,7 +724,7 @@ print $root
         let path = temp_script(
             "compact-path-constructor",
             r#"let root = Path(args[0])
-let child = fp"${root}/child"
+let child = fp"{root}/child"
 print $child
 "#,
         );
@@ -860,7 +860,7 @@ fail()
         let path = temp_script(
             "compact-standard-use",
             r#"use fs
-let root = fp"${args[0]}"
+let root = fp"{args[0]}"
 print $root
 "#,
         );
@@ -953,7 +953,7 @@ export pure label(value: Str) -> Str {
     fn run_script_uses_compact_runner_by_default_for_covered_scripts() {
         let path = temp_script(
             "compact-default-runner",
-            r#"let root = fp"${args[0]}"
+            r#"let root = fp"{args[0]}"
 print $root
 "#,
         );
@@ -1024,7 +1024,7 @@ use right
     fn prepared_benchmark_script_matches_normal_execution() {
         let path = temp_script(
             "prepared-benchmark-script",
-            r#"let root = fp"${args[0]}"
+            r#"let root = fp"{args[0]}"
 print $root
 "#,
         );
@@ -1084,7 +1084,7 @@ print $root
     fn compact_indexed_runner_attempt_covers_extension_count_shape() {
         let path = temp_script(
             "compact-extension-count",
-            r#"let root = fp"${args[0]}"
+            r#"let root = fp"{args[0]}"
 
 let stats = fs.files(root, gitignore: false, stat: false)
   |> where .ext != ""
@@ -1099,7 +1099,7 @@ let counts = stats.keys()
   |> sort-by .count
 
 for row in counts {
-  print f"${row.count} ${row.ext}"
+  print f"{row.count} {row.ext}"
 }
 "#,
         );
@@ -1165,8 +1165,8 @@ print $total
     fn compact_indexed_runner_attempt_covers_json_log_rollup_shape() {
         let path = temp_script(
             "compact-json-rollup",
-            r#"let root = fp"${args[0]}"
-let logs = fp"${root}/logs"
+            r#"let root = fp"{args[0]}"
+let logs = fp"{root}/logs"
 
 let log_texts = fs.walk(logs, gitignore: false)
   |> where .kind == "file" and .ext == "jsonl"
@@ -1178,7 +1178,7 @@ let log_texts = fs.walk(logs, gitignore: false)
 let rows = log_texts.join()
   |> json.lines
   |> where .level != "debug"
-  |> group-by f"${.service}:${.level}"
+  |> group-by f"{.service}:{.level}"
   |> map { |bucket|
     {
       key: bucket.key,
@@ -1191,7 +1191,7 @@ let rows = log_texts.join()
   |> sort-by .key
 
 for row in rows {
-  print f"${row.key} ${row.count} ${row.duration_ms}"
+  print f"{row.key} {row.count} {row.duration_ms}"
 }
 "#,
         );
@@ -1233,8 +1233,8 @@ for row in rows {
     fn compact_indexed_runner_attempt_covers_manifest_hash_shape() {
         let path = temp_script(
             "compact-manifest-hash",
-            r#"let root = fp"${args[0]}"
-let pkgroot = fp"${root}/pkgroot"
+            r#"let root = fp"{args[0]}"
+let pkgroot = fp"{root}/pkgroot"
 
 let manifest = fs.files(pkgroot, gitignore: false)
   |> map { |entry|
@@ -1305,18 +1305,18 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
     fn compact_indexed_runner_attempt_covers_archive_package_shape() {
         let path = temp_script(
             "compact-archive-package",
-            r#"let root = fp"${args[0]}"
-let pkgroot = fp"${root}/pkgroot"
+            r#"let root = fp"{args[0]}"
+let pkgroot = fp"{root}/pkgroot"
 let work_root = fs.tempdir()?
 defer work_root.close()?
 let work = work_root.host_path()?
-let tarball = fp"${work}/package.tar.gz"
+let tarball = fp"{work}/package.tar.gz"
 archive.tar_create(tarball, pkgroot, [p"."], compression: "gz", overwrite: true)?
 let entries = archive.tar_list(tarball)?.collect()
-let extracted = fp"${work}/extracted"
+let extracted = fp"{work}/extracted"
 archive.tar_extract(tarball, extracted)?
-let config = fp"${extracted}/etc/demo/config.toml".read_text()?
-let payload = fp"${extracted}/usr/share/demo/payload.txt".read_bytes()?
+let config = fp"{extracted}/etc/demo/config.toml".read_text()?
+let payload = fp"{extracted}/usr/share/demo/payload.txt".read_bytes()?
 print ${entries |> count()} config.count_lines() payload.sha256().hex()
 "#,
         );

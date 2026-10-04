@@ -22,7 +22,7 @@ proc wrapped_any() -> Result[Any] { false }
 let _ = predicate()
 let value = predicate()
 let retried = retry [] { false }?
-print f"\${value} \${dynamic()} \${wrapped()?} \${wrapped_any()?} \${retried}"
+print f"{value} {dynamic()} {wrapped()?} {wrapped_any()?} {retried}"
 """,
   )?
   assert output.success, output.stderr
@@ -368,7 +368,7 @@ test test_assertion_diagnostics_bound_record_field_names { |ctx|
   }
 
   let source = f"""
-    let actual = {${field}: null}
+    let actual = {{{field}: null}}
     assert \"missing\" in actual
 
     """
@@ -413,7 +413,7 @@ assert order == 21
 }
 
 test test_user_fields_and_functions_named_membership_aliases_remain_usable { |ctx|
-  let helper = fp"${ctx.temp_root}/custom.xsh"
+  let helper = fp"{ctx.temp_root}/custom.xsh"
   helper.write("""
 ##! Caller-owned functions.
 ## Caller-owned containment function.
@@ -542,7 +542,7 @@ let _ = fields.has("one")""",
 }
 
 test test_imported_module_boolean_statement_is_rejected { |ctx|
-  fp"${ctx.temp_root}/statement_module.xsh".write("""##! Runs a statement.
+  fp"{ctx.temp_root}/statement_module.xsh".write("""##! Runs a statement.
 ## A public field.
 export let present = 1
 true

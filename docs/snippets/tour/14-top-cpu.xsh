@@ -19,7 +19,7 @@ proc snapshot() [fs, process, error] -> Result[Map[Int, Sample]] {
 
   for entry in process.list()? {
     # A process can exit between listing and reading; skip it.
-    guard let text = fp"/proc/${entry.pid}/stat".read_text() else {
+    guard let text = fp"/proc/{entry.pid}/stat".read_text() else {
       continue
     }
 
@@ -45,5 +45,5 @@ let busiest = after.values()
   |> take(5)
 
 for {now, delta} in busiest {
-  print f"${now.pid:>7} ${delta:>4}% ${now.comm}"
+  print f"{now.pid:>7} {delta:>4}% {now.comm}"
 }

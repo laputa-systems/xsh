@@ -171,9 +171,9 @@ print direct[0] alias[0] middle(3)?
 
 test test_implicit_result_return_through_module { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-result-module")?
-  let module_dir = fp"${root}/lib"
+  let module_dir = fp"{root}/lib"
   module_dir.mkdir()?
-  fp"${module_dir}/helper.xsh".write("""
+  fp"{module_dir}/helper.xsh".write("""
 ##! Helper module for implicit Result return coverage.
 
 ## Builds the fixed value through an implicit Result tail.

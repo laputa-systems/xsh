@@ -300,7 +300,7 @@ export pure parse_cpu_list(text: Str) -> Result[List[Int]] {
 
   var seen = set.empty()
   for identifier in identifiers {
-    let key = f"${identifier}"
+    let key = f"{identifier}"
     return Err(cpu_list_error("CPU list contains a duplicate identifier")) when key in seen
 
     seen = set.add(seen, key)
@@ -851,7 +851,7 @@ export pure parse_report_section(value: Str) -> Result[ReportSection] {
     "kernel" => Ok(ReportKernel)
     "processes" => Ok(ReportProcesses)
     "devices" => Ok(ReportDevices)
-    _ => Err(SystemReportError.InvalidSection(message: f"unknown report section '${value}'"))
+    _ => Err(SystemReportError.InvalidSection(message: f"unknown report section '{value}'"))
   }
 }
 
@@ -1448,7 +1448,7 @@ pure observation_state_xsh(value: Str) -> Result[ObservationState] {
   if let Ok(state) = value.require(ObservationState) {
     Ok(state)
   } else {
-    Err(SystemReportError.InvalidJson(message: f"unknown observation state '${value}'"))
+    Err(SystemReportError.InvalidJson(message: f"unknown observation state '{value}'"))
   }
 }
 
@@ -1472,7 +1472,7 @@ pure section_state_xsh(value: Str) -> Result[SectionState] {
   if let Ok(state) = value.require(SectionState) {
     Ok(state)
   } else {
-    Err(SystemReportError.InvalidJson(message: f"unknown section state '${value}'"))
+    Err(SystemReportError.InvalidJson(message: f"unknown section state '{value}'"))
   }
 }
 
@@ -1491,7 +1491,7 @@ pure source_mode_xsh(value: Str) -> Result[SourceMode] {
   if let Ok(state) = value.require(SourceMode) {
     Ok(state)
   } else {
-    Err(SystemReportError.InvalidJson(message: f"unknown source mode '${value}'"))
+    Err(SystemReportError.InvalidJson(message: f"unknown source mode '{value}'"))
   }
 }
 
@@ -2173,7 +2173,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
     return Err(
       SystemReportError.UnsupportedSchema(
         version: report.schema_version,
-        message: f"unsupported schema version ${report.schema_version}",
+        message: f"unsupported schema version {report.schema_version}",
       ),
     )
   }
@@ -2198,7 +2198,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
         return Err(SystemReportError.InvalidJson(message: "device-class entry names must be nonempty path components"))
       }
 
-      let key = f"${device.class.byte_len()}:${device.class}${entry}"
+      let key = f"{device.class.byte_len()}:{device.class}{entry}"
       if key in class_keys {
         return Err(
           SystemReportError.InvalidJson(message: "device-class entries must have unique class and entry names"),
@@ -2225,7 +2225,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
         return Err(SystemReportError.InvalidJson(message: "hwmon chip entry names must be nonempty path components"))
       }
 
-      let key = f"${entry.byte_len()}:${entry}${channel.channel}"
+      let key = f"{entry.byte_len()}:{entry}{channel.channel}"
       if key in sensor_keys {
         return Err(
           SystemReportError.InvalidJson(message: "hwmon channels must have unique chip entries and channel names"),
@@ -2285,7 +2285,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
       }
 
       if state.cpu_id != null {
-        let key = f"${state.cpu_id ?? -1}:${index}"
+        let key = f"{state.cpu_id ?? -1}:{index}"
         if key in idle_keys {
           return Err(SystemReportError.InvalidJson(message: "CPUIdle states must have unique CPU and state indexes"))
         }
@@ -2319,7 +2319,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
   for field in ["uts_namespace", "ipc_namespace", "user_namespace", "time_namespace"] {
     if let Ok(value) = json.get(normalized, ["scope", field]) {
       guard value != null else {
-        return Err(SystemReportError.InvalidJson(message: f"scope.${field} cannot be null"))
+        return Err(SystemReportError.InvalidJson(message: f"scope.{field} cannot be null"))
       }
 
       guard let _ = value.require(JsonTextObservation) else { |error|
@@ -2558,7 +2558,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
     return Err(
       SystemReportError.UnsupportedSchema(
         version: wire.schema_version,
-        message: f"unsupported schema version ${wire.schema_version}",
+        message: f"unsupported schema version {wire.schema_version}",
       ),
     )
   }
@@ -2819,14 +2819,14 @@ pure observation_display(value: TextObservation) -> Result[Str] {
     let quoted = terminal_quote(value.value)?
     return quoted when value.state == Observed
 
-    return f"[${observation_state_json(value.state)}] ${quoted}"
+    return f"[{observation_state_json(value.state)}] {quoted}"
   }
 
   if value.raw_bytes_base64 != null {
-    return terminal_quote(f"base64:${value.raw_bytes_base64}")
+    return terminal_quote(f"base64:{value.raw_bytes_base64}")
   }
 
-  f"[${observation_state_json(value.state)}]"
+  f"[{observation_state_json(value.state)}]"
 }
 
 pure optional_text_display(value: Str?) -> Result[Str] {
@@ -2848,7 +2848,7 @@ pure byte_quantity(value: Int?) -> Str {
   let divisor = 1073741824
   let whole = amount / divisor
   let fraction = amount % divisor * 10 / divisor
-  f"${whole}.${fraction} GiB (${amount} bytes)"
+  f"{whole}.{fraction} GiB ({amount} bytes)"
 }
 
 pure optional_frequency(value: Int?) -> Str {
@@ -2856,7 +2856,7 @@ pure optional_frequency(value: Int?) -> Str {
     return "unknown"
   }
 
-  f"${value} kHz"
+  f"{value} kHz"
 }
 
 pure optional_int_display(value: Int?) -> Str {
@@ -2864,16 +2864,16 @@ pure optional_int_display(value: Int?) -> Str {
     return "unknown"
   }
 
-  f"${value}"
+  f"{value}"
 }
 
 pure integer_list_display(values: List[Int]) -> Str {
-  var texts = [f"${value}" for value in values]
+  var texts = [f"{value}" for value in values]
   texts.join(",")
 }
 
 pure key_part(prefix: Str, value: Str) {
-  f"${prefix}${value.count_chars()}:${value}"
+  f"{prefix}{value.count_chars()}:{value}"
 }
 
 pure optional_int_key(value: Int?) -> Str {
@@ -2881,7 +2881,7 @@ pure optional_int_key(value: Int?) -> Str {
     return "none;"
   }
 
-  f"int:${value};"
+  f"int:{value};"
 }
 
 pure optional_str_key(value: Str?) -> Str {
@@ -2906,38 +2906,38 @@ pure optional_bool_key(value: Bool?) -> Str {
 
 pure cpu_policy_key(policy: CpuFreqPolicy) -> Str {
   var key = ""
-  key = f"${key}${optional_str_key(policy.driver)}"
-  key = f"${key}${optional_str_key(policy.governor)}"
-  key = f"${key}${policy.available_governors.len()}:"
+  key = f"{key}{optional_str_key(policy.driver)}"
+  key = f"{key}{optional_str_key(policy.governor)}"
+  key = f"{key}{policy.available_governors.len()}:"
   for governor in policy.available_governors {
     key = key_part(key, governor)
   }
 
-  key = f"${key}${optional_int_key(policy.hardware_min_khz)}"
-  key = f"${key}${optional_int_key(policy.hardware_max_khz)}"
-  key = f"${key}${optional_int_key(policy.scaling_min_khz)}"
-  key = f"${key}${optional_int_key(policy.scaling_max_khz)}"
-  key = f"${key}${optional_int_key(policy.hardware_current_khz)}"
-  key = f"${key}${optional_int_key(policy.scaling_current_khz)}"
-  key = f"${key}${optional_int_key(policy.governor_requested_khz)}"
-  key = f"${key}${optional_int_key(policy.average_current_khz)}"
-  key = f"${key}${optional_int_key(policy.bios_limit_khz)}"
-  key = f"${key}${optional_int_key(policy.transition_latency_ns)}"
-  key = f"${key}${policy.available_frequencies_khz.len()}:"
+  key = f"{key}{optional_int_key(policy.hardware_min_khz)}"
+  key = f"{key}{optional_int_key(policy.hardware_max_khz)}"
+  key = f"{key}{optional_int_key(policy.scaling_min_khz)}"
+  key = f"{key}{optional_int_key(policy.scaling_max_khz)}"
+  key = f"{key}{optional_int_key(policy.hardware_current_khz)}"
+  key = f"{key}{optional_int_key(policy.scaling_current_khz)}"
+  key = f"{key}{optional_int_key(policy.governor_requested_khz)}"
+  key = f"{key}{optional_int_key(policy.average_current_khz)}"
+  key = f"{key}{optional_int_key(policy.bios_limit_khz)}"
+  key = f"{key}{optional_int_key(policy.transition_latency_ns)}"
+  key = f"{key}{policy.available_frequencies_khz.len()}:"
   for frequency in policy.available_frequencies_khz {
-    key = f"${key}int:${frequency};"
+    key = f"{key}int:{frequency};"
   }
 
-  key = f"${key}${optional_str_key(policy.energy_performance_preference)}"
-  key = f"${key}${policy.available_energy_performance_preferences.len()}:"
+  key = f"{key}{optional_str_key(policy.energy_performance_preference)}"
+  key = f"{key}{policy.available_energy_performance_preferences.len()}:"
   for preference in policy.available_energy_performance_preferences {
     key = key_part(key, preference)
   }
 
-  key = f"${key}${optional_bool_key(policy.boost_supported)}"
-  key = f"${key}${optional_bool_key(policy.boost_allowed)}"
-  key = f"${key}${optional_bool_key(policy.boost_active)}"
-  f"${key}${optional_str_key(policy.boost_scope)}"
+  key = f"{key}{optional_bool_key(policy.boost_supported)}"
+  key = f"{key}{optional_bool_key(policy.boost_allowed)}"
+  key = f"{key}{optional_bool_key(policy.boost_active)}"
+  f"{key}{optional_str_key(policy.boost_scope)}"
 }
 
 pure grouped_policy_lines(policies: List[CpuFreqPolicy]) -> Result[List[Str]] {
@@ -2957,14 +2957,12 @@ pure grouped_policy_lines(policies: List[CpuFreqPolicy]) -> Result[List[Str]] {
     }
 
     cpu_ids = cpu_ids |> sort-by .
-    var cpu_id_texts = [f"${cpu_id}" for cpu_id in cpu_ids]
+    var cpu_id_texts = [f"{cpu_id}" for cpu_id in cpu_ids]
     let first = policy_group.items[0]
     let driver = optional_text_display(first.driver)?
     let governor = optional_text_display(first.governor)?
     lines = lines.push(
-      f"  ${policy_group.items.len()} identical policy group on CPUs ${cpu_id_texts.join(",")}: ${driver}, ${governor}, ${optional_frequency(
-        first.scaling_min_khz,
-      )}..${optional_frequency(first.scaling_max_khz)}",
+      f"  {policy_group.items.len()} identical policy group on CPUs {cpu_id_texts.join(",")}: {driver}, {governor}, {optional_frequency(first.scaling_min_khz)}..{optional_frequency(first.scaling_max_khz)}",
     )
   }
 
@@ -2978,13 +2976,13 @@ pure section_entity_summary(status: SectionStatus, count: Int, label: Str) -> St
 
   return "absent" when status.state == SectionAbsent
 
-  return f"at least ${count} ${label}" when status.state == SectionTruncated
+  return f"at least {count} {label}" when status.state == SectionTruncated
 
   if status.state == Partial or ! status.enumeration_succeeded {
-    return f"${count} ${label} (partial)"
+    return f"{count} {label} (partial)"
   }
 
-  f"${count} ${label}"
+  f"{count} {label}"
 }
 
 pure mount_usage_summary(section: StorageSection) -> Str {
@@ -3001,7 +2999,7 @@ pure mount_usage_summary(section: StorageSection) -> Str {
     }
   }
 
-  f"capacity observed on ${observed} mounts; ${skipped} skipped by policy; ${unavailable} unavailable"
+  f"capacity observed on {observed} mounts; {skipped} skipped by policy; {unavailable} unavailable"
 }
 
 pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Result[Str] {
@@ -3026,76 +3024,34 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
   let memory_summary = if output_report.memory.status.state == SectionNotRequested {
     "not requested"
   } else {
-    f"${byte_quantity(output_report.memory.host.total_bytes)} total; ${byte_quantity(
-      output_report.memory.host.available_bytes,
-    )} available; swap ${byte_quantity(output_report.memory.host.swap_total_bytes)} total/${byte_quantity(
-      output_report.memory.host.swap_free_bytes,
-    )} free"
+    f"{byte_quantity(output_report.memory.host.total_bytes)} total; {byte_quantity(output_report.memory.host.available_bytes)} available; swap {byte_quantity(output_report.memory.host.swap_total_bytes)} total/{byte_quantity(output_report.memory.host.swap_free_bytes)} free"
   }
   let storage_usage = if output_report.storage.status.state == SectionNotRequested {
     "not requested"
   } else {
     mount_usage_summary(output_report.storage)
   }
-  let power_summary = f"${section_entity_summary(
-    output_report.power.status,
-    output_report.power.supplies.len(),
-    "supplies",
-  )}; ${section_entity_summary(output_report.power.status, output_report.power.cap_zones.len(), "powercap zones")}"
+  let power_summary = f"{section_entity_summary(output_report.power.status, output_report.power.supplies.len(), "supplies")}; {section_entity_summary(output_report.power.status, output_report.power.cap_zones.len(), "powercap zones")}"
   var lines = [
     "XSH system report v1",
-    f"Scope: ${host_claim} on ${platform}; source mode ${source_mode_json(output_report.source_mode)}",
-    f"Privacy: ${privacy}",
-    f"System: ${os}; kernel ${kernel}; architecture ${architecture}",
-    f"Uptime: ${optional_int_display(output_report.identity.uptime_seconds)} seconds",
-    f"CPU: ${section_entity_summary(output_report.cpu.status, output_report.cpu.cpus.len(), "CPUs")}; ${section_entity_summary(
-      output_report.cpu.status,
-      output_report.cpu.frequency_policies.len(),
-      "frequency policies",
-    )}",
-    f"Memory: ${memory_summary}",
-    f"PCI: ${section_entity_summary(output_report.pci.status, output_report.pci.functions.len(), "functions")}; USB: ${section_entity_summary(
-      output_report.usb.status,
-      output_report.usb.devices.len(),
-      "devices",
-    )}",
-    f"Storage: ${section_entity_summary(
-      output_report.storage.status,
-      output_report.storage.devices.len(),
-      "block devices",
-    )}; ${section_entity_summary(output_report.storage.status, output_report.storage.mounts.len(), "mounts")}; ${storage_usage}",
-    f"Network: ${section_entity_summary(output_report.network.status, output_report.network.links.len(), "links")}; ${section_entity_summary(
-      output_report.network.status,
-      output_report.network.routes.len(),
-      "routes",
-    )}; ${section_entity_summary(output_report.network.status, output_report.network.rules.len(), "rules")}",
-    f"Sensors: ${section_entity_summary(output_report.sensors.status, output_report.sensors.channels.len(), "channels")}; power: ${power_summary}",
-    f"Kernel: ${section_entity_summary(output_report.kernel.status, output_report.kernel.modules.len(), "modules")}; visible processes: ${section_entity_summary(
-      output_report.processes.status,
-      output_report.processes.processes.len(),
-      "processes",
-    )}",
-    f"Firmware: ${section_entity_summary(output_report.firmware.status, output_report.firmware.records.len(), "records")}; device classes: ${section_entity_summary(
-      output_report.devices.status,
-      output_report.devices.devices.len(),
-      "devices",
-    )}",
-    f"Issues: ${output_report.issues.len()}",
+    f"Scope: {host_claim} on {platform}; source mode {source_mode_json(output_report.source_mode)}",
+    f"Privacy: {privacy}",
+    f"System: {os}; kernel {kernel}; architecture {architecture}",
+    f"Uptime: {optional_int_display(output_report.identity.uptime_seconds)} seconds",
+    f"CPU: {section_entity_summary(output_report.cpu.status, output_report.cpu.cpus.len(), "CPUs")}; {section_entity_summary(output_report.cpu.status, output_report.cpu.frequency_policies.len(), "frequency policies")}",
+    f"Memory: {memory_summary}",
+    f"PCI: {section_entity_summary(output_report.pci.status, output_report.pci.functions.len(), "functions")}; USB: {section_entity_summary(output_report.usb.status, output_report.usb.devices.len(), "devices")}",
+    f"Storage: {section_entity_summary(output_report.storage.status, output_report.storage.devices.len(), "block devices")}; {section_entity_summary(output_report.storage.status, output_report.storage.mounts.len(), "mounts")}; {storage_usage}",
+    f"Network: {section_entity_summary(output_report.network.status, output_report.network.links.len(), "links")}; {section_entity_summary(output_report.network.status, output_report.network.routes.len(), "routes")}; {section_entity_summary(output_report.network.status, output_report.network.rules.len(), "rules")}",
+    f"Sensors: {section_entity_summary(output_report.sensors.status, output_report.sensors.channels.len(), "channels")}; power: {power_summary}",
+    f"Kernel: {section_entity_summary(output_report.kernel.status, output_report.kernel.modules.len(), "modules")}; visible processes: {section_entity_summary(output_report.processes.status, output_report.processes.processes.len(), "processes")}",
+    f"Firmware: {section_entity_summary(output_report.firmware.status, output_report.firmware.records.len(), "records")}; device classes: {section_entity_summary(output_report.devices.status, output_report.devices.devices.len(), "devices")}",
+    f"Issues: {output_report.issues.len()}",
     "Section status:",
-    f"  identity=${section_state_json(output_report.identity.status.state)} cpu=${section_state_json(
-      output_report.cpu.status.state,
-    )} memory=${section_state_json(output_report.memory.status.state)}",
-    f"  pci=${section_state_json(output_report.pci.status.state)} usb=${section_state_json(
-      output_report.usb.status.state,
-    )} storage=${section_state_json(output_report.storage.status.state)}",
-    f"  network=${section_state_json(output_report.network.status.state)} sensors=${section_state_json(
-      output_report.sensors.status.state,
-    )} power=${section_state_json(output_report.power.status.state)}",
-    f"  firmware=${section_state_json(output_report.firmware.status.state)} kernel=${section_state_json(
-      output_report.kernel.status.state,
-    )} processes=${section_state_json(output_report.processes.status.state)} devices=${section_state_json(
-      output_report.devices.status.state,
-    )}",
+    f"  identity={section_state_json(output_report.identity.status.state)} cpu={section_state_json(output_report.cpu.status.state)} memory={section_state_json(output_report.memory.status.state)}",
+    f"  pci={section_state_json(output_report.pci.status.state)} usb={section_state_json(output_report.usb.status.state)} storage={section_state_json(output_report.storage.status.state)}",
+    f"  network={section_state_json(output_report.network.status.state)} sensors={section_state_json(output_report.sensors.status.state)} power={section_state_json(output_report.power.status.state)}",
+    f"  firmware={section_state_json(output_report.firmware.status.state)} kernel={section_state_json(output_report.kernel.status.state)} processes={section_state_json(output_report.processes.status.state)} devices={section_state_json(output_report.devices.status.state)}",
   ]
 
   if output_report.cpu.status.state != SectionNotRequested {
@@ -3111,25 +3067,21 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["CPU caches:"]
       for cache in output_report.cpu.caches {
         lines = lines.push(
-          f"  L${cache.level} ${terminal_quote(cache.kind)?} cache on CPU ${cache.owner_cpu_id} (sysfs index ${cache.sysfs_index}): ${byte_quantity(
-            cache.size_bytes,
-          )}; shared CPUs ${integer_list_display(cache.shared_cpus)}",
+          f"  L{cache.level} {terminal_quote(cache.kind)?} cache on CPU {cache.owner_cpu_id} (sysfs index {cache.sysfs_index}): {byte_quantity(cache.size_bytes)}; shared CPUs {integer_list_display(cache.shared_cpus)}",
         )
       }
 
       lines += ["CPU idle states:"]
       for idle in output_report.cpu.idle_states {
         lines = lines.push(
-          f"  CPU ${optional_int_display(idle.cpu_id)} ${terminal_quote(idle.name)?}: latency ${optional_int_display(
-            idle.latency_us,
-          )} us, residency ${optional_int_display(idle.residency_us)} us",
+          f"  CPU {optional_int_display(idle.cpu_id)} {terminal_quote(idle.name)?}: latency {optional_int_display(idle.latency_us)} us, residency {optional_int_display(idle.residency_us)} us",
         )
       }
 
       lines += ["CPU vulnerabilities:"]
       for vulnerability in output_report.cpu.vulnerabilities {
         lines = lines.push(
-          f"  ${terminal_quote(vulnerability.name)?}: ${observation_display(vulnerability.description)?}",
+          f"  {terminal_quote(vulnerability.name)?}: {observation_display(vulnerability.description)?}",
         )
       }
     }
@@ -3140,9 +3092,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
         let address = optional_text_display(function.address)?
         let driver = optional_text_display(function.driver)?
         lines = lines.push(
-          f"  ${address} vendor=${optional_int_display(function.vendor_id)} device=${optional_int_display(function.device_id)} class=${optional_int_display(
-            function.class_code,
-          )} driver=${driver}",
+          f"  {address} vendor={optional_int_display(function.vendor_id)} device={optional_int_display(function.device_id)} class={optional_int_display(function.class_code)} driver={driver}",
         )
       }
     }
@@ -3154,20 +3104,14 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
         let port = optional_text_display(device.port_path)?
         let serial = observation_display(device.serial)?
         lines = lines.push(
-          f"  ${name} port=${port} id=${optional_int_display(device.vendor_id)}:${optional_int_display(device.product_id)} serial=${serial}",
+          f"  {name} port={port} id={optional_int_display(device.vendor_id)}:{optional_int_display(device.product_id)} serial={serial}",
         )
         lines = lines.push(
-          f"    runtime=${optional_text_display(device.runtime_status)?} control=${optional_text_display(device.power_control)?} autosuspend=${optional_int_display(
-            device.autosuspend_delay_ms,
-          )} ms configuration=${optional_int_display(device.active_configuration)}/${optional_int_display(
-            device.configuration_count,
-          )}",
+          f"    runtime={optional_text_display(device.runtime_status)?} control={optional_text_display(device.power_control)?} autosuspend={optional_int_display(device.autosuspend_delay_ms)} ms configuration={optional_int_display(device.active_configuration)}/{optional_int_display(device.configuration_count)}",
         )
         for interface in device.interfaces {
           lines = lines.push(
-            f"    interface ${interface.number} ${optional_text_display(interface.name)?} driver=${optional_text_display(
-              interface.driver,
-            )?} alternate=${optional_int_display(interface.active_alternate)}",
+            f"    interface {interface.number} {optional_text_display(interface.name)?} driver={optional_text_display(interface.driver)?} alternate={optional_int_display(interface.active_alternate)}",
           )
         }
       }
@@ -3179,16 +3123,10 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
         let name = optional_text_display(device.name)?
         let model = observation_display(device.model)?
         lines = lines.push(
-          f"  ${name} ${optional_int_display(device.major)}:${optional_int_display(device.minor)} ${byte_quantity(
-            device.size_bytes,
-          )} model=${model}",
+          f"  {name} {optional_int_display(device.major)}:{optional_int_display(device.minor)} {byte_quantity(device.size_bytes)} model={model}",
         )
         lines = lines.push(
-          f"    kind=${terminal_quote(device.kind)?} block-parent=${optional_int_display(device.parent_device_index)} pci-parent=${optional_int_display(
-            device.parent_pci_function_index,
-          )} holders=${integer_list_display(device.holder_indices)} slaves=${integer_list_display(device.slave_indices)} scheduler=${optional_text_display(
-            device.active_scheduler,
-          )?}",
+          f"    kind={terminal_quote(device.kind)?} block-parent={optional_int_display(device.parent_device_index)} pci-parent={optional_int_display(device.parent_pci_function_index)} holders={integer_list_display(device.holder_indices)} slaves={integer_list_display(device.slave_indices)} scheduler={optional_text_display(device.active_scheduler)?}",
         )
       }
 
@@ -3197,9 +3135,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
         let target = observation_display(mount.target)?
         let source = observation_display(mount.source)?
         lines = lines.push(
-          f"  ${target} type=${terminal_quote(mount.filesystem)?} source=${source} usage=${byte_quantity(mount.usage_used_bytes)}/${byte_quantity(
-            mount.usage_total_bytes,
-          )}",
+          f"  {target} type={terminal_quote(mount.filesystem)?} source={source} usage={byte_quantity(mount.usage_used_bytes)}/{byte_quantity(mount.usage_total_bytes)}",
         )
       }
     }
@@ -3210,13 +3146,11 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
         let name = observation_display(link.name)?
         let mac = observation_display(link.mac)?
         lines = lines.push(
-          f"  ifindex=${link.ifindex} name=${name} mtu=${optional_int_display(link.mtu)} state=${optional_text_display(
-            link.operational_state,
-          )?} mac=${mac}",
+          f"  ifindex={link.ifindex} name={name} mtu={optional_int_display(link.mtu)} state={optional_text_display(link.operational_state)?} mac={mac}",
         )
         for address in link.addresses {
           lines = lines.push(
-            f"    ${terminal_quote(address.family)?} ${observation_display(address.address)?}/${address.prefix_length}",
+            f"    {terminal_quote(address.family)?} {observation_display(address.address)?}/{address.prefix_length}",
           )
         }
       }
@@ -3224,17 +3158,11 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Network routes:"]
       for route in output_report.network.routes {
         lines = lines.push(
-          f"  ${terminal_quote(route.family)?} ${observation_display(route.destination)?}/${route.prefix_length} via ${observation_display(
-            route.gateway,
-          )?} table=${route.table} metric=${optional_int_display(route.metric)} output-ifindex=${optional_int_display(
-            route.output_ifindex,
-          )}",
+          f"  {terminal_quote(route.family)?} {observation_display(route.destination)?}/{route.prefix_length} via {observation_display(route.gateway)?} table={route.table} metric={optional_int_display(route.metric)} output-ifindex={optional_int_display(route.output_ifindex)}",
         )
         for nexthop in route.nexthops {
           lines = lines.push(
-            f"    nexthop ifindex=${nexthop.ifindex} flags=${nexthop.flags} hops=${nexthop.hops} gateway=${observation_display(
-              nexthop.gateway,
-            )?}",
+            f"    nexthop ifindex={nexthop.ifindex} flags={nexthop.flags} hops={nexthop.hops} gateway={observation_display(nexthop.gateway)?}",
           )
         }
       }
@@ -3242,11 +3170,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Network policy rules:"]
       for rule in output_report.network.rules {
         lines = lines.push(
-          f"  ${terminal_quote(rule.family)?} priority=${optional_int_display(rule.priority)} from ${observation_display(
-            rule.source,
-          )?} to ${observation_display(rule.destination)?} table=${optional_int_display(rule.table)} action=${terminal_quote(
-            rule.action,
-          )?}",
+          f"  {terminal_quote(rule.family)?} priority={optional_int_display(rule.priority)} from {observation_display(rule.source)?} to {observation_display(rule.destination)?} table={optional_int_display(rule.table)} action={terminal_quote(rule.action)?}",
         )
       }
     }
@@ -3255,24 +3179,18 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Sensors:"]
       for channel in output_report.sensors.channels {
         lines = lines.push(
-          f"  ${terminal_quote(channel.chip)?}/${terminal_quote(channel.channel)?} ${observation_display(channel.label)?}=${optional_int_display(
-            channel.value,
-          )} ${terminal_quote(channel.unit)?}",
+          f"  {terminal_quote(channel.chip)?}/{terminal_quote(channel.channel)?} {observation_display(channel.label)?}={optional_int_display(channel.value)} {terminal_quote(channel.unit)?}",
         )
       }
 
       lines += ["Thermal zones:"]
       for zone in output_report.sensors.thermal_zones {
         lines = lines.push(
-          f"  zone ${zone.id} kind=${optional_text_display(zone.kind)?} temperature=${optional_int_display(
-            zone.temperature_millidegrees,
-          )} millidegrees Celsius",
+          f"  zone {zone.id} kind={optional_text_display(zone.kind)?} temperature={optional_int_display(zone.temperature_millidegrees)} millidegrees Celsius",
         )
         for trip in zone.trips {
           lines = lines.push(
-            f"    trip ${optional_int_display(trip.index)} ${terminal_quote(trip.kind)?} temperature=${optional_int_display(
-              trip.temperature_millidegrees,
-            )} hysteresis=${optional_int_display(trip.hysteresis_millidegrees)} millidegrees Celsius",
+            f"    trip {optional_int_display(trip.index)} {terminal_quote(trip.kind)?} temperature={optional_int_display(trip.temperature_millidegrees)} hysteresis={optional_int_display(trip.hysteresis_millidegrees)} millidegrees Celsius",
           )
         }
       }
@@ -3282,20 +3200,16 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Power supplies:"]
       for supply in output_report.power.supplies {
         lines = lines.push(
-          f"  ${terminal_quote(supply.name)?} kind=${optional_text_display(supply.kind)?} status=${optional_text_display(
-            supply.status,
-          )?} capacity=${optional_int_display(supply.capacity_percent)}%",
+          f"  {terminal_quote(supply.name)?} kind={optional_text_display(supply.kind)?} status={optional_text_display(supply.status)?} capacity={optional_int_display(supply.capacity_percent)}%",
         )
       }
 
       lines += ["Power limits:"]
       for zone in output_report.power.cap_zones {
-        lines = lines.push(f"  ${terminal_quote(zone.name)?} energy=${optional_int_display(zone.energy_uj)} uJ")
+        lines = lines.push(f"  {terminal_quote(zone.name)?} energy={optional_int_display(zone.energy_uj)} uJ")
         for constraint in zone.constraints {
           lines = lines.push(
-            f"    constraint ${constraint.index} ${optional_text_display(constraint.name)?} limit=${optional_int_display(
-              constraint.power_limit_uw,
-            )} uW window=${optional_int_display(constraint.time_window_us)} us",
+            f"    constraint {constraint.index} {optional_text_display(constraint.name)?} limit={optional_int_display(constraint.power_limit_uw)} uW window={optional_int_display(constraint.time_window_us)} us",
           )
         }
       }
@@ -3305,21 +3219,19 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Kernel modules:"]
       for kernel_module in output_report.kernel.modules {
         lines = lines.push(
-          f"  ${terminal_quote(kernel_module.name)?} size=${kernel_module.size_bytes} bytes users=${optional_int_display(
-            kernel_module.users,
-          )} state=${terminal_quote(kernel_module.state)?}",
+          f"  {terminal_quote(kernel_module.name)?} size={kernel_module.size_bytes} bytes users={optional_int_display(kernel_module.users)} state={terminal_quote(kernel_module.state)?}",
         )
       }
 
-      lines = lines.push(f"Kernel command line: ${observation_display(output_report.kernel.command_line)?}")
+      lines = lines.push(f"Kernel command line: {observation_display(output_report.kernel.command_line)?}")
       lines += ["Kernel parameters:"]
       for parameter in output_report.kernel.parameters {
-        lines = lines.push(f"  ${terminal_quote(parameter.name)?}=${observation_display(parameter.value)?}")
+        lines = lines.push(f"  {terminal_quote(parameter.name)?}={observation_display(parameter.value)?}")
       }
 
       lines += ["Selected sysctls:"]
       for parameter in output_report.kernel.sysctls {
-        lines = lines.push(f"  ${terminal_quote(parameter.name)?}=${observation_display(parameter.value)?}")
+        lines = lines.push(f"  {terminal_quote(parameter.name)?}={observation_display(parameter.value)?}")
       }
     }
 
@@ -3327,11 +3239,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Visible processes:"]
       for process_item in output_report.processes.processes {
         lines = lines.push(
-          f"  pid=${process_item.pid} ppid=${process_item.parent_pid} state=${terminal_quote(process_item.state)?} threads=${optional_int_display(
-            process_item.thread_count,
-          )} rss=${byte_quantity(process_item.resident_bytes)} virtual=${byte_quantity(process_item.virtual_bytes)} command=${observation_display(
-            process_item.command,
-          )?}",
+          f"  pid={process_item.pid} ppid={process_item.parent_pid} state={terminal_quote(process_item.state)?} threads={optional_int_display(process_item.thread_count)} rss={byte_quantity(process_item.resident_bytes)} virtual={byte_quantity(process_item.virtual_bytes)} command={observation_display(process_item.command)?}",
         )
       }
     }
@@ -3340,7 +3248,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Firmware records:"]
       for firmware_item in output_report.firmware.records {
         lines = lines.push(
-          f"  type=${firmware_item.record_type} handle=${firmware_item.handle} formatted-length=${firmware_item.formatted_length} string-count=${firmware_item.strings.len()}",
+          f"  type={firmware_item.record_type} handle={firmware_item.handle} formatted-length={firmware_item.formatted_length} string-count={firmware_item.strings.len()}",
         )
       }
     }
@@ -3349,11 +3257,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       lines += ["Device classes:"]
       for device in output_report.devices.devices {
         lines = lines.push(
-          f"  ${terminal_quote(device.class)?} name=${observation_display(device.name)?} driver=${optional_text_display(
-            device.driver,
-          )?} pci-parent=${optional_int_display(device.parent_pci_function_index)} usb-parent=${optional_int_display(
-            device.parent_usb_device_index,
-          )}",
+          f"  {terminal_quote(device.class)?} name={observation_display(device.name)?} driver={optional_text_display(device.driver)?} pci-parent={optional_int_display(device.parent_pci_function_index)} usb-parent={optional_int_display(device.parent_usb_device_index)}",
         )
       }
     }
@@ -3361,14 +3265,12 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
     lines += ["Collection issues:"]
     for issue in output_report.issues {
       lines = lines.push(
-        f"  ${terminal_quote(issue.section)?}.${terminal_quote(issue.field)?}: ${observation_state_json(issue.state)} ${observation_display(
-          issue.detail,
-        )?}",
+        f"  {terminal_quote(issue.section)?}.{terminal_quote(issue.field)?}: {observation_state_json(issue.state)} {observation_display(issue.detail)?}",
       )
     }
   }
 
-  f"""${lines.join("\n")}
+  f"""{lines.join("\n")}
 """
 }
 
@@ -3764,16 +3666,16 @@ pure redact_issue_field(section: Str, field: Str) -> Str {
   let root = parts[0]
   if section == "pci" and root == "functions" {
     let leaf = parts[parts.len() - 1]
-    return f"functions.redacted.${leaf}"
+    return f"functions.redacted.{leaf}"
   }
 
   return "devices.redacted" when section == "usb" and root == "devices"
 
   let leaf = parts[parts.len() - 1]
-  return f"devices.redacted.${leaf}" when section == "storage" and root == "devices"
+  return f"devices.redacted.{leaf}" when section == "storage" and root == "devices"
 
   if section == "devices" and (root == "drm" or root == "sound" or root == "input") {
-    return f"${root}.redacted.${leaf}"
+    return f"{root}.redacted.{leaf}"
   }
 
   field

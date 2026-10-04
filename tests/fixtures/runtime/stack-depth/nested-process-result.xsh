@@ -22,7 +22,7 @@ type RawPlan = {
 type RawScan = {dir: Str, plan: RawPlan, child_dirs: List[Str], entries: List[Str]}
 
 proc path_from_string(item: Str) [error] -> Result[Path] {
-  return fp"${item}"
+  return fp"{item}"
 }
 
 proc paths_from_strings(items: List[Str]) [error] -> Result[List[Path]] {
@@ -34,7 +34,7 @@ proc archive_owners_from_records(items: List[RawArchiveOwner]) [error] -> Result
   for item in items {
     let object = item.object
     let dir = item.dir
-    owners = owners.push({object: fp"${object}", dir: fp"${dir}"})
+    owners = owners.push({object: fp"{object}", dir: fp"{dir}"})
   }
   return owners
 }
@@ -45,7 +45,7 @@ proc composites_from_records(items: List[RawComposite]) [error] -> Result[List[C
     let object = item.object
     let members = item.members
     composites = composites.push({
-      object: fp"${object}",
+      object: fp"{object}",
       members: paths_from_strings(members)?,
     })
   }
@@ -65,7 +65,7 @@ proc materialize(item: Record) [error] -> Result[Scan] {
   let child_dirs = checked.child_dirs
   let entries = checked.entries
   return {
-    dir: fp"${dir_key}",
+    dir: fp"{dir_key}",
     plan: {
       dirs: paths_from_strings(dirs)?,
       objects: paths_from_strings(objects)?,
@@ -89,9 +89,9 @@ proc materialize_all(records: List[Record]) [error] -> Result[Int] {
 
 proc main(...argv: List[Str]) [error] -> Result[Unit] {
   var records: List[Record] = []
-  let members = [f"member-${member}" for member in range(0, 156)]
+  let members = [f"member-{member}" for member in range(0, 156)]
   for index in range(0, 631) {
-    let value = f"dir-${index}"
+    let value = f"dir-{index}"
     let composite_items = if index == 100 {
       [{object: value, members: members}]
     } else {

@@ -57,20 +57,20 @@ pure position_text(source: Str, offset: Int) -> Str {
   let lines = source.byte_slice(0, offset).split("\n")
   let line = lines.len()
   let column = lines[line - 1].count_chars() + 1
-  return f"${line}:${column}"
+  return f"{line}:{column}"
 }
 
 pure syntax_error(source: Str, offset: Int, message: Str) -> TemplateError {
   return TemplateError.Syntax(
     kind: "template-syntax",
-    message: f"template:${position_text(source, offset)}: ${message}",
+    message: f"template:{position_text(source, offset)}: {message}",
   )
 }
 
 pure render_error(source: Str, offset: Int, message: Str) -> TemplateError {
   return TemplateError.Render(
     kind: "template-render",
-    message: f"template:${position_text(source, offset)}: ${message}",
+    message: f"template:{position_text(source, offset)}: {message}",
   )
 }
 
@@ -227,7 +227,7 @@ pure lex_action(source: Str, open: Int, start: Int) -> Result[Action] {
           let number = if negative { 0 - value } else { value }
           toks += [{kind: "int", text: digits, num: number, pos: index}]
         }
-        Err(_) => return Err(syntax_error(source, index, f"invalid number `${digits}`"))
+        Err(_) => return Err(syntax_error(source, index, f"invalid number `{digits}`"))
       }
       index = end
     } else if is_ident_byte(byte) {
@@ -249,7 +249,7 @@ pure lex_action(source: Str, open: Int, start: Int) -> Result[Action] {
     } else if byte == 40 or byte == 41 {
       return Err(syntax_error(source, index, "parentheses are not supported"))
     } else {
-      return Err(syntax_error(source, index, f"unexpected character `${source.byte_slice(index, 1)}` in action"))
+      return Err(syntax_error(source, index, f"unexpected character `{source.byte_slice(index, 1)}` in action"))
     }
   }
   return Err(syntax_error(source, open, "unclosed action; expected `}}`"))
@@ -289,11 +289,11 @@ pure arg_from_tok(source: Str, token: Tok) -> Result[Arg] {
       _ => {}
     }
     if function_arity(token.text) < 0 {
-      return Err(syntax_error(source, token.pos, f"unknown function `${token.text}`"))
+      return Err(syntax_error(source, token.pos, f"unknown function `{token.text}`"))
     }
     return Ok({kind: "func", text: token.text, fields: [], num: 0, pos: token.pos})
   }
-  return Err(syntax_error(source, token.pos, f"unexpected `${token.text}`"))
+  return Err(syntax_error(source, token.pos, f"unexpected `{token.text}`"))
 }
 
 # Parse the tokens from `start` as a pipeline.
@@ -361,7 +361,7 @@ pure parse_pipe(source: Str, toks: List[Tok], start: Int, allow_decl: Bool, owne
   }
   if args.len() == 0 {
     if cmds.len() == 0 {
-      return Err(syntax_error(source, pos, f"missing value for `${owner}`"))
+      return Err(syntax_error(source, pos, f"missing value for `{owner}`"))
     }
     return Err(syntax_error(source, cmd_pos, "missing command after `|`"))
   }
@@ -375,14 +375,14 @@ pure parse_pipe(source: Str, toks: List[Tok], start: Int, allow_decl: Bool, owne
       let wanted = function_arity(head.text)
       if supplied != wanted {
         return Err(
-          syntax_error(source, head.pos, f"`${head.text}` takes ${wanted} argument(s), found ${supplied}"),
+          syntax_error(source, head.pos, f"`{head.text}` takes {wanted} argument(s), found {supplied}"),
         )
       }
       var extra = 1
       while extra < cmd.args.len() {
         if cmd.args[extra].kind == "func" {
           return Err(
-            syntax_error(source, cmd.args[extra].pos, f"function `${cmd.args[extra].text}` cannot be an argument"),
+            syntax_error(source, cmd.args[extra].pos, f"function `{cmd.args[extra].text}` cannot be an argument"),
           )
         }
         extra += 1
@@ -546,7 +546,7 @@ pure parse(source: Str) -> Result[Program] {
           }
           let name = toks[1].text
           if name in defines {
-            return Err(syntax_error(source, toks[1].pos, f"template `${name}` is already defined"))
+            return Err(syntax_error(source, toks[1].pos, f"template `{name}` is already defined"))
           }
           defines[name] = index
           kinds += ["define"]
@@ -588,12 +588,12 @@ pure parse(source: Str) -> Result[Program] {
   if openers.len() > 0 {
     let opener = openers[openers.len() - 1]
     return Err(
-      syntax_error(source, positions[opener], f"unclosed `{{${kinds[opener]}}}`; expected `{{end}}`"),
+      syntax_error(source, positions[opener], f"unclosed `{{{{{kinds[opener]}}}}}`; expected `{{{{end}}}}`"),
     )
   }
   for call in calls {
     if !(texts[call] in defines) {
-      return Err(syntax_error(source, positions[call], f"no template named `${texts[call]}`"))
+      return Err(syntax_error(source, positions[call], f"no template named `{texts[call]}`"))
     }
   }
   return Ok(
@@ -643,12 +643,12 @@ pure truthy(value: Any) -> Bool {
 pure scalar_text(source: Str, offset: Int, value: Any) -> Result[Str] {
   match value {
     text is Str => return Ok(text)
-    number is Int => return Ok(f"${number}")
-    real is Float => return Ok(f"${real}")
-    flag is Bool => return Ok(f"${flag}")
+    number is Int => return Ok(f"{number}")
+    real is Float => return Ok(f"{real}")
+    flag is Bool => return Ok(f"{flag}")
     _ is Null => return Err(render_error(source, offset, "cannot render null; use `default` to supply a value"))
     _ => return Err(
-      render_error(source, offset, f"cannot render a ${type_label(value)} directly; use `join` or `json`"),
+      render_error(source, offset, f"cannot render a {type_label(value)} directly; use `join` or `json`"),
     )
   }
 }
@@ -660,12 +660,12 @@ pure walk(source: Str, offset: Int, value: Any, fields: List[Str]) -> Result[Any
     match current {
       entries is Map[Any] => {
         if !(key in entries) {
-          return Err(render_error(source, offset, f"missing field `${key}`"))
+          return Err(render_error(source, offset, f"missing field `{key}`"))
         }
         current = entries.get(key)?
       }
       _ => return Err(
-        render_error(source, offset, f"cannot read field `${key}` of ${type_label(current)}"),
+        render_error(source, offset, f"cannot read field `{key}` of {type_label(current)}"),
       )
     }
   }
@@ -677,7 +677,7 @@ pure eval_arg(source: Str, arg: Arg, dot: Any, vars: Map[Any]) -> Result[Any] {
     "field" => return walk(source, arg.pos, dot, arg.fields)
     "var" => {
       if !(arg.text in vars) {
-        return Err(render_error(source, arg.pos, f"undefined variable `${arg.text}`"))
+        return Err(render_error(source, arg.pos, f"undefined variable `{arg.text}`"))
       }
       return walk(source, arg.pos, vars.get(arg.text)?, arg.fields)
     }
@@ -699,7 +699,7 @@ pure template_equal(source: Str, offset: Int, left: Any, right: Any) -> Result[B
   let left_type = type_label(left)
   if left_type == "List" or left_type == "Map" or left_type != type_label(right) {
     return Err(
-      render_error(source, offset, f"cannot compare ${left_type} with ${type_label(right)}"),
+      render_error(source, offset, f"cannot compare {left_type} with {type_label(right)}"),
     )
   }
   return Ok(left == right)
@@ -712,7 +712,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
         text is Str => return Ok(text.count_chars())
         items is List[Any] => return Ok(items.len())
         entries is Map[Any] => return Ok(entries.len())
-        _ => return Err(render_error(source, offset, f"`len` expects Str, List, or Map, found ${type_label(args[0])}"))
+        _ => return Err(render_error(source, offset, f"`len` expects Str, List, or Map, found {type_label(args[0])}"))
       }
     }
     "upper" | "lower" | "trim" => {
@@ -726,12 +726,12 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
           }
           return Ok(text.trim())
         }
-        _ => return Err(render_error(source, offset, f"`${name}` expects Str, found ${type_label(args[0])}"))
+        _ => return Err(render_error(source, offset, f"`{name}` expects Str, found {type_label(args[0])}"))
       }
     }
     "join" => {
       if !(args[0] is Str) {
-        return Err(render_error(source, offset, f"`join` separator must be Str, found ${type_label(args[0])}"))
+        return Err(render_error(source, offset, f"`join` separator must be Str, found {type_label(args[0])}"))
       }
       match args[1] {
         items is List[Any] => {
@@ -742,7 +742,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
           }
           return Ok(parts.join(separator))
         }
-        _ => return Err(render_error(source, offset, f"`join` expects a List, found ${type_label(args[1])}"))
+        _ => return Err(render_error(source, offset, f"`join` expects a List, found {type_label(args[1])}"))
       }
     }
     "default" => {
@@ -758,7 +758,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
     "json" => {
       match json.encode(args[0]) {
         Ok(text) => return Ok(text)
-        Err(failure) => return Err(render_error(source, offset, f"`json` failed: ${failure.message}"))
+        Err(failure) => return Err(render_error(source, offset, f"`json` failed: {failure.message}"))
       }
     }
     "not" => return Ok(!truthy(args[0]))
@@ -854,7 +854,7 @@ pure render_nodes(program: Program, start: Int, stop: Int, dot: Any, vars: Map[A
     } else if kind == "template" {
       if depth >= MAX_TEMPLATE_DEPTH {
         return Err(
-          render_error(program.source, program.positions[index], f"template calls nest deeper than ${MAX_TEMPLATE_DEPTH} levels"),
+          render_error(program.source, program.positions[index], f"template calls nest deeper than {MAX_TEMPLATE_DEPTH} levels"),
         )
       }
       let pipe = program.pipes[index]
@@ -899,7 +899,7 @@ pure render_range(program: Program, index: Int, dot: Any, vars: Map[Any], depth:
       }
     }
     _ => return Err(
-      render_error(program.source, program.positions[index], f"cannot range over ${type_label(value)}"),
+      render_error(program.source, program.positions[index], f"cannot range over {type_label(value)}"),
     )
   }
   if items.len() == 0 {

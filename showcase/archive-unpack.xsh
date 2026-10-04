@@ -20,13 +20,13 @@ on SIGTERM [error] {
 proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
   let output_parent = dest.parent
   let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
-  let published = fp"${parent}/${dest.name()}"
+  let published = fp"{parent}/{dest.name()}"
   if published.exists()? {
-    print f"destination already exists: ${published}"
+    print f"destination already exists: {published}"
     abort(1)
   }
 
-  let pending = fp"${parent}/.${dest.name()}.xsh-stage"
+  let pending = fp"{parent}/.{dest.name()}.xsh-stage"
   pending.mkdir(parents: false)?
   {published, pending}
 }
@@ -66,43 +66,43 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   if opts.compress != "" {
-    let src = fp"${opts.compress}"
-    let dest = fp"${src}.gz"
+    let src = fp"{opts.compress}"
+    let dest = fp"{src}.gz"
 
     if opts.dry_run {
-      print f"would compress ${src.name()} → ${dest.name()} (dry run)"
+      print f"would compress {src.name()} → {dest.name()} (dry run)"
       return
     }
 
     let output = staged_output(dest)?
     defer output.pending.remove(missing_ok: true)?
-    let staged_file = fp"${output.pending}/${dest.name()}"
+    let staged_file = fp"{output.pending}/{dest.name()}"
     archive.compress(src, staged_file)?
     staged_file.rename(output.published)?
-    print f"compressed ${src.name()} → ${dest.name()} (${dest.metadata()?.size} bytes)"
+    print f"compressed {src.name()} → {dest.name()} ({dest.metadata()?.size} bytes)"
     return
   }
 
   if opts.decompress != "" {
-    let src = fp"${opts.decompress}"
+    let src = fp"{opts.decompress}"
     let dest = if opts.out == p"." { src.with_ext("") } else { opts.out }
 
     if opts.dry_run {
-      print f"would decompress ${src.name()} → ${dest.name()} (dry run)"
+      print f"would decompress {src.name()} → {dest.name()} (dry run)"
       return
     }
 
     let output = staged_output(dest)?
     defer output.pending.remove(missing_ok: true)?
-    let staged_file = fp"${output.pending}/${dest.name()}"
+    let staged_file = fp"{output.pending}/{dest.name()}"
     archive.decompress(src, staged_file)?
     staged_file.rename(output.published)?
-    print f"decompressed ${src.name()} → ${dest.name()}"
+    print f"decompressed {src.name()} → {dest.name()}"
     return
   }
 
   let archive_arg = opts.archive.get(0) ?? ""
-  let archive_path = fp"${archive_arg}"
+  let archive_path = fp"{archive_arg}"
   let name = archive_path.name()
   let is_zip = name.ends_with(".zip")
   let entries = if is_zip {
@@ -112,14 +112,14 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   for e in entries |> sort-by .path {
-    print f"  ${e.kind}  ${e.path}  ${e.size}b"
+    print f"  {e.kind}  {e.path}  {e.size}b"
   }
 
-  print f"${entries.len()} entries in ${name}"
+  print f"{entries.len()} entries in {name}"
 
   if ! opts.list {
     if opts.dry_run {
-      print f"would extract to ${opts.out} (dry run)"
+      print f"would extract to {opts.out} (dry run)"
     } else {
       let output = staged_output(opts.out)?
       defer output.pending.remove(missing_ok: true)?
@@ -131,7 +131,7 @@ proc main(...argv: List[Str]) [fs, error] {
       }
 
       output.pending.rename(output.published)?
-      print f"extracted to ${opts.out}"
+      print f"extracted to {opts.out}"
     }
   }
 }

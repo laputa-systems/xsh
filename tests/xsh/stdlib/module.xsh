@@ -6,7 +6,7 @@ type Plugin = module {
 
 test test_module_load { |ctx|
   let root = test.temp_dir(ctx, name: "module")?
-  let plugin_path = fp"${root}/plugin.xsh"
+  let plugin_path = fp"{root}/plugin.xsh"
 
   fs.write(
     plugin_path,
@@ -20,7 +20,7 @@ export let description: Str = "loaded module"
 
 ## Writes the plugin name into the requested root.
 export proc execute(root: Path) [fs, error] -> Result[Unit] {
-  fs.write(fp"\${root}/out.txt", name)?
+  fs.write(fp"{root}/out.txt", name)?
 }
 """,
   )?
@@ -32,7 +32,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   assert "name" in plugin.keys()
   assert plugin.keys().len() == 3
   plugin.execute(root)?
-  assert fp"${root}/out.txt".read_text()? == "demo"
+  assert fp"{root}/out.txt".read_text()? == "demo"
 }
 
 type VersionedModule = module {
@@ -44,20 +44,20 @@ type VersionedModule = module {
 # harvest runs in a fresh child evaluator that loads the versioned file.
 test test_module_load_reprepares_a_rewritten_module_in_another_evaluator { |ctx|
   let root = test.temp_dir(ctx, name: "rewritten-module")?
-  let versioned = fp"${root}/versioned.xsh"
+  let versioned = fp"{root}/versioned.xsh"
   let module_text = """##! Versioned module.
 ## Exposes the version.
 export let version = """
   let outer_text = f"""##! Reloads the versioned module.
-type VersionedModule = module {
+type VersionedModule = module {{
   export let version: Int
-}
+}}
 
 ## Exposes the reloaded version.
-export let version = module.load(fp"${versioned}")?.require(VersionedModule)?.version
+export let version = module.load(fp"{versioned}")?.require(VersionedModule)?.version
 """
-  let first = fp"${root}/first.xsh"
-  let second = fp"${root}/second.xsh"
+  let first = fp"{root}/first.xsh"
+  let second = fp"{root}/second.xsh"
   first.write(outer_text)?
   second.write(outer_text)?
 
@@ -75,17 +75,17 @@ export let version = module.load(fp"${versioned}")?.require(VersionedModule)?.ve
 
 test test_module_load_exports_private_fields_and_contract_errors { |ctx|
   let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
-  fp"${root}/helper.xsh".write(r"""
+  fp"{root}/helper.xsh".write(r"""
 ##! Dynamic helper module.
 ## Exposes the helper name.
 export let helper_name = "demo"
 
 ## Renders a helper label.
 export pure helper_label(value: Str) -> Str {
-  return f"helper:${value}"
+  return f"helper:{value}"
 }
 """)?
-  let package = fp"${root}/package.xsh"
+  let package = fp"{root}/package.xsh"
   package.write(r"""
 ##! Dynamic package module.
 use helper
@@ -93,7 +93,7 @@ use helper
 let prefix = helper.helper_name
 
 pure label_private(value: Str) -> Str {
-  return f"${prefix}-${value}"
+  return f"{prefix}-{value}"
 }
 
 proc emit_private(value: Str) -> Result[Unit] {
@@ -118,15 +118,15 @@ export proc build(value: Str) -> Result[Unit] {
   let success = test.run_script(
     ctx,
     f"""
-type DynamicPackage = module {
+type DynamicPackage = module {{
   export let name: Str
   export pure label(value: Str) -> Str
   export proc build(value: Str) -> Result[Unit]
-}
-let checked = module.load(p"${package}")?.require(DynamicPackage)?
+}}
+let checked = module.load(p"{package}")?.require(DynamicPackage)?
 let name: Str = checked.name
 let rendered: Str = checked.label(name)
-print \${rendered}
+print ${{rendered}}
 checked.build("built")?
 """,
     [],
@@ -142,7 +142,7 @@ demo-built
 
   let private = test.run_script(
     ctx,
-    f"""let loaded = module.load(p"${package}")?
+    f"""let loaded = module.load(p"{package}")?
 let value = loaded.prefix
 """,
     [],
@@ -155,14 +155,14 @@ let value = loaded.prefix
   let mismatch = test.run_script(
     ctx,
     f"""
-type BadPackage = module {
+type BadPackage = module {{
   export proc build(path: Path) -> Result[Unit]
-}
-let loaded = module.load(p"${package}")?
-match loaded.require(BadPackage) {
+}}
+let loaded = module.load(p"{package}")?
+match loaded.require(BadPackage) {{
   Err(error) => test.error_kind(error, "schema")?
   Ok(_) => test.fail("incompatible contract succeeded")?
-}
+}}
 """,
     [],
     module_env,
@@ -175,7 +175,7 @@ match loaded.require(BadPackage) {
 
 test test_module_load_rejects_undocumented_export { |ctx|
   let root = test.temp_dir(ctx, name: "undocumented-module")?
-  let plugin_path = fp"${root}/undocumented.xsh"
+  let plugin_path = fp"{root}/undocumented.xsh"
   fs.write(
     plugin_path,
     """export let name = "undocumented"
@@ -184,7 +184,7 @@ test test_module_load_rejects_undocumented_export { |ctx|
 
   let output = test.run_script(
     ctx,
-    f"""let _ = module.load(p"${plugin_path}")?
+    f"""let _ = module.load(p"{plugin_path}")?
 """,
   )?
 
@@ -210,11 +210,11 @@ export let name = "bad"
 """,
     },
   ] {
-    let module_path = fp"${root}/${fixture.name}.xsh"
+    let module_path = fp"{root}/{fixture.name}.xsh"
     fs.write(module_path, fixture.source)?
     let output = test.run_script(
       ctx,
-      f"""let _ = module.load(p"${module_path}")?
+      f"""let _ = module.load(p"{module_path}")?
 """,
     )?
     assert output.status == 3
@@ -223,7 +223,7 @@ export let name = "bad"
     assert module_path.name() in output.stderr
   }
 
-  let hook = fp"${root}/signal-hook.xsh"
+  let hook = fp"{root}/signal-hook.xsh"
   fs.write(
     hook,
     """on SIGINT [] {
@@ -232,7 +232,7 @@ export let name = "bad"
   )?
   let output = test.run_script(
     ctx,
-    f"""let _ = module.load(p"${hook}")?
+    f"""let _ = module.load(p"{hook}")?
 """,
   )?
   assert output.status == 3
@@ -243,8 +243,8 @@ export let name = "bad"
 
 test test_static_and_loaded_modules_reject_the_same_contract_mismatches { |ctx|
   let root = test.temp_dir(ctx, name: "module-contract-mismatches")?
-  let optional_path = fp"${root}/bad_optional.xsh"
-  let effect_path = fp"${root}/bad_effect.xsh"
+  let optional_path = fp"{root}/bad_optional.xsh"
+  let effect_path = fp"{root}/bad_effect.xsh"
   optional_path.write("""
 ##! Module with an incompatible optional export.
 
@@ -270,19 +270,19 @@ export proc execute() [fs, process, error] -> Result[Unit] {
 """
 
   for source in [
-    f"""${optional_contract}
+    f"""{optional_contract}
 use bad_optional
 let _: Plugin = bad_optional
 """,
-    f"""${effect_contract}
+    f"""{effect_contract}
 use bad_effect
 let _: Runner = bad_effect
 """,
-    f"""${optional_contract}
-let _ = module.load(p"${optional_path}")?.require(Plugin)?
+    f"""{optional_contract}
+let _ = module.load(p"{optional_path}")?.require(Plugin)?
 """,
-    f"""${effect_contract}
-let _ = module.load(p"${effect_path}")?.require(Runner)?
+    f"""{effect_contract}
+let _ = module.load(p"{effect_path}")?.require(Runner)?
 """,
   ] {
     let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
@@ -296,27 +296,27 @@ let _ = module.load(p"${effect_path}")?.require(Runner)?
 
 test test_static_module_namespace_satisfies_the_same_contract { |ctx|
   let root = test.temp_dir(ctx, name: "static-module-contract")?
-  fp"${root}/runner.xsh".write("""
+  fp"{root}/runner.xsh".write("""
 ##! Static runner fixture.
 ## Writes the fixture marker.
 export proc execute(root: Path) [fs, error] -> Result[Unit] {
-  fp"\${root}/out.txt".write("static")?
+  fp"{root}/out.txt".write("static")?
 }
 """)?
 
   let result = test.run_script(
     ctx,
     f"""
-type Runner = module {
+type Runner = module {{
   export proc execute(root: Path) [fs, error] -> Result[Unit]
-}
+}}
 
 use runner
 
-proc main() [fs, error] -> Result[Unit] {
+proc main() [fs, error] -> Result[Unit] {{
   let checked: Runner = runner
-  checked.execute(p"${root}")?
-}
+  checked.execute(p"{root}")?
+}}
 
 main()?
 """,
@@ -327,14 +327,14 @@ main()?
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert fp"${root}/out.txt".read_text()? == "static"
+  assert fp"{root}/out.txt".read_text()? == "static"
 }
 
 test test_same_basename_modules_keep_separate_top_level_bindings { |ctx|
   let root = test.temp_dir(ctx, name: "same-basename-modules")?
-  fp"${root}/alpha".mkdir()?
-  fp"${root}/beta".mkdir()?
-  fp"${root}/alpha/proof.xsh".write("""
+  fp"{root}/alpha".mkdir()?
+  fp"{root}/beta".mkdir()?
+  fp"{root}/alpha/proof.xsh".write("""
 ##! First proof module.
 let numbers = [2, 3]
 
@@ -347,7 +347,7 @@ export pure sum_numbers() -> Int {
   return total
 }
 """)?
-  fp"${root}/beta/proof.xsh".write("""
+  fp"{root}/beta/proof.xsh".write("""
 ##! Second proof module.
 let words = ["one", "two", "three"]
 
@@ -383,7 +383,7 @@ print ${beta.count_words()}
 
 test test_imported_local_args_shadows_predeclared_script_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "imported-if-list")?
-  fp"${root}/selector.xsh".write("""
+  fp"{root}/selector.xsh".write("""
 ##! Selects a list in an imported function.
 ## Returns the unchanged argument list when no separator is present.
 export pure select(argv: List[Str]) -> List[Str] {
@@ -411,7 +411,7 @@ print ${selector.select(["unknown"]).len()}
 
 test test_imported_error_constructor_named_fields_preserve_identity_and_order { |ctx|
   let root = test.temp_dir(ctx)?
-  fp"${root}/helper.xsh".write(r"""
+  fp"{root}/helper.xsh".write(r"""
 ##! Imported error constructor fixture.
 ## A checked failure with two named fields.
 export error HelperError = Failed(detail: Str, code: Int) : Temporary
@@ -471,11 +471,11 @@ match failure {
   let loaded = test.run_script(
     ctx,
     f"""
-type FailureProvider = module {
+type FailureProvider = module {{
   export pure failure() -> Result[Unit]
-}
-let provider = module.load(p"${root}/helper.xsh")?.require(FailureProvider)?
-print \${provider.failure() is Err(_)}
+}}
+let provider = module.load(p"{root}/helper.xsh")?.require(FailureProvider)?
+print ${{provider.failure() is Err(_)}}
 """,
     [],
     {XSH_MODULE_PATH: root.display()},
@@ -490,7 +490,7 @@ print \${provider.failure() is Err(_)}
 
 test test_static_module_exports_bind_one_namespace { |ctx|
   let root = test.temp_dir(ctx, name: "module-namespace")?
-  fp"${root}/helper.xsh".write("""
+  fp"{root}/helper.xsh".write("""
 ##! Namespace-only static module fixture.
 
 ## A value export.
@@ -627,7 +627,7 @@ HelperError.Failed(detail: "failed")
 
 test test_qualified_module_functions_remain_callable_as_values { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-functions")?
-  fp"${root}/package.xsh".write(r"""
+  fp"{root}/package.xsh".write(r"""
 ##! Qualified values fixture module.
 ## Exposes a typed package value and operations.
 ## Public package type.
@@ -635,7 +635,7 @@ export type Package = {name: Str}
 
 ## Labels a package.
 export pure label(pkg: Package) -> Str {
-  return f"pkg:${pkg.name}"
+  return f"pkg:{pkg.name}"
 }
 
 ## Shows a package label.
@@ -671,7 +671,7 @@ pkg:demo
 
 test test_qualified_record_fields_pass_to_effectful_module_proc { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-record")?
-  fp"${root}/target.xsh".write(r"""
+  fp"{root}/target.xsh".write(r"""
 ##! Target fixture module.
 ## Defines the target policy record used by lifecycle contexts.
 ## CPU feature policy nested in a target.
@@ -685,7 +685,7 @@ export pure select() -> Target {
   return {triple: "x86_64-unknown-linux-musl", cpu: {feature: "crt-static"}}
 }
 """)?
-  fp"${root}/lifecycle.xsh".write(r"""
+  fp"{root}/lifecycle.xsh".write(r"""
 ##! Lifecycle fixture module consuming contexts composed from the target policy record.
 use target as targets
 
@@ -720,9 +720,9 @@ l.normalize(context)?
 
 test test_module_proc_call_preserves_runtime_cwd { |ctx|
   let root = test.temp_dir(ctx, name: "module-proc-cwd")?
-  let src = fp"${root}/src"
-  let out = fp"${root}/cwd.txt"
-  let callee = fp"${root}/callee.xsh"
+  let src = fp"{root}/src"
+  let out = fp"{root}/cwd.txt"
+  let callee = fp"{root}/callee.xsh"
   src.mkdir()?
   callee.write(r"""
 ##! CWD writer module.
@@ -731,26 +731,26 @@ export proc write_cwd(out: Path) [fs, error] -> Result[Unit] {
   fs.write(out, fs.cwd()?.display())?
 }
 """)?
-  fp"${root}/caller.xsh".write(f"""
+  fp"{root}/caller.xsh".write(f"""
 ##! CWD caller module.
-type Writer = module {
+type Writer = module {{
   export proc write_cwd(out: Path) [fs, error] -> Result[Unit]
-}
+}}
 
 ## Loads the writer and invokes it within the requested directory.
-export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {
-  let module_exports = module.load(p"${callee}")?.require(Writer)?
-  cd src {
+export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {{
+  let module_exports = module.load(p"{callee}")?.require(Writer)?
+  cd src {{
     module_exports.write_cwd(out)?
-  } ?
-}
+  }} ?
+}}
 """)?
 
   let output = test.run_script(
     ctx,
     f"""
 use caller as c
-c.invoke(p"${src}", p"${out}")?
+c.invoke(p"{src}", p"{out}")?
 """,
     [],
     {XSH_MODULE_PATH: root.display()},
@@ -764,14 +764,14 @@ c.invoke(p"${src}", p"${out}")?
 
 test test_module_path_resolves_nested_module_with_default_alias { |ctx|
   let root = test.temp_dir(ctx, name: "nested-module-path")?
-  let lib = fp"${root}/lib"
-  fp"${lib}/pm".mkdir()?
-  fp"${lib}/pm/configure.xsh".write(r"""
+  let lib = fp"{root}/lib"
+  fp"{lib}/pm".mkdir()?
+  fp"{lib}/pm/configure.xsh".write(r"""
 ##! Configure fixture module.
 ## Provides a package label.
 ## Labels a package.
 export pure label(name: Str) -> Str {
-  return f"configured ${name}"
+  return f"configured {name}"
 }
 """)?
 
@@ -795,14 +795,14 @@ print ${configure.label("pkgconf")}
 
 test test_module_import_alias_trace_and_cycle { |ctx|
   let root = test.temp_dir(ctx, name: "module-imports")?
-  fp"${root}/helper.xsh".write(r"""
+  fp"{root}/helper.xsh".write(r"""
 ##! Helper fixture module.
 use package as p
 
 let greeting = "hi"
 
 pure line(name: Str) -> Str {
-  return f"${greeting} ${name}"
+  return f"{greeting} {name}"
 }
 
 ## Greets by name.
@@ -817,7 +817,7 @@ export proc show(pkg: p.Package) -> Result[Unit] {
   return Ok()
 }
 """)?
-  fp"${root}/package.xsh".write(r"""
+  fp"{root}/package.xsh".write(r"""
 ##! Package fixture module.
 let secret = "hidden"
 ## Public package type.
@@ -861,12 +861,12 @@ missing-field
   assert "kind=pure.enter" in traced.stderr
   assert "greet" in traced.stderr
 
-  fp"${root}/a.xsh".write("""##! Cycle fixture A.
+  fp"{root}/a.xsh".write("""##! Cycle fixture A.
 ## Public cycle value.
 use b
 export let value = 1
 """)?
-  fp"${root}/b.xsh".write("""##! Cycle fixture B.
+  fp"{root}/b.xsh".write("""##! Cycle fixture B.
 ## Public cycle value.
 use a
 export let value = 2
@@ -884,11 +884,11 @@ export let value = 2
 
 test test_package_hook_module_calls_keep_dynamic_and_static_cwd { |ctx|
   let root = test.temp_dir(ctx, name: "package-hook-modules")?
-  let dynamic_out = fp"${root}/dynamic-out"
-  let static_src = fp"${root}/static-src"
-  let static_out = fp"${root}/static-out"
+  let dynamic_out = fp"{root}/dynamic-out"
+  let static_src = fp"{root}/static-src"
+  let static_out = fp"{root}/static-out"
   static_src.mkdir()?
-  let package = fp"${root}/PKGBUILD.xsh"
+  let package = fp"{root}/PKGBUILD.xsh"
   package.write(r"""
 ##! Package hook module.
 ## Exposes the package name.
@@ -897,19 +897,19 @@ export let name = "demo"
 ## Writes the package marker into the destination.
 export proc build(dest: Path) [fs, error] -> Result[Unit] {
   fs.mkdir(dest)?
-  fs.write(fp"${dest}/ok", f"${name}:${fs.cwd()?.name()}\n")?
+  fs.write(fp"{dest}/ok", f"{name}:{fs.cwd()?.name()}\n")?
 }
 """)?
 
   let dynamic = test.run_script(
     ctx,
     f"""
-type Pkg = module {
+type Pkg = module {{
   export let name: Str
   export proc build(dest: Path) [fs, error] -> Result[Unit]
-}
-let pkg = module.load(p"${package}")?.require(Pkg)?
-pkg.build(p"${dynamic_out}")?
+}}
+let pkg = module.load(p"{package}")?.require(Pkg)?
+pkg.build(p"{dynamic_out}")?
 """,
     [],
     {XSH_MODULE_PATH: root.display()},
@@ -918,7 +918,7 @@ pkg.build(p"${dynamic_out}")?
     let {success: assertion_condition, stderr: assertion_message, ..} = dynamic
     assert assertion_condition, assertion_message
   }
-  assert fp"${dynamic_out}/ok".read_text()? == f"""demo:${fs.cwd()?.name()}
+  assert fp"{dynamic_out}/ok".read_text()? == f"""demo:{fs.cwd()?.name()}
 """
 
   let static_output = test.run_script(
@@ -941,13 +941,13 @@ main(@args)?
     let {success: assertion_condition, stderr: assertion_message, ..} = static_output
     assert assertion_condition, assertion_message
   }
-  assert fp"${static_out}/ok".read_text()? == """demo:static-src
+  assert fp"{static_out}/ok".read_text()? == """demo:static-src
 """
 }
 
 test test_stream_exports_are_namespace_members_not_module_contract_members { |ctx|
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
-  fp"${root}/stream_only.xsh".write("""
+  fp"{root}/stream_only.xsh".write("""
 export stream numbers() [] -> Stream[Int] {
   yield 1
 }
@@ -991,7 +991,7 @@ type Invalid = module {
 
 test test_module_load_reports_module_path_and_parse_cause { |ctx|
   let root = test.temp_dir(ctx, name: "unparsable-module")?
-  let broken = fp"${root}/broken.xsh"
+  let broken = fp"{root}/broken.xsh"
   fs.write(
     broken,
     """## Broken export.
@@ -1002,36 +1002,36 @@ export pure answer() -> Int {
 
   let output = test.run_script(
     ctx,
-    f"""let _ = module.load(p"${broken}")?
+    f"""let _ = module.load(p"{broken}")?
 """,
   )?
 
   assert ! output.success
-  assert f"module `${broken}` failed to parse" in output.stderr, output.stderr
-  assert f"${broken}:4:1: parse.expected-expression" in output.stderr, output.stderr
+  assert f"module `{broken}` failed to parse" in output.stderr, output.stderr
+  assert f"{broken}:4:1: parse.expected-expression" in output.stderr, output.stderr
 }
 
 test test_module_load_resolves_uses_with_configured_test_module_roots { |ctx|
   let project = test.temp_dir(ctx, name: "module-roots-project")?
-  fp"${project}/lib/shared".mkdir()?
-  fp"${project}/plugins".mkdir()?
-  fp"${project}/tests".mkdir()?
-  fp"${project}/xsht-config.ini".write("""module_path = lib
+  fp"{project}/lib/shared".mkdir()?
+  fp"{project}/plugins".mkdir()?
+  fp"{project}/tests".mkdir()?
+  fp"{project}/xsht-config.ini".write("""module_path = lib
 """)?
-  fp"${project}/lib/shared/answers.xsh".write("""##! Shared answers.
+  fp"{project}/lib/shared/answers.xsh".write("""##! Shared answers.
 
 ## The shared answer.
 export pure answer() -> Int {
   42
 }
 """)?
-  fp"${project}/plugins/plugin.xsh".write("""##! A plugin importing through a configured root.
+  fp"{project}/plugins/plugin.xsh".write("""##! A plugin importing through a configured root.
 use shared.answers as answers
 
 ## The answer resolved through the configured root.
 export let value: Int = answers.answer()
 """)?
-  fp"${project}/tests/loader.xsh".write("""type AnswerPlugin = module {
+  fp"{project}/tests/loader.xsh".write("""type AnswerPlugin = module {
   export let value: Int
 }
 
@@ -1043,33 +1043,33 @@ test loads_plugin_with_configured_roots {
 
   cd project {
     let output = run.capture --text "xsht" test tests/loader.xsh ?
-    assert output.status.exited_with(0), f"${output.stdout}${output.stderr}"
+    assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
   } ?
 }
 
 test test_spawned_xsh_children_append_configured_test_module_roots { |ctx|
   let project = test.temp_dir(ctx, name: "child-module-roots-project")?
   let inherited = test.temp_dir(ctx, name: "child-module-roots-inherited")?
-  fp"${project}/lib/shared".mkdir()?
-  fp"${project}/tests".mkdir()?
-  fp"${inherited}/extra".mkdir()?
-  fp"${project}/xsht-config.ini".write("""module_path = lib
+  fp"{project}/lib/shared".mkdir()?
+  fp"{project}/tests".mkdir()?
+  fp"{inherited}/extra".mkdir()?
+  fp"{project}/xsht-config.ini".write("""module_path = lib
 """)?
-  fp"${project}/lib/shared/answers.xsh".write("""##! Shared answers.
+  fp"{project}/lib/shared/answers.xsh".write("""##! Shared answers.
 
 ## The shared answer.
 export pure answer() -> Int {
   42
 }
 """)?
-  fp"${inherited}/extra/greeting.xsh".write("""##! An inherited greeting.
+  fp"{inherited}/extra/greeting.xsh".write("""##! An inherited greeting.
 
 ## The greeting word.
 export pure word() -> Str {
   "hi"
 }
 """)?
-  fp"${project}/tests/children.xsh".write(
+  fp"{project}/tests/children.xsh".write(
     r"""const child_source = "use shared.answers as answers\nuse extra.greeting as greeting\nprint greeting.word() answers.answer()\n"
 
 test run_script_child_finds_configured_roots { |ctx|
@@ -1079,7 +1079,7 @@ test run_script_child_finds_configured_roots { |ctx|
 }
 
 test plain_run_child_finds_configured_roots { |ctx|
-  let script = fp"${test.temp_dir(ctx, name: "plain-run")?}/child.xsh"
+  let script = fp"{test.temp_dir(ctx, name: "plain-run")?}/child.xsh"
   script.write(child_source)?
   let output = run.capture --text "xsh" $script ?
   assert output.status.exited_with(0), output.stderr
@@ -1092,7 +1092,7 @@ test plain_run_child_finds_configured_roots { |ctx|
   env XSH_MODULE_PATH=$inherited_root {
     cd project {
       let output = run.capture --text "xsht" test tests/children.xsh ?
-      assert output.status.exited_with(0), f"${output.stdout}${output.stderr}"
+      assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
       assert "2 passed" in output.stdout, output.stdout
     } ?
   }

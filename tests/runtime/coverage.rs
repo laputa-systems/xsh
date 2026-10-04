@@ -625,7 +625,7 @@ proc main(args: List[Str]) {
   let root = Path(\"target/lint\")
   let unused = 1
   let p = Path(src)
-  fs.mkdir(fp\"${root}/src/lib\", parents: true)?
+  fs.mkdir(fp\"{root}/src/lib\", parents: true)?
   run grep (input) haystack ?
   if true {
     let src = \"other\"
@@ -1109,7 +1109,7 @@ test test_alpha [fs, io, error] { |ctx|
   print ${ctx.temp_root.display()}
   print "alpha stdout"
   eprint "alpha stderr"
-  fp"${ctx.temp_root}/marker".write("kept")?
+  fp"{ctx.temp_root}/marker".write("kept")?
   test.fail("alpha failed")?
 }
 

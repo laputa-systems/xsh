@@ -10,5 +10,5 @@ proc main() [io, env, error, time] {
     round = round + 1
   }
   let elapsed = time.now() - start
-  print f"uptime ${elapsed} ms seconds=${sink}"
+  print f"uptime {elapsed} ms seconds={sink}"
 }

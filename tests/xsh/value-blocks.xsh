@@ -4,7 +4,7 @@ pure value_label(code: Int) -> Str {
   match code {
     0 => "ok"
     _ => {
-      let detail = f"exit ${code}"
+      let detail = f"exit {code}"
       detail
     }
   }

@@ -6,8 +6,8 @@ use targets
 ## Returns the user's installation bin directory without mutating parent environment state.
 export proc bin_dir() [fs, env, error] -> Result[Path] {
   let configured_home = env.get_or("HOME", "")?.trim()
-  let home = if configured_home == "" { user.current()?.home } else { fp"${configured_home}" }
-  let destination = fp"${home}/usr/bin"
+  let home = if configured_home == "" { user.current()?.home } else { fp"{configured_home}" }
+  let destination = fp"{home}/usr/bin"
   stages.ensure_dir(destination)?
   destination
 }
@@ -81,8 +81,8 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
   }
 
   for product in targets.products {
-    let source = fp"${ctx.target_dir}/${ctx.target.triple}/release/${product}"
-    let destination = fp"${destination_dir}/${product}"
+    let source = fp"{ctx.target_dir}/{ctx.target.triple}/release/{product}"
+    let destination = fp"{destination_dir}/{product}"
     fs.install(source, destination, 0o755, parents: true, overwrite: true)?
     let codesign_argv = ["codesign", "-fs", "-", @signing_flags, destination.display()]
     stages.execute(
@@ -102,7 +102,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
         stages.StageError.Failed(
           stage: "install-darwin-xattr",
           target: ctx.target.triple,
-          detail: f"failed to remove quarantine from ${destination}",
+          detail: f"failed to remove quarantine from {destination}",
         ),
       )
     }
@@ -111,14 +111,14 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
 
 ## Stages one Linux CRT object after stripping debug metadata with LLVM tooling.
 export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, error, io] -> Result[Unit] {
-  let crt_dir = fp"${ctx.target_dir}/llvm-crt"
+  let crt_dir = fp"{ctx.target_dir}/llvm-crt"
   stages.ensure_dir(crt_dir)?
   stages.execute(
     stages.command(
       "install-linux-crt",
       ctx.target.triple,
       "llvm-objcopy",
-      ["llvm-objcopy", "--strip-debug", f"/usr/lib/${name}", fp"${crt_dir}/${name}".display()],
+      ["llvm-objcopy", "--strip-debug", f"/usr/lib/{name}", fp"{crt_dir}/{name}".display()],
       ctx.root,
       {},
     ),
@@ -154,7 +154,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
   let path_value = env.get_or("PATH", "")?
   let rustflags = env.get_or(
     "LINUX_INSTALL_RUSTFLAGS",
-    f"-C linker=clang -C link-arg=-B${ctx.root}/target/llvm-crt -C link-arg=-B${ctx.root}/tools -C link-arg=-fuse-ld=lld",
+    f"-C linker=clang -C link-arg=-B{ctx.root}/target/llvm-crt -C link-arg=-B{ctx.root}/tools -C link-arg=-fuse-ld=lld",
   )?
   stages.execute(
     stages.command(
@@ -183,7 +183,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
       ],
       ctx.root,
       {
-        PATH: f"${env.get_or("HOME", "")?}/.cargo/bin:${path_value}",
+        PATH: f"{env.get_or("HOME", "")?}/.cargo/bin:{path_value}",
         CC: "clang",
         AR: "llvm-ar",
         CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "clang",
@@ -195,8 +195,8 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
 
   for product in targets.products {
     fs.install(
-      fp"${ctx.target_dir}/release/${product}",
-      fp"${destination_dir}/${product}",
+      fp"{ctx.target_dir}/release/{product}",
+      fp"{destination_dir}/{product}",
       0o755,
       parents: true,
       overwrite: true,

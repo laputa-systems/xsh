@@ -15,17 +15,17 @@ pure max_digits(counts: List[Counts], show_lines: Bool, show_words: Bool, show_b
 
   for c in counts {
     if show_lines {
-      let digit = f"${c.lines}".count_chars()
+      let digit = f"{c.lines}".count_chars()
       widest = if digit > widest { digit } else { widest }
     }
 
     if show_words {
-      let digit = f"${c.words}".count_chars()
+      let digit = f"{c.words}".count_chars()
       widest = if digit > widest { digit } else { widest }
     }
 
     if show_bytes {
-      let digit = f"${c.bytes}".count_chars()
+      let digit = f"{c.bytes}".count_chars()
       widest = if digit > widest { digit } else { widest }
     }
   }
@@ -37,15 +37,15 @@ pure format_counts(counts: Counts, show_lines: Bool, show_words: Bool, show_byte
   var cols = []
 
   if show_lines {
-    cols = cols.push(tui.left_pad(f"${counts.lines}", width))
+    cols = cols.push(tui.left_pad(f"{counts.lines}", width))
   }
 
   if show_words {
-    cols = cols.push(tui.left_pad(f"${counts.words}", width))
+    cols = cols.push(tui.left_pad(f"{counts.words}", width))
   }
 
   if show_bytes {
-    cols = cols.push(tui.left_pad(f"${counts.bytes}", width))
+    cols = cols.push(tui.left_pad(f"{counts.bytes}", width))
   }
 
   cols.join(" ")
@@ -57,7 +57,7 @@ proc print_line(counts: Counts, label: Str, show_lines: Bool, show_words: Bool, 
   if label == "" {
     print $body
   } else {
-    print f"${body} ${label}"
+    print f"{body} {label}"
   }
 }
 
@@ -113,7 +113,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     if item == "-" {
       counts = count_data(io.stdin_bytes()?, show_words)?
     } else {
-      let target = fp"${item}"
+      let target = fp"{item}"
       counts = count_data(target.read_bytes()?, show_words)?
     }
 

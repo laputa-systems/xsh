@@ -329,7 +329,7 @@ test test_cli_parse_advanced_descriptors {
   let root_handle = fs.tempdir()?
   defer root_handle.close()?
   let root = root_handle.host_path()?
-  let config = fp"${root}/config.toml"
+  let config = fp"{root}/config.toml"
   config.write("ready")?
 
   let schema = {
@@ -413,7 +413,7 @@ test test_cli_parse_advanced_descriptors {
   assert values.config.name() == "config.toml"
   assert values.workspace.name() == root.name()
   assert values.count == 1
-  assert f"${values.timeout}" == "1s"
+  assert f"{values.timeout}" == "1s"
   assert values.verbose
   assert full.sources.get("color")?.require(Str)? == "argv"
   assert full.sources.get("mode")?.require(Str)? == "default"
@@ -458,7 +458,7 @@ test test_cli_parse_advanced_descriptors {
     Err(error) => assert "expects UInt" in error.message
   }
 
-  match cli.parse(["--config", f"${root}/missing.toml", "--left", "a"], schema) {
+  match cli.parse(["--config", f"{root}/missing.toml", "--left", "a"], schema) {
     Ok(_) => test.fail("file path validation should fail")?
     Err(error) => assert "expects a file path" in error.message
   }

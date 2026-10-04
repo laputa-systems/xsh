@@ -34,5 +34,5 @@ proc main(root = p".", ...exts: List[Str]) [fs, error] {
     |> map .lines
     |> sum
 
-  print f"${total_files} files  ${total_lines} lines"
+  print f"{total_files} files  {total_lines} lines"
 }

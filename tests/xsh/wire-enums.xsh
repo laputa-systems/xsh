@@ -90,7 +90,7 @@ enum State: Str { Ready = spelling }
 
 test test_wire_enum_import_identity_and_ordinary_enum_rejection { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-imports")?
-  fp"${root}/first.xsh".write_atomic("""##! First nominal state.
+  fp"{root}/first.xsh".write_atomic("""##! First nominal state.
 ## Stable wire spelling.
 export const spelling = "same"
 ## First state.
@@ -98,7 +98,7 @@ export enum State: Str { Seen = spelling }
 ## Prepared state.
 export const prepared = Seen
 """)?
-  fp"${root}/second.xsh".write_atomic("""##! Second nominal state.
+  fp"{root}/second.xsh".write_atomic("""##! Second nominal state.
 ## Second state.
 export enum State: Str { Seen = "same" }
 """)?
@@ -234,7 +234,7 @@ print json.encode(restored)?
 print ("\"ready\"" in json.encode(restored, pretty: true)?)
 }
 """,
-    [fp"${root}/packet.json".display()],
+    [fp"{root}/packet.json".display()],
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
@@ -249,7 +249,7 @@ true
 
 test test_wire_enum_static_import_and_dynamic_module_load_share_identity { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-dynamic-identity")?
-  let source = fp"${root}/state.xsh"
+  let source = fp"{root}/state.xsh"
   source.write_atomic("""##! State identity fixture.
 ## External state.
 export enum State: Str { Ready = "ready" }
@@ -282,7 +282,7 @@ same constructor
 
 test test_wire_enum_imported_generic_records_keep_declaring_mapping { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-generic-records")?
-  fp"${root}/state.xsh".write_atomic("""##! Generic state schema.
+  fp"{root}/state.xsh".write_atomic("""##! Generic state schema.
 ## Stable external spelling.
 export const spelling = "ready"
 ## Declared state.

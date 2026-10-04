@@ -23,7 +23,7 @@ test test_assert_short_circuit_and_operands_are_evaluated_once { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc observed(n: Int) [io] -> Int {
-  print f"$n"
+  print f"{n}"
   n
 }
 assert observed(3) < observed(2) < 1 / 0, "chain context"
@@ -65,7 +65,7 @@ test test_assert_message_propagates_its_own_failure { |ctx|
   print "condition"
   false
 }
-proc message() [error] -> Str { let value = "bad".parse_int()?; f"$value" }
+proc message() [error] -> Str { let value = "bad".parse_int()?; f"{value}" }
 assert condition(), message()
 """,
   )?
@@ -102,7 +102,7 @@ test test_assert_message_failure_takes_precedence_and_runs_cleanup { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc cleanup() [io] { print "cleaned" }
-proc message() [error] -> Str { let value = "bad".parse_int()?; f"$value" }
+proc message() [error] -> Str { let value = "bad".parse_int()?; f"{value}" }
 let result: Result[Unit] = retry [] {
   defer cleanup()
   assert false, message()
@@ -157,7 +157,7 @@ restricted()
 
   let propagation = test.run_script(
     ctx,
-    r"""proc message() [error] -> Str { let value = "1".parse_int()?; f"$value" }
+    r"""proc message() [error] -> Str { let value = "1".parse_int()?; f"{value}" }
 proc restricted() [] { assert true, message() }
 restricted()
 """,
@@ -243,7 +243,7 @@ test test_assert_message_propagation_is_captured_by_try { |ctx|
     ctx,
     r"""proc message() [error] -> Str {
   let value = "bad".parse_int()?
-  f"$value"
+  f"{value}"
 }
 let result: Result[Unit] = try {
   assert false, message()

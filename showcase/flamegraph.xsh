@@ -21,7 +21,7 @@ pure frame_color(name: Str) -> Str {
   let r = 205 + n * 37 % 50
   let g = n * 53 % 230
   let b = n * 71 % 55
-  f"rgb(${r},${g},${b})"
+  f"rgb({r},{g},{b})"
 }
 
 pure truncate_label(name: Str, max_chars: Int) -> Str {
@@ -33,7 +33,7 @@ pure truncate_label(name: Str, max_chars: Int) -> Str {
 
   let chars = name.split("")
   let truncated = chars |> take(max_chars - 1)
-  f"${truncated.join("")}.."
+  f"{truncated.join("")}.."
 }
 
 pure parent_key(key: Str) -> Str {
@@ -57,7 +57,7 @@ script;proc:main;|>map;module.hash.sha256 6800
 script;proc:format 1200
 """
 
-  let source = if input == "" { sample } else { fp"${input}".read_text()? }
+  let source = if input == "" { sample } else { fp"{input}".read_text()? }
 
   # Sum counts for identical stacks.
   var raw: Map[Int] = {}
@@ -130,8 +130,8 @@ script;proc:format 1200
   let top_pad = 28
   let svg_h = top_pad + (max_depth + 1) * fh + 4
   print "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-  print f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${svg_w}\" height=\"${svg_h}\" style=\"font-family:monospace\">"
-  print f"  <text x=\"${svg_w / 2}\" y=\"18\" text-anchor=\"middle\" font-size=\"14\">Flamegraph</text>"
+  print f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{svg_w}\" height=\"{svg_h}\" style=\"font-family:monospace\">"
+  print f"  <text x=\"{svg_w / 2}\" y=\"18\" text-anchor=\"middle\" font-size=\"14\">Flamegraph</text>"
 
   for f in sorted {
     continue when total == 0
@@ -142,14 +142,14 @@ script;proc:format 1200
     let y_px = top_pad + (max_depth - f.depth) * fh
     let fill = frame_color(f.name)
     print f"  <g>"
-    print f"    <title>${f.name} (${f.count} µs)</title>"
-    print f"    <rect x=\"${x_px}\" y=\"${y_px}\" width=\"${w_px}\" height=\"${fh - 1}\" fill=\"${fill}\" rx=\"2\"/>"
+    print f"    <title>{f.name} ({f.count} µs)</title>"
+    print f"    <rect x=\"{x_px}\" y=\"{y_px}\" width=\"{w_px}\" height=\"{fh - 1}\" fill=\"{fill}\" rx=\"2\"/>"
 
     if w_px >= 16 {
       let label = truncate_label(f.name, w_px / 7)
 
       if label != "" {
-        print f"    <text x=\"${x_px + 3}\" y=\"${y_px + fh - 4}\" font-size=\"11\">${label}</text>"
+        print f"    <text x=\"{x_px + 3}\" y=\"{y_px + fh - 4}\" font-size=\"11\">{label}</text>"
       }
     }
 

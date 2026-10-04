@@ -15,7 +15,7 @@ for arg in argv {
   }
 }
 
-let root = if path_arg != "" { fp"${path_arg}" } else { fs.cwd()? }
+let root = if path_arg != "" { fp"{path_arg}" } else { fs.cwd()? }
 
 # The cheap path uses keyed count so it avoids stat and per-file accumulator
 # records; the size path keeps one {count, size} record per extension.
@@ -34,7 +34,7 @@ if show_size {
     |> sort-by .size
 
   for row in rows {
-    print f"${row.count:>4} ${row.size:>12} ${row.ext}"
+    print f"{row.count:>4} {row.size:>12} {row.ext}"
   }
 } else {
   let counts = fs.files(root, stat: false)
@@ -50,6 +50,6 @@ if show_size {
     |> sort-by .count
 
   for row in rows {
-    print f"${row.count:>4} ${row.ext}"
+    print f"{row.count:>4} {row.ext}"
   }
 }

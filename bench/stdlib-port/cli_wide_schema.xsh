@@ -77,5 +77,5 @@ proc main() [io, error] {
     sink = sink + parsed.opt_0.byte_len() + parsed.opt_8.byte_len() + parsed.opt_16.byte_len() + parsed.opt_24.byte_len() + parsed.opt_32.byte_len() + parsed.opt_40.byte_len() + parsed.opt_48.byte_len() + parsed.opt_56.byte_len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

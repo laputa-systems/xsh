@@ -1,10 +1,10 @@
 pure sleeper_bin(ctx: TestContext) -> Path {
-  fp"${ctx.xsh_bin.parent()}/xsh-test-sleeper"
+  fp"{ctx.xsh_bin.parent()}/xsh-test-sleeper"
 }
 
 proc marker_executable(ctx: TestContext, marker: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: marker)?
-  let executable = fp"${root}/${marker}"
+  let executable = fp"{root}/{marker}"
   fs.copy(sleeper_bin(ctx).resolve()?, executable)?
   fs.chmod(executable, 0o755)?
   executable
@@ -29,9 +29,9 @@ proc wait_for_process_marker(pid: Int, marker: Str) [process, time, error] {
 
 test test_px_finds_current_test_process {
   let pid = process.current_pid()?
-  let pid_arg = f"${pid}"
+  let pid_arg = f"{pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- $pid_arg ?
-  assert f"${pid}" in output
+  assert f"{pid}" in output
   assert "pid" in output
   assert "user" in output
   assert "mem" in output
@@ -45,7 +45,7 @@ test test_px_default_search_matches_executable_substrings { |ctx|
   wait_for_process_marker(child.pid, marker)?
   let output = run.text "xsh" "showcase/px.xsh" -- "pxexec" ?
   assert marker in output
-  assert f"${child.pid}" in output
+  assert f"{child.pid}" in output
 }
 
 test test_px_kill_signals_default_matches { |ctx|
@@ -53,7 +53,7 @@ test test_px_kill_signals_default_matches { |ctx|
   let executable = marker_executable(ctx, marker)?
   let child = spawn process.command_argv(executable, [executable.display()])?
   wait_for_process_marker(child.pid, marker)?
-  let pid_arg = f"${child.pid}"
+  let pid_arg = f"{child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill=15" $pid_arg ?
   assert "signaled 1 process(es) with signal 15" in output
   let status = wait child?
@@ -66,7 +66,7 @@ test test_px_kill_accepts_numeric_signal { |ctx|
   let executable = marker_executable(ctx, marker)?
   let child = spawn process.command_argv(executable, [executable.display()])?
   wait_for_process_marker(child.pid, marker)?
-  let pid_arg = f"${child.pid}"
+  let pid_arg = f"{child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill" "0" $pid_arg ?
   assert "signaled 1 process(es) with signal 0" in output
   child.cancel(signal: "TERM", kill_after: 10ms)?

@@ -67,7 +67,7 @@ export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit] {
       {},
     ),
   )?
-  let xsht = fp"${ctx.target_dir}/release/xsht"
+  let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
       "test-xsh",

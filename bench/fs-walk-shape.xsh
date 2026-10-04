@@ -3,5 +3,5 @@ proc main(...argv: List[Str]) [fs, io, error] {
   let files = fs.walk(root, gitignore: false, stat: true)
     |> where .kind == "file"
     |> count()
-  print f"${files}"
+  print f"{files}"
 }

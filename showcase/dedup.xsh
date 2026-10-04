@@ -29,7 +29,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let root = opts.root.resolve()?
 
   if opts.verbose {
-    print f"hashing files in ${root}"
+    print f"hashing files in {root}"
   }
 
   # Hash every file and collect into typed records, then group by sha256
@@ -47,7 +47,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by .key
 
   if dups.len() == 0 {
-    print f"no duplicates found (${file_info.len()} files scanned)"
+    print f"no duplicates found ({file_info.len()} files scanned)"
     return
   }
 
@@ -59,7 +59,7 @@ proc main(...argv: List[Str]) [fs, error] {
     let cnt = grp.items.len()
     dup_count += cnt - 1
     wasted_bytes += size * (cnt - 1)
-    print f"${grp.key}  ${size} bytes  ×${cnt}"
+    print f"{grp.key}  {size} bytes  ×{cnt}"
 
     for item in grp.items |> enumerate() {
       let marker = if item.index == 0 {
@@ -71,20 +71,20 @@ proc main(...argv: List[Str]) [fs, error] {
           "DEL "
         }
       }
-      print f"  [${marker}] ${item.value.rel}"
+      print f"  [{marker}] {item.value.rel}"
 
       if item.index > 0 and ! opts.dry_run {
-        fp"${root}/${item.value.rel}".remove(missing_ok: true)?
+        fp"{root}/{item.value.rel}".remove(missing_ok: true)?
       }
     }
   }
 
   print ""
-  print f"${dups.len()} groups  ${dup_count} redundant files  ${wasted_bytes} wasted bytes"
+  print f"{dups.len()} groups  {dup_count} redundant files  {wasted_bytes} wasted bytes"
 
   if opts.dry_run {
-    print f"${dup_count} files would be deleted (dry run)"
+    print f"{dup_count} files would be deleted (dry run)"
   } else {
-    print f"${dup_count} files deleted"
+    print f"{dup_count} files deleted"
   }
 }

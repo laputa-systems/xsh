@@ -3,7 +3,7 @@ proc main() [io, error] {
   var operand: List[Str] = []
   var index = 0
   while index < 40 {
-    operand = operand.extend([f"src/file${index}.xsh", "-I", f"include${index}"])
+    operand = operand.extend([f"src/file{index}.xsh", "-I", f"include{index}"])
     index = index + 1
   }
   var sink = 0
@@ -27,5 +27,5 @@ proc main() [io, error] {
     sink = sink + parsed.include.len() + parsed.files.len()
     round = round + 1
   }
-  print f"${sink}"
+  print f"{sink}"
 }

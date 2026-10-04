@@ -211,7 +211,7 @@ walk(2)
 }
 
 proc lint_output(source: Path) [fs, process, error] {
-  let diagnostics = fp"${source}.err"
+  let diagnostics = fp"{source}.err"
   let _ = run.status "xsht" lint $source 2> $diagnostics
   diagnostics.read_text()?
 }

@@ -112,7 +112,7 @@ test same {}
 
 test imported_declarations_do_not_execute { |ctx|
   let root = test.temp_dir(ctx, name: "imported-test-declaration")?
-  fp"${root}/helper.xsh".write_atomic(r"""##! Helper with a declared test.
+  fp"{root}/helper.xsh".write_atomic(r"""##! Helper with a declared test.
 ## The shared value.
 export pure value() -> Int { 7 }
 test helper_test {

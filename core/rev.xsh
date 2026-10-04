@@ -4,7 +4,7 @@ use lib.text_input as text_input
 error AppletError = Usage(message: Str) : Usage
 
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
+  AppletError.Usage(f"{applet_name}: unsupported option '{flag}'")
 }
 
 proc main(...paths: List[Str]) [fs, error, io] {

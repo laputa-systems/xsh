@@ -19,15 +19,15 @@ export error ContextError = WrongDirectory(root: Path)
 
 ## Resolves a configuration path relative to the repository unless it is absolute.
 export pure repo_path(root: Path, value: Str) -> Path {
-  return fp"${value}" when value.starts_with("/")
+  return fp"{value}" when value.starts_with("/")
 
-  fp"${root}/${value}"
+  fp"{root}/{value}"
 }
 
 ## Validates that the current directory is the XSH repository root.
 export proc require_root() [fs, error] -> Result[Path] {
   let root = fs.cwd()?
-  let required = [fp"${root}/Cargo.toml", fp"${root}/rust-toolchain.toml", fp"${root}/xsht-config.ini"]
+  let required = [fp"{root}/Cargo.toml", fp"{root}/rust-toolchain.toml", fp"{root}/xsht-config.ini"]
 
   for required_path in required {
     guard required_path.exists()? else {
@@ -52,14 +52,14 @@ export proc create() [fs, env, error] -> Result[Context] {
   }
   let target = target_policy.resolve(target_name)?
   let target_value = env.get_or("CARGO_TARGET_DIR", "")?.trim()
-  let target_dir = if target_value == "" { fp"${root}/target" } else { repo_path(root, target_value) }
+  let target_dir = if target_value == "" { fp"{root}/target" } else { repo_path(root, target_value) }
   let profile = env.get_or("DIST_PROFILE", "dist")?.trim()
 
   {
     root: root,
     target_dir: target_dir,
-    coverage_dir: fp"${root}/target/cov",
-    artifact_dir: fp"${root}/dist",
+    coverage_dir: fp"{root}/target/cov",
+    artifact_dir: fp"{root}/dist",
     host_os: host_os,
     host_arch: host_arch,
     target: target,

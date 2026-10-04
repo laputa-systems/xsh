@@ -58,7 +58,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by .path
 
   if opts.verbose {
-    print f"scanning ${files.len()} files in ${root}"
+    print f"scanning {files.len()} files in {root}"
   }
 
   let hits: List[Hit] = files
@@ -85,8 +85,8 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
   if hits.len() == 0 {
-    let filter_note = if opts.tag != "" { f" for tag ${opts.tag}" } else { "" }
-    print f"no findings${filter_note} in ${files.len()} files scanned"
+    let filter_note = if opts.tag != "" { f" for tag {opts.tag}" } else { "" }
+    print f"no findings{filter_note} in {files.len()} files scanned"
     return
   }
 
@@ -95,14 +95,14 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by .key
 
   for grp in groups {
-    print f"${grp.key} (${grp.items.len()})"
+    print f"{grp.key} ({grp.items.len()})"
 
     for h in grp.items |> sort-by .file {
-      print f"  ${h.file}:${h.line}: ${h.text}"
+      print f"  {h.file}:{h.line}: {h.text}"
     }
 
     print ""
   }
 
-  print f"${hits.len()} findings across ${files.len()} files"
+  print f"{hits.len()} findings across {files.len()} files"
 }

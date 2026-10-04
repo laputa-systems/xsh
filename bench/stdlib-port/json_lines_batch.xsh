@@ -3,9 +3,9 @@ proc main() [io, error] {
   var records: List[Any] = []
   var index = 0
   while index < 10000 {
-    records = records.push({id: index, name: f"row${index}", tags: ["a", "b"]})
+    records = records.push({id: index, name: f"row{index}", tags: ["a", "b"]})
     index = index + 1
   }
   let text = json.encode_lines(records)?
-  print f"${text.byte_len()}"
+  print f"{text.byte_len()}"
 }

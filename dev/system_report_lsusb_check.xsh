@@ -118,7 +118,7 @@ pure hex4(value: Str) -> Result[Int] {
     }
   }
 
-  f"0x${value}".parse_int()
+  f"0x{value}".parse_int()
 }
 
 pure words(value: Str) -> List[Str] {
@@ -145,7 +145,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     let ids = fields[5].split(":")
     return Err(lsusb_failure("lsusb list row has invalid IDs")) when ids.len() != 2
 
-    let key = f"${bus}:${device}"
+    let key = f"{bus}:{device}"
     if bus <= 0 or device <= 0 or key in seen {
       return Err(lsusb_failure("lsusb list has duplicate or invalid device identity"))
     }
@@ -154,7 +154,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     devices = devices.push({bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?})
   }
 
-  devices |> sort-by f"${.bus}:${.device}"
+  devices |> sort-by f"{.bus}:{.device}"
 }
 
 pure field_after(fields: List[Str], name: Str) -> Str? {
@@ -225,7 +225,7 @@ pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
     var value = 0
     if hex {
       guard fields[1].starts_with("0x") else {
-        return Err(lsusb_failure(f"lsusb verbose ${key} lacks hex value"))
+        return Err(lsusb_failure(f"lsusb verbose {key} lacks hex value"))
       }
 
       value = hex4(fields[1].byte_slice(2))?
@@ -237,7 +237,7 @@ pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
   }
 
   if values.len() != 1 {
-    return Err(lsusb_failure(f"lsusb verbose ${key} is absent or ambiguous"))
+    return Err(lsusb_failure(f"lsusb verbose {key} is absent or ambiguous"))
   }
 
   values[0]
@@ -297,9 +297,9 @@ export pure compare_lsusb(
       continue
     }
 
-    let key = f"${item.bus_number}:${item.device_number}"
+    let key = f"{item.bus_number}:{item.device_number}"
     if key in candidate_by_key {
-      mismatches = mismatches.push(f"${key}.duplicate")
+      mismatches = mismatches.push(f"{key}.duplicate")
     }
 
     candidate_by_key = candidate_by_key.set(key, index)
@@ -307,16 +307,16 @@ export pure compare_lsusb(
 
   var basic_seen = set.empty()
   for reference in devices {
-    let key = f"${reference.bus}:${reference.device}"
+    let key = f"{reference.bus}:{reference.device}"
     basic_seen = set.add(basic_seen, key)
     if key not in candidate_by_key {
-      mismatches = mismatches.push(f"${key}.missing")
+      mismatches = mismatches.push(f"{key}.missing")
       continue
     }
 
     let candidate = report.usb.devices[candidate_by_key.get(key)?]
     if candidate.vendor_id != reference.vendor_id or candidate.product_id != reference.product_id {
-      mismatches = mismatches.push(f"${key}.ids")
+      mismatches = mismatches.push(f"{key}.ids")
     } else {
       matched_devices += 1
     }
@@ -324,16 +324,16 @@ export pure compare_lsusb(
 
   for key in candidate_by_key.keys() {
     if key not in basic_seen {
-      mismatches = mismatches.push(f"${key}.unexpected")
+      mismatches = mismatches.push(f"{key}.unexpected")
     }
   }
 
   var tree_seen = set.empty()
   for row in tree {
-    let key = f"${row.bus}:${row.device}"
+    let key = f"{row.bus}:{row.device}"
     tree_seen = set.add(tree_seen, key)
     if key not in candidate_by_key {
-      mismatches = mismatches.push(f"${key}.tree_missing")
+      mismatches = mismatches.push(f"{key}.tree_missing")
       continue
     }
 
@@ -345,32 +345,32 @@ export pure compare_lsusb(
 
     let port_parts = (candidate.port_path ?? "").split(".")
     if (decimal(port_parts.get(port_parts.len() - 1) ?? "") ?? -1) != row.port {
-      mismatches = mismatches.push(f"${key}.port")
+      mismatches = mismatches.push(f"{key}.port")
       continue
     }
 
     let interfaces = candidate.interfaces |> where .number == (row.interface_number ?? -1)
     if interfaces.len() != 1 {
-      mismatches = mismatches.push(f"${key}.interface")
+      mismatches = mismatches.push(f"{key}.interface")
       continue
     }
 
     if row.driver != null and interfaces[0].driver != row.driver {
-      mismatches = mismatches.push(f"${key}.driver")
+      mismatches = mismatches.push(f"{key}.driver")
     } else {
       matched_tree_rows += 1
     }
   }
 
   for reference in devices {
-    if f"${reference.bus}:${reference.device}" not in tree_seen {
-      mismatches = mismatches.push(f"${reference.bus}:${reference.device}.tree_absent")
+    if f"{reference.bus}:{reference.device}" not in tree_seen {
+      mismatches = mismatches.push(f"{reference.bus}:{reference.device}.tree_absent")
     }
   }
 
-  let selected_key = f"${descriptor.bus}:${descriptor.device}"
+  let selected_key = f"{descriptor.bus}:{descriptor.device}"
   if selected_key not in candidate_by_key {
-    mismatches = mismatches.push(f"${selected_key}.descriptor_absent")
+    mismatches = mismatches.push(f"{selected_key}.descriptor_absent")
   } else {
     let selected = report.usb.devices[candidate_by_key.get(selected_key)?]
     for pair in [
@@ -396,9 +396,9 @@ export pure compare_lsusb(
       },
     ] {
       if pair.actual == null {
-        partial = partial.push(f"${selected_key}.${pair.name}")
+        partial = partial.push(f"{selected_key}.{pair.name}")
       } else if pair.actual != pair.expected {
-        mismatches = mismatches.push(f"${selected_key}.${pair.name}")
+        mismatches = mismatches.push(f"{selected_key}.{pair.name}")
       } else {
         matched_descriptor_fields += 1
       }
@@ -422,15 +422,15 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
       argv,
       cwd: /,
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/${name}",
-      stderr: fp"${scratch_path}/${name}-error",
+      stdout: fp"{scratch_path}/{name}",
+      stderr: fp"{scratch_path}/{name}-error",
     ),
   )?
-  return Err(lsusb_failure(f"lsusb ${name} command failed")) unless status.exited_with(0)
+  return Err(lsusb_failure(f"lsusb {name} command failed")) unless status.exited_with(0)
 
-  let raw = root.read_result(fp"${name}", max_bytes: 1048576)?
+  let raw = root.read_result(fp"{name}", max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
-    return Err(lsusb_failure(f"lsusb ${name} output is incomplete"))
+    return Err(lsusb_failure(f"lsusb {name} output is incomplete"))
   }
 
   raw.data.utf8()?
@@ -461,7 +461,7 @@ export proc compare_live_lsusb(
   let tree_output = lsusb_output(scratch, executable, "tree", [executable, "-t"])?
   let tree = parse_lsusb_tree(tree_output)?
   let selected = before[0]
-  let selector = f"${selected.bus}:${selected.device}"
+  let selector = f"{selected.bus}:{selected.device}"
   let verbose_output = lsusb_output(scratch, executable, "verbose", [executable, "-v", "-s", selector])?
   let descriptor = parse_lsusb_verbose(verbose_output, selected.bus, selected.device)?
   let candidate_started = time.now()
@@ -472,8 +472,8 @@ export proc compare_live_lsusb(
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-      stdout: fp"${scratch_path}/candidate",
-      stderr: fp"${scratch_path}/candidate-error",
+      stdout: fp"{scratch_path}/candidate",
+      stderr: fp"{scratch_path}/candidate-error",
     ),
   )?
   if ! status.exited_with(0) {
@@ -502,8 +502,8 @@ export proc compare_live_lsusb(
     comparison: compare_lsusb(candidate, before, tree, descriptor)?,
     reference_started_unix_ms: started,
     candidate_started_unix_ms: candidate_started,
-    list_sha256_hex: hash.sha256(fp"${scratch_path}/before")?.hex(),
-    tree_sha256_hex: hash.sha256(fp"${scratch_path}/tree")?.hex(),
-    verbose_sha256_hex: hash.sha256(fp"${scratch_path}/verbose")?.hex(),
+    list_sha256_hex: hash.sha256(fp"{scratch_path}/before")?.hex(),
+    tree_sha256_hex: hash.sha256(fp"{scratch_path}/tree")?.hex(),
+    verbose_sha256_hex: hash.sha256(fp"{scratch_path}/verbose")?.hex(),
   }
 }

@@ -1,7 +1,7 @@
 type RunRow = {name: Str}
 
 pure show_run_row(row: RunRow, prefix: Str) -> Str {
-  f"${prefix} ${row.name}"
+  f"{prefix} {row.name}"
 }
 
 test test_command_proc_args_resolve_bare_value_references {
@@ -96,7 +96,7 @@ test test_run_status_can_drive_conditions {
 test test_path_absolute_uses_current_runtime_cwd_without_existing_path {
   let cwd = fs.cwd()?
   let p = path.absolute(p"target/../target/lang-absolute-demo")?
-  assert p == fp"${cwd}/target/lang-absolute-demo"
+  assert p == fp"{cwd}/target/lang-absolute-demo"
 }
 
 test test_boolean_operators_short_circuit {
@@ -163,7 +163,7 @@ test test_run_forms_preserve_status_text_and_capture {
 
 test test_dynamic_module_proc_preserves_bareword_run_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "module-run-arguments")?
-  let module_path = fp"${root}/package.xsh"
+  let module_path = fp"{root}/package.xsh"
   module_path.write(r"""
 ##! Bareword run argument fixture.
 ## Runs representative bareword forms from a loaded module.
@@ -181,7 +181,7 @@ export proc build() [process, error] {
 
   let output = test.run_script(
     ctx,
-    f"""let build_fn: Proc = module.load(p"${module_path}")?.get("build")?
+    f"""let build_fn: Proc = module.load(p"{module_path}")?.get("build")?
 build_fn.call()?
 """,
   )?
@@ -351,7 +351,7 @@ test test_function_tail_values_return_declared_values { |ctx|
   let output = test.run_script(
     ctx,
     r"""pure run_object_path(src: Path) -> Path { src.with_ext("o") }
-proc run_wrap_tail(value: Str) [error] -> Result[Str] { Ok(f"${value}.ok") }
+proc run_wrap_tail(value: Str) [error] -> Result[Str] { Ok(f"{value}.ok") }
 proc run_command_tail(value: Str) [error] -> Result[Str] {
   run_wrap_tail(value)
 }
@@ -390,11 +390,11 @@ test test_byte_pipeline_executes_without_shell_and_redirects_stdout { |ctx|
 
 test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
   let root = test.temp_dir(ctx, name: "tar-gzip")?
-  let src = fp"${root}/src"
-  let tarball = fp"${root}/archive.tar.gz"
+  let src = fp"{root}/src"
+  let tarball = fp"{root}/archive.tar.gz"
   src.mkdir()?
 
-  fp"${src}/file.txt".write("""contents
+  fp"{src}/file.txt".write("""contents
 """)?
 
   cd root {
@@ -415,13 +415,13 @@ test test_plain_run_updates_last_status_and_direct_binding {
 
 test test_redirection_paths_and_fd_duplication_use_typed_boundaries { |ctx|
   let root = test.temp_dir(ctx, name: "redir")?
-  let spaced = fp"${root}/space name"
+  let spaced = fp"{root}/space name"
 
-  let lined = fp"""${root}/line
+  let lined = fp"""{root}/line
 name"""
 
-  let dashed = fp"${root}/-leading"
-  let errlog = fp"${root}/err log"
+  let dashed = fp"{root}/-leading"
+  let errlog = fp"{root}/err log"
   run printf "a" > $spaced ?
   run printf "b" >> $spaced ?
   run cat < $spaced > $lined ?
@@ -736,7 +736,7 @@ print "after"
   let marker = test.temp_path(ctx)
   let drained = test.run_script(
     ctx,
-    f"""run sh -c "exit 3" | run sh -c "cat >/dev/null; echo ran > ${marker}"
+    f"""run sh -c "exit 3" | run sh -c "cat >/dev/null; echo ran > {marker}"
 """,
   )?
   assert drained.status == 3
@@ -841,7 +841,7 @@ test test_run_trace_reports_redirection_method_and_env_details { |ctx|
   let redirection = test.run_xsht_trace(
     ctx,
     f"""
-let missing = Path("{missing}")
+let missing = Path("{{missing}}")
 run cat < (missing) ?
 """,
     ["--trace", "--raw"],
@@ -1041,15 +1041,15 @@ main(args)?
 
 test test_foundation_literals_defers_streams_and_builders { |ctx|
   let root = test.temp_dir(ctx, name: "foundation")?
-  let marker = fp"${root}/marker"
+  let marker = fp"{root}/marker"
   defer marker.write("cleaned")?
-  let file = fp"${root}/note.txt"
+  let file = fp"{root}/note.txt"
   file.write("""alpha
 beta
 """)?
   let content = file.read_text()?
   let mode = 0o755
-  let label = f"mode ${mode}"
+  let label = f"mode {mode}"
   let raw_lines = run.stream --text printf "%s\n" alpha beta gamma
   let lines = raw_lines
     |> drop(1)
@@ -1088,7 +1088,7 @@ proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
   var failure = ""
   match run.text printf "%s " $ok_cmd {
     Ok(body) => text = body.trim()
-    Err(err) => text = f"text failed: ${err.message}"
+    Err(err) => text = f"text failed: {err.message}"
   }
 
   if let Ok(body) = run.bytes printf "%s" $ok_cmd {
@@ -1101,11 +1101,11 @@ proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
 
   match run.text sh -c "exit 3" {
     Ok(body) => failure = body.trim()
-    Err(err) => failure = f"failed ${err.message != ""}"
+    Err(err) => failure = f"failed {err.message != ""}"
   }
 
   let label = if let Ok(body) = run.text printf " %s " $ok_cmd { body.trim() } else { "none" }
-  f"${text}|${size}|${stdout}|${failure}|${label}"
+  f"{text}|{size}|{stdout}|{failure}|{label}"
 }
 
 proc run_capture_propagated_method(value: Str) [process, error] -> Result[Str] {
@@ -1120,7 +1120,7 @@ test test_run_capture_match_arm_bindings_keep_capture_types {
 
 test test_script_output_keeps_its_order_around_inheriting_children { |ctx|
   let root = test.temp_dir(ctx, name: "output-order")?
-  let script = fp"${root}/order.xsh"
+  let script = fp"{root}/order.xsh"
   script.write(r"""print "a"
 run echo b
 print "c"
@@ -1135,8 +1135,8 @@ let _ = wait child ?
 let k = run.text echo k ?
 print ${k.trim()}
 """)?
-  let stdout = fp"${root}/stdout.txt"
-  let stderr = fp"${root}/stderr.txt"
+  let stdout = fp"{root}/stdout.txt"
+  let stderr = fp"{root}/stderr.txt"
   run "xsh" $script > $stdout 2> $stderr
   assert stdout.read_text()? == "a\nb\nc\nd\ng\nh\ni\nj\nk\n"
   assert stderr.read_text()? == "e\nf\n"
@@ -1192,9 +1192,9 @@ test test_filesystem_errors_name_their_paths {
     test.fail("expected a filesystem failure")?
   }
   for failure in [
-    fs.mkdir(fp"${missing}/child"),
-    fs.write(fp"${missing}/file.txt", "x"),
-    fs.copy(fp"${missing}/a", fp"${missing}/b"),
+    fs.mkdir(fp"{missing}/child"),
+    fs.write(fp"{missing}/file.txt", "x"),
+    fs.copy(fp"{missing}/a", fp"{missing}/b"),
   ] {
     if let Err(error) = failure {
       assert "/nonexistent/xsh-missing-dir" in error.message, error.message
@@ -1205,7 +1205,7 @@ test test_filesystem_errors_name_their_paths {
 }
 
 test test_run_accepts_relative_command_paths { |ctx|
-  let tool = fp"${ctx.temp_root}/tool"
+  let tool = fp"{ctx.temp_root}/tool"
   tool.write("#!/bin/sh\necho ran\n")?
   tool.chmod(0o755)?
   let output = test.run_script(
@@ -1215,7 +1215,7 @@ test test_run_accepts_relative_command_paths { |ctx|
   let out = run.text ./tool ?
   print ${out.trim()}
 }
-""".replace("ROOT", f"p\"${ctx.temp_root}\""),
+""".replace("ROOT", f"p\"{ctx.temp_root}\""),
   )?
   assert output.success, output.stderr
   assert output.stdout == "ran\nran\n"

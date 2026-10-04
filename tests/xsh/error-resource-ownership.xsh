@@ -253,7 +253,7 @@ test test_primary_defer_cause_retains_child {
 
 proc cleanup_marked_error_child(marker: Path) [fs, process, error] {
   let child = spawn run sh -c "sleep 10" ?
-  marker.write(f"${child.pid}")?
+  marker.write(f"{child.pid}")?
   Err(ChildError.Owned(child:))
 }
 

@@ -134,7 +134,7 @@ test test_scope_lexical_return_and_loop_transfers_restore {
 
 test test_scope_entry_failure_is_data_and_skips_body { |ctx|
   let root = test.temp_dir(ctx)?
-  let missing = fp"${root}/missing"
+  let missing = fp"{root}/missing"
   var entered = false
   let failure = cd (missing) {
     entered = true
@@ -484,8 +484,8 @@ print "escaped"
 """,
     )?
     let {status, stderr, stdout} = output
-    assert status == 3, f"${escape}: ${stderr}"
-    assert "context-scope-escape" in stderr, f"${escape}: ${stderr}"
+    assert status == 3, f"{escape}: {stderr}"
+    assert "context-scope-escape" in stderr, f"{escape}: {stderr}"
     assert stdout == "", escape
   }
 }
@@ -511,7 +511,7 @@ let count = env ({X: "inner"}) {
   let retried = retry [] { local = attached; holder.item = attached; true }
   outer
 }?
-print f"${count} ${outer}"
+print f"{count} {outer}"
 """,
   )?
   let {success, stderr, stdout} = output

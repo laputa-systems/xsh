@@ -13,7 +13,7 @@ type CpOptions = {
 }
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -21,7 +21,7 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 }
 
 pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
-  return fp"${target}/${source.name()}" when target_is_dir
+  return fp"{target}/{source.name()}" when target_is_dir
 
   target
 }
@@ -73,7 +73,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
   let {recursive, no_clobber, no_target_directory, ..} = opts
   let link_mode = if opts.symlink { "symlink" } else if opts.hardlink { "hardlink" } else { "copy" }
-  let target_directory = fp"${opts.target}"
+  let target_directory = fp"{opts.target}"
   let has_target_directory = opts.target != ""
   let paths = opts.operands
 
@@ -81,7 +81,7 @@ proc main(...argv: List[Str]) [fs, error] {
     return Err(usage_error("cp", "[-R|-r|-a|-p|-T] [-t DIR] SOURCE... DEST"))
   }
 
-  let dest = if has_target_directory { target_directory } else { fp"${paths[paths.len() - 1]}" }
+  let dest = if has_target_directory { target_directory } else { fp"{paths[paths.len() - 1]}" }
   let sources = if has_target_directory { paths } else { paths |> take(paths.len() - 1) }
   var target_is_dir = false
 
@@ -90,11 +90,11 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if sources.len() > 1 and ! target_is_dir {
-    return Err(AppletError.Usage(f"cp: target '${dest}' is not a directory"))
+    return Err(AppletError.Usage(f"cp: target '{dest}' is not a directory"))
   }
 
   for source_text in sources {
-    let source = fp"${source_text}"
+    let source = fp"{source_text}"
     let source_meta = source.metadata()?
     let target = dest_for(source, dest, target_is_dir)
     continue when no_clobber and target.exists()?
@@ -105,7 +105,7 @@ proc main(...argv: List[Str]) [fs, error] {
       source.hardlink(target)?
     } else if source_meta.kind == "dir" {
       guard recursive else {
-        return Err(AppletError.Usage(f"cp: omitting directory '${source}'"))
+        return Err(AppletError.Usage(f"cp: omitting directory '{source}'"))
       }
 
       fs.copy_tree(source, target, parents: true, overwrite: ! no_clobber)?

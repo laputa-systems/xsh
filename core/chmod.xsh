@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -19,7 +19,7 @@ pure digit_value(ch: Str) -> Result[Int] {
     "5" => 5
     "6" => 6
     "7" => 7
-    _ => Err(AppletError.Usage(f"invalid mode digit '${ch}'"))
+    _ => Err(AppletError.Usage(f"invalid mode digit '{ch}'"))
   }
 }
 
@@ -134,15 +134,15 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
 
     for ch in clause {
       if op == "" and ch in "ugoa" {
-        who = f"${who}${ch}"
+        who = f"{who}{ch}"
       } else if op == "" and ch in "+-=" {
         op = ch
       } else {
-        perms = f"${perms}${ch}"
+        perms = f"{perms}{ch}"
       }
     }
 
-    return Err(AppletError.Usage(f"unsupported mode '${spec}'")) when op == ""
+    return Err(AppletError.Usage(f"unsupported mode '{spec}'")) when op == ""
 
     let mask = perm_mask(perms, who, current, is_dir)
 
@@ -150,7 +150,7 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
       "+" => mode = add_mask(mode, mask)
       "-" => mode = remove_mask(mode, mask)
       "=" => mode = add_mask(remove_mask(mode, class_mask(who)), mask)
-      _ => return Err(AppletError.Usage(f"unsupported mode '${spec}'"))
+      _ => return Err(AppletError.Usage(f"unsupported mode '{spec}'"))
     }
   }
 
@@ -191,7 +191,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let mode_spec = paths[0]
 
   for item in paths |> drop(1) {
-    let target = fp"${item}"
+    let target = fp"{item}"
 
     if recursive and target.metadata()?.kind == "dir" {
       # Descending path = children before parents. A non-root `chmod -R` that
