@@ -93,7 +93,8 @@ The compatibility ratchets are `python3 dev/compat/check_ignored_options.py`
 (no new or grown discard bucket in `core/*.xsh`),
 `python3 dev/compat/check_kernel_reads.py` (no `/proc` or `/sys` literal in a
 top-level applet: kernel state is read through one typed domain API per ABI),
-and
+`python3 dev/compat/check_exclusions.py` (Gate 3 exclusions are exact test IDs with
+a category and a reason), and
 `python3 dev/compat/parity.py --check` (the committed parity manifest matches
 the repository and the denominator pinned in `dev/compat/upstream.lock.json`;
 offline unless `UUTILS_ROOT` is set). Harness usage is in

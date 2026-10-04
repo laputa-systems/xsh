@@ -1,4 +1,8 @@
 {
   "comment": "Known semantic gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
-  "utilities": {}
+  "utilities": {
+    "basename": [
+      "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+    ]
+  }
 }

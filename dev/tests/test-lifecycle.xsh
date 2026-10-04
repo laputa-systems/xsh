@@ -140,7 +140,7 @@ match build.check_compat(ctx) {{
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout
-  assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/check_kernel_reads.py\ndev/compat/parity.py|--check\n"
+  assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/check_kernel_reads.py\ndev/compat/check_exclusions.py\ndev/compat/parity.py|--check\n"
 }
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|

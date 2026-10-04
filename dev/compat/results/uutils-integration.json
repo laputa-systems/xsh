@@ -101,28 +101,12 @@
       "applet": false
     },
     "basename": {
-      "pass": 12,
-      "fail": 17,
+      "pass": 26,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 2,
       "failing": [
-        "test_basename::test_do_not_remove_suffix",
-        "test_basename::test_double_slash",
-        "test_basename::test_help",
-        "test_basename::test_invalid_arg",
-        "test_basename::test_invalid_utf8_args",
-        "test_basename::test_multiple_param",
-        "test_basename::test_no_args",
-        "test_basename::test_no_args_output",
-        "test_basename::test_repeated_zero",
-        "test_basename::test_simple_format",
-        "test_basename::test_suffix_param",
-        "test_basename::test_too_many_args",
-        "test_basename::test_too_many_args_output",
-        "test_basename::test_trailing_separators",
-        "test_basename::test_version",
-        "test_basename::test_zero_does_not_imply_multiple",
-        "test_basename::test_zero_param"
+        "test_basename::test_invalid_utf8_args"
       ],
       "applet": true
     },
@@ -6396,9 +6380,9 @@
     }
   },
   "totals": {
-    "pass": 539,
-    "fail": 5439,
+    "pass": 553,
+    "fail": 5423,
     "skip": 0,
-    "excluded": 0
+    "excluded": 2
   }
 }

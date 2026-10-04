@@ -1,4 +1,17 @@
 {
-  "comment": "Exact uutils test IDs (module::function) excluded from Gate 3. One entry per test; module-wide exclusions are rejected by dev/compat/check_exclusions.py. category is one of: selinux, smack, needs-root, host-oracle, help-text, uutils-internal, platform.",
-  "tests": []
+  "comment": "Exact uutils test IDs (module::function) excluded from Gate 3. One entry per test; module-wide exclusions are rejected by dev/compat/check_exclusions.py, which also fixes the category list. Excluded tests still count in the totals as `excluded`.",
+  "tests": [
+    {
+      "id": "test_basename::test_help",
+      "utility": "basename",
+      "category": "uutils-extension",
+      "reason": "The test also runs `-h`, a help alias uutils adds; GNU basename has no -h (it is an invalid option) and XSH follows GNU. --help is covered by core/tests/test-basename.xsh."
+    },
+    {
+      "id": "test_basename::test_version",
+      "utility": "basename",
+      "category": "uutils-extension",
+      "reason": "The test also runs `-V`, a version alias uutils adds; GNU basename has only --version and XSH follows GNU. --version is covered by core/tests/test-basename.xsh."
+    }
+  ]
 }

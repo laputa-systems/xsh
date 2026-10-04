@@ -67,7 +67,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
 
 ## Runs the compatibility campaign ratchets: no new or grown discard bucket in
 ## `core/*.xsh`, no applet reading /proc or /sys outside the typed domain APIs,
-## and a parity manifest that matches the repository and the pinned denominator. The manifest check runs offline unless `UUTILS_ROOT` is
+## only per-test explained exclusions, and a parity manifest that matches the repository and the pinned denominator. The manifest check runs offline unless `UUTILS_ROOT` is
 ## set, so `make check` needs no uutils checkout.
 export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Unit] {
   stages.execute(
@@ -86,6 +86,16 @@ export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Un
       ctx.target.triple,
       "python3",
       ["python3", "dev/compat/check_kernel_reads.py"],
+      ctx.root,
+      {},
+    ),
+  )?
+  stages.execute(
+    stages.command(
+      "check-compat-exclusions",
+      ctx.target.triple,
+      "python3",
+      ["python3", "dev/compat/check_exclusions.py"],
       ctx.root,
       {},
     ),

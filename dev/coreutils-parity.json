@@ -142,15 +142,20 @@
       "native_tests": "core/tests/test-basename.xsh",
       "uutils_test_count": 29,
       "uutils_integration": {
-        "pass": 12,
-        "fail": 17,
+        "pass": 26,
+        "fail": 1,
         "skip": 0,
-        "excluded": 0
+        "excluded": 2
       },
       "gnu_differential": null,
       "busybox": null,
-      "excluded_tests": [],
-      "known_semantic_gaps": []
+      "excluded_tests": [
+        "test_basename::test_help",
+        "test_basename::test_version"
+      ],
+      "known_semantic_gaps": [
+        "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+      ]
     },
     {
       "utility": "basenc",
