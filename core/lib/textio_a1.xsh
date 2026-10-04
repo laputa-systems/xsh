@@ -12,6 +12,13 @@ use gnu
 ## The size of one chunked read.
 export const CHUNK = 65536
 
+# Device input beyond this many bytes fails: stdout is only flushed when the
+# applet exits, so output from an unbounded device (`/dev/zero`) could never
+# be delivered and would only exhaust memory.
+const DEVICE_LIMIT = 67108864
+
+error InputError = Unbounded(message: Str)
+
 ## `mode` is `stdin`, `file` (nonempty regular file, chunked and seekable),
 ## `device` (character or block device read in chunks), or `whole` (read in
 ## one call). `kind` is the file type nibble of `st_mode` (8 regular, 4
@@ -57,6 +64,10 @@ export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, i
     let left = source.size - offset
 
     return bytes.read_at(source.path, offset, if left < count { left } else { count })
+  }
+
+  if offset >= DEVICE_LIMIT {
+    return Err(InputError.Unbounded("input is unbounded and stdout is not flushed incrementally"))
   }
 
   match bytes.read_at(source.path, 0, count) {
