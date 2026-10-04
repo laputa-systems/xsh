@@ -3,8 +3,10 @@
 `xsht` is the tooling frontend for XSH source: checking, formatting, linting,
 native tests, API queries, tracing, structural search, and refactoring. Script
 execution stays in `xsh`; `xsht` evaluates only when a command (test, trace)
-requires it. `xsht help` and `xsht help COMMAND` are generated from
-`crates/xsht/src/help.rs` and are the authoritative option reference.
+requires it. `crates/xsht/src/commands.rs` declares every command's options
+once: the argument parser matches only those declarations, and `xsht help`,
+`xsht help COMMAND`, and the usage lines are generated from them, so they are
+the authoritative option reference.
 
 ## Commands
 
