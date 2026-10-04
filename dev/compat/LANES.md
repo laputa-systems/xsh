@@ -113,10 +113,12 @@ Merge queue (integrator, one lane at a time, FIFO):
    files, and the Rust tests its item names.
 3. Lane slice: `dev/compat/run-uutils.sh <its utilities>`.
 4. `git -C /home/claude/xsh merge --no-ff lane/<lane>`.
-5. Full uutils suite on the integration branch; compare with the committed
-   `results/uutils-integration.json`. Any test that passed before and fails
-   now reverts the merge (`git revert -m 1`) and returns the lane with the
-   failing IDs.
+5. Rebuild the release binaries on the integration branch, then run the full
+   uutils suite and compare with the committed
+   `results/uutils-integration.json` using `python3 dev/compat/compare.py
+   OLD NEW`. Any test that passed before and fails now reverts the merge
+   (`git revert -m 1`) and returns the lane with the failing IDs; the totals it
+   prints go into the merge commit message.
 6. Regenerate and commit integrator-owned outputs: `parity.py`, results,
    baselines, applied requests. Push `campaign-utils`.
 7. Clean up immediately:
