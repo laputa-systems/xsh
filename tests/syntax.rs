@@ -2913,11 +2913,12 @@ fn formatter_beauty_corpus_matches_golden_and_remains_idempotent() {
 }
 
 #[test]
-fn formatter_is_idempotent_on_package_corpus() {
+fn formatter_is_idempotent_on_laputa_corpus() {
     fn files(root: &std::path::Path, output: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(root).unwrap() {
             let path = entry.unwrap().path();
-            if path.is_dir() {
+            let derived = path.file_name().is_some_and(|name| matches!(name.to_str(), Some(".git" | ".out" | ".cache" | "target" | "node_modules")));
+            if path.is_dir() && !derived {
                 files(&path, output);
             } else if path.extension().is_some_and(|extension| extension == "xsh") {
                 output.push(path);
@@ -2925,7 +2926,9 @@ fn formatter_is_idempotent_on_package_corpus() {
         }
     }
 
-    let root = std::path::Path::new("../packages");
+    // The Laputa monorepo is the largest XSH corpus outside this repository.
+    let root = std::env::var_os("XSH_LAPUTA_CORPUS").map_or_else(|| std::path::PathBuf::from("../laputa"), std::path::PathBuf::from);
+    let root = root.as_path();
     if !root.is_dir() {
         return;
     }
@@ -4095,3 +4098,11 @@ fn fmt_interpolation_spans_index_the_original_source() {
 
 #[path = "grammar.rs"]
 mod grammar;
+
+#[test]
+fn formatter_keeps_a_literal_dollar_before_an_interpolation() {
+    let source = "let i = 1\nlet ph = f\"\\${i}\"\nlet both = f\"\\\\\\${i}\"\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+}

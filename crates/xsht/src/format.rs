@@ -2409,6 +2409,7 @@ impl<'a> Writer<'a> {
                     write_fmt_text(&text, output);
                 }
                 ArenaFmtPart::Expr(expr, spec) => {
+                    escape_trailing_dollar(output);
                     output.push('{');
                     let start = output.len();
                     // A single-line f-string cannot hold a line break inside
@@ -3733,6 +3734,16 @@ fn write_fmt_text(value: &str, output: &mut String) {
             '$' if chars.peek().copied().is_some_and(is_identifier_start) => output.push_str("\\$"),
             ch => output.push(ch),
         }
+    }
+}
+
+/// Text that ends in a literal `$` right before an interpolation must keep
+/// it escaped: `\${i}` prints `$` then `i`, while `${i}` is an error.
+fn escape_trailing_dollar(output: &mut String) {
+    let Some(before) = output.strip_suffix('$') else { return };
+    let backslashes = before.chars().rev().take_while(|ch| *ch == '\\').count();
+    if backslashes % 2 == 0 {
+        output.insert(output.len() - 1, '\\');
     }
 }
 
