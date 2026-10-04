@@ -176,9 +176,10 @@ name?.starts_with("x")
 print "after"
 """,
   )?
-  assert statement.success, statement.stderr
-  assert statement.stdout == """after
-"""
+  assert statement.status == 2, statement.stderr
+  assert statement.stdout == ""
+  assert "check.ignored-result" in statement.stderr, statement.stderr
+  assert "check.bool-statement" not in statement.stderr, statement.stderr
 }
 
 test test_result_postfix_propagation_skips_index_on_failure { |ctx|

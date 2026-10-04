@@ -153,16 +153,6 @@ impl Checker {
         if let Some(errors) = self.error_boundary_errors.last_mut() { errors.push((error.as_ref().clone(), span)); }
     }
 
-    pub(super) fn reject_ignored_result(&mut self, ty: &Type, span: Span) {
-        if ty.is_result() {
-            self.diagnostics.push(
-                Diagnostic::error("ignored Result value")
-                    .with_code("check.ignored-result")
-                    .with_label(Label::primary(span, format!("this {ty} is dropped; handle it with `?` or `??`, or discard it with `let _ = ...`"))),
-            );
-        }
-    }
-
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
         if expected.contains_inference() || actual.contains_inference() {
             let constrained = if expected.contains_inference() {

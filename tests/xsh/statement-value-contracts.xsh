@@ -51,29 +51,84 @@ false 1 2 no true
 """
 }
 
-test non_unit_statement_results_are_discarded { |ctx|
-  let output = test.run_script(
-    ctx,
-    r"""proc data() [io] -> Int { print data; 1 }
-proc inferred() [io] { print inferred; 2 }
+test non_unit_statement_results_are_rejected { |ctx|
+  # Top-level statements, statement blocks, and non-tail body statements all
+  # reject a value they would drop.
+  for source in [
+    """proc data() [] -> Int { 1 }
 data()
+print done
+""",
+    """proc inferred() [] { 2 }
 inferred()?
 print done
 """,
+    """proc inferred() [] { 2 }
+inferred()
+print done
+""",
+    """proc data() [] -> Int { 1 }
+if true { data() }
+print done
+""",
+    """proc data() [] -> Int { 1 }
+proc caller() [] { data(); print done }
+caller()
+""",
+    """proc text() [] -> Str { "text" }
+text()
+""",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert output.status == 2, source
+    assert output.stdout == ""
+    assert "check.ignored-result" in output.stderr, output.stderr
+  }
+
+  let discarded = test.run_script(
+    ctx,
+    r"""proc data() [io] -> Int { print data; 1 }
+proc inferred() [io] { print inferred; 2 }
+let _ = data()
+let _ = inferred()?
+print done
+""",
   )?
-  assert output.success, output.stderr
-  assert output.stdout == """data
+  assert discarded.success, discarded.stderr
+  assert discarded.stdout == """data
 inferred
 done
 """
-  let ignored = test.run_script(
+}
+
+test final_top_level_int_is_the_exit_status { |ctx|
+  let output = test.run_script(
     ctx,
-    """proc inferred() [] { 2 }
-inferred()
+    r"""proc data() [io] -> Int { print data; 7 }
+data()
 """,
   )?
-  assert ignored.status == 2
-  assert "check.ignored-result" in ignored.stderr, ignored.stderr
+  assert output.status == 7, output.stderr
+  assert output.stdout == """data
+"""
+
+  # An entry `main` the last statement does not call runs afterwards and owns
+  # the exit status, so that last statement's Int would be dropped.
+  let after_main = test.run_script(
+    ctx,
+    r"""proc main() [] -> Int { 4 }
+5
+""",
+  )?
+  assert after_main.status == 2, after_main.stderr
+  assert "check.ignored-result" in after_main.stderr, after_main.stderr
+  let called_main = test.run_script(
+    ctx,
+    r"""proc main() [] -> Int { 4 }
+main()
+""",
+  )?
+  assert called_main.status == 4, called_main.stderr
 }
 
 test unit_consuming_assertions { |ctx|

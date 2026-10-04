@@ -390,29 +390,42 @@ impl Checker {
         true
     }
 
-    /// Inside a body that produces a value, a non-tail statement must not
-    /// produce one: it was probably meant as the tail. Elsewhere (top level
-    /// and statement blocks) a discarded value is accepted, except a
-    /// discarded copy update such as `items.push(x)`, whose only effect is
-    /// the value it returns.
-    fn reject_discarded_value(&mut self, arena: &ArenaProgram, expr_id: ExprId, ty: &Type, in_value_body: bool) {
-        if ty.is_result() || ty.matches_expected(&Type::Unit) {
+    /// A statement keeps no value: `Unit` is discarded, `Result[Unit]`
+    /// propagates its failure, and Bool has its own diagnostic. Any other
+    /// value would be lost silently, so it must be bound, returned, used as a
+    /// tail, or discarded with `let _ = ...`. The one consumer at statement
+    /// level is the script exit status, which takes the final top-level
+    /// statement's `Int`.
+    ///
+    /// `let _ = ` keeps the evaluation exactly, so it is offered as a safe fix
+    /// when the statement is valid as an initializer (`discard_fix`). It is
+    /// withheld from a `Result`, whose failure should be handled rather than
+    /// dropped, and from a discarded copy update such as `items.push(x)`,
+    /// whose only effect is the value it returns. The edit needs no source
+    /// text, so it stays exact for statements of imported modules, which are
+    /// checked against the entry script's text.
+    pub(super) fn reject_discarded_value(&mut self, ty: &Type, statement: Span, value: Span, discard_fix: bool, copy_update: Option<CopyUpdateMistake>) {
+        if *ty == Type::Bool || ty.is_result_unit() || ty.matches_expected(&Type::Unit) || self.is_inert_expression_discard(value) {
             return;
         }
-        let span = arena.arena.expr(expr_id).span;
-        let copy_update = copy_update_mistake(arena, expr_id, ty);
-        let message = match (&copy_update, in_value_body) {
-            (_, true) => format!("expression statement must be last to produce a value: expression has type `{ty}`; use `let _ = ...` to discard it"),
-            (Some(mistake), false) => mistake.message.clone(),
-            (None, false) => return,
-        };
-        let mut diagnostic = Diagnostic::error(message.clone())
-            .with_code("check.non-tail-expression")
-            .with_label(Label::primary(span, message));
-        if let Some(mistake) = copy_update {
-            diagnostic = diagnostic.with_note(if in_value_body { format!("{}; {}", mistake.message, mistake.repair) } else { mistake.repair });
+        if matches!(ty, Type::Int | Type::UInt) && self.exit_status_statement == Some(statement) {
+            return;
         }
-        self.diagnostics.push(diagnostic);
+        let diagnostic = if let Some(mistake) = copy_update {
+            Diagnostic::error(mistake.message.clone())
+                .with_label(Label::primary(value, mistake.message))
+                .with_note(mistake.repair)
+        } else if ty.is_result() {
+            Diagnostic::error("ignored Result value")
+                .with_label(Label::primary(value, format!("this {ty} is dropped; handle it with `?` or `??`, or discard it with `let _ = ...`")))
+        } else {
+            let diagnostic = Diagnostic::error(format!("ignored `{ty}` value"))
+                .with_label(Label::primary(value, "bind it, return it, or discard it with `let _ = ...`"));
+            if discard_fix {
+                diagnostic.with_fix_hint(FixHint::replacement(Span::at(statement.source_id, statement.start()), "discard with `let _ =`", "let _ = "))
+            } else { diagnostic }
+        };
+        self.diagnostics.push(diagnostic.with_code("check.ignored-result"));
     }
 
     /// XSH has no truthiness, so a condition names the type it found. A
@@ -617,11 +630,7 @@ impl Checker {
                 if !self.reject_bool_statement(source, &ty, stmt.span) {
                     self.record_statement_error(&ty, stmt.span);
                 }
-                if !expr_ty_auto_propagates(&ty) {
-                    let expr_span = arena.arena.expr(expr_id).span;
-                    self.reject_ignored_result(&ty, expr_span);
-                    self.reject_discarded_value(arena, expr_id, &ty, false);
-                }
+                self.reject_discarded_value(&ty, stmt.span, arena.arena.expr(expr_id).span, true, copy_update_mistake(arena, expr_id, &ty));
             }
             ArenaStmtKind::If {
                 branches,
@@ -710,9 +719,9 @@ impl Checker {
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
-                if !command_ty_auto_propagates(&ty) {
-                    self.reject_ignored_result(&ty, stmt.span);
-                }
+                // `let _ = name` would bind a proc instead of calling it, so
+                // a bare word gets no mechanical discard.
+                self.reject_discarded_value(&ty, stmt.span, stmt.span, false, None);
                 self.reject_bool_statement(source, &ty, stmt.span);
             }
         }
@@ -2293,12 +2302,7 @@ impl Checker {
             self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
             if self.reject_bool_statement(source, &ty, stmt.span) { return; }
             self.record_statement_error(&ty, stmt.span);
-            if expr_ty_auto_propagates(&ty) {
-                return;
-            }
-            let expr_span = arena.arena.expr(expr_id).span;
-            self.reject_ignored_result(&ty, expr_span);
-            self.reject_discarded_value(arena, expr_id, &ty, true);
+            self.reject_discarded_value(&ty, stmt.span, arena.arena.expr(expr_id).span, true, copy_update_mistake(arena, expr_id, &ty));
             return;
         }
         self.check_stmt_arena(arena, source, id);
@@ -2337,7 +2341,7 @@ impl Checker {
                         self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
                         return Type::Unit;
                     }
-                    self.reject_ignored_result(&actual, arena.arena.expr(expr_id).span);
+                    self.reject_discarded_value(&actual, stmt.span, arena.arena.expr(expr_id).span, true, copy_update_mistake(arena, expr_id, &actual));
                 }
                 self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
                 if !self.reject_bool_statement(source, &actual, stmt.span) {
@@ -2680,7 +2684,7 @@ fn record_target_requires_schema_check(arena: &ArenaProgram, target: BindingTarg
     }
 }
 
-struct CopyUpdateMistake {
+pub(super) struct CopyUpdateMistake {
     message: String,
     repair: String,
 }

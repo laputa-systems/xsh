@@ -292,7 +292,7 @@ test test_linux_fake_log_appends_in_place { |ctx|
   let blocked = fp"{root}/a-directory"
   fs.mkdir(blocked)?
   test.linux_fake(ctx, {log: blocked})?
-  let failed = test.run_script(ctx, "linux.meminfo()?")?
+  let failed = test.run_script(ctx, "let _ = linux.meminfo()?")?
   assert ! failed.success
   assert "linux-fake-log" in failed.stderr
   assert blocked.metadata()?.kind == "dir"
@@ -304,13 +304,13 @@ test test_linux_text_log_failure_kind { |ctx|
   fs.write(blocked, "not a directory")?
   let blocked_log = fp"{blocked}/linux.jsonl"
   test.linux_fake(ctx, {log: blocked_log})?
-  let meminfo_failed = test.run_script(ctx, "linux.meminfo()?")?
+  let meminfo_failed = test.run_script(ctx, "let _ = linux.meminfo()?")?
   assert ! meminfo_failed.success
   assert "linux-fake-log" in meminfo_failed.stderr
 
   # The retained native modules arm raises a fake log failure. A nested
   # script observes that process boundary without losing the failure kind.
-  let failed = test.run_script(ctx, "linux.modules()?")?
+  let failed = test.run_script(ctx, "let _ = linux.modules()?")?
   assert ! failed.success
   assert "linux-fake-log" in failed.stderr
 }

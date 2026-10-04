@@ -306,11 +306,11 @@ while ! request_started.exists()? {{
 }}
 var attempts = 0
 while attempts < 8 {{
-  process.run(process.command_argv(\"true\", [\"true\"]))?
+  let _ = process.run(process.command_argv(\"true\", [\"true\"]))?
   let spawned = spawn process.command_argv(\"true\", [\"true\"]) ?
-  wait spawned?
+  let _ = wait spawned?
   run true | run true ?
-  process.run(process.command_argv(\"true\", [\"true\"], new_session: true))?
+  let _ = process.run(process.command_argv(\"true\", [\"true\"], new_session: true))?
   attempts += 1
 }}
 fs.write(ready, \"ready\")?
@@ -687,7 +687,7 @@ let leaked = Path({})
 let helper = Path({})
 cd (root) {{
   let command = process.command_argv(helper, [\"os-probe\", \"group-leak\", ready.display(), leaked.display()])
-  process.run(command)?
+  let _ = process.run(command)?
 }} ?
 ",
         xsh_string_literal(root.to_str().unwrap()),
@@ -984,7 +984,7 @@ on USR1 --pre-cancel=0ms [time, error] {{
 }}
 
 let command = process.command_argv("sh", ["sh", "-c", r"trap 'printf forwarded > $1; exit 0' USR1; kill -USR1 $PPID; while :; do sleep 1; done", "sh", marker.display()])
-process.run(command)?
+let _ = process.run(command)?
 "#,
         xsh_string_literal(marker.to_str().unwrap())
     );
@@ -1005,7 +1005,7 @@ on USR1 [] {
 }
 
 let command = process.command_argv(\"sh\", [\"sh\", \"-c\", r\"kill -USR1 $PPID; sleep 1\"])
-time.measure(command)?
+let _ = time.measure(command)?
 print \"after\"
 ";
 
@@ -1087,7 +1087,7 @@ fn bytes_stdin_command_routes_and_streams_deliver_exact_input() {
     let output = run_temp_script("bytes-stdin-command-stream", &format!(r#"
 let payload = b"cmd\0\xff"
 let command = process.command {{ stdin = payload; run cat }}
-process.run(command)?
+let _ = process.run(command)?
 let explicit = process.command_argv("cat", ["cat"], stdin: payload)
 let handle = spawn explicit?
 let status = wait handle?

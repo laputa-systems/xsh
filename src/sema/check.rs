@@ -458,6 +458,9 @@ pub struct Checker {
     in_defer_block: bool,
     root_signal_hooks: FxHashMap<Name, Span>,
     current_exported: bool,
+    /// The final top-level statement of the script, whose `Int` value is
+    /// consumed as the exit status rather than discarded.
+    exit_status_statement: Option<Span>,
 }
 
 impl Checker {
@@ -748,6 +751,7 @@ impl Checker {
             in_defer_block: false,
             root_signal_hooks: FxHashMap::default(),
             current_exported: false,
+            exit_status_statement: None,
         };
         checker.register_builtin_process_error_family();
         checker.define_standard_values();
@@ -848,9 +852,17 @@ impl Checker {
         self.infer_default_parameter_types(program, source, &statements);
         self.infer_local_pure_returns(program, source, &statements);
         self.infer_default_parameter_types(program, source, &statements);
+        // A signature CLI `main`, or a `proc main` that the last statement does
+        // not call, runs after the top level and supplies the exit status, so
+        // no statement does.
+        let main_runs_after = statements.iter().any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)))
+            || statements.iter().any(|&stmt| defines_proc_main(program, stmt))
+                && !statements.last().is_some_and(|&stmt| calls_main(program, stmt));
+        self.exit_status_statement = statements.last().filter(|_| !main_runs_after).map(|&stmt| program.arena.stmt(stmt).span);
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
+        self.exit_status_statement = None;
         self.resolve_checked_types();
         let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
             |parameter| self.checked_parameter_type(program, parameter).unwrap_or_else(|| self.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
@@ -1075,4 +1087,23 @@ impl Checker {
                 .with_label(Label::primary(span, message)),
         );
     }
+}
+
+fn defines_proc_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {
+    match program.arena.stmt(stmt).kind {
+        ArenaStmtKind::Export(inner) => defines_proc_main(program, inner),
+        ArenaStmtKind::ProcDef(def) => {
+            let def = program.arena.function_def(def);
+            !def.test_declaration && def.name == "main"
+        }
+        _ => false,
+    }
+}
+
+fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {
+    use crate::syntax::arena::ArenaExprKind;
+    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else { return false; };
+    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind { expr = inner; }
+    matches!(program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. }
+        if matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "main"))
 }

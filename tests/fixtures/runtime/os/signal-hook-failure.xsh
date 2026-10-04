@@ -6,4 +6,4 @@ on USR1 [error] {
   Err(HookFailed.Failed(message: "boom"))?
 }
 
-process.run(process.command_argv(helper, ["os-probe", "signal-parent-then-sleep", "USR1", "50"]))?
+let _ = process.run(process.command_argv(helper, ["os-probe", "signal-parent-then-sleep", "USR1", "50"]))?

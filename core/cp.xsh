@@ -108,7 +108,7 @@ proc main(...argv: List[Str]) [fs, error] {
         return Err(AppletError.Usage(f"cp: omitting directory '{source}'"))
       }
 
-      fs.copy_tree(source, target, parents: true, overwrite: ! no_clobber)?
+      let _ = fs.copy_tree(source, target, parents: true, overwrite: ! no_clobber)?
     } else {
       fs.copy(source, target, overwrite: ! no_clobber)?
     }

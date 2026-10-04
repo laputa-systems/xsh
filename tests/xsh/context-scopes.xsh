@@ -239,7 +239,7 @@ let ignored = env ({X: "inner"}) { output = rows(); 7 }
     ctx,
     """stream rows() [] -> Stream[Int] { yield 1 }
 proc escaping() [env, error] -> Stream[Int] { return env ({X: "inner"}) { return rows() }? }
-escaping()
+let _ = escaping()
 """,
   )?
   assert ! returned.success

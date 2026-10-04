@@ -1031,9 +1031,12 @@ Every expression is checked either in statement position, where its value is
 not used, or in value position, where it is. Value positions are initializers,
 arguments, operands, explicit `return`/`yield`/`break` payloads, conditions,
 and the tail of a body whose enclosing function, block, callback, or capture
-consumes a value. Everything else is statement position: top-level
-statements, non-tail statements in a body, and the tail of a body whose
-result type is `Unit` or `Result[Unit]`.
+consumes a value, and the final top-level statement of a script, whose `Int`
+or `UInt` value is the exit status (3.1). Everything else is statement
+position: other top-level statements, statements in a statement block
+(`if`, `match`, loop, and lexical block bodies used as statements), non-tail
+statements in a body, and the tail of a body whose result type is `Unit` or
+`Result[Unit]`.
 
 In statement position:
 
@@ -1042,9 +1045,13 @@ In statement position:
 - A plain `run` asserts success (see 11.2).
 - A `Bool` is an error (`check.bool-statement`). It is neither an assertion
   nor silently dropped; write `assert cond` or `let _ = cond`.
+- `run.status` discards its status (11.1).
 - Any other value-producing expression, including `Result[T]` for non-`Unit`
-  `T`, is an error. Bind it, return it, use it as the tail, or discard it with
-  `let _ = ...`.
+  `T`, `Status`, optionals, and `Any`, is an error (`check.ignored-result`; a
+  declared `Unit` tail reports it as a type mismatch). Bind it, return it, use
+  it as the tail, or discard it with `let _ = ...`. A discarded collection
+  update such as `items.push(x)` is reported as the mistake it usually is:
+  the call returns the updated copy and leaves `items` unchanged.
 
 Every callable tail in value position is data. A `Bool` tail returns its value,
 including `false`; a `Result` tail is returned as a value, not unwrapped.
