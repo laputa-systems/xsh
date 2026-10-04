@@ -100,6 +100,13 @@ test test_unix_set_hostname_reaches_the_host_without_a_fake {
   }
 
   test.error_kind(unix.set_hostname(name), "unix-set-hostname")?
+  # Like filesystem errors, the failure carries the facet of its OS error:
+  # unprivileged hosts refuse first, privileged ones reject the length.
+  match unix.set_hostname(name) {
+    Err(is PermissionDenied) | Err(is HostIo) => {}
+    Err(error) => test.fail(f"unexpected facet for ${error.message}")?
+    Ok(_) => test.fail("an over-long hostname was accepted")?
+  }
 }
 
 test test_unix_uptime_seconds_reads_the_host_text {

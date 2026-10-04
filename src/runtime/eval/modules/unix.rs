@@ -136,7 +136,7 @@ impl Evaluator {
                 _ => ("process-kill", error.to_string()),
             };
             return Ok(Value::err(Value::Error(Box::new(
-                RuntimeError::new(kind, message).with_span(span),
+                RuntimeError::new(kind, message).with_host_facet(&error).with_span(span),
             ))));
         }
         let Some(signal) = signal_from_i32(signal.number) else {
@@ -168,7 +168,7 @@ impl Evaluator {
                     _ => ("process-kill", error.to_string()),
                 };
                 Ok(Value::err(Value::Error(Box::new(
-                    RuntimeError::new(kind, message).with_span(span),
+                    RuntimeError::new(kind, message).with_host_facet(&error).with_span(span),
                 ))))
             }
         }

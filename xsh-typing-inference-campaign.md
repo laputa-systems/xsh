@@ -70,8 +70,6 @@ mistakes found during this campaign.
 
 - **Small fixes found by the fuzz lane.**
   - The formatter is not idempotent on `fn2(...{p0: if … })`.
-  - `unix` module errors lack the NotFound/PermissionDenied facets that fs
-    errors now carry.
 
 ## Syntax (running)
 

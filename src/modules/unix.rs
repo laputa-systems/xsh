@@ -96,12 +96,12 @@ pub(crate) fn pid1_setup_native(
 
     for signal in signal_numbers {
         if let Err(error) = install_signal_handler(signal) {
-            return Err(RuntimeError::new("unix-signal", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("unix-signal", &error).with_span(span));
         }
     }
 
     if subreaper && let Err(error) = enable_child_subreaper() {
-        return Err(RuntimeError::new("unix-subreaper", error.to_string()).with_span(span));
+        return Err(RuntimeError::host("unix-subreaper", &error).with_span(span));
     }
 
     Ok(())
@@ -190,13 +190,13 @@ pub(crate) fn spawn_process_group_with_stdio_native(
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
     let notify_pipe = begin_notify_pipe(&mut command, notify)
-        .map_err(|error| RuntimeError::new("unix-notify", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("unix-notify", &error).with_span(span))?;
     let notify_write = notify_pipe.as_ref().map(|(_, write)| write.as_raw_fd());
     configure_init_child(&mut command, None, notify_write);
     let child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            return Err(RuntimeError::new("unix-spawn", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("unix-spawn", &error).with_span(span));
         }
     };
     assign_cgroup_pid(&cgroup, child.id() as i64, span)?;
@@ -220,13 +220,13 @@ pub(crate) fn spawn_logged_process_group_native(
     let mut logger_command = command_from_invocation(logger, span)?;
     let cgroup = invocation_cgroup(invocation, "xsh-unix", span)?;
     let (reader, writer) = pipe_files().map_err(|error| {
-        RuntimeError::new("unix-spawn-log-pipe", error.to_string()).with_span(span)
+        RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span)
     })?;
     let stdout = duplicate_file(&writer).map_err(|error| {
-        RuntimeError::new("unix-spawn-log-pipe", error.to_string()).with_span(span)
+        RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span)
     })?;
     let stderr = duplicate_file(&writer).map_err(|error| {
-        RuntimeError::new("unix-spawn-log-pipe", error.to_string()).with_span(span)
+        RuntimeError::host("unix-spawn-log-pipe", &error).with_span(span)
     })?;
     drop(writer);
 
@@ -237,7 +237,7 @@ pub(crate) fn spawn_logged_process_group_native(
     let child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            return Err(RuntimeError::new("unix-spawn", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("unix-spawn", &error).with_span(span));
         }
     };
 
@@ -253,7 +253,7 @@ pub(crate) fn spawn_logged_process_group_native(
             if let Some(pid) = rprocess::Pid::from_raw(child.id() as i32) {
                 let _ = rprocess::kill_process_group(pid, rprocess::Signal::TERM);
             }
-            return Err(RuntimeError::new("unix-spawn-logger", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("unix-spawn-logger", &error).with_span(span));
         }
     };
     assign_cgroup_pid(&cgroup, logger_child.id() as i64, span)?;
@@ -304,16 +304,10 @@ fn signal_process_group(pid: i64, signal: i32, span: Span) -> Result<bool, Runti
             Err(error) if error == rio::Errno::PERM => match rprocess::test_kill_process(pid) {
                 Ok(()) => Ok(true),
                 Err(kill_error) if kill_error == rio::Errno::SRCH => Ok(false),
-                Err(kill_error) => Err(RuntimeError::new(
-                    "unix-kill-process-group",
-                    io::Error::from(kill_error).to_string(),
-                )
+                Err(kill_error) => Err(RuntimeError::host("unix-kill-process-group", &io::Error::from(kill_error))
                 .with_span(span)),
             },
-            Err(error) => Err(RuntimeError::new(
-                "unix-kill-process-group",
-                io::Error::from(error).to_string(),
-            )
+            Err(error) => Err(RuntimeError::host("unix-kill-process-group", &io::Error::from(error))
             .with_span(span)),
         };
     }
@@ -334,16 +328,13 @@ fn signal_process_group(pid: i64, signal: i32, span: Span) -> Result<bool, Runti
                         if kill_error.raw_os_error() == Some(rio::Errno::SRCH.raw_os_error()) {
                             Ok(false)
                         } else {
-                            Err(RuntimeError::new(
-                                "unix-kill-process-group",
-                                kill_error.to_string(),
-                            )
+                            Err(RuntimeError::host("unix-kill-process-group", &kill_error)
                             .with_span(span))
                         }
                     }
                 }
             } else {
-                Err(RuntimeError::new("unix-kill-process-group", error.to_string()).with_span(span))
+                Err(RuntimeError::host("unix-kill-process-group", &error).with_span(span))
             }
         }
     }
@@ -783,7 +774,7 @@ fn wait_one_child_event(span: Span) -> Result<Option<ChildEvent>, RuntimeError> 
             if error.raw_os_error() == Some(libc::ECHILD) {
                 return Ok(None);
             }
-            return Err(RuntimeError::new("unix-waitpid", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("unix-waitpid", &error).with_span(span));
         }
     }) else {
         return Ok(None);
@@ -853,13 +844,13 @@ fn spawn_child(
             .stderr(Stdio::null());
     }
     let notify_pipe = begin_notify_pipe(&mut command, notify)
-        .map_err(|error| RuntimeError::new("unix-notify", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("unix-notify", &error).with_span(span))?;
     let notify_write = notify_pipe.as_ref().map(|(_, write)| write.as_raw_fd());
     configure_init_child(&mut command, tty, notify_write);
     let child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            return Err(RuntimeError::new("unix-spawn", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("unix-spawn", &error).with_span(span));
         }
     };
     assign_cgroup_pid(&cgroup, child.id() as i64, span)?;
@@ -1048,7 +1039,7 @@ pub(crate) fn notify_ready_native(fd: i64, span: Span) -> Result<bool, RuntimeEr
             Err(rio::Errno::INTR) => continue,
             Err(error) if error == rio::Errno::AGAIN || error == rio::Errno::WOULDBLOCK => break,
             Err(error) => {
-                return Err(RuntimeError::new("unix-notify", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("unix-notify", &error).with_span(span));
             }
         }
     }
@@ -1233,7 +1224,7 @@ fn int_field(fields: &crate::runtime::value::RecordMap, name: &str) -> Option<i6
 
 fn supplementary_groups(span: Span) -> Result<Vec<Value>, RuntimeError> {
     let mut gids = rprocess::getgroups().map_err(|e| {
-        RuntimeError::new("unix-id", io::Error::from(e).to_string()).with_span(span)
+        RuntimeError::host("unix-id", &io::Error::from(e)).with_span(span)
     })?;
     let primary_raw = rprocess::getgid().as_raw();
     if !gids.iter().any(|g| g.as_raw() == primary_raw) {
@@ -1365,7 +1356,7 @@ fn ok_unit() -> Value {
 }
 
 fn io_error(kind: &str, error: io::Error, span: Span) -> Value {
-    error_value(kind, error.to_string(), span)
+    Value::err(Value::Error(Box::new(RuntimeError::host(kind, &error).with_span(span))))
 }
 
 fn error_value(kind: &str, message: impl Into<String>, span: Span) -> Value {
