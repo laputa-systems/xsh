@@ -26,32 +26,7 @@ is in git; see `git log -- xsh-typing-inference-campaign.md`.
 
 ## Remaining items
 
-### In flight: provable formatter and grouping rules (lane HH)
-
-1. **Line continuation:** continuation tokens must not overlap the tokens that
-   can start an expression, so a line starting with `-` is a new statement. A
-   test computes the overlap from the parser's own tables.
-2. **Token separation:** an exhaustive token-pair separation table drives the
-   printer.
-3. **Parentheses:** one proven `needs_parens` function drives the printer and a
-   new `check.redundant-parens` error, which has a fix.
-4. **Grouping:** mixing `and` with `or`, or `??` with either, requires explicit
-   grouping.
-5. **Round trip:** a property test generates syntax trees and checks that
-   printing and reparsing gives back the same tree.
-6. **Migration:** this repo is migrated in the lane. `../packages` and
-   `../laputa` follow as local commits.
-
-### 1. Disagreeing value tails are an error
-
-Today, `proc pick(flag: Bool) { if flag { 1 } else { "one" } }` silently falls
-back to `Result[Unit]`. The user then sees an unrelated error at the use site.
-
-- The `Result[Unit]` fallback applies only when every completion is Unit-like.
-- Value tails whose types disagree report `check.type-mismatch` at the proc,
-  naming both types.
-- Owner: `src/sema/check/infer_return.rs`.
-- Pin the behavior in `tests/xsh/private-proc-returns.xsh`.
+Done and removed from this list: tail mismatch, the soundness fuzzer (`make fuzz`; fuzzing is wound down), lowering drift, the provable formatter and grouping rules, the docs pipeline (`make docs`, the `template` module, the templated tour), regex anchors, parser bugs, test speed and release-only test binaries.
 
 ### 2. Dynamic data is always validated before it becomes a concrete type
 
@@ -65,21 +40,7 @@ and arithmetic and fails only at runtime.
   retains its established dynamic field behavior".
 - The diagnostic carries a fix that inserts `.require(T)` when the target type
   is known from context, and the fix is selectable with `xsht lint --only`.
-- Migrate this repo, `../packages` and `../laputa` before the error lands.
-
-### 3. Soundness property test
-
-Every typing bug found in this campaign had the same shape: the checker
-accepted a program that then failed at runtime. Make "well-typed programs do
-not go wrong" a tested property.
-
-- A grammar- and type-directed generator produces well-typed programs, with no
-  `Any` and no host effects.
-- The test runs each one through the normal preparation and execution path.
-- Any runtime type error, internal `indexed IR could not encode` error, or
-  checker/runtime disagreement fails the test.
-- Fixed seeds, bounded size, and no new dependencies.
-- Fold in lane BB's registry-signature probes as a deterministic corpus.
+- Migrate this repo and `../laputa` before the error lands. `../laputa` becomes the monorepo, absorbing `../packages`.
 
 ### 4. Diagnostics for common mistakes
 
@@ -95,15 +56,6 @@ Known gaps:
 Fix messages until the corpus passes. Seed it from these gaps and from the
 mistakes found during this campaign.
 
-### 5. Lowering drift test
-
-Lowering still computes representation-level types (37 `infer_*` uses in
-`src/runtime/eval/lower.rs`) and expands spreads itself.
-
-- Add a differential test over the corpus. Every type that lowering computes
-  must agree with the checker's published facts for the same expression.
-- Delete any remaining computation the checker already publishes.
-
 ## Diagnostics and grouping (remaining)
 
 - **Typed diagnostic codes.** Replace string codes (`LINT_CODES`,
@@ -113,17 +65,8 @@ Lowering still computes representation-level types (37 `infer_*` uses in
   - Diagnostics carry the enum.
   - `--only` parses into it.
   - `lint --list` and `make docs` iterate it.
-- **Required grouping for two more forms.** An `if`/`match` expression used as
-  an operand, and a pipeline followed by a suffix or operator, must be
-  parenthesized. The diagnostic carries a fix, and this repo and the siblings
-  are migrated.
 
 ## Tooling (remaining)
-
-- **Test speed (running).** `cargo test -p xsht` takes 828 s, mostly in the
-  corpus invariance tests. Target under ~90 s. Tests never spawn debug
-  binaries; every spawned `xsh`/`xsht` is the release build, with a loud
-  failure when it is missing or stale.
 
 - **Small fixes found by the fuzz lane.**
   - The formatter is not idempotent on `fn2(...{p0: if … })`.
@@ -211,35 +154,10 @@ rightmost `:`. The design below closes each of those edges.
     The formatter's round-trip and lint-invariance properties must hold on
     all of them.
 
-## Docs refresh (remaining)
+## Formatter (remaining)
 
-Landed so far: `README.md`, `docs/user-tour.md` (it absorbs CHAPTER-01), one
-merged `docs/SPEC.md`, a slim `ARCHITECTURE.md`, `TESTING.md` (which replaced
-TEST-MAP), `core/SYSTEM-REPORT.md`, and the retired docs.
-
-- **Stdlib `template` module (lane D1).** Then `make docs` / `make docs-check`,
-  written in XSH with `template`:
-  - generate `docs/reference/stdlib.md`, a compact index from
-    `xsht api --format jsonl`;
-  - generate the CLI reference from `xsht --help`;
-  - generate a lint catalog, after adding a one-line summary per code in
-    `crates/xsht/src/lint.rs`;
-  - render the tour from `docs/templates/user-tour.md`. Each example is a real
-    file, `docs/snippets/tour/NN-name.xsh`, and the multi-file example is a
-    real project, `docs/snippets/tour/project/`. Portable snippets are run
-    during rendering and their stdout is spliced in, so the tour never shows
-    stale output; Linux-only snippets are checked but not run;
-  - the snippets go through the normal `xsht check`, lint, `fmt --check` and
-    `xsht test`, so the markdown block convention and its extraction checker
-    are not needed;
-  - `make check` fails when re-rendering differs from the committed docs.
-- **Formatter small heuristics (after lane HH).** Keep short single-line
-  blocks and records that fit the line width. Then make the tour `fmt`-clean
-  and require that in `docs-check`.
-- **Regex `$`.** Document that it means end of text, in SPEC and the tour, with
-  `(?m)` or `.trim()` for line-oriented matching.
-- **Parser bugs (after lane HH).** `run ./tool` and `cd /tmp { … }` do not parse.
-- **Decided: module names stay reserved as binding names.**
+- Keep short single-line blocks and records that fit the line width.
+- Then make the tour snippets `fmt`-clean and require that in `docs-check`.
 
 ## Final gates
 
@@ -249,7 +167,7 @@ These hold at every landing:
 - `make check`: release lint, 15 s budget;
 - `xsht fmt --check`;
 - clippy;
-- both sibling repositories;
+- the Laputa monorepo (`../laputa`);
 - one Linux run in the `Dockerfile.test` image at the end.
 
 Then delete this file.
