@@ -1985,6 +1985,8 @@ impl Evaluator {
         ) {
             return None;
         }
+        // A top-level statement starts only once any earlier `Err` was handled.
+        self.pending_traceback = None;
         let outcome = self.eval_indexed_driver_step_inner(view, call_span);
         // A top-level statement is a boundary at which nothing can still reach a
         // producer it built and dropped.
@@ -6901,6 +6903,8 @@ impl Evaluator {
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
+                // The `?` reuses only a traceback that its operand records.
+                self.pending_traceback = None;
                 return match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
                     ControlFlow::Continue(value) => match self.indexed_question_value(value, call_span)? {
