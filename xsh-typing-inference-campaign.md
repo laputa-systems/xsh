@@ -144,6 +144,28 @@ rightmost `:`. The design below closes each of those edges.
     The formatter's round-trip and lint-invariance properties must hold on
     all of them.
 
+## Grammar derivation (queued, after the f-string lane)
+
+There is one typed grammar definition, `src/syntax/grammar.rs`, and nothing
+else is maintained by hand. Today the EBNF in SPEC Appendix A is
+documentation only; no code reads it.
+
+- **Grammar as data:** productions, terminals, keyword and operator sets,
+  precedence and associativity, continuation tokens, literal prefixes and
+  stage kinds.
+- **The parser reads those tables** (binding powers, keyword dispatch,
+  continuation, literal kinds) from the grammar data. It stops keeping its
+  own copies.
+- **Generated docs:** `make docs` renders `docs/reference/grammar.md`, SPEC
+  Appendix A becomes a link to it, and `docs-check` fails on drift.
+- **Structural productions are proven equal in both directions on every
+  test run:**
+  - every sentence generated from the grammar parses without diagnostics;
+  - every corpus file and every fuzz-generated program, lexed with the real
+    lexer, is recognized by an Earley recognizer over the same grammar data.
+- **The hand-written parser stays,** with its error recovery and its
+  diagnostics.
+
 ## Formatter (remaining)
 
 - Keep short single-line blocks and records that fit the line width.
