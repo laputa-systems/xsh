@@ -136,6 +136,29 @@ test test_result_alias_return_shape {
   assert build_bare_through_alias()? == ["ok"]
 }
 
+# A command tail completes a return type that accepts Unit: the command runs
+# for effect and the body finishes with its Unit value.
+test test_command_tail_completes_unit_accepting_return_types { |ctx|
+  let output = test.run_script(
+    ctx,
+    """proc show() -> Result[Any] {
+  print "shown"
+}
+
+proc label() -> Any {
+  print "labeled"
+}
+
+let _ = show()?
+let _: Any = label()
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """shown
+labeled
+"""
+}
+
 test test_explicit_result_return_shapes { |ctx|
   let output = test.run_script(
     ctx,

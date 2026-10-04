@@ -602,6 +602,11 @@ pub(super) struct CallFrame<'p> {
     /// Whether this frame is a stream producer, whose body ends by falling off
     /// the end of its statements rather than by returning.
     pub(super) producer: bool,
+    /// Whether the body was discarded for cancellation. A cancelled frame
+    /// replays only cleanup: retained expression boundaries restore their
+    /// context scopes and deliver no value to the continuations, which are
+    /// body computation rather than cleanup.
+    cancelled: bool,
     pub(super) scope_id: u64,
     pub(super) execution: FullExecution<'p>,
     pub(super) slots: FrameSlots<'p>,
@@ -803,6 +808,7 @@ impl Evaluator {
                 context_depth,
             },
             producer: false,
+            cancelled: false,
             scope_id,
             execution: execution.thread_local(),
             slots: FrameSlots::Lent(slots),
@@ -1103,6 +1109,7 @@ impl<'p> CallFrame<'p> {
 
     /// Drops the body's remaining work, keeping its registered defers.
     pub(super) fn discard_body(&mut self) {
+        self.cancelled = true;
         self.work.retain(|work| {
             matches!(
                 work,
@@ -1161,6 +1168,7 @@ impl<'p> CallFrame<'p> {
         Ok(Some(CallFrame {
             owner: FrameOwner::Function(function, kind),
             producer: true,
+            cancelled: false,
             scope_id: state.scope_id,
             execution,
             slots: FrameSlots::Owned(state.slots),
@@ -1687,6 +1695,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls.push(CallFrame {
             owner: FrameOwner::Function(function, kind),
             producer: false,
+            cancelled: false,
             scope_id,
             execution,
             slots: FrameSlots::Owned(slots),
@@ -1726,6 +1735,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span))
             }
             FrameWork::ExpressionBoundary { policy, next } => {
+                if self.calls[index].cancelled {
+                    // A cancelled body replays only cleanup. Restore the scope
+                    // this boundary opened and skip its continuation: feeding a
+                    // placeholder value into body computation (selecting match
+                    // arms, for one) can fail on a value the body never produced.
+                    if let ExpressionBoundaryPolicy::Scope(restore) = policy {
+                        self.evaluator.restore_indexed_context_scope(restore);
+                    }
+                    return Ok(());
+                }
                 let value = match policy {
                     ExpressionBoundaryPolicy::Capture => {
                         LoweredValue::ResultOk(Box::new(LoweredValue::Unit))

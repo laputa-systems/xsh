@@ -3343,6 +3343,22 @@ impl<'a> Writer<'a> {
                 }
                 return;
             }
+            // A lone record that cannot stay flat hugs the parentheses too,
+            // rendered expanded. Breaking the argument list instead would
+            // hand the next formatting an input whose record source is
+            // multiline, which hugs then: the two layouts would alternate.
+            if self.call_arg_is_multiline_record(&arg_kind)
+                && !inline.contains('\n')
+                && !self.fits_inline(output, &inline)
+            {
+                let mut hugged = String::from("(");
+                self.write_call_arg_multiline(&arg_kind, &mut hugged);
+                hugged.push(')');
+                if self.fits_multiline_inline(output, &hugged) {
+                    self.write_multiline_inline(&hugged, output);
+                    return;
+                }
+            }
         }
 
         let arg_kinds: Vec<xsh::frontend::syntax::arena::ArenaCallArgKind> = self

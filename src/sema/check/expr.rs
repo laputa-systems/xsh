@@ -2107,7 +2107,8 @@ impl Checker {
             unguarded.iter().map(|(pattern, _)| *pattern),
             &self.type_defs,
             &self.tag_variants,
-        ) {
+        ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
+        {
             self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);
         }
         self.check_list_match_coverage_arena(

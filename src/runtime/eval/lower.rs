@@ -4868,13 +4868,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             ),
             // A tail `run.text cmd` supplies the body's value.
-            ArenaStmtKind::Command(_)
+            ArenaStmtKind::Command(command_id)
                 if self.bodies.statement_positions.get(&tail)
                     == Some(&crate::sema::check::StatementPosition::Value) =>
             {
-                let value =
-                    self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)?;
-                push_build_row!(self, stmt, BuildStmtRow::Return { value })
+                if matches!(
+                    self.program.arena.command_stmt(command_id).command,
+                    ArenaCommand::Run(_)
+                ) {
+                    let value =
+                        self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)?;
+                    push_build_row!(self, stmt, BuildStmtRow::Return { value })
+                } else {
+                    // Every other command's value is Unit. A return type that
+                    // accepts the Unit fallthrough (checked before lowering)
+                    // runs the command as the statement it is and completes
+                    // with that Unit.
+                    self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
+                }
             }
             _ => self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?,
         };
@@ -16008,37 +16019,34 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             BuildStmtRow::If {
                 branches,
                 else_body,
-            } => {
-                branches
-                    .iter()
-                    .all(|(_, body)| lowered_body_can_return(scratch, body))
-                    && else_body
-                        .as_ref()
-                        .is_some_and(|body| lowered_body_can_return(scratch, body))
-            }
+            } => lowered_branch_chain_can_return(
+                scratch,
+                branches.iter().map(|(condition, body)| {
+                    (lowered_expr_bool_literal(scratch, condition), body.as_slice())
+                }),
+                else_body.as_deref(),
+            ),
             BuildStmtRow::PatternIf {
                 branches,
                 else_body,
                 ..
-            } => {
-                branches
-                    .iter()
-                    .all(|(_, body, _)| lowered_body_can_return(scratch, body))
-                    && else_body
-                        .as_ref()
-                        .is_some_and(|body| lowered_body_can_return(scratch, body))
-            }
+            } => lowered_branch_chain_can_return(
+                scratch,
+                branches.iter().map(|(condition, body, _)| {
+                    (lowered_expr_bool_literal(scratch, condition), body.as_slice())
+                }),
+                else_body.as_deref(),
+            ),
             BuildStmtRow::IfBool {
                 branches,
                 else_body,
-            } => {
-                branches
-                    .iter()
-                    .all(|(_, body)| lowered_body_can_return(scratch, body))
-                    && else_body
-                        .as_ref()
-                        .is_some_and(|body| lowered_body_can_return(scratch, body))
-            }
+            } => lowered_branch_chain_can_return(
+                scratch,
+                branches.iter().map(|(condition, body)| {
+                    (lowered_bool_row_literal(scratch, condition), body.as_slice())
+                }),
+                else_body.as_deref(),
+            ),
             BuildStmtRow::While { body, .. }
             | BuildStmtRow::PatternWhile { body, .. }
             | BuildStmtRow::WhileBool { body, .. }
@@ -16103,8 +16111,50 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
 fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool {
     matches!(
         kind,
-        LoweredReturnKind::Plain(LoweredType::Unit) | LoweredReturnKind::Result(LoweredType::Unit)
+        LoweredReturnKind::Plain(LoweredType::Unit)
+            | LoweredReturnKind::Result(LoweredType::Unit)
+            // `Any` (and the erased optionals lowering maps onto it) accepts
+            // a Unit fallthrough, which is how a command-tailed body
+            // completes an `Any`- or `Any?`-returning function.
+            | LoweredReturnKind::Plain(LoweredType::Any)
+            | LoweredReturnKind::Result(LoweredType::Any)
     )
+}
+
+fn lowered_expr_bool_literal(scratch: &BuildScratch, expr: &BuildExprId) -> Option<bool> {
+    match &scratch.expressions[expr.index()] {
+        BuildExprRow::Bool(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn lowered_bool_row_literal(scratch: &BuildScratch, expr: &BuildBoolId) -> Option<bool> {
+    match &scratch.bools[expr.index()] {
+        BuildBoolRow::Bool(value) => Some(*value),
+        _ => None,
+    }
+}
+
+/// Whether an `if`-style chain returns on every reachable path. A
+/// literal-false condition is unreachable, and a literal-true one makes every
+/// later branch and the else unreachable; a no-else chain can fall through.
+fn lowered_branch_chain_can_return<'a>(
+    scratch: &BuildScratch,
+    branches: impl Iterator<Item = (Option<bool>, &'a [BuildStmtId])>,
+    else_body: Option<&[BuildStmtId]>,
+) -> bool {
+    for (literal, body) in branches {
+        match literal {
+            Some(false) => continue,
+            Some(true) => return lowered_body_can_return(scratch, body),
+            None => {
+                if !lowered_body_can_return(scratch, body) {
+                    return false;
+                }
+            }
+        }
+    }
+    else_body.is_some_and(|body| lowered_body_can_return(scratch, body))
 }
 
 pub(super) fn lowered_match_body_can_return(
