@@ -3515,6 +3515,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             state.iterators.pop();
         }
+        // The comprehension's cleanup sits directly below its own work, so it
+        // retires here instead of lingering under the consumer's
+        // continuation, where it would break work-stack shapes that pattern
+        // conditions and other consumers pop back to.
+        let Some(FrameWork::CompCleanup(streams)) = self.calls[index].work.pop() else {
+            unreachable!("finished comprehension owns its stream cleanup");
+        };
+        debug_assert!(Arc::ptr_eq(&streams, &state.streams));
+        self.cleanup_comp_streams(streams)?;
         let value = if state.map { LoweredValue::Map(Arc::new(state.map_values)) } else { LoweredValue::List(state.values) };
         self.push_value(index, FrameValue::Value(value), next);
         Ok(())
