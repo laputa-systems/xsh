@@ -72,8 +72,10 @@ Choose the narrowest useful command first, then run the full relevant gate from
 with `cargo build --release -p xsh --bins -p xsht --bin xsht`, then run
 `target/release/xsht test ...`. They run several times faster than debug (the
 stdlib suite takes 6 s instead of 34 s), and `xsht` runs the sibling `xsh` from
-its own directory. Use debug builds for Rust
-`cargo test` gates and quick compile checks.
+its own directory. Tests never run debug binaries: run Rust integration test
+targets with `cargo test --release --test NAME` (a debug build of a test that
+spawns a binary fails with that instruction); only `--lib` unit tests and quick
+compile checks use debug builds.
 Build the exact binary or package needed for the task instead of using bare
 `cargo build --release`: the `xsh`, `xshi`, and `xsht` packages own the
 user-facing binaries, while the root package also owns the `xsh-test-*`

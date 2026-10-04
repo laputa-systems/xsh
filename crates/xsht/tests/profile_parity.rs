@@ -1,25 +1,26 @@
-//! The migrated-API cases behave identically across the supported build profiles.
+//! The migrated-API cases behave identically across the supported feature sets.
 //!
-//! The same script is run through each available `xsh` binary and the bytes of
-//! stdout, stderr, and the exit status are compared across debug/release and
-//! default/no-default-feature builds. The script is
+//! The same script is run through each available release `xsh` binary and the
+//! bytes of stdout, stderr, and the exit status are compared across
+//! default/no-default-feature builds. Tests run release binaries only, so debug
+//! builds are not compared. The script is
 //! built from the cases this port is most likely to break by re-encoding
 //! something: newlines inside values, non-ASCII text and escapes, path bytes,
 //! and the exact kind and message of a rejected call.
 //!
-//! Build the extra binaries beside the debug one to widen the comparison:
+//! Build the no-default-feature binary beside the release one to widen the
+//! comparison:
 //!
 //! ```sh
 //! cargo build --release -p xsh --bin xsh
-//! CARGO_TARGET_DIR=target/no-default cargo build -p xsh --bin xsh --no-default-features
 //! CARGO_TARGET_DIR=target/no-default cargo build --release -p xsh --bin xsh --no-default-features
 //! ```
 //!
-//! On Linux, use `CARGO_TARGET_DIR=target/no-default-linux` for the two
-//! no-default-feature builds. Build and run all products in Dockerfile.test with
+//! On Linux, use `CARGO_TARGET_DIR=target/no-default-linux` for the
+//! no-default-feature build. Build and run all products in Dockerfile.test with
 //! `--target aarch64-unknown-linux-musl` and the flags from
 //! `dev/targets.xsh::docker_test_env`. A missing alternative is reported as a
-//! skip with its exact build command; a missing debug baseline is an error.
+//! skip with its exact build command; a missing release baseline is an error.
 
 use std::io::Write;
 use std::process::Command;
@@ -134,25 +135,13 @@ fn one_case_set_behaves_identically_across_supported_builds() {
             "inside Dockerfile.test with dev/targets.xsh::docker_test_env flags: ",
         )
     };
-    let debug = default_dir.join("debug/xsh");
+    let release = default_dir.join("release/xsh");
     assert!(
-        debug.is_file(),
-        "missing debug baseline: {}. Build {build_context}cargo build -p xsh --bin xsh{target_arg}",
-        debug.display()
+        release.is_file(),
+        "missing release baseline: {}. Build {build_context}cargo build --release -p xsh --bin xsh{target_arg}",
+        release.display()
     );
     let alternatives = [
-        (
-            "release",
-            default_dir.join("release/xsh"),
-            format!("cargo build --release -p xsh --bin xsh{target_arg}"),
-        ),
-        (
-            "no-default-features",
-            no_default_dir.join("debug/xsh"),
-            format!(
-                "CARGO_TARGET_DIR={no_default_target_dir} cargo build -p xsh --bin xsh --no-default-features{target_arg}"
-            ),
-        ),
         (
             "release-no-default-features",
             no_default_dir.join("release/xsh"),
@@ -161,7 +150,7 @@ fn one_case_set_behaves_identically_across_supported_builds() {
             ),
         ),
     ];
-    let mut compared = vec![("debug", debug.clone())];
+    let mut compared = vec![("release", release)];
     for (name, binary, command) in alternatives {
         if binary.is_file() {
             compared.push((name, binary));
@@ -199,8 +188,8 @@ fn one_case_set_behaves_identically_across_supported_builds() {
         "the script must have produced its first line: {}",
         String::from_utf8_lossy(&baseline.1)
     );
-    assert_eq!(baseline.0, 0, "debug baseline exited with an error");
-    assert!(baseline.2.is_empty(), "debug baseline wrote to stderr");
+    assert_eq!(baseline.0, 0, "release baseline exited with an error");
+    assert!(baseline.2.is_empty(), "release baseline wrote to stderr");
 
     for (name, candidate) in &runs[1..] {
         let context = |field: &str| {

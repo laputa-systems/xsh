@@ -6746,6 +6746,7 @@ test result: ok. 0 passed; 0 failed; 1 skipped
   )? == [
     "/opt/cargo",
     "test",
+    "--release",
     "--offline",
     "-p",
     "xsh",

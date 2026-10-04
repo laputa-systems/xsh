@@ -324,14 +324,10 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
   )?
 }
 
-## Release binaries for `make docs`, built by `build_release`.
+## Release binaries for `make docs` and `cargo dev check`, built by
+## `build_release` or the `check-build` stage.
 export pure release_tools(ctx: context.Context) -> DocTools {
   DocTools(xsh: fp"${ctx.target_dir}/release/xsh", xsht: fp"${ctx.target_dir}/release/xsht")
-}
-
-## Debug binaries, as built by the `check-build` stage.
-export pure debug_tools(ctx: context.Context) -> DocTools {
-  DocTools(xsh: fp"${ctx.target_dir}/debug/xsh", xsht: fp"${ctx.target_dir}/debug/xsht")
 }
 
 ## Builds the release `xsh` and `xsht` that render the docs.

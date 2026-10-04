@@ -13,8 +13,11 @@ You implement one bounded slice of the plan in `xsh-typing-inference-campaign.md
   (shared facades, registrations, canonical docs), stop and request it in your
   report instead of making it.
 - Keep the tree green. Run the narrowest test first
-  (`target/release/xsht test <file>` (build release `xsh` and `xsht` first)), then the gate your item names. Build only the
-  exact debug package you need. Never run formatters or autofixers.
+  (`target/release/xsht test <file>` after building release `xsh` and
+  `xsht`), then the gate your item names. Tests that spawn binaries run on
+  release builds only (`cargo test --release --test ...`); use debug builds
+  only for compile checks and debug-only unit tests. Never run formatters or
+  autofixers.
 - Respect the item's size budget. When you add a path for an existing decision,
   delete the old path in the same slice. Stop and report if you reach twice the
   budget.

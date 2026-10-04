@@ -1172,6 +1172,8 @@ fn native_test_error_kind(kind: NativeTestRunKind) -> &'static str {
     }
 }
 
+/// A binary that native tests spawn: the path a Cargo test passes in, else the
+/// sibling of the running `xsht`, so children share the runner's build profile.
 fn test_binary(name: &str) -> PathBuf {
     let env_name = format!("CARGO_BIN_EXE_{name}");
     if let Some(path) = std::env::var_os(env_name) {
@@ -1184,10 +1186,6 @@ fn test_binary(name: &str) -> PathBuf {
         if sibling.exists() {
             return sibling;
         }
-    }
-    let target_debug = PathBuf::from("target/debug").join(name);
-    if target_debug.exists() {
-        return target_debug;
     }
     PathBuf::from(name)
 }

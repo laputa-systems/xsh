@@ -43,7 +43,7 @@ proc xsht_path(root: Path) [env] -> Path {
 
   return repo_path(root, configured) when configured != ""
 
-  fp"${root}/target/debug/xsht"
+  fp"${root}/target/release/xsht"
 }
 
 proc relative_display(root: Path, target: Path) [error] -> Result[Str] {

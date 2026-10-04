@@ -102,7 +102,8 @@ export proc check_docs(
   documentation.check(ctx.root, tools)?
 }
 
-## Runs the focused, source-non-mutating development check suite.
+## Runs the focused, source-non-mutating development check suite. Its tools
+## and tests run release binaries, as every test does.
 export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
@@ -112,6 +113,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       [
         "cargo",
         "build",
+        "--release",
         "-p",
         "xsh",
         "-p",
@@ -158,7 +160,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       {},
     ),
   )?
-  let xsht = fp"${ctx.target_dir}/debug/xsht"
+  let xsht = fp"${ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
       "check-xsh",
@@ -197,6 +199,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       [
         "cargo",
         "test",
+        "--release",
         "--test",
         "integration",
         "runtime::coverage::runnable_xsh_corpus_is_formatted_and_lints_without_warnings",
@@ -205,7 +208,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       {},
     ),
   )?
-  check_docs(ctx, documentation.debug_tools(ctx))?
+  check_docs(ctx, documentation.release_tools(ctx))?
   check_libxsh_imports(ctx)?
   stages.execute(
     stages.command(

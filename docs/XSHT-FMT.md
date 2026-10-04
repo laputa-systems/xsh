@@ -62,5 +62,5 @@ one golden, `tests/fixtures/fmt/beauty.expected.xsh`. Add an annotated section
 there when a source shape or the CLI rewrite path is part of the behavior;
 `tests/xsh/formatter.xsh::test_fmt_fixture` formats a copy, compares the golden,
 then runs `xsht check` and `xsht fmt --check`. Narrow unit contracts go in
-`tests/syntax.rs` (`cargo test --test integration syntax::`). The sibling
+`tests/syntax.rs` (`cargo test --release --test integration syntax::`). The sibling
 `../packages` corpus, when present, is a broad stress test, not a golden.
