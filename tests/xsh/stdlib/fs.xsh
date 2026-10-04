@@ -106,6 +106,27 @@ print ${{entry.size}}
   assert "metadata-unavailable" in unstat.stderr
 }
 
+test test_fs_remove_deletes_trees_without_following_symlinks { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-remove-tree")?
+  let outside = fp"{root}/outside"
+  fs.mkdir(outside)?
+  fs.write(fp"{outside}/kept.txt", "kept")?
+  let tree = fp"{root}/tree"
+  fs.mkdir(fp"{tree}/nested/deeper")?
+  fs.write(fp"{tree}/nested/deeper/file.txt", "gone")?
+  fs.symlink(outside, fp"{tree}/nested/link")?
+
+  fs.remove(tree)?
+  assert ! fs.exists(tree)?
+  assert fs.read_text(fp"{outside}/kept.txt")? == "kept"
+
+  let path_tree = fp"{root}/path-tree"
+  fs.mkdir(fp"{path_tree}/child")?
+  fs.write(fp"{path_tree}/child/file.txt", "gone")?
+  path_tree.remove()?
+  assert ! fs.exists(path_tree)?
+}
+
 test test_fs_write_atomic_keeps_plain_write_modes { |ctx|
   let root = test.temp_dir(ctx, name: "fs-atomic-mode")?
   let plain = fp"{root}/plain.txt"

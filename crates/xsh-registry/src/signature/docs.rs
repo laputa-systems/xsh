@@ -609,8 +609,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["filesystem", "directory", "creation"],
         )),
         ("fs", "remove") => Some((
-            "Removes a file or empty directory with an explicit missing policy.",
-            "Missing paths are errors unless missing_ok is enabled; recursive deletion is not implied.",
+            "Removes a file, symlink, or directory tree with an explicit missing policy.",
+            "A directory is removed with everything below it; a symlink is removed itself and never followed. Missing paths are errors unless missing_ok is enabled. Use Path.remove_dir to remove only an empty directory.",
             &["filesystem", "remove", "destructive"],
         )),
         ("fs", "remove_manifest") => Some((
@@ -1454,8 +1454,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["path", "filesystem", "directory"],
         )),
         ("Path", "remove") => Some((
-            "Removes a path with an explicit missing policy.",
-            "Removal is not recursive unless the selected host operation says so, and missing_ok controls absence.",
+            "Removes a file, symlink, or directory tree with an explicit missing policy.",
+            "A directory is removed with everything below it; a symlink is removed itself and never followed. missing_ok controls absence; use remove_dir to remove only an empty directory.",
             &["path", "filesystem", "remove"],
         )),
         ("Path", "remove_dir") => Some((

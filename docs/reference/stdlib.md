@@ -133,7 +133,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.owner_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Finds the project root from a starting path.
 - `fs.read_text(path: Path) -> Result[Str, Error]` — Reads a UTF-8 file into Str.
-- `fs.remove(path: Path, missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file or empty directory with an explicit missing policy.
+- `fs.remove(path: Path, missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree with an explicit missing policy.
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
 - `fs.rename(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path with an explicit overwrite policy.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
@@ -612,7 +612,7 @@ Process-scoped utility helpers.
 - `Path.read_text() -> Result[Str, Error]` — Reads a UTF-8 file into Str.
 - `Path.readlink() -> Result[Path, Error]` — Reads a symbolic link target.
 - `Path.relative_to(base: Path) -> Path` — Computes a path relative to an explicit base.
-- `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a path with an explicit missing policy.
+- `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree with an explicit missing policy.
 - `Path.remove_dir() -> Result[Unit, Error]` — Removes an empty directory.
 - `Path.rename(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
 - `Path.resolve() -> Result[Path, Error]` — Resolves a path through the filesystem.
