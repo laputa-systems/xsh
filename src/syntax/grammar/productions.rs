@@ -688,6 +688,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     alt(exported(false).into_iter().chain([r("error_declaration")])),
                 ]),
                 seq([r("context_scope"), opt(t(T::Question))]),
+                seq([r("tempdir_scope"), opt(t(T::Question))]),
                 seq([r("named_command"), opt(t(T::Question))]),
                 r("expression_statement"),
             ])),
@@ -1450,6 +1451,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([kw(Keyword::Wait), r("operand")]),
                 seq([w("ctx"), line(r("condition_expression")), block()]),
                 r("context_scope"),
+                r("tempdir_scope"),
                 r("builder_call"),
                 r("item_expression"),
                 r("bare_path"),
@@ -1675,6 +1677,19 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 t(T::RParen),
                 nl(),
                 block(),
+            ]),
+        ),
+        // The name before the brace is the block's parameter.
+        rule(
+            Expressions,
+            "tempdir_scope",
+            seq([
+                w("tempdir"),
+                ident(),
+                t(T::LBrace),
+                star(sep()),
+                r("statements"),
+                t(T::RBrace),
             ]),
         ),
         rule(

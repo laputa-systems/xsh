@@ -44,6 +44,7 @@ pub(super) fn canonical(program: &ArenaProgram, source: &str) -> Canonical {
         source,
         out: String::new(),
         marks: Vec::new(),
+        item_alias: None,
     };
     for stmt in program.statement_ids() {
         writer.stmt(stmt);
@@ -52,6 +53,27 @@ pub(super) fn canonical(program: &ArenaProgram, source: &str) -> Canonical {
         text: writer.out,
         marks: writer.marks,
     }
+}
+
+/// The canonical key `block` would have if its single parameter `param` were
+/// left implicit and every use of it spelled `.`. Equal to the key of a
+/// rewritten block exactly when the rewrite replaced those uses and nothing
+/// else; the caller must rule out shadowing of `param` inside the block.
+pub(crate) fn canonical_block_with_implicit_item(
+    arena: &AstArena,
+    source: &str,
+    block: BlockId,
+    param: xsh::frontend::symbols::Name,
+) -> String {
+    let mut writer = CanonicalWriter {
+        arena,
+        source,
+        out: String::new(),
+        marks: Vec::new(),
+        item_alias: Some((block, param)),
+    };
+    writer.block(block);
+    writer.out
 }
 
 /// Layout-independent key for one subtree: two blocks or expressions get the
@@ -66,6 +88,7 @@ pub(crate) fn canonical_subtree(
         source,
         out: String::new(),
         marks: Vec::new(),
+        item_alias: None,
     };
     match root {
         Ok(block) => writer.block(block),
@@ -79,6 +102,9 @@ struct CanonicalWriter<'a> {
     source: &'a str,
     out: String,
     marks: Vec<(usize, usize)>,
+    /// A callback block whose sole parameter is written as the item `.`:
+    /// the parameter list is omitted and the name reads as `.`.
+    item_alias: Option<(BlockId, xsh::frontend::symbols::Name)>,
 }
 
 impl CanonicalWriter<'_> {
@@ -468,8 +494,11 @@ impl CanonicalWriter<'_> {
     fn block(&mut self, id: BlockId) {
         let block = self.arena.block(id);
         self.put("B(");
+        let implicit = self.item_alias.is_some_and(|(root, _)| root == id);
         for param in self.arena.block_params(block.params) {
-            self.debug(&param.name);
+            if !implicit {
+                self.debug(&param.name);
+            }
         }
         self.put("|");
         for stmt in self.arena.stmt_ids(block.statements).collect::<Vec<_>>() {
@@ -677,6 +706,11 @@ impl CanonicalWriter<'_> {
             ArenaExprKind::Regex(value) => {
                 self.put("regex;");
                 self.debug(&self.arena.regex_literal(*value).pattern);
+            }
+            ArenaExprKind::Ident(name)
+                if self.item_alias.is_some_and(|(_, alias)| alias == *name) =>
+            {
+                self.put("item;")
             }
             ArenaExprKind::Ident(name) => self.debug(name),
             ArenaExprKind::Item => self.put("item;"),
@@ -896,6 +930,11 @@ impl CanonicalWriter<'_> {
                 self.put("scope;");
                 self.debug(&(kind, value_body));
                 self.expr(*input);
+                self.block(*block);
+            }
+            ArenaExprKind::TempDirScope { block, value_body } => {
+                self.put("tempdir;");
+                self.debug(value_body);
                 self.block(*block);
             }
         }

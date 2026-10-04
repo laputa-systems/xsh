@@ -85,8 +85,8 @@ type unless use var wait when while with yield
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `test`, the core commands `print`, `eprint`, `cd`, and `env`, and builder
-entries such as `run` inside a builder block.
+`on`, `tempdir`, `test`, the core commands `print`, `eprint`, `cd`, and `env`,
+and builder entries such as `run` inside a builder block.
 
 Builtin type and constructor names:
 
@@ -949,6 +949,28 @@ content is a single name. A block introduces a lexical and cleanup scope but
 no function, error, or loop boundary. In statement position it runs as
 statements; in value position its tail is its value.
 
+A callback block receives one item: a stream stage block (13.1) other than
+`fold` and `reduce`, or an error handler after `??` (8.4). Written without
+`|name|`, such a block takes that item as its implicit parameter `.`, so
+`{ .url }` means `{ |hit| hit.url }` and `{ .size > limit(.) }` means
+`{ |hit| hit.size > limit(hit) }`. A stage argument written without braces
+(`where .size > 0`, `sort-by .path`) is the same block. `.` always names the
+item of the innermost callback block: a stage block or handler nested in a
+callback has its own item, while the branch, loop, scope, `try`, `defer`, and
+`guard` or `with` else blocks inside a callback see the callback's item.
+
+```xsh
+{{.spec.item_shorthand.source}}
+```
+
+`.` is rejected (`check.stream-item`) outside a callback block, in a callback
+that writes its parameter as `|name|` or `|_|`, and in `fold` and `reduce`
+blocks, whose two parameters are written `|acc, item|`.
+
+A line that begins with `.name` continues the line before it (2.5), so only
+a callback's first statement can begin with `.`; a later one reads the item
+inside an expression or through a binding (`let message = .message`).
+
 ### 6.10 Patterns
 
 Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
@@ -1102,8 +1124,10 @@ An error handler block receives the error:
 {{.spec.fallback_handler.source}}
 ```
 
-The parameter is required (use `_` to ignore it), immutable, and has the
-Result's exact error type. The tail must have the success type; a `Bool` tail
+The handler takes exactly one parameter, written `|name|` (or `|_|` to ignore
+it) or left implicit as `.`: `load() ?? { .message }` (6.9). A handler with
+neither is an error (`check.fallback-block-params`). The parameter is
+immutable and has the Result's exact error type. The tail must have the success type; a `Bool` tail
 is a value. The handler creates no boundary: `return`, `break`, `continue`,
 and `?` inside it target the enclosing function, loop, or capture. Optional
 values have no error and cannot use a handler parameter.
@@ -1172,8 +1196,9 @@ runs with the error (the common nominal type, or `Error` for mixed families).
 Bindings are not visible in the handler.
 
 Parameterized blocks always put the parameters inside the brace:
-`{ |name| ... }`. Plain conditional branches, `guard` failure blocks, and
-deferred blocks take no parameters.
+`{ |name| ... }`, except `tempdir NAME { ... }` (10.4), whose name before the
+brace is its parameter. Plain conditional branches, `guard` failure blocks,
+and deferred blocks take no parameters.
 
 ### 8.7 `defer`
 
@@ -1437,7 +1462,7 @@ Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
 
-### 10.4 `cd` and `env` scopes
+### 10.4 `cd`, `env`, and `tempdir` scopes
 
 ```xsh
 {{.spec.scopes.source}}
@@ -1462,6 +1487,28 @@ the host process's own cwd or environment. A live stream or handle cannot
 escape a scope as its value, through an assignment, a `return`, or a `yield`;
 consume it inside. A producer that yields from inside a scope keeps its own
 directory and environment between pulls.
+
+`tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
+temporary directory, which is removed with its contents when the body ends for
+any reason, after the body's defers run and its owned handles are cleaned up
+(8.7, 11.8). It is the scope that `let root = fs.tempdir()?`,
+`defer root.close()?`, and `let NAME = root.host_path()?` open over the rest
+of a block, without the handle: use that form when the code needs the
+`FsRoot`'s rooted operations or passes the handle on. Removal is the handle's
+`close()`.
+
+```xsh
+{{.spec.tempdir_scope.source}}
+```
+
+Like `cd` and `env`, a `tempdir` scope returns `Result[Unit]` in statement
+position and `Result[T]` of the body's tail in value position, where it needs
+no parentheses (`let count = tempdir dir { ... }?`). Its `Err` reports only a
+failure to create the directory; failures inside the body propagate to their
+ordinary destination. It needs the `fs` effect and is rejected in pure
+functions. The path is an ordinary value that may leave the scope, but it
+names a removed directory once the scope ends. `tempdir` starts a scope only
+when the name and `{` follow on the same line.
 
 ### 10.5 Environment access
 
@@ -1788,9 +1835,9 @@ The result of a pipeline depends on its last stage:
 - a terminal stage yields its own value (see 13.3).
 
 Stage blocks see the current item as `.` (`where .kind == "file"`,
-`map { .path.name }`) or bind it explicitly with `{ |item| ... }`. They may
-contain statements followed by a tail. Inside a stage block `.name` is always
-a field of the item, never a target-typed variant (5.5).
+`map { .path.name }`) or bind it explicitly with `{ |item| ... }`, but not
+both (6.9). They may contain statements followed by a tail. Inside a stage
+block `.name` is always a field of the item, never a target-typed variant (5.5).
 
 A stage that is not a stream stage is a value call: a bare method name uses
 the previous value as its receiver (`text |> split(",")` is `text.split(",")`),

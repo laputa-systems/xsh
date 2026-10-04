@@ -200,7 +200,9 @@ The `run` family chooses what you get back:
 Byte pipelines and redirections look the way you expect:
 `run tar -cf - $dir | run zstd -q > $archive`. Environment and working
 directory changes are scoped to a block, so they cannot leak into the rest of
-the script:
+the script. `tempdir dir { ... }` is the same kind of scope for scratch space:
+`dir` is a fresh temporary directory, removed when the block ends however it
+ends:
 
 ```xsh
 {{.tour.scoped_env.source}}
@@ -452,9 +454,12 @@ different meanings, not columns 9 and 10.
 Pipelines evaluate to a `List`. The stage vocabulary is small and regular:
 `where`, `map`, `flat-map`, `sort`, `sort-by`, `take`, `drop`, `unique-by`,
 `enumerate`, `batch`, `par-map`, and terminals such as `count`, `sum`,
-`first`, `group-by`, `fold`, and `each`. `.field` is shorthand for a
-one-field projection. `xsht api language:stream.where` (and so on) documents
-each stage.
+`first`, `group-by`, `fold`, and `each`. A stage block that names no
+parameter reads the item as `.`: `count { .url }` is
+`count { |hit| hit.url }`, and `where .status >= 500` is the same block
+without its braces. Name the parameter when a nested block needs to see the
+outer item, since `.` there means the inner one. `xsht api
+language:stream.where` (and so on) documents each stage.
 
 Keep the two pipe operators straight: `|` connects processes byte-to-byte,
 exactly like the shell; `|>` connects XSH values.
@@ -673,8 +678,21 @@ reverse order when the block exits for any reason: normal completion,
 {{.tour.defer.output}}
 ```
 
-`fs.tempdir()` returns a handle to a private directory; pair it with
-`defer scratch.close()?` on the next line, as the examples in this tour do.
+`tempdir dir { ... }` is a `defer` you do not have to write. Spelled out, it
+is a handle to a private directory, its cleanup registered on the next line,
+and the path: `let scratch = fs.tempdir()?`, `defer scratch.close()?`,
+`let dir = scratch.host_path()?`. Write that form when you want the handle
+itself, whose rooted operations cannot leave the directory:
+
+```xsh
+{{.tour.tempdir_handle.source}}
+```
+
+<!-- expected-output -->
+
+```text
+{{.tour.tempdir_handle.output}}
+```
 
 ### Editing a config file safely
 

@@ -1077,6 +1077,37 @@ impl<'a> Parser<'a> {
         false
     }
 
+    /// `tempdir NAME {` on one line. `tempdir` is contextual: it starts a scope
+    /// only before a binder name and a block.
+    pub(super) fn lookahead_is_tempdir_scope(&self) -> bool {
+        self.current_tag() == TokenTag::Ident
+            && self.current_name().is_some_and(|name| name == "tempdir")
+            && self.peek_tag(1) == Some(TokenTag::Ident)
+            && self.peek_tag(2) == Some(TokenTag::LBrace)
+    }
+
+    pub(super) fn parse_tempdir_scope_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        value_body: bool,
+    ) -> Option<ArenaOnlyExpr> {
+        let start = self.current_start();
+        self.bump();
+        let name_start = self.current_start();
+        let name = self.expect_ident("expected a directory name after `tempdir`")?;
+        let bound = crate::syntax::node::BlockParam {
+            name,
+            span: self.span(name_start, self.previous_end()),
+        };
+        let block = self.parse_block_with_params_arena_only(arena, Some(bound))?;
+        let span = self.span(start, self.previous_end());
+        Some(ArenaOnlyExpr {
+            id: arena.push_tempdir_scope_expr(block, value_body, span),
+            span,
+            bare_ident: None,
+        })
+    }
+
     pub(super) fn parse_context_scope_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -1182,6 +1213,9 @@ impl<'a> Parser<'a> {
         let span = self.current_span();
         if self.current_tag() == TokenTag::Ident && self.lookahead_is_context_scope() {
             return self.parse_context_scope_arena_only(arena, true);
+        }
+        if self.lookahead_is_tempdir_scope() {
+            return self.parse_tempdir_scope_arena_only(arena, true);
         }
         if let Some(form) = self.current_keyword().and_then(grammar::primary_form) {
             return self.parse_keyword_primary_arena_only(form, span, arena);

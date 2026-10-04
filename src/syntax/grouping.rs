@@ -411,8 +411,35 @@ pub fn inline_stage_expr(
         return None;
     };
     match arena.stmt(statement).kind {
-        ArenaStmtKind::Expr(expr) if block.params.is_empty() => Some(expr),
+        ArenaStmtKind::Expr(expr) if block.params.is_empty() && reads_inline(arena, expr) => {
+            Some(expr)
+        }
         _ => None,
+    }
+}
+
+/// Whether an expression reads the same after a stage name as inside braces.
+/// One that starts with `{` would be read as the stage's block, and a pipeline
+/// would end the inline argument at its first `|>`.
+fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
+    let mut current = expr;
+    loop {
+        current = match arena.expr(current).kind {
+            ArenaExprKind::Record(_)
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::ValuePipelineCall { .. } => return false,
+            ArenaExprKind::Binary { left, .. } => left,
+            ArenaExprKind::Field { base, .. }
+            | ArenaExprKind::NullSafeField { base, .. }
+            | ArenaExprKind::Index { base, .. }
+            | ArenaExprKind::Slice { base, .. } => base,
+            ArenaExprKind::Call { callee, .. } => callee,
+            ArenaExprKind::Try(inner) => inner,
+            _ => return true,
+        };
     }
 }
 
@@ -788,6 +815,9 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::Match { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::ContextScope {
+            value_body: true, ..
+        }
+        | ArenaExprKind::TempDirScope {
             value_body: true, ..
         } => statement,
         // A run form that heads a pipeline reads as a value at any lead.

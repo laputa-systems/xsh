@@ -175,7 +175,7 @@ diagnostic_codes! {
     }
     Parse {
         ParseBlockHeaderMigration = "parse.block-header-migration", error, "Reject error-handler parameters written before the block instead of inside it";
-        ParseBlockParams = "parse.block-params", error, "Reject an error handler block that has two parameter headers";
+        ParseBlockParams = "parse.block-params", error, "Reject a block that has two parameter headers";
         ParseBlockStringMargin = "parse.block-string-margin", error, "Reject a block string line that lacks the closing delimiter's exact indentation";
         ParseCaptureMode = "parse.capture-mode", error, "Reject a `run` capture mode other than `--text` or `--bytes`";
         ParseCaptureModeInterpolation = "parse.capture-mode-interpolation", error, "Reject an interpolated `run` capture mode instead of a literal `--text` or `--bytes`";
@@ -544,6 +544,7 @@ diagnostic_codes! {
         LintPreferInferredPrivateEffects = "lint.prefer-inferred-private-effects", warning, "Drop a private proc or stream effect clause that names exactly its inferred effects";
         LintPreferInferredPureReturn = "lint.prefer-inferred-pure-return", warning, "Drop a private pure return type when it is inferred exactly";
         LintPreferInferredVariant = "lint.prefer-inferred-variant", warning, "Drop a variant qualifier that the expected type already selects, as in `.Symlink`";
+        LintPreferItemShorthand = "lint.prefer-item-shorthand", warning, "Leave a one-parameter callback's parameter implicit as `.` when it is only read through its fields";
         LintPreferKnownFieldAccess = "lint.prefer-known-field-access", warning, "Select a guaranteed record field directly instead of through a lookup";
         LintPreferListComp = "lint.prefer-list-comp", warning, "Use a list comprehension instead of a for loop that only builds a list";
         LintPreferListCompoundAssignment = "lint.prefer-list-compound-assignment", warning, "Use `+=` for a local list update that reassigns the list";
@@ -567,6 +568,7 @@ diagnostic_codes! {
         LintPreferSlice = "lint.prefer-slice", warning, "Use half-open slicing where offset/count method bounds are equivalent";
         LintPreferStreamProducer = "lint.prefer-stream-producer", warning, "Suggest a `stream` producer with `yield` for a proc that builds a list item by item";
         LintPreferStringConcat = "lint.prefer-string-concat", warning, "Use `+` instead of joining literal pieces with an empty separator";
+        LintPreferTempdirScope = "lint.prefer-tempdir-scope", warning, "Use a `tempdir NAME { ... }` scope for a temporary directory used only through its path";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";

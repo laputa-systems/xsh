@@ -33,7 +33,7 @@ log.write(sample)?
 
 let failures = hits(log)
   |> where .status >= 500
-  |> count { |hit| hit.url }
+  |> count { .url }
 
 for {key, value} in failures {
   print f"{value} {key}"

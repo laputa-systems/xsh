@@ -524,14 +524,7 @@ impl Checker {
                 }
                 ty
             }
-            ArenaExprKind::Item => self.stream_item_types.last().cloned().unwrap_or_else(|| {
-                self.error(
-                    expr.span,
-                    "`.` is valid only in stream stage blocks",
-                    DiagnosticCode::CheckStreamItem,
-                );
-                Type::Unknown
-            }),
+            ArenaExprKind::Item => self.check_item_arena(expr.span),
             ArenaExprKind::LastStatus => {
                 if !self.last_status_available {
                     self.error(
@@ -647,6 +640,43 @@ impl Checker {
                         DiagnosticCode::CheckContextScopeEscape,
                     );
                 }
+                self.context_scope_tail_value = tail_value;
+                Type::Result(Box::new(body_type), Box::new(Type::Error))
+            }
+            ArenaExprKind::TempDirScope { block, value_body } => {
+                let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
+                if self.in_pure {
+                    self.error(
+                        expr.span,
+                        "`tempdir` scopes are not allowed in pure functions",
+                        DiagnosticCode::CheckPureEffect,
+                    );
+                }
+                self.require_effect(crate::syntax::node::Effect::Fs, expr.span, "`tempdir`");
+                self.push_scope();
+                if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first()
+                    && param.name != "_"
+                {
+                    self.define(
+                        param.name,
+                        super::Binding::new(Type::Path, false),
+                        arena.arena.span(param.span),
+                    );
+                }
+                let body_type = if *value_body
+                    || tail_value
+                    || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
+                {
+                    let expected = match expected {
+                        Some(Type::Result(ok, _)) => Some(ok.as_ref()),
+                        _ => None,
+                    };
+                    self.check_tail_block_contents_arena(arena, source, *block, expected)
+                } else {
+                    self.check_statement_block_contents_arena(arena, source, *block);
+                    Type::Unit
+                };
+                self.pop_scope();
                 self.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
@@ -2153,6 +2183,35 @@ impl Checker {
         }
     }
 
+    /// `.` is the implicit parameter of the innermost one-parameter callback.
+    fn check_item_arena(&mut self, span: Span) -> Type {
+        let message = match self.item_frames.last_mut() {
+            Some(super::ItemFrame::Implicit { ty, used, .. }) => {
+                *used = true;
+                let ty = ty.clone();
+                return self
+                    .lookup(super::item_binding())
+                    .map_or(ty, |binding| binding.ty.clone());
+            }
+            Some(super::ItemFrame::Named { param, .. }) => match param {
+                super::NamedItem::Param(name) => {
+                    format!("this block names its parameter; write `{name}` instead of `.`")
+                }
+                super::NamedItem::Discarded => {
+                    "this block discards its parameter with `_`; name it instead of using `.`"
+                        .to_string()
+                }
+                super::NamedItem::Accumulated => {
+                    "`fold` and `reduce` blocks take `|acc, item|`; name the item instead of `.`"
+                        .to_string()
+                }
+            },
+            None => "`.` is valid only in a one-parameter callback block".to_string(),
+        };
+        self.error(span, &message, DiagnosticCode::CheckStreamItem);
+        Type::Unknown
+    }
+
     fn check_result_fallback_block_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -2164,7 +2223,7 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         let params = arena.arena.block_params(arena.arena.block(block).params);
-        if params.len() != 1 {
+        if params.len() > 1 {
             self.error(
                 arena.arena.expr(expression).span,
                 "error fallback block requires exactly one parameter",
@@ -2200,14 +2259,44 @@ impl Checker {
             }
             self.define(
                 param.name,
-                super::Binding::new(error_ty, false),
+                super::Binding::new(error_ty.clone(), false),
                 arena.arena.span(param.span),
             );
         }
+        // A handler without `|name|` receives the error as its item `.`.
+        if params.is_empty() {
+            self.define(
+                super::item_binding(),
+                super::Binding::new(error_ty.clone(), false),
+                arena.arena.span(arena.arena.block(block).span),
+            );
+        }
+        self.item_frames.push(match params.first() {
+            None => super::ItemFrame::Implicit {
+                ty: error_ty,
+                used: false,
+                stage: false,
+            },
+            Some(param) => super::ItemFrame::Named {
+                param: if param.name == "_" {
+                    super::NamedItem::Discarded
+                } else {
+                    super::NamedItem::Param(param.name)
+                },
+                stage: false,
+            },
+        });
         // Every handler tail is a value; Unit-success handlers still require Unit.
         let context =
             (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty);
         let actual = self.check_tail_block_contents_arena(arena, source, block, context);
+        if let Some(super::ItemFrame::Implicit { used: false, .. }) = self.item_frames.pop() {
+            self.error(
+                arena.arena.expr(expression).span,
+                "error fallback block requires one parameter: name it with `{ |error| ... }` or use `.`",
+                DiagnosticCode::CheckFallbackBlockParams,
+            );
+        }
         if !matches!(actual, Type::Unknown) {
             self.expect_type(&value_ty, &actual, arena.arena.expr(expression).span);
         }

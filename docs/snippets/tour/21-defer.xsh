@@ -18,13 +18,11 @@ proc rotate(dir: Path) {
   print "never reached"
 }
 
-let scratch = fs.tempdir()?
-defer scratch.close()?
-let dir = scratch.host_path()?
+tempdir dir {
+  match rotate(dir) {
+    Ok(_) => print "rotated"
+    Err(_) => print "rotate failed"
+  }
 
-match rotate(dir) {
-  Ok(_) => print "rotated"
-  Err(_) => print "rotate failed"
+  print f"left behind: {fs.children(dir)? |> count()}"
 }
-
-print f"left behind: {fs.children(dir)? |> count()}"

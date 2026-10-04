@@ -468,7 +468,7 @@ impl Checker {
             );
             return;
         }
-        let message = if self.stream_item_types.is_empty() {
+        let message = if !self.item_frames.iter().any(super::ItemFrame::is_stage) {
             if is_break {
                 "`break` is valid only inside while or for loops"
             } else {
@@ -1034,12 +1034,21 @@ impl Checker {
     ) -> Option<(Name, Vec<Name>, Type)> {
         let mut path = Vec::new();
         loop {
-            match arena.arena.expr(expr).kind {
-                ArenaExprKind::Ident(name) => {
-                    path.reverse();
-                    let ty = super::proof::projected_type(&self.lookup(name)?.ty, &path)?.clone();
-                    return Some((name, path, ty));
+            let subject = match arena.arena.expr(expr).kind {
+                ArenaExprKind::Ident(name) => Some(name),
+                ArenaExprKind::Item
+                    if matches!(self.item_frames.last(), Some(super::ItemFrame::Implicit { .. })) =>
+                {
+                    Some(super::item_binding())
                 }
+                _ => None,
+            };
+            if let Some(name) = subject {
+                path.reverse();
+                let ty = super::proof::projected_type(&self.lookup(name)?.ty, &path)?.clone();
+                return Some((name, path, ty));
+            }
+            match arena.arena.expr(expr).kind {
                 ArenaExprKind::Field { base, name } if path.len() < 128 => {
                     path.push(name);
                     expr = base;
@@ -2854,7 +2863,7 @@ impl Checker {
         self.pop_scope();
     }
 
-    fn check_statement_block_contents_arena(
+    pub(super) fn check_statement_block_contents_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -3553,7 +3562,8 @@ impl Checker {
         }
         match &arena.arena.expr(value).kind {
             ArenaExprKind::ErrorContext { block, .. }
-            | ArenaExprKind::ContextScope { block, .. } => {
+            | ArenaExprKind::ContextScope { block, .. }
+            | ArenaExprKind::TempDirScope { block, .. } => {
                 self.block_definitely_exits_arena(arena, *block)
             }
             _ => false,
@@ -3626,7 +3636,9 @@ fn should_record_binding_annotation_arena(
 // block boundaries. Their Unit success payload still leaves the Result as data.
 pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {
     match arena.arena.expr(expr).kind {
-        ArenaExprKind::Capture(_) | ArenaExprKind::ContextScope { .. } => true,
+        ArenaExprKind::Capture(_)
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. } => true,
         ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind,
             ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"),
         ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } => arena

@@ -401,6 +401,16 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     {
         return Kind::Keyword;
     }
+    // `tempdir NAME { ... }` opens a scope wherever an expression may start.
+    if text == "tempdir"
+        && !after_dot
+        && next.is_some_and(|next| next.tag == TokenTag::Ident)
+        && tokens
+            .get(at + 2)
+            .is_some_and(|brace| brace.tag == TokenTag::LBrace)
+    {
+        return Kind::Keyword;
+    }
     if text.as_bytes()[0].is_ascii_uppercase() {
         if after_dot && is_screaming(text) {
             return Kind::Property;
@@ -711,6 +721,13 @@ mod tests {
         assert_eq!(kind_of(source, "LC_ALL"), Kind::Property);
         assert_eq!(kind_of(source, "env.get_or"), Kind::Plain);
         assert_eq!(kind_of(source, "get_or"), Kind::Function);
+    }
+
+    #[test]
+    fn tempdir_is_a_keyword_only_before_a_name_and_block() {
+        let source = "let n = tempdir dir { 1 }?\nlet tempdir = 2\n";
+        assert_eq!(kind_of(source, "tempdir dir"), Kind::Keyword);
+        assert_eq!(kind_of(source, "tempdir = 2"), Kind::Plain);
     }
 
     #[test]

@@ -658,7 +658,35 @@ impl Checker {
                 arena.arena.span(param.span),
             );
         }
-        self.stream_item_types.push(item_ty.clone());
+        // `.` is the item only where it is the block's sole, unnamed parameter.
+        if max_params == 1 && params.is_empty() {
+            self.define(
+                super::item_binding(),
+                Binding::new(item_ty.clone(), false),
+                arena.arena.span(block.span),
+            );
+        }
+        self.item_frames.push(if max_params > 1 {
+            super::ItemFrame::Named {
+                param: super::NamedItem::Accumulated,
+                stage: true,
+            }
+        } else if let Some(param) = params.first() {
+            super::ItemFrame::Named {
+                param: if param.name == "_" {
+                    super::NamedItem::Discarded
+                } else {
+                    super::NamedItem::Param(param.name)
+                },
+                stage: true,
+            }
+        } else {
+            super::ItemFrame::Implicit {
+                ty: item_ty.clone(),
+                used: false,
+                stage: true,
+            }
+        });
         let mut tail_ty = Type::Unit;
         let stmt_ids: Vec<_> = arena.arena.stmt_ids(block.statements).collect();
         for (index, stmt_id) in stmt_ids.iter().enumerate() {
@@ -668,7 +696,7 @@ impl Checker {
                 self.check_stmt_arena(arena, source, *stmt_id);
             }
         }
-        self.stream_item_types.pop();
+        self.item_frames.pop();
         self.pop_scope();
         tail_ty
     }

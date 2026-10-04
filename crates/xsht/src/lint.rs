@@ -11,6 +11,12 @@ mod lint_try_capture;
 #[path = "lint_context_scope.rs"]
 mod context_scope;
 
+#[path = "lint_item_shorthand.rs"]
+mod item_shorthand;
+
+#[path = "lint_tempdir_scope.rs"]
+mod tempdir_scope;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -548,6 +554,10 @@ impl<'a> Linter<'a> {
         }
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
+        linter
+            .diagnostics
+            .extend(item_shorthand::lint_item_shorthand(program, source));
+        tempdir_scope::lint_tempdir_scopes(&mut linter, program);
         if include_reachability {
             linter
                 .diagnostics
@@ -2873,7 +2883,8 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Retry { .. }
             | ArenaExprKind::Loop { .. }
             | ArenaExprKind::ErrorContext { .. }
-            | ArenaExprKind::ContextScope { .. } => true,
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. } => true,
             ArenaExprKind::Require { schema, .. } => {
                 schema.is_none()
                     || (removing_annotation
@@ -10770,7 +10781,8 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
-        | ArenaExprKind::Loop { .. } => {}
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::TempDirScope { .. } => {}
     }
     out
 }
@@ -10784,7 +10796,8 @@ fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
         | ArenaExprKind::Loop { block }
         | ArenaExprKind::Retry { block, .. }
         | ArenaExprKind::ErrorContext { block, .. }
-        | ArenaExprKind::ContextScope { block, .. } => out.push(block),
+        | ArenaExprKind::ContextScope { block, .. }
+        | ArenaExprKind::TempDirScope { block, .. } => out.push(block),
         ArenaExprKind::Pipeline { stages, .. } => {
             for stage in arena.pipe_stages(stages).to_vec() {
                 if let ArenaPipeStageKind::Stream(stage) = stage.kind
@@ -11269,7 +11282,8 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         }
         ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
-        | ArenaExprKind::ContextScope { .. } => true,
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. } => true,
         ArenaExprKind::Capture(_) | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => {
             false
         }
@@ -11609,7 +11623,10 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
         }
         ArenaExprKind::Capture(block)
         | ArenaExprKind::ValueBlock(block)
-        | ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
+        | ArenaExprKind::Loop { block }
+        | ArenaExprKind::TempDirScope { block, .. } => {
+            block_contains_read_text_lines_call(arena, block)
+        }
         ArenaExprKind::Retry { delays, block, .. } => {
             arena.expr_ids(delays).any(rec) || block_contains_read_text_lines_call(arena, block)
         }
@@ -12064,6 +12081,8 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Loop { block } => self.linter.lint_block(block),
+            // The directory name is the block's parameter.
+            ArenaExprKind::TempDirScope { block, .. } => self.linter.lint_stream_block(block),
             ArenaExprKind::Retry {
                 delays,
                 pattern,
@@ -12754,6 +12773,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
@@ -12842,6 +12862,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => true,
     }
@@ -13593,7 +13614,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaExprKind::Capture(block)
             | ArenaExprKind::ValueBlock(block)
-            | ArenaExprKind::Loop { block } => self.scan_block(block),
+            | ArenaExprKind::Loop { block }
+            | ArenaExprKind::TempDirScope { block, .. } => self.scan_block(block),
             ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
                     self.scan_expr(delay);
@@ -14403,6 +14425,10 @@ fn expr_flow(
             expr_flow(arena, input, terminating_call_spans).then(
                 FlowSummary::fallthrough().union(block_flow(arena, block, terminating_call_spans)),
             )
+        }
+        // Creating the directory may fail before the body runs.
+        ArenaExprKind::TempDirScope { block, .. } => {
+            FlowSummary::fallthrough().union(block_flow(arena, block, terminating_call_spans))
         }
         ArenaExprKind::ErrorContext { message, block } => expr_flow(
             arena,

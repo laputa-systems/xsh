@@ -84,6 +84,17 @@ impl<'a> Parser<'a> {
                     arena.push_expr_statement(value, self.span(start, end));
                     return Some(());
                 }
+                if self.lookahead_is_tempdir_scope() {
+                    let scope = self.parse_tempdir_scope_arena_only(arena, false)?;
+                    let value = if self.consume(TokenKindMatch::Question).is_some() {
+                        arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
+                    } else {
+                        scope.id
+                    };
+                    let end = self.expect_terminator();
+                    arena.push_expr_statement(value, self.span(start, end));
+                    return Some(());
+                }
                 if self.current_name().is_some_and(|name| name == "cli")
                     && self.peek_tag(1) == Some(TokenTag::Ident)
                     && self.peek_tag(2) == Some(TokenTag::LParen)
@@ -1937,9 +1948,33 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<crate::syntax::arena::BlockId> {
+        self.parse_block_with_params_arena_only(arena, None)
+    }
+
+    /// `bound` is a parameter the surrounding form already named (the binder
+    /// of `tempdir NAME { ... }`); such a block cannot also write `|...|`.
+    pub(super) fn parse_block_with_params_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        bound: Option<BlockParam>,
+    ) -> Option<crate::syntax::arena::BlockId> {
         let start = self.expect(TokenKindMatch::LBrace, "expected `{` to start block")?;
         self.skip_separators();
-        let params = self.parse_block_params();
+        let params = match bound {
+            None => self.parse_block_params(),
+            Some(bound) => {
+                if self.at(TokenKindMatch::Pipe) {
+                    let pipe = self.current_span();
+                    self.parse_block_params();
+                    self.diagnostic_at(
+                        self.span(pipe.start(), self.previous_end()),
+                        "this block's parameter is the name before it",
+                        DiagnosticCode::ParseBlockParams,
+                    );
+                }
+                vec![bound]
+            }
+        };
         arena.begin_block();
         self.block_depth += 1;
         self.skip_separators();

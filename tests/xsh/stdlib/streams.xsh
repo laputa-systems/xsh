@@ -46,8 +46,8 @@ pure totals(seed: Str, item: Str) -> Totals {
   {values: values, seed: seed, item: item}
 }
 pure implicit(seed: Str) -> ImplicitTotals {
-  let values = [1, 2] |> STAGE({[seed]: 0}) { |seed|
-    seed.set("sum", (seed.get("sum") ?? 0) + .)
+  let values = [1, 2] |> STAGE({[seed]: 0}) { |seed, value|
+    seed.set("sum", (seed.get("sum") ?? 0) + value)
   }
   {values: values, seed: seed}
 }
@@ -130,11 +130,6 @@ beta
       word.split("")
     }) == ["a", "b", "c"]
 
-  assert ([1, 2, 3]
-    |> fold(0) { |acc|
-      acc + .
-    }) == 6
-
   # Accumulator-plus-item form: the block binds the accumulator (typed by the
   # initial value) before the stream item, and the tail produces the accumulator.
   assert ([1, 2, 3]
@@ -186,11 +181,6 @@ beta
   assert (fold_counts.get("b") ?? 0) == 1
   assert (fold_counts.get("c") ?? 0) == 1
   assert fold_counts.len() == 3
-
-  assert ([1, 2, 3]
-    |> reduce(10) { |acc|
-      acc + .
-    }) == 16
 
   assert ([1, 2, 3] |> sum) == 6
   assert [3, 1, 2] |> min? == 1
@@ -2787,8 +2777,8 @@ test test_fs_files_lazy_folding_terminals_match_eager_results { |ctx|
 
   assert (fs.files(root)
     |> map .size
-    |> fold(0) { |acc|
-      acc + .
+    |> fold(0) { |acc, it|
+      acc + it
     }) == 6
 }
 

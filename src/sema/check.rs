@@ -373,6 +373,43 @@ enum BuilderKind {
     ProcessCommand,
 }
 
+/// What the item `.` denotes inside the innermost callback block being
+/// checked. Only callback blocks push a frame; branch, scope, and handler
+/// blocks nested in a callback see the callback's item.
+#[derive(Clone, Debug)]
+enum ItemFrame {
+    /// A one-parameter callback written without `|name|`, whose only
+    /// parameter is spelled `.`. `used` records whether the body spelled it.
+    Implicit { ty: Type, used: bool, stage: bool },
+    /// A callback whose parameters are written out, or that takes two: `.`
+    /// would be a second spelling of a named value, so it is rejected.
+    Named { param: NamedItem, stage: bool },
+}
+
+/// How a callback that rejects `.` spells its item instead.
+#[derive(Clone, Copy, Debug)]
+enum NamedItem {
+    Param(Name),
+    Discarded,
+    /// `fold`/`reduce`: the item is the second of `|acc, item|`.
+    Accumulated,
+}
+
+/// The scope binding that holds an implicit callback item, so `.` narrows
+/// like a named parameter (`if .health != null { use(.health) }`). No source
+/// spelling can name it.
+fn item_binding() -> Name {
+    Name::intern(".")
+}
+
+impl ItemFrame {
+    fn is_stage(&self) -> bool {
+        match self {
+            Self::Implicit { stage, .. } | Self::Named { stage, .. } => *stage,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct UserModuleSig {
     values: BTreeMap<Name, Type>,
@@ -477,7 +514,7 @@ pub struct Checker {
     provisional_effects_read: std::cell::Cell<bool>,
     effect_owner: Option<EffectDeclarationId>,
     last_status_available: bool,
-    stream_item_types: Vec<Type>,
+    item_frames: Vec<ItemFrame>,
     loop_depth: usize,
     block_depth: usize,
     retry_attempt_depth: usize,
@@ -855,7 +892,7 @@ impl Checker {
             provisional_effects_read: std::cell::Cell::new(false),
             effect_owner: None,
             last_status_available: false,
-            stream_item_types: Vec::new(),
+            item_frames: Vec::new(),
             loop_depth: 0,
             block_depth: 0,
             retry_attempt_depth: 0,

@@ -48,8 +48,8 @@ proc main(input = "") [fs, error] {
   # fold message char lengths into a total
   let total_chars = entries
     |> map .message.count_chars()
-    |> fold(0) { |acc|
-      acc + .
+    |> fold(0) { |acc, it|
+      acc + it
     }
 
   print f"total message chars: {total_chars}"

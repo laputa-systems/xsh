@@ -235,17 +235,17 @@ The `run` family chooses what you get back:
 Byte pipelines and redirections look the way you expect:
 `run tar -cf - $dir | run zstd -q > $archive`. Environment and working
 directory changes are scoped to a block, so they cannot leak into the rest of
-the script:
+the script. `tempdir dir { ... }` is the same kind of scope for scratch space:
+`dir` is a fresh temporary directory, removed when the block ends however it
+ends:
 
 ```xsh
-let scratch = fs.tempdir()?
-defer scratch.close()?
-let dir = scratch.host_path()?
-
-cd $dir {
-  p"notes.txt".write("hi\n")?
-  let listing = run.text ls ?
-  print f"inside: {listing.trim()}"
+tempdir dir {
+  cd $dir {
+    p"notes.txt".write("hi\n")?
+    let listing = run.text ls ?
+    print f"inside: {listing.trim()}"
+  }
 }
 
 env LC_ALL=C GREETING="hello world" {
@@ -672,7 +672,7 @@ log.write(sample)?
 
 let failures = hits(log)
   |> where .status >= 500
-  |> count { |hit| hit.url }
+  |> count { .url }
 
 for {key, value} in failures {
   print f"{value} {key}"
@@ -702,9 +702,12 @@ different meanings, not columns 9 and 10.
 Pipelines evaluate to a `List`. The stage vocabulary is small and regular:
 `where`, `map`, `flat-map`, `sort`, `sort-by`, `take`, `drop`, `unique-by`,
 `enumerate`, `batch`, `par-map`, and terminals such as `count`, `sum`,
-`first`, `group-by`, `fold`, and `each`. `.field` is shorthand for a
-one-field projection. `xsht api language:stream.where` (and so on) documents
-each stage.
+`first`, `group-by`, `fold`, and `each`. A stage block that names no
+parameter reads the item as `.`: `count { .url }` is
+`count { |hit| hit.url }`, and `where .status >= 500` is the same block
+without its braces. Name the parameter when a nested block needs to see the
+outer item, since `.` there means the inner one. `xsht api
+language:stream.where` (and so on) documents each stage.
 
 Keep the two pipe operators straight: `|` connects processes byte-to-byte,
 exactly like the shell; `|>` connects XSH values.
@@ -1149,16 +1152,14 @@ proc rotate(dir: Path) {
   print "never reached"
 }
 
-let scratch = fs.tempdir()?
-defer scratch.close()?
-let dir = scratch.host_path()?
+tempdir dir {
+  match rotate(dir) {
+    Ok(_) => print "rotated"
+    Err(_) => print "rotate failed"
+  }
 
-match rotate(dir) {
-  Ok(_) => print "rotated"
-  Err(_) => print "rotate failed"
+  print f"left behind: {fs.children(dir)? |> count()}"
 }
-
-print f"left behind: {fs.children(dir)? |> count()}"
 ```
 
 <!-- expected-output -->
@@ -1171,8 +1172,28 @@ rotate failed
 left behind: 0
 ```
 
-`fs.tempdir()` returns a handle to a private directory; pair it with
-`defer scratch.close()?` on the next line, as the examples in this tour do.
+`tempdir dir { ... }` is a `defer` you do not have to write. Spelled out, it
+is a handle to a private directory, its cleanup registered on the next line,
+and the path: `let scratch = fs.tempdir()?`, `defer scratch.close()?`,
+`let dir = scratch.host_path()?`. Write that form when you want the handle
+itself, whose rooted operations cannot leave the directory:
+
+```xsh
+let scratch = fs.tempdir()?
+defer scratch.close()?
+
+scratch.mkdir(p"logs")?
+scratch.write(p"logs/app.log", "ok\n")?
+print f"rooted read: {scratch.read_text(p"logs/app.log")?.trim()}"
+print f"under the temp dir: {scratch.host_path()?.exists()?}"
+```
+
+<!-- expected-output -->
+
+```text
+rooted read: ok
+under the temp dir: true
+```
 
 ### Editing a config file safely
 

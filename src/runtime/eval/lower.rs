@@ -1964,7 +1964,8 @@ fn compact_collect_expr_call_edges(
         ArenaExprKind::Capture(block)
         | ArenaExprKind::ValueBlock(block)
         | ArenaExprKind::Loop { block }
-        | ArenaExprKind::Retry { block, .. } => {
+        | ArenaExprKind::Retry { block, .. }
+        | ArenaExprKind::TempDirScope { block, .. } => {
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
         ArenaExprKind::BuilderCall { call, .. } => {
@@ -2374,6 +2375,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Regex(_) => 41,
         ArenaExprKind::ValuePipelineCall { .. } => 43,
         ArenaExprKind::ContextScope { .. } => 45,
+        ArenaExprKind::TempDirScope { .. } => 46,
     }
 }
 
@@ -2427,6 +2429,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Regex(_) => "regex_literal",
         ArenaExprKind::ValuePipelineCall { .. } => "value_pipeline_call",
         ArenaExprKind::ContextScope { .. } => "context_scope",
+        ArenaExprKind::TempDirScope { .. } => "tempdir_scope",
     }
 }
 
@@ -3010,7 +3013,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 9];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 46];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 47];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -7439,14 +7442,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return self.lower_expr(left, slots, current_function, item_slot);
                 }
                 if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
-                    let [parameter] = self
+                    // A handler without `|name|` reads the error as its item `.`.
+                    let parameter = match self
                         .program
                         .arena
                         .block_params(self.program.arena.block(block).params)
-                    else {
-                        return None;
+                    {
+                        [] => None,
+                        [parameter] => Some(parameter.name),
+                        _ => return None,
                     };
-                    let parameter = parameter.name;
                     let result_ty = self
                         .bodies
                         .expr_types
@@ -7459,9 +7464,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                     let left = self.lower_expr(left, slots, current_function, item_slot)?;
                     let saved = slots.enter();
-                    let error_slot = slots.declare_with_type(parameter, Some(*error_ty));
-                    let handler =
-                        self.lower_block_value_expr(block, slots, current_function, item_slot);
+                    let (error_slot, handler_item_slot) = match parameter {
+                        Some(parameter) => (
+                            slots.declare_with_type(parameter, Some(*error_ty)),
+                            item_slot,
+                        ),
+                        None => {
+                            let slot = slots.reserve("fallback.error");
+                            (slot, Some(slot))
+                        }
+                    };
+                    let handler = self.lower_block_value_expr(
+                        block,
+                        slots,
+                        current_function,
+                        handler_item_slot,
+                    );
                     slots.exit(saved);
                     let handler = handler?;
                     let success_slot = slots.reserve("fallback.success");
@@ -7952,6 +7970,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span
                     }
                 ))
+            }
+            ArenaExprKind::TempDirScope { block, .. } => {
+                self.lower_tempdir_scope(block, span, slots, current_function, item_slot)
             }
             ArenaExprKind::ValueBlock(block) => {
                 self.lower_block_value_expr(block, slots, current_function, item_slot)
@@ -12952,6 +12973,124 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         } else {
             self.lower_expr(value, slots, current_function, item_slot)
         }
+    }
+
+    /// `tempdir NAME { body }` is the scope that `let root = fs.tempdir()?`,
+    /// `defer root.close()?`, and `let NAME = root.host_path()?` open, so the
+    /// directory is removed after the body's own cleanup on every exit, by the
+    /// same defer machinery. Only a failure to create the directory becomes the
+    /// scope's `Err`; the body's tail (or `Unit`) is its `Ok`.
+    fn lower_tempdir_scope(
+        &mut self,
+        block: BlockId,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let created = push_build_row!(self, expr, BuildExprRow::FsTempDir { span });
+        let failed_slot = slots.reserve("tempdir.failed");
+        let failed = push_build_row!(
+            self,
+            pattern,
+            BuildPatternRow::Bind { slot: failed_slot }
+        );
+        let failure = push_build_row!(self, expr, BuildExprRow::Param(failed_slot));
+        let saved = slots.enter();
+        let result = (|| {
+            let root_slot = slots.reserve("tempdir.root");
+            let opened = push_build_row!(
+                self,
+                pattern,
+                BuildPatternRow::ResultOk {
+                    slot: Some(root_slot),
+                    unit_only: false
+                }
+            );
+            let root_method = |lowerer: &mut Self, op: RuntimeOp| {
+                let receiver = push_build_row!(lowerer, expr, BuildExprRow::Param(root_slot));
+                let call = push_build_row!(
+                    lowerer,
+                    expr,
+                    BuildExprRow::ModuleCall {
+                        cli_plan: None,
+                        op,
+                        args: vec![Some(receiver)],
+                        span,
+                    }
+                );
+                push_build_row!(lowerer, expr, BuildExprRow::Try(call))
+            };
+            let mut body = Vec::new();
+            let close = root_method(self, RuntimeOp::FsCloseRoot);
+            body.push(push_build_row!(
+                self,
+                stmt,
+                BuildStmtRow::Defer { value: close }
+            ));
+            let path = root_method(self, RuntimeOp::FsRootPath);
+            let path_slot = match self
+                .program
+                .arena
+                .block_params(self.program.arena.block(block).params)
+            {
+                [param] if param.name.as_str() != "_" => {
+                    slots.declare_with_type(param.name, Some(Type::Path))
+                }
+                _ => slots.reserve("tempdir.path"),
+            };
+            body.push(push_build_row!(
+                self,
+                stmt,
+                BuildStmtRow::Let {
+                    slot: path_slot,
+                    value: path
+                }
+            ));
+            let statements = self.program.arena.block(block).statements;
+            let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
+            let mut tail = None;
+            if let Some((&last, prefix)) = statements.split_last() {
+                for &stmt in prefix {
+                    body.push(self.lower_stmt_with_blocker_guard(
+                        stmt,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?);
+                }
+                if self.bodies.statement_positions.get(&last)
+                    != Some(&crate::sema::check::StatementPosition::Statement)
+                    && let Some(value) =
+                        self.lower_tail_stmt_as_expr(last, slots, current_function, item_slot)
+                {
+                    tail = Some(value);
+                } else {
+                    body.push(self.lower_stmt_with_blocker_guard(
+                        last,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?);
+                }
+            }
+            let tail = tail.unwrap_or_else(|| push_build_row!(self, expr, BuildExprRow::Unit));
+            let value = push_build_row!(self, expr, BuildExprRow::Ok(tail));
+            body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+            let scope = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span });
+            Some((opened, scope))
+        })();
+        slots.exit(saved);
+        let (opened, scope) = result?;
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::MatchExpr {
+                value: created,
+                arms: vec![(opened, None, scope), (failed, None, failure)],
+                span,
+            }
+        ))
     }
 
     /// Keep branch statements and their tail in one lexical scope so the

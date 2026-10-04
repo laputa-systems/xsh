@@ -28,7 +28,7 @@ use xsh::frontend::syntax::token::TokenTag;
 
 #[path = "format_equivalence.rs"]
 mod format_equivalence;
-pub(crate) use format_equivalence::canonical_subtree;
+pub(crate) use format_equivalence::{canonical_block_with_implicit_item, canonical_subtree};
 #[cfg(test)]
 #[path = "format_proofs.rs"]
 mod format_proofs;
@@ -205,6 +205,8 @@ struct Writer<'a> {
     after_expression: bool,
     /// Set while writing the unbraced expression statement of a `match` arm.
     arm_statement: bool,
+    /// Blocks whose parameter is written before the brace (`tempdir NAME {`).
+    binder_blocks: rustc_hash::FxHashSet<BlockId>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -377,6 +379,7 @@ impl Formatter {
                 inline_only: false,
                 after_expression: false,
                 arm_statement: false,
+                binder_blocks: rustc_hash::FxHashSet::default(),
             }
             .format_program(program),
             diagnostics: Vec::new(),
@@ -1494,7 +1497,7 @@ impl<'a> Writer<'a> {
             .arena
             .block_params(self.arena.block(block_id).params)
             .to_vec();
-        if params.is_empty() {
+        if params.is_empty() || self.binder_blocks.contains(&block_id) {
             return;
         }
         output.push_str(" |");
@@ -1566,7 +1569,7 @@ impl<'a> Writer<'a> {
         output.push('{');
         self.write_block_params(block_id, output);
         if stmts.is_empty() && !self.has_comment_before(close) {
-            if !params.is_empty() {
+            if !params.is_empty() && !self.binder_blocks.contains(&block_id) {
                 output.push(' ');
             }
             output.push('}');
@@ -2278,6 +2281,19 @@ impl<'a> Writer<'a> {
                 });
                 self.write_expr(*input, child(*input), output);
                 output.push_str(") ");
+                self.write_block(*block, indent_for_expr(output), output);
+            }
+            ArenaExprKind::TempDirScope { block, .. } => {
+                output.push_str("tempdir ");
+                if let Some(param) = self
+                    .arena
+                    .block_params(self.arena.block(*block).params)
+                    .first()
+                {
+                    output.push_str(param.name.as_str().as_str());
+                }
+                output.push(' ');
+                self.binder_blocks.insert(*block);
                 self.write_block(*block, indent_for_expr(output), output);
             }
             ArenaExprKind::ErrorContext { message, block } => {
@@ -3922,6 +3938,7 @@ impl<'a> Writer<'a> {
             inline_only: true,
             after_expression: false,
             arm_statement: false,
+            binder_blocks: self.binder_blocks.clone(),
         };
         let mut output = String::new();
         f(&mut writer, &mut output);

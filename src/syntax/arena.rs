@@ -3415,6 +3415,16 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
+    pub fn push_tempdir_scope_expr(
+        &mut self,
+        block: BlockId,
+        value_body: bool,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::TempDirScope { block, value_body }, span)
+    }
+
     pub fn push_value_block_expr(&mut self, block: BlockId, span: Span) -> ExprId {
         self.lowerer
             .push_expr_kind(ArenaExprKind::ValueBlock(block), span)
@@ -4503,6 +4513,12 @@ impl AstArena {
                 block: BlockId::new(data.rhs as usize),
                 value_body: matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::EnvScope),
             },
+            ArenaExprTag::TempDirScope | ArenaExprTag::TempDirStatementScope => {
+                ArenaExprKind::TempDirScope {
+                    block: BlockId::new(data.lhs as usize),
+                    value_body: matches!(tag, ArenaExprTag::TempDirScope),
+                }
+            }
             ArenaExprTag::Loop => ArenaExprKind::Loop {
                 block: BlockId::new(data.lhs as usize),
             },
@@ -5635,6 +5651,8 @@ pub enum ArenaExprTag {
     EnvScope,
     CdStatementScope,
     EnvStatementScope,
+    TempDirScope,
+    TempDirStatementScope,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -5819,6 +5837,12 @@ pub enum ArenaExprKind {
     ContextScope {
         kind: ContextScopeKind,
         input: ExprId,
+        block: BlockId,
+        value_body: bool,
+    },
+    /// `tempdir NAME { ... }`: the block's single parameter is `NAME`, bound
+    /// to a fresh temporary directory that is removed when the block ends.
+    TempDirScope {
         block: BlockId,
         value_body: bool,
     },
@@ -7055,6 +7079,14 @@ impl ArenaLowerer<'_> {
                     (ContextScopeKind::Env, false) => ArenaExprTag::EnvStatementScope,
                 },
                 ArenaExprData::new(raw_expr_id(input), raw_block_id(block)),
+            ),
+            ArenaExprKind::TempDirScope { block, value_body } => (
+                if value_body {
+                    ArenaExprTag::TempDirScope
+                } else {
+                    ArenaExprTag::TempDirStatementScope
+                },
+                ArenaExprData::new(raw_block_id(block), 0),
             ),
             ArenaExprKind::Loop { block } => (
                 ArenaExprTag::Loop,
