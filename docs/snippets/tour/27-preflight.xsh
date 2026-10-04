@@ -8,7 +8,9 @@
 #  "disk_threshold": 90, "required_files": ["/etc/app/app.conf"]}
 
 type Service = {name: Str, port: Int, health: Str?}
+
 type Config = {services: List[Service], disk_threshold: Int, required_files: List[Str]}
+
 type Check = {check: Str, ok: Bool, detail: Str}
 
 const pseudo_filesystems = ["devfs", "devtmpfs", "tmpfs", "overlay", "squashfs", "proc", "sysfs"]
@@ -73,7 +75,7 @@ cli main(config: Path, emit_json = false) {
   let failed = all |> where { |c| ! c.ok } |> count()
 
   if emit_json {
-    print json.encode({ok: failed == 0, checks: all}, pretty: true)?
+    print (json.encode({ok: failed == 0, checks: all}, pretty: true)?)
   } else {
     for c in all {
       let mark = if c.ok { "ok  " } else { "FAIL" }

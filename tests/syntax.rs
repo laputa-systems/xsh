@@ -1854,9 +1854,7 @@ p"tmp".remove(missing_ok: true)?
 let slash = /tmp/xsh
 let multiline = """alpha
 beta"""
-let quoted_multiline = """alpha
-\"""
-beta"""
+let quoted_multiline = "alpha\n\"\"\"\nbeta"
 "#;
 
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -2410,7 +2408,6 @@ let after = 3
 ";
     let expected = "\
 let before = 1
-
 # fmt: skip
 let value=1+2
 let after = 3
@@ -2513,7 +2510,7 @@ fn formatter_preserves_multiline_call_argument_lists() {
 
 #[test]
 fn formatter_indents_broken_call_arguments_in_nested_blocks() {
-    let source = "proc main() {\nlet value=make(\ntarget,\n{alpha:1,beta:2,gamma:3,delta:4,epsilon:5,zeta:6},\n)\n}\n";
+    let source = "proc main() {\nlet value=make(\ntarget,\n{\nalpha:1,beta:2,gamma:3,delta:4,epsilon:5,zeta:6},\n)\n}\n";
     let expected = "proc main() {\n  let value = make(\n    target,\n    {\n      alpha: 1,\n      beta: 2,\n      gamma: 3,\n      delta: 4,\n      epsilon: 5,\n      zeta: 6,\n    },\n  )\n}\n";
     let first = Formatter::new().format_source(SourceId::new(0), source);
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
@@ -2845,14 +2842,8 @@ fn formatter_pretty_corpus_has_stable_golden_shape() {
     let expected = "# curated formatter corpus
 let source = p\".\"
 let items = [
-  {
-    name: \"one\",
-    enabled: true,
-  },
-  {
-    name: \"two\",
-    enabled: false,
-  },
+  {name: \"one\", enabled: true},
+  {name: \"two\", enabled: false},
 ]
 let source_shaped = [
   1,
@@ -2887,7 +2878,6 @@ let by_name = {
 let chain = source.display()
   .replace(\"/\", \"_\")
   .replace(\"-\", \"_\")
-
 # fmt: skip
 let skipped=1+2
 ";

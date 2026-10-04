@@ -3,4 +3,4 @@ let sources = fs.files(p"src", exts: ["c"])?
   |> map .path
   |> sort
 
-let total = fs.files(p"src")? |> map .size |> sum()
+let total = fs.files(p"src")? |> map .size |> sum

@@ -597,9 +597,10 @@ the fields you need (the [JSON Boundaries](#json-boundaries) section explains
 ```xsh
 # platform: linux
 type Address = {family: Str, local: Str, prefixlen: Int}
+
 type Link = {ifname: Str, operstate: Str, addr_info: List[Address]}
 
-let links = json.decode(run.text ip -j addr show ?)?.require(List[Link])?
+let links = json.decode(run.text ip -j addr show?)?.require(List[Link])?
 
 for link in links |> sort-by .ifname {
   let v4 = [f"{a.local}/{a.prefixlen}" for a in link.addr_info if a.family == "inet"]
@@ -694,19 +695,21 @@ const raw = """
   """
 
 let services = json.decode(raw)?.require(List[Service])?
+
 for svc in services {
   print f"{svc.name} -> {svc.port} [{svc.tags.join(",")}]"
 }
 
 let wrong = json.decode("""{"name": "cache", "port": "6379", "tags": []}""")?
+
 match wrong.require(Service) {
   Ok(svc) => print f"unexpected: {svc.name}"
   Err(error) => print f"rejected: {error.message}"
 }
 
 let report = {count: services.len(), public: [s.name for s in services if "public" in s.tags]}
-print json.encode(report)?
-print json.encode(report, pretty: true)?
+print (json.encode(report)?)
+print (json.encode(report, pretty: true)?)
 ```
 
 <!-- expected-output -->
@@ -921,11 +924,13 @@ returns a handle and `wait` collects one or a list:
 const hosts = ["10.0.0.11", "10.0.0.12", "10.0.0.13"]
 
 var probes: List[ProcessHandle] = []
+
 for host in hosts {
-  probes += [spawn run --timeout=5s ping -c 1 $host > /dev/null ?]
+  probes += [spawn run --timeout=5s ping -c 1 $host > /dev/null?]
 }
 
 let statuses = wait probes?
+
 for i in range(hosts.len()) {
   let state = if statuses[i].ok { "up" } else { "down" }
   print f"{hosts[i]} {state}"
@@ -1192,7 +1197,9 @@ report. It exits 1 if anything failed, so it can gate a deploy.
 #  "disk_threshold": 90, "required_files": ["/etc/app/app.conf"]}
 
 type Service = {name: Str, port: Int, health: Str?}
+
 type Config = {services: List[Service], disk_threshold: Int, required_files: List[Str]}
+
 type Check = {check: Str, ok: Bool, detail: Str}
 
 const pseudo_filesystems = ["devfs", "devtmpfs", "tmpfs", "overlay", "squashfs", "proc", "sysfs"]
@@ -1257,7 +1264,7 @@ cli main(config: Path, emit_json = false) {
   let failed = all |> where { |c| ! c.ok } |> count()
 
   if emit_json {
-    print json.encode({ok: failed == 0, checks: all}, pretty: true)?
+    print (json.encode({ok: failed == 0, checks: all}, pretty: true)?)
   } else {
     for c in all {
       let mark = if c.ok { "ok  " } else { "FAIL" }

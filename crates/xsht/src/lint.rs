@@ -190,7 +190,7 @@ pub const LINT_CODES: &[(&str, &str)] = &[
     ("lint.block-header", "Move error-handler parameters inside the block of an `else` block"),
     ("lint.boolean-guard", "Rewrite a leading failure branch on a Bool condition as `guard ... else`"),
     ("lint.boolean-pattern-test", "Replace a match yielding `true`/`false` per arm with a pattern test"),
-    ("lint.command-value", "Replace stale parenthesized command values with `$name`, `$record.field`, or `${expr}`"),
+    ("lint.command-value", "Write a parenthesized name or field path command argument as `$name` or `$record.field`"),
     ("lint.compatibility-vocabulary", "Replace removed vocabulary with its canonical name, such as dropping `run.builtin`"),
     ("lint.core-assert", "Use an `assert` statement instead of a core assertion call in statement position"),
     ("lint.dead-code", "Flag unreachable statements after code that always exits"),
@@ -6130,8 +6130,9 @@ impl<'a> Linter<'a> {
             action.to_string()
         };
         let replacement = format!("{action} {guard_word} {condition}");
-        // Measure the formatter's spelling so source layout, such as redundant
-        // grouping or line breaks, never decides whether the guard is reported.
+        // Measure the formatter's spelling so redundant grouping never decides
+        // whether the guard is reported; a condition whose line breaks the
+        // formatter keeps also keeps its block.
         let canonical = super::format::Formatter::new().format_source(span.source_id, &replacement);
         let replacement = canonical.formatted.trim_end();
         // Keep blocks whose condition or payload needs a readable multiline layout.
@@ -8227,16 +8228,16 @@ impl LintExprVisitor<'_, '_> {
                     self.linter.diagnostics.push(
                         Diagnostic::new(
                             Severity::Warning,
-                            "stale parenthesized command value syntax",
+                            "redundant parentheses around a command value",
                         )
                         .with_code("lint.command-value")
                         .with_label(Label::secondary(
                             arg_span,
-                            "use `$name`, `$record.field`, or `${expr}`",
+                            "a name or field path takes `$`",
                         ))
                         .with_fix_hint(FixHint::replacement(
                             arg_span,
-                            "replace with modern syntax",
+                            "write it with `$`",
                             replacement,
                         )),
                     );

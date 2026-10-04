@@ -8,7 +8,7 @@ proc main(...args: List[Str]) [io] {
   print args.join(" ")
 }
 
-proc rebuild(root: Path, jobs: Int, args: List[Str]) [io, error] {
+proc rebuild(root: Path, jobs: Int, args: List[Str]) [error, io] {
   # begin example
   let opts = {jobs: 4, verbose: true}
   build(root, ...opts)

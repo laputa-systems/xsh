@@ -107,10 +107,10 @@ that must fail lives in `docs/snippets/spec/rejected/` with a `# error: CODE`
 comment on each failing line. A template that shows
 `{{.spec.NAME.output}}` or `{{.tour.NAME.output}}` makes `make docs` run that
 snippet; other output blocks are literal template text. The repository's
-`xsht check` and `xsht lint` cover the snippets outside `rejected/` (excluded in
-`xsht-config.ini`); `[format] exclude` keeps all snippets out of
-`xsht fmt --check` until the formatter keeps short blocks on one line and
-leaves block-ending comments in place, and deleting that line enables it.
+`xsht check`, `xsht lint`, and `xsht fmt --check` cover the snippets outside
+`rejected/` (excluded in `xsht-config.ini`). A region drops the blank lines at
+its edges, so a blank line the formatter puts before `# end example` never
+shows.
 `dev/tests/test-docs.xsh` covers the generator.
 
 `cargo test --release -p xsht --test integration lint_format_invariance::`

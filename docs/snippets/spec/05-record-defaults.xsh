@@ -1,4 +1,5 @@
 const root = p"."
+
 # begin example
 type BuildOptions = {root: Path, jobs: UInt = 4, flags: List[Str] = []}
 

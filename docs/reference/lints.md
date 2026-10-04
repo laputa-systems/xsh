@@ -11,7 +11,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.block-header` | Move error-handler parameters inside the block of an `else` block |
 | `lint.boolean-guard` | Rewrite a leading failure branch on a Bool condition as `guard ... else` |
 | `lint.boolean-pattern-test` | Replace a match yielding `true`/`false` per arm with a pattern test |
-| `lint.command-value` | Replace stale parenthesized command values with `$name`, `$record.field`, or `${expr}` |
+| `lint.command-value` | Write a parenthesized name or field path command argument as `$name` or `$record.field` |
 | `lint.compatibility-vocabulary` | Replace removed vocabulary with its canonical name, such as dropping `run.builtin` |
 | `lint.core-assert` | Use an `assert` statement instead of a core assertion call in statement position |
 | `lint.dead-code` | Flag unreachable statements after code that always exits |

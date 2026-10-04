@@ -208,3 +208,37 @@ fn generated_trees_round_trip_through_the_printer_and_redundancy_fixes() {
     }
     assert_eq!(checked, 5000);
 }
+
+/// A conditional nested in a record spread, a call, or an interpolation,
+/// whichever way the author broke it, formats to a fixpoint at any width:
+/// the record's own layout follows breaks between its fields, never breaks
+/// inside a field value.
+#[test]
+fn nested_conditional_layouts_are_fixpoints() {
+    let values = [
+        "if c { \"1\" } else { \"2\" }",
+        "if c {\n  \"1\"\n} else {\n  \"2\"\n}",
+        "if c {\n  let t = \"1\"\n  t\n} else {\n  \"2\"\n}",
+    ];
+    let slots = [
+        "let v = f(...{p0: H})",
+        "let v = f(...{p0: H, p1: \"3\"})",
+        "let v = f(\"x\", ...{p1: H})",
+        "let v = f(...{\n  p0: H,\n}, p1: \"4\")",
+        "print ${f(...{p0: H})}",
+        "let v = [f(...{p0: H}, p1: \"4\")]",
+        "let v = {a: H, b: 1}",
+    ];
+    for width in [40, super::DEFAULT_LINE_WIDTH] {
+        for slot in slots {
+            for value in values {
+                let statement = slot.replacen('H', value, 1);
+                let nested = format!("proc p() {{\n  {}\n}}\n", statement.replace('\n', "\n  "));
+                for source in [format!("{statement}\n"), nested] {
+                    let formatted = format_wide(&source, width);
+                    assert_eq!(format_wide(&formatted, width), formatted, "width {width}:\n{source}");
+                }
+            }
+        }
+    }
+}

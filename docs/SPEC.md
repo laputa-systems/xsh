@@ -273,6 +273,7 @@ cli main(source: Path, dest: Path, jobs: UInt = 4, verbose = false) {
   if verbose {
     print f"copying {source} to {dest} with {jobs} jobs"
   }
+
   fs.copy(source, dest)?
 }
 ```
@@ -478,7 +479,9 @@ Schemas and aliases may take type parameters:
 
 ```xsh
 type Observation[T] = {value: T?, samples: List[T]}
+
 type Count = Observation[Int]
+
 let obs = Observation(value: 12, samples: [])
 ```
 
@@ -495,6 +498,7 @@ generic, and there is no expression-level type-argument syntax.
 enum Level { Info, Warn, Fault(Str) }
 
 let level = Fault("disk full")
+
 match level {
   Info => print "info"
   Warn => print "warn"
@@ -601,7 +605,7 @@ implement only the facets below (`xsht api language:facet`);
 ```xsh
 match process.run(command) {
   Ok(status) => print ${status.ok}
-  Err(ProcessError.Timeout { message }) => print $message
+  Err(ProcessError.Timeout {message}) => print $message
   Err(is PermissionDenied) => print "permission denied"
   Err(error) => return Err(error)
 }
@@ -889,8 +893,13 @@ let merged = {...defaults, ...overrides}
 
 ```xsh
 let objects = [fp"{src}.o" for src in sources if src.ext == "c"]
-let sizes = {[e.path]: e.size for e in entries}
-let pairs = [f"{a}-{b}" for a in left for b in right if a != b]
+let sizes = {e.path: e.size for e in entries}
+let pairs = [
+  f"{a}-{b}"
+  for a in left
+  for b in right
+  if a != b
+]
 ```
 
 Clauses run like nested `for` loops with `if` filters: each inner iterable is
@@ -938,9 +947,9 @@ contributes no value.
 ```xsh
 let mode = if release { "release" } else { "debug" }
 let label = match level {
-  Info => "info"
-  Warn => "warn"
-  Fault(reason) => f"fault: {reason}"
+  Info => "info",
+  Warn => "warn",
+  Fault(reason) => f"fault: {reason}",
 }
 ```
 
@@ -1003,6 +1012,7 @@ destructure records:
 
 ```xsh
 let {name, version: v, build: {jobs, ..}, ..} = manifest
+
 for {path: file, size} in entries {
   print f"{file}: {size}"
 }
@@ -1446,10 +1456,14 @@ Each command argument is one of:
   argument. Words are never split, globbed, tilde-expanded, or brace-expanded.
 - a **splice** `@name`, `@(expr)`, or `@g"glob"`, inserting each list element
   as its own argument.
-- a **typed argument**: `(expr)`, an `f"..."`, `p"..."`, or `fp"..."` literal,
-  or an unspaced expression chain containing a call or index, such as
-  `input.display()` or `rows[0]`. Plain `record.field` is a word unless written
-  `$record.field`, `${record.field}`, or `(record.field)`.
+- a **typed argument**: an `f"..."`, `p"..."`, or `fp"..."` literal, an
+  unspaced expression chain containing a call or index, such as
+  `input.display()` or `rows[0]`, or a compound expression in parentheses,
+  such as `(count + 1)` or `(name ?? "anonymous")`.
+
+A name or field path passes its value as `$name` or `$record.field`; plain
+`record.field` is a word. `(name)` and `(record.field)` mean the same as the
+`$` forms, and `xsht lint` reports them as redundant (`lint.command-value`).
 
 A standalone interpolation that evaluates to a `List` splices its elements,
 as `@` does. Interpolation inside a larger word uses display conversion and
@@ -1719,7 +1733,7 @@ are no futures, callbacks, channels, `await`, or wait-any.
 
 ```xsh
 let plan = process.command {
-  cwd = p"/srv/app"
+  cwd = /srv/app
   env = {RUST_LOG: "info"}
   timeout = 30s
   run /srv/app/server --port 8080
@@ -1821,7 +1835,7 @@ let sources = fs.files(p"src", exts: ["c"])?
   |> map .path
   |> sort
 
-let total = fs.files(p"src")? |> map .size |> sum()
+let total = fs.files(p"src")? |> map .size |> sum
 ```
 
 The result of a pipeline depends on its last stage:
@@ -1954,6 +1968,7 @@ relies on, and keep the rest of the program in typed values.
 type Package = {name: Str, version: Str, files: List[Str]}
 
 let package = json.read(manifest_path)?.require(Package)?
+
 for file in package.files {
   print f"{package.name}-{package.version}: {file}"
 }

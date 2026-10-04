@@ -1,5 +1,6 @@
 const plugin_path = p"plugins/rust.xsh"
 const root = p"."
+
 # begin example
 type BuildPlugin = module {
   export let name: Str
