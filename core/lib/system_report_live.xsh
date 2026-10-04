@@ -1,6 +1,11 @@
 ##! Collects a bounded, process-visible Linux report from one rooted source tree.
 use system_report as report
 use system_report_collect as collectors
+use sys_block
+use sys_mount
+use sys_pci
+use sys_source as src
+use sys_usb
 
 error SystemReportUsbDescriptorError = Invalid(message: Str)
 
@@ -194,7 +199,7 @@ pure issue_with_detail(
 }
 
 proc read_value(root: FsRoot, source_path: Path, max_bytes: Int = 65536) [fs, error] -> collectors.SourceRead {
-  collectors.read_source_text(root, source_path, max_bytes)
+  src.read_source_text(root, source_path, max_bytes)
 }
 
 type DeviceTreeStringRead = {source: collectors.SourceRead, values: List[Str]}
@@ -250,42 +255,19 @@ proc read_device_tree_strings(
 }
 
 pure observed_source_text(source: collectors.SourceRead) -> Str? {
-  return source.observation.value when source.observation.state == report.Observed
-
-  null
+  src.observed_text(source)
 }
 
 pure parse_integer(value: Str?) -> Int? {
-  guard value != null else {
-    return null
-  }
-
-  let source_text = value.trim()
-  let signed_digits = source_text.starts_with("-") and decimal_identifier(source_text.split("") |> drop(1).join(""))
-  return null when ! decimal_identifier(source_text) and ! signed_digits
-
-  if let Ok(parsed) = source_text.parse_int() {
-    parsed
-  } else {
-    null
-  }
+  src.parse_integer(value)
 }
 
 pure parse_bool01(value: Str?) -> Bool? {
-  let parsed = parse_integer(value)
-  return null when parsed == null
-
-  return false when parsed == 0
-
-  return true when parsed == 1
-
-  null
+  src.parse_bool01(value)
 }
 
 pure parse_words(value: Str?) -> List[Str] {
-  return [] when value == null or value == ""
-
-  value.split(" ") |> where .trim() != ""
+  src.parse_words(value)
 }
 
 type HugePageRead = {pool: report.HugePagePool?, issues: List[report.CollectionIssue]}
@@ -423,8 +405,8 @@ pure cgroup_mount_inventory(value: Str) -> CgroupMountInventory {
 
     let filesystem = fields[separator + 1]
     if filesystem in ["cgroup2", "cgroup"] {
-      let mount_root = decode_mount_field(fields[3])
-      let mount_point = decode_mount_field(fields[4])
+      let mount_root = sys_mount.decode_mount_field(fields[3])
+      let mount_point = sys_mount.decode_mount_field(fields[4])
       if ! mount_root.starts_with("/") or ! mount_point.starts_with("/") {
         malformed = true
         continue
@@ -529,15 +511,8 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
 }
 
 ## Retains the configuration that owns each parsed USB interface setting.
-export type UsbDescriptorAlternate = {
-  configuration_value: Int?,
-  interface_number: Int,
-  setting_number: Int,
-  class_code: Int,
-  subclass: Int,
-  protocol: Int,
-  endpoints: List[report.UsbEndpoint],
-}
+export type UsbDescriptorAlternate = sys_usb.DescriptorAlternate
+
 
 type CollectedDevices[T] = {
   status: report.SectionStatus,
@@ -546,13 +521,6 @@ type CollectedDevices[T] = {
 }
 
 type UsbCollection = CollectedDevices[report.UsbDevice]
-
-type BlockCandidate = {
-  device: report.BlockDevice,
-  parent_name: Str?,
-  holders: List[Str],
-  slaves: List[Str],
-}
 
 type StorageCollection = {
   status: report.SectionStatus,
@@ -587,20 +555,12 @@ export type NetworkCollection = {
 }
 
 ## Separates a USB bus entry's controller relation from source-read failures.
-export type UsbControllerObservation = {
-  address: Str?,
-  state: report.ObservationState,
-  errno: Int?,
-  error_kind: Str?,
-}
+export type UsbControllerObservation = sys_usb.ControllerObservation
+
 
 ## Keeps a class device's parent target and source failure state together.
-export type ClassParentObservation = {
-  target: Path?,
-  state: report.ObservationState,
-  errno: Int?,
-  error_kind: Str?,
-}
+export type ClassParentObservation = src.ClassParentObservation
+
 
 type NetworkLinkTarget = {
   target: Path?,
@@ -660,142 +620,8 @@ type CgroupCollection = {
   issues: List[report.CollectionIssue],
 }
 
-pure decode_mount_field(value: Str) -> Str {
-  value.replace("\\040", " ")
-    .replace("\\011", "\t")
-    .replace("\\012", "\n")
-    .replace("\\134", "\\")
-}
-
-pure mount_usage_eligible(filesystem: Str) -> Bool {
-  filesystem in [
-    "btrfs",
-    "exfat",
-    "ext2",
-    "ext3",
-    "ext4",
-    "f2fs",
-    "ntfs",
-    "ntfs3",
-    "overlay",
-    "tmpfs",
-    "vfat",
-    "xfs",
-  ]
-}
-
-type MountUsageRow = {mount_id: Int, parent_id: Int, target: Str, filesystem: Str}
-
-type MountUsageIndex = {rows: List[MountUsageRow], by_id: Map[Int, Int], target_counts: Map[Int], valid_graph: Bool}
-
-pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
-  var rows: List[MountUsageRow] = []
-  var by_id: Map[Int, Int] = {}
-  var target_counts: Map[Int] = {}
-  var valid_graph = true
-  for line in mountinfo.lines() {
-    let fields = parse_words(line)
-    var separator = 0
-    while separator < fields.len() and fields[separator] != "-" {
-      separator += 1
-    }
-
-    if separator < 6 or separator + 3 >= fields.len() {
-      valid_graph = false
-      continue
-    }
-
-    let mount_id = parse_integer(fields[0]) ?? -1
-    let parent_id = parse_integer(fields[1]) ?? -1
-    if mount_id < 0 or parent_id < 0 or mount_id > 9007199254740991 or parent_id > 9007199254740991 {
-      valid_graph = false
-      continue
-    }
-
-    let numbers = fields[2].split(":")
-    let major = parse_integer(numbers.get(0) ?? "") ?? -1
-    let minor = parse_integer(numbers.get(1) ?? "") ?? -1
-    let target = decode_mount_field(fields[4])
-    if major < 0 or minor < 0 or major > 9007199254740991 or minor > 9007199254740991 or ! target.starts_with("/") {
-      valid_graph = false
-      continue
-    }
-
-    if mount_id in by_id {
-      valid_graph = false
-    }
-
-    by_id = by_id.set(mount_id, if mount_id in by_id { -1 } else { rows.len() })
-    target_counts = target_counts.set(target, (target_counts.get(target) ?? 0) + 1)
-    rows += [
-      {
-        mount_id: mount_id,
-        parent_id: parent_id,
-        target: target,
-        filesystem: fields[separator + 1],
-      },
-    ]
-  }
-
-  {rows: rows, by_id: by_id, target_counts: target_counts, valid_graph: valid_graph}
-}
-
-# A target can resolve through a different mount when its own or an ancestor path is shadowed.
-pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
-  guard index.valid_graph else {
-    return false
-  }
-
-  var current_id = mount_id
-  var seen = set.empty()
-  var depth = 0
-  while depth < index.rows.len() {
-    let key = f"{current_id}"
-    return false when key in seen
-
-    seen = set.add(seen, key)
-    let row_index = index.by_id.get(current_id) ?? -1
-    return false when row_index < 0
-
-    let entry = index.rows[row_index]
-    if ! mount_usage_eligible(entry.filesystem) or (index.target_counts.get(entry.target) ?? 0) != 1 {
-      return false
-    }
-
-    return true when entry.parent_id == 0
-
-    return false when entry.parent_id == current_id
-
-    return true when entry.parent_id not in index.by_id
-
-    current_id = entry.parent_id
-    depth += 1
-  }
-
-  false
-}
-
 pure decimal_identifier(value: Str) -> Bool {
-  return false when value == ""
-
-  for digit in value {
-    if digit not in [
-      "0",
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-      "6",
-      "7",
-      "8",
-      "9",
-    ] {
-      return false
-    }
-  }
-
-  true
+  src.decimal_digits(value)
 }
 
 pure proc_stat_error(message: Str) -> Error {
@@ -890,36 +716,53 @@ export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
   })
 }
 
-pure split_csv(value: Str) -> List[Str] {
-  return [] when value == ""
-
-  value.split(",")
-}
-
-pure block_index(indices: Map[Int], major: Int, minor: Int) -> Int? {
-  let key = f"{major}:{minor}"
-  return null when key not in indices
-
-  indices.get(key) ?? 0
-}
-
-pure block_name_index(indices: Map[Int], name: Str?) -> Int? {
-  return null when name == null or name not in indices
-
-  indices.get(name) ?? 0
-}
-
-## Finds the last PCI function in a sysfs class-entry symlink target.
-export pure pci_address_in_target(target: Path) -> Str? {
-  var address: Str? = null
-  for component in target.display().split("/") {
-    match collectors.parse_pci_address(component) {
-      Ok(_) => address = component
-      Err(_) => {}
-    }
+pure report_block_device(device: sys_block.BlockDevice, pci_indices: Map[Int]) -> report.BlockDevice {
+  {
+    name: device.name,
+    major: device.major,
+    minor: device.minor,
+    kind: device.kind,
+    size_bytes: device.size_bytes,
+    logical_sector_bytes: device.logical_sector_bytes,
+    physical_sector_bytes: device.physical_sector_bytes,
+    removable: device.removable,
+    rotational: device.rotational,
+    read_only: device.read_only,
+    model: device.model,
+    firmware: device.firmware,
+    parent_device_index: device.parent_device_index,
+    parent_pci_function_index: sys_pci.function_index(pci_indices, device.parent_pci_address),
+    holder_indices: device.holder_indices,
+    slave_indices: device.slave_indices,
+    active_scheduler: device.active_scheduler,
+    available_schedulers: device.available_schedulers,
+    read_ahead_kb: device.read_ahead_kb,
+    discard_granularity_bytes: device.discard_granularity_bytes,
+    discard_max_bytes: device.discard_max_bytes,
+    io_counters: device.io_counters,
   }
+}
 
-  address
+# Redaction-safe option and source policy is applied here, never inside the collector.
+pure report_mount(entry: sys_mount.MountEntry, block_indices: Map[Int]) -> report.Mount {
+  {
+    mount_id: entry.mount_id,
+    parent_id: entry.parent_id,
+    major: entry.major,
+    minor: entry.minor,
+    root: {state: report.Observed, value: entry.root, raw_bytes_base64: null},
+    target: {state: report.Observed, value: entry.target, raw_bytes_base64: null},
+    mount_options: report.sanitize_mount_options(entry.mount_options),
+    optional_fields: report.sanitize_mount_optional_fields(entry.optional_fields),
+    filesystem: entry.filesystem,
+    source: report.sanitize_mount_source({state: report.Observed, value: entry.source, raw_bytes_base64: null}),
+    super_options: report.sanitize_mount_options(entry.super_options),
+    block_device_index: sys_block.index_of_number(block_indices, entry.major, entry.minor),
+    usage_state: entry.usage_state,
+    usage_total_bytes: entry.usage_total_bytes,
+    usage_used_bytes: entry.usage_used_bytes,
+    usage_available_bytes: entry.usage_available_bytes,
+  }
 }
 
 proc collect_storage(
@@ -927,626 +770,25 @@ proc collect_storage(
   pci_functions: List[report.PciFunction],
   include_local_mount_usage: Bool,
 ) [fs, error] -> StorageCollection {
-  let listing = root.children(p"sys/class/block", max_entries: 4096)?
-  let pci_indices = pci_function_indices(pci_functions)
-  var issues: List[report.CollectionIssue] = []
-  var candidates: List[BlockCandidate] = []
-  var listed_names = set.empty()
-  for device_path in listing.children {
-    listed_names = set.add(listed_names, device_path.name())
-  }
-
-  if listing.state != "complete" {
-    issues += [
-      issue(
-        "storage",
-        "devices",
-        live_source_observation_state(listing.state, false),
-        listing.error_kind,
-        listing.errno,
-      ),
-    ]
-  }
-
-  for device_path in listing.children {
-    let name = device_path.name()
-    let dev = read_value(root, fp"{device_path}/dev", max_bytes: 4096)
-    let dev_text = observed_source_text(dev)
-    let dev_parts = (dev_text ?? "").split(":")
-    var major: Int? = null
-    var minor: Int? = null
-    if dev_text == null {
-      issues += [issue("storage", f"devices.{name}.major_minor", dev.observation.state, dev.error_kind, dev.errno)]
-    } else if dev_parts.len() != 2 {
-      issues += [issue("storage", f"devices.{name}.major_minor", report.Malformed, "invalid_device_number", null)]
-    } else {
-      let parsed_major = parse_integer(dev_parts[0]) ?? -1
-      let parsed_minor = parse_integer(dev_parts[1]) ?? -1
-      if parsed_major < 0 or parsed_minor < 0 {
-        let out_of_range = (parsed_major < 0 and decimal_identifier(dev_parts[0])) or (parsed_minor < 0 and decimal_identifier(
-          dev_parts[1],
-        ))
-        let state = if out_of_range { report.RangeFailure } else { report.Malformed }
-        let error_kind = if out_of_range { "device_number_out_of_range" } else { "invalid_device_number" }
-        issues += [issue("storage", f"devices.{name}.major_minor", state, error_kind, null)]
-      } else if parsed_major > 9007199254740991 or parsed_minor > 9007199254740991 {
-        issues += [
-          issue("storage", f"devices.{name}.major_minor", report.RangeFailure, "device_number_out_of_range", null),
-        ]
-      } else {
-        major = parsed_major
-        minor = parsed_minor
-      }
-    }
-
-    let size = read_value(root, fp"{device_path}/size", max_bytes: 4096)
-    let logical = read_value(root, fp"{device_path}/queue/logical_block_size", max_bytes: 4096)
-    let physical = read_value(root, fp"{device_path}/queue/physical_block_size", max_bytes: 4096)
-    let removable = read_value(root, fp"{device_path}/removable", max_bytes: 4096)
-    let rotational = read_value(root, fp"{device_path}/queue/rotational", max_bytes: 4096)
-    let read_only = read_value(root, fp"{device_path}/ro", max_bytes: 4096)
-    let model = read_value(root, fp"{device_path}/device/model", max_bytes: 4096)
-    let firmware = read_value(root, fp"{device_path}/device/firmware_rev", max_bytes: 4096)
-    let fallback_firmware = if firmware.observation.state == report.Absent {
-      read_value(root, fp"{device_path}/device/rev", max_bytes: 4096)
-    } else {
-      firmware
-    }
-    for field_source in [
-      {
-        field: "model",
-        source: model,
-      },
-      {
-        field: "firmware",
-        source: fallback_firmware,
-      },
-    ] {
-      let observed = field_source.source
-      if observed.observation.state != report.Observed and observed.observation.state != report.Absent {
-        issues += [
-          issue(
-            "storage",
-            f"devices.{name}.{field_source.field}",
-            observed.observation.state,
-            observed.error_kind,
-            observed.errno,
-          ),
-        ]
-      }
-    }
-
-    let scheduler = read_value(root, fp"{device_path}/queue/scheduler", max_bytes: 4096)
-    var active_scheduler: Str? = null
-    var available_schedulers: List[Str] = []
-    if scheduler.observation.state != report.Observed and scheduler.observation.state != report.Absent {
-      issues += [
-        issue(
-          "storage",
-          f"devices.{name}.scheduler",
-          scheduler.observation.state,
-          scheduler.error_kind,
-          scheduler.errno,
-        ),
-      ]
-    }
-
-    if scheduler.observation.state == report.Observed {
-      let parsed_scheduler = collectors.parse_block_scheduler(observed_source_text(scheduler) ?? "")
-      if parsed_scheduler == null {
-        issues += [issue("storage", f"devices.{name}.scheduler", report.Malformed, "invalid_scheduler_selection", null)]
-      } else {
-        active_scheduler = parsed_scheduler.active
-        available_schedulers = parsed_scheduler.available
-      }
-    }
-
-    let read_ahead = read_value(root, fp"{device_path}/queue/read_ahead_kb", max_bytes: 4096)
-    let discard_granularity = read_value(root, fp"{device_path}/queue/discard_granularity", max_bytes: 4096)
-    let discard_max = read_value(root, fp"{device_path}/queue/discard_max_bytes", max_bytes: 4096)
-    let logical_number = collectors.bounded_number(logical, true)
-    let physical_number = collectors.bounded_number(physical, true)
-    let removable_number = collectors.bounded_number(removable, true)
-    let rotational_number = collectors.bounded_number(rotational, true)
-    let read_only_number = collectors.bounded_number(read_only, true)
-    let read_ahead_number = collectors.bounded_number(read_ahead, true)
-    let discard_granularity_number = collectors.bounded_number(discard_granularity, true)
-    let discard_max_number = collectors.bounded_number(discard_max, true)
-    for field_number in [
-      {
-        field: "logical_sector_bytes",
-        number: logical_number,
-        boolean: false,
-      },
-      {
-        field: "physical_sector_bytes",
-        number: physical_number,
-        boolean: false,
-      },
-      {
-        field: "removable",
-        number: removable_number,
-        boolean: true,
-      },
-      {
-        field: "rotational",
-        number: rotational_number,
-        boolean: true,
-      },
-      {
-        field: "read_only",
-        number: read_only_number,
-        boolean: true,
-      },
-      {
-        field: "read_ahead_kb",
-        number: read_ahead_number,
-        boolean: false,
-      },
-      {
-        field: "discard_granularity_bytes",
-        number: discard_granularity_number,
-        boolean: false,
-      },
-      {
-        field: "discard_max_bytes",
-        number: discard_max_number,
-        boolean: false,
-      },
-    ] {
-      let parsed = field_number.number
-      let field = f"devices.{name}.{field_number.field}"
-      if parsed.state != null {
-        issues += [issue("storage", field, parsed.state ?? report.Malformed, parsed.error_kind, parsed.errno)]
-      } else if field_number.boolean and (parsed.value ?? -1) not in [0, 1] and parsed.value != null {
-        issues += [issue("storage", field, report.Malformed, "invalid_boolean", null)]
-      }
-    }
-
-    let stats = read_value(root, fp"{device_path}/stat", max_bytes: 4096)
-    if stats.observation.state != report.Observed and stats.observation.state != report.Absent {
-      issues += [issue("storage", f"devices.{name}.stat", stats.observation.state, stats.error_kind, stats.errno)]
-    }
-
-    let stats_values = observed_source_text(stats) |> parse_words(_)
-    let stat_field_count_valid = stats_values.len() in [11, 15, 17] or stats_values.len() > 17
-    if stats.observation.state == report.Observed and ! stat_field_count_valid {
-      issues += [issue("storage", f"devices.{name}.stat", report.Malformed, "invalid_io_counter_count", null)]
-    }
-
-    var io_counters: List[report.MemoryCounter] = []
-    let counter_names = [
-      "read_ios",
-      "read_merges",
-      "read_sectors",
-      "read_ms",
-      "write_ios",
-      "write_merges",
-      "write_sectors",
-      "write_ms",
-      "in_flight",
-      "io_ms",
-      "weighted_io_ms",
-      "discard_ios",
-      "discard_merges",
-      "discard_sectors",
-      "discard_ms",
-      "flush_ios",
-      "flush_ms",
-    ]
-    let counter_units = [
-      "requests",
-      "requests",
-      "sectors",
-      "milliseconds",
-      "requests",
-      "requests",
-      "sectors",
-      "milliseconds",
-      "requests",
-      "milliseconds",
-      "milliseconds",
-      "requests",
-      "requests",
-      "sectors",
-      "milliseconds",
-      "requests",
-      "milliseconds",
-    ]
-    var counter_index = 0
-    while stat_field_count_valid and counter_index < stats_values.len() and counter_index < counter_names.len() {
-      let counter_value = parse_integer(stats_values[counter_index]) ?? -1
-      if counter_value >= 0 and counter_value <= 9007199254740991 {
-        io_counters += [{name: counter_names[counter_index], value: counter_value, unit: counter_units[counter_index]}]
-      } else {
-        let out_of_range = decimal_identifier(stats_values[counter_index])
-        let state = if out_of_range { report.RangeFailure } else { report.Malformed }
-        let error_kind = if out_of_range { "io_counter_out_of_range" } else { "invalid_io_counter" }
-        issues += [issue("storage", f"devices.{name}.stat.{counter_names[counter_index]}", state, error_kind, null)]
-      }
-
-      counter_index += 1
-    }
-
-    if stats_values.len() > counter_names.len() {
-      issues += [issue("storage", f"devices.{name}.stat", report.Unsupported, "unknown_io_counter_fields", null)]
-    }
-
-    let size_number = collectors.bounded_number(size, true)
-    let sectors = size_number.value ?? -1
-    if size.observation.state == report.Absent {
-      issues += [issue("storage", f"devices.{name}.size", report.Absent, size.error_kind, size.errno)]
-    } else if size_number.state != null {
-      issues += [
-        issue(
-          "storage",
-          f"devices.{name}.size",
-          size_number.state ?? report.Malformed,
-          size_number.error_kind,
-          size_number.errno,
-        ),
-      ]
-    } else if sectors > 17592186044415 {
-      issues += [issue("storage", f"devices.{name}.size", report.RangeFailure, "byte_count_overflow", null)]
-    }
-
-    var is_partition = false
-    match root.exists(fp"{device_path}/partition") {
-      Ok(present) => is_partition = present
-      Err(is PermissionDenied) => issues += [
-        issue("storage", f"devices.{name}.partition", report.PermissionDenied, "permission_denied", null),
-      ]
-      Err(_) => issues += [
-        issue("storage", f"devices.{name}.partition", report.ReadFailure, "partition_probe_failed", null),
-      ]
-    }
-
-    let target_source = class_entry_target(root, device_path)
-    let target_path = target_source.target
-    if target_source.state != report.Observed {
-      issues += [
-        issue(
-          "storage",
-          f"devices.{name}.sysfs_target",
-          target_source.state,
-          target_source.error_kind,
-          target_source.errno,
-        ),
-      ]
-    }
-
-    let target = target_path?.display() ?? ""
-    let kind = if is_partition {
-      "partition"
-    } else if target_path == null {
-      "unknown"
-    } else if "/virtual/" in target {
-      "virtual"
-    } else {
-      "disk"
-    }
-    var parent_pci_function_index: Int? = null
-    if target_path != null {
-      parent_pci_function_index = pci_function_index(pci_indices, pci_address_in_target(target_path))
-    }
-
-    let holders_listing = root.children(fp"{device_path}/holders", max_entries: 4096)?
-    let slaves_listing = root.children(fp"{device_path}/slaves", max_entries: 4096)?
-    if holders_listing.state != "complete" {
-      issues += [
-        issue(
-          "storage",
-          f"devices.{name}.holders",
-          live_source_observation_state(holders_listing.state, false),
-          holders_listing.error_kind,
-          holders_listing.errno,
-        ),
-      ]
-    }
-
-    # Partitions expose holders but have no slaves directory of their own.
-    if slaves_listing.state != "complete" and ! (is_partition and slaves_listing.state == "absent") {
-      issues += [
-        issue(
-          "storage",
-          f"devices.{name}.slaves",
-          live_source_observation_state(slaves_listing.state, false),
-          slaves_listing.error_kind,
-          slaves_listing.errno,
-        ),
-      ]
-    }
-
-    var holders: List[Str] = []
-    var slaves: List[Str] = []
-    for holder in holders_listing.children {
-      holders += [holder.name()]
-    }
-
-    for slave in slaves_listing.children {
-      slaves += [slave.name()]
-    }
-
-    var parent_name: Str? = null
-    let target_components = target.split("/")
-    for component in target_components {
-      if component != name and component != "block" and component in listed_names {
-        parent_name = component
-      }
-    }
-
-    var sector_bytes: Int? = null
-    if sectors >= 0 and sectors <= 17592186044415 {
-      sector_bytes = sectors * 512
-    }
-
-    candidates += [
-      {
-        device: {
-          name: name,
-          major: major,
-          minor: minor,
-          kind: kind,
-          size_bytes: sector_bytes,
-          logical_sector_bytes: logical_number.value,
-          physical_sector_bytes: physical_number.value,
-          removable: if (removable_number.value ?? -1) in [
-            0,
-            1,
-          ] {
-            parse_bool01(observed_source_text(removable))
-          } else {
-            null
-          },
-          rotational: if (rotational_number.value ?? -1) in [
-            0,
-            1,
-          ] {
-            parse_bool01(observed_source_text(rotational))
-          } else {
-            null
-          },
-          read_only: if (read_only_number.value ?? -1) in [
-            0,
-            1,
-          ] {
-            parse_bool01(observed_source_text(read_only))
-          } else {
-            null
-          },
-          model: {
-            ...model.observation,
-            value: observed_source_text(model),
-          },
-          firmware: {
-            ...fallback_firmware.observation,
-            value: observed_source_text(fallback_firmware),
-          },
-          parent_device_index: null,
-          parent_pci_function_index: parent_pci_function_index,
-          holder_indices: [],
-          slave_indices: [],
-          active_scheduler: active_scheduler,
-          available_schedulers: available_schedulers,
-          read_ahead_kb: read_ahead_number.value,
-          discard_granularity_bytes: discard_granularity_number.value,
-          discard_max_bytes: discard_max_number.value,
-          io_counters: io_counters,
-        },
-        parent_name: parent_name,
-        holders: holders,
-        slaves: slaves,
-      },
-    ]
-  }
-
-  # Preserve the first enumerated identity while linking layered devices and mounts.
-  var block_indices_by_name: Map[Int] = {}
-  var block_indices_by_device: Map[Int] = {}
-  for index in range(candidates.len()) {
-    let device = candidates[index].device
-    if device.name != null and device.name not in block_indices_by_name {
-      block_indices_by_name = block_indices_by_name.set(device.name, index)
-    }
-
-    if device.major != null and device.minor != null {
-      let key = f"{device.major}:{device.minor}"
-      if key not in block_indices_by_device {
-        block_indices_by_device = block_indices_by_device.set(key, index)
-      }
-    }
-  }
-
-  var linked_devices: List[report.BlockDevice] = []
-  var candidate_index = 0
-  while candidate_index < candidates.len() {
-    let candidate = candidates[candidate_index]
-    var holders: List[Int] = []
-    var slaves: List[Int] = []
-    for name in candidate.holders {
-      let index = block_name_index(block_indices_by_name, name)
-      if index != null {
-        holders += [index]
-      }
-    }
-
-    for name in candidate.slaves {
-      let index = block_name_index(block_indices_by_name, name)
-      if index != null {
-        slaves += [index]
-      }
-    }
-
-    linked_devices += [
-      {
-        ...candidate.device,
-        parent_device_index: block_name_index(block_indices_by_name, candidate.parent_name),
-        holder_indices: holders,
-        slave_indices: slaves,
-      },
-    ]
-    candidate_index += 1
-  }
-
-  let mount_source = read_value(root, p"proc/self/mountinfo", max_bytes: 4194304)
-  var mounts: List[report.Mount] = []
-  if mount_source.observation.state != report.Observed or mount_source.observation.value == null {
-    issues += [issue("storage", "mounts", mount_source.observation.state, mount_source.error_kind, mount_source.errno)]
-  } else {
-    let usage_index = mount_usage_index(mount_source.observation.value)
-    for line_item in mount_source.observation.value.lines() |> enumerate() {
-      let {index: line_index, value: line, ..} = line_item
-      let fields = parse_words(line)
-      var separator = 0
-      while separator < fields.len() and fields[separator] != "-" {
-        separator += 1
-      }
-
-      if separator < 6 or separator + 3 >= fields.len() {
-        issues += [issue("storage", f"mounts.line.{line_index}", report.Malformed, "invalid_mountinfo_row", null)]
-        continue
-      }
-
-      let ids = parse_integer(fields[0]) ?? -1
-      let parent_id = parse_integer(fields[1]) ?? -1
-      let device_ids = fields[2].split(":")
-      let major = parse_integer(device_ids.get(0) ?? "") ?? -1
-      let minor = parse_integer(device_ids.get(1) ?? "") ?? -1
-      if ids < 0 or parent_id < 0 or major < 0 or minor < 0 {
-        issues += [issue("storage", f"mounts.line.{line_index}", report.Malformed, "invalid_mount_identity", null)]
-        continue
-      }
-
-      if ids > 9007199254740991 or parent_id > 9007199254740991 or major > 9007199254740991 or minor > 9007199254740991 {
-        issues += [
-          issue("storage", f"mounts.line.{line_index}", report.RangeFailure, "mount_identity_out_of_json_range", null),
-        ]
-        continue
-      }
-
-      var optional_fields: List[Str] = []
-      var index = 6
-      while index < separator {
-        optional_fields += [decode_mount_field(fields[index])]
-        index += 1
-      }
-
-      let target = decode_mount_field(fields[4])
-      let source = decode_mount_field(fields[separator + 2])
-      var usage_state = report.NotRequested
-      var usage_total_bytes: Int? = null
-      var usage_used_bytes: Int? = null
-      var usage_available_bytes: Int? = null
-      if include_local_mount_usage and mount_usage_safe(usage_index, ids) {
-        if ! target.starts_with("/") {
-          usage_state = report.Malformed
-          issues += [
-            issue_with_detail(
-              "storage",
-              f"mounts.{ids}.usage",
-              usage_state,
-              "invalid_mount_target",
-              null,
-              "The mount target was not absolute.",
-            ),
-          ]
-        } else {
-          var usage_path: Path? = null
-          if target == "/" {
-            usage_path = p"."
-          } else {
-            if let Ok(relative_path) = fp"{target}".strip_prefix(/) {
-              usage_path = relative_path
-            } else {
-              usage_path = null
-            }
-          }
-
-          if usage_path == null {
-            usage_state = report.Malformed
-            issues += [
-              issue_with_detail(
-                "storage",
-                f"mounts.{ids}.usage",
-                usage_state,
-                "invalid_mount_target",
-                null,
-                "The mount target could not be made relative to the observation root.",
-              ),
-            ]
-          } else {
-            let usage = root.filesystem_stats(usage_path)?
-            usage_state = match usage.state {
-              "observed" => report.Observed,
-              "absent" => report.Disappeared,
-              "permission_denied" => report.PermissionDenied,
-              "malformed" => report.Malformed,
-              "range_failure" => report.RangeFailure,
-              else => report.ReadFailure,
-            }
-            usage_total_bytes = usage.total_bytes
-            usage_used_bytes = usage.used_bytes
-            usage_available_bytes = usage.available_bytes
-            if usage.state != "observed" {
-              issues += [
-                issue(
-                  "storage",
-                  f"mounts.{ids}.usage",
-                  usage_state,
-                  usage.error_kind,
-                  usage.errno,
-                ),
-              ]
-            }
-          }
-        }
-      }
-
-      mounts += [
-        {
-          mount_id: ids,
-          parent_id: parent_id,
-          major: major,
-          minor: minor,
-          root: {
-            state: report.Observed,
-            value: decode_mount_field(fields[3]),
-            raw_bytes_base64: null,
-          },
-          target: {
-            state: report.Observed,
-            value: target,
-            raw_bytes_base64: null,
-          },
-          mount_options: report.sanitize_mount_options(split_csv(fields[5])),
-          optional_fields: report.sanitize_mount_optional_fields(optional_fields),
-          filesystem: fields[separator + 1],
-          source: report.sanitize_mount_source({state: report.Observed, value: source, raw_bytes_base64: null}),
-          super_options: report.sanitize_mount_options(split_csv(fields[separator + 3])),
-          block_device_index: block_index(block_indices_by_device, major, minor),
-          usage_state: usage_state,
-          usage_total_bytes: usage_total_bytes,
-          usage_used_bytes: usage_used_bytes,
-          usage_available_bytes: usage_available_bytes,
-        },
-      ]
-    }
-  }
-
+  let pci_indices = sys_pci.function_indices(pci_functions)
+  let blocks = sys_block.collect(root)
+  let table = sys_mount.collect(root, include_local_mount_usage)
+  let issues = src.with_section("storage", blocks.issues).extend(src.with_section("storage", table.issues))
   var state = report.Complete
-  if listing.state == "absent" and mount_source.observation.state == report.Absent {
+  if blocks.listing_state == "absent" and table.source_state == report.Absent {
     state = report.SectionAbsent
-  } else if listing.state != "complete" or mount_source.observation.state != report.Observed or issues.len() > 0 {
+  } else if blocks.listing_state != "complete" or table.source_state != report.Observed or issues.len() > 0 {
     state = report.Partial
   }
 
+  let block_indices = sys_block.index_by_number(blocks.devices)
   {
     status: {
       state: state,
-      enumeration_succeeded: listing.enumeration_succeeded and mount_source.observation.state == report.Observed,
+      enumeration_succeeded: blocks.enumeration_succeeded and table.source_state == report.Observed,
     },
-    devices: linked_devices,
-    mounts: mounts,
+    devices: [report_block_device(device, pci_indices) for device in blocks.devices],
+    mounts: [report_mount(entry, block_indices) for entry in table.mounts],
     issues: issues,
   }
 }
@@ -1629,7 +871,7 @@ proc collect_sensors(
   pci_functions: List[report.PciFunction],
   usb_devices: List[report.UsbDevice],
 ) [fs, error] -> SensorCollection {
-  let pci_indices = pci_function_indices(pci_functions)
+  let pci_indices = sys_pci.function_indices(pci_functions)
   let usb_indices = usb_device_indices(usb_devices)
   let hwmon_listing = root.children(p"sys/class/hwmon", max_entries: 1024)?
   let thermal_listing = root.children(p"sys/class/thermal", max_entries: 1024)?
@@ -1662,7 +904,7 @@ proc collect_sensors(
     var parent_usb_index: Int? = null
     if parent.target != null {
       let target = parent.target
-      parent_pci_address = usb_parent_address(target)
+      parent_pci_address = sys_pci.address_in_target(target)
       parent_usb_index = usb_device_index_from_target(usb_indices, target)
     }
 
@@ -1726,24 +968,22 @@ proc collect_sensors(
         }
       }
 
-      channels += [
-        {
-          chip: chip,
-          chip_entry_name: chip_path.name(),
-          channel: channel_name,
-          label: label.observation,
-          kind: sensor_kind_name,
-          value: measured.value,
-          unit: sensor_unit(sensor_kind_name),
-          minimum: minimum_number.value,
-          maximum: maximum_number.value,
-          critical: critical_number.value,
-          alarm: alarm_value,
-          parent_device_class_index: null,
-          parent_pci_function_index: pci_function_index(pci_indices, parent_pci_address),
-          parent_usb_device_index: parent_usb_index,
-        },
-      ]
+      channels = channels.push({
+        chip: chip,
+        chip_entry_name: chip_path.name(),
+        channel: channel_name,
+        label: label.observation,
+        kind: sensor_kind_name,
+        value: measured.value,
+        unit: sensor_unit(sensor_kind_name),
+        minimum: minimum_number.value,
+        maximum: maximum_number.value,
+        critical: critical_number.value,
+        alarm: alarm_value,
+        parent_device_class_index: null,
+        parent_pci_function_index: sys_pci.function_index(pci_indices, parent_pci_address),
+        parent_usb_device_index: parent_usb_index,
+      })
     }
   }
 
@@ -2537,7 +1777,7 @@ proc collect_device_classes(
   pci_functions: List[report.PciFunction],
   usb_devices: List[report.UsbDevice],
 ) [fs, error] -> DeviceCollection {
-  let pci_indices = pci_function_indices(pci_functions)
+  let pci_indices = sys_pci.function_indices(pci_functions)
   let usb_indices = usb_device_indices(usb_devices)
   var devices: List[report.DeviceClassRecord] = []
   var issues: List[report.CollectionIssue] = []
@@ -2613,7 +1853,7 @@ proc collect_device_classes(
       var parent_usb_device_index: Int? = null
       if parent.target != null {
         let parent_target = parent.target
-        parent_pci_address = usb_parent_address(parent_target)
+        parent_pci_address = sys_pci.address_in_target(parent_target)
         parent_usb_device_index = usb_device_index_from_target(usb_indices, parent_target)
       }
 
@@ -2652,7 +1892,17 @@ proc collect_device_classes(
           driver: observed_source_text(driver_link),
           attributes: attributes,
         },
-      ]
+        name: {
+          state: report.Observed,
+          value: name,
+          raw_bytes_base64: null,
+        },
+        parent_device_class_index: null,
+        parent_pci_function_index: sys_pci.function_index(pci_indices, parent_pci_address),
+        parent_usb_device_index: parent_usb_device_index,
+        driver: observed_source_text(driver_link),
+        attributes: attributes,
+      })
     }
   }
 
@@ -3018,819 +2268,101 @@ export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error] 
   {records: records, issues: issues, truncated: false}
 }
 
-## Parses interface settings and endpoints without joining identical numbers across configurations.
-export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate], Error] {
-  let records = collectors.parse_usb_descriptor_stream(data)?
-  var alternates: List[UsbDescriptorAlternate] = []
-  var current_configuration: Int? = null
-  var current_configuration_end: Int? = null
-  var active: UsbDescriptorAlternate? = null
-  for descriptor in records {
-    if current_configuration_end != null {
-      let configuration_end = current_configuration_end
-      if descriptor.descriptor_type == 1 or descriptor.descriptor_type == 2 {
-        guard descriptor.offset == configuration_end else {
-          return Err(
-            SystemReportUsbDescriptorError.Invalid(
-              message: "USB configuration descriptor bytes do not match their declared total length",
-            ),
-          )
-        }
-      } else if descriptor.offset >= configuration_end or descriptor.offset + descriptor.length > configuration_end {
-        return Err(SystemReportUsbDescriptorError.Invalid(message: "USB descriptor extends outside its configuration"))
-      }
-    }
-
-    if descriptor.descriptor_type == 1 {
-      guard descriptor.length >= 18 else {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(message: "USB device descriptor is shorter than its fixed header"),
-        )
-      }
-
-      if active != null {
-        alternates += [active]
-      }
-
-      current_configuration = null
-      current_configuration_end = null
-      active = null
-      continue
-    }
-
-    if descriptor.descriptor_type == 2 {
-      guard descriptor.length >= 9 else {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(message: "USB configuration descriptor is shorter than its fixed header"),
-        )
-      }
-
-      let total_length = bytes.unpack_le(descriptor.raw, 2, 2)?
-      if total_length < descriptor.length or total_length > data.len() - descriptor.offset {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(
-            message: "USB configuration total length is outside the available descriptor bytes",
-          ),
-        )
-      }
-
-      if active != null {
-        alternates += [active]
-      }
-
-      current_configuration = bytes.unpack_le(descriptor.raw, 1, 5)?
-      current_configuration_end = descriptor.offset + total_length
-      active = null
-      continue
-    }
-
-    if descriptor.descriptor_type == 4 {
-      guard descriptor.length >= 9 else {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(message: "USB interface descriptor is shorter than its fixed header"),
-        )
-      }
-
-      let interface_number = bytes.unpack_le(descriptor.raw, 1, 2)?
-      let setting_number = bytes.unpack_le(descriptor.raw, 1, 3)?
-      if active != null {
-        alternates += [active]
-      }
-
-      active = {
-        configuration_value: current_configuration,
-        interface_number: interface_number,
-        setting_number: setting_number,
-        class_code: bytes.unpack_le(descriptor.raw, 1, 5)?,
-        subclass: bytes.unpack_le(descriptor.raw, 1, 6)?,
-        protocol: bytes.unpack_le(descriptor.raw, 1, 7)?,
-        endpoints: [],
-      }
-      continue
-    }
-
-    continue when descriptor.descriptor_type != 5
-    if descriptor.length < 7 {
-      return Err(
-        SystemReportUsbDescriptorError.Invalid(message: "USB endpoint descriptor is truncated or has no owning interface"),
-      )
-    }
-
-    if active == null {
-      return Err(
-        SystemReportUsbDescriptorError.Invalid(message: "USB endpoint descriptor is truncated or has no owning interface"),
-      )
-    }
-
-    let current = active
-    let address = bytes.unpack_le(descriptor.raw, 1, 2)?
-    let attributes = bytes.unpack_le(descriptor.raw, 1, 3)?
-    let packet_size = bytes.unpack_le(descriptor.raw, 2, 4)?
-    let interval = bytes.unpack_le(descriptor.raw, 1, 6)?
-    let transfer_type = match attributes % 4 {
-      0 => "control",
-      1 => "isochronous",
-      2 => "bulk",
-      else => "interrupt",
-    }
-    let endpoint: report.UsbEndpoint = report.UsbEndpoint(
-      address:,
-      direction: if address >= 128 {
-        "in"
-      } else {
-        "out"
-      },
-      transfer_type:,
-      max_packet_size: packet_size,
-      interval:,
-    )
-    active = {...current, endpoints: current.endpoints.push(endpoint)}
-  }
-
-  if active != null {
-    alternates += [active]
-  }
-
-  if current_configuration_end != null and current_configuration_end != data.len() {
-    return Err(
-      SystemReportUsbDescriptorError.Invalid(
-        message: "USB configuration descriptor bytes do not match their declared total length",
-      ),
-    )
-  }
-
-  alternates
-}
-
-pure usb_parent_name(name: Str, bus_number: Int?) -> Str? {
-  return null when name.starts_with("usb") or bus_number == null
-
-  let bus_id = bus_number ?? -1
-  let prefix = f"{bus_id}-"
-  return null unless name.starts_with(prefix)
-
-  let components = name.split(".")
-  return f"usb{bus_id}" when components.len() <= 1
-
-  components |> take(components.len() - 1).join(".")
-}
-
-pure usb_port_path(name: Str) -> Str? {
-  return null when name.starts_with("usb")
-
-  let parts = name.split("-")
-  return null when parts.len() < 2
-
-  parts[1]
-}
-
-# Preserves the first sysfs-name index for joins without rescanning the device list.
 pure usb_device_indices(devices: List[report.UsbDevice]) -> Map[Int] {
-  var indices: Map[Int] = {}
-  for index in range(devices.len()) {
-    let name = devices[index].sysfs_name ?? ""
-    if devices[index].sysfs_name != null and name not in indices {
-      indices = indices.set(name, index)
-    }
-  }
-
-  indices
+  sys_usb.name_indices([device.sysfs_name for device in devices])
 }
 
 ## Resolves USB parent indexes after every device has been enumerated.
 export pure link_usb_parents(devices: List[report.UsbDevice]) -> List[report.UsbDevice] {
-  let device_index_by_name = usb_device_indices(devices)
-  var linked: List[report.UsbDevice] = []
-  for device in devices {
-    let parent_name = usb_parent_name(device.sysfs_name ?? "", device.bus_number)
-    var parent_index: Int? = null
-    if parent_name != null {
-      if parent_name in device_index_by_name {
-        if let Ok(index) = device_index_by_name.get(parent_name) {
-          parent_index = index
-        }
-      }
-    }
-
-    linked += [{...device, parent_device_index: parent_index}]
-  }
-
-  linked
-}
-
-# Preserves the first BDF index for joins without rescanning the function list.
-pure pci_function_indices(functions: List[report.PciFunction]) -> Map[Int] {
-  var indices: Map[Int] = {}
-  for index in range(functions.len()) {
-    let address = functions[index].address ?? ""
-    if functions[index].address != null and address not in indices {
-      indices = indices.set(address, index)
-    }
-  }
-
-  indices
-}
-
-pure pci_function_index(indices: Map[Int], address: Str?) -> Int? {
-  return null when address == null or address not in indices
-
-  indices.get(address) ?? 0
+  let parents = sys_usb.parent_indices(
+    [device.sysfs_name for device in devices],
+    [device.bus_number for device in devices],
+  )
+  [{...devices[index], parent_device_index: parents[index]} for index in range(devices.len())]
 }
 
 pure live_source_observation_state(state: Str, truncated: Bool) -> report.ObservationState {
-  return report.Truncated when truncated
-
-  match state {
-    "observed" => report.Observed
-    "absent" => report.Absent
-    "permission_denied" => report.PermissionDenied
-    else => report.ReadFailure
-  }
+  src.source_state(state, truncated)
 }
 
 ## Finds a USB controller's PCI function in its bus-entry symlink target.
 export pure usb_parent_address(target: Path) -> Str? {
-  var result: Str? = null
-  for component in target.display().split("/") {
-    match collectors.parse_pci_address(component) {
-      Ok(_) => result = component
-      Err(_) => {}
-    }
-  }
-
-  result
+  sys_pci.address_in_target(target)
 }
 
-proc usb_source_is_directory(root: FsRoot, device_path: Path) [fs, error] -> Bool {
-  if let Ok(metadata) = root.metadata(device_path) {
-    metadata.kind == "dir"
-  } else {
-    false
-  }
-}
-
-proc class_entry_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
-  if let Ok(observed) = root.readlink_result(entry) {
-    if observed.state == "observed" {
-      return {target: observed.target, state: report.Observed, errno: observed.errno, error_kind: observed.error_kind}
-    }
-
-    if observed.state == "absent" {
-      return {target: null, state: report.Disappeared, errno: observed.errno, error_kind: observed.error_kind}
-    }
-
-    if observed.error_kind == "invalid_input" and usb_source_is_directory(root, entry) {
-      return {target: null, state: report.Observed, errno: null, error_kind: null}
-    }
-
-    {
-      target: null,
-      state: live_source_observation_state(observed.state, false),
-      errno: observed.errno,
-      error_kind: observed.error_kind,
-    }
-  } else {
-    {target: null, state: report.Malformed, errno: null, error_kind: "invalid_class_entry_path"}
-  }
+## Finds the last PCI function in a sysfs class-entry symlink target.
+export pure pci_address_in_target(target: Path) -> Str? {
+  sys_pci.address_in_target(target)
 }
 
 ## Prefers a device link and keeps a class-entry link as independent parent evidence.
 export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
-  let fallback = class_entry_target(root, entry)
-  if let Ok(observed) = root.readlink_result(fp"{entry}/device") {
-    if observed.state == "observed" {
-      guard observed.target == null else {
-        return {target: observed.target, state: report.Observed, errno: null, error_kind: null}
-      }
-
-      return {target: fallback.target, state: report.Malformed, errno: null, error_kind: "missing_device_target"}
-    }
-
-    return fallback when observed.state == "absent"
-
-    {
-      target: fallback.target,
-      state: live_source_observation_state(observed.state, false),
-      errno: observed.errno,
-      error_kind: observed.error_kind,
-    }
-  } else {
-    {
-      target: fallback.target,
-      state: report.Malformed,
-      errno: null,
-      error_kind: "invalid_device_link_path",
-    }
-  }
+  src.class_parent_target(root, entry)
 }
 
 ## Reads a USB bus-entry link and accepts direct directories in rooted fixtures.
 export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation {
-  if let Ok(observed) = root.readlink_result(device_path) {
-    if observed.state == "observed" {
-      guard observed.target != null else {
-        return {address: null, state: report.Malformed, errno: null, error_kind: "missing_controller_target"}
-      }
-
-      return {
-        address: usb_parent_address(observed.target),
-        state: report.Observed,
-        errno: null,
-        error_kind: null,
-      }
-    }
-
-    if observed.state == "absent" {
-      return {address: null, state: report.Disappeared, errno: observed.errno, error_kind: observed.error_kind}
-    }
-
-    if observed.error_kind == "invalid_input" and usb_source_is_directory(root, device_path) {
-      return {address: null, state: report.Observed, errno: null, error_kind: null}
-    }
-
-    {
-      address: null,
-      state: live_source_observation_state(observed.state, false),
-      errno: observed.errno,
-      error_kind: observed.error_kind,
-    }
-  } else {
-    {address: null, state: report.Malformed, errno: null, error_kind: "invalid_usb_source_path"}
-  }
+  sys_usb.controller_address(root, device_path)
 }
 
 ## Reads an optional driver binding while retaining failures separate from an unbound device.
 export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> collectors.SourceRead {
-  if let Ok(observed) = root.readlink_result(source_path) {
-    let state = live_source_observation_state(observed.state, false)
-    var value: Str? = null
-    if observed.target != null {
-      value = observed.target.name()
-    }
+  src.driver_name(root, source_path)
+}
 
-    if state == report.Observed and value == null {
-      return {
-        observation: empty_text(report.Malformed),
-        errno: null,
-        error_kind: "missing_driver_target",
-      }
-    }
-
-    {
-      observation: {
-        state: state,
-        value: value,
-        raw_bytes_base64: null,
-      },
-      errno: observed.errno,
-      error_kind: observed.error_kind,
-    }
-  } else {
-    {
-      observation: empty_text(report.Malformed),
-      errno: null,
-      error_kind: "invalid_driver_link_path",
-    }
+## Parses interface settings and endpoints without joining identical numbers across configurations.
+export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate]] {
+  match sys_usb.parse_alternates(data) {
+    Ok(alternates) => Ok(alternates)
+    Err(error) => Err(SystemReportUsbDescriptorError.Invalid(message: error.message), cause: error)
   }
 }
 
-pure parse_hex_optional(value: Str?, width: Int) -> Int? {
-  guard value != null else {
-    return null
+pure report_usb_device(device: sys_usb.UsbDevice, pci_indices: Map[Int]) -> report.UsbDevice {
+  {
+    sysfs_name: device.sysfs_name,
+    parent_device_index: device.parent_device_index,
+    controller_pci_index: sys_pci.function_index(pci_indices, device.controller_pci_address),
+    port_path: device.port_path,
+    bus_number: device.bus_number,
+    device_number: device.device_number,
+    vendor_id: device.vendor_id,
+    product_id: device.product_id,
+    device_version: device.device_version,
+    class_code: device.class_code,
+    subclass: device.subclass,
+    protocol: device.protocol,
+    manufacturer: device.manufacturer,
+    product: device.product,
+    serial: device.serial,
+    speed_mbps: device.speed_mbps,
+    configuration_count: device.configuration_count,
+    active_configuration: device.active_configuration,
+    power_control: device.power_control,
+    autosuspend_delay_ms: device.autosuspend_delay_ms,
+    runtime_status: device.runtime_status,
+    is_root_hub: device.is_root_hub,
+    interfaces: device.interfaces,
   }
-
-  return null when value.byte_len() != width
-
-  if let Ok(parsed) = collectors.parse_pci_hex_value(value) {
-    parsed
-  } else {
-    null
-  }
-}
-
-pure usb_decimal_optional(value: Str?, minimum: Int) -> Int? {
-  let parsed = parse_integer(value)
-  guard let number = parsed else {
-    return null
-  }
-  return null when number < minimum or number > 9007199254740991
-
-  parsed
 }
 
 proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, error] -> UsbCollection {
-  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
-  let pci_indices = pci_function_indices(pci_functions)
-  var devices: List[report.UsbDevice] = []
-  var issues: List[report.CollectionIssue] = []
-  if listing.state != "complete" {
-    issues += [
-      issue("usb", "devices", live_source_observation_state(listing.state, false), listing.error_kind, listing.errno),
-    ]
-  }
-
-  for device_path in listing.children {
-    continue when ":" in device_path.name()
-    let vendor = read_value(root, fp"{device_path}/idVendor", max_bytes: 4096)
-    let product = read_value(root, fp"{device_path}/idProduct", max_bytes: 4096)
-    let vendor_id = parse_hex_optional(observed_source_text(vendor), 4)
-    let product_id = parse_hex_optional(observed_source_text(product), 4)
-    if vendor.observation.state != report.Observed {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.vendor_id",
-          vendor.observation.state,
-          vendor.error_kind,
-          vendor.errno,
-        ),
-      ]
-    } else if vendor_id == null {
-      issues += [
-        issue("usb", f"devices.{device_path.name()}.vendor_id", report.Malformed, "invalid_usb_vendor_id", null),
-      ]
-    }
-
-    if product.observation.state != report.Observed {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.product_id",
-          product.observation.state,
-          product.error_kind,
-          product.errno,
-        ),
-      ]
-    } else if product_id == null {
-      issues += [
-        issue("usb", f"devices.{device_path.name()}.product_id", report.Malformed, "invalid_usb_product_id", null),
-      ]
-    }
-
-    let bus = read_value(root, fp"{device_path}/busnum", max_bytes: 4096)
-    let number = read_value(root, fp"{device_path}/devnum", max_bytes: 4096)
-    let version = read_value(root, fp"{device_path}/bcdDevice", max_bytes: 4096)
-    let class = read_value(root, fp"{device_path}/bDeviceClass", max_bytes: 4096)
-    let subclass = read_value(root, fp"{device_path}/bDeviceSubClass", max_bytes: 4096)
-    let protocol = read_value(root, fp"{device_path}/bDeviceProtocol", max_bytes: 4096)
-    let manufacturer = read_value(root, fp"{device_path}/manufacturer", max_bytes: 4096)
-    let product_text = read_value(root, fp"{device_path}/product", max_bytes: 4096)
-    let serial = read_value(root, fp"{device_path}/serial", max_bytes: 4096)
-    let speed = read_value(root, fp"{device_path}/speed", max_bytes: 4096)
-    let configurations = read_value(root, fp"{device_path}/bNumConfigurations", max_bytes: 4096)
-    let active_configuration = read_value(root, fp"{device_path}/bConfigurationValue", max_bytes: 4096)
-    let power_control = read_value(root, fp"{device_path}/power/control", max_bytes: 4096)
-    let autosuspend = read_value(root, fp"{device_path}/power/autosuspend_delay_ms", max_bytes: 4096)
-    let runtime_status = read_value(root, fp"{device_path}/power/runtime_status", max_bytes: 4096)
-    let class_code = parse_hex_optional(observed_source_text(class), 2)
-    let subclass_code = parse_hex_optional(observed_source_text(subclass), 2)
-    let protocol_code = parse_hex_optional(observed_source_text(protocol), 2)
-    let version_code = parse_hex_optional(observed_source_text(version), 4)
-    let version_value: Str? = if version_code == null { null } else { observed_source_text(version) }
-    for named_value in [
-      {
-        name: "class_code",
-        source: class,
-        value: class_code,
-      },
-      {
-        name: "subclass",
-        source: subclass,
-        value: subclass_code,
-      },
-      {
-        name: "protocol",
-        source: protocol,
-        value: protocol_code,
-      },
-      {
-        name: "device_version",
-        source: version,
-        value: version_code,
-      },
-    ] {
-      if named_value.source.observation.state == report.Observed and named_value.value == null {
-        issues += [
-          issue(
-            "usb",
-            f"devices.{device_path.name()}.{named_value.name}",
-            report.Malformed,
-            "invalid_usb_hex_value",
-            null,
-          ),
-        ]
-      }
-    }
-
-    for named_source in [
-      {
-        name: "bus_number",
-        source: bus,
-      },
-      {
-        name: "device_number",
-        source: number,
-      },
-      {
-        name: "device_version",
-        source: version,
-      },
-      {
-        name: "class_code",
-        source: class,
-      },
-      {
-        name: "subclass",
-        source: subclass,
-      },
-      {
-        name: "protocol",
-        source: protocol,
-      },
-      {
-        name: "manufacturer",
-        source: manufacturer,
-      },
-      {
-        name: "product",
-        source: product_text,
-      },
-      {
-        name: "serial",
-        source: serial,
-      },
-      {
-        name: "speed_mbps",
-        source: speed,
-      },
-      {
-        name: "configuration_count",
-        source: configurations,
-      },
-      {
-        name: "active_configuration",
-        source: active_configuration,
-      },
-    ] {
-      issues = append_text_issue(
-        issues,
-        "usb",
-        f"devices.{device_path.name()}.{named_source.name}",
-        named_source.source,
-      )
-    }
-
-    if power_control.observation.state != report.Observed and power_control.observation.state != report.Absent {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.power_control",
-          power_control.observation.state,
-          power_control.error_kind,
-          power_control.errno,
-        ),
-      ]
-    }
-
-    if autosuspend.observation.state != report.Observed and autosuspend.observation.state != report.Absent {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.autosuspend_delay_ms",
-          autosuspend.observation.state,
-          autosuspend.error_kind,
-          autosuspend.errno,
-        ),
-      ]
-    }
-
-    if runtime_status.observation.state != report.Observed and runtime_status.observation.state != report.Absent {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.runtime_status",
-          runtime_status.observation.state,
-          runtime_status.error_kind,
-          runtime_status.errno,
-        ),
-      ]
-    }
-
-    let raw_descriptors = root.read_result(fp"{device_path}/descriptors", max_bytes: 1048576)?
-    var descriptor_alternates: List[UsbDescriptorAlternate] = []
-    if raw_descriptors.truncated {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.descriptors",
-          report.Truncated,
-          "descriptor_input_limit",
-          raw_descriptors.errno,
-        ),
-      ]
-    } else if raw_descriptors.state == "observed" and raw_descriptors.data != null {
-      if let Ok(alternates) = parse_usb_alternates(raw_descriptors.data) {
-        descriptor_alternates = alternates
-      } else {
-        issues += [
-          issue(
-            "usb",
-            f"devices.{device_path.name()}.descriptors",
-            report.Malformed,
-            "invalid_usb_descriptor_stream",
-            null,
-          ),
-        ]
-      }
-    } else if raw_descriptors.state == "read_failure" or raw_descriptors.state == "permission_denied" {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.descriptors",
-          live_source_observation_state(raw_descriptors.state, raw_descriptors.truncated),
-          raw_descriptors.error_kind,
-          raw_descriptors.errno,
-        ),
-      ]
-    }
-
-    var interfaces: List[report.UsbInterface] = []
-    for interface_path in listing.children {
-      let interface_name = interface_path.name()
-      continue unless interface_name.starts_with(f"{device_path.name()}:")
-      let interface_number_text = (interface_name.split(":").get(1) ?? "").split(".").get(1) ?? ""
-      let interface_number = parse_integer(interface_number_text) ?? -1
-      if interface_number < 0 {
-        issues += [
-          issue(
-            "usb",
-            f"devices.{device_path.name()}.interfaces.{interface_name}",
-            report.Malformed,
-            "invalid_interface_name",
-            null,
-          ),
-        ]
-        continue
-      }
-
-      let driver_link = optional_driver_name(root, fp"{interface_path}/driver")
-      if driver_link.observation.state != report.Observed and driver_link.observation.state != report.Absent {
-        issues += [
-          issue(
-            "usb",
-            f"devices.{device_path.name()}.interfaces.{interface_name}.driver",
-            driver_link.observation.state,
-            driver_link.error_kind,
-            driver_link.errno,
-          ),
-        ]
-      }
-
-      let active = read_value(root, fp"{interface_path}/bAlternateSetting", max_bytes: 4096)
-      let active_alternate = usb_decimal_optional(observed_source_text(active), 0)
-      if active.observation.state == report.Observed and active_alternate == null {
-        issues += [
-          issue(
-            "usb",
-            f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
-            report.Malformed,
-            "invalid_usb_alternate",
-            null,
-          ),
-        ]
-      } else if active.observation.state != report.Observed and active.observation.state != report.Absent {
-        issues = append_text_issue(
-          issues,
-          "usb",
-          f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
-          active,
-        )
-      }
-
-      var alternate_settings = [
-        {
-          configuration_value: alternate.configuration_value,
-          number: alternate.setting_number,
-          class_code: alternate.class_code,
-          subclass: alternate.subclass,
-          protocol: alternate.protocol,
-          endpoints: alternate.endpoints,
-        }
-        for alternate in descriptor_alternates
-        if alternate.interface_number == interface_number
-      ]
-      interfaces += [
-        {
-          number: interface_number,
-          name: interface_name,
-          driver: observed_source_text(driver_link),
-          active_alternate: active_alternate,
-          alternate_settings: alternate_settings,
-        },
-      ]
-    }
-
-    let bus_number = usb_decimal_optional(observed_source_text(bus), 1)
-    let device_number = usb_decimal_optional(observed_source_text(number), 1)
-    let configuration_count = usb_decimal_optional(observed_source_text(configurations), 0)
-    let active_configuration_number = usb_decimal_optional(observed_source_text(active_configuration), -1)
-    let autosuspend_delay = usb_decimal_optional(observed_source_text(autosuspend), -9007199254740991)
-    for named_number in [
-      {
-        name: "bus_number",
-        source: bus,
-        value: bus_number,
-      },
-      {
-        name: "device_number",
-        source: number,
-        value: device_number,
-      },
-      {
-        name: "configuration_count",
-        source: configurations,
-        value: configuration_count,
-      },
-      {
-        name: "active_configuration",
-        source: active_configuration,
-        value: active_configuration_number,
-      },
-      {
-        name: "autosuspend_delay_ms",
-        source: autosuspend,
-        value: autosuspend_delay,
-      },
-    ] {
-      if named_number.source.observation.state == report.Observed and named_number.value == null {
-        issues += [
-          issue(
-            "usb",
-            f"devices.{device_path.name()}.{named_number.name}",
-            report.Malformed,
-            "invalid_usb_number",
-            null,
-          ),
-        ]
-      }
-    }
-
-    let controller = usb_controller_address(root, device_path)
-    if controller.state != report.Observed {
-      issues += [
-        issue(
-          "usb",
-          f"devices.{device_path.name()}.controller",
-          controller.state,
-          controller.error_kind,
-          controller.errno,
-        ),
-      ]
-    }
-
-    devices += [
-      {
-        sysfs_name: device_path.name(),
-        parent_device_index: null,
-        controller_pci_index: pci_function_index(pci_indices, controller.address),
-        port_path: usb_port_path(device_path.name()),
-        bus_number: bus_number,
-        device_number: device_number,
-        vendor_id: vendor_id,
-        product_id: product_id,
-        device_version: version_value,
-        class_code: class_code,
-        subclass: subclass_code,
-        protocol: protocol_code,
-        manufacturer: manufacturer.observation,
-        product: product_text.observation,
-        serial: serial.observation,
-        speed_mbps: observed_source_text(speed),
-        configuration_count: configuration_count,
-        active_configuration: active_configuration_number,
-        power_control: observed_source_text(power_control),
-        autosuspend_delay_ms: autosuspend_delay,
-        runtime_status: observed_source_text(runtime_status),
-        is_root_hub: device_path.name().starts_with("usb"),
-        interfaces: interfaces,
-      },
-    ]
-  }
-
+  let pci_indices = sys_pci.function_indices(pci_functions)
+  let inventory = sys_usb.collect(root)
   var state = report.Complete
-  if listing.state == "absent" {
+  if inventory.listing_state == "absent" {
     state = report.SectionAbsent
-  } else if listing.state != "complete" or issues.len() > 0 {
+  } else if inventory.listing_state != "complete" or inventory.issues.len() > 0 {
     state = report.Partial
   }
 
   {
     status: {
       state: state,
-      enumeration_succeeded: listing.enumeration_succeeded,
+      enumeration_succeeded: inventory.enumeration_succeeded,
     },
-    devices: link_usb_parents(devices),
-    issues: issues,
+    devices: [report_usb_device(device, pci_indices) for device in inventory.devices],
+    issues: src.with_section("usb", inventory.issues),
   }
 }
 
@@ -5101,7 +3633,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
           continue
         }
 
-        let name = decode_mount_field(columns[0])
+        let name = sys_mount.decode_mount_field(columns[0])
         if name in seen_swaps {
           issues += [issue("memory", "swaps", report.Malformed, "duplicate_swap_name", null)]
           continue
@@ -6464,7 +4996,7 @@ export proc link_network_device_sources(
   pci_functions: List[report.PciFunction],
   usb_devices: List[report.UsbDevice],
 ) [fs, error] -> NetworkCollection {
-  let pci_indices = pci_function_indices(pci_functions)
+  let pci_indices = sys_pci.function_indices(pci_functions)
   let usb_indices = usb_device_indices(usb_devices)
   var links: List[report.NetworkLink] = []
   var issues = assembled.issues
@@ -6488,7 +5020,7 @@ export proc link_network_device_sources(
       issues += device_link.issues
       if device_link.target != null {
         let target = device_link.target
-        parent_pci_function_index = pci_function_index(pci_indices, usb_parent_address(target))
+        parent_pci_function_index = sys_pci.function_index(pci_indices, sys_pci.address_in_target(target))
         parent_usb_device_index = usb_device_index_from_target(usb_indices, target)
       }
     }
