@@ -42,19 +42,11 @@ and arithmetic and fails only at runtime.
   is known from context, and the fix is selectable with `xsht lint --only`.
 - Migrate this repo and `../laputa` before the error lands. `../laputa` becomes the monorepo, absorbing `../packages`.
 
-### 4. Diagnostics for common mistakes
+### 4. Discarded values are errors everywhere (running)
 
-A mistake corpus: each snippet is a common mistake, paired with its expected
-diagnostic code and a message fragment that names the real cause.
-
-Known gaps:
-- `else` on its own line reports "expected expression".
-- Interpolating a Unit value reports "cannot convert to one command word".
-- A value `match` that misses variants is reported twice, as a warning and as
-  an error.
-
-Fix messages until the corpus passes. Seed it from these gaps and from the
-mistakes found during this campaign.
+- Enforce SPEC §8.1 at the top level too (user decision), with a safe
+  `let _ = ` fix.
+- The mistake corpus (`tests/xsh/mistakes.xsh`, 54 cases) landed.
 
 ## Diagnostics and grouping (remaining)
 
