@@ -154,6 +154,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "fmt" => parse_fmt(&args[1..]),
         "lint" => parse_lint(&args[1..]),
         "ast" => parse_ast(&args[1..]),
+        "grammar" => parse_grammar(&args[1..]),
         "trace" => parse_trace(&args[1..]),
         "api" => parse_api(&args[1..]),
         "test" => parse_test(&args[1..]),
@@ -343,6 +344,21 @@ fn parse_ast(args: &[String]) -> Result<Command, String> {
             script: script.clone(),
         }),
         _ => Err("`xsht ast` accepts exactly one SCRIPT".to_string()),
+    })
+}
+
+/// `xsht grammar`: the productions of `xsh::frontend::syntax::grammar`.
+fn parse_grammar(args: &[String]) -> Result<Command, String> {
+    use xsh::frontend::syntax::grammar::{grammar, reference};
+    parse_command("grammar", args, |parsed| {
+        if !parsed.positionals.is_empty() {
+            return Err("`xsht grammar` takes no arguments".to_string());
+        }
+        match parsed.value("--format").unwrap_or("ebnf") {
+            "ebnf" => Ok(Command::Text(reference::ebnf(grammar()))),
+            "json" => Ok(Command::Text(format!("{}\n", reference::reference_json(grammar())))),
+            other => Err(format!("`xsht grammar --format` must be ebnf or json, not '{other}'")),
+        }
     })
 }
 

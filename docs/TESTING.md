@@ -71,6 +71,7 @@ debug builds for compile checks, and build only the package you need
 | Change | Narrow | Broader |
 |---|---|---|
 | parser, CST, formatter | `cargo test --release --test integration syntax::NAME` | `cargo test --release --test integration syntax::`; `tests/xsh/formatter.xsh` |
+| grammar (`src/syntax/grammar.rs`) | `cargo test --release --test integration syntax::grammar::` | `cargo test --release -p xsh-fuzz --test soundness generated_programs_are_grammar_sentences`; `make docs-check` |
 | checker | `cargo test --release --test integration sema::NAME` | `cargo test --release --test integration sema::` |
 | lowering, verifier | `cargo test -p xsh --lib runtime::eval::indexed::full::tests::NAME` | `cargo test -p xsh --lib runtime::eval` |
 | lowering vs checker types | `cargo test -p xsh --lib corpus_lowering_agrees_with_checked_types` (lowers the corpus and embedded stdlib; debug builds report any disagreement with the checker) | `tests/xsh/lowering-coverage.xsh`; full native suite |
@@ -120,6 +121,30 @@ repository baseline is linted once per run and shared, each baseline lint
 overlaps the rewritten copy's, and perturbation spreads files over a bounded
 thread pool; the largest file (`dev/system_report_check.xsh`) sets its floor
 of about 16 s.
+
+## Grammar proofs
+
+`syntax::grammar::` (in `tests/grammar.rs`) holds the productions of
+`src/syntax/grammar.rs` and the parser to the same language, in both
+directions, on every run:
+
+- **Generation.** Sentences generated from the productions at fixed seeds and
+  depths, plus a few per rule that take the shortest way to that rule, must
+  parse with no diagnostics. A candidate that misses a lookahead or lexes into
+  different tokens is not a sentence and is filtered by the recognizer; at
+  least 80% of candidates must be sentences, and every rule must appear in
+  one.
+- **Recognition.** An Earley recognizer over the same productions must accept
+  the token stream of every repository `.xsh` file that parses without
+  diagnostics, and
+  `xsh-fuzz --test soundness generated_programs_are_grammar_sentences` checks
+  every fuzz-generated program at the soundness seed set.
+
+`grammar_tokens` prepares the token stream as the parser reads it (comments
+dropped, continuation lines joined), and sources the parser rejects must be
+rejected too. The whole module runs in about a second. When a
+generated sentence fails to parse, either the production is wrong or the
+parser has a bug; `xsht grammar` prints the productions.
 
 ## Soundness fuzzing
 

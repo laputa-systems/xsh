@@ -122,11 +122,10 @@ shorthand or punning.
 
 A newline or `;` ends a statement. An expression continues onto a following
 line, after any blank or comment lines, only when that line begins with one of
-these tokens, none of which can begin a statement:
-
-```text
-.name  |>  ??  or  and  ==  !=  <  <=  >  >=  in  not in  +  *  %
-```
+the continuation tokens listed in the
+[grammar reference](reference/grammar.md#line-continuation) (`.name`, `|>`,
+and the binary operators other than `-` and `/`), none of which can begin a
+statement.
 
 So a line never silently extends the previous one: a line beginning with `-`
 (negation), `/` (an absolute path), `is`, `./`, or `../` starts a new
@@ -755,22 +754,15 @@ a note. It is rejected everywhere else.
 
 ## 6. Expressions
 
-The complete expression grammar is in Appendix A.
+The complete grammar is in the [grammar reference](reference/grammar.md).
 
 ### 6.1 Precedence and grouping
 
-From tightest to loosest:
-
-| Level | Operators |
-|---|---|
-| postfix | `.name`, `?.name`, `[i]`, `?[i]`, `[a..b]`, calls, `?` |
-| unary | `!`, `-` |
-| multiplicative | `*`, `/`, `%` |
-| additive | `+`, `-` |
-| ordering and membership | `<`, `<=`, `>`, `>=`, `in`, `not in` |
-| equality and pattern tests | `==`, `!=`, `is` |
-| logical | `and`, `or` |
-| fallback | `??` (right-associative) |
+The [precedence table](reference/grammar.md#operator-precedence) lists every
+operator from tightest to loosest: postfix forms, then prefix `!` and `-`,
+multiplicative, additive, ordering and membership, equality and `is`, `and`,
+and loosest `or` and the right-associative `??`. A `|>` pipeline is looser
+than every operator.
 
 Some combinations must be grouped explicitly, because a reader cannot tell the
 intended meaning at a glance:
@@ -2278,211 +2270,8 @@ strings and `$(...)` substitutions are `lex.unexpected-character`.
 
 ## Appendix A. Grammar
 
-Terminals in capitals: `IDENT` is an expression identifier, `PROC_IDENT` may
-also contain `-`, `FIELD_LABEL` is an identifier or keyword used as a label,
-`NEWLINE` is a line break that ends a statement (2.5), and the literal tokens
-are as described in 2.6. Operator restrictions from 6.1 (required grouping and
-redundant parentheses) apply on top of this grammar.
-
-### A.1 Programs and declarations
-
-```ebnf
-program        = statement* EOF ;
-terminator     = NEWLINE | ";" ;
-
-statement      = use_stmt | export_stmt | const_stmt | let_stmt | var_stmt
-               | assign_stmt | proc_def | pure_def | stream_def | cli_main
-               | test_def | type_def | enum_def | error_def | signal_hook
-               | return_stmt | yield_stmt | break_stmt | continue_stmt
-               | if_stmt | while_stmt | for_stmt | loop_stmt | match_stmt
-               | guard_stmt | guard_let_stmt | with_stmt | defer_stmt
-               | assert_stmt | command_stmt | expr_stmt ;
-
-use_stmt       = "use" module_path ( "as" IDENT )? terminator ;
-module_path    = module_segment ( "." module_segment )* ;
-module_segment = IDENT | PROC_IDENT ;
-export_stmt    = "export" ( const_stmt | let_stmt | proc_def | pure_def
-               | stream_def | type_def | enum_def | error_def ) ;
-
-const_stmt     = "const" IDENT ( ":" type_expr )? "=" expr terminator ;
-let_stmt       = "let" binding_target ( ":" type_expr )? "=" expr_or_run terminator ;
-var_stmt       = "var" binding_target ( ":" type_expr )? "=" expr_or_run terminator ;
-binding_target = IDENT | "{" ( destructure_field ( "," destructure_field )* ","? )? "}" ;
-destructure_field = FIELD_LABEL ":" binding_target | IDENT | ".." ;
-assign_stmt    = assign_target assign_op expr_or_run terminator ;
-assign_target  = IDENT ( "." FIELD_LABEL | "[" expr "]" )* ;
-assign_op      = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
-
-type_def       = "type" IDENT type_params? "=" type_body terminator ;
-type_params    = "[" IDENT ( "," IDENT )* "]" ;
-type_body      = type_expr | record_schema | module_contract ;
-record_schema  = "{" schema_field ( "," schema_field )* ","? "}" ;
-schema_field   = FIELD_LABEL ":" type_expr ( "=" expr )? ;
-module_contract = "module" "{" contract_entry* "}" ;
-contract_entry = "export" "optional"? contract_kind terminator? ","? ;
-contract_kind  = "let"? IDENT ":" type_expr
-               | "proc" IDENT "(" param_list? ")" effect_list? "->" type_expr
-               | "pure" IDENT "(" param_list? ")" "->" type_expr ;
-
-enum_def       = "enum" IDENT ( ":" "Str" )? "{" enum_variant ( "," enum_variant )* ","? "}" terminator ;
-enum_variant   = IDENT ( "(" ( type_expr ( "," type_expr )* ","? )? ")" )? ( "=" expr )? ;
-
-error_def      = "error" IDENT "=" error_variant ( "|" error_variant )* terminator ;
-error_variant  = IDENT "(" ( schema_field ( "," schema_field )* ","? )? ")" ( ":" IDENT ( "," IDENT )* )? ;
-
-proc_def       = "proc" PROC_IDENT "(" param_list? ")" effect_list? ( "->" type_expr )? block ;
-pure_def       = "pure" IDENT "(" param_list? ")" ( "->" type_expr )? block ;
-stream_def     = "stream" IDENT "(" param_list? ")" effect_list? "->" "Stream" "[" type_expr "]" block ;
-cli_main       = "cli" "main" "(" param_list? ")" effect_list? ( "->" type_expr )? block ;
-test_def       = "test" IDENT effect_list? block ;
-param_list     = param ( "," param )* ","? ;
-param          = IDENT ( ":" type_expr ( "=" expr )? | "=" expr )
-               | "..." IDENT ":" type_expr ;
-effect_list    = "[" ( IDENT ( "," IDENT )* )? "]" ;
-
-signal_hook    = "on" IDENT hook_option* effect_list block ;
-hook_option    = "--pre-cancel=" DURATION ;
-```
-
-### A.2 Statements
-
-```ebnf
-block          = "{" block_params? statement* "}" ;
-block_params   = "|" ( IDENT | "_" ) ( "," ( IDENT | "_" ) )* "|" ;
-
-if_stmt        = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
-condition      = expr | "let" pattern "=" expr ;
-while_stmt     = "while" condition block ;
-for_stmt       = "for" binding_target "in" expr block ;
-loop_stmt      = "loop" block ;
-match_stmt     = "match" expr "{" match_arm* "}" ;
-match_arm      = pattern ( "if" expr )? "=>" ( statement | block ) ","? ;
-
-guard_stmt     = "guard" expr "else" block ;
-guard_let_stmt = "guard" "let" binding_target ( ":" type_expr )? "=" expr_or_run "else" block ;
-with_stmt      = "with" with_binding ( "," with_binding )* ","? block "else" block ;
-with_binding   = IDENT "=" expr ;
-
-postfix_guard  = ( "when" | "unless" ) expr ;
-return_stmt    = "return" expr_or_run? postfix_guard? terminator ;
-yield_stmt     = "yield" ( expr_or_run | "@" expr ) postfix_guard? terminator ;
-break_stmt     = "break" expr? postfix_guard? terminator ;
-continue_stmt  = "continue" postfix_guard? terminator ;
-
-defer_stmt     = "defer" ( block | expr_or_run ) terminator ;
-assert_stmt    = "assert" expr ( "," expr )? terminator ;
-expr_stmt      = expr_or_run terminator ;
-```
-
-### A.3 Expressions
-
-```ebnf
-expr_or_run    = expr | run_form "?"? ;
-expr           = fallback ;
-fallback       = logical ( "??" fallback )? ;
-logical        = equality ( ( "and" | "or" ) equality )* ;
-equality       = ordering ( ( "==" | "!=" ) ordering | "is" pattern )* ;
-ordering       = additive ( ( "<" | "<=" | ">" | ">=" | "in" | "not" "in" ) additive )* ;
-additive       = multiplicative ( ( "+" | "-" ) multiplicative )* ;
-multiplicative = unary ( ( "*" | "/" | "%" ) unary )* ;
-unary          = ( "!" | "-" ) unary | postfix ;
-postfix        = primary postfix_op* ;
-postfix_op     = "." FIELD_LABEL | "?." FIELD_LABEL
-               | "." "require" "(" type_expr? ")"
-               | "[" expr "]" | "?[" expr "]"
-               | "[" expr? ".." expr? "]" | "?[" expr? ".." expr? "]"
-               | call_args | "?" ;
-call_args      = "(" ( arg ( "," arg )* ","? )? ")" ;
-arg            = expr | FIELD_LABEL ":" expr | IDENT ":" | "..." expr | "@" expr ;
-
-primary        = literal | IDENT | list_lit | record_lit | map_lit | map_comp
-               | if_expr | match_expr | try_expr | retry_expr | ctx_expr
-               | scope_expr | spawn_expr | wait_expr | handler_expr | value_block
-               | "(" expr ")" ;
-literal        = "null" | "true" | "false" | INT | FLOAT | DURATION | STRING
-               | RAW_STRING | FMT_STRING | BYTES | REGEX | PATH | PATH_FMT | GLOB ;
-
-list_lit       = "[" ( list_item ( "," list_item )* ","? )? "]"
-               | "[" expr comp_clauses "]" ;
-list_item      = expr | "@" expr ;
-record_lit     = "{" ( record_field ( "," record_field )* ","? )? "}" ;
-record_field   = FIELD_LABEL ":" expr | STRING ":" expr | IDENT
-               | field_path ":" expr | "..." expr ;
-map_lit        = "{" map_entry ( "," map_entry )* ","? "}" ;
-map_entry      = "[" expr "]" ":" expr | FIELD_LABEL ":" expr | "..." expr ;
-map_comp       = "{" ( field_path | "[" expr "]" ) ":" expr comp_clauses "}" ;
-comp_clauses   = "for" binding_target "in" expr ( "for" binding_target "in" expr | "if" expr )* ;
-field_path     = FIELD_LABEL ( "." FIELD_LABEL )* ;
-value_block    = "{" statement+ "}" ;
-
-if_expr        = "if" condition "{" block_body "}" ( "else" "if" condition "{" block_body "}" )*
-                 "else" "{" block_body "}" ;
-match_expr     = "match" expr "{" ( pattern ( "if" expr )? "=>" expr ","? )* "}" ;
-block_body     = statement* ;
-try_expr       = "try" block ;
-retry_expr     = "retry" "[" ( expr ( "," expr )* ","? )? "]" ( "on" "(" pattern ")" )? block ;
-ctx_expr       = "ctx" expr block ;
-scope_expr     = ( "cd" | "env" ) "(" expr ")" block ;
-handler_expr   = postfix "??" "{" "|" ( IDENT | "_" ) "|" statement* "}" ;
-spawn_expr     = "spawn" ( run_form | expr ) ;
-wait_expr      = "wait" expr ;
-```
-
-### A.4 Patterns
-
-```ebnf
-pattern        = alias_pattern ( "|" alias_pattern )* ;
-alias_pattern  = primary_pattern ( "as" IDENT )* ;
-primary_pattern = "_" | IDENT | literal | "-" ( INT | FLOAT ) | type_pattern | facet_pattern
-               | constructor_pattern | variant_pattern | record_pattern
-               | list_pattern | "(" pattern ")" ;
-type_pattern   = ( "_" | IDENT ) "is" type_expr ;
-facet_pattern  = "is" IDENT ;
-constructor_pattern = qualified_name "(" ( pattern ( "," pattern )* )? ")" ;
-variant_pattern = qualified_name record_pattern ;
-record_pattern = "{" ( record_pattern_field ( "," record_pattern_field )* ","? )? "}" ;
-record_pattern_field = FIELD_LABEL ":" pattern | IDENT | ".." ;
-list_pattern   = "[" ( pattern ( "," pattern )* ( "," list_rest )? | list_rest )? ","? "]" ;
-list_rest      = ".." IDENT? ;
-qualified_name = IDENT ( "." IDENT )* ;
-```
-
-### A.5 Types
-
-```ebnf
-type_expr      = qualified_name type_args?
-               | type_expr "?" ;
-type_args      = "[" type_expr ( "," type_expr )* "]" ;
-```
-
-### A.6 Commands and processes
-
-```ebnf
-command_stmt   = command "?"? terminator ;
-command        = module_command | core_command | run_form ;
-module_command = IDENT "." IDENT command_arg* ;
-core_command   = ( "print" | "eprint" ) command_arg*
-               | "cd" command_arg block
-               | "env" env_assignment* block
-               | "env" "(" expr ")" block ;
-env_assignment = IDENT "=" command_arg ;
-
-command_arg    = word | splice | typed_arg ;
-word           = word_part+ ;
-word_part      = BARE_TEXT | STRING | "${" expr "}" | "$" IDENT ( "." FIELD_LABEL )* ;
-splice         = "@" ( IDENT | "(" expr ")" | GLOB ) ;
-typed_arg      = "(" expr ")" | FMT_STRING | PATH | PATH_FMT | expr_chain ;
-
-run_form       = run_head run_option* env_assignment* run_body ( "|" run_form )? redirection* ;
-run_head       = "run" | "run.status" | "run.text" | "run.bytes"
-               | "run.capture" capture_mode | "run.stream" capture_mode ;
-capture_mode   = "--text" | "--bytes" ;
-run_option     = "--timeout=" command_arg | "--cpumax=" command_arg | "--accept=" command_arg ;
-run_body       = command_arg command_arg*
-               | "(" NEWLINE ( command_arg | NEWLINE )+ ")" ;
-redirection    = ( "<" | ">" | ">>" | "2>" | "2>>" ) command_arg | ">&" INT ;
-```
-
-`expr_chain` is an unspaced expression containing a call or index, and
-`BARE_TEXT` is a run of characters that are not whitespace, quotes, `$`, `@`,
-`(`, `)`, `{`, `}`, `;`, `|`, `<`, or `>`.
+The grammar is defined once, in `src/syntax/grammar.rs`, and rendered as the
+[grammar reference](reference/grammar.md) by `make docs`. The parser reads its
+operator, keyword, literal, stage, and run-form tables from that definition,
+and the test suite checks the productions against the parser in both
+directions (`docs/TESTING.md`).

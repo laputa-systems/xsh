@@ -17,8 +17,9 @@
 ##!   their names must not start with a digit.
 ##! - `project.KEY`: `{path, source}` for each file of `docs/snippets/tour/project/`,
 ##!   keyed by its relative path without the extension, non-alphanumeric runs as `_`.
-##! - `stdlib`, `cli`, `lints`, `facets`: reference data read from `xsht api`, the
-##!   binaries' help, `xsht lint --list`, and the `language:facet` API items.
+##! - `stdlib`, `cli`, `lints`, `facets`, `grammar`: reference data read from `xsht api`,
+##!   the binaries' help, `xsht lint --list`, the `language:facet` API items, and
+##!   `xsht grammar --format json`.
 use context
 use stage as stages
 
@@ -57,6 +58,30 @@ type FacetMatch = {id: Str, summary: Str, contract: Str}
 type FacetAnswer = {query: Str, matches: List[FacetMatch]}
 
 type FacetRow = {name: Str, summary: Str, contract: Str}
+
+type GrammarSection = {title: Str, ebnf: Str}
+
+type OperatorLevel = {precedence: Int, operators: Str, associativity: Str, families: Str}
+
+type GrammarTerminal = {name: Str, description: Str}
+
+type QuotedForm = {prefix: Str, terminal: Str, raw: Str}
+
+type StageRow = {name: Str, block: Str, inline: Str}
+
+type GrammarReference = {
+  sections: List[GrammarSection],
+  operators: List[OperatorLevel],
+  prefix_precedence: Int,
+  continuation: Str,
+  keywords: Str,
+  terminals: List[GrammarTerminal],
+  literals: List[QuotedForm],
+  duration_suffixes: Str,
+  stages: List[StageRow],
+  run_forms: List[Str],
+  run_options: Str,
+}
 
 const snippet_name = rx"^[0-9][0-9]-([a-z0-9-]+)\.xsh$"
 
@@ -426,6 +451,10 @@ proc facets(xsht: Path) [process, error] -> Result[List[FacetRow]] {
   [FacetRow(name: found.id.split(".")[2], summary: found.summary, contract: found.contract) for found in answer.matches]
 }
 
+proc grammar_reference(xsht: Path) [process, error] -> Result[GrammarReference] {
+  json.decode(run.text $xsht grammar --format json?)?.require()
+}
+
 # Renders every template with freshly collected data.
 proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[List[Rendered]] {
   let templates_dir = fp"{root}/docs/templates"
@@ -440,6 +469,7 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
     cli: cli_reference(tools)?,
     lints: lints(tools.xsht)?,
     facets: facets(tools.xsht)?,
+    grammar: grammar_reference(tools.xsht)?,
   }
 
   [Rendered(
