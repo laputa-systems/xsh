@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
+use crate::syntax::grammar;
 use crate::syntax::lexer::{InterpolationEnd, interpolation_end};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -571,55 +572,7 @@ pub(crate) fn is_escaped(bytes: &[u8], offset: usize) -> bool {
 }
 
 fn quote_prefix_at(bytes: &[u8], start: usize) -> Option<QuotePrefix> {
-    let rest = bytes.get(start..)?;
-    match rest {
-        [b'"', ..] => Some(QuotePrefix {
-            len: 0,
-            raw: false,
-            kind: QuotedLiteralKind::Str,
-        }),
-        [b'b', b'"', ..] => Some(QuotePrefix {
-            len: 1,
-            raw: false,
-            kind: QuotedLiteralKind::Bytes,
-        }),
-        [b'p', b'"', ..] => Some(QuotePrefix {
-            len: 1,
-            raw: false,
-            kind: QuotedLiteralKind::Path,
-        }),
-        [b'g', b'"', ..] => Some(QuotePrefix {
-            len: 1,
-            raw: false,
-            kind: QuotedLiteralKind::Glob,
-        }),
-        [b'f', b'"', ..] => Some(QuotePrefix {
-            len: 1,
-            raw: false,
-            kind: QuotedLiteralKind::Fmt,
-        }),
-        [b'f', b'p', b'"', ..] => Some(QuotePrefix {
-            len: 2,
-            raw: false,
-            kind: QuotedLiteralKind::PathFmt,
-        }),
-        [b'r', b'x', b'"', ..] => Some(QuotePrefix {
-            len: 2,
-            raw: true,
-            kind: QuotedLiteralKind::Regex,
-        }),
-        [b'r', b'"', ..] => Some(QuotePrefix {
-            len: 1,
-            raw: true,
-            kind: QuotedLiteralKind::Str,
-        }),
-        [b'r', b'f', b'"', ..] | [b'f', b'r', b'"', ..] => Some(QuotePrefix {
-            len: 2,
-            raw: true,
-            kind: QuotedLiteralKind::Fmt,
-        }),
-        _ => None,
-    }
+    grammar::quoted_literal_at(bytes, start).map(|form| QuotePrefix { len: form.prefix.len(), raw: form.raw, kind: form.kind })
 }
 
 // A quoted command word interpolates `${expr}` and `$name`.
@@ -636,7 +589,7 @@ fn push_utf8(ch: char, output: &mut Vec<u8>) {
     output.extend_from_slice(ch.encode_utf8(&mut buffer).as_bytes());
 }
 
-fn is_bare_path_literal_char(ch: char) -> bool {
+pub(crate) fn is_bare_path_literal_char(ch: char) -> bool {
     !ch.is_whitespace()
         && !matches!(
             ch,

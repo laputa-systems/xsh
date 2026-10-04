@@ -18,7 +18,7 @@ tooling in `docs/XSHT.md`, formatter policy in `docs/XSHT-FMT.md`.
 | Package | Owns |
 |---|---|
 | `xsh` (root) | the `libxsh` library, the `xsh` binary, the `xsh-test-*` helper binaries, and the `xsh-frontend-stats`/`xsh-runtime-stats` profiling binaries |
-| `crates/xsht` | the `xsht` tooling binary: check, fmt, lint, test, api, trace, grep, refactor |
+| `crates/xsht` | the `xsht` tooling binary: check, fmt, lint, test, api, trace, grep, refactor, grammar |
 | `crates/xshi` | the `xshi` interactive shell |
 | `crates/xsh-registry` | standard-module signatures, records, API docs, examples, language reference items, and runtime operation IDs |
 | `crates/xsh-net` | DNS, the resolved TCP dialer, TLS, redirects, body limits, and network error classification |
@@ -60,6 +60,7 @@ the façade.
 
 | Stage | Primary objects | Owner |
 |---|---|---|
+| grammar | `grammar()`, `BINARY_OPERATORS`, `STATEMENT_KEYWORDS`, `QUOTED_LITERALS`, `STREAM_STAGES`, `RUN_FORMS`, `line_continuation`, `grammar_tokens` | `src/syntax/grammar.rs` (productions in `src/syntax/grammar/productions.rs`) |
 | lex | `Lexer::lex_compact`, `TokenTable` | `src/syntax/lexer.rs`, `src/syntax/token.rs` |
 | source structure | `SyntaxTree::from_token_table` (CST), `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` |
 | load | `CompactFileUnit`, `CompactModuleGraph`, `CheckedEntry` | `src/loader.rs` |
@@ -68,6 +69,18 @@ the façade.
 | lower | `FullBuilder::build_compact`, `BuildScratch` | `src/runtime/eval/lower.rs` |
 | verify | `FullVerifier::verify`, `FullStore`, `FullProgram` | `src/runtime/eval/indexed/full.rs` |
 | execute | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `CallFrame`, `FrameWork` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` |
+
+**Grammar.** `src/syntax/grammar.rs` is the one definition of the syntax:
+productions over the lexer's tokens plus the tables the lexer and parser
+dispatch on (operators with precedence, associativity, and line continuation;
+statement and primary keywords; quoted-literal prefixes; stream stages; run
+forms and options; builder APIs). The parser keeps its own recursive descent,
+recovery, and diagnostics but reads every such table from the grammar.
+`make docs` renders the productions as `docs/reference/grammar.md` through
+`xsht grammar --format json`. `grammar::earley` recognizes token streams
+against the productions and `grammar::generate` produces sentences from them;
+the grammar tests use both to hold the productions and the parser to the same
+language (`docs/TESTING.md`).
 
 **Syntax.** The lexer produces columnar token tags and starts; source text stays
 the authority for token ends and spelling. The parser writes typed rows
@@ -203,8 +216,10 @@ annotated ones, and `xsht test` in the project.
 
 1. Specify it in `docs/templates/SPEC.md`, with examples in
    `docs/snippets/spec/` (first, or in the same change).
-2. Add arena storage and accessors in `src/syntax/arena.rs`, and parse it in
-   `src/syntax/parser/`. Keep CST round-tripping exact.
+2. Add its productions, and any keyword, operator, or stage table rows, to
+   `src/syntax/grammar.rs`; add arena storage and accessors in
+   `src/syntax/arena.rs`, and parse it in `src/syntax/parser/` from those
+   tables. Keep CST round-tripping exact, and run `make docs`.
 3. Check it in `src/sema/check/` and publish whatever later stages need as a
    checked fact. Keep full and compact checking in agreement.
 4. Lower it in `src/runtime/eval/lower.rs` from those facts. Add instruction

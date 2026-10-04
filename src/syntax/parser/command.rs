@@ -3,6 +3,7 @@ use super::{
     RedirectionKind, RunKind, Severity, Span, TokenKindMatch, TokenTag,
     decode_interpolation_text_for, parse_interpolation_expr_arena_only_for,
 };
+use crate::syntax::grammar;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgramBuilder, ArenaRange,
     ArenaRedirectionTarget, ExprId, RunFormId,
@@ -102,11 +103,16 @@ impl<'a> Parser<'a> {
         self.peek_tag(1) == Some(TokenTag::Dot) && self.peek_start(1) == Some(self.current_end())
     }
 
+    /// Whether a `{` opens a block later on this command's line. The `}` that
+    /// closes a `${...}` word part does not end the line.
     pub(super) fn command_line_has_block(&self) -> bool {
         let mut index = self.index + 1;
+        let mut interpolations = 0usize;
         while let Some(tag) = self.token_table.tag_at(index) {
             match tag {
-                TokenTag::LBrace => return true,
+                TokenTag::DollarLBrace => interpolations += 1,
+                TokenTag::RBrace if interpolations > 0 => interpolations -= 1,
+                TokenTag::LBrace if interpolations == 0 => return true,
                 TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof => {
                     return false;
                 }
@@ -280,44 +286,32 @@ impl<'a> Parser<'a> {
         Some(span)
     }
 
+    /// The run form `run.name`, with its capture mode word when the grammar's
+    /// run-form table gives it one.
     fn parse_run_kind_after_dot(&mut self, name: &str) -> Option<RunKind> {
-        Some(match name {
-            "status" => RunKind::Status,
-            "text" => RunKind::CaptureText,
-            "bytes" => RunKind::CaptureBytes,
-            "capture" => {
-                let mode = self.parse_command_word_text()?;
-                match mode.as_str() {
-                    "--text" => RunKind::CaptureTextRecord,
-                    "--bytes" => RunKind::CaptureBytesRecord,
-                    _ => {
-                        self.diagnostic_previous(
-                            "expected `--text` or `--bytes` capture mode",
-                            "parse.capture-mode",
-                        );
-                        RunKind::CaptureTextRecord
-                    }
-                }
-            }
-            "stream" => {
-                let mode = self.parse_command_word_text()?;
-                match mode.as_str() {
-                    "--text" => RunKind::StreamText,
-                    "--bytes" => RunKind::StreamBytes,
-                    _ => {
-                        self.diagnostic_previous(
-                            "expected `--text` or `--bytes` stream mode",
-                            "parse.stream-mode",
-                        );
-                        RunKind::StreamText
-                    }
-                }
-            }
-            _ => {
-                self.diagnostic_previous("unknown run form", "parse.unknown-run-form");
-                RunKind::Plain
-            }
-        })
+        if !grammar::run_form_takes_mode(name) {
+            return Some(grammar::run_form(name, None).map_or_else(
+                || {
+                    self.diagnostic_previous("unknown run form", "parse.unknown-run-form");
+                    RunKind::Plain
+                },
+                |form| form.kind,
+            ));
+        }
+        let mode = self.parse_command_word_text()?;
+        let form = mode.strip_prefix("--").and_then(|mode| grammar::run_form(name, Some(mode)));
+        Some(form.map_or_else(
+            || {
+                let (message, code) = if name == "stream" {
+                    ("expected `--text` or `--bytes` stream mode", "parse.stream-mode")
+                } else {
+                    ("expected `--text` or `--bytes` capture mode", "parse.capture-mode")
+                };
+                self.diagnostic_previous(message, code);
+                grammar::run_form(name, Some("text")).expect("every mode-taking run form has a text mode").kind
+            },
+            |form| form.kind,
+        ))
     }
 
     fn parse_grouped_run_tail_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) {
@@ -354,37 +348,21 @@ impl<'a> Parser<'a> {
                 self.index = save;
                 break;
             };
-            match name.as_str().as_str() {
-                "timeout" => {
-                    self.expect(TokenKindMatch::Equals, "expected `=` after `--timeout`");
-                    if timeout_id.is_some() {
-                        self.diagnostic_previous(
-                            "duplicate `--timeout` option",
-                            "parse.run-option",
-                        );
-                    }
-                    if let Some(id) = self.parse_run_option_expr_arena_only(arena) {
-                        timeout_id = Some(id);
-                    }
-                }
-                "cpumax" => {
-                    self.expect(TokenKindMatch::Equals, "expected `=` after `--cpumax`");
-                    if cpu_max_id.is_some() {
-                        self.diagnostic_previous("duplicate `--cpumax` option", "parse.run-option");
-                    }
-                    if let Some(id) = self.parse_run_option_expr_arena_only(arena) {
-                        cpu_max_id = Some(id);
-                    }
-                }
-                "accept" => {
-                    self.expect(TokenKindMatch::Equals, "expected `=` after `--accept`");
-                    if accept_id.is_some() { self.diagnostic_previous("duplicate `--accept` option", "parse.run-option"); }
-                    if let Some(id) = self.parse_run_option_expr_arena_only(arena) { accept_id = Some(id); }
-                }
-                _ => {
-                    self.index = save;
-                    break;
-                }
+            let Some(option) = grammar::RunOption::named(&name.as_str()) else {
+                self.index = save;
+                break;
+            };
+            self.expect(TokenKindMatch::Equals, &format!("expected `=` after `--{}`", option.name()));
+            let slot = match option {
+                grammar::RunOption::Timeout => &mut timeout_id,
+                grammar::RunOption::CpuMax => &mut cpu_max_id,
+                grammar::RunOption::Accept => &mut accept_id,
+            };
+            if slot.is_some() {
+                self.diagnostic_previous(&format!("duplicate `--{}` option", option.name()), "parse.run-option");
+            }
+            if let Some(id) = self.parse_run_option_expr_arena_only(arena) {
+                *slot = Some(id);
             }
         }
         (timeout_id, cpu_max_id, accept_id)

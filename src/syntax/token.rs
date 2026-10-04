@@ -32,7 +32,7 @@ mod layout_tests {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
 pub enum TokenTag {
     Ident,
@@ -533,13 +533,7 @@ fn scan_number_end(source: &str, start: usize) -> usize {
             offset += 1;
         }
     }
-    if bytes.get(offset..offset + 2) == Some(b"ms") {
-        offset + 2
-    } else if matches!(bytes.get(offset), Some(b's' | b'm' | b'h')) {
-        offset + 1
-    } else {
-        offset
-    }
+    offset + crate::syntax::grammar::duration_suffix_at(bytes, offset).map_or(0, str::len)
 }
 
 fn scan_until(source: &str, start: usize, keep_going: impl Fn(u8) -> bool) -> usize {

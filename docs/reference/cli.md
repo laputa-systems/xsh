@@ -34,6 +34,7 @@ Start here:
   Format source      xsht fmt [FILE...]
   Improve source     xsht lint [FILE...]
   Inspect syntax     xsht ast SCRIPT
+  Read the grammar   xsht grammar 
   Run with tracing   xsht trace SCRIPT [ARGS...]
   Query the API      xsht api [QUERY...]
   Run tests          xsht test [FILTER]
@@ -87,6 +88,17 @@ xsht ast — Print parser debug output
 
 Usage:
   xsht ast SCRIPT
+```
+
+### `xsht grammar`
+
+```text
+xsht grammar — Print the language grammar
+
+Usage:
+  xsht grammar [--format ebnf|json]
+
+  --format FORMAT  ebnf productions (the default) or the json reference that make docs renders
 ```
 
 ### `xsht trace`

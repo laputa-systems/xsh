@@ -3,7 +3,7 @@ pub(in crate::syntax::parser) use crate::source::{SourceId, Span};
 pub(in crate::syntax::parser) use crate::symbol::Name;
 use crate::syntax::arena::{ArenaProgram, ArenaProgramBuilder, ArenaRange, TypeExprId};
 use crate::syntax::cst::LazyCst;
-use crate::syntax::grouping;
+use crate::syntax::grammar::{self, LineContinuation};
 pub(in crate::syntax::parser) use crate::syntax::lexer::Lexer;
 pub(in crate::syntax::parser) use crate::syntax::literal::{
     self, EscapeIssueKind, InterpolationChunk,
@@ -55,33 +55,12 @@ pub struct Parser<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
-/// Map a single token kind to its binary op, precedence, and token count.
-/// The `peek` closure is used to check the next token for two-token ops (e.g. `not in`).
-fn binary_op_for_token(
-    tag: TokenTag,
-    keyword: Option<Keyword>,
-    peek_keyword: impl Fn(usize) -> Option<Keyword>,
-) -> Option<(BinaryOp, u8, usize)> {
-    let (op, tokens) = match (tag, keyword) {
-        (TokenTag::QuestionQuestion, _) => (BinaryOp::ResultFallback, 1),
-        (TokenTag::Keyword, Some(Keyword::Or)) => (BinaryOp::Or, 1),
-        (TokenTag::Keyword, Some(Keyword::And)) => (BinaryOp::And, 1),
-        (TokenTag::EqEq, _) => (BinaryOp::Eq, 1),
-        (TokenTag::BangEq, _) => (BinaryOp::Ne, 1),
-        (TokenTag::Lt, _) => (BinaryOp::Lt, 1),
-        (TokenTag::Le, _) => (BinaryOp::Le, 1),
-        (TokenTag::Gt, _) => (BinaryOp::Gt, 1),
-        (TokenTag::Ge, _) => (BinaryOp::Ge, 1),
-        (TokenTag::Keyword, Some(Keyword::In)) => (BinaryOp::In, 1),
-        (TokenTag::Keyword, Some(Keyword::Not)) if peek_keyword(1) == Some(Keyword::In) => (BinaryOp::NotIn, 2),
-        (TokenTag::Plus, _) => (BinaryOp::Add, 1),
-        (TokenTag::Minus, _) => (BinaryOp::Sub, 1),
-        (TokenTag::Star, _) => (BinaryOp::Mul, 1),
-        (TokenTag::Slash, _) => (BinaryOp::Div, 1),
-        (TokenTag::Percent, _) => (BinaryOp::Rem, 1),
-        _ => return None,
-    };
-    Some((op, grouping::binary_precedence(op), tokens))
+/// The binary operator a token spells (with the keyword after it, for
+/// `not in`), its precedence, and its token count, from the grammar's
+/// operator table.
+fn binary_op_for_token(tag: TokenTag, keyword: Option<Keyword>, next_keyword: Option<Keyword>) -> Option<(BinaryOp, u8, usize)> {
+    grammar::binary_operator_at(tag, keyword, next_keyword)
+        .map(|operator| (operator.op, operator.precedence, 1 + usize::from(operator.second.is_some())))
 }
 
 impl<'a> Parser<'a> {
@@ -199,32 +178,38 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn current_binary_op(&self) -> Option<(BinaryOp, u8, usize)> {
-        binary_op_for_token(self.current_tag(), self.current_keyword(), |n| {
-            self.peek_keyword(n)
-        })
+        binary_op_for_token(self.current_tag(), self.current_keyword(), self.peek_keyword(1))
+    }
+
+    /// The line continuation that the first token after the line breaks and
+    /// comments at `index` begins, with that token's index.
+    fn line_continuation_at(&self, index: usize) -> Option<(LineContinuation, usize)> {
+        let mut first = index;
+        while matches!(self.token_table.tag_at(first), Some(TokenTag::Newline | TokenTag::Comment)) {
+            first += 1;
+        }
+        if first == index {
+            return None;
+        }
+        let continuation = grammar::line_continuation(
+            self.token_table.tag_at(first)?,
+            self.token_table.keyword_at(first),
+            self.token_table.tag_at(first + 1),
+            self.token_table.keyword_at(first + 1),
+        )?;
+        Some((continuation, first))
     }
 
     /// If the current token is a newline/comment and the next line starts with
-    /// a binary operator that cannot also begin a statement, return the binary
-    /// op info, so the expression continues across the line break. `-` (unary
-    /// negation) and `/` (absolute bare path) begin a new statement instead.
+    /// a binary operator that continues lines, return the binary op info, so
+    /// the expression continues across the line break.
     pub(in crate::syntax::parser) fn continuation_binary_op(
         &self,
     ) -> Option<(BinaryOp, u8, usize)> {
-        let mut offset = 0usize;
-        while matches!(
-            self.peek_tag(offset),
-            Some(TokenTag::Newline | TokenTag::Comment)
-        ) {
-            offset += 1;
-        }
-        let tag = self.peek_tag(offset)?;
-        if offset == 0 || matches!(tag, TokenTag::Minus | TokenTag::Slash) {
+        let (LineContinuation::Operator, first) = self.line_continuation_at(self.index)? else {
             return None;
-        }
-        binary_op_for_token(tag, self.peek_keyword(offset), |n| {
-            self.peek_keyword(offset + n)
-        })
+        };
+        binary_op_for_token(self.token_table.tag_at(first)?, self.token_table.keyword_at(first), self.token_table.keyword_at(first + 1))
     }
 
     /// Like `peek_tag(n)` but skips intervening newlines and comments.
@@ -419,32 +404,8 @@ impl<'a> Parser<'a> {
         }
         self.token_table.tag_at(index + 1).is_some_and(|tag| {
             self.start_at(index + 1).is_some_and(|start| start > end)
-                && !matches!(
-                    tag,
-                    TokenTag::Newline
-                        | TokenTag::Semicolon
-                        | TokenTag::RBrace
-                        | TokenTag::Eof
-                        | TokenTag::EqEq
-                        | TokenTag::BangEq
-                        | TokenTag::Lt
-                        | TokenTag::Le
-                        | TokenTag::Gt
-                        | TokenTag::Ge
-                        | TokenTag::Plus
-                        | TokenTag::Minus
-                        | TokenTag::Star
-                        | TokenTag::Slash
-                        | TokenTag::Percent
-                        | TokenTag::QuestionQuestion
-                        | TokenTag::PipeGt
-                )
-                && !matches!(
-                    self.token_table.keyword_at(index + 1),
-                    Some(Keyword::And | Keyword::Or | Keyword::In)
-                )
-                && !(self.token_table.keyword_at(index + 1) == Some(Keyword::Not)
-                    && self.token_table.keyword_at(index + 2) == Some(Keyword::In))
+                && !matches!(tag, TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof | TokenTag::PipeGt)
+                && grammar::binary_operator_at(tag, self.token_table.keyword_at(index + 1), self.token_table.keyword_at(index + 2)).is_none()
                 && !(tag == TokenTag::Ident && self.token_table.name_at(index + 1).is_some_and(|name| name == "is"))
         })
     }
@@ -471,26 +432,14 @@ impl<'a> Parser<'a> {
             && self.token_table.tag_at(index + 1) == Some(TokenTag::Equals)
     }
 
+    /// Whether the name at the start of a statement is followed by a binary
+    /// operator, so the statement is an expression rather than a command. A
+    /// `not` counts even without `in`, and `-` counts only when it is spaced
+    /// like an operator rather than written as a flag.
     pub(in crate::syntax::parser) fn lookahead_is_expr_binary(&self) -> bool {
         self.peek_tag(1).is_some_and(|tag| {
-            matches!(
-                (tag, self.peek_keyword(1)),
-                (TokenTag::EqEq, _)
-                    | (TokenTag::BangEq, _)
-                    | (TokenTag::Lt, _)
-                    | (TokenTag::Le, _)
-                    | (TokenTag::Gt, _)
-                    | (TokenTag::Ge, _)
-                    | (TokenTag::Plus, _)
-                    | (TokenTag::Star, _)
-                    | (TokenTag::Slash, _)
-                    | (TokenTag::Percent, _)
-                    | (TokenTag::QuestionQuestion, _)
-                    | (TokenTag::Keyword, Some(Keyword::And))
-                    | (TokenTag::Keyword, Some(Keyword::Or))
-                    | (TokenTag::Keyword, Some(Keyword::In))
-                    | (TokenTag::Keyword, Some(Keyword::Not))
-            )
+            tag != TokenTag::Minus
+                && (self.peek_keyword(1) == Some(Keyword::Not) || grammar::binary_operator_at(tag, self.peek_keyword(1), self.peek_keyword(2)).is_some())
         }) || (self.peek_tag(1) == Some(TokenTag::Minus)
             && (self.peek_start(1) == Some(self.current_end())
                 || self.peek_start(2) != self.peek_end(1)))
@@ -530,15 +479,8 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn skip_pipeline_newlines(&mut self) {
-        let mut index = self.index;
-        while matches!(
-            self.token_table.tag_at(index),
-            Some(TokenTag::Newline | TokenTag::Comment)
-        ) {
-            index += 1;
-        }
-        if self.token_table.tag_at(index) == Some(TokenTag::PipeGt) {
-            self.index = index;
+        if let Some((LineContinuation::Pipeline, first)) = self.line_continuation_at(self.index) {
+            self.index = first;
         }
     }
 
@@ -550,22 +492,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Only `.name` continues: `./path` and `../path` begin bare paths.
     pub(in crate::syntax::parser) fn skip_postfix_newlines(&mut self) {
-        let mut index = self.index;
-        while matches!(self.token_table.tag_at(index), Some(TokenTag::Newline | TokenTag::Comment)) {
-            index += 1;
-        }
-        if index == self.index {
-            return;
-        }
-        // Only `.name` continues: `./path` and `../path` begin bare paths.
-        if self.token_table.tag_at(index) == Some(TokenTag::Dot)
-            && matches!(
-                self.token_table.tag_at(index + 1),
-                Some(TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword)
-            )
-        {
-            self.index = index;
+        if let Some((LineContinuation::Member, first)) = self.line_continuation_at(self.index) {
+            self.index = first;
         }
     }
 

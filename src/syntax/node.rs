@@ -20,6 +20,9 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// Every effect, in declaration order.
+    pub const ALL: [Effect; 7] = [Self::Fs, Self::Net, Self::Process, Self::Env, Self::Time, Self::Error, Self::Io];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Fs => "fs",
@@ -285,7 +288,7 @@ pub enum FormatSpecKind {
     ZeroPad,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StreamStageKind {
     Where,
     Map,
@@ -325,44 +328,9 @@ pub enum StreamStageKind {
 }
 
 impl StreamStageKind {
+    /// The stage's name in the grammar's stage table.
     pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Where => "where",
-            Self::Map => "map",
-            Self::ParMap => "par-map",
-            Self::Each => "each",
-            Self::Batch => "batch",
-            Self::Sort => "sort",
-            Self::SortBy => "sort-by",
-            Self::Take => "take",
-            Self::Drop => "drop",
-            Self::First => "first",
-            Self::Last => "last",
-            Self::UniqueBy => "unique-by",
-            Self::Enumerate => "enumerate",
-            Self::Zip => "zip",
-            Self::Range => "range",
-            Self::Repeat => "repeat",
-            Self::Tee => "tee",
-            Self::Sum => "sum",
-            Self::Min => "min",
-            Self::Max => "max",
-            Self::GroupBy => "group-by",
-            Self::Fold => "fold",
-            Self::Reduce => "reduce",
-            Self::FlatMap => "flat-map",
-            Self::Any => "any",
-            Self::All => "all",
-            Self::Shuffle => "shuffle",
-            Self::TablePrint => "table.print",
-            Self::TextStreamLines => "text.lines",
-            Self::BytesChunks => "bytes.chunks",
-            Self::JsonLines => "json.lines",
-            Self::JsonStream => "json.stream",
-            Self::Count => "count",
-            Self::Collect => "collect",
-            Self::ReduceBy => "reduce-by",
-        }
+        crate::syntax::grammar::stream_stage(*self).name
     }
 
     pub const fn is_adapter(&self) -> bool {
@@ -439,6 +407,8 @@ pub enum CoreCommand {
 }
 
 impl CoreCommand {
+    pub const ALL: [CoreCommand; 4] = [Self::Print, Self::Eprint, Self::Cd, Self::Env];
+
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "print" => Self::Print,

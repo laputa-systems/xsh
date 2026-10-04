@@ -306,6 +306,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         examples: &[],
     },
     CommandSpec {
+        name: "grammar",
+        summary: "Print the language grammar",
+        quick_label: "Read the grammar",
+        args: "",
+        usage: &[&[UsagePart::Opt("--format")]],
+        options: &[OptionSpec {
+            names: &["--format"],
+            arg: OptionArg::value_or_equals("FORMAT").in_usage("ebnf|json"),
+            repeatable: false,
+            description: "ebnf productions (the default) or the json reference that make docs renders",
+        }],
+        removed: &[],
+        options_end_at_first_argument: false,
+        notes: &[],
+        examples: &[],
+    },
+    CommandSpec {
         name: "trace",
         summary: "Run a script with trace output",
         quick_label: "Run with tracing",

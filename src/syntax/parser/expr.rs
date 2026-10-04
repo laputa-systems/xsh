@@ -9,6 +9,7 @@ use crate::syntax::arena::{
     ArenaCompQualifier, ArenaCallArgInput, ArenaListElementInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
     ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId,
 };
+use crate::syntax::grammar::{self, PrimaryForm};
 use crate::syntax::grouping;
 use std::sync::Arc;
 
@@ -216,16 +217,18 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         self.bump();
-        let value = self.parse_precedence_arena_only(0, arena)?;
+        let value = self.parse_head_expr_arena_only(arena)?;
         self.expect(TokenKindMatch::LBrace, "expected `{` to start match arms")?;
         self.skip_separators();
         arena.begin_match_expr_arms();
-        while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            if self.parse_match_expr_arm_arena_only(arena).is_none() {
-                self.recover_match_arm();
+        self.in_nested_group(|parser| {
+            while !parser.at(TokenKindMatch::RBrace) && !parser.at(TokenKindMatch::Eof) {
+                if parser.parse_match_expr_arm_arena_only(arena).is_none() {
+                    parser.recover_match_arm();
+                }
+                parser.skip_separators();
             }
-            self.skip_separators();
-        }
+        });
         let end = self
             .expect(TokenKindMatch::RBrace, "expected `}` to close match")
             .map(|span| span.end())
@@ -299,7 +302,7 @@ impl<'a> Parser<'a> {
         }
         let mut shorthand = shorthand_or_empty && self.peek_tag(offset) == Some(TokenTag::Ident)
             || shorthand_or_empty && (self.peek_tag(offset) == Some(TokenTag::Keyword)
-                && !matches!(self.peek_keyword(offset), Some(Keyword::True | Keyword::False | Keyword::Null | Keyword::Return | Keyword::Break | Keyword::Continue)));
+                && !self.peek_keyword(offset).is_some_and(|keyword| grammar::BLOCK_ONLY_KEYWORDS.contains(&keyword)));
         if self.peek_label_name(offset).is_none() && self.peek_tag(offset) != Some(TokenTag::String) { return false; }
         offset += 1;
         while self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_label_name(offset + 1).is_some() {
@@ -394,6 +397,34 @@ impl<'a> Parser<'a> {
         })();
         self.condition_expr = previous;
         condition
+    }
+
+    /// An expression that a body block follows (a `for` iterable, a `match`
+    /// subject, a `with` value), read like a condition: a qualified pattern
+    /// test such as `x is E.V {` ends before the block unless the brace holds
+    /// a payload.
+    pub(super) fn parse_head_expr_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) -> Option<ArenaOnlyExpr> {
+        let previous = std::mem::replace(&mut self.condition_expr, true);
+        let expr = self.parse_precedence_arena_only(0, arena);
+        self.condition_expr = previous;
+        expr
+    }
+
+    /// Runs `parse` inside a bracket, brace, or argument list. What the
+    /// enclosing construct changed about where an expression ends stops at
+    /// the delimiter: inside it a `|>` adds a stage even within a pipeline
+    /// stage, a spaced `?` before the closer tries the expression even
+    /// within a command argument, and `,` does not end a statement even
+    /// within a `match` arm or `with` binding.
+    pub(super) fn in_nested_group<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> T {
+        let pipe_is_boundary = std::mem::replace(&mut self.pipe_is_boundary, false);
+        let trailing_statement_try = std::mem::replace(&mut self.trailing_statement_try, true);
+        let comma_is_terminator = std::mem::replace(&mut self.comma_is_terminator, false);
+        let result = parse(self);
+        self.pipe_is_boundary = pipe_is_boundary;
+        self.trailing_statement_try = trailing_statement_try;
+        self.comma_is_terminator = comma_is_terminator;
+        result
     }
 
     pub(super) fn parse_expr_id_arena_only(
@@ -506,7 +537,10 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_postfix_newlines();
             self.skip_pipeline_newlines();
-            if command_arg_root && self.current_start() > left.span.end() {
+            // A typed command argument ends at whitespace or a line break.
+            if command_arg_root
+                && (self.current_start() > left.span.end() || matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment))
+            {
                 break;
             }
             let continues_pipeline = pending_pipeline.is_some()
@@ -621,43 +655,29 @@ impl<'a> Parser<'a> {
             {
                 let guarded = self.consume(TokenKindMatch::Question).is_some();
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `?`");
-                let (start, end) = if self.consume_dot_dot() {
-                    let end = if self.at(TokenKindMatch::RBracket) {
-                        None
-                    } else {
-                        Some(self.parse_precedence_arena_only(0, arena)?.id)
-                    };
-                    (None, end)
-                } else {
-                    let first = self.parse_precedence_arena_only(0, arena)?;
-                    if self.consume_dot_dot() {
-                        let end = if self.at(TokenKindMatch::RBracket) {
-                            None
-                        } else {
-                            Some(self.parse_precedence_arena_only(0, arena)?.id)
-                        };
-                        (Some(first.id), end)
-                    } else {
-                        self.expect(
-                            TokenKindMatch::RBracket,
-                            "expected `]` after index expression",
-                        );
-                        let span = self.span(left.span.start(), self.previous_end());
-                        let id = if guarded { arena.push_guarded_index_expr(left.id, first.id, span) } else { arena.push_index_expr(left.id, first.id, span) };
-                        left = ArenaOnlyExpr {
-                            id,
-                            span,
-                            bare_ident: None,
-                        };
-                        continue;
+                let bounds = self.in_nested_group(|parser| -> Option<(Option<ExprId>, Option<Option<ExprId>>)> {
+                    if parser.consume_dot_dot() {
+                        let end = if parser.at(TokenKindMatch::RBracket) { None } else { Some(parser.parse_precedence_arena_only(0, arena)?.id) };
+                        return Some((None, Some(end)));
                     }
-                };
+                    let first = parser.parse_precedence_arena_only(0, arena)?;
+                    if !parser.consume_dot_dot() {
+                        return Some((Some(first.id), None));
+                    }
+                    let end = if parser.at(TokenKindMatch::RBracket) { None } else { Some(parser.parse_precedence_arena_only(0, arena)?.id) };
+                    Some((Some(first.id), Some(end)))
+                })?;
                 self.expect(
                     TokenKindMatch::RBracket,
                     "expected `]` after index expression",
                 );
                 let span = self.span(left.span.start(), self.previous_end());
-                let id = if guarded { arena.push_guarded_slice_expr(left.id, start, end, span) } else { arena.push_slice_expr(left.id, start, end, span) };
+                let id = match bounds {
+                    (Some(index), None) if guarded => arena.push_guarded_index_expr(left.id, index, span),
+                    (Some(index), None) => arena.push_index_expr(left.id, index, span),
+                    (start, end) if guarded => arena.push_guarded_slice_expr(left.id, start, end.flatten(), span),
+                    (start, end) => arena.push_slice_expr(left.id, start, end.flatten(), span),
+                };
                 left = ArenaOnlyExpr {
                     id,
                     span,
@@ -689,7 +709,7 @@ impl<'a> Parser<'a> {
                     self.skip_line_breaks();
                 }
                 if self.at_ident("is") {
-                    if min_prec > grouping::PATTERN_TEST { break; }
+                    if min_prec > grammar::PATTERN_TEST { break; }
                     if let Some(pending) = pending_pipeline.take() { left.id = pending.seal(arena, left.span); }
                     self.bump();
                     self.skip_newlines();
@@ -711,11 +731,11 @@ impl<'a> Parser<'a> {
                 }
                 let unsupported_integer_division = self.report_unsupported_integer_division();
                 let (op, prec, tokens) = if let Some(tokens) = unsupported_integer_division {
-                    (BinaryOp::Div, 6, tokens)
+                    (BinaryOp::Div, grammar::binary_precedence(BinaryOp::Div), tokens)
                 } else if let Some((op, prec, tokens)) = self.current_binary_op() {
                     (op, prec, tokens)
                 } else if let Some((op, tokens)) = self.report_unsupported_boolean_operator() {
-                    (op, grouping::binary_precedence(op), tokens)
+                    (op, grammar::binary_precedence(op), tokens)
                 } else {
                     break;
                 };
@@ -725,7 +745,7 @@ impl<'a> Parser<'a> {
                 for _ in 0..tokens {
                     self.bump();
                 }
-                let right_min_prec = grouping::binary_right_operand_precedence(op);
+                let right_min_prec = grammar::binary_right_operand_precedence(op);
                 self.skip_newlines();
                 let right = self.parse_precedence_arena_only(right_min_prec, arena)?;
                 let span = self.span(left.span.start(), right.span.end());
@@ -780,7 +800,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         if self.consume(TokenKindMatch::Bang).is_some() {
-            let expr = self.parse_precedence_arena_only(grouping::PREFIX_OPERAND, arena)?;
+            let expr = self.parse_precedence_arena_only(grammar::PREFIX_OPERAND, arena)?;
             let span = self.span(start, expr.span.end());
             let id = arena.push_unary_expr(UnaryOp::Not, expr.id, span);
             return Some(ArenaOnlyExpr {
@@ -790,7 +810,7 @@ impl<'a> Parser<'a> {
             });
         }
         if self.consume(TokenKindMatch::Minus).is_some() {
-            let expr = self.parse_precedence_arena_only(grouping::PREFIX_OPERAND, arena)?;
+            let expr = self.parse_precedence_arena_only(grammar::PREFIX_OPERAND, arena)?;
             let span = self.span(start, expr.span.end());
             let id = arena.push_unary_expr(UnaryOp::Neg, expr.id, span);
             return Some(ArenaOnlyExpr {
@@ -844,6 +864,83 @@ impl<'a> Parser<'a> {
         Some(ArenaOnlyExpr { id: arena.push_context_scope_expr(kind, input, block, value_body, span), span, bare_ident: None })
     }
 
+    /// A primary expression that a keyword begins, as the grammar's primary
+    /// keyword table dispatches it.
+    fn parse_keyword_primary_arena_only(
+        &mut self,
+        form: PrimaryForm,
+        span: Span,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        match form {
+            PrimaryForm::Null => {
+                self.bump();
+                Some(ArenaOnlyExpr {
+                    id: arena.push_null_expr(span),
+                    span,
+                    bare_ident: None,
+                })
+            }
+            PrimaryForm::True => {
+                self.bump();
+                Some(ArenaOnlyExpr {
+                    id: arena.push_bool_expr(true, span),
+                    span,
+                    bare_ident: None,
+                })
+            }
+            PrimaryForm::False => {
+                self.bump();
+                Some(ArenaOnlyExpr {
+                    id: arena.push_bool_expr(false, span),
+                    span,
+                    bare_ident: None,
+                })
+            }
+            PrimaryForm::If => {
+                self.parse_if_expr_arena_only(span.start(), arena)
+            }
+            PrimaryForm::Match => {
+                self.parse_match_expr_arena_only(span.start(), arena)
+            }
+            PrimaryForm::Loop => {
+                let start = span.start();
+                self.bump();
+                let block_id = self.parse_block_arena_only(arena)?;
+                let span = self.span(start, self.previous_end());
+                Some(ArenaOnlyExpr {
+                    id: arena.push_loop_expr(block_id, span),
+                    span,
+                    bare_ident: None,
+                })
+            }
+            PrimaryForm::Try => {
+                self.bump();
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(span.start(), self.previous_end());
+                Some(ArenaOnlyExpr { id: arena.push_capture_expr(block, span), span, bare_ident: None })
+            }
+            PrimaryForm::Retry => {
+                self.parse_retry_expr_arena_only(span.start(), arena)
+            }
+            PrimaryForm::Run => {
+                let (run_id, _run_span) = self.parse_run_form_arena_only(arena)?;
+                let span = self.span(span.start(), self.previous_end());
+                Some(ArenaOnlyExpr {
+                    id: arena.push_run_expr_id(run_id, span),
+                    span,
+                    bare_ident: None,
+                })
+            }
+            PrimaryForm::Spawn => {
+                self.parse_spawn_expr_arena_only(span.start(), arena)
+            }
+            PrimaryForm::Wait => {
+                self.parse_wait_expr_arena_only(span.start(), arena)
+            }
+        }
+    }
+
     pub(super) fn parse_primary_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -852,31 +949,10 @@ impl<'a> Parser<'a> {
         if self.current_tag() == TokenTag::Ident && self.lookahead_is_context_scope() {
             return self.parse_context_scope_arena_only(arena, true);
         }
+        if let Some(form) = self.current_keyword().and_then(grammar::primary_form) {
+            return self.parse_keyword_primary_arena_only(form, span, arena);
+        }
         match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(Keyword::Null)) => {
-                self.bump();
-                Some(ArenaOnlyExpr {
-                    id: arena.push_null_expr(span),
-                    span,
-                    bare_ident: None,
-                })
-            }
-            (TokenTag::Keyword, Some(Keyword::True)) => {
-                self.bump();
-                Some(ArenaOnlyExpr {
-                    id: arena.push_bool_expr(true, span),
-                    span,
-                    bare_ident: None,
-                })
-            }
-            (TokenTag::Keyword, Some(Keyword::False)) => {
-                self.bump();
-                Some(ArenaOnlyExpr {
-                    id: arena.push_bool_expr(false, span),
-                    span,
-                    bare_ident: None,
-                })
-            }
             (TokenTag::Ident | TokenTag::ProcIdent, _) if self.lookahead_is_ctx_block() => {
                 let start = self.current_start();
                 self.bump();
@@ -899,47 +975,6 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: Some(name),
                 })
-            }
-            (TokenTag::Keyword, Some(Keyword::If)) => {
-                self.parse_if_expr_arena_only(span.start(), arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Match)) => {
-                self.parse_match_expr_arena_only(span.start(), arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Loop)) => {
-                let start = span.start();
-                self.bump();
-                let block_id = self.parse_block_arena_only(arena)?;
-                let span = self.span(start, self.previous_end());
-                Some(ArenaOnlyExpr {
-                    id: arena.push_loop_expr(block_id, span),
-                    span,
-                    bare_ident: None,
-                })
-            }
-            (TokenTag::Keyword, Some(Keyword::Try)) => {
-                self.bump();
-                let block = self.parse_block_arena_only(arena)?;
-                let span = self.span(span.start(), self.previous_end());
-                Some(ArenaOnlyExpr { id: arena.push_capture_expr(block, span), span, bare_ident: None })
-            }
-            (TokenTag::Keyword, Some(Keyword::Retry)) => {
-                self.parse_retry_expr_arena_only(span.start(), arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Run)) => {
-                let (run_id, _run_span) = self.parse_run_form_arena_only(arena)?;
-                let span = self.span(span.start(), self.previous_end());
-                Some(ArenaOnlyExpr {
-                    id: arena.push_run_expr_id(run_id, span),
-                    span,
-                    bare_ident: None,
-                })
-            }
-            (TokenTag::Keyword, Some(Keyword::Spawn)) => {
-                self.parse_spawn_expr_arena_only(span.start(), arena)
-            }
-            (TokenTag::Keyword, Some(Keyword::Wait)) => {
-                self.parse_wait_expr_arena_only(span.start(), arena)
             }
             (TokenTag::Int, _) => {
                 let span = self.bump();
@@ -1107,7 +1142,7 @@ impl<'a> Parser<'a> {
                 self.skip_newlines();
                 // A grouped expression owns its closing delimiter, including run argv.
                 self.parenthesized_expr_depth += 1;
-                let expr = self.parse_precedence_arena_only(0, arena);
+                let expr = self.in_nested_group(|parser| parser.parse_precedence_arena_only(0, arena));
                 self.parenthesized_expr_depth -= 1;
                 let expr = expr?;
                 self.skip_newlines();
@@ -1180,6 +1215,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_list_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        self.in_nested_group(|parser| parser.parse_list_inner(arena))
+    }
+
+    fn parse_list_inner(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
@@ -1258,6 +1300,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_record_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        self.in_nested_group(|parser| parser.parse_record_inner(arena))
+    }
+
+    fn parse_record_inner(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
@@ -1458,6 +1507,13 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> crate::syntax::arena::ArenaRange {
+        self.in_nested_group(|parser| parser.parse_call_args_inner(arena))
+    }
+
+    fn parse_call_args_inner(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> crate::syntax::arena::ArenaRange {
         arena.begin_call_args();
         self.skip_call_argument_trivia();
         while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
@@ -1551,25 +1607,26 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaStreamStage> {
         let start = self.current_start();
         let name = self.expect_stage_name()?;
-        let member = if matches!(name.as_str().as_str(), "table" | "text" | "bytes" | "json")
+        let member = if grammar::is_stream_stage_namespace(&name.as_str())
             && self.consume(TokenKindMatch::Dot).is_some()
         {
             Some(self.expect_member_name("expected stream stage method")?)
         } else {
             None
         };
-        let kind = stream_stage_kind_from_names(name, member).unwrap_or_else(|| {
+        let stage = grammar::stream_stage_named(&name.as_str(), member.map(|member| member.as_str()).as_deref()).unwrap_or_else(|| {
             self.diagnostic_previous("unknown stream stage", "parse.unknown-stream-stage");
-            StreamStageKind::Map
+            grammar::stream_stage(StreamStageKind::Map)
         });
+        let kind = stage.kind;
         let mut args = self.parse_legacy_stream_stage_flags_arena_only(arena)?;
         if self.consume(TokenKindMatch::LParen).is_some() {
             args = self.parse_call_args_arena_only(arena);
             self.expect(TokenKindMatch::RParen, "expected `)` after stage arguments");
         }
-        let block = if self.at(TokenKindMatch::LBrace) && stream_stage_accepts_block(&kind) {
+        let block = if self.at(TokenKindMatch::LBrace) && stage.block {
             Some(self.parse_block_arena_only(arena)?)
-        } else if stream_stage_accepts_inline_expr(&kind) && !self.at_pipe_stage_end() {
+        } else if stage.inline && !self.at_pipe_stage_end() {
             Some(self.parse_inline_stream_block_arena_only(arena)?)
         } else {
             None
@@ -1740,9 +1797,9 @@ impl<'a> Parser<'a> {
             return true;
         };
         if let Some((namespace, member, _)) = self.dotted_stage_name_at(self.index) {
-            return stream_stage_kind_from_names(namespace, Some(member)).is_none();
+            return grammar::stream_stage_named(&namespace.as_str(), Some(&member.as_str())).is_none();
         }
-        stream_stage_kind_from_names(name, None).is_none()
+        grammar::stream_stage_named(&name.as_str(), None).is_none()
     }
 
     pub(super) fn stage_name_at(&self, index: usize) -> Option<Name> {
@@ -1992,111 +2049,18 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub(crate) fn stream_stage_accepts_block(kind: &StreamStageKind) -> bool {
-    matches!(
-        kind,
-        StreamStageKind::Where
-            | StreamStageKind::Map
-            | StreamStageKind::ParMap
-            | StreamStageKind::Each
-            | StreamStageKind::Batch
-            | StreamStageKind::SortBy
-            | StreamStageKind::UniqueBy
-            | StreamStageKind::Tee
-            | StreamStageKind::GroupBy
-            | StreamStageKind::FlatMap
-            | StreamStageKind::Fold
-            | StreamStageKind::Reduce
-            | StreamStageKind::Any
-            | StreamStageKind::All
-            | StreamStageKind::Count
-            | StreamStageKind::Collect
-            | StreamStageKind::ReduceBy
-    )
-}
-
-pub(crate) fn stream_stage_accepts_inline_expr(kind: &StreamStageKind) -> bool {
-    matches!(
-        kind,
-        StreamStageKind::Where
-            | StreamStageKind::Map
-            | StreamStageKind::ParMap
-            | StreamStageKind::Each
-            | StreamStageKind::SortBy
-            | StreamStageKind::UniqueBy
-            | StreamStageKind::Tee
-            | StreamStageKind::GroupBy
-            | StreamStageKind::FlatMap
-            | StreamStageKind::Any
-            | StreamStageKind::All
-    )
-}
-
-pub(in crate::syntax::parser) fn stream_stage_kind_from_names(
-    name: Name,
-    member: Option<Name>,
-) -> Option<StreamStageKind> {
-    match member {
-        None => Some(match name.as_str().as_str() {
-            "where" => StreamStageKind::Where,
-            "map" => StreamStageKind::Map,
-            "par-map" => StreamStageKind::ParMap,
-            "each" => StreamStageKind::Each,
-            "batch" => StreamStageKind::Batch,
-            "sort" => StreamStageKind::Sort,
-            "sort-by" => StreamStageKind::SortBy,
-            "take" => StreamStageKind::Take,
-            "drop" => StreamStageKind::Drop,
-            "first" => StreamStageKind::First,
-            "last" => StreamStageKind::Last,
-            "unique-by" => StreamStageKind::UniqueBy,
-            "enumerate" => StreamStageKind::Enumerate,
-            "zip" => StreamStageKind::Zip,
-            "range" => StreamStageKind::Range,
-            "repeat" => StreamStageKind::Repeat,
-            "tee" => StreamStageKind::Tee,
-            "sum" => StreamStageKind::Sum,
-            "min" => StreamStageKind::Min,
-            "max" => StreamStageKind::Max,
-            "group-by" => StreamStageKind::GroupBy,
-            "fold" => StreamStageKind::Fold,
-            "reduce" => StreamStageKind::Reduce,
-            "flat-map" => StreamStageKind::FlatMap,
-            "any" => StreamStageKind::Any,
-            "all" => StreamStageKind::All,
-            "shuffle" => StreamStageKind::Shuffle,
-            "count" => StreamStageKind::Count,
-            "collect" => StreamStageKind::Collect,
-            "reduce-by" => StreamStageKind::ReduceBy,
-            _ => return None,
-        }),
-        Some(member) => Some(match (name.as_str().as_str(), member.as_str().as_str()) {
-            ("table", "print") => StreamStageKind::TablePrint,
-            ("text", "lines") => StreamStageKind::TextStreamLines,
-            ("bytes", "chunks") => StreamStageKind::BytesChunks,
-            ("json", "lines") => StreamStageKind::JsonLines,
-            ("json", "stream") => StreamStageKind::JsonStream,
-            _ => return None,
-        }),
-    }
-}
-
-pub(crate) fn builder_api_accepts_block(module: &str, name: &str) -> bool {
-    matches!((module, name), ("process", "command"))
-}
-
 fn arena_expr_accepts_builder_block(arena: &ArenaProgramBuilder<'_>, id: ExprId) -> bool {
     match arena.expr_kind(id) {
         ArenaExprKind::Call { callee, .. } => match arena.expr_kind(callee) {
             ArenaExprKind::Field { base, name } => matches!(
                 arena.expr_kind(base),
-                ArenaExprKind::Ident(module) if builder_api_accepts_block(&module.as_str(), &name.as_str())
+                ArenaExprKind::Ident(module) if grammar::builder_api_accepts_block(&module.as_str(), &name.as_str())
             ),
             _ => false,
         },
         ArenaExprKind::Field { base, name } => matches!(
             arena.expr_kind(base),
-            ArenaExprKind::Ident(module) if builder_api_accepts_block(&module.as_str(), &name.as_str())
+            ArenaExprKind::Ident(module) if grammar::builder_api_accepts_block(&module.as_str(), &name.as_str())
         ),
         _ => false,
     }

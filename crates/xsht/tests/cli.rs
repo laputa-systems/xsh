@@ -276,7 +276,7 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
     assert!(!stdout.contains("Run `xsht COMMAND --help`"));
 
     for command in [
-        "check", "fmt", "lint", "ast", "trace", "api", "test", "grep", "refactor",
+        "check", "fmt", "lint", "ast", "grammar", "trace", "api", "test", "grep", "refactor",
     ] {
         assert!(
             stdout.contains(&format!("{command} —")),
@@ -288,6 +288,23 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
     let refactor = stdout.find("refactor —").expect("refactor section");
     let grep_example = stdout.find("xsht grep 'X.len()' .").expect("grep example");
     assert!(grep < grep_example && grep_example < refactor);
+}
+
+#[test]
+fn xsht_grammar_prints_the_productions() {
+    let ebnf = Command::new(release_bin!("xsht")).arg("grammar").output().expect("run xsht grammar");
+    assert!(ebnf.status.success());
+    let stdout = String::from_utf8(ebnf.stdout).unwrap();
+    assert!(stdout.contains("(* Expressions *)"), "{stdout}");
+    assert!(stdout.contains("\nprogram = "), "{stdout}");
+
+    let json = Command::new(release_bin!("xsht")).args(["grammar", "--format", "json"]).output().expect("run xsht grammar");
+    assert!(json.status.success());
+    assert!(String::from_utf8(json.stdout).unwrap().starts_with("{\"sections\":["));
+
+    let invalid = Command::new(release_bin!("xsht")).args(["grammar", "--format", "yaml"]).output().expect("run xsht grammar");
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8(invalid.stderr).unwrap().contains("must be ebnf or json"));
 }
 
 #[test]

@@ -350,6 +350,11 @@ test test_pattern_predicates_leave_control_body_braces {
   let matched = if missing is PredicateError.Missing { true } else { false }
   assert matched == true
   assert branches == 2
+  let label = match missing is PredicateError.Missing {
+    true => "missing"
+    false => "other"
+  }
+  assert label == "missing"
 }
 
 test test_pattern_predicates_keep_following_type_pattern_match_arms { |ctx|

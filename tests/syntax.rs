@@ -2962,7 +2962,7 @@ fn parser_continues_binary_op_with_leading_operator_on_next_line() {
 /// A line break never silently joins two statements: no spelling that
 /// continues an expression onto the next line can also begin a statement.
 /// Both sets come from running the parser over a spelling of every token
-/// kind, not from a list kept beside it.
+/// kind and must equal the grammar's continuation set.
 #[test]
 fn line_continuation_tokens_cannot_begin_a_statement() {
     use xsh::frontend::syntax::lexer::representative_token_texts;
@@ -2993,13 +2993,11 @@ fn line_continuation_tokens_cannot_begin_a_statement() {
         }
     }
     continuing.sort();
-    let mut documented: Vec<String> = ["!=", "%", "*", "+", ".", "<", "<=", "==", ">", ">=", "??", "and", "in", "not in", "or", "|>"]
-        .map(str::to_string)
-        .to_vec();
-    documented.sort();
-    assert_eq!(continuing, documented, "continuation set differs from docs/SPEC.md");
+    let mut grammar: Vec<String> = xsh::frontend::syntax::grammar::line_continuation_spellings().into_iter().map(str::to_string).collect();
+    grammar.sort();
+    assert_eq!(continuing, grammar, "the parser's continuation set differs from the grammar's operator table");
     // An item expression `.name` cannot begin a line after an expression; the
-    // line is always postfix (docs/SPEC.md).
+    // line is always postfix.
     assert_eq!(overlap, ["."], "continuation tokens that also begin a statement");
 }
 
@@ -4094,3 +4092,6 @@ fn fmt_interpolation_spans_index_the_original_source() {
     let label = parsed.diagnostics.iter().flat_map(|diagnostic| &diagnostic.labels).next().expect("diagnostic label");
     assert_eq!(label.span.start(), invalid.find("}\"").unwrap(), "{:?}", parsed.diagnostics);
 }
+
+#[path = "grammar.rs"]
+mod grammar;
