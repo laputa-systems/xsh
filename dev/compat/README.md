@@ -17,10 +17,11 @@ GNU runs also need a C toolchain, autotools, perl and the packages uutils'
 `build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
 sandbox where `apt` cannot open `/dev/null` as its `_apt` user, add
 `-o APT::Sandbox::User=root` to `apt-get update` and `install` (signature
-verification stays on). GNU `configure` refuses to run as root, so
-`run-gnu.sh` bypasses that check for configure only and runs the test suites as
-the unprivileged `GNU_RUN_USER` (default `gnutest`, created on demand), because
-many GNU tests change behavior as root.
+verification stays on). GNU `configure` refuses to run as root, so `run-gnu.sh` bypasses that check
+for configure only and runs the test suites in a user namespace that maps
+`GNU_RUN_UID` (default 1000) to the invoking user: tests see an unprivileged uid,
+because many GNU tests change behavior as root, without a second account or any
+chown. `GNU_JOBS` (default 3) sets `make -j`.
 
 ## Commands
 
