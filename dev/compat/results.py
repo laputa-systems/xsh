@@ -61,6 +61,7 @@ def uutils_mode(junit: Path, out: Path, only: list[str]) -> None:
     report["utilities"] = dict(sorted(report["utilities"].items()))
     totals = {k: sum(e[k] for e in report["utilities"].values()) for k in ("pass", "fail", "skip", "excluded")}
     report["totals"] = totals
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")
     ran = totals["pass"] + totals["fail"]
     rate = f"{100 * totals['pass'] / ran:.1f}%" if ran else "n/a"
@@ -103,6 +104,7 @@ def gnu_mode(uu_path: Path, xsh_path: Path, out: Path) -> None:
         "cells": cells,
         "utilities": utilities,
     }
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")
     print("GNU differential:", json.dumps(report["counts"]))
 

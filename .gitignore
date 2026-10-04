@@ -9,3 +9,4 @@ crates/xshi/benches/baseline.json
 scripts/__pycache__
 lx-*
 .claude/worktrees/
+__pycache__/
