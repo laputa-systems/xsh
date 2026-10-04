@@ -184,6 +184,7 @@
       "extra_files": [
         "src/modules/fs.rs",
         "src/modules/fs/",
+        "tests/xsh/stdlib/fs.xsh",
         "tests/xsh/stdlib/fs_*.xsh"
       ],
       "depends": [],
@@ -285,6 +286,10 @@
       "kind": "script",
       "utilities": [],
       "extra_files": [
+        "core/system-report.xsh",
+        "core/lib/system_report.xsh",
+        "core/lib/system_report_collect.xsh",
+        "core/lib/system_report_live.xsh",
         "core/SYSTEM-REPORT.md",
         "core/lib/sys_*.xsh",
         "dev/system_report_check.xsh",
