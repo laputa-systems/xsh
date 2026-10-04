@@ -607,19 +607,63 @@ impl<'a> Parser<'a> {
             end
         } else if matches!(self.current_tag(), TokenTag::RBrace | TokenTag::Eof) {
             self.previous_end()
+        } else if let Some(diagnostic) = self.foreign_statement_continuation() {
+            let end = self.previous_end();
+            self.diagnostics.push(diagnostic);
+            self.recover_statement();
+            end
         } else {
             self.diagnostic_here("expected statement terminator", "parse.expected-terminator");
             self.current_start()
         }
     }
 
+    /// Constructs from other languages that look like a complete XSH
+    /// statement followed by junk: `} catch e { ... }` after a `try` block,
+    /// and `cond ? a : b`, which XSH reads as `cond?` followed by `a`. The
+    /// caller skips the rest of the statement, so it is reported once.
+    fn foreign_statement_continuation(&self) -> Option<Diagnostic> {
+        let previous = self.token_table.tag_at(self.index.checked_sub(1)?)?;
+        if previous == TokenTag::RBrace && self.current_name().is_some_and(|name| name == "catch" || name == "except") {
+            return Some(
+                Diagnostic::error("XSH has no `catch`: `try { ... }` produces a Result")
+                    .with_code("parse.foreign-syntax")
+                    .with_label(Label::primary(self.current_span(), "handle the Result with `??`, `match`, or `if let Err(error) = ...`")),
+            );
+        }
+        let mut offset = 0;
+        let at_question = self.current_tag() == TokenTag::Question;
+        let ternary = (previous == TokenTag::Question || at_question) && loop {
+            match self.peek_tag(offset) {
+                Some(TokenTag::Colon) => break true,
+                None | Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::LBrace | TokenTag::RBrace | TokenTag::Eof) => break false,
+                _ => offset += 1,
+            }
+        };
+        ternary.then(|| {
+            Diagnostic::error("XSH has no `? :` conditional operator")
+                .with_code("parse.foreign-syntax")
+                .with_label(Label::primary(if at_question { self.current_span() } else { self.previous_span() }, "write `if condition { a } else { b }`"))
+        })
+    }
+
+    /// Skip the rest of a statement that failed to parse. A `{` opened on the
+    /// skipped line is skipped through its matching `}`, so the body of an
+    /// unparseable head (`function f() {`, `} elif c {`) is not reparsed as
+    /// statements and its closing brace is not reported as a stray token.
     pub(in crate::syntax::parser) fn recover_statement(&mut self) {
-        while !self.at_terminator() && !self.at(TokenKindMatch::Eof) {
+        let mut depth = 0usize;
+        loop {
+            match self.current_tag() {
+                TokenTag::Eof => return,
+                TokenTag::LBrace => depth += 1,
+                TokenTag::RBrace if depth > 0 => depth -= 1,
+                _ if depth == 0 && self.at_terminator() => break,
+                _ => {}
+            }
             self.bump();
         }
-        if !self.at(TokenKindMatch::Eof) {
-            self.bump();
-        }
+        self.bump();
     }
 
     pub(in crate::syntax::parser) fn recover_match_arm(&mut self) {
@@ -865,11 +909,26 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn diagnostic_here(&mut self, message: &str, code: &str) {
+        if self.follows_invalid_source() {
+            return;
+        }
         self.diagnostics.push(
             Diagnostic::error(message)
                 .with_code(code)
                 .with_label(Label::primary(self.current_span(), message)),
         );
+    }
+
+    /// The lexer emits no token for source it rejects (a `'...'` string or a
+    /// `$(...)` substitution), and its diagnostic already names the mistake.
+    /// A parse error at the token right after that gap is only its echo.
+    fn follows_invalid_source(&self) -> bool {
+        let gap_start = if self.index == 0 { 0 } else { self.previous_end() };
+        let gap_end = self.current_start();
+        self.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_deref().is_some_and(|code| code.starts_with("lex."))
+                && diagnostic.labels.first().is_some_and(|label| label.span.start() >= gap_start && label.span.end() <= gap_end)
+        })
     }
 
     pub(in crate::syntax::parser) fn diagnostic_previous(&mut self, message: &str, code: &str) {

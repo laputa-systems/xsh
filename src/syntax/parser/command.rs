@@ -134,6 +134,15 @@ impl<'a> Parser<'a> {
                 if parsed_count > 1 {
                     self.diagnostic_previous("`cd` accepts one path argument", "parse.cd-arity");
                 }
+                if !self.at(TokenKindMatch::LBrace) {
+                    self.diagnostics.push(
+                        Diagnostic::error("`cd` changes the directory only for its block: write `cd PATH { ... }`")
+                            .with_code("parse.expected-token")
+                            .with_label(Label::primary(self.current_span(), "expected `{` to start the `cd` block"))
+                            .with_note("a script never changes its own working directory; commands inside the block run there"),
+                    );
+                    return None;
+                }
                 let id = self.parse_block_arena_only(arena)?;
                 block = Some(id);
             }

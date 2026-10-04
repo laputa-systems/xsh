@@ -3328,12 +3328,10 @@ pure kind_name(k: Kind) -> Str {
 "#,
     );
     // Non-exhaustive match without catch-all: neither exhaustiveness nor
-    // all-arms-return optimization applies. The match produces Unit (arms
-    // return), which mismatches the declared Str return type.
-    assert!(
-        has_code(&output, "check.non-exhaustive-match"),
-        "expected non-exhaustive-match in {output:?}"
-    );
+    // all-arms-return optimization applies. The tail match must produce the
+    // declared Str, so the gap is the value-match error, reported once
+    // rather than also as the statement-match warning.
+    assert_eq!(output, vec![Some("check.match-value-exhaustive".to_string())], "{output:?}");
 }
 
 #[test]
@@ -3383,8 +3381,8 @@ fn checker_rejects_string_concatenation_with_bool() {
 "#,
     );
     assert!(
-        has_code(&output, "check.type-mismatch"),
-        "expected type-mismatch for Bool + Str in {output:?}"
+        has_code(&output, "check.operator-type"),
+        "expected operator-type for Bool + Str in {output:?}"
     );
 }
 

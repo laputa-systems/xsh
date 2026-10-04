@@ -316,11 +316,17 @@ impl Checker {
             return Type::Float;
         }
         if !matches!(left, Type::Int | Type::UInt | Type::Unknown) {
-            self.error(
-                op_span,
-                "compound assignment requires Int or Float operands",
-                "check.operator-type",
-            );
+            // The target keeps its type, so this one report is the whole
+            // mistake: neither the operand nor the result is reported again.
+            let symbol = match op { AssignOp::Add => "+=", AssignOp::Sub => "-=", AssignOp::Mul => "*=", AssignOp::Div => "/=", _ => "%=" };
+            let mut diagnostic = Diagnostic::error(format!("`{symbol}` is not defined for {left}"))
+                .with_code("check.operator-type")
+                .with_label(Label::primary(op_span, "compound assignment requires Int or Float operands"));
+            if *left == Type::Path {
+                diagnostic = diagnostic.with_note("operators never join paths; build the path with an `fp\"...\"` literal");
+            }
+            self.diagnostics.push(diagnostic);
+            return left.clone();
         }
         if !matches!(right, Type::Int | Type::UInt | Type::Unknown) {
             self.error(
@@ -382,6 +388,51 @@ impl Checker {
         if let Some(fix) = bool_statement_assert_fix(source, statement) { diagnostic = diagnostic.with_fix_hint(fix); }
         self.diagnostics.push(diagnostic);
         true
+    }
+
+    /// Inside a body that produces a value, a non-tail statement must not
+    /// produce one: it was probably meant as the tail. Elsewhere (top level
+    /// and statement blocks) a discarded value is accepted, except a
+    /// discarded copy update such as `items.push(x)`, whose only effect is
+    /// the value it returns.
+    fn reject_discarded_value(&mut self, arena: &ArenaProgram, expr_id: ExprId, ty: &Type, in_value_body: bool) {
+        if ty.is_result() || ty.matches_expected(&Type::Unit) {
+            return;
+        }
+        let span = arena.arena.expr(expr_id).span;
+        let copy_update = copy_update_mistake(arena, expr_id, ty);
+        let message = match (&copy_update, in_value_body) {
+            (_, true) => format!("expression statement must be last to produce a value: expression has type `{ty}`; use `let _ = ...` to discard it"),
+            (Some(mistake), false) => mistake.message.clone(),
+            (None, false) => return,
+        };
+        let mut diagnostic = Diagnostic::error(message.clone())
+            .with_code("check.non-tail-expression")
+            .with_label(Label::primary(span, message));
+        if let Some(mistake) = copy_update {
+            diagnostic = diagnostic.with_note(if in_value_body { format!("{}; {}", mistake.message, mistake.repair) } else { mistake.repair });
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    /// XSH has no truthiness, so a condition names the type it found. A
+    /// fallible Bool or Status (`fs.exists(path)`) is the usual cause, and
+    /// the hint offers `?`, which propagates the failure instead of guessing.
+    /// It changes failure behavior, so `lint --fix` never applies it.
+    pub(super) fn report_non_bool_condition(&mut self, ty: &Type, span: Span, message: &str, code: &str) {
+        let mut diagnostic = Diagnostic::error(message)
+            .with_code(code)
+            .with_label(Label::primary(span, format!("found {ty}")));
+        if let Some((Type::Bool | Type::Status, _)) = super::types::result_types(ty) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                Span::at(span.source_id, span.end()),
+                "propagate the failure with `?`, or choose a fallback with `??`",
+                "?",
+            ).dangerous());
+        } else if ty.is_result() {
+            diagnostic = diagnostic.with_note("unwrap the Result with `?` or `??`, then compare its value");
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
@@ -533,7 +584,7 @@ impl Checker {
                 self.check_propagation(&Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily(Name::intern("AssertionError")))), stmt.span);
                 let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
                 if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
-                    self.error(arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
+                    self.report_non_bool_condition(&condition_ty, arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
                 }
                 if let Some(message) = message {
                     let message_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(message), Some(&Type::Str), None);
@@ -567,6 +618,7 @@ impl Checker {
                 if !expr_ty_auto_propagates(&ty) {
                     let expr_span = arena.arena.expr(expr_id).span;
                     self.reject_ignored_result(&ty, expr_span);
+                    self.reject_discarded_value(arena, expr_id, &ty, false);
                 }
             }
             ArenaStmtKind::If {
@@ -686,7 +738,7 @@ impl Checker {
             return self.infer_condition_narrowings_arena(arena, condition);
         }
         let condition_span = arena.arena.expr(condition).span;
-        self.error(condition_span, "condition must be Bool or Status", code);
+        self.report_non_bool_condition(&condition_ty, condition_span, "condition must be Bool or Status", code);
         ConditionNarrowings::default()
     }
 
@@ -1631,6 +1683,34 @@ impl Checker {
         }
     }
 
+    /// `x = 1` without `let` or `var` is the shell and Python spelling of a
+    /// declaration. A plain name gets a `let` fix (never auto-applied: the
+    /// name may instead be a typo of an existing one) and is then declared from
+    /// its value, so its later uses do not repeat the same mistake as
+    /// unresolved names.
+    fn report_undeclared_assignment(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        target: AssignTargetId,
+        op: AssignOp,
+        value: ArenaExprOrRun,
+        span: Span,
+    ) {
+        let name = assign_target_root_name_arena(arena, target);
+        let mut diagnostic = Diagnostic::error(format!("assignment to undefined name `{name}`; declare it with `let` or `var`"))
+            .with_code("check.undefined-name")
+            .with_label(Label::primary(span, "assignment to undefined name"));
+        if op == AssignOp::Set && matches!(arena.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(_)) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(Span::at(span.source_id, span.start()), "declare it with `let`", "let ").dangerous());
+            self.diagnostics.push(diagnostic);
+            let ty = self.check_expr_or_run_arena(arena, source, value, None);
+            self.define(name, Binding::new(ty, true), span);
+            return;
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn check_assignment_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1642,7 +1722,7 @@ impl Checker {
     ) {
         let name = assign_target_root_name_arena(arena, target);
         let Some(binding) = self.lookup(name).cloned() else {
-            self.error(span, "assignment to undefined name", "check.undefined-name");
+            self.report_undeclared_assignment(arena, source, target, op, value, span);
             return;
         };
         if self.in_pure && !binding.pure_local_mutation {
@@ -1655,7 +1735,7 @@ impl Checker {
         if !binding.mutable {
             self.error(
                 span,
-                "assignment to immutable `let` binding; declare with `var` to allow reassignment",
+                &format!("cannot assign to `{name}`: it is not a `var`; declare with `var` to allow reassignment"),
                 "check.assign-let",
             );
         }
@@ -2215,12 +2295,7 @@ impl Checker {
             }
             let expr_span = arena.arena.expr(expr_id).span;
             self.reject_ignored_result(&ty, expr_span);
-            if !ty.matches_expected(&Type::Unit) {
-                let message = format!(
-                    "expression statement must be last to produce a value: expression has type `{ty}`; use `let _ = ...` to discard it"
-                );
-                self.error(expr_span, &message, "check.non-tail-expression");
-            }
+            self.reject_discarded_value(arena, expr_id, &ty, true);
             return;
         }
         self.check_stmt_arena(arena, source, id);
@@ -2423,18 +2498,9 @@ impl Checker {
         }
         let value_span = arena.arena.expr(value).span;
         self.check_list_match_coverage_arena(arena, &value_ty, arm_list.iter().map(|arm| (arm.pattern, arena.arena.span(arm.span), arm.guard.is_some())), value_span);
-        self.check_tag_exhaustiveness_arena(
-            arena,
-            &value_ty,
-            arm_list
-                .iter()
-                .filter(|arm| arm.guard.is_none())
-                .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
-                .collect(),
-            value_span,
-        );
         if !match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.type_defs, &self.tag_variants) {
-            self.error(value_span, "value-producing match must be exhaustive", "check.match-value-exhaustive");
+            let unguarded = arm_list.iter().filter(|arm| arm.guard.is_none()).map(|arm| (arm.pattern, arena.arena.span(arm.span))).collect::<Vec<_>>();
+            self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, value_span);
         }
         if all_arms_return {
             Type::Unknown
@@ -2609,4 +2675,35 @@ fn record_target_requires_schema_check(arena: &ArenaProgram, target: BindingTarg
             _ => false,
         },
     }
+}
+
+struct CopyUpdateMistake {
+    message: String,
+    repair: String,
+}
+
+/// Collections are values, so `.push`, `.set`, and `.remove` return an updated
+/// copy and leave the receiver unchanged. A discarded call of one of them is
+/// almost always a mutation written in another language's style.
+fn copy_update_mistake(arena: &ArenaProgram, expr_id: ExprId, ty: &Type) -> Option<CopyUpdateMistake> {
+    let ArenaExprKind::Call { callee, .. } = arena.arena.expr(expr_id).kind else { return None; };
+    let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind else { return None; };
+    let name = name.as_str();
+    let name: &str = name.as_ref();
+    let ArenaExprKind::Ident(receiver) = arena.arena.expr(base).kind else { return None; };
+    let collection = match ty {
+        Type::List(_) => "list",
+        Type::Map(_, _) => "map",
+        _ => return None,
+    };
+    let repair = match (collection, name) {
+        ("list", "push") => format!("append in place with `{receiver} += [value]` on a `var`"),
+        ("list", "extend") => format!("append in place with `{receiver} += other` on a `var`"),
+        ("map", "push" | "set" | "remove") => format!("assign the result back with `{receiver} = {receiver}.{name}(...)` on a `var`"),
+        _ => return None,
+    };
+    Some(CopyUpdateMistake {
+        message: format!("`.{name}` returns a new {collection} and leaves `{receiver}` unchanged; this statement discards it"),
+        repair,
+    })
 }

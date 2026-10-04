@@ -800,14 +800,62 @@ impl Checker {
             "range" if args.len() == 1 || args.len() == 2 => Type::Stream(Box::new(Type::Int)),
             _ => {
                 self.record_effect_contract(&None, name);
-                self.error(
-                    span,
-                    "unresolved pure function call",
-                    "check.unresolved-call",
-                );
+                self.report_unresolved_call(arena, source, name, args, span);
                 Type::Unknown
             }
         }
+    }
+
+    /// Python habits: `print(x)` and `len(xs)`. `print` is a command, and
+    /// sizes are methods, so both get the XSH spelling.
+    fn report_unresolved_call(&mut self, arena: &ArenaProgram, source: &str, name: &str, args: &[ArenaCallArg], span: Span) {
+        let mut diagnostic = Diagnostic::error(format!("unresolved pure function call `{name}`"))
+            .with_code("check.unresolved-call")
+            .with_label(Label::primary(span, "unresolved pure function call"));
+        let argument = match args {
+            [arg] if !matches!(arg.kind, ArenaCallArgKind::Named { .. }) => {
+                let arg_span = call_arg_span_arena(arena, &arg.kind);
+                let ty = self.check_call_arg_arena(arena, source, &arg.kind, None);
+                source.get(arg_span.range()).map(|text| (text.to_string(), ty))
+            }
+            _ => None,
+        };
+        match (name, argument) {
+            ("print" | "eprint", Some((text, _))) => {
+                diagnostic = diagnostic
+                    .with_note(format!("`{name}` is a command, not a function; its arguments are words"))
+                    .with_fix_hint(super::FixHint::replacement(span, "pass the value as a typed command argument", format!("{name} ({text})")));
+            }
+            ("print" | "eprint", None) => {
+                diagnostic = diagnostic.with_note(format!("`{name}` is a command, not a function: write `{name} WORD ...`"));
+            }
+            ("len", Some((text, ty))) => {
+                let method = if ty == Type::Str { "count_chars" } else { "len" };
+                let receiver = if text.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.')) { text } else { format!("({text})") };
+                diagnostic = diagnostic
+                    .with_note(format!("sizes are methods in XSH: `{receiver}.{method}()`"))
+                    .with_fix_hint(super::FixHint::replacement(span, format!("call `.{method}()`"), format!("{receiver}.{method}()")));
+            }
+            _ => {
+                if let Some(nearby) = self.nearby_visible_name(name) {
+                    diagnostic = diagnostic.with_note(format!("did you mean `{nearby}`?"));
+                }
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    /// A misspelled standard API names the nearest function of its module.
+    pub(super) fn report_unknown_module_api(&mut self, module: &str, name: &str, span: Span) {
+        let mut diagnostic = Diagnostic::error(format!("unknown module API `{module}.{name}`"))
+            .with_code("check.unknown-module-api")
+            .with_label(Label::primary(span, "unknown module API"));
+        let nearby = api_spec().module(module)
+            .and_then(|signature| super::method::nearest_name(name, signature.functions.iter().map(|function| function.name)));
+        if let Some(nearby) = nearby {
+            diagnostic = diagnostic.with_note(format!("did you mean `{module}.{nearby}`?"));
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     pub(super) fn check_abort_call_arena(
@@ -983,7 +1031,7 @@ impl Checker {
             })
         } else { None };
         let Some(overloads) = module_sig.function_overloads(name).or(migration.as_deref()) else {
-            self.error(span, "unknown module API", "check.unknown-module-api");
+            self.report_unknown_module_api(module, name, span);
             return Type::Unknown;
         };
         if module == "process" && name == "command_argv" {

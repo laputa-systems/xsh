@@ -407,7 +407,14 @@ impl Checker {
                 return Type::Invalid;
             }
         };
-        if let Some(expected) = expected && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+        // A plain expectation for a Result-returning method only guides its
+        // success payload. When the payload disagrees, the consumer still
+        // receives a `Result` it did not expect and reports that with both
+        // full types, so reporting the payload too would say it twice.
+        if let Some(expected) = expected
+            && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span)
+            && (expected.is_result() || !method.sig.return_ty.is_result())
+        {
             self.expect_type(&conflict.expected, &conflict.actual, span);
         }
         if self.in_pure && !method.sig.pure {
@@ -468,6 +475,10 @@ impl Checker {
             .collect::<Vec<_>>();
         if receiver == MethodReceiver::Str && matches!(name, "len" | "length") {
             candidates = vec!["byte_len", "count_chars"];
+        }
+        if receiver == MethodReceiver::List && matches!(name, "append" | "add") {
+            diagnostic = diagnostic.with_note("lists are values: append to a `var` with `items += [value]`, or build a new list with `.push(value)`");
+            candidates.clear();
         }
         if !candidates.is_empty() {
             diagnostic = diagnostic.with_note(format!(
@@ -637,6 +648,20 @@ impl Checker {
             }
         }
     }
+}
+
+/// The candidate closest to a misspelled name, if any is near enough to be
+/// a plausible typo; ties keep the alphabetically first spelling. Names
+/// shorter than three characters are near almost everything, so they get no
+/// suggestion.
+pub(super) fn nearest_name<S: AsRef<str>>(unknown: &str, candidates: impl Iterator<Item = S>) -> Option<String> {
+    if unknown.chars().count() < 3 {
+        return None;
+    }
+    candidates
+        .map(|candidate| candidate.as_ref().to_string())
+        .filter(|candidate| candidate != unknown && method_name_is_nearby(unknown, candidate))
+        .min_by_key(|candidate| (edit_distance(unknown, candidate), candidate.clone()))
 }
 
 fn method_name_is_nearby(unknown: &str, candidate: &str) -> bool {

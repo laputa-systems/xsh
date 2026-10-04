@@ -150,8 +150,8 @@ impl<'a> Parser<'a> {
         };
         arena.push_if_expr_branch_input(condition.id, value.id);
         let mut else_value = None;
-        while self.consume_keyword(Keyword::Else).is_some() {
-            if self.consume_keyword(Keyword::If).is_some() {
+        while let Some(implied_if) = self.consume_else() {
+            if implied_if || self.consume_keyword(Keyword::If).is_some() {
                 let Some(condition) = self.parse_condition_arena_only(arena) else {
                     arena.discard_if_expr_branches();
                     return None;
@@ -311,6 +311,52 @@ impl<'a> Parser<'a> {
             || (shorthand && matches!(self.peek_tag(offset), Some(TokenTag::Comma | TokenTag::RBrace)))
     }
 
+    /// Shell `[ -f x ]`, `[[ ... ]]`, and `[ $x -lt 3 ]` conditions. A list
+    /// literal never starts with a flag word or `$name`, so these shapes are
+    /// reported once and skipped through the last `]` on the line, along
+    /// with a following `; then` or `; do`.
+    fn skip_shell_test(&mut self) -> bool {
+        if self.current_tag() != TokenTag::LBracket {
+            return false;
+        }
+        let flag = self.peek_tag(1) == Some(TokenTag::Minus)
+            && self.peek_tag(2) == Some(TokenTag::Ident)
+            && self.peek_start(2) == self.peek_end(1);
+        let shell_test = flag
+            || matches!(self.peek_tag(1), Some(TokenTag::LBracket | TokenTag::DollarIdent | TokenTag::DollarLBrace));
+        if !shell_test {
+            return false;
+        }
+        let start = self.current_start();
+        let mut offset = 0;
+        let mut last_close = None;
+        while let Some(tag) = self.peek_tag(offset) {
+            match tag {
+                TokenTag::RBracket => last_close = Some(offset),
+                TokenTag::LBrace | TokenTag::Newline | TokenTag::Semicolon | TokenTag::Eof => break,
+                _ => {}
+            }
+            offset += 1;
+        }
+        let Some(last_close) = last_close else { return false; };
+        let end = self.peek_end(last_close).unwrap_or(start);
+        self.diagnostics.push(
+            Diagnostic::error("`[ ... ]` is shell test syntax; an XSH condition is a Bool expression")
+                .with_code("parse.foreign-syntax")
+                .with_label(Label::primary(self.span(start, end), "write an expression such as `p\"x\".exists()?` or `count < 3`")),
+        );
+        for _ in 0..=last_close {
+            self.bump();
+        }
+        if self.current_tag() == TokenTag::Semicolon
+            && self.peek_label_name(1).is_some_and(|name| name == "then" || name == "do")
+        {
+            self.bump();
+            self.bump();
+        }
+        true
+    }
+
     pub(super) fn parse_condition_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -319,6 +365,13 @@ impl<'a> Parser<'a> {
         self.condition_expr = true;
         let condition = (|| {
             let start = self.current_start();
+            if self.skip_shell_test() {
+                // The block still parses when it follows; a shell `; then`
+                // line ends here and statement recovery takes over.
+                if !self.at(TokenKindMatch::LBrace) { return None; }
+                let span = self.span(start, self.previous_end());
+                return Some(ArenaOnlyExpr { id: arena.push_bool_expr(true, span), span, bare_ident: None });
+            }
             if self.consume_keyword(Keyword::Let).is_some() {
                 self.skip_newlines();
                 let (pattern, _) = self.parse_pattern_arena_only(arena)?;
@@ -354,18 +407,23 @@ impl<'a> Parser<'a> {
     /// agent at the word-form `or`/`and` operators instead of the block brace
     /// that follows. This turns a ~10-turn operator-spelling discovery into a
     /// one-line fix without changing any valid-program parsing.
-    fn report_unsupported_boolean_operator(&mut self) {
-        let (unsupported, supported, span) = match (self.current_tag(), self.peek_tag(1)) {
+    ///
+    /// An adjacent `&&` or `||` is unambiguous, so the parse continues as
+    /// `and`/`or` (returned with its token count) and the brace that follows
+    /// is not reported a second time.
+    fn report_unsupported_boolean_operator(&mut self) -> Option<(BinaryOp, usize)> {
+        let adjacent = self.peek_start(1) == Some(self.current_end());
+        let (unsupported, supported, span, recovered) = match (self.current_tag(), self.peek_tag(1)) {
             (TokenTag::Pipe, Some(TokenTag::Pipe)) => {
                 let span = self.span(self.current_start(), self.peek_end(1).unwrap());
-                ("||", "'or'", span)
+                ("||", "or", span, adjacent.then_some(BinaryOp::Or))
             }
             (TokenTag::Amp, Some(TokenTag::Amp)) => {
                 let span = self.span(self.current_start(), self.peek_end(1).unwrap());
-                ("&&", "'and'", span)
+                ("&&", "and", span, adjacent.then_some(BinaryOp::And))
             }
-            (TokenTag::Pipe, _) => ("|", "'or'", self.current_span()),
-            (TokenTag::Amp, _) => ("&", "'and'", self.current_span()),
+            (TokenTag::Pipe, _) => ("|", "or", self.current_span(), None),
+            (TokenTag::Amp, _) => ("&", "and", self.current_span(), None),
             (TokenTag::Ident, _) if self.at_ident("then") => {
                 let span = self.current_span();
                 self.diagnostics.push(
@@ -376,20 +434,22 @@ impl<'a> Parser<'a> {
                             "XSH `if`/`while`/`for` heads are followed directly by `{`, not `then`",
                         )),
                 );
-                return;
+                return None;
             }
-            _ => return,
+            _ => return None,
         };
         self.diagnostics.push(
             Diagnostic::error(format!(
-                "unsupported operator '{unsupported}': XSH boolean operators are the word forms {supported}"
+                "unsupported operator '{unsupported}': XSH boolean operators are the word forms '{supported}'"
             ))
             .with_code("parse.unsupported-boolean-operator")
             .with_label(Label::primary(
                 span,
-                format!("use {supported} instead of '{unsupported}'"),
-            )),
+                format!("use '{supported}' instead of '{unsupported}'"),
+            ))
+            .with_fix_hint(FixHint::replacement(span, format!("replace with `{supported}`"), supported)),
         );
+        recovered.map(|op| (op, 2))
     }
 
     /// Report the unsupported integer-division spellings while retaining a
@@ -651,8 +711,9 @@ impl<'a> Parser<'a> {
                     (BinaryOp::Div, 6, tokens)
                 } else if let Some((op, prec, tokens)) = self.current_binary_op() {
                     (op, prec, tokens)
+                } else if let Some((op, tokens)) = self.report_unsupported_boolean_operator() {
+                    (op, grouping::binary_precedence(op), tokens)
                 } else {
-                    self.report_unsupported_boolean_operator();
                     break;
                 };
                 if prec < min_prec {

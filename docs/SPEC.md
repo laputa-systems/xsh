@@ -131,7 +131,9 @@ So a line never silently extends the previous one: a line beginning with `-`
 statement. Inside an item expression, which cannot begin such a line, `.name`
 is always postfix. A line that ends with a binary operator or `is`, or inside
 an open bracket, also continues; so to split around `-` or `/`, leave the
-operator at the end of the first line.
+operator at the end of the first line. `else` is not a continuation token:
+it must follow the `}` of its `if` on the same line, and an `else` that starts
+a line is `parse.detached-else`.
 
 ```xsh
 let files = fs.files(p"src")?
@@ -474,8 +476,10 @@ match level {
 
 An enum declares one or more variants; payload-free variants are bare names
 and payload variants are called like functions. Constructors live in the
-declaring module's namespace, not under the enum name. A `match` over an enum
-without a catch-all reports uncovered variants (`check.non-exhaustive-match`).
+declaring module's namespace, not under the enum name. A statement `match`
+over an enum without a catch-all warns about uncovered variants
+(`check.non-exhaustive-match`); a value `match` names them in its
+`check.match-value-exhaustive` error instead.
 `type Alias = Level` aliases the same nominal type.
 
 A Str-backed enum gives each payload-free variant a unique constant wire
@@ -2189,6 +2193,11 @@ These are deliberately absent:
 - generic functions and expression-level type arguments;
 - first-class command blocks and script-level job control;
 - tagged JSON.
+
+Spellings borrowed from shells and Python that have an XSH equivalent
+(`elif`, `function`/`def`, `local x=1`, `x++`, `c ? a : b`, `[ -f x ]`,
+`} catch`) are `parse.foreign-syntax` errors that name the XSH form; `'...'`
+strings and `$(...)` substitutions are `lex.unexpected-character`.
 
 ## Appendix A. Grammar
 

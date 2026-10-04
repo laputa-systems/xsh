@@ -138,7 +138,11 @@ impl Checker {
 
     pub(super) fn reject_ignored_result(&mut self, ty: &Type, span: Span) {
         if ty.is_result() {
-            self.error(span, "ignored Result value", "check.ignored-result");
+            self.diagnostics.push(
+                Diagnostic::error("ignored Result value")
+                    .with_code("check.ignored-result")
+                    .with_label(Label::primary(span, format!("this {ty} is dropped; handle it with `?` or `??`, or discard it with `let _ = ...`"))),
+            );
         }
     }
 
