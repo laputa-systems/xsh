@@ -851,10 +851,10 @@ fn process_stats_impl(pid: i64, span: Span) -> Result<ProcessStatsRecord, Runtim
     };
     let pages = fields[0]
         .parse::<i64>()
-        .map_err(|error| RuntimeError::host("process-stats", &error).with_span(span))?;
+        .map_err(|error| RuntimeError::new("process-stats", error.to_string()).with_span(span))?;
     let resident = fields[1]
         .parse::<i64>()
-        .map_err(|error| RuntimeError::host("process-stats", &error).with_span(span))?;
+        .map_err(|error| RuntimeError::new("process-stats", error.to_string()).with_span(span))?;
     Ok(ProcessStatsRecord {
         rss_kb: resident.saturating_mul(page_kb),
         vsz_kb: pages.saturating_mul(page_kb),
