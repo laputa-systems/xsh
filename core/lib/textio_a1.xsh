@@ -12,9 +12,11 @@ use gnu
 ## The size of one chunked read.
 export const CHUNK = 65536
 
-## `mode` is `stdin`, `file` (regular, chunked and seekable), `device`
-## (character or block device read in chunks), or `whole` (read in one call).
-export type Source = {name: Str, path: Path, mode: Str, size: Int}
+## `mode` is `stdin`, `file` (nonempty regular file, chunked and seekable),
+## `device` (character or block device read in chunks), or `whole` (read in
+## one call). `kind` is the file type nibble of `st_mode` (8 regular, 4
+## directory, 1 FIFO).
+export type Source = {name: Str, path: Path, mode: Str, kind: Int, size: Int}
 
 ## Position, append flag, and file identity of a standard descriptor.
 export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
@@ -22,7 +24,7 @@ export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
 ## Open an operand: resolve symlinks and classify the file. A failure is the
 ## operating-system error of the missing, looping, or unreachable name.
 export proc open_source(name: Str) [fs, error] -> Result[Source] {
-  return Ok({name: name, path: p"/dev/stdin", mode: "stdin", size: 0}) when name == "-"
+  return Ok({name: name, path: p"/dev/stdin", mode: "stdin", kind: 0, size: 0}) when name == "-"
 
   let target = fp"{name}".resolve()?
   let entry = target.metadata()?
@@ -35,7 +37,7 @@ export proc open_source(name: Str) [fs, error] -> Result[Source] {
     "whole"
   }
 
-  Ok({name: name, path: target, mode: mode, size: entry.size})
+  Ok({name: name, path: target, mode: mode, kind: kind, size: entry.size})
 }
 
 ## The bytes of `source` from `offset`, at most `count` for chunked sources
@@ -90,9 +92,10 @@ proc fd_info(fd: Int) [fs, error] -> Result[Fd] {
   info
 }
 
-## The resolved path of standard output when it is a regular file, else "".
-export proc stdout_file() [fs, error] -> Str {
-  guard let target = p"/dev/stdout".resolve() else {
+## The resolved path of standard input (0) or output (1) when it is a regular
+## file, else "".
+export proc standard_file(fd: Int) [fs, error] -> Str {
+  guard let target = fp"/dev/fd/{fd}".resolve() else {
     return ""
   }
 
@@ -110,7 +113,7 @@ export proc stdout_file() [fs, error] -> Str {
 ## offset (or, for an appending output, not at the end of the file). Both
 ## offsets come from `/proc/self/fdinfo`; a file operand starts at offset 0 and
 ## `written` counts the bytes buffered for output so far. `out` is
-## `stdout_file()`.
+## `standard_file(1)`.
 export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, error] -> Result[Bool] {
   return Ok(false) when out == "" or (source.mode != "file" and source.mode != "stdin")
 

@@ -203,7 +203,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   let style = make_style(opts)
   let plain = ! (style.number or style.nonblank or style.squeeze or style.ends or style.convert)
   let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
-  let out = tio.stdout_file()
+  let out = tio.standard_file(1)
   var state = {pending: b"", line: 1, blank: false}
   var written = 0
   var failed = false
