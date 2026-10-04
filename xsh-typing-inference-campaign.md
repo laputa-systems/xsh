@@ -43,7 +43,7 @@ Done and removed from this list: `Any` validation (`.require`), discarded values
 - **Small fixes found by the fuzz lane.**
   - The formatter is not idempotent on `fn2(...{p0: if … })`.
 
-## Grammar derivation (queued, after the f-string lane)
+## Grammar derivation (running)
 
 There is one typed grammar definition, `src/syntax/grammar.rs`, and nothing
 else is maintained by hand. Today the EBNF in SPEC Appendix A is
@@ -70,7 +70,7 @@ documentation only; no code reads it.
 The same kind of fix as the grammar work: each fact is defined once, and
 everything else is generated from it or checked against it.
 
-- **SPEC examples:**
+- **SPEC examples (done):**
   - SPEC's 42 `xsh` blocks move to `docs/snippets/spec/*.xsh`. Fragments are
     checked inside a wrapper.
   - The snippets go through check, lint and `fmt --check`, and portable ones
@@ -88,7 +88,17 @@ everything else is generated from it or checked against it.
 ## Formatter (remaining)
 
 - Keep short single-line blocks and records that fit the line width.
-- Then make the tour snippets `fmt`-clean and require that in `docs-check`.
+- The formatter moves a comment that ends a block past the closing `}`, and
+  adds blank lines around comments. Both break snippet region markers.
+- Not idempotent on `fn2(...{p0: if … })`.
+- Then hold `docs/snippets/` (tour and spec) to `fmt --check`.
+
+## Small contract fixes
+
+- SPEC §10.2 lists `(expr)` as a command argument, while lint calls
+  `(name)` stale command-value syntax. Settle it: SPEC says `$name` for a
+  name and `(expr)` only for compound expressions, and lint flags only the
+  redundant form.
 
 ## Final gates
 
