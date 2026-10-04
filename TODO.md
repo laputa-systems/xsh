@@ -187,3 +187,52 @@ autofix where one exists, and tests.
   Duration literals (about 79 `64 * 1024 * 1024`-style sites).
 
 Rejected this round: `/` as path join (keep `fp"..."`).
+
+## Accepted ergonomics backlog, fourth batch (natural-English forms)
+
+- **Path predicates in conditions**: `if out is a directory`, `is a file`,
+  `is a symlink`, `if gcc_s exists` / `if ! gcc_s exists`. No `is missing`:
+  negation stays `!`. Desugar to `exists()` and kind checks; propagate under
+  the accepted conditions rule (~950 `exists` calls, ~390 kind comparisons).
+- **`within DURATION { ... }`**: a timeout scope over any block, failing with
+  `Timeout`; the same word as `wait until ... within` (~68 timeout sites).
+- **`fail ... because ERR`**: `fail .RemoteFetch(f"fetching {url}") because problem`
+  keeps the replaced error as the cause. Laputa uses `cause:` zero times.
+- **`errdefer { ... }`**: cleanup that runs only when the scope leaves with
+  an error. Spelled with `defer` in its name so every deferred action is
+  found by one search (see `docs/DESIGN.md`).
+- **`repeat N times { ... }`** (~45 `for _ in range(n)` sites).
+- **`text as Int`** parsing (also `as UInt`, `as Path`, ...), propagating a
+  failed parse (~284 `.parse_int()` sites).
+- **Argument labels that read as a sentence**: `link.symlink(to: target)`,
+  `s.replace("#undef ", with: "")`, `src.copy(to: dest)`. Ends argument-order
+  bugs in symlink (~220 symlink, ~840 replace, ~160 copy calls).
+- **`fs.remove` and `fs.mkdir` default to `missing_ok: true` and
+  `parents: true`**, the overwhelmingly common choice (~390 sites each).
+  Rejected: a declarative `ensure p is absent` form (too magical).
+- **`else =>`** as the catch-all match arm (~505 `_ =>` arms); `_` keeps its
+  meaning inside patterns.
+- **`exit N` replaces `abort(N)`**, and `abort` is removed (~131 sites): the
+  exit is deliberate, which "abort" contradicts.
+- **Postfix `when`/`unless` on any simple statement**, and
+  `guard cond else fail "..."` without braces:
+  `print f"copying {src}" when verbose`, `fs.remove(tmp) when tmp exists`.
+
+Deferred for further design: `atomically at DIR { ... }` (stage writes in a
+hidden sibling directory, rename into place on success, remove on failure).
+
+Rejected, with reasons:
+- `not` as unary negation: too mechanical, and `!` is readable.
+- Infix text predicates (`starts with`, `ends with`, `matches`): too
+  mechanical; the new words would not be reusable elsewhere, so the
+  `starts_with`/`ends_with`/regex methods stay the API.
+- `pkg with field: value` record updates: too esoteric; keep `{...pkg, field: v}`.
+- Quantifier phrases (`any x in xs where c`, `every`, `count`): confusing.
+- `first x in xs where c else ...`: a stretch; the explicit loop reads well.
+- String test names (`test "a sentence" { }`): strings are bad identifiers.
+- `for x in xs, N at a time`: too magical, and `par-map` must stay greppable.
+- English collection phrases (`sorted by`, `grouped by`): `sort-by` and the
+  other stage names must stay greppable.
+- `$`-interpolated or hash-delimited (`f#"""..."""#`) code-generation strings
+  (recorded above).
+- `/` as path join: keep `fp"..."`.

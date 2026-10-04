@@ -41,6 +41,15 @@ meaning, and must not introduce delimiter noise (hash fences, doubled
 prefixes) to dodge a conflict. When no clean spelling exists, record the
 problem in `TODO.md` and wait.
 
+## Greppable beats clever
+
+A reader must be able to find every use of a concept with one search. Name
+related forms so they share a searchable stem (`defer` and `errdefer`, not
+`defer` and `on failure`), keep stage and API names (`par-map`, `sort-by`)
+as the only spelling instead of adding English phrasings that hide them, and
+prefer a keyword or method name over punctuation or word order that a search
+cannot anchor on.
+
 ## Earn every form with the corpus
 
 Changes start from repetition measured in real code: this repository and
