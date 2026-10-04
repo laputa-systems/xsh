@@ -715,8 +715,14 @@ impl Checker {
             ArenaExprKind::Binary { op, left, right } => {
                 self.check_binary_arena(arena, source, *op, *left, *right, expected)
             }
+            ArenaExprKind::Field { base, name }
+                if matches!(arena.arena.expr(*base).kind, ArenaExprKind::Item)
+                    && !self.item_shorthand_in_scope() =>
+            {
+                self.check_inferred_variant_value(*name, expected, expr.span)
+            }
             ArenaExprKind::Field { base, name } => {
-                self.check_field_arena(arena, source, *base, *name, expr.span)
+                self.check_field_arena(arena, source, *base, *name, expr.span, expected)
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 self.check_null_safe_field_arena(arena, source, *base, *name, expr.span)
@@ -2332,8 +2338,23 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Eq | BinaryOp::Ne => {
-                let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_arena(arena, source, right, None);
+                // A target-typed variant compares against the other operand's
+                // type; only checking order changes, never evaluation order.
+                let (left_ty, right_ty) = if self.is_inferred_variant_expr(arena, left)
+                    && !self.is_inferred_variant_expr(arena, right)
+                {
+                    let right_ty = self.check_expr_arena(arena, source, right, None);
+                    let left_ty = self.check_expr_arena(arena, source, left, Some(&right_ty));
+                    (left_ty, right_ty)
+                } else {
+                    let left_ty = self.check_expr_arena(arena, source, left, None);
+                    let expected = self.is_inferred_variant_expr(arena, right).then_some(&left_ty);
+                    let right_ty = self.check_expr_arena(arena, source, right, expected);
+                    (left_ty, right_ty)
+                };
+                for (operand, other) in [(right, &left_ty), (left, &right_ty)] {
+                    self.note_compared_variant_qualifier(arena, operand, other);
+                }
                 if left_ty != Type::Any
                     && right_ty != Type::Any
                     && !left_ty.matches_expected(&right_ty)
@@ -2589,6 +2610,7 @@ impl Checker {
         base: ExprId,
         name: Name,
         span: Span,
+        expected: Option<&Type>,
     ) -> Type {
         if let Some(ty) = self.check_env_typed_field_arena(arena, source, base, span) {
             return ty;
@@ -2614,6 +2636,17 @@ impl Checker {
             if let Some(info) = self.tag_variants.get(&qualified).cloned()
                 && info.field_count == 0
             {
+                self.note_variant_qualifier(
+                    span,
+                    span,
+                    name,
+                    &super::InferredVariant::Tag {
+                        type_name: info.type_name,
+                        variant: name,
+                        field_types: Vec::new(),
+                    },
+                    expected,
+                );
                 return Type::Tag(info.type_name);
             }
         }

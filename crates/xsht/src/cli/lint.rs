@@ -677,6 +677,8 @@ fn set_checked_lint_facts_for_source(
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
     options.definitely_exiting_block_spans =
         source_checked_set(&checked.definitely_exiting_block_spans, source_id);
+    options.redundant_variant_qualifiers =
+        source_checked_map(&checked.redundant_variant_qualifiers, source_id);
     options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
         source_checked_set(&checked.statically_resolved_call_spans, source_id)
     } else {
@@ -1421,6 +1423,8 @@ fn lint_config_for_file(
         prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns
             && !configured_return_annotations,
         prefer_inferred_private_effects: tool_config.config.lint.prefer_inferred_private_effects,
+        prefer_inferred_variants: tool_config.config.lint.prefer_inferred_variants,
+        prefer_positional_constructors: tool_config.config.lint.prefer_positional_constructors,
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
@@ -1440,6 +1444,7 @@ fn lint_config_for_file(
         standard_call_spans: Default::default(),
         statically_resolved_call_spans: Default::default(),
         definitely_exiting_block_spans: Default::default(),
+        redundant_variant_qualifiers: Default::default(),
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1515,6 +1520,7 @@ fn lint_one_file_with_fixes(
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
+    lint_options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
     lint_options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
         checked.statically_resolved_call_spans.clone()
     } else {
@@ -1782,6 +1788,7 @@ fn apply_cst_fixes(
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
+        options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
         options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
             checked.statically_resolved_call_spans.clone()
         } else {

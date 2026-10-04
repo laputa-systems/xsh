@@ -479,9 +479,35 @@ let opts = BuildOptions(root: p"src")
 let wide = BuildOptions(root:, jobs: 16)
 ```
 
-A named schema has a constructor that takes only named arguments (with puns,
-`root:` meaning `root: root`). Unknown, duplicate, or missing required fields
-are errors, and arguments evaluate once in source order. Field defaults are
+A named schema has a constructor. It takes named arguments (with puns,
+`root:` meaning `root: root`) and positional ones, which come first and fill
+fields in declaration order:
+
+```xsh
+type Entry = {path: Path, kind: Kind, mode: Int = 0o644}
+
+let tool = Entry(p"usr/bin/xsh", Binary, mode: 0o755)
+let config = Entry(p"etc/xsh.conf", File)
+let link = Entry(path: p"usr/bin/sh", kind: Symlink)
+```
+
+Positional arguments are accepted only when no single value fits two of the
+fields they fill, so exchanging two of them is always a type error. Fields
+share a value when their types (after alias resolution) are equal or one
+literal can fill both: `T` and `T?`, `Int` and `UInt`, `Str` and `Path`, any
+two lists, any two records or maps, `Any`, and a type parameter with anything.
+Such fields are passed by name (`check.record-constructor`):
+
+```xsh
+type Mount = {source: Path, target: Path, options: List[Str] = []}
+
+let boot = Mount(p"/dev/vda1", p"/boot")  # error: check.record-constructor
+let root = Mount(source: p"/dev/vda2", target: p"/")
+```
+
+Each field is supplied once. Unknown, duplicate, or missing required fields
+are errors, and arguments evaluate once in source order. A constructor with a
+field spread (`...base`) takes only named arguments. Field defaults are
 constant data (literals, constant lists and records, and earlier constants)
 and apply only to constructor calls. They never fill missing fields in record
 literals, JSON, or `.require`. A schema name is not a callable value.
@@ -523,7 +549,8 @@ fault: disk full
 
 An enum declares one or more variants; payload-free variants are bare names
 and payload variants are called like functions. Constructors live in the
-declaring module's namespace, not under the enum name. A statement `match`
+declaring module's namespace, not under the enum name; where the expected type
+is the enum, `.Variant` names one without a namespace (5.5). A statement `match`
 over an enum without a catch-all warns about uncovered variants
 (`check.non-exhaustive-match`); a value `match` names them in its
 `check.match-value-exhaustive` error instead.
@@ -578,7 +605,8 @@ pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
 }
 ```
 
-Constructors are qualified by family (and by module namespace when imported).
+Constructors are qualified by family (and by module namespace when imported),
+or written `.Variant(...)` where the expected type names the family (5.5).
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
@@ -768,6 +796,60 @@ arbitrary implications.
 
 During `xsht check`, `reveal_type(expr)` reports the inferred type of `expr` as
 a note. It is rejected everywhere else.
+
+### 5.5 Target-typed variants
+
+```xsh
+enum Kind { File, Binary, Symlink, Tree(Int) }
+
+error ProofError = Missing(file: Path) | Failed(kind: Str, message: Str)
+
+type Entry = {path: Path, kind: Kind}
+
+pure require_tool(entries: List[Entry], file: Path) -> Result[Entry, ProofError] {
+  for entry in entries {
+    return entry when entry.path == file and entry.kind == .Binary
+  }
+
+  Err(.Missing(file:))
+}
+
+const entries: List[Entry] = [Entry(p"usr/bin/xsh", .Binary), {path: p"usr/share", kind: .Tree(3)}]
+const linked: Kind? = .Symlink
+```
+
+Where the expected type of an expression is known, a leading-dot name selects
+a variant of that type: `.Symlink` is a payload-free variant and
+`.Failed(kind, message)` constructs a payload variant with the arguments the
+qualified constructor takes. The expected type comes from an annotated binding
+or constant, a parameter, a declared return type (through `return`, a tail,
+and `Ok` or `Err`), a field of a known record schema or constructor, an element
+or value of a known list or map, a branch of a value `if` or `match`, and the
+other operand of `==` or `!=`. An optional `T?` selects from `T`. The value and
+its type are exactly those of the qualified spelling.
+
+The expected type must be one enum or one error family; a variant type selects
+from its family. The checker never chooses among candidates: `.Name` with no
+expected type (an unannotated `let`, an inferred return type), with `Error` or
+a facet (which name no single family, as in `Result[T]`), with a type that has
+no such variant, or with an enum whose variants are not visible in the module
+is `check.inferred-variant`. Patterns keep the qualified spellings.
+
+`.` is the current item inside a stream stage block (13.1), so there `.name`
+always reads the item's field, and a variant needs its qualified name.
+Elsewhere `.name` is always a variant. A line beginning with `.name`
+continues the previous line (2.5), so a target-typed variant can begin only
+the first statement of a block.
+
+```xsh
+let kind = .Binary                         # error: check.inferred-variant
+
+proc check(present: Bool) -> Result[Unit] {
+  return Err(.Failed("missing")) when ! present  # error: check.inferred-variant
+}
+
+let tools = [{name: "xsh", kind: Binary}] |> where .kind == .Binary  # error: check.unknown-field
+```
 
 ## 6. Expressions
 
@@ -1896,7 +1978,8 @@ The result of a pipeline depends on its last stage:
 
 Stage blocks see the current item as `.` (`where .kind == "file"`,
 `map { .path.name }`) or bind it explicitly with `{ |item| ... }`. They may
-contain statements followed by a tail.
+contain statements followed by a tail. Inside a stage block `.name` is always
+a field of the item, never a target-typed variant (5.5).
 
 A stage that is not a stream stage is a value call: a bare method name uses
 the previous value as its receiver (`text |> split(",")` is `text.split(",")`),

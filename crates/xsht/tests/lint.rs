@@ -324,6 +324,7 @@ fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
         LintOptions {
             expr_types: checked.expr_types,
             definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+            redundant_variant_qualifiers: checked.redundant_variant_qualifiers,
             ..LintOptions::default()
         },
     )
@@ -348,6 +349,7 @@ fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
         LintOptions {
             expr_types: checked.expr_types,
             definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+            redundant_variant_qualifiers: checked.redundant_variant_qualifiers,
             ..LintOptions::default()
         },
     )
@@ -373,6 +375,7 @@ fn boolean_guard_float_fix_retains_nan_negation() {
         LintOptions {
             expr_types: checked.expr_types,
             definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+            redundant_variant_qualifiers: checked.redundant_variant_qualifiers,
             ..LintOptions::default()
         },
     )
@@ -405,6 +408,7 @@ fn boolean_guard_fix_refuses_fallthrough_unchecked_and_binding_forms() {
         let options = LintOptions {
             expr_types: checked.expr_types,
             definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+            redundant_variant_qualifiers: checked.redundant_variant_qualifiers,
             ..LintOptions::default()
         };
         for options in [options, LintOptions::default()] {

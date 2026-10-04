@@ -330,6 +330,7 @@ diagnostic_codes! {
         CheckIndexType = "check.index-type", error, "Reject indexing a value that is not a `List` or record";
         CheckInferParam = "check.infer-param", error, "Reject a parameter default that does not establish a concrete type without an annotation";
         CheckInferReturn = "check.infer-return", error, "Reject a function whose return shape is underdetermined or inferred inconsistently across paths";
+        CheckInferredVariant = "check.inferred-variant", error, "Reject a leading-dot variant whose expected type names no single enum or error family with that variant";
         CheckIntLiteral = "check.int-literal", error, "Reject an integer literal outside the 64-bit signed range";
         CheckIrrefutablePatternCondition = "check.irrefutable-pattern-condition", error, "Reject a pattern condition that cannot fail instead of binding with `let`";
         CheckJsonCompatible = "check.json-compatible", error, "Reject a value that is not JSON-compatible, such as `Path`, `Bytes`, `Status`, or `Result`";
@@ -542,6 +543,7 @@ diagnostic_codes! {
         LintPreferIn = "lint.prefer-in", warning, "Use `in` or `not in` instead of a membership method call";
         LintPreferInferredPrivateEffects = "lint.prefer-inferred-private-effects", warning, "Drop a private proc effect clause when it is inferred exactly";
         LintPreferInferredPureReturn = "lint.prefer-inferred-pure-return", warning, "Drop a private pure return type when it is inferred exactly";
+        LintPreferInferredVariant = "lint.prefer-inferred-variant", warning, "Drop a variant qualifier that the expected type already selects, as in `.Symlink`";
         LintPreferKnownFieldAccess = "lint.prefer-known-field-access", warning, "Select a guaranteed record field directly instead of through a lookup";
         LintPreferListComp = "lint.prefer-list-comp", warning, "Use a list comprehension instead of a for loop that only builds a list";
         LintPreferListCompoundAssignment = "lint.prefer-list-compound-assignment", warning, "Use `+=` for a local list update that reassigns the list";
@@ -556,6 +558,7 @@ diagnostic_codes! {
         LintPreferNamedArgumentSpread = "lint.prefer-named-argument-spread", warning, "Forward record fields with a named argument spread such as `...record`";
         LintPreferNestedRecordUpdate = "lint.prefer-nested-record-update", warning, "Use disjoint static field paths instead of nested record spreads";
         LintPreferOptionalPostfix = "lint.prefer-optional-postfix", warning, "Use a guarded postfix and `??` instead of an explicit null branch";
+        LintPreferPositionalConstructor = "lint.prefer-positional-constructor", warning, "Pass leading schema constructor fields positionally when no two of them can hold the same value";
         LintPreferRecordConstructor = "lint.prefer-record-constructor", warning, "Use the named schema constructor for a record literal of a schema type";
         LintPreferRecordDestructuring = "lint.prefer-record-destructuring", warning, "Bind adjacent fields of one record together with a destructuring `let`";
         LintPreferRegexLiteral = "lint.prefer-regex-literal", warning, "Prepare a static regex pattern with an `rx` literal instead of a call";

@@ -32,6 +32,21 @@ test test_fmt_env_strings_round_trip { |ctx|
   )?
 }
 
+test test_fmt_target_typed_variants_and_positional_constructors { |ctx|
+  let source = p"tests/fixtures/fmt/target-typed-constructors.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/target-typed-constructors.xsh",
+    p"tests/fixtures/fmt/target-typed-constructors.expected.xsh",
+    "fmt-target-typed.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/target-typed-constructors.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+}
+
 test test_fmt_nested_multiline_string_preserves_value { |ctx|
   let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
   let before = test.run_script(ctx, source)?

@@ -7048,6 +7048,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         .flatten()
         .filter(Type::has_unsigned_constraint);
         let lowered = match self.program.arena.expr(id).kind {
+            ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. }
+                if self.bodies.inferred_variants.contains_key(&id) =>
+            {
+                self.lower_inferred_variant(id, slots, current_function, item_slot)
+            }
             ArenaExprKind::Null => Some(push_build_row!(self, expr, BuildExprRow::Null)),
             ArenaExprKind::Int(value) => self
                 .program
@@ -9342,9 +9347,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 })?;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
-            for arg in &args_vec {
-                let ArenaCallArgKind::Named { name, value, .. } = arg.kind else {
-                    return None;
+            for (index, arg) in args_vec.iter().enumerate() {
+                // A positional argument supplies the field the checker bound it to.
+                let (name, value) = match arg.kind {
+                    ArenaCallArgKind::Named { name, value, .. } => (name, value),
+                    ArenaCallArgKind::Positional(value) => (
+                        *self.bodies.record_constructor_fields.get(&id)?.get(index)?,
+                        value,
+                    ),
+                    ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
+                        return None;
+                    }
                 };
                 supplied.insert(name);
                 let literal = crate::sema::constants::LiteralConstant::analyze(
@@ -11109,6 +11122,27 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return None;
         };
         let family_key = self.resolved_compact_error_family_key(base)?;
+        self.lower_error_variant_payload(
+            family_key,
+            variant,
+            args,
+            slots,
+            current_function,
+            item_slot,
+        )
+    }
+
+    /// An error variant value from its constructor arguments, bound to payload
+    /// fields as the checker bound them.
+    fn lower_error_variant_payload(
+        &mut self,
+        family_key: CompactErrorFamilyKey,
+        variant: Name,
+        args: &[ArenaCallArg],
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<(LoweredErrorExpr, Vec<(BuildExprId, usize)>)> {
         let family_name = compact_error_family_display(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
             .and_then(|family| family.variants.get(&variant))?;
@@ -11170,7 +11204,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     // Constructor namespaces resolve through their defining module, including
     // import aliases; they have no runtime receiver to evaluate.
     fn resolved_compact_error_family_key(&self, base: ExprId) -> Option<CompactErrorFamilyKey> {
-        Some(match compact_error_family_key(self.program, base)? {
+        Some(self.resolve_compact_error_family_owner(compact_error_family_key(self.program, base)?))
+    }
+
+    fn resolve_compact_error_family_owner(
+        &self,
+        key: CompactErrorFamilyKey,
+    ) -> CompactErrorFamilyKey {
+        match key {
             CompactErrorFamilyKey::Local(name) => CompactErrorFamilyKey::Local(name),
             CompactErrorFamilyKey::Qualified(name) => {
                 CompactErrorFamilyKey::Qualified(QualifiedName::new(
@@ -11179,7 +11220,74 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     name.member,
                 ))
             }
-        })
+        }
+    }
+
+    /// A leading-dot variant, built from the declaration the checker selected
+    /// from the expected type. `id` is the call for `.Name(args)` and the
+    /// member expression for a bare `.Name`.
+    fn lower_inferred_variant(
+        &mut self,
+        id: ExprId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let variant = self.bodies.inferred_variants.get(&id)?.clone();
+        let span = self.program.arena.expr(id).span;
+        let args = match self.program.arena.expr(id).kind {
+            ArenaExprKind::Call { args, .. } => self.program.arena.call_args(args).to_vec(),
+            _ => Vec::new(),
+        };
+        match variant {
+            crate::sema::check::InferredVariant::Tag {
+                type_name,
+                variant,
+                field_types,
+            } => {
+                let positional = positional_call_args(&args)?;
+                if positional.len() != field_types.len() {
+                    return None;
+                }
+                let (fields, bindings) = self.lower_checked_call_values(
+                    &positional,
+                    &field_types,
+                    slots,
+                    current_function,
+                    item_slot,
+                )?;
+                let value = push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::Tag {
+                        type_name,
+                        wire: self.declarations.wire_enums.mappings.get(&type_name).cloned(),
+                        name: Arc::<str>::from(variant.as_str().as_str()),
+                        fields,
+                    }
+                );
+                Some(self.wrap_argument_bindings(value, bindings, span))
+            }
+            crate::sema::check::InferredVariant::Error { family, variant } => {
+                let key = match family.as_str().split_once('.') {
+                    Some((namespace, member)) => CompactErrorFamilyKey::Qualified(
+                        QualifiedName::new(Name::intern(namespace), Name::intern(member)),
+                    ),
+                    None => CompactErrorFamilyKey::Local(family),
+                };
+                let key = self.resolve_compact_error_family_owner(key);
+                let (error, bindings) = self.lower_error_variant_payload(
+                    key,
+                    variant,
+                    &args,
+                    slots,
+                    current_function,
+                    item_slot,
+                )?;
+                let value = push_build_row!(self, expr, BuildExprRow::Error(Box::new(error)));
+                Some(self.wrap_argument_bindings(value, bindings, span))
+            }
+        }
     }
 
     fn compact_function_available(&self, name: Name) -> bool {

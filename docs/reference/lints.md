@@ -52,6 +52,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-in` | Use `in` or `not in` instead of a membership method call |
 | `lint.prefer-inferred-private-effects` | Drop a private proc effect clause when it is inferred exactly |
 | `lint.prefer-inferred-pure-return` | Drop a private pure return type when it is inferred exactly |
+| `lint.prefer-inferred-variant` | Drop a variant qualifier that the expected type already selects, as in `.Symlink` |
 | `lint.prefer-known-field-access` | Select a guaranteed record field directly instead of through a lookup |
 | `lint.prefer-list-comp` | Use a list comprehension instead of a for loop that only builds a list |
 | `lint.prefer-list-compound-assignment` | Use `+=` for a local list update that reassigns the list |
@@ -66,6 +67,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-named-argument-spread` | Forward record fields with a named argument spread such as `...record` |
 | `lint.prefer-nested-record-update` | Use disjoint static field paths instead of nested record spreads |
 | `lint.prefer-optional-postfix` | Use a guarded postfix and `??` instead of an explicit null branch |
+| `lint.prefer-positional-constructor` | Pass leading schema constructor fields positionally when no two of them can hold the same value |
 | `lint.prefer-record-constructor` | Use the named schema constructor for a record literal of a schema type |
 | `lint.prefer-record-destructuring` | Bind adjacent fields of one record together with a destructuring `let` |
 | `lint.prefer-regex-literal` | Prepare a static regex pattern with an `rx` literal instead of a call |

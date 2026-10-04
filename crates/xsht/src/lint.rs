@@ -226,6 +226,11 @@ pub struct LintOutput {
 pub struct LintOptions {
     pub prefer_inferred_pure_returns: bool,
     pub prefer_inferred_private_effects: bool,
+    /// Opt in to `lint.prefer-inferred-variant`, which a corpus adopts once
+    /// it migrates its qualified variants.
+    pub prefer_inferred_variants: bool,
+    /// Opt in to `lint.prefer-positional-constructor`.
+    pub prefer_positional_constructors: bool,
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
@@ -251,6 +256,9 @@ pub struct LintOptions {
 
     pub statically_resolved_call_spans: BTreeSet<Span>,
     pub definitely_exiting_block_spans: BTreeSet<Span>,
+    /// Qualified variant constructors whose expected type selects the same
+    /// variant, with the qualifier a leading dot replaces.
+    pub redundant_variant_qualifiers: BTreeMap<Span, Span>,
     pub dead_code: bool,
     pub native_test_file: bool,
     /// `xsht lint --only`: retain only diagnostics with these codes, which
@@ -271,6 +279,8 @@ impl Default for LintOptions {
         Self {
             prefer_inferred_pure_returns: false,
             prefer_inferred_private_effects: false,
+            prefer_inferred_variants: false,
+            prefer_positional_constructors: false,
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
@@ -290,6 +300,7 @@ impl Default for LintOptions {
             standard_call_spans: BTreeMap::default(),
             statically_resolved_call_spans: BTreeSet::default(),
             definitely_exiting_block_spans: BTreeSet::default(),
+            redundant_variant_qualifiers: BTreeMap::default(),
             dead_code: true,
             native_test_file: false,
             only: None,
@@ -314,6 +325,8 @@ pub struct Linter<'a> {
     record_constructors: xsh::frontend::check::RecordConstructors,
     prefer_inferred_pure_returns: bool,
     prefer_inferred_private_effects: bool,
+    prefer_inferred_variants: bool,
+    prefer_positional_constructors: bool,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     local_annotation_before: Option<Option<CheckedLocalAnnotationFacts>>,
     source: &'a str,
@@ -349,6 +362,7 @@ pub struct Linter<'a> {
     negated_call_spans: BTreeMap<Span, Span>,
     statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
+    redundant_variant_qualifiers: BTreeMap<Span, Span>,
     dead_code: bool,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
@@ -478,6 +492,8 @@ impl<'a> Linter<'a> {
             ),
             prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
             prefer_inferred_private_effects: options.prefer_inferred_private_effects,
+            prefer_inferred_variants: options.prefer_inferred_variants,
+            prefer_positional_constructors: options.prefer_positional_constructors,
             return_removal_before: None,
             local_annotation_before: None,
             source,
@@ -510,6 +526,7 @@ impl<'a> Linter<'a> {
             negated_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: options.statically_resolved_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
+            redundant_variant_qualifiers: options.redundant_variant_qualifiers,
             dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
@@ -7684,6 +7701,117 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    /// A qualified variant constructor whose expected type already selects
+    /// the same declaration, so `.Name` builds the identical value. The
+    /// checker publishes the qualifier only outside stream stage blocks,
+    /// where `.Name` is not an item read.
+    fn lint_inferred_variant(&mut self, expr: ExprId) {
+        if !self.prefer_inferred_variants {
+            return;
+        }
+        let span = self.arena.expr(expr).span;
+        let Some(qualifier) = self.redundant_variant_qualifiers.get(&span).copied() else {
+            return;
+        };
+        let mut diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "the expected type already selects this variant",
+        )
+        .with_code(DiagnosticCode::LintPreferInferredVariant)
+        .with_label(Label::secondary(
+            qualifier,
+            "qualifier the expected type makes redundant",
+        ));
+        let qualified = self.source.get(qualifier.start()..=qualifier.end());
+        let plain = qualified.is_some_and(|text| {
+            text.ends_with('.')
+                && text[..text.len() - 1]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
+        });
+        if plain && !leading_dot_continues_previous_line(self.source, qualifier.start()) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::deletion(
+                qualifier,
+                "select the variant from the expected type",
+            ));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    /// A schema constructor whose named arguments already follow the
+    /// declaration order, filling fields no single value fits two of. The
+    /// positional call binds every argument to the same field and evaluates
+    /// them in the same order. A pun (`name:`) already names its field and
+    /// value at once, so a call with one stays as written.
+    fn lint_positional_constructor(&mut self, expr: ExprId) {
+        if !self.prefer_positional_constructors {
+            return;
+        }
+        let call = self.arena.expr(expr);
+        let ArenaExprKind::Call { callee, args } = call.kind else {
+            return;
+        };
+        let Some(definition) = self
+            .record_constructors
+            .resolve_call(self.arena, callee, None)
+        else {
+            return;
+        };
+        let args = self.arena.call_args(args);
+        let declared = self
+            .record_constructors
+            .declared_fields(self.arena, definition);
+        let in_order = !args.is_empty()
+            && args.len() <= declared.len()
+            && args.iter().zip(&declared).all(|(arg, (field, _))| {
+                matches!(arg.kind, ArenaCallArgKind::Named { name, value, span }
+                    if name == *field
+                        && self.arena.expr(value).span.start() != self.arena.span(span).start())
+            });
+        if !in_order
+            || self
+                .record_constructors
+                .positional_conflict(self.arena, definition, args.len())
+                .is_some()
+            || !matches!(self.expr_types.get(&call.span), Some(Type::Record(_)))
+        {
+            return;
+        }
+        let mut diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "constructor fields can be passed positionally",
+        )
+        .with_code(DiagnosticCode::LintPreferPositionalConstructor)
+        .with_label(Label::secondary(
+            call.span,
+            "no two of these fields can hold the same value",
+        ));
+        let first = args.first().map(|arg| self.arena.span(named_arg_span(arg)));
+        let last = args.last().map(|arg| self.arena.span(named_arg_span(arg)));
+        if let (Some(first), Some(last)) = (first, last)
+            && !self.source[first.start()..last.end()].contains('#')
+        {
+            let mut replacement = String::new();
+            let mut cursor = first.start();
+            for arg in args {
+                let ArenaCallArgKind::Named { value, span, .. } = arg.kind else {
+                    return;
+                };
+                let span = self.arena.span(span);
+                let value = self.arena.expr(value).span;
+                replacement.push_str(&self.source[cursor..span.start()]);
+                replacement.push_str(&self.source[value.start()..span.end()]);
+                cursor = span.end();
+            }
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                Span::new(first.source_id, first.start(), last.end()),
+                "pass the fields in declaration order",
+                replacement,
+            ));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_named_argument_pun(&mut self, arg: &ArenaCallArg) {
         let ArenaCallArgKind::Named { name, value, span } = arg.kind else {
             return;
@@ -11732,6 +11860,8 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_redundant_single_interpolation(expr);
             self.linter.lint_scalar_display_parse_roundtrip(expr);
             self.linter.lint_json_encode_decode_roundtrip(expr);
+            self.linter.lint_inferred_variant(expr);
+            self.linter.lint_positional_constructor(expr);
         }
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {
@@ -14849,6 +14979,31 @@ fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
         }
         _ => false,
     }
+}
+
+
+/// The span of a named call argument, `name: value` or `name:`.
+fn named_arg_span(arg: &ArenaCallArg) -> xsh::frontend::syntax::arena::SpanId {
+    match arg.kind {
+        ArenaCallArgKind::Named { span, .. }
+        | ArenaCallArgKind::Splice { span, .. }
+        | ArenaCallArgKind::NamedSpread { span, .. } => span,
+        ArenaCallArgKind::Positional(_) => unreachable!("positional arguments have no entry span"),
+    }
+}
+
+/// Whether a `.name` written at `offset` would begin a line that continues
+/// the expression before it. A line beginning with `.name` joins the previous
+/// line unless that line opened a bracket or ended an item.
+fn leading_dot_continues_previous_line(source: &str, offset: usize) -> bool {
+    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    if !source[line_start..offset].trim().is_empty() {
+        return false;
+    }
+    !matches!(
+        source[..line_start].trim_end().chars().last(),
+        None | Some('(' | '[' | '{' | ',')
+    )
 }
 
 #[cfg(test)]

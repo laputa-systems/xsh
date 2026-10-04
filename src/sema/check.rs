@@ -37,6 +37,8 @@ mod expected;
 mod expr;
 mod record_require;
 pub use expected::RequirementTarget;
+#[path = "check/inferred_variant.rs"]
+mod inferred_variant;
 #[path = "check/infer_effects.rs"]
 mod infer_effects;
 #[path = "check/infer_param.rs"]
@@ -150,6 +152,29 @@ pub struct CheckOutput {
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     /// `with` error handlers retain the common nominal error of their checked inputs.
     pub handler_input_types: BTreeMap<Span, Type>,
+    /// Leading-dot variants keyed by the constructing expression: the call for
+    /// `.Name(args)`, the member expression for a bare `.Name`.
+    pub inferred_variants: BTreeMap<Span, InferredVariant>,
+    /// Qualified variant constructors whose expected type selects the same
+    /// variant, keyed by expression, with the qualifier span a leading dot replaces.
+    pub redundant_variant_qualifiers: BTreeMap<Span, Span>,
+    /// The schema field each record constructor argument supplies, in source
+    /// order, keyed by call expression.
+    pub record_constructor_fields: BTreeMap<Span, Vec<Name>>,
+}
+
+/// A leading-dot variant resolved against its expected type. It carries the
+/// declaration the equivalent qualified spelling names, so later stages never
+/// resolve the bare name again.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferredVariant {
+    Tag {
+        type_name: Name,
+        variant: Name,
+        field_types: Vec<Type>,
+    },
+    /// `family` is the checked family name, as `Type::ErrorFamily` carries it.
+    Error { family: Name, variant: Name },
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -422,6 +447,9 @@ pub struct Checker {
     argument_bindings: BTreeMap<Span, CheckedArguments>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
+    inferred_variants: BTreeMap<Span, InferredVariant>,
+    redundant_variant_qualifiers: BTreeMap<Span, Span>,
+    record_constructor_fields: BTreeMap<Span, Vec<Name>>,
     /// Lowering needs facts for embedded implementation bodies; other checks
     /// only need the bodies whose inferred returns shape a signature.
     check_embedded_bodies: bool,
@@ -569,6 +597,9 @@ impl Checker {
                 argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
+                inferred_variants: checker.inferred_variants,
+                redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
+                record_constructor_fields: checker.record_constructor_fields,
             }
         })
     }
@@ -705,6 +736,9 @@ impl Checker {
                 argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
+                inferred_variants: checker.inferred_variants,
+                redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
+                record_constructor_fields: checker.record_constructor_fields,
             }
         })
     }
@@ -766,6 +800,9 @@ impl Checker {
             argument_bindings: BTreeMap::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),
+            inferred_variants: BTreeMap::new(),
+            redundant_variant_qualifiers: BTreeMap::new(),
+            record_constructor_fields: BTreeMap::new(),
             check_embedded_bodies: false,
             options,
             function_return_types: BTreeMap::new(),

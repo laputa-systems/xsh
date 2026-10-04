@@ -722,6 +722,47 @@ impl RecordConstructors {
         }
     }
 
+    /// A record schema's fields in declaration order, which positional
+    /// constructor arguments fill. Type parameters stay rigid.
+    pub fn declared_fields(&self, arena: &AstArena, definition: TypeDefId) -> Vec<(Name, Type)> {
+        let def = arena.type_def(definition);
+        let ArenaTypeDefBody::RecordSchema(fields) = def.body else {
+            return Vec::new();
+        };
+        let types = self
+            .template_field_types(arena, def, self.namespace(definition))
+            .unwrap_or_default();
+        arena
+            .schema_fields(fields)
+            .iter()
+            .map(|field| {
+                (
+                    field.name,
+                    types.get(&field.name).cloned().unwrap_or(Type::Invalid),
+                )
+            })
+            .collect()
+    }
+
+    /// The first two of a schema's leading `count` fields that some value
+    /// fits both of. Positional arguments may fill those fields only when
+    /// there is none, so swapping two of them is always a type error.
+    pub fn positional_conflict(
+        &self,
+        arena: &AstArena,
+        definition: TypeDefId,
+        count: usize,
+    ) -> Option<(Name, Name)> {
+        let fields = self.declared_fields(arena, definition);
+        let filled = &fields[..count.min(fields.len())];
+        filled.iter().enumerate().find_map(|(index, (left, left_ty))| {
+            filled[index + 1..]
+                .iter()
+                .find(|(_, right_ty)| types_may_share_a_value(left_ty, right_ty))
+                .map(|(right, _)| (*left, *right))
+        })
+    }
+
     pub fn resolve_definition_checked(
         &self,
         arena: &AstArena,
@@ -2514,6 +2555,53 @@ fn cli_constant_value(
 }
 
 impl ConstantPreparation<'_> {
+    /// The enum variant a leading-dot `.name` selects from an expected enum
+    /// type, by the enum's nominal identity rather than a visible spelling.
+    fn inferred_tag_constructor(
+        &self,
+        callee: ExprId,
+        expected: Option<&Type>,
+    ) -> Option<(Name, Name, Vec<TypeExprId>)> {
+        let arena = &self.program.arena;
+        let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+            return None;
+        };
+        if !matches!(arena.expr(base).kind, ArenaExprKind::Item) {
+            return None;
+        }
+        let mut expected = expected?;
+        while let Type::Optional(inner) = expected {
+            expected = inner;
+        }
+        let Type::Tag(type_name) = expected else {
+            return None;
+        };
+        self.constructors
+            .nominal_names
+            .iter()
+            .filter(|(_, nominal)| *nominal == type_name)
+            .find_map(|(definition, _)| {
+                let ArenaTypeDefBody::TagUnion(variants) = arena.type_def(*definition).body else {
+                    return None;
+                };
+                arena
+                    .tag_variants(variants)
+                    .iter()
+                    .find(|variant| variant.name == name)
+                    .map(|variant| {
+                        (
+                            *type_name,
+                            name,
+                            arena
+                                .extra_range(variant.fields)
+                                .iter()
+                                .map(|raw| TypeExprId::from_index(*raw as usize))
+                                .collect(),
+                        )
+                    })
+            })
+    }
+
     fn tag_constructor(
         &self,
         callee: ExprId,
@@ -2761,6 +2849,21 @@ impl ConstantPreparation<'_> {
                         current = self.scopes[scope].parent;
                     }
                     value
+                }
+            }
+            ArenaExprKind::Field { base, .. }
+                if matches!(arena.expr(base).kind, ArenaExprKind::Item) =>
+            {
+                let (family, variant, fields) = self
+                    .inferred_tag_constructor(id, expected)
+                    .ok_or_else(failure)?;
+                if !fields.is_empty() {
+                    return Err(failure());
+                }
+                LiteralConstant::Tag {
+                    family,
+                    variant,
+                    fields: Arc::new(Vec::new()),
                 }
             }
             ArenaExprKind::Field { base, name } => {
@@ -3031,7 +3134,10 @@ impl ConstantPreparation<'_> {
                 }
             }
             ArenaExprKind::Call { callee, args } => {
-                if let Some((family, variant, fields)) = self.tag_constructor(callee, scope) {
+                if let Some((family, variant, fields)) = self
+                    .inferred_tag_constructor(callee, expected)
+                    .or_else(|| self.tag_constructor(callee, scope))
+                {
                     let args = arena.call_args(args);
                     if args.len() != fields.len() {
                         return Err(failure());
@@ -3103,9 +3209,21 @@ impl ConstantPreparation<'_> {
                     }
                 }
                 let mut supplied = FxHashSet::default();
+                let declared = self.constructors.declared_fields(arena, definition);
+                let mut positional = 0usize;
                 for arg in arena.call_args(args) {
-                    match arg.kind {
-                        ArenaCallArgKind::Named { name, value, .. } => {
+                    let named = match arg.kind {
+                        ArenaCallArgKind::Named { name, value, .. } => Some((name, value)),
+                        // Positional fields come first, in declaration order.
+                        ArenaCallArgKind::Positional(value) if positional == supplied.len() => {
+                            let (name, _) = declared.get(positional).ok_or_else(failure)?;
+                            positional += 1;
+                            Some((*name, value))
+                        }
+                        _ => None,
+                    };
+                    match (named, &arg.kind) {
+                        (Some((name, value)), _) => {
                             let ty = field_types.get(&name).ok_or_else(failure)?;
                             if !supplied.insert(name) {
                                 return Err(failure());
@@ -3126,7 +3244,7 @@ impl ConstantPreparation<'_> {
                                 )?,
                             );
                         }
-                        ArenaCallArgKind::NamedSpread { value, .. } => {
+                        (None, &ArenaCallArgKind::NamedSpread { value, .. }) => {
                             let prepared = self.expression(value, scope, None, depth + 1)?;
                             let visible = self
                                 .prepared
@@ -3165,6 +3283,17 @@ impl ConstantPreparation<'_> {
                         }
                         _ => return Err(failure()),
                     }
+                }
+                if let Some((left, right)) =
+                    self.constructors
+                        .positional_conflict(arena, definition, positional)
+                {
+                    return Err((
+                        expr.span,
+                        format!(
+                            "fields `{left}` and `{right}` can hold the same value, so they must be passed by name"
+                        ),
+                    ));
                 }
                 if field_types.keys().any(|name| !values.contains_key(name)) {
                     return Err(failure());
@@ -3576,5 +3705,92 @@ fn constant_values_equal(left: &LiteralConstant, right: &LiteralConstant) -> boo
                     .all(|(a, b)| constant_values_equal(a, b))
         }
         (a, b) => a == b,
+    }
+}
+
+/// A coarse partition of runtime values: no value of one class fits a type
+/// whose classes exclude it. Classes merge kinds that one literal can fill,
+/// such as a string literal where a `Path` is expected or `{}` where a `Map`
+/// is expected, and every list type shares `[]`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ValueClass {
+    Null,
+    Unit,
+    Bool,
+    Integer,
+    Float,
+    Duration,
+    Text,
+    Bytes,
+    Digest,
+    Regex,
+    List,
+    Fields,
+    Stream,
+    Result,
+    Status,
+    Error,
+    Callable,
+    Command,
+    ProcessHandle,
+    NetJob,
+    FsRoot,
+    EnvPathList,
+    Module,
+    Tag(Name),
+}
+
+/// `None` means any value may fit: `Any`, rigid type parameters, and types
+/// the checker has not resolved.
+fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
+    Some(vec![match ty {
+        Type::Optional(inner) => {
+            let mut classes = value_classes(inner)?;
+            classes.push(ValueClass::Null);
+            return Some(classes);
+        }
+        Type::Tag(name) if name.as_str().starts_with("type parameter ") => return None,
+        Type::BuiltinParameter(_)
+        | Type::Inference(_)
+        | Type::Any
+        | Type::Unknown
+        | Type::Invalid => return None,
+        Type::Null => ValueClass::Null,
+        Type::Unit => ValueClass::Unit,
+        Type::Bool => ValueClass::Bool,
+        Type::Int | Type::UInt => ValueClass::Integer,
+        Type::Float => ValueClass::Float,
+        Type::Duration => ValueClass::Duration,
+        Type::Str | Type::Path => ValueClass::Text,
+        Type::Bytes => ValueClass::Bytes,
+        Type::Digest => ValueClass::Digest,
+        Type::Regex => ValueClass::Regex,
+        Type::List(_) => ValueClass::List,
+        Type::Map(_, _) | Type::Record(_) | Type::ErasedRecord => ValueClass::Fields,
+        Type::Stream(_) => ValueClass::Stream,
+        Type::Result(_, _) => ValueClass::Result,
+        Type::Status => ValueClass::Status,
+        Type::Error
+        | Type::ErrorFamily(_)
+        | Type::ErrorVariant { .. }
+        | Type::ErrorFacet(_)
+        | Type::ProcessError => ValueClass::Error,
+        Type::Pure | Type::Proc => ValueClass::Callable,
+        Type::Command => ValueClass::Command,
+        Type::ProcessHandle => ValueClass::ProcessHandle,
+        Type::NetJob => ValueClass::NetJob,
+        Type::FsRoot => ValueClass::FsRoot,
+        Type::EnvPathList => ValueClass::EnvPathList,
+        Type::Module(_) | Type::DynamicModule => ValueClass::Module,
+        Type::Tag(name) => ValueClass::Tag(*name),
+    }])
+}
+
+/// Whether some value (a literal included) fits both types, so exchanging
+/// two arguments between fields of these types could still check.
+pub fn types_may_share_a_value(left: &Type, right: &Type) -> bool {
+    match (value_classes(left), value_classes(right)) {
+        (Some(left), Some(right)) => left.iter().any(|class| right.contains(class)),
+        _ => true,
     }
 }

@@ -90,6 +90,10 @@ pub struct CompactBodyFacts {
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     /// `with` handler slots retain the common nominal error of their checked inputs.
     pub handler_input_types: FxHashMap<BlockId, Type>,
+    /// Leading-dot variants keyed by the constructing call or member expression.
+    pub inferred_variants: FxHashMap<ExprId, super::InferredVariant>,
+    /// The schema field each record constructor argument supplies, keyed by call.
+    pub record_constructor_fields: FxHashMap<ExprId, Vec<Name>>,
 }
 
 impl CompactBodyFacts {
@@ -122,6 +126,12 @@ impl CompactBodyFacts {
             }
             if let Some(call) = checked.api_calls.get(&span) {
                 facts.api_calls.insert(id, call.clone());
+            }
+            if let Some(variant) = checked.inferred_variants.get(&span) {
+                facts.inferred_variants.insert(id, variant.clone());
+            }
+            if let Some(fields) = checked.record_constructor_fields.get(&span) {
+                facts.record_constructor_fields.insert(id, fields.clone());
             }
             if let ArenaExprKind::Call { callee, .. } = expression.kind
                 && let Some(fact) = checked.record_constructor_instances.get(&span)

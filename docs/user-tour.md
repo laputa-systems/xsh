@@ -591,6 +591,36 @@ unchanged. Maps iterate in key order and `group-by` keeps encounter order, so
 output is deterministic. List patterns in `match` replace most hand-written
 argument dispatch.
 
+A schema's constructor also takes fields positionally, in declaration order,
+when no single value could fit two of them. Where the checker knows which enum
+or error family a value must be, `.Binary` names its variant:
+
+```xsh
+enum Kind { File, Binary, Symlink }
+
+type Entry = {path: Path, kind: Kind, executable: Bool = false}
+
+const manifest: List[Entry] = [
+  Entry(p"usr/bin/xsh", .Binary, executable: true),
+  Entry(p"etc/xsh.conf", .File),
+  Entry(p"usr/bin/sh", .Symlink),
+]
+
+let binaries = [f"{e.path}" for e in manifest if e.kind == .Binary and e.executable]
+print f"binaries: {binaries.join(", ")}"
+```
+
+<!-- expected-output -->
+
+```text
+binaries: usr/bin/xsh
+```
+
+`Host("web-1", "web", 4)` is an error instead, because `name` and `role` are
+both `Str` and a swap would go unnoticed; such fields are passed by name. A
+leading-dot variant needs that expected type: `let kind = .Binary` is an
+error, and inside a stream stage `.name` always reads the item.
+
 ## Streams and Pipelines
 
 The classic log one-liner:

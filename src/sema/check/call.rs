@@ -181,6 +181,19 @@ impl Checker {
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
+        if let ArenaExprKind::Field { base, name } = callee_kind
+            && matches!(arena.arena.expr(base).kind, ArenaExprKind::Item)
+            && !self.item_shorthand_in_scope()
+        {
+            return self.check_inferred_variant_call(
+                arena,
+                source,
+                name,
+                args,
+                span,
+                expected_context,
+            );
+        }
         if self.check_removed_record_require_arena(arena, source, callee, args, span) {
             return Type::Invalid;
         }
@@ -188,6 +201,26 @@ impl Checker {
             .iter()
             .any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }))
         {
+            // A spread supplies fields by name; positional arguments beside
+            // it would bind against fields the spread may also supply.
+            if let Some(arg) = args
+                .iter()
+                .find(|arg| matches!(arg.kind, ArenaCallArgKind::Positional(_)))
+                && self
+                    .record_constructors
+                    .resolve_call(&arena.arena, callee, self.current_namespace)
+                    .is_some()
+            {
+                self.error(
+                    call_arg_span_arena(arena, &arg.kind),
+                    "a record constructor with a field spread takes only named arguments",
+                    DiagnosticCode::CheckRecordConstructor,
+                );
+                for arg in args {
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                }
+                return Type::Invalid;
+            }
             return self.check_spread_call_arena(
                 arena,
                 source,
@@ -328,6 +361,16 @@ impl Checker {
             {
                 let qualified_family = Name::intern(format!("{namespace}.{family}"));
                 if self.error_families.contains_key(&qualified_family) {
+                    self.note_variant_qualifier(
+                        span,
+                        arena.arena.expr(callee).span,
+                        name,
+                        &super::InferredVariant::Error {
+                            family: qualified_family,
+                            variant: name,
+                        },
+                        expected_context,
+                    );
                     return self.check_error_variant_constructor_arena(
                         arena,
                         source,
@@ -351,12 +394,34 @@ impl Checker {
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
                 if self.error_families.contains_key(&module) {
+                    self.note_variant_qualifier(
+                        span,
+                        arena.arena.expr(callee).span,
+                        name,
+                        &super::InferredVariant::Error {
+                            family: module,
+                            variant: name,
+                        },
+                        expected_context,
+                    );
                     return self.check_error_variant_constructor_arena(
                         arena, source, module, name, args, span,
                     );
                 }
                 let qualified_tag = Name::intern(format!("{module}.{name}"));
-                if self.tag_variants.contains_key(&qualified_tag) {
+                if let Some(info) = self.tag_variants.get(&qualified_tag) {
+                    let selected = super::InferredVariant::Tag {
+                        type_name: info.type_name,
+                        variant: name,
+                        field_types: Vec::new(),
+                    };
+                    self.note_variant_qualifier(
+                        span,
+                        arena.arena.expr(callee).span,
+                        name,
+                        &selected,
+                        expected_context,
+                    );
                     return self.check_constructor_call_arena(
                         arena,
                         source,
@@ -1013,16 +1078,54 @@ impl Checker {
             .cloned()
             .unwrap_or_default();
         let mut supplied = super::FxHashSet::default();
+        let declared = self
+            .record_constructors
+            .declared_fields(&arena.arena, definition);
+        let mut positional = 0usize;
+        let mut named_seen = false;
+        let mut arg_fields = Vec::with_capacity(args.len());
         for arg in args {
-            let ArenaCallArgKind::Named { name, .. } = arg.kind else {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "record constructors require named fields",
-                    DiagnosticCode::CheckRecordConstructor,
-                );
-                self.check_call_arg_arena(arena, source, &arg.kind, None);
-                continue;
+            let name = match arg.kind {
+                ArenaCallArgKind::Named { name, .. } => {
+                    named_seen = true;
+                    name
+                }
+                ArenaCallArgKind::Positional(_) if !named_seen => {
+                    let Some((name, _)) = declared.get(positional) else {
+                        self.error(
+                            call_arg_span_arena(arena, &arg.kind),
+                            &format!(
+                                "too many positional constructor arguments: the schema declares {} field(s)",
+                                declared.len()
+                            ),
+                            DiagnosticCode::CheckRecordConstructor,
+                        );
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
+                        continue;
+                    };
+                    positional += 1;
+                    *name
+                }
+                ArenaCallArgKind::Positional(_) => {
+                    self.error(
+                        call_arg_span_arena(arena, &arg.kind),
+                        "positional constructor arguments must come before named ones",
+                        DiagnosticCode::CheckRecordConstructor,
+                    );
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    continue;
+                }
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
+                    self.error(
+                        call_arg_span_arena(arena, &arg.kind),
+                        "record constructors take positional or named fields, not list splices",
+                        DiagnosticCode::CheckRecordConstructor,
+                    );
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    continue;
+                }
             };
+            arg_fields.push(name);
             if !supplied.insert(name) {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
@@ -1061,6 +1164,26 @@ impl Checker {
                 );
             }
         }
+        if let Some((left, right)) =
+            self.record_constructors
+                .positional_conflict(&arena.arena, definition, positional)
+        {
+            self.diagnostics.push(
+                Diagnostic::error(format!(
+                    "fields `{left}` and `{right}` can hold the same value, so they must be passed by name"
+                ))
+                .with_code(DiagnosticCode::CheckRecordConstructor)
+                .with_label(Label::primary(span, "positional arguments could be swapped unnoticed"))
+                .with_note(format!(
+                    "write `{left}: ...` and `{right}: ...`; positional constructor fields must have types no single value fits both of"
+                )),
+            );
+        }
+        if arg_fields.len() == args.len() {
+            self.record_constructor_fields.insert(span, arg_fields);
+        } else {
+            self.record_constructor_fields.remove(&span);
+        }
         expected
     }
 
@@ -1074,22 +1197,15 @@ impl Checker {
         expected_context: Option<&Type>,
     ) -> Type {
         if let Some(info) = self.tag_variants.get(&Name::intern(name)).cloned() {
-            if args.len() != info.field_count {
-                self.error(
-                    span,
-                    &format!(
-                        "tag constructor `{name}` expects {} argument(s), got {}",
-                        info.field_count,
-                        args.len()
-                    ),
-                    DiagnosticCode::CheckArity,
-                );
-            }
-            for (arg, expected_ty) in args.iter().zip(info.field_types.iter()) {
-                let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(expected_ty));
-                self.expect_type(expected_ty, &actual, call_arg_span_arena(arena, &arg.kind));
-            }
-            return Type::Tag(info.type_name);
+            return self.check_tag_constructor_args_arena(
+                arena,
+                source,
+                name,
+                info.type_name,
+                &info.field_types,
+                args,
+                span,
+            );
         }
         match name {
             "Ok" => {

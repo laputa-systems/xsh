@@ -47,6 +47,7 @@ command error.
 | `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
 | `[check] annotate` | default `--annotate` policy |
 | `[lint] prefer-inferred-pure-returns`, `prefer-inferred-private-effects` | opt-in removal of annotations the checker can infer |
+| `[lint] prefer-inferred-variants`, `prefer-positional-constructors` | opt-in `lint.prefer-inferred-variant` (drop a variant qualifier the expected type selects) and `lint.prefer-positional-constructor` (pass in-order constructor fields positionally) |
 | `[lint] runless-except` | commands allowed under `--runless` |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |
 | `[coverage] exclude` | files removed from the `xsht test --cov` denominator only |

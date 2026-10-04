@@ -62,7 +62,7 @@ test test_record_constructors_reject_invalid_calls_and_defaults { |ctx|
 let config = Config()
 """,
     """type Config = {name: Str}
-let config = Config("demo")
+let config = Config("demo", "extra")
 """,
     """type Config = {name: Str}
 let config = Config(name: "demo", other: 1)
@@ -294,4 +294,164 @@ pure Config(name: Str) -> Str { name }
     assert assertion_condition, assertion_message
   }
   assert "check.type-mismatch" in wrong_default.stderr
+}
+
+test test_record_constructors_fill_positional_fields_in_declaration_order { |ctx|
+  let executed = test.run_script(
+    ctx,
+    r"""enum Kind { File, Binary }
+type Entry = {path: Path, kind: Kind, mode: Int = 420, tags: List[Str] = []}
+type Named = {label: Str, count: Int}
+
+proc marked(value: Int) -> Int {
+  print $value
+  value
+}
+
+const shipped: List[Entry] = [Entry(p"usr/bin/xsh", Binary, mode: 493), Entry(p"etc/xsh.conf", File)]
+let tool = Entry(p"usr/bin/xsht", .Binary)
+let tagged = Entry(p"etc/motd", File, tags: ["doc"], mode: 384)
+let counted = Named("hits", marked(2))
+print f"{shipped[0].path} {shipped[0].mode} {shipped[1].mode}"
+print f"{tool.path} {tool.kind == Binary} {tool.mode} {tool.tags.len()}"
+print f"{tagged.mode} {tagged.tags[0]}"
+print f"{counted.label}={counted.count}"
+""",
+  )?
+  assert executed.success, executed.stderr
+  assert executed.stdout == """2
+usr/bin/xsh 493 420
+usr/bin/xsht true 420 0
+384 doc
+hits=2
+"""
+}
+
+test test_record_constructors_reject_positional_fields_that_could_swap { |ctx|
+  for case in [
+    {
+      source: """type Pair = {first: Int, second: Int}
+let pair = Pair(1, 2)
+""",
+      message: "fields `first` and `second` can hold the same value",
+    },
+    {
+      source: """type Home = {name: Str, home: Path}
+let home = Home("root", "/root")
+""",
+      message: "fields `name` and `home` can hold the same value",
+    },
+    {
+      source: """type Limit = {count: Int, limit: UInt}
+let limit = Limit(1, 2)
+""",
+      message: "fields `count` and `limit` can hold the same value",
+    },
+    {
+      source: """type Label = {name: Str, label: Str?}
+let label = Label("a", null)
+""",
+      message: "fields `name` and `label` can hold the same value",
+    },
+    {
+      source: """type Lists = {names: List[Str], sizes: List[Int]}
+let lists = Lists(["a"], [1])
+""",
+      message: "fields `names` and `sizes` can hold the same value",
+    },
+    {
+      source: """type Name = Str
+type Alias = {first: Name, second: Str}
+let alias = Alias("a", "b")
+""",
+      message: "fields `first` and `second` can hold the same value",
+    },
+    {
+      source: """type Box[T] = {value: T, label: Str}
+let box = Box(1, "one")
+""",
+      message: "fields `value` and `label` can hold the same value",
+    },
+    {
+      source: """type Pair = {first: Int, second: Int}
+const pair = Pair(1, 2)
+""",
+      message: "fields `first` and `second` can hold the same value",
+    },
+    {
+      source: """type Entry = {name: Str, size: Int}
+let entry = Entry(name: "a", 1)
+""",
+      message: "positional constructor arguments must come before named ones",
+    },
+    {
+      source: """type Entry = {name: Str, size: Int}
+let entry = Entry("a", 1, 2)
+""",
+      message: "too many positional constructor arguments",
+    },
+    {
+      source: """type Entry = {name: Str, size: Int}
+let entry = Entry("a", name: "b")
+""",
+      message: "duplicate constructor field",
+    },
+    {
+      source: """type Entry = {name: Str, size: Int}
+let base = {size: 1}
+let entry = Entry("a", ...base)
+""",
+      message: "takes only named arguments",
+    },
+  ] {
+    let rejected = test.run_script(ctx, case.source)?
+    assert ! rejected.success, case.source
+    assert case.message in rejected.stderr, rejected.stderr
+  }
+}
+
+test test_prefer_positional_constructor_fix_preserves_behavior_and_converges { |ctx|
+  let source = r"""enum Kind { File, Binary }
+
+type Entry = {path: Path, kind: Kind, mode: Int = 420}
+
+type Pair = {first: Int, second: Int}
+
+proc marked(file: Path) -> Path {
+  print $file
+  file
+}
+
+let tool = Entry(path: marked(p"usr/bin/xsh"), kind: Binary, mode: 493)
+let file = p"etc/conf"
+let kind = File
+let config = Entry(path: file, kind:)
+let reordered = Entry(kind: File, path: p"etc/other")
+let pair = Pair(first: 1, second: 2)
+print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
+"""
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  let root = test.temp_dir(ctx, name: "positional-constructor-lint")?
+  let candidate = fp"{root}/main.xsh"
+  candidate.write_atomic(source)?
+  let ignored = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
+  assert ignored.status.exited_with(0), "the lint is opt-in"
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-positional-constructors = true\n")?
+  let first = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
+  assert first.status.exited_with(1), first.stderr
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-positional-constructor $candidate ?
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert "Entry(marked(p\"usr/bin/xsh\"), Binary, 493)" in fixed, fixed
+  assert "Entry(path: file, kind:)" in fixed, fixed
+  assert "Entry(kind: File, path: p\"etc/other\")" in fixed, fixed
+  assert "Pair(first: 1, second: 2)" in fixed, fixed
+  let after = test.run_script(ctx, fixed)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+  let second = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
+  assert second.status.exited_with(0), second.stderr
+  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  assert formatted.status.exited_with(0), formatted.stderr
 }
