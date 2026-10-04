@@ -180,6 +180,9 @@ pub struct LintOptions {
     pub only: Option<Vec<String>>,
 }
 
+/// One match arm as the adjacent-arm lint sees it: pattern, guard, body, span.
+type PatternArm = (PatternId, Option<ExprId>, Result<BlockId, ExprId>, Span);
+
 /// Every diagnostic code `xsht lint` can report, with a one-line summary for
 /// `xsht lint --list` and the generated `docs/reference/lints.md`. `--only`
 /// validates against these codes.
@@ -3361,7 +3364,7 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::replacement(expression.span, "use an error fallback block", replacement)));
     }
 
-    fn lint_adjacent_pattern_arms(&mut self, arms: Vec<(PatternId, Option<ExprId>, Result<BlockId, ExprId>, Span)>) {
+    fn lint_adjacent_pattern_arms(&mut self, arms: Vec<PatternArm>) {
         // Bodies compare by canonical tree, not spelling, so formatting cannot
         // change which arms merge.
         let keys: Vec<String> = arms.iter().map(|arm| super::format::canonical_subtree(self.arena, self.source, arm.2)).collect();
