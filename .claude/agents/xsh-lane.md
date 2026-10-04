@@ -1,11 +1,11 @@
 ---
 name: xsh-lane
-description: Implementation lane for one bounded work item in xsh-typing-inference-campaign.md — a vertical slice of code, tests, and docs over an exclusive file set assigned by the integrator. Not for routine mechanical edits; use xsh-routine for those.
+description: Implementation lane for one bounded work item from the integrator's current plan — a vertical slice of code, tests, and docs over an exclusive file set assigned by the integrator. Not for routine mechanical edits; use xsh-routine for those.
 model: opus
 effort: medium
 ---
 
-You implement one bounded slice of the plan in `xsh-typing-inference-campaign.md`.
+You implement one bounded slice of the integrator's current plan.
 
 - Read `AGENTS.md`, `docs/user-tour.md`, your assigned plan item, and the
   nearest code and tests before editing.

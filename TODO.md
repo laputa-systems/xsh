@@ -32,3 +32,21 @@ Open decisions:
 
 Each adopted row changes the language contract and goes into `docs/SPEC.md`
 first.
+
+## Small leftovers from the typing campaign
+
+- Overlapping diagnostic codes that may merge:
+  - `lex.invalid-string` and `parse.invalid-string`
+  - `lex.invalid-escape` and `parse.invalid-string-escape`
+  - `compact.statement-count` and `runtime.compact-statement-count`
+  - `compact.indexed-driver` and `runtime.indexed-driver`
+- Two codes have per-site severity: `check.non-exhaustive-match` and
+  `check.reveal-type`.
+- Traceback gap: an `Err` that is handled and replaced inside one `?`
+  operand can reuse the old traceback, e.g. `(f() ?? Err(x))?`.
+- `cargo dev test linux --ci` passes the host target (`aarch64-apple-darwin`)
+  into the container, so it works only on a Linux host. Use
+  `cargo dev test linux` on macOS. The Linux run also shares `target/` with
+  the host and overwrites `target/release` with Linux binaries.
+- Cargo's `unused_dependencies` lint flags `mimalloc` in xsht and xshi.
+  This is a false positive: the binaries use it, the libraries do not.
