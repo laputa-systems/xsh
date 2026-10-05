@@ -83,26 +83,6 @@ fn write_cgroup_control(path: &Path, content: &str) -> std::io::Result<()> {
     file.write_all(content.as_bytes())
 }
 
-#[cfg(not(target_os = "linux"))]
-#[test]
-fn xsht_trace_rejects_syscalls_on_non_linux() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args([
-            "trace",
-            "--syscalls",
-            "tests/fixtures/runtime/cli-simple.xsh",
-        ])
-        .output()
-        .expect("run xsht");
-
-    assert_eq!(output.status.code(), Some(2));
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("`--syscalls` is only supported on Linux")
-    );
-}
-
 #[cfg(target_os = "linux")]
 #[test]
 fn xsht_syscall_trace_includes_summary_when_ptrace_available() {

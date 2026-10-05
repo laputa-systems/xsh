@@ -211,6 +211,32 @@ test test_run_unknown_name_returns_process_error {
   }
 }
 
+test test_run_targets_that_cannot_execute_fail_with_distinct_kinds { |ctx|
+  let root = test.temp_dir(ctx, name: "run-targets")?
+  let plain = fp"{root}/plain-script"
+  plain.write("#!/bin/sh\nexit 0\n", mode: 0o644)
+
+  let garbage = fp"{root}/garbage"
+  garbage.write("not a native executable\n", mode: 0o755)
+
+  let locked = fp"{root}/locked"
+  locked.mkdir()
+  let unreachable = fp"{locked}/tool"
+  unreachable.write("#!/bin/sh\nexit 0\n", mode: 0o755)
+  locked.chmod(0o000)
+  defer locked.chmod(0o755)
+
+  var cases = [{target: plain, kind: "not-executable"}, {target: garbage, kind: "exec-format"}]
+  # Root searches a directory whatever its mode.
+  if applet.current_euid() != 0 {
+    cases += [{target: unreachable, kind: "permission-denied"}]
+  }
+
+  for {target, kind} in cases {
+    let _ = test.expect(ctx, "run (Path(args[0]))\n", status: 3, stderr: [kind], args: [target])?
+  }
+}
+
 test test_modules_are_not_command_namespaces { |ctx|
   let _ = test.expect(
     ctx,

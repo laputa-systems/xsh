@@ -166,12 +166,6 @@ pub(crate) fn xsh<const N: usize>(args: [&str; N]) -> std::process::Output {
     cmd.output().expect("run xsh")
 }
 
-pub(crate) fn xsht<const N: usize>(args: [&str; N]) -> std::process::Output {
-    let mut cmd = Command::new(workspace_binary("xsht"));
-    cmd.args(args);
-    cmd.output().expect("run xsht")
-}
-
 pub(crate) fn json_parse(text: &str) -> JsonValue {
     miniserde::json::from_str(text).expect("parse JSON")
 }
@@ -385,16 +379,6 @@ fn translated_trace_args(leading_args: &[&str]) -> Option<Vec<String>> {
             .filter(|arg| **arg != "--trace")
             .map(|arg| (*arg).to_string())
             .collect(),
-    )
-}
-
-pub(crate) fn run_path_target_script(name: &str, target: &std::path::Path) -> std::process::Output {
-    run_temp_script(
-        name,
-        &format!(
-            "run (Path({})) ?\n",
-            xsh_string_literal(target.to_str().unwrap())
-        ),
     )
 }
 
