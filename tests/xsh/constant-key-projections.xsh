@@ -64,7 +64,7 @@ let value: Str = config["workers"]
 }
 
 test test_constant_key_projection_evaluates_receiver_once { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 type Config = {workers: Int}
@@ -73,8 +73,8 @@ const field = "workers"
 print (config().get(field)?)
 print (config()[field])
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """receiver
 4
 receiver
@@ -88,7 +88,7 @@ test test_constant_key_projection_imported_const_key { |ctx|
 ## Visible worker field.
 export const workers = "workers"
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use keys as keys
 type Config = {workers: Int}
@@ -96,10 +96,10 @@ let config: Config = {workers: 4}
 print (config.get(keys.workers)?)
 print (config[keys.workers])
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """4
 4
 """
@@ -142,7 +142,7 @@ test test_constant_key_projection_requires_constant_keys_for_field_types { |ctx|
   let declaration = """type Config = {workers: Int}
 let config: Config = {workers: 4}
 """
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     declaration + r"""const field = "workers"
 let fetched: Int = config.get(field)?
@@ -150,8 +150,8 @@ let indexed: Int = config[field]
 let literal: Result[Int] = config.get("workers")
 print ${fetched + indexed + literal?}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == """12
 """
   for source in [

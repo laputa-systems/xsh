@@ -67,7 +67,7 @@ test test_extended_while_pattern_updates_spliced_list_values {
 }
 
 test test_extended_delegated_yield_keeps_guarded_control_and_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""stream child() [io] -> Stream[Int] {
   defer { print "child-close" }
@@ -81,8 +81,8 @@ stream parent() [io] -> Stream[Int] {
 let first = parent() |> take(1) |> collect
 print ${first[0]}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """child-close
 parent-close
 1

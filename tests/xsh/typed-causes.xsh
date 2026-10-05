@@ -1,5 +1,5 @@
 test test_error_variant_payloads_evaluate_once_in_written_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error Failure = Failed(kind: Str, message: Str) : InvalidData
@@ -12,8 +12,8 @@ match made() {
   _ => print "wrong"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """message
 kind
 kind message
@@ -29,15 +29,14 @@ test test_error_variant_wrong_payload_field_refuses_before_effects { |ctx|
     let source = """error Failure = Failed(message: Str)
 print "executed"
 let value = """ + expression + "\n"
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2
+    let output = test.expect(ctx, source, status: 2)?
     assert output.stdout == ""
     assert "compact-unsupported" not in output.stderr
   }
 }
 
 test test_err_typed_cause_preserves_outer_nominal_contract { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 error BuildError = Failed(message: Str, cause: Str) : InvalidData
@@ -58,8 +57,8 @@ match observed {
 print "constructed"
 let _ = translated?
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == """build payload
 outer only
 constructed
@@ -69,7 +68,7 @@ constructed
 }
 
 test test_err_typed_cause_aliases_and_generic_one_argument_remain_data { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -82,8 +81,8 @@ match generic { Err(text) => print $text; _ => print "wrong" }
 print "constructed"
 Err(alias)?
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == """ordinary generic error
 constructed
 """
@@ -125,7 +124,7 @@ print $history
 }
 
 test test_err_typed_cause_explicit_replacement_preserves_supplied_chain { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -140,12 +139,9 @@ let supplied = match second { Err(failure) => failure; _ => inner }
 let translated = Err(inherited, cause: supplied)
 translated?
 """,
+    status: 3,
+    stderr: ["OuterError.Failed", "InnerError.Failed", "LeafError.Failed", "retained"],
   )?
-  assert output.status == 3
-  assert "OuterError.Failed" in output.stderr
-  assert "InnerError.Failed" in output.stderr
-  assert "LeafError.Failed" in output.stderr
-  assert "retained" in output.stderr
   {
     let assertion_condition = "replaced" not in output.stderr
     let assertion_message = output.stderr
@@ -171,8 +167,7 @@ let value = Err(E.Failed(message: "outer"), cause: E.Failed(message: "inner"), c
 let value = Err(E.Failed(message: "outer"), other: E.Failed(message: "inner"))
 """,
   ] {
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2
+    let output = test.expect(ctx, source, status: 2)?
     {
       let assertion_condition = "compact-unsupported" not in output.stderr
       let assertion_message = output.stderr
@@ -182,7 +177,7 @@ let value = Err(E.Failed(message: "outer"), other: E.Failed(message: "inner"))
 }
 
 test test_err_typed_cause_human_rendering_escapes_control_characters { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -190,9 +185,9 @@ error InnerError = Failed(message: Str)
 let translated = Err(OuterError.Failed(message: "outer"), cause: InnerError.Failed(message: "line\nforged\u{1b}[31m"))
 translated?
 """,
+    status: 3,
+    stderr: ["caused by: InnerError.Failed"],
   )?
-  assert output.status == 3
-  assert "caused by: InnerError.Failed" in output.stderr
   {
     let assertion_condition = """\nforged""" not in output.stderr
     let assertion_message = output.stderr
@@ -233,7 +228,7 @@ ctx "publish" { translated? }
 }
 
 test test_err_typed_cause_one_argument_retains_existing_chain_through_try { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -243,12 +238,9 @@ let captured: Result[Unit, OuterError] = try { ctx "attempt" { translated? } }
 let preserved: Result[Unit, OuterError] = match captured { Err(failure) => Err(failure); _ => translated }
 ctx "caller" { preserved? }
 """,
+    status: 3,
+    stderr: ["OuterError.Failed", "InnerError.Failed", "attempt", "caller"],
   )?
-  assert output.status == 3
-  assert "OuterError.Failed" in output.stderr
-  assert "InnerError.Failed" in output.stderr
-  assert "attempt" in output.stderr
-  assert "caller" in output.stderr
 }
 
 test test_err_typed_cause_abort_operand_keeps_control_transfer { |ctx|
@@ -273,7 +265,7 @@ print "wrong after abort"
 }
 
 test test_err_typed_cause_procedure_frames_construct_result_data { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -285,8 +277,8 @@ let data = translate(InnerError.Failed(message: "original"))
 print "returned data"
 data?
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == """returned data
 """
   assert "OuterError.Failed" in output.stderr
@@ -294,7 +286,7 @@ data?
 }
 
 test test_err_typed_cause_long_native_chain_reports_truncation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -306,9 +298,9 @@ for index in range(1000) {
 let outcome: Result[Unit] = Err(current)
 outcome?
 """,
+    status: 3,
+    stderr: ["cause chain truncated"],
   )?
-  assert output.status == 3
-  assert "cause chain truncated" in output.stderr
   {
     let assertion_condition = output.stderr.count_chars() < 10000
     let assertion_message = output.stderr
@@ -317,7 +309,7 @@ outcome?
 }
 
 test test_err_typed_cause_retains_checked_assertion_failure { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -328,23 +320,21 @@ let translated = match outcome {
 }
 translated?
 """,
+    status: 3,
+    stderr: ["OuterError.Failed", "AssertionError", "checked leaf"],
   )?
-  assert output.status == 3
-  assert "OuterError.Failed" in output.stderr
-  assert "AssertionError" in output.stderr
-  assert "checked leaf" in output.stderr
 }
 
 test test_err_one_argument_generic_propagation_keeps_existing_diagnostic { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 let value: Result[Unit, Str] = Err("generic error data")
 value?
 """,
+    status: 3,
+    stderr: ["err: error: propagated error"],
   )?
-  assert output.status == 3
-  assert "err: error: propagated error" in output.stderr
   {
     let assertion_condition = "caused by" not in output.stderr
     let assertion_message = output.stderr
@@ -353,7 +343,7 @@ value?
 }
 
 test test_err_typed_cause_process_outer_survives_cleanup_transport { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -372,8 +362,8 @@ match original_result {
   _ => exit 19
 }
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == """body completed
 """
   assert "ProcessError.NonzeroExit" in output.stderr

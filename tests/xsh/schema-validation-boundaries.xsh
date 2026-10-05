@@ -1,5 +1,5 @@
 test test_schema_validation_preserves_contextual_composite_wire_and_uint_rules { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""enum State: Str { Ready = "ready", Missing = "missing" }
 type Marker[T] = {amount: UInt, state: State}
@@ -23,8 +23,8 @@ match wrong.require(TextMarker) {
   Ok(_) => print unexpected
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """validated
 rejected
 """
@@ -39,7 +39,7 @@ export type Box[T] = {value: T, owner: Private}
 ## Validate with the declaring schema.
 export pure validated(raw: Any) -> Result[Box[Int], Error] { raw.require()? }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use model as m
 type Private = {count: Str}
@@ -50,10 +50,10 @@ assert direct.owner.count == 7, "qualified private owner"
 assert forwarded.owner.count == 7, "forwarded private owner"
 print "validated"
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """validated
 """
 }

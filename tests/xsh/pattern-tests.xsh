@@ -577,7 +577,7 @@ test test_match_arm_captures_end_with_their_arm { |ctx|
 
   # An arm capture may shadow a binding of the same scope, which resolves
   # again after the arm (lint.shadowing flags the style, not the meaning).
-  let shadowed = test.run_script(
+  let shadowed = test.expect(
     ctx,
     """pure shadows(r: Int) -> Int {
   let e = 100
@@ -588,8 +588,8 @@ test test_match_arm_captures_end_with_their_arm { |ctx|
 }
 print (shadows(1))
 """,
+    status: 0,
   )?
-  assert shadowed.success, shadowed.stderr
   assert shadowed.stdout == """102
 """
 }
@@ -612,7 +612,7 @@ export pure describe(result: Result[Int, Failure]) -> Str {
   }
 }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 use raiser as r
@@ -628,10 +628,10 @@ match r.fail_broad() {
 let local: Result[Int, r.Failure] = Err(r.Failure.Missing(detail: "local"))
 print (r.fail_typed() is Err(r.Failure.Missing)) (r.describe(local))
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """typed
 broad
 true missing local

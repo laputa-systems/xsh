@@ -392,6 +392,7 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 - `test.calls(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str = default) -> List[{args: Record, op: Str}]` — Reads recorded calls from a native-test mock.
 - `test.eq(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.error_kind(value: Any, kind: Str, message: Str = default) -> Result[Unit, Error]` — Asserts one native-test condition.
+- `test.expect(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, status: Int, stderr: List[Str] = default, stdout: List[Str] = default, args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH script and requires its exit status and output fragments.
 - `test.fail(message: Str = default) -> Result[Unit, Error]` — Fails the current native XSH test with an explicit message.
 - `test.linux_fake(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, settings: Record = default) -> Result[Unit, Error]` — Replaces the `linux` module with fixed results for the rest of a native XSH test.
 - `test.mock(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str, matcher: Record, result: Any, times: Int = default) -> Result[Unit, Error]` — Installs a scoped host-effect mock for a native XSH test.

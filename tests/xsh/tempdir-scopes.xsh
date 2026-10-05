@@ -62,7 +62,7 @@ test test_tempdir_removes_on_return_loop_control_and_failure {
 }
 
 test test_tempdir_producer_keeps_its_directory_between_pulls { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 var made: List[Path] = []
@@ -80,8 +80,8 @@ print ${(names() |> collect()).join(",")}
 print ${names() |> take(1) |> first()?}
 print ${made |> where { .exists()? } |> count()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "a true,b true\na true\n0\n"
 }
 
@@ -126,7 +126,6 @@ test test_tempdir_and_item_blocks_format_stably { |ctx|
     """
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, candidate.read_text()?)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == "1\n0\n"
 }

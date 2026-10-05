@@ -71,7 +71,7 @@ spread
 }
 
 test test_named_argument_spreads_keep_defaults_in_the_declaration_environment { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""type Third = {third: Int}
 const lexical = 4
@@ -85,8 +85,8 @@ proc caller() [io] -> Int {
 }
 print ${caller()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """7
 spread
 20

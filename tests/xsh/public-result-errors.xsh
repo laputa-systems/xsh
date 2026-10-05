@@ -87,8 +87,7 @@ test test_public_result_error_fix_spells_the_broad_error_and_converges { |ctx|
     assert spelled in fixed, fixed
   }
 
-  let after = test.run_script(ctx, importer, [], module_env)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, importer, status: 0, args: [], env: module_env)?
   assert after.stdout == """a
 b
 3
@@ -115,7 +114,7 @@ test test_unspelled_public_results_are_check_errors { |ctx|
   assert ! rejected.success, rejected.stdout
   assert "check.public-result-error" in rejected.stderr, rejected.stderr
 
-  let private = test.run_script(
+  let private = test.expect(
     ctx,
     r"""proc helper(text: Str) -> Result[Str] {
   let kept: Result[Str] = Ok(text)
@@ -123,7 +122,7 @@ test test_unspelled_public_results_are_check_errors { |ctx|
 }
 print ${helper("private")?}
 """,
+    status: 0,
   )?
-  assert private.success, private.stderr
   assert private.stdout == "private\n"
 }

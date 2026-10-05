@@ -70,8 +70,7 @@ test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_v
     },
   ] {
     input.write(example.json)
-    let output = test.run_script(ctx, script)?
-    assert output.success, output.stderr
+    let output = test.expect(ctx, script, status: 0)?
     let report = json.decode(output.stdout)?.require(CoverageReport)?
     let hits = report.api_hits.get("module.cpu.count")?.require(CoverageHitCounts)?
     assert report.standard_apis == ["module.cpu.count"]

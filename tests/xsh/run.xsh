@@ -33,40 +33,38 @@ test test_mutable_string_accumulator_uses_string_addition_in_loop { |ctx|
 }
 
 test test_reassigning_let_names_mutable_binding { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """let x = 1
 x = 2
 """,
+    status: 2,
+    stderr: ["check.assign-let", "declare with `var`"],
   )?
-  assert output.status == 2
-  assert "check.assign-let" in output.stderr
-  assert "declare with `var`" in output.stderr
 }
 
 test test_checker_errors_prevent_execution { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """print "before"
 let value = "abc"
 print $value.length()
 """,
+    status: 2,
   )?
-  assert output.status == 2
   assert output.stdout == ""
   assert "check.unknown-method" in output.stderr
 }
 
 test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """let value: Any = "abc"
 let _ = value.length()
 """,
+    status: 3,
+    stderr: ["unknown method `length` on Str", "count_chars"],
   )?
-  assert output.status == 3
-  assert "unknown method `length` on Str" in output.stderr
-  assert "count_chars" in output.stderr
 }
 
 test test_grouped_multiline_run_invocation_executes {
@@ -214,15 +212,14 @@ test test_run_unknown_name_returns_process_error {
 }
 
 test test_modules_are_not_command_namespaces { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """use fs
 fs read
 """,
+    status: 2,
+    stderr: ["check.unresolved-proc-command"],
   )?
-
-  assert output.status == 2
-  assert "check.unresolved-proc-command" in output.stderr
 }
 
 test test_call_splices_preserve_shared_and_constant_lists { |ctx|
@@ -281,7 +278,7 @@ constant words
 }
 
 test test_nul_run_targets_proc_splice_and_match_diagnostics { |ctx|
-  let nul_target = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 proc main(args: List[Str]) -> Result[Unit] {
@@ -291,28 +288,25 @@ proc main(args: List[Str]) -> Result[Unit] {
 
 main(args)?
 """,
+    status: 3,
+    stderr: ["nul"],
   )?
 
-  assert nul_target.status == 3
-  assert "nul" in nul_target.stderr
-
-  let nul_path = test.run_script(
+  let _ = test.expect(
     ctx,
     """let _ = Path("bad\\0path")
 """,
+    status: 3,
+    stderr: ["nul"],
   )?
 
-  assert nul_path.status == 3
-  assert "nul" in nul_path.stderr
-
-  let nul_argv = test.run_script(
+  let _ = test.expect(
     ctx,
     """run printf ("bad\\0arg") ?
 """,
+    status: 3,
+    stderr: ["nul"],
   )?
-
-  assert nul_argv.status == 3
-  assert "nul" in nul_argv.stderr
 
   let spliced = test.run_script(
     ctx,
@@ -334,17 +328,16 @@ pair(@parts)?
   assert spliced.stdout == """left right
 """
 
-  let no_arm = test.run_script(
+  let _ = test.expect(
     ctx,
     """let value = 1
 match value {
   2 => print "two"
 }
 """,
+    status: 3,
+    stderr: ["match did not match any arm"],
   )?
-
-  assert no_arm.status == 3
-  assert "match did not match any arm" in no_arm.stderr
 }
 
 test test_legacy_test_and_getopt_spellings_are_not_command_aliases { |ctx|
@@ -495,7 +488,7 @@ test test_invalid_utf8_text_capture_is_a_run_error {
 }
 
 test test_whole_script_exit_status_and_abort_behavior { |ctx|
-  let int_status = test.run_script(
+  let int_status = test.expect(
     ctx,
     """
 proc main(value = 7) -> UInt {
@@ -504,9 +497,8 @@ proc main(value = 7) -> UInt {
 
 main(@args)
 """,
+    status: 7,
   )?
-
-  assert int_status.status == 7
   assert int_status.stdout == ""
   assert int_status.stderr == ""
 
@@ -538,16 +530,15 @@ top
 
   assert abort_with_defers.stderr == ""
 
-  let quiet_validation_failure = test.run_script(
+  let quiet_validation_failure = test.expect(
     ctx,
     """
 print "escape"
 exit 17
 print "unreachable"
 """,
+    status: 17,
   )?
-
-  assert quiet_validation_failure.status == 17
   assert quiet_validation_failure.stdout == """escape
 """
   assert quiet_validation_failure.stderr == ""
@@ -591,22 +582,21 @@ print \${opts.paths.len()}
 0
 """ not in help.stdout
 
-  let usage_error = test.run_script(
+  let usage_error = test.expect(
     ctx,
     """
 type Opts = {path: Str}
 let opts: Opts = cli.parse(args, {path: {form: "PATH"}})?
 print \${opts.path}
 """,
+    status: 2,
   )?
-
-  assert usage_error.status == 2
   assert usage_error.stdout == ""
   assert "missing required argument PATH" in usage_error.stderr
   assert "usage:" in usage_error.stderr
   assert "traceback" not in usage_error.stderr
 
-  let auto_main = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 error AppError = usage(message: Str)
@@ -615,11 +605,9 @@ proc main(...argv: List[Str]) [error] {
   return Err(AppError.usage(message: "bad args"))
 }
 """,
+    status: 3,
+    stderr: ["usage", "bad args"],
   )?
-
-  assert auto_main.status == 3
-  assert "usage" in auto_main.stderr
-  assert "bad args" in auto_main.stderr
 }
 
 test test_explicit_zero_arg_main_runs_once { |ctx|
@@ -641,49 +629,42 @@ main()?
 }
 
 test test_whole_script_run_error_diagnostics { |ctx|
-  let details = test.run_script(
+  let _ = test.expect(
     ctx,
     """run false "two words" ?
 """,
+    status: 3,
+    stderr: ["err: `false` exited 1", "cwd: ", "argv: false 'two words'"],
   )?
 
-  assert details.status == 3
-  assert "err: `false` exited 1" in details.stderr
-  assert "cwd: " in details.stderr
-  assert "argv: false 'two words'" in details.stderr
-
-  let missing = test.run_script(
+  let missing = test.expect(
     ctx,
     """run xsh-definitely-missing-command ?
 """,
-    [],
-    {PATH: "/bin:/usr/bin"},
+    status: 3,
+    stderr: ["not-found"],
+    args: [],
+    env: {PATH: "/bin:/usr/bin"},
   )?
-
-  assert missing.status == 3
-  assert "not-found" in missing.stderr
   assert "exited with status" not in missing.stderr
 }
 
 test test_pipeline_failures_and_trace_are_visible { |ctx|
-  let plain = test.run_script(
+  let _ = test.expect(
     ctx,
     """run false | run true ?
 """,
+    status: 3,
+    stderr: ["pipeline segment 0", "false"],
   )?
 
-  assert plain.status == 3
-  assert "pipeline segment 0" in plain.stderr
-  assert "false" in plain.stderr
-
-  let late = test.run_script(
+  let _ = test.expect(
     ctx,
     """run true | run false ?
 """,
+    status: 3,
+    stderr: ["pipeline segment 1"],
   )?
-
-  assert late.status == 3
-  assert "pipeline segment 1" in late.stderr
 
   let traced = test.run_xsht_trace(
     ctx,
@@ -712,42 +693,42 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
 }
 
 test test_statement_pipeline_fails_on_any_failed_segment { |ctx|
-  let late = test.run_script(
+  let late = test.expect(
     ctx,
     """run true | run false
 print "after"
 """,
+    status: 3,
+    stderr: ["pipeline segment 1 `false` exited 1"],
   )?
-  assert late.status == 3
-  assert "pipeline segment 1 `false` exited 1" in late.stderr
   assert "after" not in late.stdout
 
-  let signaled = test.run_script(
+  let _ = test.expect(
     ctx,
     """run sh -c "kill -TERM $$" | run true
 """,
+    status: 3,
+    stderr: ["pipeline segment 0 `sh` was terminated by signal"],
   )?
-  assert signaled.status == 3
-  assert "pipeline segment 0 `sh` was terminated by signal" in signaled.stderr
 
-  let missing = test.run_script(
+  let missing = test.expect(
     ctx,
     """run true | run xsh-definitely-missing-command
 print "after"
 """,
+    status: 3,
+    stderr: ["pipeline segment 1"],
   )?
-  assert missing.status == 3
-  assert "pipeline segment 1" in missing.stderr
   assert "after" not in missing.stdout
 
   let marker = test.temp_path(ctx)
-  let drained = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""run sh -c "exit 3" | run sh -c "cat >/dev/null; echo ran > {marker}"
 """,
+    status: 3,
+    stderr: ["pipeline segment 0 `sh` exited 3"],
   )?
-  assert drained.status == 3
-  assert "pipeline segment 0 `sh` exited 3" in drained.stderr
   assert marker.read_text()? == "ran\n"
 }
 
@@ -760,13 +741,13 @@ test test_pipeline_sigpipe_after_successful_downstream_exit_is_not_failure { |ct
   assert status.success
   assert status.segments[0].kind == "signal"
 
-  let downstream_failed = test.run_script(
+  let _ = test.expect(
     ctx,
     """run yes | run sh -c "head -n 1 >/dev/null; exit 4"
 """,
+    status: 3,
+    stderr: ["pipeline segment 1 `sh` exited 4"],
   )?
-  assert downstream_failed.status == 3
-  assert "pipeline segment 1 `sh` exited 4" in downstream_failed.stderr
 }
 
 test test_pipeline_value_position_and_accept_rules { |ctx|
@@ -777,14 +758,14 @@ test test_pipeline_value_position_and_accept_rules { |ctx|
   run.status false | run false
   run true | run --accept=[0, 1] false
 
-  let rejected = test.run_script(
+  let rejected = test.expect(
     ctx,
     """run --accept=[0] true | run false
 print "after"
 """,
+    status: 3,
+    stderr: ["pipeline segment 1"],
   )?
-  assert rejected.status == 3
-  assert "pipeline segment 1" in rejected.stderr
   assert "after" not in rejected.stdout
 }
 
@@ -838,9 +819,7 @@ test test_pipeline_capture_form_is_chosen_by_the_head_segment { |ctx|
     "let x = run.text printf a | run.status cat",
   ]
   for source in cases {
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2
-    assert "check.pipeline-capture" in output.stderr
+    let _ = test.expect(ctx, source, status: 2, stderr: ["check.pipeline-capture"])?
   }
 }
 
@@ -982,14 +961,13 @@ test test_run_fixture_behaviors { |ctx|
   assert run.text printf "%s\n" "hello world"? == """hello world
 """
 
-  let failed = test.run_script(
+  let _ = test.expect(
     ctx,
     """run false
 """,
+    status: 3,
+    stderr: ["err: `false` exited 1"],
   )?
-
-  assert failed.status == 3
-  assert "err: `false` exited 1" in failed.stderr
   let status = run.status false
   assert status.exited_with(1)
   let text = run.text printf "%s" "hello" ?
@@ -999,19 +977,18 @@ test test_run_fixture_behaviors { |ctx|
 }
 
 test test_signaled_status_exit_code_is_structured_error { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """let status = run sh -c "kill -TERM $$"
 let _ = status.exit_code()?
 """,
+    status: 3,
+    stderr: ["status-kind"],
   )?
-
-  assert output.status == 3
-  assert "status-kind" in output.stderr
 }
 
 test test_nested_traceback_includes_user_procs_and_pure_functions { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 pure leaf() -> Result[Unit] {
@@ -1035,15 +1012,9 @@ proc main(args: List[Str]) -> Result[Unit] {
 
 main(args)?
 """,
+    status: 3,
+    stderr: ["call path:", "proc main", "proc outer", "pure middle", "pure leaf", "nul-path"],
   )?
-
-  assert output.status == 3
-  assert "call path:" in output.stderr
-  assert "proc main" in output.stderr
-  assert "proc outer" in output.stderr
-  assert "pure middle" in output.stderr
-  assert "pure leaf" in output.stderr
-  assert "nul-path" in output.stderr
 }
 
 test test_foundation_literals_defers_streams_and_builders { |ctx|
@@ -1079,13 +1050,13 @@ beta
 }
 
 test test_run_timeout_error { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """let _ = run --timeout=10ms sh -c "sleep 1" ?
 """,
+    status: 3,
+    stderr: ["timeout"],
   )?
-  assert output.status == 3
-  assert "timeout" in output.stderr
 }
 
 proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
@@ -1150,7 +1121,7 @@ print ${k.trim()}
 }
 
 test test_tracebacks_locate_the_failing_command_and_current_call_path { |ctx|
-  let failed_run = test.run_script(
+  let failed_run = test.expect(
     ctx,
     r"""proc backup(dest: Path) [process, error] {
   print "before"
@@ -1158,9 +1129,9 @@ test test_tracebacks_locate_the_failing_command_and_current_call_path { |ctx|
 }
 backup(p"/nonexistent/out.tgz")?
 """,
+    status: 3,
+    stderr: ["err: `sh` exited 4"],
   )?
-  assert failed_run.status == 3
-  assert "err: `sh` exited 4" in failed_run.stderr, failed_run.stderr
   assert "runtime traceback" not in failed_run.stderr, failed_run.stderr
   assert "operation:" not in failed_run.stderr, failed_run.stderr
   assert "pipeline segment" not in failed_run.stderr, failed_run.stderr
@@ -1173,7 +1144,7 @@ backup(p"/nonexistent/out.tgz")?
   )?
   assert "err: pipeline segment 0 `false` exited 1" in pipeline.stderr, pipeline.stderr
 
-  let stale = test.run_script(
+  let stale = test.expect(
     ctx,
     r"""stream numbers() -> Stream[Int] {
   yield 1
@@ -1186,9 +1157,9 @@ for _ in numbers() {
   let _ = reads(p"/nonexistent/traceback.txt")?
 }
 """,
+    status: 3,
+    stderr: ["proc reads"],
   )?
-  assert stale.status == 3
-  assert "proc reads" in stale.stderr, stale.stderr
   assert "numbers" not in stale.stderr, stale.stderr
   assert "fs-read: /nonexistent/traceback.txt: " in stale.stderr, stale.stderr
 }
@@ -1221,7 +1192,7 @@ test test_filesystem_errors_name_their_paths { |ctx|
 test test_run_accepts_relative_command_paths { |ctx|
   let tool = fp"{ctx.temp_root}/tool"
   tool.write("#!/bin/sh\necho ran\n", mode: 0o755)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""cd (ROOT) {
   run ./tool
@@ -1229,8 +1200,8 @@ test test_run_accepts_relative_command_paths { |ctx|
   print ${out.trim()}
 }
 """.replace("ROOT", f"p\"{ctx.temp_root}\""),
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "ran\nran\n"
 }
 

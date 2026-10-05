@@ -171,6 +171,7 @@ simple_statement = binding
                  | "export" ( ( "let" | "const" ) binding_rest | enum_declaration | type_declaration | error_declaration )
                  | context_scope "?"?
                  | tempdir_scope "?"?
+                 | within_scope "?"?
                  | named_command "?"?
                  | expression_statement
                  | exit_statement
@@ -336,6 +337,7 @@ record_expression = ( record_literal | map_comprehension ) postfix* logical_tail
 retry_expression = "retry" "[" list(expression) "]" ( "on" "(" NEWLINE* pattern NEWLINE* ")" ( "as" IDENT )* )? block ;
 operand = ( ( "!" | "-" ) unary | primary ( ~"." MEMBER | ~"[" index "]" | ~"(" call_arguments ")" )* ) !( "." MEMBER | "[" | "(" ) ;
 context_scope = ( "cd" | "env" ) "(" expression ")" NEWLINE* block ;
+within_scope = "within" ( DURATION | IDENT ( "." IDENT )* ) block ;
 tempdir_scope = "tempdir" IDENT "{" separator* statements "}" ;
 builder_call = ( "process" ~"." ~"command" ) ( ~"(" call_arguments ")" )? builder_block ;
 builder_block = "{" ( separator | builder_compound_entry | builder_entry separator )* builder_entry? "}" ;

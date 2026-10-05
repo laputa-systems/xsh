@@ -1,5 +1,5 @@
 test test_bare_blocks_preserve_values_and_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc mark(message: Str) [] { print $message }
 var count = 0
@@ -17,8 +17,8 @@ let grouped = { (answer) }
 let shorthand = {answer}
 print \${answer} \${negative} \${grouped} \${shorthand.answer}
 """,
+    status: 0,
   )?
-  assert output.success
   assert output.stdout == """statement cleanup
 value cleanup
 42 false 42 42
@@ -321,14 +321,14 @@ test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
     assert wrong_return, diagnostics
   }
 
-  let rejected = test.run_script(
+  let _ = test.expect(
     ctx,
     """proc value() [] { { 7 }; print retained }
 value()
 """,
+    status: 2,
+    stderr: ["check.ignored-result"],
   )?
-  assert rejected.status == 2, rejected.stderr
-  assert "check.ignored-result" in rejected.stderr, rejected.stderr
 
   let output = test.run_script(
     ctx,

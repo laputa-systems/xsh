@@ -55,11 +55,7 @@ value /= 0
 }
 
 pure negated_floats(values: List[Float]) -> List[Float] {
-  var negated = []
-  for value in values {
-    negated += [-value]
-  }
-
+  var negated = [-value for value in values]
   negated
 }
 

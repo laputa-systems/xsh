@@ -56,10 +56,7 @@ assert kept is Err(_)""",
   ]
   for handling in handlers {
     for failure in ["let first = empty[0]", "let first = first_of(empty)"] {
-      let failed = test.run_script(ctx, handled_script(handling, failure))?
-      assert failed.status == 3, failed.stderr
-      assert "list index" in failed.stderr, failed.stderr
-      assert "err: " in failed.stderr, failed.stderr
+      let failed = test.expect(ctx, handled_script(handling, failure), status: 3, stderr: ["list index", "err: "])?
       assert "handled failure" not in failed.stderr, failed.stderr
       assert "handled_outer" not in failed.stderr, failed.stderr
     }
@@ -67,7 +64,7 @@ assert kept is Err(_)""",
 }
 
 test test_a_handled_error_in_the_same_statement_leaves_no_traceback { |ctx|
-  let failed = test.run_script(
+  let failed = test.expect(
     ctx,
     handled_script(
   "",
@@ -76,24 +73,24 @@ test test_a_handled_error_in_the_same_statement_leaves_no_traceback { |ctx|
   Err(_) => empty[0]
 }""",
 ),
+    status: 3,
+    stderr: ["list index"],
   )?
-  assert failed.status == 3, failed.stderr
-  assert "list index" in failed.stderr, failed.stderr
   assert "handled failure" not in failed.stderr, failed.stderr
   assert "handled_outer" not in failed.stderr, failed.stderr
 
-  let propagated = test.run_script(
+  let propagated = test.expect(
     ctx,
     handled_script("", "let total = (handled_outer(2) ?? 0) + fresh_failure()?"),
+    status: 3,
+    stderr: ["fresh failure"],
   )?
-  assert propagated.status == 3, propagated.stderr
-  assert "fresh failure" in propagated.stderr, propagated.stderr
   assert "handled failure" not in propagated.stderr, propagated.stderr
   assert "handled_outer" not in propagated.stderr, propagated.stderr
 }
 
 test test_a_handled_error_leaves_no_traceback_for_a_later_propagation { |ctx|
-  let failed = test.run_script(
+  let failed = test.expect(
     ctx,
     handled_script(
   "let fallback = handled_outer(2) ?? 0",
@@ -106,17 +103,15 @@ test test_a_handled_error_leaves_no_traceback_for_a_later_propagation { |ctx|
 }
 caller()?""",
 ),
+    status: 3,
+    stderr: ["err: ", "fresh failure", "proc caller"],
   )?
-  assert failed.status == 3, failed.stderr
-  assert "err: " in failed.stderr, failed.stderr
-  assert "fresh failure" in failed.stderr, failed.stderr
-  assert "proc caller" in failed.stderr, failed.stderr
   assert "handled failure" not in failed.stderr, failed.stderr
   assert "handled_outer" not in failed.stderr, failed.stderr
 }
 
 test test_a_par_map_worker_reports_its_own_failure_after_handling_one { |ctx|
-  let failed = test.run_script(
+  let failed = test.expect(
     ctx,
     handled_script(
   "",
@@ -129,16 +124,15 @@ test test_a_par_map_worker_reports_its_own_failure_after_handling_one { |ctx|
 let checked = check_all([2])?
 print $checked.len()""",
 ),
+    status: 3,
+    stderr: ["fresh failure", "proc check_all"],
   )?
-  assert failed.status == 3, failed.stderr
-  assert "fresh failure" in failed.stderr, failed.stderr
-  assert "proc check_all" in failed.stderr, failed.stderr
   assert "handled failure" not in failed.stderr, failed.stderr
   assert "handled_outer" not in failed.stderr, failed.stderr
 }
 
 test test_a_repropagated_error_keeps_its_original_traceback { |ctx|
-  let failed = test.run_script(
+  let _ = test.expect(
     ctx,
     handled_script(
   "",
@@ -149,11 +143,9 @@ test test_a_repropagated_error_keeps_its_original_traceback { |ctx|
 }
 caller()?""",
 ),
+    status: 3,
+    stderr: ["handled failure", "proc handled_outer", "proc caller"],
   )?
-  assert failed.status == 3, failed.stderr
-  assert "handled failure" in failed.stderr, failed.stderr
-  assert "proc handled_outer" in failed.stderr, failed.stderr
-  assert "proc caller" in failed.stderr, failed.stderr
 }
 
 # An `Err` that is handled and replaced inside one `?` operand, or inside one
@@ -175,14 +167,12 @@ test test_an_error_replaced_inside_one_operand_gets_its_own_traceback { |ctx|
   1""",
   ]
   for replacement in replacements {
-    let failed = test.run_script(
+    let failed = test.expect(
       ctx,
       HANDLED_PRELUDE + REPLACED_PRELUDE + "proc replacer() [error] -> Result[Int] {\n" + replacement + "\n}\n\nproc caller() [error] -> Result[Int] {\n  replacer()?\n}\n\ncaller()?\n",
+      status: 3,
+      stderr: ["replacement", "proc caller", "proc replacer"],
     )?
-    assert failed.status == 3, failed.stderr
-    assert "replacement" in failed.stderr, failed.stderr
-    assert "proc caller" in failed.stderr, failed.stderr
-    assert "proc replacer" in failed.stderr, failed.stderr
     assert "handled failure" not in failed.stderr, failed.stderr
     assert "proc handled_outer" not in failed.stderr, failed.stderr
     assert "proc nested_outer" not in failed.stderr, failed.stderr

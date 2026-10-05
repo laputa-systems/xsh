@@ -21,7 +21,7 @@ match result_value() { Ok(value) => value == false; Err(_) => false }
 }
 
 test test_explicit_assert_tails_and_bool_value_tails { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc statement_tail() [fs, error] -> Unit { assert p".".exists()? }
@@ -35,8 +35,8 @@ assert false_value() == false
 let _ = false_value()
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
@@ -54,7 +54,7 @@ statement_tail()
 }
 
 test test_false_assert_tail_captures_after_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc cleanup() [io] -> Unit { print "cleaned" }
@@ -68,8 +68,8 @@ match result {
   _ => print "unexpected"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """cleaned
 assertion
 """

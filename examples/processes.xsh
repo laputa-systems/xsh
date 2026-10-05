@@ -21,6 +21,6 @@ let same_group = group.by_gid(me.gid)?
 let term = process.signal("TERM")?
 
 print "host" ${shell.name == "sh"} ${process_count > 0} ${host != ""} ${os.sysname != ""}
-print "identity" ${same_user.uid == me.uid} ${same_group.gid == me.gid} ${me.name != ""} ${me.home.display() != ""}
+print "identity" ${same_user.uid == me.uid} ${same_group.gid == me.gid} ${me.name != ""} ${me.home != ""}
 print "signal" ${term.number > 0} ${time.now() > 0}
 run_checks()

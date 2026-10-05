@@ -19,8 +19,7 @@ for kind in ["a", "b"] {
 }
 """
   candidate.write_atomic(source)
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
 
   let linted = run.capture --text "xsht" lint --only lint.redundant-result-unit $candidate ?
   assert linted.status.exited_with(0), linted.stderr
@@ -30,7 +29,6 @@ for kind in ["a", "b"] {
   assert "check.inferred-variant" not in fixing.stderr, fixing.stderr
   let fixed = candidate.read_text()?
   assert "proc check(kind: Str) -> Result[Unit, ScriptError] {" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
 }

@@ -326,7 +326,7 @@ main()?
   assert context_default.stdout.trim() == expected_default
   assert context_override.stdout.trim() == "aarch64-unknown-linux-musl"
 
-  let platform = test.run_script(
+  let platform = test.expect(
     ctx,
     """
 use context
@@ -350,10 +350,10 @@ proc main() [env, error] -> Result[Unit] {
 
 main()?
 """,
-    [],
-    {XSH_MODULE_PATH: module_path, DOCKER_PLATFORM: "linux/override"},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: module_path, DOCKER_PLATFORM: "linux/override"},
   )?
-  assert platform.success, platform.stderr
   assert platform.stdout.trim() == "linux/override"
 }
 

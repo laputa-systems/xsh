@@ -97,6 +97,7 @@ statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
 and the `as` that ends its destination (8.7),
+`within` before the duration and block of a `within` scope (10.4),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -1793,7 +1794,7 @@ cannot be a value. There are two. A statement-position `Result[Unit]` is one
 (8.1). A `Result[Bool]` condition is the other:
 
 ```xsh
-if ! cache.exists() or ! source.exists() {
+if ! cache.exists() or ! src.exists() {
   eprint "nothing to compare"
   return Ok(true)
 }
@@ -2781,7 +2782,7 @@ Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
 
-### 10.4 `cd`, `env`, and `tempdir` scopes
+### 10.4 `cd`, `env`, `tempdir`, and `within` scopes
 
 ```xsh
 cd p"build" {
@@ -2874,6 +2875,63 @@ ordinary destination. It needs the `fs` effect and is rejected in pure
 functions. The path is an ordinary value that may leave the scope, but it
 names a removed directory once the scope ends. `tempdir` starts a scope only
 when the name and `{` follow on the same line.
+
+`within DURATION { ... }` runs its body under a deadline, `DURATION` from
+the moment the scope is entered:
+
+```xsh
+let page = within limit {
+  run.text curl --silent $url ?
+}
+match page {
+  Ok(text) => text
+  Err(is Timeout) => fail f"{url} did not answer in time"
+  Err(failure) => Err(failure)
+}
+```
+
+Like the other scopes it returns `Result[Unit]` in statement position and
+`Result[T]` of the body's tail in value position, with no parentheses. Its
+`Err` reports only the deadline: an `Error` that implements `Timeout`, so
+`Err(is Timeout)` selects it, with the message
+`the block did not finish within DURATION`. Any other failure of the body
+goes where it would go without the scope. The duration is a `Duration`
+evaluated once. The scope needs the `time` effect and is rejected in pure
+functions, and a `yield` inside it is rejected: a producer suspended there
+would keep the deadline open while its consumer runs. `within` starts a
+scope only when a duration literal or a name with any `.field`s follows it
+and the `{` follows that on the same line; bind any other expression to a
+name first. Everywhere else `within` is an ordinary name.
+
+The deadline is noticed at checkpoints, not at an arbitrary instant:
+
+- A foreground child process (any `run` form) that is still running at the
+  deadline is stopped the way a cancelled one is: its process group gets
+  `SIGTERM`, and `SIGKILL` 150 ms later if it is still running.
+- `time.sleep`, `retry` delays, `wait` on a process handle, network
+  operations, and the wait for `par-map` workers poll, and stop at the
+  deadline. Workers obey the deadline of the scope that started them.
+- Computation is checked before each statement, at each iteration of a loop
+  or stream stage, and when a failure starts to propagate. One long call
+  into the runtime (hashing a large file, a blocking read of a file or
+  pipe) is not interrupted, and the deadline is noticed when it returns.
+
+At a checkpoint past the deadline the body stops with a failure that only
+the scope can stop: `try` and `retry` inside the body do not capture it. It
+unwinds like any failure, so every block it leaves runs its `defer` and
+`errdefer` actions (8.7), a block's owned process handles and network jobs are
+cancelled first (11.8), and a callee's blocks are left before its caller's.
+Deferred actions are never cut short by a deadline: scopes that are open
+when an action starts do not apply while it runs, and a deadline that passes
+meanwhile is delivered at the first checkpoint after it. A body that reaches
+its end has finished, however late: the scope then returns `Ok`, and its
+deadline no longer exists.
+
+Scopes nest, and the nearest deadline wins: each open scope keeps its own
+deadline, the earliest one to pass is delivered, and it ends every scope
+inside the one it belongs to without those scopes reporting it. An inner
+scope that times out returns its `Err` to the code around it, which goes on
+under the outer deadline.
 
 ### 10.5 Environment access
 
@@ -3803,6 +3861,16 @@ output), and mocks for `dns.*` and `net.*` operations matched by partial
 argument records. When an operation has mocks and none matches, the call
 fails with an unmatched-mock error; operations without mocks use the real
 host.
+
+`test.expect(ctx, source, status: N, stderr: [...], stdout: [...])` runs a
+script as `test.run_script` does, in its own process and with the same
+`args`, `env`, `stdin`, and `name` arguments, and states what the run must
+look like. `status` is required (`0` for success); `stderr` and `stdout` list
+fragments the captured text must contain and default to none. When the status
+differs or a fragment is missing, the call is a failed assertion whose message
+names every mismatch and then gives the script's status, stdout, and stderr in
+full. Otherwise it returns the output record `test.run_script` returns, so
+further assertions can follow.
 
 Each test runs under a time limit counted from its start: the runner's
 `xsht test --timeout` value unless the test calls `test.timeout(ctx, limit)`,

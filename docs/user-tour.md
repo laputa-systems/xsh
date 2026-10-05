@@ -1099,12 +1099,7 @@ returns a handle and `wait` collects one or a list:
 ```xsh
 const hosts = ["10.0.0.11", "10.0.0.12", "10.0.0.13"]
 
-var probes: List[ProcessHandle] = []
-
-for host in hosts {
-  probes += [spawn run --timeout=5s ping -c 1 $host > /dev/null?]
-}
-
+let probes = [spawn run --timeout=5s ping -c 1 $host > /dev/null? for host in hosts]
 let statuses = wait probes?
 
 for i in range(hosts.len()) {
@@ -1756,8 +1751,7 @@ test harden_script_edits_file_and_keeps_backup { |ctx|
   config.write("#PermitRootLogin yes\n")
 
   let source = p"bin/harden.xsh".read_text()?
-  let result = test.run_script(ctx, source, args: ["--config", config.display()])?
-  assert result.success, result.stderr
+  let _ = test.expect(ctx, source, status: 0, args: ["--config", config.display()])?
   assert config.read_text()? == "PermitRootLogin no\n"
   assert fp"{config}.bak".exists()?
 }

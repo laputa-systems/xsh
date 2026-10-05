@@ -33,7 +33,7 @@ print f"{value} {attempts}"
 }
 
 test test_retry_exhaustion_returns_final_error { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 var attempts = 0
@@ -49,11 +49,9 @@ let _ = retry [0ms, 0ms] {
   flaky()?
 }?
 """,
+    status: 3,
+    stderr: ["attempt 3", "err: RetryError.Transient: attempt 3"],
   )?
-
-  assert output.status == 3
-  assert "attempt 3" in output.stderr
-  assert "err: RetryError.Transient: attempt 3" in output.stderr, output.stderr
 }
 
 test test_retry_attempt_defers_run_before_next_attempt { |ctx|
@@ -114,7 +112,7 @@ for item in items() { print $item }
   assert ! rejected.success
   assert "check.yield" in rejected.stderr, rejected.stderr
   assert rejected.stdout == ""
-  let captured = test.run_script(
+  let captured = test.expect(
     ctx,
     """stream items() [] -> Stream[Int] {
   let attempt = try {
@@ -125,8 +123,8 @@ for item in items() { print $item }
 }
 for item in items() { print $item }
 """,
+    status: 0,
   )?
-  assert captured.success, captured.stderr
   assert captured.stdout == "1\n2\n"
 }
 
@@ -322,17 +320,17 @@ match result { Err(_) => print "stopped"; _ => print "wrong" }
 }
 
 test test_retry_filter_rejects_captures_and_impossible_families { |ctx|
-  let capture = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 error FetchError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (FetchError.Busy {message}) { attempt()? }
 """,
+    status: 2,
+    stderr: ["check.pattern-test-binding"],
   )?
-  assert capture.status == 2
-  assert "check.pattern-test-binding" in capture.stderr
-  let impossible = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 error FetchError = Busy(message: Str)
@@ -340,9 +338,9 @@ error OtherError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (OtherError.Busy) { attempt()? }
 """,
+    status: 2,
+    stderr: ["check.pattern-type"],
   )?
-  assert impossible.status == 2
-  assert "check.pattern-type" in impossible.stderr
 }
 
 test test_retry_filter_facets_and_cleanup_failure_priority { |ctx|
@@ -379,7 +377,7 @@ print f"{attempts} {cleaned}"
 }
 
 test test_retry_filter_does_not_retry_abort { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 let result = retry [0ms] on (_) {
@@ -388,8 +386,8 @@ let result = retry [0ms] on (_) {
 }
 print "after"
 """,
+    status: 7,
   )?
-  assert output.status == 7
   assert output.stdout == """attempt
 """
 }
@@ -405,9 +403,7 @@ proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")
 let result = retry [] on (NotFound) { attempt()? }
 """,
   ] {
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2
-    assert "check.pattern-" in output.stderr
+    let _ = test.expect(ctx, source, status: 2, stderr: ["check.pattern-"])?
   }
 }
 
@@ -439,15 +435,15 @@ print \${cleaned}
 }
 
 test test_retry_filter_rejects_string_classification { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 proc attempt() -> Result[Str, Str] { Err("busy") }
 let result = retry [] on ("busy") { attempt()? }
 """,
+    status: 2,
+    stderr: ["check.retry-pattern"],
   )?
-  assert output.status == 2
-  assert "check.retry-pattern" in output.stderr
 }
 
 test test_retry_filter_nested_try_and_lexical_return_keep_destinations { |ctx|

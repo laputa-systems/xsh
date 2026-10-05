@@ -297,7 +297,7 @@ pure Config(name: Str) -> Str { name }
 }
 
 test test_record_constructors_fill_positional_fields_in_declaration_order { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""enum Kind { File, Binary }
 type Entry = {path: Path, kind: Kind, mode: Int = 420, tags: List[Str] = []}
@@ -317,8 +317,8 @@ print f"{tool.path} {tool.kind == Binary} {tool.mode} {tool.tags.len()}"
 print f"{tagged.mode} {tagged.tags[0]}"
 print f"{counted.label}={counted.count}"
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """2
 usr/bin/xsh 493 420
 usr/bin/xsht true 420 0
@@ -430,8 +430,7 @@ let reordered = Entry(kind: File, path: p"etc/other")
 let pair = Pair(first: 1, second: 2)
 print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let root = test.temp_dir(ctx, name: "positional-constructor-lint")?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
@@ -447,8 +446,7 @@ print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
   assert "Entry(path: file, kind:)" in fixed, fixed
   assert "Entry(kind: File, path: p\"etc/other\")" in fixed, fixed
   assert "Pair(first: 1, second: 2)" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let second = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
   assert second.status.exited_with(0), second.stderr

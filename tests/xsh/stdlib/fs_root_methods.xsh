@@ -64,7 +64,7 @@ test fs_root_methods_keep_mutation_defaults_and_symlink_confinement { |ctx|
 }
 
 test fs_root_methods_named_arguments_evaluate_in_source_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 let root = fs.tempdir()?
@@ -80,8 +80,8 @@ proc data() [] -> Str {
 root.write(data: data(), path: next_path())?
 print (root.read_text(p"data")?)
 """,
+    status: 0,
   )?
-  assert output.status == 0
   assert output.stdout == """data
 path
 payload
@@ -115,17 +115,17 @@ export pure root_path(value: Str) -> Str { value }
 ## Returns its argument unchanged.
 export pure close_root(value: Str) -> Str { value }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 use helper
 print helper.root_path("path")
 print helper.close_root("closed")
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """path
 closed
 """

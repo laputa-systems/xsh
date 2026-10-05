@@ -240,15 +240,15 @@ test test_parametric_record_instances_keep_exact_field_types { |ctx|
 type CountObservation = Observation[Int]
 let count = CountObservation(state: "observed", value: 7, samples: [7])
 """
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     declaration + r"""let sample: Int = count.samples[0]
 let maybe: Int? = count.value
 let generic: Observation[Int] = count
 print ${sample + (maybe ?? 0) + generic.samples.len()}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == """15
 """
   for line in [

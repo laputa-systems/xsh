@@ -30,17 +30,14 @@ test test_match_else_runs_only_when_no_earlier_arm_selects {
 
 test test_match_else_follows_guarded_and_wildcard_patterns {
   let pairs = [[1, 2], [3, 3], [0, 9]]
-  var labels = []
-  for pair in pairs {
-    labels += [
-      match pair {
-        [0, _] => "zero",
-        [a, b] if a == b => "same",
-        else => "other",
-      },
-    ]
-  }
-
+  var labels = [
+    match pair {
+      [0, _] => "zero",
+      [a, b] if a == b => "same",
+      else => "other",
+    }
+    for pair in pairs
+  ]
   assert labels == ["other", "same", "zero"]
 }
 
@@ -153,8 +150,7 @@ match level {
 let label = match level { Info => "info", _ => "other" }
 print \$label
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   assert before.stdout == "else\nwildcard\nother\n"
   let candidate = test.temp_file(ctx, name: "match-else.xsh", contents: bytes.from_text(source))?
 
@@ -180,7 +176,6 @@ print \$label
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, rewritten)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
 }

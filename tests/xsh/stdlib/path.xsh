@@ -156,7 +156,7 @@ run printf "%s" "--target=$raw" ?
 }
 
 test test_path_text_conversions_remain_distinct_from_native_arguments { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 let raw = Path.parse_bytes(b"raw\xff name")?
@@ -167,8 +167,8 @@ run printf "%s\n" (Path(raw.display())) ?
 run printf "%s\n" (Path(f"{raw}/child")) ?
 run printf "%s\n" (raw) ?
 """,
+    status: 0,
   )?
-  assert output.success
   assert output.stdout_bytes == b"--target=raw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name/child\nraw\xff name\n"
 }
 

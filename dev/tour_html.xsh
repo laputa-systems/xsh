@@ -674,11 +674,7 @@ pure parse_blocks(lines: List[Str]) -> Result[List[Block]] {
       index = table.next
     } else if line.starts_with("- ") {
       let list = take_list(lines, index)
-      var items: List[List[Block]] = []
-      for item in list.items {
-        items += [parse_blocks(item)?]
-      }
-
+      var items: List[List[Block]] = [parse_blocks(item)? for item in list.items]
       blocks += [Bullets(items)]
       index = list.next
     } else {

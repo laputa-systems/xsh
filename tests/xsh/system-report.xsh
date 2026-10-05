@@ -150,22 +150,22 @@ type SystemReportLiveCollector = module {
 }
 
 test test_system_report_checker_keeps_cpu_policy_members_typed { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""use core.lib.system_report as model
 pure cpu_policy_members(policy: model.CpuFreqPolicy) -> Str {
   return policy.related_cpus
 }
 """,
-    [],
-    {XSH_MODULE_PATH: ctx.core_dir.parent()},
+    status: 2,
+    stderr: ["expected Str, found List[Int]"],
+    args: [],
+    env: {XSH_MODULE_PATH: ctx.core_dir.parent()},
   )?
-  assert output.status == 2
-  assert "expected Str, found List[Int]" in output.stderr
 }
 
 test test_system_report_checker_rejects_live_collection_in_pure_code { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""use core.lib.system_report_live as collector
 pure forbidden_live_collection() -> Result[Unit] {
@@ -173,11 +173,11 @@ pure forbidden_live_collection() -> Result[Unit] {
   return Ok()
 }
 """,
-    [],
-    {XSH_MODULE_PATH: ctx.core_dir.parent()},
+    status: 2,
+    stderr: ["effectful proc is not allowed in pure functions"],
+    args: [],
+    env: {XSH_MODULE_PATH: ctx.core_dir.parent()},
   )?
-  assert output.status == 2
-  assert "effectful proc is not allowed in pure functions" in output.stderr
 }
 
 test test_system_report_class_parent_retains_independent_fallback_and_link_failure {

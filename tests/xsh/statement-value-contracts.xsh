@@ -1,5 +1,5 @@
 test explicit_payloads { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure unit() -> Unit {}
 pure boolean() -> Bool { false }
@@ -10,15 +10,14 @@ pure nested() -> Result[Result[Int]] { Ok(Ok(11)) }
 let checked: Unit = unit()
 print ${boolean()} ${early()} ${optional(false) ?? 0} ${result()?} ${(nested()?)?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """false false 0 9 11
 """
 }
 
 test omitted_private_pure_payloads { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure boolean() { false }
 pure early() { return false }
@@ -26,15 +25,14 @@ pure optional(flag: Bool) { if flag { 7 } else { null } }
 pure result() { Ok(9) }
 print ${boolean()} ${early()} ${optional(false) ?? 0} ${result()?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """false false 0 9
 """
 }
 
 test omitted_private_proc_payloads { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc boolean() [] { false }
 proc early(flag: Bool) [] { if flag { return 1 }; 2 }
@@ -43,9 +41,8 @@ proc statement() [io] { print statement }
 let unit: Result[Unit] = statement()
 print ${boolean()?} ${early(true)?} ${early(false)?} ${branch(false)?} ${unit is Ok(_)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """statement
 false 1 2 no true
 """
@@ -85,7 +82,7 @@ text()
     assert "check.ignored-result" in output.stderr, output.stderr
   }
 
-  let discarded = test.run_script(
+  let discarded = test.expect(
     ctx,
     r"""proc data() [io] -> Int { print data; 1 }
 proc inferred() [io] { print inferred; 2 }
@@ -93,8 +90,8 @@ let _ = data()
 let _ = inferred()?
 print done
 """,
+    status: 0,
   )?
-  assert discarded.success, discarded.stderr
   assert discarded.stdout == """data
 inferred
 done
@@ -102,37 +99,37 @@ done
 }
 
 test final_top_level_int_is_the_exit_status { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc data() [io] -> Int { print data; 7 }
 data()
 """,
+    status: 7,
   )?
-  assert output.status == 7, output.stderr
   assert output.stdout == """data
 """
 
   # An entry `main` the last statement does not call runs afterwards and owns
   # the exit status, so that last statement's Int would be dropped.
-  let after_main = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""proc main() [] -> Int { 4 }
 5
 """,
+    status: 2,
+    stderr: ["check.ignored-result"],
   )?
-  assert after_main.status == 2, after_main.stderr
-  assert "check.ignored-result" in after_main.stderr, after_main.stderr
-  let called_main = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""proc main() [] -> Int { 4 }
 main()
 """,
+    status: 4,
   )?
-  assert called_main.status == 4, called_main.stderr
 }
 
 test unit_consuming_assertions { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc check() [error] -> Unit { assert false }
 proc wrapped() [error] -> Result[Unit] { assert false }
@@ -141,9 +138,8 @@ let result: Result[Unit] = try { wrapped() }
 let tail: Result[Unit] = try { assert false }
 print ${direct is Err(_)} ${result is Err(_)} ${tail is Err(_)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """true true true
 """
 }
@@ -166,20 +162,19 @@ test unit_consuming_bool_statements_are_rejected { |ctx|
 }
 
 test non_tail_concrete_bool { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure check(value: Int) -> Result[Int] { assert value > 0; value }
 print ${check(-1) is Err(_)} ${check(3)?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """true 3
 """
 }
 
 test discard_bool_result { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 pure unit() -> Unit {}
@@ -189,15 +184,14 @@ let _ = failed
 let _ = unit()
 print done
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """done
 """
 }
 
 test discard_initializer_propagation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 proc fail() [] -> Result[Int, LocalError] { Err(LocalError.Bad("kept")) }
@@ -209,16 +203,15 @@ proc discarded() [io, error] -> Unit {
 let result: Result[Unit] = try { discarded() }
 print ${result is Err(LocalError.Bad)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """cleanup
 true
 """
 }
 
 test statement_result_unit_proc { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 proc fail() [] -> Result[Unit, LocalError] { Err(LocalError.Bad("kept")) }
@@ -226,31 +219,29 @@ proc caller() [io, error] -> Unit { fail(); print unreachable }
 let result: Result[Unit] = try { caller() }
 print ${result is Err(LocalError.Bad)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """true
 """
 }
 
 test explicit_data_proc_outward_propagation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc parsed(value: Str) [error] -> Int { value.parse_int()? }
 print ${parsed("7")}
 let failure: Result[Int] = try { parsed("bad") }
 print ${failure is Err(_)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """7
 true
 """
 }
 
 test try_one_layer_and_nesting { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 let data: Result[Int, LocalError] = Err(LocalError.Bad("inner"))
@@ -261,16 +252,15 @@ print ${nested is Err(LocalError.Bad)} ${captured is Err(LocalError.Bad)}
 let no = try { false }?
 print $no
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """true true
 false
 """
 }
 
 test retry_lexical_return_and_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc escape() [io, error] -> Result[Str] {
   let captured: Result[Int] = retry [] {
@@ -281,16 +271,15 @@ test retry_lexical_return_and_cleanup { |ctx|
 }
 print ${escape()?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """cleanup
 outer
 """
 }
 
 test try_loop_transfers_and_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""var rounds = 0
 while rounds < 3 {
@@ -303,9 +292,8 @@ while rounds < 3 {
 }
 print $rounds
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """cleanup
 cleanup
 cleanup
@@ -314,21 +302,20 @@ cleanup
 }
 
 test callback_bool_and_result_data { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let filtered = [1, 2] |> where { false } |> collect()
 let values = [1, 2] |> map { |value| Ok(value) } |> collect()
 print ${filtered.len()} ${values[0]?} ${values[1]?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """0 1 2
 """
 }
 
 test default_order_and_outer_scope { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let seed = 6
 proc mark(label: Str, value: Int) [io] -> Int { print $label; value }
@@ -338,9 +325,8 @@ print ${combine(right: mark("supplied", 9))}
 pure outer(seed: Int = seed) -> Int { seed }
 print ${outer()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """left
 right
 8
@@ -352,7 +338,7 @@ left
 }
 
 test producer_lazy_default_delegation_cancellation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc value(label: Str) [time] -> Int { let _ = time.now(); print $label; 7 }
 stream child(item: Int = value("default")) [time, error] -> Stream[Int] {
@@ -372,9 +358,8 @@ print created
 for item in source { print $item; break }
 print after
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """supplied
 created
 default
@@ -386,23 +371,22 @@ after
 }
 
 test status_as_data { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let status = run.status --accept=[1] false
 print ${status.exit_code()?}
 let _ = status
 print done
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """1
 done
 """
 }
 
 test explicit_nested_error { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 pure nested() -> Result[Result[Int, LocalError]] {
@@ -411,106 +395,103 @@ pure nested() -> Result[Result[Int, LocalError]] {
 }
 print ${nested()? is Err(LocalError.Bad)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """true
 """
 }
 
 test empty_proc_success { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc empty() [] {}
 let value: Result[Unit] = empty()
 print ${value is Ok(_)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """true
 """
 }
 
 test explicit_propagation_failure { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc parsed(value: Str) [error] -> Int { value.parse_int()? }
 print ${parsed("bad")}
 print unreachable
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == ""
   assert "parse-int" in output.stderr, output.stderr
 }
 
 test annotated_value_result_statement_rejected { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc leaf() [] -> Result[Int] { Ok(1) }
 proc bad() [error] -> Int { leaf(); 2 }
 print ${bad()}
 """,
+    status: 2,
   )?
-  assert output.status == 2
   assert output.stdout == ""
   assert "Result" in output.stderr, output.stderr
 }
 
 test annotated_effect_bound_rejected { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc bad() [] -> Unit { let _ = time.now() }
 bad()
 """,
+    status: 2,
   )?
-  assert output.status == 2
   assert output.stdout == ""
   assert "check.effect-violation" in output.stderr, output.stderr
 }
 
 test annotated_default_parameter_scope_rejected { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure bad(left: Int = 1, right: Int = left) -> Int { right }
 print ${bad()}
 """,
+    status: 2,
   )?
-  assert output.status == 2
   assert output.stdout == ""
   assert "left" in output.stderr, output.stderr
 }
 
 test try_error_only_rejected { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 let result = try { Err(LocalError.Bad("unknown"))? }
 let _ = result
 """,
+    status: 2,
   )?
-  assert output.status == 2
   assert output.stdout == ""
   assert "check.try-success-type" in output.stderr, output.stderr
 }
 
 test unreachable_does_not_add_unit { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure early() { return 7; return "unreachable" }
 pure branch(flag: Bool) -> Int { if flag { return 8 } else { 9 } }
 print ${early()} ${branch(true)} ${branch(false)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """7 8 9
 """
 }
 
 test discard_keeps_control_transfer { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc early() [io] -> Int {
   defer { print "cleanup" }
@@ -519,9 +500,8 @@ test discard_keeps_control_transfer { |ctx|
 }
 print ${early()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
-  assert output.status == 0
   assert output.stdout == """cleanup
 7
 """

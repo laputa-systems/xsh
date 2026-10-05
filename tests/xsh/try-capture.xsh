@@ -312,14 +312,14 @@ print (value is Err(_))
   }
   assert failed.stdout == """true
 """
-  let aborted = test.run_script(
+  let aborted = test.expect(
     ctx,
     """
 let value: Result[Unit] = try { exit 9 }
 print "unexpected"
 """,
+    status: 9,
   )?
-  assert aborted.status == 9
   assert aborted.stdout == ""
 }
 

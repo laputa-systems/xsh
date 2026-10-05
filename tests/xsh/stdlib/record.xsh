@@ -21,7 +21,7 @@ test test_record_schema_validation_and_any_require {
 }
 
 test test_standard_record_schemas_reject_bad_dynamic_records { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""
 proc entry_name(entry: FsEntry) -> Str {
@@ -43,14 +43,13 @@ let raw: Record = {
 
 print ${entry_name(raw)}
 """,
+    status: 2,
+    stderr: ["check.dynamic-boundary"],
   )?
-
-  assert output.status == 2
-  assert "check.dynamic-boundary" in output.stderr
 }
 
 test test_schema_runtime_checks_unknown_values { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""
 type Package = { name: Str, root: Path }
@@ -58,9 +57,7 @@ let rows = "{\"name\":\"demo\"}\n" |> json.lines()
 let pkg = rows[0].require(Package)?
 print ${pkg.name}
 """,
+    status: 3,
+    stderr: ["schema", "missing required field root"],
   )?
-
-  assert output.status == 3
-  assert "schema" in output.stderr
-  assert "missing required field root" in output.stderr
 }

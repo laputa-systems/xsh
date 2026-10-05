@@ -161,15 +161,14 @@ test test_cli_usage_rejects_a_schema_it_cannot_interpret { |ctx|
   # message, exactly as the baseline's native route does. The rejection is a
   # runtime error rather than a returned value, so it is observed here through a
   # script that propagates it at top level: status 3, the rejection on stderr.
-  let unknown_type = test.run_script(
+  let _ = test.expect(
     ctx,
     """use cli
 print cli.usage({count: {kind: "Nope"}}, "demo")
 """,
+    status: 3,
+    stderr: ["cli-parse: unsupported option type `Nope`"],
   )?
-
-  assert unknown_type.status == 3
-  assert "cli-parse: unsupported option type `Nope`" in unknown_type.stderr
 
   # The schema is read in sorted name order, so the first rejected descriptor
   # reported is the first one the baseline would report — `broken` sorts before
@@ -930,7 +929,7 @@ test test_cli_parse_names_the_program_and_presents_at_the_boundary { |ctx|
   # it hands out, so the label is matched by its prefix and the rest of the
   # usage text is asserted in full; the label an explicit `command` supplies
   # wins over the program's name.
-  let help = test.run_script(
+  let help = test.expect(
     ctx,
     """use cli
 
@@ -939,18 +938,20 @@ proc main() [io, error, fs] {
   print "unreached"
 }
 """,
-    [],
-    {},
-    b"",
-    "mytool.xsh",
-  )?
-  assert help.status == 0
-  assert "usage: mytool.xsh-" in help.stdout
-  assert """ [OPTIONS]
+    status: 0,
+    stdout: [
+  "usage: mytool.xsh-",
+  """ [OPTIONS]
 
 options:
   -h, --help  show this help
-""" in help.stdout
+""",
+],
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "mytool.xsh",
+  )?
   assert help.stderr == ""
   assert "unreached" not in help.stdout
   assert failure_message(cli.parse(["--help"], {}, "named")) == """usage: named [OPTIONS]
@@ -963,7 +964,7 @@ options:
   # stderr with status 2. Both are the outer boundary's presentation
   # (`handle_cli_parse_stop`), which stays native; the program stops at the
   # rejection rather than reaching the next statement.
-  let rejected = test.run_script(
+  let rejected = test.expect(
     ctx,
     """use cli
 
@@ -972,22 +973,24 @@ proc main() [io, error, fs] {
   print "unreached"
 }
 """,
-    [],
-    {},
-    b"",
-    "mytool.xsh",
-  )?
-  assert rejected.status == 2
-  assert "unknown argument at argv[0]: --nope" in rejected.stderr
-  assert """
+    status: 2,
+    stderr: [
+  "unknown argument at argv[0]: --nope",
+  """
 
-usage: mytool.xsh-""" in rejected.stderr
-  assert """ [OPTIONS]
+usage: mytool.xsh-""",
+  """ [OPTIONS]
 
 options:
   --name NAME
   -h, --help  show this help
-""" in rejected.stderr
+""",
+],
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "mytool.xsh",
+  )?
   assert rejected.stdout == ""
 
   # A schema the reader cannot interpret is not a usage rejection, so the
@@ -998,7 +1001,7 @@ options:
   # with its own frames and without repeating the appended usage text there —
   # a difference the two presentations above never reach, because both are
   # taken from the error value rather than from the traceback.
-  let descriptor = test.run_script(
+  let descriptor = test.expect(
     ctx,
     """use cli
 
@@ -1007,16 +1010,16 @@ proc main() [io, error, fs] {
   let _ = cli.parse([], schema)
 }
 """,
-    [],
-    {},
-    b"",
-    "mytool.xsh",
+    status: 3,
+    stderr: ["cli-parse: unsupported option type `Nope`"],
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "mytool.xsh",
   )?
-  assert descriptor.status == 3
-  assert "cli-parse: unsupported option type `Nope`" in descriptor.stderr
   assert "usage: mytool" not in descriptor.stderr
 
-  let nul_path = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""use cli
 
@@ -1024,11 +1027,11 @@ proc main() [io, error, fs] {
   let _ = cli.parse(["--out", "a\u{0}b"], {out: "Path"})
 }
 """,
-    [],
-    {},
-    b"",
-    "mytool.xsh",
+    status: 3,
+    stderr: ["nul-path: paths cannot contain NUL bytes"],
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "mytool.xsh",
   )?
-  assert nul_path.status == 3
-  assert "nul-path: paths cannot contain NUL bytes" in nul_path.stderr
 }

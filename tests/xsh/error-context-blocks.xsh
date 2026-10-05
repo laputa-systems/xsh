@@ -105,22 +105,22 @@ last
 }
 
 test test_ctx_does_not_convert_abort_into_an_error { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""ctx "abort region" {
   defer { print "cleanup" }
   exit 17
 }
 """,
+    status: 17,
   )?
-  assert output.status == 17
   assert output.stdout == """cleanup
 """
   assert "ctx: abort region" not in output.stderr
 }
 
 test test_ctx_stream_suspension_retains_region_and_runs_cleanup_on_early_exit { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""stream values() [error] -> Stream[Int] {
   defer { print "outer" }
@@ -134,8 +134,8 @@ test test_ctx_stream_suspension_retains_region_and_runs_cleanup_on_early_exit { 
 for value in values() { print $value; break }
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 inner
 outer
@@ -154,7 +154,7 @@ let values = values() |> collect
 }
 
 test test_ctx_keeps_loop_transfers_and_value_evaluation_before_defers { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""var count = 0
 for item in [1, 2, 3] {
@@ -168,8 +168,8 @@ for item in [1, 2, 3] {
 let value = ctx "value" { defer { print "value cleanup" }; 7 }
 print $count $value
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """cleanup:1
 cleanup:2
 value cleanup
@@ -180,13 +180,13 @@ value cleanup
 error CtxFailure = Failed(message: Str, code: Int) : InvalidData
 
 test test_ctx_preserves_nominal_payloads_and_callable_ctx_names { |harness|
-  let called = test.run_script(
+  let called = test.expect(
     harness,
     r"""pure ctx(value: Int) -> Int { value + 1 }
 print ${ctx(4)}
 """,
+    status: 0,
   )?
-  assert called.success, called.stderr
   assert called.stdout == """5
 """
   let original: Result[Unit, CtxFailure] = Err(CtxFailure.Failed(message: "base", code: 7))

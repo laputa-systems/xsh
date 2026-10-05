@@ -77,11 +77,7 @@ test test_map_iteration_nested_targets_and_qualifiers {
       amount: 1,
     },
   }
-  var selected = []
-  for {key, value: {label: name, amount, ..}, ..} in values {
-    selected += [f"{key}:{name}:{amount}"]
-  }
-
+  var selected = [f"{key}:{name}:{amount}" for {key, value: {label: name, amount, ..}, ..} in values]
   assert selected == ["first:one:1", "second:two:2"]
   let expanded = [
     f"{key}:{item}"

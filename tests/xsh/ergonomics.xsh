@@ -122,7 +122,7 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
 }
 
 test test_ergonomics_optional_call_skips_punned_argument_evaluation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """var calls = 0
 proc separator_value() [] -> Str {
@@ -137,8 +137,8 @@ print $calls
 print (skipped ?? "absent")
 print (skipped_effect ?? "absent")
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 absent
 absent
@@ -162,7 +162,7 @@ test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
 }
 
 test test_ergonomics_statement_branch_bool_is_rejected { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """proc check_branch() [] {
   if true {
@@ -173,9 +173,9 @@ test test_ergonomics_statement_branch_bool_is_rejected { |ctx|
 }
 check_branch()?
 """,
+    status: 2,
+    stderr: ["check.bool-statement"],
   )?
-  assert output.status == 2, output.stderr
-  assert "check.bool-statement" in output.stderr, output.stderr
 }
 
 test test_ergonomics_list_concatenation_does_not_merge_maps { |ctx|

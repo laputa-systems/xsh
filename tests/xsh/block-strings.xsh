@@ -140,8 +140,7 @@ let value = f\"""
   \"""
 print $value
 """
-  let executed = test.run_script(ctx, source)?
-  assert executed.success, executed.stderr
+  let executed = test.expect(ctx, source, status: 0)?
   assert executed.stdout == """left
 right
 left
@@ -158,8 +157,7 @@ test test_block_strings_preserve_crlf_tabs_and_explicit_final_newlines { |ctx|
 	 \"""
 print $value
 """
-  let executed = test.run_script(ctx, source)?
-  assert executed.success, executed.stderr
+  let executed = test.expect(ctx, source, status: 0)?
   assert executed.stdout == """first\r
   second
 """
@@ -180,14 +178,12 @@ let formatted = f\"""
   \"""
 print \${json.encode(text)?} \${json.encode(leading)?} \${json.encode(formatted)?}
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "block-string-format.xsh", contents: bytes.from_text(source))?
   let formatted = run.capture --text "xsht" fmt $candidate ?
   assert formatted.status.exited_with(0), formatted.stderr
   let fixed = candidate.read_text()?
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let repeated = run.capture --text "xsht" fmt $candidate ?
   assert repeated.status.exited_with(0), repeated.stderr
@@ -198,16 +194,14 @@ test test_block_string_lint_preserves_literal_bytes_and_converges { |ctx|
   let source = """let value = "first\\n" + "  second\\n"
 print \${json.encode(value)?}
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "block-string-fix.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert """value = \"""
 """ in fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
   assert repeated.status.exited_with(0), repeated.stderr
@@ -221,8 +215,7 @@ print \"""
   \${if true { "inside" } else { "other" }}
   \"""
 """
-  let executed = test.run_script(ctx, source)?
-  assert executed.success, executed.stderr
+  let executed = test.expect(ctx, source, status: 0)?
   assert executed.stdout == """hello demo
 inside
 """
@@ -230,8 +223,7 @@ inside
   literal $name
   \"""
 """
-  let raw_executed = test.run_script(ctx, raw_source)?
-  assert raw_executed.success, raw_executed.stderr
+  let raw_executed = test.expect(ctx, raw_source, status: 0)?
   assert raw_executed.stdout == """literal $name
 """
 }

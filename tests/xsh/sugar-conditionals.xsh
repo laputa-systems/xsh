@@ -77,7 +77,7 @@ print read(" a ")
 }
 
 test test_status_conditions_are_not_negated { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc first_failure() [process] -> Str {
   let good = run.status true
@@ -94,8 +94,8 @@ proc checked() [process] -> Str {
 print first_failure()
 print checked()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "bad failed\nguarded\n"
 }
 
@@ -198,12 +198,12 @@ test test_guard_failure_block_must_exit_in_statement_and_tail_position { |ctx|
   }
 
   # The rule belongs to `guard`; the `if` it expands to may fall through.
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc run_all(flag: Bool) { if flag {} else { print "stay" }; print "next" }
 run_all(false)
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "stay\nnext\n"
 }

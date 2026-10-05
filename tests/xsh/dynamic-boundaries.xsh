@@ -570,7 +570,7 @@ pure takes(count: Int) -> Int { count }
 # Navigation, `Any` destinations, equality, list membership, and validation
 # need no `.require`: each is defined for every value or yields `Any`.
 test test_dynamic_boundary_keeps_navigation_equality_and_validation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""type Row = {a: Int, xs: List[Int]}
 let raw: Any = {a: 1, ok: true, xs: [1, 2], name: "n", nested: {b: 2}}
@@ -596,8 +596,8 @@ let back: Any = row
 print ${back == raw}
 print ${row.xs.len()}
 """,
+    status: 0,
   )?
-  assert output.status == 0, output.stderr
   assert output.stdout == """[2,1,[1],2,[1,2],true,true,{"b":2},1]
 2
 n
@@ -632,8 +632,7 @@ let first = [raw.xs][0]
 let items: List[Int] = raw.xs.require()?
 print ${items.len() + count}
 """
-  let executed = test.run_script(ctx, candidate.read_text()?)?
-  assert executed.status == 0, executed.stderr
+  let executed = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert executed.stdout == """2
 n
 2

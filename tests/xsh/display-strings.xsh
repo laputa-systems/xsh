@@ -161,12 +161,12 @@ print f"hi $name"
   assert "check.fmt-dollar-name" in named.stderr, named.stderr
   assert ":2:12" in named.stderr, named.stderr
   assert "interpolate with `{name}`" in named.stderr, named.stderr
-  let unbound = test.run_script(
+  let unbound = test.expect(
     ctx,
     """print f"$HOME_UNBOUND"
 """,
+    status: 0,
   )?
-  assert unbound.success, unbound.stderr
   assert unbound.stdout == """$HOME_UNBOUND
 """
 }
@@ -184,8 +184,7 @@ print f"{ {a: 1}.a } {m["k"]} {{x}} {x:>4} {f"{x}"} $5 \\$x"
 print fp"/tmp/{{{x}}}"
 print f"{ {a: 2}.a }"
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   assert before.stdout == """1 v {x}    7 7 $5 $x
 /tmp/{7}
 2

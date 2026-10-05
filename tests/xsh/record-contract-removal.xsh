@@ -7,16 +7,15 @@ type Name = {name: Str}
 type NullableVersion = {name: Str, version: Str?}
 
 test test_record_require_removed_api_has_actionable_diagnostic { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""
 let checked = record.require({name: "demo"}, {name: "Str"})?
 print $checked.name
 """,
+    status: 2,
+    stderr: ["check.removed-record-require", ".require(Schema)"],
   )?
-  assert output.status == 2
-  assert "check.removed-record-require" in output.stderr
-  assert ".require(Schema)" in output.stderr
 }
 
 test test_record_named_schema_keeps_nested_fields_extras_and_aliases {
@@ -63,17 +62,17 @@ test test_record_removed_module_name_does_not_capture_user_module_callable { |ct
 ## Returns its argument unchanged.
 export pure require(value: Str) -> Str { value }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 use helper as record
 let selected = record.require("hello")
 print $selected
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.status == 0
   assert output.stdout == """hello
 """
 }
@@ -124,7 +123,6 @@ print first_label().byte_len() second_label().byte_len() third_label().byte_len(
   assert as_root.status.exited_with(0), as_root.stderr
   let fixed = module_file.read_text()?
   assert "let checked = PackageName(name: \"demo\").require(PackageName)?" in fixed, fixed
-  let after = test.run_script(ctx, main.read_text()?, [], {XSH_MODULE_PATH: root})?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, main.read_text()?, status: 0, args: [], env: {XSH_MODULE_PATH: root})?
   assert after.stdout == "demo\n57 58 57 58\n"
 }

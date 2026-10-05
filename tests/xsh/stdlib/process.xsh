@@ -47,13 +47,13 @@ test test_process_module {
 }
 
 test test_process_command_argv_requires_argv0 { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """let command = process.command_argv("echo", [])
 """,
+    status: 2,
+    stderr: ["check.process-argv-empty"],
   )?
-  assert output.status == 2
-  assert "check.process-argv-empty" in output.stderr
 }
 
 test test_process_command_builder_rejects_invalid_run_entries_before_execution { |ctx|
@@ -71,9 +71,7 @@ test test_process_command_builder_rejects_invalid_run_entries_before_execution {
       "let command = process.command {\n" + case.entries + "\n}\n",
       "proc unused() [process, error] {\nlet command = process.command {\n" + case.entries + "\n}\n}\n",
     ] {
-      let output = test.run_script(ctx, "print \"started\"\n" + source)?
-      assert output.status == 2, output.stderr
-      assert case.code in output.stderr, output.stderr
+      let output = test.expect(ctx, "print \"started\"\n" + source, status: 2, stderr: [case.code])?
       assert "compact.indexed-build" not in output.stderr, output.stderr
       assert output.stdout == "", output.stdout
     }
@@ -81,7 +79,7 @@ test test_process_command_builder_rejects_invalid_run_entries_before_execution {
 }
 
 test test_process_command_builder_accepts_one_run_or_status_with_fields { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let plain = process.command {
   timeout = 1s
@@ -95,8 +93,8 @@ assert process.run(plain)?.exited_with(0)
 assert process.run(status)?.exited_with(0)
 print accepted
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "accepted\n", output.stdout
 }
 

@@ -259,7 +259,7 @@ export pure extra() -> Int {
 """)
   let env_root = {XSH_MODULE_PATH: root.display()}
 
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     r"""type Service = exact module {
   export let name: Str
@@ -274,13 +274,13 @@ proc main() [io] {
   print ${checked.name} ${checked.extra()}
 }
 """,
-    [],
-    env_root,
+    status: 0,
+    args: [],
+    env: env_root,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == "cache 1\n", accepted.stdout
 
-  let rejected = test.run_script(
+  let _ = test.expect(
     ctx,
     """type Service = exact module {
   export let name: Str
@@ -290,14 +290,13 @@ use service
 
 let checked: Service = service
 """,
-    [],
-    env_root,
+    status: 2,
+    stderr: ["check.type-mismatch", "unexpected export `extra`: the exact contract does not list it"],
+    args: [],
+    env: env_root,
   )?
-  assert rejected.status == 2, rejected.stderr
-  assert "check.type-mismatch" in rejected.stderr, rejected.stderr
-  assert "unexpected export `extra`: the exact contract does not list it" in rejected.stderr, rejected.stderr
 
-  let widened = test.run_script(
+  let _ = test.expect(
     ctx,
     """type Open = module {
   export let name: Str
@@ -312,23 +311,22 @@ use service
 let open: Open = service
 let checked: Service = open
 """,
-    [],
-    env_root,
+    status: 2,
+    stderr: ["check.type-mismatch", "an exact contract needs `.require(Contract)`"],
+    args: [],
+    env: env_root,
   )?
-  assert widened.status == 2, widened.stderr
-  assert "check.type-mismatch" in widened.stderr, widened.stderr
-  assert "an exact contract needs `.require(Contract)`" in widened.stderr, widened.stderr
 
   # Outside a contract position `exact` stays an ordinary name.
-  let ordinary = test.run_script(
+  let ordinary = test.expect(
     ctx,
     r"""let exact = 3
 type Count = Int
 let count: Count = exact
 print $count
 """,
+    status: 0,
   )?
-  assert ordinary.success, ordinary.stderr
   assert ordinary.stdout == "3\n", ordinary.stdout
 }
 
@@ -452,17 +450,16 @@ checked.build("built")?
 demo-built
 """
 
-  let private = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""let loaded = module.load(p"{package}")?
 let value = loaded.prefix
 """,
-    [],
-    module_env,
+    status: 3,
+    stderr: ["missing-field", "prefix"],
+    args: [],
+    env: module_env,
   )?
-  assert private.status == 3
-  assert "missing-field" in private.stderr
-  assert "prefix" in private.stderr
 
   let mismatch = test.run_script(
     ctx,
@@ -523,14 +520,13 @@ export let name = "bad"
   ] {
     let module_path = fp"{root}/{fixture.name}.xsh"
     module_path.write(fixture.source)
-    let output = test.run_script(
+    let output = test.expect(
       ctx,
       f"""let _ = module.load(p"{module_path}")?
 """,
+      status: 3,
+      stderr: ["module-check", "check.module-top-level"],
     )?
-    assert output.status == 3
-    assert "module-check" in output.stderr
-    assert "check.module-top-level" in output.stderr
     assert module_path.name() in output.stderr
   }
 
@@ -540,14 +536,13 @@ export let name = "bad"
 }
 """,
   )
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     f"""let _ = module.load(p"{hook}")?
 """,
+    status: 3,
+    stderr: ["module-check", "check.signal-hook-module"],
   )?
-  assert output.status == 3
-  assert "module-check" in output.stderr
-  assert "check.signal-hook-module" in output.stderr
   assert hook.name() in output.stderr
 }
 
@@ -1181,15 +1176,15 @@ export let value = 1
 use a
 export let value = 2
 """)
-  let cycle = test.run_script(
+  let _ = test.expect(
     ctx,
     """use a
 """,
-    [],
-    module_env,
+    status: 2,
+    stderr: ["parse.module-cycle"],
+    args: [],
+    env: module_env,
   )?
-  assert cycle.status == 2
-  assert "parse.module-cycle" in cycle.stderr
 }
 
 test test_package_hook_module_calls_keep_dynamic_and_static_cwd { |ctx|
@@ -1464,7 +1459,7 @@ export pure label(value: Str) -> Str {
 }
 """)
 
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     f"""type Service = module {{
   export let name: Str
@@ -1492,9 +1487,9 @@ proc describe() [io] {{
 print ${{open.name}} ${{exact.label("exact")}} ${{loaded.label("loaded")}} ${{current.name}}
 describe()
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == "cache cache-exact cache-loaded cache\ncache-proc\n", output.stdout
 }

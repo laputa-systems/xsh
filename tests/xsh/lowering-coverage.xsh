@@ -1,6 +1,6 @@
 test test_registered_calls_lower_named_entries_through_checked_bindings { |ctx|
   let root = test.temp_dir(ctx, name: "lowering-registered")?
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let root = fp"{args[0]}"
 let parsed = Path.parse_bytes(bytes: b"/tmp/parsed")?
@@ -25,9 +25,9 @@ proc nested(base: Path) {
 }
 nested(root)
 """,
-    [root.display()],
+    status: 0,
+    args: [root.display()],
   )?
-  assert output.success, output.stderr
   assert output.stdout == """/tmp/parsed
 3 5
 1
@@ -39,7 +39,7 @@ true
 }
 
 test test_environment_path_views_lower_named_entries_and_bound_receivers { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""env.PATH.append(path: p"/opt/probe-a")?
 let entries = env.PATH
@@ -47,8 +47,8 @@ entries.prepend(path: p"/opt/probe-b")?
 print env.PATH.pop()?.display()
 print ${p"/opt/probe-b" in env.PATH}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """/opt/probe-a
 true
 """
@@ -63,7 +63,7 @@ export pure scale(value: Int, by: Int = 2) -> Int { value * by }
 ## Counts a table.
 export pure count(table: Map[Int] = {a: 1, b: 2}, extra: Int = 0) -> Int { table.len() + extra }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use helper
 print f"{helper.scale(by: 5, value: 3)} {helper.scale(3, by: 4)} {helper.scale(value: 3)}"
@@ -74,10 +74,10 @@ proc nested() {
 }
 nested()
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """15 12 6
 3 1
 4
@@ -85,7 +85,7 @@ nested()
 }
 
 test test_top_level_guard_bindings_publish_success_values { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""type Build = {jobs: Int, target: Str}
 type Config = {root: Str, build: Build}
@@ -103,8 +103,8 @@ guard let missing = config(false) else { |failure|
 }
 print "unreachable ${missing.root}"
 """,
+    status: 4,
   )?
-  assert output.status == 4, output.stderr
   assert output.stdout == """src 3 native
 fallback missing
 """
@@ -113,7 +113,7 @@ fallback missing
 # Top-level slots take the checker's binding type: a stream run binding is a
 # Stream, so a signal hook's root snapshot can read it.
 test test_signal_hooks_read_top_level_stream_run_bindings { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let rows = run.stream --text printf "a\nb\n" ?
 on USR1 [] {
@@ -122,19 +122,19 @@ on USR1 [] {
 }
 run sh -c r"kill -USR1 $PPID; sleep 1" ?
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "2\n"
 }
 
 test test_map_parameter_defaults_encode_map_keys { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure size(table: Map[Int] = {["first"]: 1, second: 2}) -> Int { table.len() }
 print ${size()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """2
 """
 }
@@ -262,7 +262,7 @@ test test_nested_declarations_are_checker_errors { |ctx|
     }
   }
 
-  let local = test.run_script(
+  let local = test.expect(
     ctx,
     r"""proc body() -> Int {
   const limit = 7
@@ -270,7 +270,7 @@ test test_nested_declarations_are_checker_errors { |ctx|
 }
 print ${body()}
 """,
+    status: 0,
   )?
-  assert local.success, local.stderr
   assert local.stdout == "7\n"
 }

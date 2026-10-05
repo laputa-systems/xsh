@@ -8,7 +8,7 @@ proc fails() {
 
 # Runs `body` after the shared helpers and returns what it printed.
 proc trace(ctx: TestContext, body: Str) [fs, process, error] -> Result[Str] {
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """error StepError {
   Failed(message: Str)
@@ -19,8 +19,8 @@ proc fails() {
 }
 
 """ + body,
+    status: 0,
   )?
-  assert output.success, output.stderr
   output.stdout
 }
 
@@ -208,7 +208,7 @@ match try { step()? } {
 }
 
 test test_a_failing_errdefer_leaves_the_original_failure_primary { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """error StepError {
   Failed(message: Str)
@@ -229,8 +229,8 @@ match step() {
   Err(failure) => print f"failed: {failure.message}"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "still runs\nfailed: primary\n"
   assert "cleanup error" in output.stderr
   assert "undo failed" in output.stderr
@@ -254,17 +254,17 @@ print firsts.len()
 }
 
 test test_errdefer_at_the_top_level_follows_the_script { |ctx|
-  let passing = test.run_script(
+  let passing = test.expect(
     ctx,
     """errdefer { print "errdefer" }
 defer { print "defer" }
 print "body"
 """,
+    status: 0,
   )?
-  assert passing.success, passing.stderr
   assert passing.stdout == "body\ndefer\n"
 
-  let failing = test.run_script(
+  let failing = test.expect(
     ctx,
     """errdefer { print "errdefer" }
 defer { print "defer" }
@@ -272,17 +272,17 @@ print "body"
 error.fail("script failed")?
 errdefer { print "never registered" }
 """,
+    status: 3,
   )?
-  assert failing.status == 3
   assert failing.stdout == "body\ndefer\nerrdefer\n"
 
-  let exiting = test.run_script(
+  let exiting = test.expect(
     ctx,
     """errdefer { print "errdefer" }
 exit 4
 """,
+    status: 4,
   )?
-  assert exiting.status == 4
   assert exiting.stdout == "errdefer\n"
 }
 

@@ -4,8 +4,7 @@ test test_filesystem_path_methods_require_the_fs_effect { |ctx|
     assert ! denied.success, call
     assert "check.effect-violation" in denied.stderr, denied.stderr
     assert "requires the `fs` effect" in denied.stderr, denied.stderr
-    let allowed = test.run_script(ctx, effect_probe("source: Path", "fs, error", call))?
-    assert allowed.success, allowed.stderr
+    let _ = test.expect(ctx, effect_probe("source: Path", "fs, error", call), status: 0)?
   }
 }
 
@@ -15,8 +14,7 @@ test test_env_path_methods_require_the_env_effect { |ctx|
     assert ! denied.success, call
     assert "check.effect-violation" in denied.stderr, denied.stderr
     assert "requires the `env` effect" in denied.stderr, denied.stderr
-    let allowed = test.run_script(ctx, effect_probe("tools: Path", "env, error", call))?
-    assert allowed.success, allowed.stderr
+    let _ = test.expect(ctx, effect_probe("tools: Path", "env, error", call), status: 0)?
   }
 }
 

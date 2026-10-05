@@ -105,8 +105,7 @@ let row = Wire(""" + label + """: 1)
 let {""" + label + """: selected, ..} = row
 print $selected
 print $row.""" + label + "\n"
-    let executed = test.run_script(ctx, source)?
-    assert executed.success, executed.stderr
+    let executed = test.expect(ctx, source, status: 0)?
     assert executed.stdout == """1
 1
 """
@@ -166,8 +165,7 @@ match row { {""" + label + """} => {}, _ => {} }
       assert ! rejected.success, source + rejected.stderr
     }
 
-    let argv = test.run_script(ctx, "run printf \"%s\\n\" " + label + "\n")?
-    assert argv.success, argv.stderr
+    let argv = test.expect(ctx, "run printf \"%s\\n\" " + label + "\n", status: 0)?
     assert argv.stdout == label + "\n"
   }
 }
@@ -179,8 +177,7 @@ let row = raw.require(Entry)?
 print $row.type
 print $row.in
 """
-  let executed = test.run_script(ctx, source)?
-  assert executed.success, executed.stderr
+  let executed = test.expect(ctx, source, status: 0)?
   assert executed.stdout == """file
 2
 """
@@ -207,8 +204,7 @@ test test_keyword_field_label_tooling_preserves_execution_and_converges { |ctx|
 let label: Str = row.get("type")?
 print $label $row.in ${row["wire.type"]}
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "field-label-fix.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
@@ -216,8 +212,7 @@ print $label $row.in ${row["wire.type"]}
   assert "{type: \"file\", in: 2, \"wire.type\": 3}" in fixed
   assert "label = row.type" in fixed
   assert "# Keep the wire explanation." in fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
   assert repeated.status.exited_with(0), repeated.stderr

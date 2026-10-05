@@ -1,5 +1,5 @@
 test test_builtin_templates_keep_positional_defaults_errors_and_value_semantics { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc main() [error] {
@@ -21,8 +21,8 @@ proc main() [error] {
   print empty.len()
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """onetwo
 one:two
 7
@@ -37,7 +37,7 @@ one:two
 }
 
 test test_builtin_templates_preserve_nested_values_across_call_spellings { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error NestedError = Missing(code: Int)
@@ -61,8 +61,8 @@ proc main() [error] {
   print updated.keys().join(separator: ",")
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """7
 7
 7
@@ -74,7 +74,7 @@ one,two
 }
 
 test test_builtin_templates_evaluate_named_arguments_in_source_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc key() [] -> Str { print "key"; return "two" }
@@ -90,8 +90,8 @@ proc main() [] {
   print ${untouched == null}
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """receiver
 value
 key
@@ -120,7 +120,7 @@ test test_builtin_templates_reject_incompatible_concrete_operands { |ctx|
 }
 
 test test_builtin_templates_instantiate_empty_maps_from_independent_contexts { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc discard() [] -> Unit { let _ = map.empty(); map.empty() }
@@ -137,8 +137,8 @@ proc main() [error] {
   let _ = map.empty()
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """0
 7
 two
@@ -147,7 +147,7 @@ two
 }
 
 test test_builtin_templates_keep_result_return_contracts_under_success_contexts { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 pure parsed_tail(value: Str) -> Result[Int] { value.parse_int() }
@@ -161,8 +161,8 @@ proc main() [error] {
   print encoded_return(10)?
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """7
 8
 9
@@ -174,7 +174,7 @@ proc main() [error] {
 }
 
 test test_builtin_templates_match_materialized_line_and_collection_values { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 pure text_lines(value: Str) -> Int {
@@ -197,8 +197,8 @@ proc main() [] {
   print "one\n".lines().len()
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """2
 1
 3
@@ -221,7 +221,7 @@ test test_builtin_templates_do_not_certify_dynamic_receiver_domains { |ctx|
 test test_builtin_templates_carry_typed_map_key_and_value_parameters { |ctx|
   let declaration = """let table: Map[Int, Str] = {[1]: "one"}
 """
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     declaration + r"""let keys: List[Int] = table.keys()
 let values: List[Str] = table.values()
@@ -230,8 +230,8 @@ let updated: Map[Int, Str] = table.set(2, "two")
 let removed: Map[Int, Str] = updated.remove(1)
 print ${keys[0]} ${values[0]} ${found?} ${updated.len()} ${removed.keys()[0]}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == """1 one one 2 2
 """
   for source in [

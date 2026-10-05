@@ -33,7 +33,7 @@ test test_error_fallback_is_lazy_and_binds_exact_error {
 }
 
 test test_error_fallback_evaluates_result_once_before_handler { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LoadError = Missing(message: Str)
 proc load(found: Bool) [io] -> Result[Str, LoadError] {
@@ -45,8 +45,8 @@ let loaded = load(true) ?? { |_| print "unexpected"; "fallback" }
 let recovered = load(false) ?? { |failure| print f"handler {failure.message}"; "fallback" }
 print $loaded $recovered
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """load true
 load false
 handler missing
@@ -92,7 +92,7 @@ test test_error_fallback_literal_error_and_right_associativity {
 }
 
 test test_error_fallback_cleanup_and_lexical_return { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error FallbackError = invalid(message: Str)
 proc mark(message: Str) [] { print $message }
@@ -117,8 +117,8 @@ proc escape() [error] -> Int {
 }
 print ${recover()} ${escape()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """failed
 value
 cleanup
@@ -154,7 +154,7 @@ test test_error_fallback_keeps_enclosing_loop_targets {
 }
 
 test test_error_fallback_failure_propagates_to_retry_attempt { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error FallbackError = invalid(message: Str)
 proc main() [time, error] {
@@ -170,8 +170,8 @@ let recovered = retry [0ms] {
 print $recovered $attempts
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """recovered 2
 """
 }
@@ -228,7 +228,7 @@ let escaped = failure
 }
 
 test test_error_fallback_handler_failure_retains_its_error { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error FallbackError = source(message: Str) | handler(message: Str)
 let failed: Result[Str] = Err(FallbackError.source(message: "primary"))
@@ -238,10 +238,9 @@ let value = failed ?? { |_|
 }
 print $value
 """,
+    status: 3,
+    stderr: ["FallbackError.handler", "handler failed"],
   )?
-  assert output.status == 3
-  assert "FallbackError.handler" in output.stderr
-  assert "handler failed" in output.stderr
   assert output.stdout == ""
 }
 

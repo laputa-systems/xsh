@@ -1,5 +1,5 @@
 test test_error_handler_headers_bind_nominal_errors { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error HeaderError = failed(message: Str)
@@ -16,15 +16,15 @@ with value = fail() {} else { |failure|
   print ${message(failure)}
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """nominal
 nominal
 """
 }
 
 test test_with_bindings_are_sequential_and_stop_at_the_first_error { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error HeaderError = failed(message: Str)
@@ -38,8 +38,8 @@ with first = reached(3), second = failed()?, third = reached(4) {
 } else { |failure| print ${failure.message} }
 print after
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 2
 2
@@ -50,7 +50,7 @@ after
 }
 
 test test_error_headers_accept_comments_newlines_omission_and_discard { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error HeaderError = failed(message: Str)
@@ -66,8 +66,8 @@ with value = failed() {} else { |_| print discarded }
 with direct = 4, next = direct + 1 { print $next } else { print unreachable }
 print $failure
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """inside
 omitted
 discarded
@@ -159,7 +159,7 @@ proc bad() [] { guard let value = Ok(1) else |_| { return }; print $value }
 }
 
 test test_with_headers_preserve_cleanup_and_lexical_transfers { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc exercise() [] -> Int {
@@ -181,8 +181,8 @@ proc escape() [] -> Int {
 }
 print ${exercise()} ${escape()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 cleanup:1
 2
@@ -269,7 +269,7 @@ let broken: Int = "wrong"
 }
 
 test test_error_headers_suspend_in_streams_and_cleanup_on_cancellation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 stream values() [] -> Stream[Int] {
@@ -291,8 +291,8 @@ stream guarded() [] -> Stream[Int] {
 let result = guarded() |> collect
 print ${result[0]}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 closed
 guarded_closed
@@ -349,7 +349,7 @@ print recover()
 }
 
 test test_with_initializers_use_the_existing_heap_frame_stack { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc count(depth: Int) [] -> Int {
@@ -358,14 +358,14 @@ proc count(depth: Int) [] -> Int {
 }
 print count(2000)
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """2000
 """
 }
 
 test test_with_compound_initializers_keep_nominal_errors { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 error HeaderError = failed(message: Str)
@@ -377,8 +377,8 @@ proc selected() [error] -> Str {
 print ${selected()}
 with value = 1 + failed()? { print unreachable } else { |failure| print ${message(failure)} }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """compound
 compound
 """

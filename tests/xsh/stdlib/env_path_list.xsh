@@ -84,10 +84,12 @@ print "entered"
 """,
     "let plan = process.command_argv(\"true\", [\"true\"], env: {XSH_PATH_LIST: split})\nprint \"entered\"\n",
   ] {
-    let failed = test.run_script(ctx, "let split = [p\"/one\", p\"/two:/three\"]\n" + source)?
-    assert failed.status == 3, failed.stderr
-    assert "env-value" in failed.stderr, failed.stderr
-    assert "entry 1 contains the separator" in failed.stderr, failed.stderr
+    let failed = test.expect(
+      ctx,
+      "let split = [p\"/one\", p\"/two:/three\"]\n" + source,
+      status: 3,
+      stderr: ["env-value", "entry 1 contains the separator"],
+    )?
     assert "entered" not in failed.stdout, source
   }
 }
@@ -104,12 +106,12 @@ test test_a_list_of_anything_else_is_not_an_environment_value { |ctx|
   }
 
   # A command plan's `env` record is checked when the plan is built.
-  let plan = test.run_script(
+  let plan = test.expect(
     ctx,
     "let plan = process.command_argv(\"true\", [\"true\"], env: {NAMES: [\"a\", \"b\"]})\nprint \"built\"\n",
+    status: 3,
+    stderr: ["must be a List[Path]"],
   )?
-  assert plan.status == 3, plan.stderr
-  assert "must be a List[Path]" in plan.stderr, plan.stderr
   assert "built" not in plan.stdout
 }
 
@@ -119,12 +121,12 @@ test test_a_list_word_that_is_not_a_path_list_keeps_the_one_item_rule { |ctx|
     assert e"XSH_PATH_LIST"? == "only"
   }
   for names in ["[\"a\", \"b\"]", "[]"] {
-    let failed = test.run_script(
+    let _ = test.expect(
       ctx,
       f"let names: List[Str] = {names}\nenv NAMES=\$names {{\n  print \"entered\"\n}}\n",
+      status: 3,
+      stderr: ["environment values must be one value"],
     )?
-    assert failed.status == 3, failed.stderr
-    assert "environment values must be one value" in failed.stderr, failed.stderr
   }
 }
 
@@ -153,8 +155,7 @@ show(p"/stage")?
   assert listed != source
   let inherited = {XSH_PATH_LIST: "/usr/bin:/bin"}
   let before_set = test.run_script(ctx, source, [], inherited)?
-  let after_set = test.run_script(ctx, listed, [], inherited)?
-  assert after_set.success, after_set.stderr
+  let after_set = test.expect(ctx, listed, status: 0, args: [], env: inherited)?
   assert before_set.stdout == "/stage/usr/bin:/opt/bin:/usr/bin:/bin\n"
   assert after_set.stdout == before_set.stdout
 

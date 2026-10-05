@@ -81,7 +81,7 @@ test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
   print ""
 }""",
   )
-  let wrong_machine = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -98,11 +98,11 @@ proc main() [fs, process, error, io] -> Result[Unit] {{
 
 main()?
 """,
-    [],
-    {PATH: tools, XSH_MODULE_PATH: module_path},
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: module_path},
   )?
-  assert wrong_machine.success, wrong_machine.stderr
-  assert "StageError.Failed" in wrong_machine.stdout, wrong_machine.stdout
 
   write_fake_tool(
     fp"{tools}/readelf",
@@ -113,7 +113,7 @@ main()?
   print "NEEDED"
 }""",
   )
-  let dynamic = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -130,9 +130,9 @@ proc main() [fs, process, error, io] -> Result[Unit] {{
 
 main()?
 """,
-    [],
-    {PATH: tools, XSH_MODULE_PATH: module_path},
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: module_path},
   )?
-  assert dynamic.success, dynamic.stderr
-  assert "StageError.Failed" in dynamic.stdout, dynamic.stdout
 }

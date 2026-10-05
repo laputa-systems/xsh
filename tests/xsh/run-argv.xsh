@@ -77,13 +77,11 @@ test test_interpolated_target_is_still_one_item { |ctx|
 test test_lint_rewrites_a_rebuilt_command_vector { |ctx|
   let source = "proc launch(argv: List[Str]) [process, error] -> Result[Status, ProcessError] {\n  let status = process.run(process.command_argv(argv[0], argv))?\n  Ok(status)\n}\n\nlet status = launch([\"sh\", \"-c\", \"exit 4\"])?\nprint f\"{status.exited_with(4)}\"\n"
   let file = test.temp_file(ctx, name: "launch.xsh", contents: bytes.from_text(source))?
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let reported = run.capture --text "xsht" lint --only lint.prefer-run-argv $file ?
   assert reported.stderr.split("warn[lint.prefer-run-argv]").len() == 2, reported.stderr
   let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-run-argv $file ?
   assert "  let status = run.status @argv ?\n" in file.read_text()?, fixed.stderr
-  let after = test.run_script(ctx, file.read_text()?)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, file.read_text()?, status: 0)?
   assert after.stdout == before.stdout
 }

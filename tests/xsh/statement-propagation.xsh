@@ -324,7 +324,7 @@ inferred(true)<?>
 # tail that constructs or is declared a value stays one. A proc whose return
 # is inferred from such a tail reports the failure from inside as well.
 test test_result_unit_function_tail_is_still_the_functions_result { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     PRELUDE + r"""
 proc restricted(fail: Bool) [io] -> Result[Unit, Step] {
@@ -349,11 +349,11 @@ let second = restricted(false)
 print ${first is Err(_)} ${second is Ok(_)} ${constructed(true) is Err(_)} ${constructed(false) is Ok(_)}
 print ${block_value()?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "restricted\nrestricted\ntrue true true true\ntrue\n7\n"
 
-  let failed = test.run_script(
+  let _ = test.expect(
     ctx,
     PRELUDE + r"""
 proc work() {
@@ -362,9 +362,9 @@ proc work() {
 
 work()
 """,
+    status: 3,
+    stderr: ["proc work at"],
   )?
-  assert failed.status == 3
-  assert "proc work at" in failed.stderr
 }
 
 # A `cd`, `env`, `try`, or `retry` block in statement position is a
@@ -499,7 +499,7 @@ print ${length(false)}
   }
 
   # A capture gives the failure somewhere to go, and so does a `Result`.
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     PRELUDE.replace("proc step", "pure step") + r"""
 pure captured(fail: Bool) -> Int {
@@ -528,7 +528,7 @@ proc plain(fail: Bool) [error] -> Int {
 let unwound = try { plain(true) }
 print ${captured(true)} ${captured(false)} ${fallible(true) is Err(_)} ${inferred(false)?} ${unwound is Err(_)}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == "0 1 true 1 true\n"
 }

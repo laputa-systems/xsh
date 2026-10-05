@@ -1,5 +1,5 @@
 test test_defer_blocks_register_lexically_and_read_values_at_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc log(message: Str) [] { print $message }
@@ -21,8 +21,8 @@ proc exercise() [error] {
 }
 exercise()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """body
 inner
 outside
@@ -32,7 +32,7 @@ first
 }
 
 test test_defer_blocks_keep_loop_cleanup_local_and_nested_defers_lifo { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc exercise() [] {
@@ -55,8 +55,8 @@ proc exercise() [] {
 }
 exercise()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """body:1
 cleanup:1:2
 nested
@@ -143,7 +143,7 @@ remaining
 }
 
 test test_defer_blocks_unwind_started_stream_on_early_consumer_exit { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 stream values() [] -> Stream[Int] {
@@ -159,8 +159,8 @@ for value in values() {
 }
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 inner:1
 outer
@@ -322,7 +322,7 @@ cli main() [error] {
 }
 
 test test_defer_blocks_unwind_return_and_keep_return_value { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc value() [] -> Int {
@@ -335,8 +335,8 @@ proc value() [] -> Int {
 }
 print ${value()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """inner
 outer
 7

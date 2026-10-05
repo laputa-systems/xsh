@@ -12,7 +12,7 @@ test test_a_pipeline_nests_inside_a_stage_expression {
 }
 
 test test_a_typed_command_argument_ends_at_its_line { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let out = run.text (
   printf "%s" p"line"
@@ -20,26 +20,26 @@ test test_a_typed_command_argument_ends_at_its_line { |ctx|
 )?
 print $out
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "line\n"
 }
 
 test test_an_env_value_may_interpolate { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let value = "interpolated"
 env XSH_BOUNDARY_VALUE=${value} {
   run printenv XSH_BOUNDARY_VALUE
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "interpolated\n"
 }
 
 test test_a_comma_inside_an_arm_block_is_a_command_word { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let mode = "words"
 match mode {
@@ -47,20 +47,20 @@ match mode {
   _ => print other
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "a, b\n"
 }
 
 test test_a_spaced_try_ends_a_nested_argument_in_a_command { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc greeting() [] -> Result[Str] { Ok("hello") }
 pure shout(text: Str) -> Str { text + "!" }
 print shout(greeting() ?)
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "hello!\n"
 }
 
@@ -70,12 +70,12 @@ test test_a_run_form_heads_a_pipeline_in_any_position { |ctx|
   let words = (run.text printf "x y"?).split(" ")
   assert words == ["x", "y"]
   assert (run.stream --text printf "c\n"? |> collect()) == ["c"]
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""run.stream --text printf "a\nb\n" ? |> each { |line| print $line }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "a\nb\n"
 }
 

@@ -169,14 +169,14 @@ print (config?.server.host ?? "default")
   )?
   assert ! restricted.success, restricted.stderr
   assert "check.effect-violation" in restricted.stderr
-  let statement = test.run_script(
+  let statement = test.expect(
     ctx,
     r"""let name: Str? = "abc"
 name?.starts_with("x")
 print "after"
 """,
+    status: 2,
   )?
-  assert statement.status == 2, statement.stderr
   assert statement.stdout == ""
   assert "check.ignored-result" in statement.stderr, statement.stderr
   assert "check.bool-statement" not in statement.stderr, statement.stderr

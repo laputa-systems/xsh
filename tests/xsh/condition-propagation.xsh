@@ -25,8 +25,7 @@ for name in ["yes", "no", "bad"] {
   }
 }
 """
-  let output = test.run_script(ctx, source)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, source, status: 0)?
   # The failed condition ended `probe`: its `else if` never ran.
   assert output.stdout == """known yes
 present
@@ -60,8 +59,7 @@ print every_position("yes", "no")?
 print every_position("no", "no")?
 print every_position("no", "bad")?
 """
-  let output = test.run_script(ctx, source)?
-  assert output.status == 3, output.stderr
+  let output = test.expect(ctx, source, status: 3)?
   # `or` skips its right operand after `yes`, and `while` asks three times.
   assert output.stdout == """known no
 known yes
@@ -101,8 +99,7 @@ match outcome {
   Err(problem) => print f"captured: {problem.message}"
 }
 """
-  let output = test.run_script(ctx, source)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == """known yes
 known no
 kept kept
@@ -113,8 +110,7 @@ captured: cannot stat bad
 
 test test_a_failed_condition_unwinds_like_a_statement { |ctx|
   let source = "proc known(name: Str) -> Result[Bool] {\n  fail f\"cannot stat {name}\"\n}\n\nproc report(name: Str) -> Int {\n  defer { print \"cleanup\" }\n  if known(name) {\n    return 1\n  }\n\n  0\n}\n\nprint f\"{report(\"x\")}\"\n"
-  let output = test.run_script(ctx, source)?
-  assert output.status == 3, output.stderr
+  let output = test.expect(ctx, source, status: 3)?
   assert output.stdout == "cleanup\n", output.stdout
   assert "cannot stat x" in output.stderr, output.stderr
 }
@@ -138,21 +134,21 @@ test test_a_result_elsewhere_in_a_condition_is_data { |ctx|
 
 test test_a_condition_cannot_propagate_where_a_statement_cannot { |ctx|
   let prelude = "pure known(name: Str) -> Result[Bool] {\n  Ok(name != \"\")\n}\n\n"
-  let pure_caller = test.run_script(
+  let _ = test.expect(
     ctx,
     prelude + "pure label(name: Str) -> Str {\n  if known(name) { return name }\n  \"anonymous\"\n}\n",
+    status: 2,
+    stderr: [
+      "err[check.try-context]: a `Result[Bool]` condition propagates its failure, which requires a Result-returning context",
+    ],
   )?
-  assert pure_caller.status == 2
-  assert "err[check.try-context]: a `Result[Bool]` condition propagates its failure, which requires a Result-returning context" in pure_caller.stderr, pure_caller.stderr
-  let restricted = test.run_script(
+  let _ = test.expect(
     ctx,
     prelude + "proc label(name: Str) [io] -> Str {\n  return name when known(name)\n  \"anonymous\"\n}\n",
+    status: 2,
+    stderr: ["err[check.effect-violation]: condition failure propagation requires the `error` effect"],
   )?
-  assert restricted.status == 2
-  assert "err[check.effect-violation]: condition failure propagation requires the `error` effect" in restricted.stderr, restricted.stderr
-  let other_result = test.run_script(ctx, "if \"4\".parse_int() { print \"yes\" }\n")?
-  assert other_result.status == 2
-  assert "err[check.if-condition]" in other_result.stderr, other_result.stderr
+  let _ = test.expect(ctx, "if \"4\".parse_int() { print \"yes\" }\n", status: 2, stderr: ["err[check.if-condition]"])?
 }
 
 test test_redundant_propagation_removes_the_condition_question_mark { |ctx|
@@ -182,8 +178,7 @@ proc pick(name: Str) -> Result[Str] {
 let picked = pick("yes")?
 print $picked
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "pick.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate ?
   assert first.status.exited_with(1), first.stderr
@@ -198,8 +193,7 @@ print $picked
   # A value keeps its `?`.
   assert "  Ok(f\"{known(name)?}\")\n" in fixed, fixed
   assert fixing.status.exited_with(0), fixing.stderr
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let formatted = run.capture --text "xsht" fmt --check $candidate ?
   assert formatted.status.exited_with(0), formatted.stderr

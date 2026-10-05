@@ -70,21 +70,21 @@ test test_private_proc_value_tails_infer_result_success_types {
 }
 
 test test_private_proc_inference_follows_declarations_not_source_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc first(value: Int) { second(value)? + 1 }
 proc second(value: Int) { value * 2 }
 let checked: Result[Int] = first(3)
 print ${checked?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """7
 """
 }
 
 test test_private_proc_statement_completions_keep_result_unit { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 proc printed() [io] { print printed }
@@ -102,8 +102,8 @@ branching(true)
 early(true)
 print ${a is Ok(_)} ${b is Ok(_)} ${c is Ok(_)} ${d is Err(LocalError.Bad)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """printed
 branching
 printed
@@ -112,7 +112,7 @@ true true true true
 }
 
 test test_private_proc_failure_only_completion_joins_value_tails { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error LocalError = Bad(message: Str)
 proc checked(value: Int) [error] {
@@ -121,8 +121,8 @@ proc checked(value: Int) [error] {
 let doubled: Result[Int] = checked(4)
 print ${doubled?} ${checked(-1) is Err(LocalError.Bad)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """8 true
 """
 }
@@ -196,15 +196,15 @@ test test_private_proc_inference_rejects_boundaries { |ctx|
 }
 
 test test_private_proc_recursive_statement_bodies_remain_unannotated { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc walk(depth: Int) [io, error] {
   if depth > 0 { print $depth; walk(depth - 1) }
 }
 walk(2)
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """2
 1
 """
@@ -231,7 +231,7 @@ test test_redundant_result_unit_lint_keeps_branching_tails { |ctx|
 }
 
 test test_private_proc_early_err_returns_join_propagated_errors { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error PortError = Missing(file: Path) | Invalid(text: Str)
 proc read_port(file: Path) [fs, error] {
@@ -251,8 +251,8 @@ let port: Result[Int] = read_port(p"/nonexistent/port")
 let family: Result[Str, PortError] = classify("ok")
 print ${missing is Err(PortError.Missing)} ${port is Err(_)} ${family?} ${classify("x") is Err(PortError.Invalid)}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """true true ok true
 """
 }

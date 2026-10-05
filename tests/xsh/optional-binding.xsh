@@ -81,7 +81,7 @@ test test_guard_let_optional_in_a_loop_may_continue_or_break {
 }
 
 test test_optional_binding_evaluates_its_subject_once { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc next(value: Int?) -> Int? {
   print "next"
@@ -107,8 +107,8 @@ if let found = next(null) {
   print "if: null"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "next\nguard: 1\nnext\nguard: null\nnext\nif: 2\nnext\nif: null\n"
 }
 
@@ -323,8 +323,7 @@ print \${describe({executor: null, retries: 2, label: "x", mode: Fast})}
 print \${describe({executor: {name: "a", slots: 1}, retries: 2, label: "x", mode: null})}
 print \${widened({executor: null, retries: 2, label: null, mode: null}) is Int}
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   assert before.stdout == "x0 fast\na/2 slow\nzero\nnone\nmodeless\ntrue\n"
   let candidate = test.temp_file(ctx, name: "null-tests.xsh", contents: bytes.from_text(source))?
 
@@ -362,8 +361,7 @@ print \${widened({executor: null, retries: 2, label: null, mode: null}) is Int}
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, rewritten)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
 }
 

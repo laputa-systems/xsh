@@ -166,7 +166,7 @@ test cli_constants_and_inline_descriptors_establish_the_same_field_types { |ctx|
   root: {kind: "Path", form: "ROOT"},
 }
 """
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     "const option_schema = " + descriptor + "let inline = cli.parse([\"work\"], " + descriptor + """)?
 """ + r"""let options = cli.parse(["work", "-j", "3"], option_schema)?
@@ -176,8 +176,8 @@ let inline_jobs: Int = inline.jobs
 let inline_root: Path = inline.root
 print $jobs ${root} $inline_jobs ${inline_root}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == """3 work 4 work
 """
   for field in ["jobs", "root"] {

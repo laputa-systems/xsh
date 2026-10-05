@@ -17,8 +17,7 @@ let captured: Result[Unit] = try {
 print (captured is Err(_))
 test.eq(right: expected(), left: rows(false)?[position()].value)?
 """
-  let plain = test.run_script(ctx, source)?
-  assert plain.success, plain.stderr
+  let plain = test.expect(ctx, source, status: 0)?
   assert plain.stdout == """base
 base cleanup
 index
@@ -42,7 +41,7 @@ index
 }
 
 test test_leading_operators_continue_only_when_they_cannot_start_a_statement { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure sign(positive: Bool) -> Int {
   return 1 when positive
@@ -65,8 +64,8 @@ let trimmed = " x "
   .trim()
 print ${sign(false)} ${root(false).display()} $total $label ${bounded} $trimmed
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """-1 /tmp/continuation 7 fallback true x
 """
 }

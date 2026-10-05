@@ -37,8 +37,7 @@ test test_size_literal_binding_is_unsigned { |ctx|
     assert "violates UInt constraint" in output.stderr, f"{keyword}: {output.stderr}"
   }
 
-  let annotated = test.run_script(ctx, "var left: Int = 1MiB\nleft = left - 2MiB\nprint f\"{left}\"\n")?
-  assert annotated.success, annotated.stderr
+  let annotated = test.expect(ctx, "var left: Int = 1MiB\nleft = left - 2MiB\nprint f\"{left}\"\n", status: 0)?
   assert annotated.stdout == "-1048576\n"
 }
 
@@ -62,11 +61,11 @@ test test_size_literal_in_a_collection_is_unsigned_for_let_and_const { |ctx|
   }
 
   # A written element type still decides.
-  let annotated = test.run_script(
+  let annotated = test.expect(
     ctx,
     "const data: List[Int] = [1MiB]\nvar left = data[0]\nleft = left - 8MiB\nprint f\"{left}\"\n",
+    status: 0,
   )?
-  assert annotated.success, annotated.stderr
   assert annotated.stdout == "-7340032\n"
 }
 
@@ -92,8 +91,7 @@ test test_size_unit_must_end_the_literal { |ctx|
 }
 
 test test_size_spelling_in_a_command_word_stays_text { |ctx|
-  let output = test.run_script(ctx, "run printf \"%s %s\\n\" 64KB (64KB) ?\n")?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, "run printf \"%s %s\\n\" 64KB (64KB) ?\n", status: 0)?
   assert output.stdout == "64KB 64000\n", output.stdout
 }
 
@@ -116,7 +114,6 @@ test test_lint_rewrites_literal_products_of_1024 { |ctx|
   let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-size-literal $file ?
   # The untyped binding would become `UInt`, so it is reported and left alone.
   assert file.read_text()? == "let size: UInt = 3MiB\nassert size < 4MiB\nlet chunk = 64 * 1024\nprint f\"{size} {chunk}\"\n", fixed.stderr
-  let output = test.run_script(ctx, file.read_text()?)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, file.read_text()?, status: 0)?
   assert output.stdout == "3145728 65536\n"
 }

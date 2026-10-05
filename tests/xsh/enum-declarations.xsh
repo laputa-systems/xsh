@@ -1,5 +1,5 @@
 test test_enum_singleton_and_alias { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""enum Token { Present(Str) }
 type Alias = Token
@@ -9,8 +9,8 @@ pure render(token: Alias) -> Str {
 print render(Present("ready"))
 print (Present("same") == Present("same"))
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """ready
 true
 """
@@ -63,7 +63,7 @@ export enum Choice { Chosen(Int) }
 ## The same nominal type.
 export type Alias = Choice
 """)
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""use choice as c
 let value: c.Alias = c.Chosen(7)
@@ -76,10 +76,10 @@ print $label
 let word = (run.text printf "%s" enum)?
 print $word
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """7
 label
 label
@@ -103,7 +103,7 @@ test test_enum_multiline_payload_equality_and_exhaustive_matches { |ctx|
   Custom(Int),
 }
 """
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     declaration + r"""pure describe(mode: Mode) -> Str {
   match mode {
@@ -114,8 +114,8 @@ test test_enum_multiline_payload_equality_and_exhaustive_matches { |ctx|
 }
 print ${describe(Fast)} ${describe(Custom(3))} ${Custom(3) == Custom(3)} ${Custom(3) == Custom(4)}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """fast custom:3 true false
 """
   let incomplete = test.run_script(

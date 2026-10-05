@@ -78,7 +78,7 @@ assert condition(), message()
 }
 
 test test_assert_messages_preserve_retry_capture_and_cleanup { |ctx|
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     r"""proc cleanup() [io] { print "cleaned" }
 let result: Result[Unit] = retry [] {
@@ -90,16 +90,18 @@ match result {
   Err(error) => { print $error.message }
 }
 """,
-  )?
-  assert result.success, result.stderr
-  assert """cleaned
+    status: 0,
+    stdout: [
+  """cleaned
 assertion failed: false: retry context
-""" in result.stdout
-  assert "retry context" in result.stdout
+""",
+  "retry context",
+],
+  )?
 }
 
 test test_assert_message_failure_takes_precedence_and_runs_cleanup { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""proc cleanup() [io] { print "cleaned" }
 proc message() [error] -> Str { let value = "bad".parse_int()?; f"{value}" }
@@ -112,10 +114,12 @@ match result {
   Err(error) => { print $error.message }
 }
 """,
+    status: 0,
+    stdout: [
+  """cleaned
+""",
+],
   )?
-  assert result.success, result.stderr
-  assert """cleaned
-""" in result.stdout
   assert "AssertionError" not in result.stdout, result.stdout
 }
 
@@ -167,14 +171,14 @@ restricted()
 }
 
 test test_assert_keyword_labels_and_external_argv_remain_literal { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """let row = {assert: "context"}
 assert row.assert == "context", row.assert
 run printf "%s\\n" assert
 """,
+    status: 0,
   )?
-  assert result.success, result.stderr
   assert result.stdout == """assert
 """
   let binding = test.run_script(
@@ -216,7 +220,7 @@ assert 0 < operand() < 3, message()
 }
 
 test test_assert_context_is_captured_by_nearest_try { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""let result: Result[Str] = try {
   let inner: Result[Unit] = try {
@@ -231,15 +235,15 @@ test test_assert_context_is_captured_by_nearest_try { |ctx|
 let value = result?
 print $value
 """,
+    status: 0,
   )?
-  assert result.success, result.stderr
   assert result.stdout == """assertion failed: false: inner context
 outer success
 """
 }
 
 test test_assert_message_propagation_is_captured_by_try { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""proc message() [error] -> Str {
   let value = "bad".parse_int()?
@@ -253,8 +257,8 @@ match result {
   Err(failure) => { print $failure.message }
 }
 """,
+    status: 0,
   )?
-  assert result.success, result.stderr
   assert result.stdout == """invalid integer `bad`
 """
 }

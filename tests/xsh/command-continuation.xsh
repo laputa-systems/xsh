@@ -16,8 +16,7 @@ test test_backslash_continues_command_arguments { |ctx|
       "  beta # a comment may end the last line",
     ],
   )
-  let output = test.run_script(ctx, source)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == "one|two words|three|alpha beta\n", output.stdout
 }
 
@@ -40,14 +39,12 @@ test test_continuation_separates_every_part_of_a_run_form { |ctx|
       "}",
     ],
   )
-  let output = test.run_script(ctx, source)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == "HELLO\n\n2\n", output.stdout
 }
 
 test test_continuation_accepts_crlf_line_endings { |ctx|
-  let output = test.run_script(ctx, f"print one {backslash}\r\n  two\r\n")?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, f"print one {backslash}\r\n  two\r\n", status: 0)?
   assert output.stdout == "one two\n", output.stdout
 }
 

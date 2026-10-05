@@ -91,7 +91,7 @@ match level {
 }
 
 test test_catch_all_spellings_complete_a_statement_match { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """enum Level { Info, Warn, Fault(Str) }
 for level in [Info, Warn, Fault("disk")] {
@@ -105,8 +105,8 @@ for level in [Info, Warn, Fault("disk")] {
   }
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "info\nbinding\nelse\nbinding\nelse\ndisk\n", output.stdout
 }
 
@@ -122,7 +122,7 @@ test test_imported_enum_matches_are_exhaustive_through_either_spelling { |ctx|
   let root = test.temp_dir(ctx, name: "match-exhaustive-module")?
   fp"{root}/kinds.xsh".write_atomic(kinds_module)
   let module_env = {XSH_MODULE_PATH: root.display()}
-  let covered = test.run_script(
+  let covered = test.expect(
     ctx,
     """use kinds as k
 
@@ -142,13 +142,13 @@ print label(k.File)
 print label(k.Binary)
 print label(k.Tree(2))
 """,
-    [],
-    module_env,
+    status: 0,
+    args: [],
+    env: module_env,
   )?
-  assert covered.success, covered.stderr
   assert covered.stdout == "file file\nother binary\nother tree 2\n", covered.stdout
 
-  let rejected = test.run_script(
+  let rejected = test.expect(
     ctx,
     """use kinds as k
 
@@ -157,10 +157,10 @@ match kind {
   k.File => print "file"
 }
 """,
-    [],
-    module_env,
+    status: 2,
+    args: [],
+    env: module_env,
   )?
-  assert rejected.status == 2, rejected.stderr
   assert rejected.stdout == ""
   assert "non-exhaustive match: missing variant(s) `Binary, Tree`" in rejected.stderr, rejected.stderr
   assert count(rejected.stderr, "err[") == 1, rejected.stderr
@@ -299,7 +299,7 @@ for step in [0, 1] {
 # facet patterns happen to cover every variant is still an accepted
 # condition; only a catch-all cannot fail.
 test test_pattern_conditions_over_a_family_stay_refutable { |ctx|
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     """error FetchError = Usage(message: Str) : NotFound | Gone(message: Str) : NotFound
 
@@ -309,8 +309,8 @@ if let (FetchError.Usage {message} | FetchError.Gone {message}) as original = fa
   print \$message \${original.message}
 }
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stderr == "", accepted.stderr
   assert accepted.stdout == "facet\ngone gone\n", accepted.stdout
 

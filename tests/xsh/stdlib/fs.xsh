@@ -1,13 +1,12 @@
 test test_missing_file_read_propagates_structured_error { |ctx|
   let missing = test.temp_path(ctx, name: "missing-read")
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""let _ = p"{missing}".read_bytes()?
 """,
+    status: 3,
+    stderr: ["fs-read"],
   )?
-
-  assert output.status == 3
-  assert "fs-read" in output.stderr
 }
 
 test test_fs_walk_and_files_take_any_break_and_count { |ctx|
@@ -37,7 +36,7 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fp"{root}/file.txt".write("data")
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 let root = p"{root}"
@@ -45,9 +44,9 @@ let use_stat = false
 let entry = fs.walk(root, stat: use_stat) |> first()?
 print ${{entry.size}}
 """,
+    status: 3,
+    stderr: ["metadata-unavailable"],
   )?
-  assert output.status == 3
-  assert "metadata-unavailable" in output.stderr
 }
 
 test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata { |ctx|
@@ -92,7 +91,7 @@ test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
     |> first()?
   assert normal.size == 4
 
-  let unstat = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 let root = p"{root}"
@@ -100,9 +99,9 @@ let use_stat = false
 let entry = fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first()?
 print ${{entry.size}}
 """,
+    status: 3,
+    stderr: ["metadata-unavailable"],
   )?
-  assert unstat.status == 3
-  assert "metadata-unavailable" in unstat.stderr
 }
 
 test test_fs_remove_deletes_trees_without_following_symlinks { |ctx|
@@ -191,15 +190,15 @@ test test_fs_tree_metadata_install_and_locking { |ctx|
   let listed = fs.children(nested, stat: true, ordered: true)? |> sort-by .name
   assert children.len() == listed.len()
   assert fs.children(nested, stat: false, ordered: false)? |> any .name == "data.txt"
-  let unstat_children = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 let entry = fs.children(fp"{nested}", stat: false, ordered: false)? |> first()?
 print \$entry.size
 """,
+    status: 3,
+    stderr: ["metadata-unavailable"],
   )?
-  assert unstat_children.status == 3
-  assert "metadata-unavailable" in unstat_children.stderr
   assert fs.walk(src)? |> any .name == "data.txt"
   assert fs.files(src)? |> any .name == "data.txt"
   assert fs.dirs(src)? |> any .name == "nested"
@@ -630,15 +629,15 @@ test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext { |ctx|
   assert cheap_c.name == "main.c"
   assert cheap_c.ext == "c"
   assert cheap_c.kind == "file"
-  let unstat_files = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 let entry = fs.files(fp"{root}", false, false, [], true) |> first()?
 print \$entry.size
 """,
+    status: 3,
+    stderr: ["metadata-unavailable"],
   )?
-  assert unstat_files.status == 3
-  assert "metadata-unavailable" in unstat_files.stderr
   assert cheap_c.path.strip_prefix(root)?.display() == "src/main.c"
 }
 

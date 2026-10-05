@@ -387,7 +387,7 @@ test test_pattern_conditions_over_comprehensions_fall_through_cleanly {
 }
 
 test test_pattern_conditionals_yield_from_stream_producers { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""stream pairs(lines: List[Str]) -> Stream[Str] {
   for line in lines {
@@ -411,8 +411,8 @@ print all.join(" ")
 print stopped.join(" ")
 print first.join(" ")
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """a:1 b:- c:3 rest:1 rest:2
 a:1 rest:1 rest:2
 a:1

@@ -1,5 +1,5 @@
 test nullable_local_has_one_fixed_optional_type { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc choose() -> Path? {
   var selected = null
@@ -11,14 +11,14 @@ test nullable_local_has_one_fixed_optional_type { |ctx|
 let chosen = choose()
 print \${chosen?.display() ?? ""}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """second
 """
 }
 
 test empty_list_collects_loop_contributions_before_earlier_reads { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc gather() -> List[Path] {
   var entries = []
@@ -30,14 +30,14 @@ test empty_list_collects_loop_contributions_before_earlier_reads { |ctx|
 }
 print ${gather()[1].display()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """second
 """
 }
 
 test private_result_inference_consumes_solved_local_collection { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure gather() {
   var entries = []
@@ -48,8 +48,8 @@ test private_result_inference_consumes_solved_local_collection { |ctx|
 }
 print ${gather()[0].display()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """first
 """
 }
@@ -88,7 +88,7 @@ test unconstrained_material_local_requires_annotation { |ctx|
 }
 
 test immutable_null_and_discarded_inert_literals_keep_their_types { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc unchanged() -> Unit {
   let _ = []
@@ -99,14 +99,14 @@ test immutable_null_and_discarded_inert_literals_keep_their_types { |ctx|
 }
 unchanged()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
 
 test explicit_empty_map_infers_key_and_value_from_indexed_writes { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc gather() -> Map[Path, Int] {
   var entries = map.empty()
@@ -116,8 +116,8 @@ test explicit_empty_map_infers_key_and_value_from_indexed_writes { |ctx|
 let entries = gather()
 print ${entries.get(p"first")?}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """12
 """
 }
@@ -140,7 +140,7 @@ proc inspect() -> Unit {
 }
 
 test zero_iteration_loop_still_contributes_static_element_type { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc gather() -> List[Path] {
   var entries = []
@@ -151,8 +151,8 @@ test zero_iteration_loop_still_contributes_static_element_type { |ctx|
 }
 print ${gather().len()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """0
 """
 }
@@ -171,7 +171,7 @@ test unannotated_empty_record_does_not_become_map_from_later_use { |ctx|
 }
 
 test independent_parameter_contract_can_solve_an_empty_local { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc count(values: List[Path]) -> Int { values.len() }
 proc inspect() -> Int {
@@ -180,14 +180,14 @@ proc inspect() -> Int {
 }
 print ${inspect()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """0
 """
 }
 
 test stream_local_constraints_are_solved_before_yield_preparation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""stream destinations() [] -> Stream[Path] {
   var entries = []
@@ -196,15 +196,15 @@ test stream_local_constraints_are_solved_before_yield_preparation { |ctx|
 }
 for destination in destinations() { print ${destination} }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """one
 two
 """
 }
 
 test earlier_nullable_operations_use_the_fixed_solved_type { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc choose() -> Path? {
   var selected = null
@@ -214,14 +214,14 @@ test earlier_nullable_operations_use_the_fixed_solved_type { |ctx|
 }
 print ${choose()?.display() ?? ""}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """chosen
 """
 }
 
 test discarded_empty_map_needs_no_artificial_key_or_value_contract { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure discard() -> Unit {
   let _ = map.empty()
@@ -230,8 +230,8 @@ test discarded_empty_map_needs_no_artificial_key_or_value_contract { |ctx|
 discard()
 print done
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
@@ -259,21 +259,21 @@ export pure destinations() -> List[Path] {
   entries
 }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use collect as c
 print ${c.destinations()[1].display()}
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert output.success, output.stderr
   assert output.stdout == """two
 """
 }
 
 test empty_list_method_assignments_preserve_the_same_monomorphic_identity { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc gather() -> List[Path] {
   var entries = []
@@ -283,14 +283,14 @@ test empty_list_method_assignments_preserve_the_same_monomorphic_identity { |ctx
 }
 print ${gather()[1].display()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """two
 """
 }
 
 test empty_list_result_tails_match_explicit_returns { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc explicit(words: List[Str]) [error] -> Result[List[Str]] {
   var values = []
@@ -313,15 +313,15 @@ for words in [[], ["one", "two", "one"]] {
   print ${actual.len()}
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """0
 2
 """
 }
 
 test declared_return_context_solves_empty_local_identifier_tails { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc list_tail() -> List[Str] {
   let values = []
@@ -357,8 +357,8 @@ let nested = nested_result_tail()?
 let unwrapped = nested?
 print ${list_tail().len()} ${result_tail()?.len()} ${explicit_result_tail()?.len()} ${grouped_result_tail()?.len()} ${wrapped_result_tail()?.len()} ${unwrapped.len()} ${map_tail()?.len()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """0 0 0 0 0 0 0
 """
 }
@@ -392,21 +392,21 @@ test local_identifier_tails_reject_incompatible_return_shapes { |ctx|
 }
 
 test explicit_empty_map_fold_constraints_publish_concrete_earlier_gets { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let counts = ["one", "two", "one"] |> fold(map.empty()) { |acc, item|
   acc.set(item, (acc.get(item) ?? 0) + 1)
 }
 print ${counts.get("one") ?? 0}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """2
 """
 }
 
 test independently_declared_dynamic_map_domain_solves_nested_local_holes { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""type Stats = {blobs: Map[Any]}
 pure empty_stats() -> Stats {
@@ -415,14 +415,14 @@ pure empty_stats() -> Stats {
 }
 print ${empty_stats().blobs.len()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """0
 """
 }
 
 test unannotated_empty_local_is_one_monomorphic_hole_across_aliases { |ctx|
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     r"""proc gather() -> List[Path] {
   var entries = []
@@ -433,8 +433,8 @@ test unannotated_empty_local_is_one_monomorphic_hole_across_aliases { |ctx|
 }
 print ${gather()[0].display()}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == """one
 """
   let rejected = test.run_script(

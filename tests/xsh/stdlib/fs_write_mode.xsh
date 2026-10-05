@@ -72,9 +72,12 @@ test test_fs_write_command_form_takes_no_mode { |ctx|
   fs.write $file "words"
   assert file.read_text()? == "words"
 
-  let rejected = test.run_script(ctx, "fs.write p\"/tmp/xsh-write-mode-never\" \"words\" 384\n")?
-  assert rejected.status == 2, rejected.stderr
-  assert "check.arity" in rejected.stderr, rejected.stderr
+  let _ = test.expect(
+    ctx,
+    "fs.write p\"/tmp/xsh-write-mode-never\" \"words\" 384\n",
+    status: 2,
+    stderr: ["check.arity"],
+  )?
 }
 
 test test_prefer_write_mode_lint_merges_a_write_and_its_chmod { |ctx|
@@ -105,8 +108,7 @@ install(p"ROOT/host.key", "secret")?
   assert fixed != source
 
   let before = test.run_script(ctx, source)?
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert before.stdout == f"{0o640} {0o604} secret\n"
   assert after.stdout == before.stdout
 

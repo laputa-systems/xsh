@@ -21,7 +21,7 @@ test test_repeat_negative_count_follows_range {
 }
 
 test test_repeat_evaluates_the_count_once { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc attempts() -> Int {
   print "count"
@@ -32,8 +32,8 @@ repeat attempts() times {
   print "body"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "count\nbody\nbody\nbody\n"
 }
 
@@ -123,7 +123,7 @@ test test_repeat_and_times_stay_ordinary_names {
 }
 
 test test_repeat_at_script_top_level { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """var total = 0
 repeat 2 + 1 times {
@@ -131,8 +131,8 @@ repeat 2 + 1 times {
 }
 print \$total
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "6\n"
 }
 
@@ -209,8 +209,7 @@ repeat   2+1   times{
 for _ in range(total) { total += 1 }
 print \$total
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "repeat.xsh", contents: bytes.from_text(source))?
 
   let formatted = run.capture --text "xsht" fmt $candidate ?
@@ -237,8 +236,7 @@ print \$total
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, candidate.read_text()?)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
 }
 

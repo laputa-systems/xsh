@@ -500,7 +500,5 @@ test test_env_string_rejections { |ctx|
 }
 
 test test_env_string_value_with_nul_fails_at_runtime { |ctx|
-  let failed = test.run_script(ctx, "e\"XSH_ESTR_NUL\" = \"a\\0b\"\n")?
-  assert failed.status == 3, failed.stderr
-  assert "NUL" in failed.stderr, failed.stderr
+  let _ = test.expect(ctx, "e\"XSH_ESTR_NUL\" = \"a\\0b\"\n", status: 3, stderr: ["NUL"])?
 }

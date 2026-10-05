@@ -56,24 +56,22 @@ test test_fail_means_the_same_where_error_is_bound {
 
 test test_fail_leaves_the_function_and_runs_cleanup { |ctx|
   let source = "proc stage(ready: Bool) -> Result[Int] {\n  defer { print \"cleanup\" }\n  let inner = try {\n    fail \"not ready\" unless ready\n    1\n  }\n  print \"after try\"\n  Ok(2)\n}\n\nmatch stage(false) {\n  Ok(_) => print \"ok\"\n  Err(problem) => print $problem.message\n}\nprint f\"{stage(true)?}\"\n"
-  let output = test.run_script(ctx, source)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == "cleanup\nnot ready\nafter try\ncleanup\n2\n", output.stdout
 }
 
 test test_an_uncaught_fail_reports_its_message_and_statement { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     "proc load() -> Result[Int] {\n  fail \"no configuration\"\n}\n\nlet value = load()?\n",
+    status: 3,
+    stderr: ["no configuration"],
   )?
-  assert output.status == 3, output.stderr
-  assert "no configuration" in output.stderr, output.stderr
 }
 
 test test_fail_is_not_a_reserved_word { |ctx|
   let source = "proc fail(code: Int) -> Int {\n  code + 1\n}\n\nvar fail_count = 0\nlet options = {fail: true}\nlet fail = 3\nprint f\"{fail + 1} {options.fail}\"\n"
-  let output = test.run_script(ctx, source)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == "4 true\n", output.stdout
   let called = test.run_script(ctx, "proc fail(code: Int) -> Int {\n  code + 1\n}\n\nprint f\"{fail(1)}\"\n")?
   assert called.stdout == "2\n", called.stderr
@@ -150,8 +148,7 @@ for name in ["", "-v", "ok"] {
   }
 }
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
   assert first.status.exited_with(1), first.stderr
@@ -166,8 +163,7 @@ for name in ["", "-v", "ok"] {
   ), fixed
   assert "    fail f\"{name} is an option\"\n" in fixed, fixed
   assert "StageError" not in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let formatted = run.capture --text "xsht" fmt --check $candidate ?
   assert formatted.status.exited_with(0), formatted.stderr
@@ -240,8 +236,7 @@ match load("ftp://mirror") {
 }
 print load("ftp://mirror")?
 """
-  let output = test.run_script(ctx, source)?
-  assert output.status == 3, output.stderr
+  let output = test.expect(ctx, source, status: 3)?
   assert output.stdout == "loading ftp://mirror: fetching ftp://mirror\n", output.stdout
   let report = output.stderr.lines()
   let outer = [line for line in report if line.starts_with("err: ")]

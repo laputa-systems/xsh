@@ -65,8 +65,7 @@ test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals 
   let source = fp"{fs.cwd()?}/tools/llvm-lines-repeat-offenders.xsh".read_text()?
   input.write("""01 1% 1% 2 1% 1% xsh[abc]::work::<u8>
 """)
-  let rejected = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
-  assert rejected.status == 3
+  let rejected = test.expect(ctx, source, status: 3, args: [input.display(), "--sum", "--json"])?
   assert rejected.stdout == ""
   assert "json" in rejected.stderr
 

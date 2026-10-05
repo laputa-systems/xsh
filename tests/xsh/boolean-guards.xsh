@@ -55,7 +55,7 @@ test test_boolean_guard_failure_refinement_and_status {
 }
 
 test test_boolean_guard_cleanup_precedes_lexical_return { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc mark(message: Str) [] { print $message }
 proc choose() [error] -> Int {
@@ -69,8 +69,8 @@ proc choose() [error] -> Int {
 
 print \${choose()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """failure cleanup
 function cleanup
 7
@@ -78,29 +78,29 @@ function cleanup
 }
 
 test test_boolean_guard_condition_error_keeps_identity_and_skips_failure { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """error GuardError = condition(message: Str)
 pure rejected() -> Result[Bool] { Err(GuardError.condition(message: "condition failed")) }
 guard rejected()? else { exit 7 }
 print "unreachable"
 """,
+    status: 3,
+    stderr: ["GuardError.condition"],
   )?
-  assert output.status == 3
-  assert "GuardError.condition" in output.stderr
   assert "AssertionError.Failed" not in output.stderr
   assert output.stdout == ""
 }
 
 test test_boolean_guard_false_status_uses_author_failure { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """let status = run false
 guard status else { exit 7 }
 print "unreachable"
 """,
+    status: 7,
   )?
-  assert output.status == 7
   assert output.stdout == ""
 }
 
@@ -182,7 +182,7 @@ test test_boolean_guard_failure_branch_owns_the_error {
 # types that block `Unknown`; the match is dead code and must not be reported
 # as non-exhaustive against that placeholder type.
 test test_boolean_guard_exiting_scrutinee_match_is_not_demanded_exhaustive { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """error FzErr = Bad(message: Str)
 pure classify() -> Result[Int, FzErr] {
@@ -198,8 +198,8 @@ match classify() {
   Err(failure) => print \${failure.message}
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """stopped
 """
 }

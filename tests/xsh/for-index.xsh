@@ -190,8 +190,7 @@ test test_lint_rewrites_counter_loops_that_only_walk_a_list { |ctx|
 
 show(["a", "b"])
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "counter-loops.xsh", contents: bytes.from_text(source))?
 
   let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-for-index $candidate ?
@@ -211,8 +210,7 @@ show(["a", "b"])
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, rewritten)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
   assert after.stdout == "0: a\n1: b\nb 1\na\nb\n2\n"
 }

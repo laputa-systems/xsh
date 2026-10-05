@@ -69,7 +69,7 @@ test test_absence_lookup_nullable_and_integer_fast_paths_agree {
 }
 
 test test_absence_lookup_lazy_fallback_and_authored_eager_snapshots { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc receiver() [io] -> List[Int] { print "receiver"; [3] }
 proc index() [io] -> Int { print "index"; 0 }
@@ -90,8 +90,8 @@ print ${byte}
 let missing_byte = b"a".byte_at(1) ?? fallback()
 print ${missing_byte}
 """,
+    status: 0,
   )?
-  assert output.success
   assert output.stdout == """receiver
 index
 3
@@ -108,7 +108,7 @@ fallback
 }
 
 test test_absence_lookup_eager_snapshots_keep_receiver_and_index_before_mutation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc witness() [io] -> Int {
   var values = [3]
@@ -122,8 +122,8 @@ test test_absence_lookup_eager_snapshots_keep_receiver_and_index_before_mutation
 }
 print ${witness()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """receiver
 index
 fallback

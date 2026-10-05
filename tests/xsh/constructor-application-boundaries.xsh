@@ -18,7 +18,7 @@ let word = text("word")
 }
 
 test test_constructor_application_preserves_partial_spread_context_and_owned_defaults { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Pair[T] = {left: T, right: T, items: List[T] = []}
 pure pair(left: UInt, right: UInt) -> Pair[UInt] {
@@ -30,8 +30,8 @@ assert value.right == 8, "explicit right field"
 assert value.items.len() == 0, "declaration default"
 print paired
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """paired
 """
 }

@@ -1,18 +1,18 @@
 test test_assert_failure_stops_script { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """assert 1 == 2
 print "unreachable"
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == ""
   assert "1 == 2" in output.stderr, output.stderr
   assert "AssertionError" in output.stderr, output.stderr
 }
 
 test test_boolean_values_and_explicit_discards_remain_values { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 pure predicate() -> Bool { false }
@@ -24,8 +24,8 @@ let value = predicate()
 let retried = retry [] { false }?
 print f"{value} {dynamic().require(Bool)?} {wrapped()?} {wrapped_any()?.require(Bool)?} {retried}"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """false false false false false
 """
 }
@@ -69,15 +69,15 @@ let _ = check()
 }
 
 test test_unit_tail_and_non_tail_asserts_fail { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 proc check() { assert 2 > 3 }
 check()?
 print "unreachable"
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == ""
 }
 
@@ -95,7 +95,7 @@ test test_membership_checks_map_keys_and_record_fields {
 }
 
 test test_assertion_single_evaluation_short_circuit_and_value_predicates { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 var calls = 0
@@ -114,14 +114,14 @@ assert yes == true
 assert not_all == false
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
 
 test test_assertion_nominal_error_handlers_and_retry { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 pure fail() -> Result[Unit, AssertionError] { assert false }
@@ -137,14 +137,14 @@ let _ = retry [0ms, 0ms] {
 }?
 assert attempts == 3
 """,
+    status: 0,
+    stdout: ["false"],
   )?
-  assert output.success, output.stderr
-  assert "false" in output.stdout, output.stdout
   assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_assertion_defers_preserve_primary_failure { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 proc cleanup(value: Str) { print $value }
@@ -158,8 +158,8 @@ proc fail() {
 fail()?
 print "unreachable"
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert output.stdout == """last
 first
 """
@@ -180,13 +180,12 @@ test test_assertion_contexts_require_result_effect_and_compatible_error { |ctx|
     """p"missing".exists()
 """,
   ] {
-    let output = test.run_script(ctx, source)?
-    assert output.status == 2, output.stderr
+    let _ = test.expect(ctx, source, status: 2)?
   }
 }
 
 test test_membership_domains_views_and_source_order { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 var order = ""
@@ -208,14 +207,14 @@ assert p"/usr/lib" in p"/usr/lib64/tool"
 assert "é" not in "cafe"
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
 
 test test_boolean_literals_names_and_statement_match_tails { |ctx|
-  let passed = test.run_script(
+  let passed = test.expect(
     ctx,
     """
 assert true
@@ -230,28 +229,28 @@ proc check() {
 check()?
 print "done"
 """,
+    status: 0,
   )?
-  assert passed.success, passed.stderr
   assert passed.stdout == """done
 """
-  let failed = test.run_script(
+  let failed = test.expect(
     ctx,
     """let condition = false
 assert condition
 print "unreachable"
 """,
+    status: 3,
   )?
-  assert failed.status == 3
   assert failed.stdout == ""
-  let literal = test.run_script(
+  let literal = test.expect(
     ctx,
     """assert false
 print "unreachable"
 """,
+    status: 3,
   )?
-  assert literal.status == 3
   assert literal.stdout == ""
-  let arms = test.run_script(
+  let _ = test.expect(
     ctx,
     """proc check() {
   match 1 {
@@ -261,13 +260,13 @@ print "unreachable"
 }
 check()?
 """,
+    status: 2,
+    stderr: ["check.bool-statement"],
   )?
-  assert arms.status == 2
-  assert "check.bool-statement" in arms.stderr, arms.stderr
 }
 
 test test_assertion_aliases_dynamic_boundaries_and_integer_status { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 type Predicate = Bool
@@ -282,29 +281,29 @@ let status = run.status false
 let _ = status
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
-  let dynamic = test.run_script(
+  let dynamic = test.expect(
     ctx,
     """let dynamic: Any = false
 (dynamic)
 """,
+    status: 2,
+    stderr: ["check.ignored-result"],
   )?
-  assert dynamic.status == 2, dynamic.stderr
-  assert "check.ignored-result" in dynamic.stderr, dynamic.stderr
   assert "check.bool-statement" not in dynamic.stderr, dynamic.stderr
-  let integer = test.run_script(
+  let _ = test.expect(
     ctx,
     """7
 """,
+    status: 7,
   )?
-  assert integer.status == 7
 }
 
 test test_retained_helpers_share_core_nominal_failure { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)] {
@@ -314,58 +313,52 @@ for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)]
   }
 }
 """,
+    status: 0,
+    stdout: ["custom"],
   )?
-  assert output.success, output.stderr
-  assert "custom" in output.stdout, output.stdout
   assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_assertion_diagnostics_include_values_and_only_evaluated_operands { |ctx|
-  let equality = test.run_script(
+  let _ = test.expect(
     ctx,
     """let actual = [1, 2]
 assert actual == [1, 3]
 """,
+    status: 3,
+    stderr: ["left: [1, 2]", "right: [1, 3]"],
   )?
-  assert equality.status == 3
-  assert "left: [1, 2]" in equality.stderr, equality.stderr
-  assert "right: [1, 3]" in equality.stderr, equality.stderr
-  let ordering = test.run_script(
+  let _ = test.expect(
     ctx,
     """let small = 2
 assert small > 5
 """,
+    status: 3,
+    stderr: ["left: 2", "right: 5", ":2:8"],
   )?
-  assert ordering.status == 3
-  assert "left: 2" in ordering.stderr, ordering.stderr
-  assert "right: 5" in ordering.stderr, ordering.stderr
-  assert ":2:8" in ordering.stderr, ordering.stderr
-  let membership = test.run_script(
+  let _ = test.expect(
     ctx,
     """assert "missing" in {present: null}
 """,
+    status: 3,
+    stderr: ["missing", "present: null"],
   )?
-  assert membership.status == 3
-  assert "missing" in membership.stderr, membership.stderr
-  assert "present: null" in membership.stderr, membership.stderr
-  let compound = test.run_script(
+  let compound = test.expect(
     ctx,
     """proc skipped() -> Result[Bool] { print "skipped"; true }
 assert false and skipped()?
 """,
+    status: 3,
   )?
-  assert compound.status == 3
   assert compound.stdout == ""
-  let difference = test.run_script(
+  let _ = test.expect(
     ctx,
     """let actual = "old\\nline\\n"
 assert actual == "new\\nline\\n"
 """,
+    status: 3,
+    stderr: ["diff:", "-old", "+new"],
   )?
-  assert difference.status == 3
-  assert "diff:" in difference.stderr, difference.stderr
-  assert "-old" in difference.stderr, difference.stderr
-  assert "+new" in difference.stderr, difference.stderr
 }
 
 test test_assertion_diagnostics_bound_record_field_names { |ctx|
@@ -379,14 +372,12 @@ test test_assertion_diagnostics_bound_record_field_names { |ctx|
     assert \"missing\" in actual
 
     """
-  let output = test.run_script(ctx, source)?
-  assert output.status == 3
-  assert "abcdefghij" in output.stderr, output.stderr
+  let output = test.expect(ctx, source, status: 3, stderr: ["abcdefghij"])?
   assert output.stderr.byte_len() < 4096
 }
 
 test test_assertion_attempt_local_effects_and_unwrapped_exists { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 proc local() [] {
@@ -399,14 +390,14 @@ proc local() [] {
 local()?
 assert p".".exists()?
 """,
+    status: 0,
+    stdout: ["false"],
   )?
-  assert output.success, output.stderr
-  assert "false" in output.stdout, output.stdout
   assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_retained_assertion_named_arguments_keep_source_evaluation_order { |ctx|
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 var order = 0
@@ -415,8 +406,8 @@ proc right() -> Result[Int] { order = order * 10 + 2; 1 }
 test.eq(right: right()?, left: left()?)?
 assert order == 21
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
 }
 
 test test_user_fields_and_functions_named_membership_aliases_remain_usable { |ctx|
@@ -428,7 +419,7 @@ export pure contains(value: Str) -> Bool { value == "present" }
 ## Caller-owned presence function.
 export pure has(value: Str) -> Bool { value == "present" }
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """
 use custom
@@ -443,8 +434,8 @@ assert custom.contains("present")
 assert custom.has("present")
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
@@ -454,7 +445,7 @@ pure assertion_negated(flag: Bool) -> Bool {
 }
 
 test test_boolean_value_contexts_do_not_assert { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """stream flags() [] -> Stream[Bool] {
   yield false
@@ -463,8 +454,8 @@ test test_boolean_value_contexts_do_not_assert { |ctx|
 let yielded = flags() |> collect()
 print $yielded.len()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """2
 """
   assert assertion_negated(false)
@@ -499,14 +490,14 @@ print "done"
     assert "check.bool-statement" not in output.stderr, output.stderr
   }
 
-  let integer = test.run_script(
+  let _ = test.expect(
     ctx,
     """proc check() -> Result[Unit] { let code = 7; (code) }
 check()?
 """,
+    status: 2,
+    stderr: ["check.type-mismatch"],
   )?
-  assert integer.status == 2, integer.stderr
-  assert "check.type-mismatch" in integer.stderr
 }
 
 test test_removed_membership_apis_and_unsupported_domains_are_rejected { |ctx|
@@ -524,9 +515,7 @@ let _ = fields.has("one")""",
     "test.contains(\"abc\", \"a\")?",
     "test.not_contains(\"abc\", \"z\")?",
   ] {
-    let removed = test.run_script(ctx, statement + "\n")?
-    assert removed.status == 2, removed.stderr
-    assert "check.removed-membership" in removed.stderr, removed.stderr
+    let _ = test.expect(ctx, statement + "\n", status: 2, stderr: ["check.removed-membership"])?
   }
 
   for case in [
@@ -547,9 +536,7 @@ let _ = fields.has("one")""",
       code: "check.membership-type",
     },
   ] {
-    let unsupported = test.run_script(ctx, "let _ = " + case.expression + "\n")?
-    assert unsupported.status == 2, unsupported.stderr
-    assert case.code in unsupported.stderr, unsupported.stderr
+    let _ = test.expect(ctx, "let _ = " + case.expression + "\n", status: 2, stderr: [case.code])?
   }
 }
 
@@ -559,13 +546,13 @@ test test_imported_module_boolean_statement_is_rejected { |ctx|
 export let present = 1
 true
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """use statement_module
 print "unreachable"
 """,
+    status: 2,
   )?
-  assert output.status == 2, output.stderr
   assert output.stdout == ""
   assert "check.module-top-level" in output.stderr
 }

@@ -68,7 +68,7 @@ test test_try_error_cause_transfers_child_before_cleanup {
 }
 
 test test_driver_try_error_payload_and_cause_transfer { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error ChildError = Owned(child: ProcessHandle)
 error CauseOwnerError = Failed(pid: Int)
@@ -98,8 +98,8 @@ match caused {
 }
 print "live"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """live
 """
 }

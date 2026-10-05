@@ -11,7 +11,7 @@ export proc execute(spec: stage_contract.CommandSpec) [process, error, io] -> Re
   return Ok()
 }
 """)
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     """
 use stage_contract
@@ -32,8 +32,8 @@ proc main() [process, error, io] -> Result[Unit] {
 
 main()?
 """,
-    [],
-    {XSH_MODULE_PATH: f"{root}:dev"},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: f"{root}:dev"},
   )?
-  assert result.success, result.stderr
 }

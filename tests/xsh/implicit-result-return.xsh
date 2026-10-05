@@ -139,7 +139,7 @@ test test_result_alias_return_shape {
 # A command tail completes a return type that accepts Unit: the command runs
 # for effect and the body finishes with its Unit value.
 test test_command_tail_completes_unit_accepting_return_types { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc show() -> Result[Any] {
   print "shown"
@@ -152,8 +152,8 @@ proc label() -> Any {
 let _ = show()?
 let _: Any = label()
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """shown
 labeled
 """

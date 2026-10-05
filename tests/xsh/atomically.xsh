@@ -190,15 +190,15 @@ test test_atomically_discards_the_temporary_file_on_exit { |ctx|
   let root = test.temp_dir(ctx, name: "atomically-exit")?
   let dest = fp"{root}/out"
   dest.write("old")
-  let output = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""atomically replace p"{dest}" as partial {{
   partial.write("new")
   exit 3
 }}
 """,
+    status: 3,
   )?
-  assert output.status == 3
   assert dest.read_text()? == "old"
   assert names(root)? == ["out"]
 }
@@ -339,7 +339,7 @@ test test_atomically_words_stay_ordinary_names { |ctx|
 
 test test_atomically_at_script_top_level { |ctx|
   let root = test.temp_dir(ctx, name: "atomically-top")?
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     f"""atomically replace p"{root}/out" as partial {{
   print \$partial.name()
@@ -347,8 +347,8 @@ test test_atomically_at_script_top_level { |ctx|
 }}
 print \${{p"{root}/out".read_text()?}}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   let lines = output.stdout.lines()
   assert lines.len() == 2, output.stdout
   assert lines[0].starts_with(".out.") and lines[0].ends_with(".tmp"), output.stdout
@@ -495,8 +495,7 @@ stamp(out)
 print out.read_text()?
 print \${{fs.children(p"{root}")? |> count()}}
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   assert before.stdout == "one\nstamp\n1\n"
   let candidate = test.temp_file(ctx, name: "atomically.xsh", contents: bytes.from_text(source))?
 
@@ -528,8 +527,7 @@ print \${{fs.children(p"{root}")? |> count()}}
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, rewritten)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
 }
 

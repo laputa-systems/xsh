@@ -437,7 +437,6 @@ test test_lint_names_the_union_of_a_list_any_filled_from_typed_literals { |ctx|
   assert file.read_text()? == source, fixed.stderr
 
   let migrated = source.replace("List[Any]", "List[Union[Str, Path]]")
-  let output = test.run_script(ctx, migrated)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, migrated, status: 0)?
   assert output.stdout == "5\n"
 }

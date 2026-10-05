@@ -107,7 +107,7 @@ test test_duration_arithmetic_checked_failures { |ctx|
 }
 
 test test_duration_arithmetic_evaluates_operands_once_left_to_right { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""proc duration(value: Duration) [io] -> Duration { print "duration"; value }
 proc count(value: Int) [io] -> Int { print "count"; value }
@@ -115,8 +115,8 @@ let scaled = count(3) * duration(250ms)
 let quantized = duration(5ms) / count(2)
 print f"{scaled} {quantized}"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """count
 duration
 duration

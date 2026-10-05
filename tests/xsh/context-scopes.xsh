@@ -21,7 +21,7 @@ test test_cd_value_scope_consumes_tail_and_restores_context { |ctx|
 }
 
 test test_scope_command_capture_tails_keep_values_and_restore_context { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 let original = fs.cwd()?
@@ -51,8 +51,8 @@ assert failed is Err(_)
 assert fs.cwd()? == original
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }
@@ -449,9 +449,7 @@ print "escaped"
 for item in translated() { print "escaped" }
 """,
   ] {
-    let output = test.run_script(ctx, declarations + body)?
-    assert output.status == 3
-    assert "context-scope-escape" in output.stderr
+    let output = test.expect(ctx, declarations + body, status: 3, stderr: ["context-scope-escape"])?
     assert output.stdout == ""
   }
 }
@@ -521,7 +519,7 @@ print f"{count} {outer}"
 }
 
 test test_scope_rejects_producers_hidden_in_process_error_causes { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error Inner = Failed(resource: Stream[Int])
 stream rows() [] -> Stream[Int] { yield 1 }
@@ -537,14 +535,14 @@ match original {
   _ => print "unexpected success"
 }
 """,
+    status: 3,
+    stderr: ["context-scope-escape"],
   )?
-  assert output.status == 3
-  assert "context-scope-escape" in output.stderr
   assert output.stdout == ""
 }
 
 test test_scope_preserves_scalar_error_causes_as_data { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error Outer = Failed(message: Str)
 error Inner = Failed(message: Str)
@@ -554,10 +552,9 @@ let escaped = env ({X: "inner"}) {
 }?
 escaped?
 """,
+    status: 3,
+    stderr: ["Outer.Failed", "Inner.Failed"],
   )?
-  assert output.status == 3
-  assert "Outer.Failed" in output.stderr
-  assert "Inner.Failed" in output.stderr
   let cause_retained = "context-scope-escape" not in output.stderr
   let failure_details = output.stderr
   assert cause_retained, failure_details
@@ -578,7 +575,7 @@ env { XSH_REMOVED_SCOPE = "release" } {
 }
 
 test test_cd_scope_accepts_a_bare_path_before_its_block { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""cd / {
   run pwd
@@ -587,7 +584,7 @@ let cd = 6
 let tmp = 3
 print ${cd / tmp}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "/\n2\n"
 }

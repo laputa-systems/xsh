@@ -51,7 +51,7 @@ test test_target_typed_error_arguments_fill_fields_in_declaration_order {
 }
 
 test test_error_arguments_evaluate_in_source_order { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""error E = Mixed(second: Int, first: Str) | Pair(left: Int, right: Int)
 proc marked(value: Int) -> Int {
@@ -71,8 +71,8 @@ match Err(E.Pair(right: marked(2), left: marked(3))) {
   _ => print "other"
 }
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """1
 b
 second=1 first=b
@@ -236,7 +236,7 @@ export proc refuse(reason: Str) -> Result[Unit, FetchError] {
   return Err(.Usage(reason))
 }
 """)
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""use fetch
 match fetch.refuse("not a URL") {
@@ -248,10 +248,10 @@ print ${fetch.FetchError.Usage("local").message}
 let rejected: Error = fetch.FetchError.Rejected("https://example.test", 403)
 print ${rejected is PermissionDenied}
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """usage: not a URL
 FetchError.Usage
 local
@@ -287,8 +287,7 @@ for name in ["", "gone", "bad", "ok"] {
 print ${StageError.Skipped("positional already").message}
 print ${StageError.Broken("detail").message}
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
   let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
@@ -305,8 +304,7 @@ print ${StageError.Broken("detail").message}
   assert "ProofError.Usage(\"empty name\")" in fixed, fixed
   assert "Err(.Missing(message))" in fixed, fixed
   assert "ProofError.Failed(kind: \"kind\", message:)" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let second = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
   assert second.status.exited_with(0), second.stderr
@@ -333,8 +331,7 @@ match fetch.refuse("not a URL") {
 print ${fetch.FetchError.Usage(message: "imported").message}
 """
   let module_env = {XSH_MODULE_PATH: root.display()}
-  let before = test.run_script(ctx, importer_source, [], module_env)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, importer_source, status: 0, args: [], env: module_env)?
   let importer = fp"{root}/main.xsh"
   importer.write_atomic(importer_source)
 
@@ -357,14 +354,12 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   assert ! fixing_importer.status.exited_with(2), fixing_importer.stderr
   let fixed_importer = importer.read_text()?
   assert "fetch.FetchError.Usage(\"imported\")" in fixed_importer, fixed_importer
-  let after = test.run_script(ctx, fixed_importer, [], module_env)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed_importer, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
 
   # With every call positional, the manual declaration edit keeps behavior.
   module_file.write_atomic(fixed_module.replace("Usage(message: Str)", "Usage"))
-  let migrated = test.run_script(ctx, fixed_importer, [], module_env)?
-  assert migrated.success, migrated.stderr
+  let migrated = test.expect(ctx, fixed_importer, status: 0, args: [], env: module_env)?
   assert migrated.stdout == before.stdout
 }
 
@@ -413,8 +408,7 @@ for kind in ["a", "b", "c", "d", "e"] {
   assert ".Failed(kind: \"usage\", message: f\"{kind} again\")" in fixed, fixed
   assert "ScriptError.Triple(alpha: 2, zulu: 1, mike: \"m\")" in fixed, fixed
   assert "ScriptError.Triple(3, \"distinct\", alpha: 4)" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == """a: bad a
 usage: b again
 1 m 2
@@ -473,8 +467,7 @@ for package in ["a", "b", "c"] {
   assert "detail: Result[Int, Error]}" in spelled, spelled
   assert "export proc load(file: Path) [fs, error] -> Result[Str, Error] {" in spelled, spelled
 
-  let after = test.run_script(ctx, main.read_text()?, [], module_env)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, main.read_text()?, status: 0, args: [], env: module_env)?
   assert after.stdout == """kind: a has no proof
 missing: b is not installed
 ok
@@ -501,13 +494,13 @@ let built = {call}
     assert "check.positional-error-arguments" in rejected.stderr, rejected.stderr
   }
 
-  let accepted = test.run_script(
+  let _ = test.expect(
     ctx,
     """error E = Pair(second: Str, first: Str) | Triple(zulu: Int, mike: Str, alpha: Bool)
 let pair = E.Pair("s", first: "f")
 let triple = E.Triple(1, "m", alpha: true)
 print "ok"
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
 }

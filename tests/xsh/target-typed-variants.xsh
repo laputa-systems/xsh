@@ -1,5 +1,5 @@
 test test_target_typed_variants_follow_expected_types { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""enum Kind { File, Binary, Symlink, Tree(Int) }
 error ProofError = Missing(file: Path) | Failed(kind: Str, message: Str)
@@ -74,8 +74,8 @@ match find(entries, p"etc/missing") {
   Err(_) => print "other"
 }
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """symlink
 tree 4
 file
@@ -105,7 +105,7 @@ export error OwnerError = Unowned(file: Path) | Conflict(file: Path, owner: Str)
 ## A packaged file.
 export type Entry = {path: Path, kind: Kind}
 """)
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""use kinds as k
 enum State: Str { Ready = "ready", Missing = "missing" }
@@ -137,10 +137,10 @@ let ready: State = .Ready
 let pending: State = .Missing
 print (json.encode({ready, pending})?)
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """true
 true
 unowned etc/shadow
@@ -205,7 +205,7 @@ pure pick() {
 }
 
 test test_dot_names_inside_stream_stages_read_the_item { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""enum Kind { File, Binary }
 type Entry = {name: Str, kind: Kind}
@@ -213,8 +213,8 @@ let entries: List[Entry] = [Entry(name: "xsh", kind: .Binary), Entry(name: "conf
 let names = entries |> where { |entry| entry.kind == Binary } |> map .name
 print names.join(",")
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == "xsh\n"
 
   let rejected = test.run_script(
@@ -255,8 +255,7 @@ for entry in entries {
 }
 """
   let module_env = {XSH_MODULE_PATH: root.display()}
-  let before = test.run_script(ctx, source, [], module_env)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0, args: [], env: module_env)?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
   let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
@@ -270,8 +269,7 @@ for entry in entries {
   assert "kind: .File}" in fixed, fixed
   assert "entry.kind == .Binary" in fixed, fixed
   assert "kind: kinds.Kind}" in fixed, fixed
-  let after = test.run_script(ctx, fixed, [], module_env)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
   let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
   assert second.status.exited_with(0), second.stderr
@@ -319,7 +317,7 @@ export error OwnerError {
 test test_target_typed_variant_patterns_match_like_their_qualified_spellings { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-patterns")?
   fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""use kinds as k
 
@@ -397,10 +395,10 @@ let guarded = match level {
 }
 print $guarded
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """usage: bad flag
 offline
 u 503
@@ -553,8 +551,7 @@ for step in range(4) {
 }
 """
   let module_env = {XSH_MODULE_PATH: root.display()}
-  let before = test.run_script(ctx, source, [], module_env)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0, args: [], env: module_env)?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
   let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
@@ -578,8 +575,7 @@ for step in range(4) {
     assert kept in fixed, fixed
   }
 
-  let after = test.run_script(ctx, fixed, [], module_env)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
   let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
   assert second.status.exited_with(0), second.stderr
@@ -594,15 +590,15 @@ pure pick(step: Int) -> Union[Str, FetchError] {
 }
 """
   # A union names no single family; its narrowed member does.
-  let narrowed = test.run_script(
+  let narrowed = test.expect(
     ctx,
     prelude + """let value = pick(0)
 if value is FetchError {
   print (value is .Usage) (value is .Rejected {status: 1, ..})
 }
 """,
+    status: 0,
   )?
-  assert narrowed.success, narrowed.stderr
   assert narrowed.stdout == "true false\n"
 
   let union = test.run_script(ctx, prelude + "let found = pick(0) is .Usage\n")?

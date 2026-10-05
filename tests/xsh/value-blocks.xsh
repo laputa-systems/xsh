@@ -128,7 +128,7 @@ test test_bool_value_callbacks_and_retry {
 }
 
 test test_bool_statement_branch_tails_are_rejected { |ctx|
-  let rejected = test.run_script(
+  let _ = test.expect(
     ctx,
     """proc assertion() {
   if true {
@@ -137,9 +137,9 @@ test test_bool_statement_branch_tails_are_rejected { |ctx|
 }
 assertion()
 """,
+    status: 2,
+    stderr: ["check.bool-statement"],
   )?
-  assert rejected.status == 2
-  assert "check.bool-statement" in rejected.stderr, rejected.stderr
   let failed = test.run_script(
     ctx,
     """proc assertion() {
@@ -247,7 +247,7 @@ test test_value_tails_reject_missing_else_and_incomplete_match { |ctx|
 test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
   # Branch values of top-level control flow are discarded statements, not the
   # exit status, so each is rejected.
-  let branch = test.run_script(
+  let branch = test.expect(
     ctx,
     """if true {
   3
@@ -255,25 +255,25 @@ test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
   4
 }
 """,
+    status: 2,
   )?
-  assert branch.status == 2, branch.stderr
   assert branch.stderr.split("err[check.ignored-result]").len() == 3, branch.stderr
-  let matched = test.run_script(
+  let matched = test.expect(
     ctx,
     """match 1 {
   1 => 5
   _ => 6
 }
 """,
+    status: 2,
   )?
-  assert matched.status == 2, matched.stderr
   assert matched.stderr.split("err[check.ignored-result]").len() == 3, matched.stderr
-  let final = test.run_script(
+  let _ = test.expect(
     ctx,
     """3
 """,
+    status: 3,
   )?
-  assert final.status == 3
 }
 
 test test_value_blocks_evaluate_before_scope_cleanup { |ctx|
@@ -304,7 +304,7 @@ after
 }
 
 test test_value_blocks_return_through_loop_and_retry { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc choose() [] -> Int {
   let ignored = loop {
@@ -322,8 +322,8 @@ proc attempted() [] -> Int {
 }
 print \${choose()} \${attempted()}
 """,
+    status: 0,
   )?
-  assert output.success == true
   assert output.stdout == """7 9
 """
 }
@@ -396,7 +396,7 @@ test test_value_callbacks_keep_enclosing_loop_targets {
 }
 
 test test_value_callback_tail_precedes_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc mark(message: Str) [] { print $message }
 proc result(number: Int) [] -> Int { print "value"; number }
@@ -406,8 +406,8 @@ let mapped = [7] |> map { |number|
 } |> collect
 print \${mapped[0]}
 """,
+    status: 0,
   )?
-  assert output.success == true
   assert output.stdout == """value
 cleanup
 7
@@ -415,7 +415,7 @@ cleanup
 }
 
 test test_value_parallel_callback_keeps_lexical_return { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc choose() [] -> Int {
   let ignored = [1, 2] |> par-map(jobs: 2) { |number|
@@ -440,14 +440,14 @@ proc serial() [] -> Int {
 }
 print \${choose()} \${fused()} \${serial()}
 """,
+    status: 0,
   )?
-  assert output.success == true
   assert output.stdout == """7 9 11
 """
 }
 
 test test_value_parallel_callback_failure_is_propagation { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """error WorkerError = failed(message: Str)
 pure outcome() -> Result[Int] { Err(WorkerError.failed(message: "worker failed")) }
@@ -457,9 +457,9 @@ let values = [1, 2] |> par-map(jobs: 2) { |number|
 } |> collect
 print "unreachable"
 """,
+    status: 3,
+    stderr: ["WorkerError.failed"],
   )?
-  assert output.status == 3
-  assert "WorkerError.failed" in output.stderr
   assert "return-outside-function" in output.stderr == false
   assert output.stdout == ""
 }

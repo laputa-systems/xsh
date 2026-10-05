@@ -28,12 +28,12 @@ relative/../path
 """
   assert diagnostics == """diagnostic
 """
-  let inherited = test.run_script(
+  let inherited = test.expect(
     ctx,
     """print --flush inherited
 """,
+    status: 0,
   )?
-  assert inherited.success
   assert inherited.stdout == """inherited
 """
 }

@@ -256,7 +256,7 @@ outer
 }
 
 test test_uint_producer_cancellation_skips_unreached_invalid_items { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 stream raw() [io] -> Stream[Int] {
@@ -275,8 +275,8 @@ for value in checked() {
   break
 }
 """,
+    status: 0,
   )?
-  assert output.success == true
   assert output.stdout == """1
 child
 parent

@@ -153,7 +153,7 @@ test test_tempdir_and_at_stay_ordinary_names { |ctx|
 
 test test_tempdir_at_script_top_level { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-top")?
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     f"""tempdir scratch at p"{root}/scratch" {{
   print \$scratch.name
@@ -161,8 +161,8 @@ test test_tempdir_at_script_top_level { |ctx|
 }}
 print \${{p"{root}/scratch".exists()?}}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "scratch\ntrue\nfalse\n"
 }
 
@@ -289,8 +289,7 @@ for fail in [false, true] {{
   }}
 }}
 """
-  let output = test.run_script(ctx, script)?
-  assert output.success, output.stderr
+  let output = test.expect(ctx, script, status: 0)?
   let lines = output.stdout.lines()
   assert lines.len() == 4, output.stdout
   assert lines[0] == "body"
@@ -317,8 +316,7 @@ test test_tempdir_formats_and_lints_as_written { |ctx|
 
 print stage(p"{root}")?
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   assert before.stdout == "two\n"
   let candidate = test.temp_file(ctx, name: "tempdir.xsh", contents: bytes.from_text(source))?
 
@@ -347,8 +345,7 @@ print stage(p"{root}")?
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, candidate.read_text()?)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
 }
 

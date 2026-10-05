@@ -11,17 +11,17 @@ test test_range_checks_integer_bounds_before_execution { |ctx|
     {source: "range()", code: "check.arity"},
     {source: "range(0, 3, 1)", code: "check.arity"},
   ] {
-    let output = test.run_script(
+    let output = test.expect(
       ctx,
       "print \"started\"\nproc main() { for _ in " + case.source + " {} }\n",
+      status: 2,
+      stderr: [case.code],
     )?
-    assert output.status == 2, output.stderr
-    assert case.code in output.stderr, output.stderr
     assert "compact.indexed-build" not in output.stderr, output.stderr
     assert output.stdout == "", output.stdout
   }
 
-  let valid = test.run_script(
+  let valid = test.expect(
     ctx,
     r"""pure count() -> Int { 3 }
 pure start() -> Int { 1 }
@@ -30,8 +30,8 @@ proc main() [io] {
   for n in range(start(), count()) { print $n }
 }
 """,
+    status: 0,
   )?
-  assert valid.success, valid.stderr
   assert valid.stdout == "0\n1\n2\n1\n2\n", valid.stdout
 }
 
@@ -56,12 +56,11 @@ let implicit_item = implicit("initial")
 print f"{explicit.values["initial"]}:{explicit.values["sum"]}:{explicit.seed}:{explicit.item}"
 print f"{implicit_item.values["initial"]}:{implicit_item.values["sum"]}:{implicit_item.seed}"
 """.replace("STAGE", stage)
-    let output = test.run_script(ctx, source)?
-    assert output.success, output.stderr
+    let output = test.expect(ctx, source, status: 0)?
     assert output.stdout == "0:3:initial:outer\n0:3:initial\n", output.stdout
   }
 
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""type Transformed = {values: List[Int], outer: Str, local: Str}
 pure transform(value: Str) -> Transformed {
@@ -75,14 +74,17 @@ pure transform(value: Str) -> Transformed {
 let transformed = transform("outer")
 print f"{transformed.values[0]}:{transformed.outer}:{transformed.local}"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "4:outer:outer\n", output.stdout
 
   for stage in ["fold", "reduce"] {
-    let duplicate = test.run_script(ctx, "let value = [1] |> " + stage + "(0) { |same, same| same }\n")?
-    assert duplicate.status == 2, duplicate.stderr
-    assert "check.duplicate-name" in duplicate.stderr, duplicate.stderr
+    let duplicate = test.expect(
+      ctx,
+      "let value = [1] |> " + stage + "(0) { |same, same| same }\n",
+      status: 2,
+      stderr: ["check.duplicate-name"],
+    )?
     assert "compact.indexed-build" not in duplicate.stderr, duplicate.stderr
   }
 }
@@ -380,7 +382,7 @@ proc main() [fs, error] {{
 }
 
 test test_sum_rejects_unchecked_stream_before_pulling_source { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 stream numbers() [io] -> Stream[Any] {
@@ -398,9 +400,9 @@ proc main() [io] {
   print f"total={total}"
 }
 """,
+    status: 2,
+    stderr: ["check.dynamic-boundary"],
   )?
-  assert output.status == 2
-  assert "check.dynamic-boundary" in output.stderr
   assert output.stdout == ""
 }
 
@@ -2892,7 +2894,7 @@ closed
 # An empty producer body is the degenerate empty stream: consuming it yields
 # no items and completes without error.
 test test_stream_empty_body_yields_nothing { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """stream empty() [] -> Stream[Int] { }
 for value in empty() {
@@ -2900,8 +2902,8 @@ for value in empty() {
 }
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """done
 """
 }

@@ -1,5 +1,5 @@
 test test_callable_alias_retains_labels_defaults_and_alias_chain { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """
 pure render(value: Str, prefix: Str = "label:") -> Str { prefix + value }
@@ -9,19 +9,19 @@ print format("one") again(prefix: "item:", value: "two")
 let fields = {value: "three", prefix: "name:"}
 print again(...fields) format.call(value: "four")
 """,
-    [],
-    {},
-    b"",
-    "callable-alias.xsh",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias.xsh",
   )?
-  assert result.success, result.stderr
   assert result.stdout == """label:one item:two
 name:three label:four
 """
 }
 
 test test_callable_alias_preserves_capture_snapshot_and_initializer_timing { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """
 let prefix = "captured:"
@@ -29,12 +29,12 @@ pure render(value: Str) -> Str { prefix + value }
 let format = render
 print format(value: "one")
 """,
-    [],
-    {},
-    b"",
-    "callable-alias-capture.xsh",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias-capture.xsh",
   )?
-  assert result.success, result.stderr
   assert result.stdout == """captured:one
 """
 }
@@ -93,7 +93,7 @@ test test_callable_alias_keeps_effects_and_erased_boundaries { |ctx|
 }
 
 test test_callable_alias_keeps_lexical_shadowing_and_captured_aliases { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """
 pure increment(value: Int) -> Int { value + 1 }
@@ -105,18 +105,18 @@ proc choose(local: Bool) [] -> Int {
 }
 print choose(true) choose(false) selected(value: 2)
 """,
-    [],
-    {},
-    b"",
-    "callable-alias-shadow.xsh",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias-shadow.xsh",
   )?
-  assert result.success, result.stderr
   assert result.stdout == """11 2 3
 """
 }
 
 test test_callable_alias_retains_argument_order_and_typed_conversions { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """
 proc mark(value: Int) [io] -> Int { print $value; value }
@@ -130,12 +130,12 @@ pure parse(value: Str) -> Result[Int] { value.parse_int() }
 let parsed = parse
 print (parsed(value: "4")?)
 """,
-    [],
-    {},
-    b"",
-    "callable-alias-order.xsh",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias-order.xsh",
   )?
-  assert result.success, result.stderr
   assert result.stdout == """2
 1
 3 13
@@ -161,15 +161,14 @@ print format(value: "one") again.call(suffix: "?", value: "two")
 let projected = ["three"] |> map(format)
 print projected[0]
 """
-  let result = test.run_script(ctx, script, [], {}, b"", "callable-alias-projection.xsh")?
-  assert result.success, result.stderr
+  let result = test.expect(ctx, script, status: 0, args: [], env: {}, stdin: b"", name: "callable-alias-projection.xsh")?
   assert result.stdout == """captured:one! captured:two?
 captured:three!
 """
 }
 
 test test_callable_alias_retains_inferred_proc_effect_identity { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """
 proc increment(value: Int) -> Int { value + 1 }
@@ -178,12 +177,12 @@ proc forward(value: Int) -> Int { invoke(value: value) }
 proc bounded(value: Int) [] -> Int { forward(value) }
 print bounded(4)
 """,
-    [],
-    {},
-    b"",
-    "callable-alias-inferred-effects.xsh",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias-inferred-effects.xsh",
   )?
-  assert result.success, result.stderr
   assert result.stdout == """5
 """
   for source in [
@@ -200,7 +199,7 @@ print bounded(4)
 test test_proc_alias_declared_inside_a_body_calls_the_proc { |ctx|
   # Inside a body the alias used to be prepared as a pure function value,
   # so the checked call failed at runtime as an unresolved call.
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""proc helper(value: Int, step: Int = 2) -> Int { value + step }
 pure double(value: Int) -> Int { value * 2 }
@@ -213,13 +212,13 @@ proc body() [] -> Result[Int] {
 }
 print ${body()?}
 """,
+    status: 0,
   )?
-  assert result.success, result.stderr
   assert result.stdout == "7\n"
 }
 
 test test_callable_alias_retains_stream_stage_signature { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""
 let prefix = "item:"
@@ -232,12 +231,12 @@ let next = increment
 proc bounded() [] -> List[Int] { [1, 2] |> map(next) }
 print ${bounded()[0]}
 """,
-    [],
-    {},
-    b"",
-    "callable-alias-stage.xsh",
+    status: 0,
+    args: [],
+    env: {},
+    stdin: b"",
+    name: "callable-alias-stage.xsh",
   )?
-  assert result.success, result.stderr
   assert result.stdout == """item:one! item:two!
 2
 """

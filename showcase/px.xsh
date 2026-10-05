@@ -479,14 +479,11 @@ proc signal_matched_pids(pids: List[Int], signal: Int, own_pid: Int) [process, e
 }
 
 proc ports_for_pids(pids: List[Int]) [process, error] -> Result[List[PortProcess]] {
-  var ports: List[PortProcess] = []
-
-  for pid in unique_ints(pids) {
-    for row in process.ports(pid)? {
-      ports += [row]
-    }
-  }
-
+  var ports: List[PortProcess] = [
+    row
+    for pid in unique_ints(pids)
+    for row in process.ports(pid)?
+  ]
   ports |> sort-by .pid * 1000 + .fd
 }
 

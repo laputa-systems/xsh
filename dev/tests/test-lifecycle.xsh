@@ -49,7 +49,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
 exit 23""",
   )
   let inherited_path = env.get_or("PATH", "")?
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use build
@@ -62,15 +62,14 @@ match build.build(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {
+    status: 0,
+    stdout: ["[build target=x86_64-unknown-linux-musl] cargo build", "StageError.Failed"],
+    args: [],
+    env: {
       PATH: f"{tools}:{inherited_path}",
       XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
-  assert result.success, result.stderr
-  assert "[build target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert cargo_marker.exists()?
 }
 
@@ -87,7 +86,7 @@ test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
     f"""p"{cargo_marker}".write(args.join("|"))?
 exit 23""",
   )
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use build
@@ -100,11 +99,11 @@ match build.check_lint(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
-  assert result.success, result.stderr
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert cargo_marker.read_text()? == "test|--release|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
@@ -168,7 +167,7 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
 exit 23""",
   )
   write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -181,17 +180,16 @@ match internal.linux_ci_test(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {
+    status: 0,
+    stdout: ["[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build", "StageError.Failed"],
+    args: [],
+    env: {
       PATH: tools,
       XSH_MODULE_PATH: fp"{repository}/dev",
       HOST_UID: "501",
       HOST_GID: "20",
     },
   )?
-  assert result.success, result.stderr
-  assert "[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert cargo_marker.exists()?
   assert cleanup_marker.exists()?
 }
@@ -212,7 +210,7 @@ if "run" in args {{
 }}
 """,
   )
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -225,13 +223,15 @@ match docker.run_internal(ctx, "dist", false, []) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    status: 0,
+    stdout: [
+      "[docker-image-build target=x86_64-unknown-linux-musl] docker build",
+      "[docker-dist target=x86_64-unknown-linux-musl] docker run",
+      "StageError.Failed",
+    ],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
-  assert result.success, result.stderr
-  assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
-  assert "[docker-dist target=x86_64-unknown-linux-musl] docker run" in result.stdout, result.stdout
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert "run" in docker_marker.read_text()?
 }
 
@@ -248,7 +248,7 @@ test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
     f"""p"{docker_marker}".write(args.join("|"))?
 exit 24""",
   )
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     f"""
 use context
@@ -261,11 +261,11 @@ match docker.run_internal(ctx, "dist", false, []) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    status: 0,
+    stdout: ["[docker-image-build target=x86_64-unknown-linux-musl] docker build"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
-  assert result.success, result.stderr
-  assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
   assert "[docker-dist" not in result.stdout, result.stdout
   assert "build" in docker_marker.read_text()?
 }
@@ -374,7 +374,7 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
     f"""p"{codesign_marker}".write("codesign")?
 exit 25""",
   )
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -387,16 +387,15 @@ match install.darwin(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {
+    status: 0,
+    stdout: ["[install-darwin-codesign target=aarch64-apple-darwin] codesign", "StageError.Failed"],
+    args: [],
+    env: {
       PATH: tools,
       HOME: fp"{root}/home",
       XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
-  assert result.success, result.stderr
-  assert "[install-darwin-codesign target=aarch64-apple-darwin] codesign" in result.stdout, result.stdout
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert codesign_marker.exists()?
   let cargo_arguments = cargo_marker.read_text()?
   let cargo_diagnostic = cargo_marker.read_text()?
@@ -416,7 +415,7 @@ test test_darwin_install_rejects_linux_target_before_building { |ctx|
     f"""p"{cargo_marker}".write("cargo")?
 """,
   )
-  let result = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -439,15 +438,15 @@ match install.darwin(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {
       PATH: tools,
       HOME: fp"{root}/home",
       XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
-  assert result.success, result.stderr
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert ! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo"
 }
 
@@ -464,7 +463,7 @@ test test_linux_install_requires_native_musl_target { |ctx|
     f"""p"{cargo_marker}".write("cargo")?
 """,
   )
-  let cross = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -487,18 +486,18 @@ match install.linux_install(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {
       PATH: tools,
       HOME: fp"{root}/home",
       XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
-  assert cross.success, cross.stderr
-  assert "StageError.Failed" in cross.stdout, cross.stdout
   assert ! cargo_marker.exists()?, "cross-arch Linux install must fail before cargo"
 
-  let non_linux = test.run_script(
+  let _ = test.expect(
     ctx,
     f"""
 use context
@@ -521,13 +520,13 @@ match install.linux_install(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {
       PATH: tools,
       HOME: fp"{root}/home",
       XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
-  assert non_linux.success, non_linux.stderr
-  assert "StageError.Failed" in non_linux.stdout, non_linux.stdout
 }

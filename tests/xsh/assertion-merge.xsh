@@ -1,5 +1,5 @@
 test test_assertion_forms_share_nominal_capture_inference { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""pure checked(failure: AssertionError) -> AssertionError { failure }
 pure captured() -> Result[Unit, AssertionError] {
@@ -18,17 +18,14 @@ for result in [bare, explicit, chain, captured()] {
   }
 }
 """,
+    status: 0,
+    stdout: ["false", "explicit context", "3 < 2", "private capture"],
   )?
-  assert output.success, output.stderr
-  assert "false" in output.stdout
-  assert "explicit context" in output.stdout
-  assert "3 < 2" in output.stdout
-  assert "private capture" in output.stdout
   assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_assertion_nominal_filter_runs_attempt_cleanup { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""var attempts = 0
 proc attempt() -> Int { attempts += 1; attempts }
@@ -40,8 +37,8 @@ let result: Result[Unit, AssertionError] = retry [0ms] on (AssertionError) {
 match result { Ok(_) => print "done"; Err(_) => print "unexpected" }
 print $attempts
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """cleaned
 cleaned
 done
@@ -50,7 +47,7 @@ done
 }
 
 test test_assertion_message_failure_keeps_its_nominal_type { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""error MessageError = Failed(message: Str)
 proc message() [error, io] -> Result[Str, MessageError] {
@@ -70,8 +67,8 @@ match failure {
   _ => print "unexpected"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """message
 cleaned
 passed
@@ -80,7 +77,7 @@ message failure
 }
 
 test test_membership_assertions_preserve_typed_map_key_domains { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""let integers: Map[Int, Str] = {[1]: "one"}
 let flags: Map[Bool, Int] = {[true]: 1}
@@ -99,29 +96,28 @@ assert "present" in erased
 assert "absent" not in erased
 print "checked"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """checked
 """
   for statement in ["let _ = \"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
-    let invalid = test.run_script(
+    let _ = test.expect(
       ctx,
       """let values: Map[Int, Str] = {[1]: "one"}
 """ + statement + "\n",
+      status: 2,
+      stderr: ["check.type-mismatch", "Int"],
     )?
-    assert invalid.status == 2, invalid.stderr
-    assert "check.type-mismatch" in invalid.stderr
-    assert "Int" in invalid.stderr
   }
 
-  let removed = test.run_script(
+  let removed = test.expect(
     ctx,
     """let values: Map[Int, Str] = {[1]: "one"}
 values.has(1)
 """,
+    status: 2,
+    stderr: ["check.removed-membership"],
   )?
-  assert removed.status == 2, removed.stderr
-  assert "check.removed-membership" in removed.stderr
   assert "check.type-mismatch" not in removed.stderr, removed.stderr
 }
 
@@ -130,15 +126,15 @@ test test_membership_assertions_accept_checked_module_exports { |ctx|
 ## A public field.
 export let present = 1
 """)
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""use membership_merge
 assert "present" in membership_merge.keys()
 assert "absent" not in membership_merge.keys(), "module export absence"
 print "checked"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """checked
 """
 }

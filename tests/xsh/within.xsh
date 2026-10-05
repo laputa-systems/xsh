@@ -105,7 +105,7 @@ test test_within_checks_computation_between_statements {
 # The timeout unwinds like a failure: every block it leaves runs its `defer`
 # and `errdefer` actions, in the callee first, and they are not cut short.
 test test_within_runs_cleanup_on_the_way_out { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """proc nap(pause: Duration) [time, error] -> Result[Int] {
   defer { print "callee defer" }
@@ -130,8 +130,8 @@ for pause in [30s, 1ms] {
   }
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """callee defer
 errdefer
 defer
@@ -259,7 +259,7 @@ test test_within_reaches_parallel_stages_and_stream_pulls {
 }
 
 test test_within_reaches_a_producer_it_pulls_from { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """stream slow_numbers() [time, error] -> Stream[Int] {
   defer { print "producer cleanup" }
@@ -276,8 +276,8 @@ match pulled {
   Err(failure) => print f"timeout {failure is Timeout}"
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == "producer cleanup\ntimeout true\n"
 }
 

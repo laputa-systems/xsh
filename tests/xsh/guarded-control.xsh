@@ -16,7 +16,7 @@ test test_guarded_return_narrows_selected_branch_and_falls_through {
 }
 
 test test_guarded_control_checks_condition_before_lazy_payload { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc condition(selected: Bool) [] -> Bool {
@@ -44,8 +44,8 @@ let value = loop {
 }
 print $value
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """condition
 fallback
 cleanup
@@ -62,7 +62,7 @@ payload
 }
 
 test test_guarded_yield_skips_unselected_items { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 stream guarded_items() [] -> Stream[Int] {
@@ -75,15 +75,15 @@ for item in guarded_items() {
   print $item
 }
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 2
 """
 }
 
 test test_guarded_run_payload_keeps_literal_argv_and_status_conditions { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc capture(selected: Bool) [process, error] -> Str {
@@ -103,8 +103,8 @@ print ${capture(true)}
 print ${literal_argv()}
 print ${status_condition()}
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """fallback
 selected
 when
@@ -143,7 +143,7 @@ cleanup
 }
 
 test test_guarded_yield_keeps_cleanup_on_early_consumer_exit { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     r"""
 proc cleanup() [] {
@@ -161,8 +161,8 @@ for value in values() {
 }
 print "done"
 """,
+    status: 0,
   )?
-  assert output.success, output.stderr
   assert output.stdout == """1
 cleanup
 done

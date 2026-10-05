@@ -43,15 +43,19 @@ print ${(ok ?? "none").trim()}
 }
 
 test test_try_run_rejects_a_propagating_or_status_form { |ctx|
-  let both = test.run_script(ctx, "let text = try run.text sh -c \"echo x\" ?\n")?
-  assert both.status == 2
-  assert "`try` keeps the run form's failure as a value, and `?` would propagate it" in both.stderr, both.stderr
-  let status = test.run_script(ctx, "let status = try run.status sh -c \"exit 3\"\n")?
-  assert status.status == 2
-  assert "err[check.try-result]: `try` captures a run form that can fail, and this one yields `Status`" in status.stderr, status.stderr
-  let plain = test.run_script(ctx, "let status = try run sh -c \"exit 3\"\n")?
-  assert plain.status == 2
-  assert "err[check.try-result]" in plain.stderr, plain.stderr
+  let _ = test.expect(
+    ctx,
+    "let text = try run.text sh -c \"echo x\" ?\n",
+    status: 2,
+    stderr: ["`try` keeps the run form's failure as a value, and `?` would propagate it"],
+  )?
+  let _ = test.expect(
+    ctx,
+    "let status = try run.status sh -c \"exit 3\"\n",
+    status: 2,
+    stderr: ["err[check.try-result]: `try` captures a run form that can fail, and this one yields `Status`"],
+  )?
+  let _ = test.expect(ctx, "let status = try run sh -c \"exit 3\"\n", status: 2, stderr: ["err[check.try-result]"])?
 }
 
 test test_explicit_run_capture_fix_writes_try_and_converges { |ctx|
@@ -66,8 +70,7 @@ let status = run.status sh -c "exit 1"
 let shown = if let Ok(text) = run.text sh -c "echo v3" { first_line(text) } else { "none" }
 print ${first_line(version ?? "none")} ${missing is Err(_)} ${propagated.trim()} ${status.success} $shown
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "capture.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.explicit-run-capture $candidate ?
   assert first.status.exited_with(1), first.stderr
@@ -81,8 +84,7 @@ print ${first_line(version ?? "none")} ${missing is Err(_)} ${propagated.trim()}
   assert "let propagated = run.text sh -c \"echo v2\" ?\n" in fixed, fixed
   assert "let status = run.status sh -c \"exit 1\"\n" in fixed, fixed
   assert "let shown = if let Ok(text) = try run.text sh -c \"echo v3\" { first_line(text) }" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let formatted = run.capture --text "xsht" fmt --check $candidate ?
   assert formatted.status.exited_with(0), formatted.stderr

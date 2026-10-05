@@ -50,8 +50,7 @@ test test_command_argv_takes_paths_as_target_and_items { |ctx|
 test test_native_test_runs_take_path_env_values { |ctx|
   let root = test.temp_dir(ctx, name: "path sink run")?
   let source = "print (e\"SINK_ROOT\"?)\n"
-  let script = test.run_script(ctx, source, [], {SINK_ROOT: root})?
-  assert script.success, script.stderr
+  let script = test.expect(ctx, source, status: 0, args: [], env: {SINK_ROOT: root})?
   assert script.stdout == f"{root}\n"
   let direct = test.run_xsh(ctx, source, env: {SINK_ROOT: root})?
   assert direct.success, direct.stderr

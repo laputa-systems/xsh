@@ -71,12 +71,12 @@ test test_unix_fake_covers_scripts_the_test_runs { |ctx|
   let root = test.temp_dir(ctx, name: "unix-fake-script")?
   let log = fp"{root}/unix.jsonl"
   test.unix_fake(ctx, {tty: "/dev/fake-tty", log: log})
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     """unix.set_hostname("xsh")?
 print (unix.tty()?)""",
+    status: 0,
   )?
-  assert result.success
   assert result.stdout == """/dev/fake-tty
 """
   assert "\"op\":\"set_hostname\"" in log.read_text()?

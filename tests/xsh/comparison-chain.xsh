@@ -13,7 +13,7 @@ test test_comparison_chain_adjacent_types_and_order {
 }
 
 test test_comparison_chain_evaluates_reached_operands_once { |ctx|
-  let reached = test.run_script(
+  let reached = test.expect(
     ctx,
     r"""proc observed(n: Int) [io] -> Int {
   print f"{n}"
@@ -22,15 +22,15 @@ test test_comparison_chain_evaluates_reached_operands_once { |ctx|
 let result = observed(1) < observed(2) <= observed(3)
 print f"{result}"
 """,
+    status: 0,
   )?
-  assert reached.success, reached.stderr
   assert reached.stdout == """1
 2
 3
 true
 """
 
-  let skipped = test.run_script(
+  let skipped = test.expect(
     ctx,
     r"""proc observed(n: Int) [io] -> Int {
   print f"{n}"
@@ -39,8 +39,8 @@ true
 let result = observed(3) < observed(2) <= observed(1)
 print f"{result}"
 """,
+    status: 0,
   )?
-  assert skipped.success, skipped.stderr
   assert skipped.stdout == """3
 2
 false
@@ -92,22 +92,22 @@ let result = value is Int < true
     assert "parse.mixed-comparison" in invalid.stderr
   }
 
-  let explicit = test.run_script(
+  let _ = test.expect(
     ctx,
     """let value = (0 < 1 < 2) == true
 """,
+    status: 0,
   )?
-  assert explicit.success, explicit.stderr
 }
 
 test test_comparison_chain_skips_failing_last_operand { |ctx|
-  let result = test.run_script(
+  let result = test.expect(
     ctx,
     r"""let result = 2 < 1 < 1 / 0
 print f"{result}"
 """,
+    status: 0,
   )?
-  assert result.success, result.stderr
   assert result.stdout == """false
 """
   let reached = test.run_script(

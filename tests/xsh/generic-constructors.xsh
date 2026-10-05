@@ -1,5 +1,5 @@
 test test_generic_constructor_fields_establish_concrete_instances { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Box[T] = {value: T, items: List[T] = []}
 type Observation[T] = {value: T? = null, samples: List[T] = []}
@@ -12,8 +12,8 @@ print ${text.value.upper()}
 print ${samples.samples[0] + samples.samples[1]}
 print ${count.items.len()}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """19
 DEMO
 7
@@ -22,7 +22,7 @@ DEMO
 }
 
 test test_generic_constructor_context_anchors_null_empty_and_unused_parameters { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Observation[T] = {value: T? = null, samples: List[T] = []}
 type Marker[T] = {name: Str}
@@ -33,8 +33,8 @@ print ${absent.value ?? 8}
 print ${empty.samples.len()}
 print $marker.name
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """8
 0
 anchored
@@ -66,7 +66,7 @@ let missing = Marker(name: "unused")
 }
 
 test test_generic_constructor_nested_fields_share_only_occurrence_constraints { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Inner[T] = {value: T?}
 type Outer[T] = {inner: Inner[T], anchor: T}
@@ -81,8 +81,8 @@ print ${second.inner.value ?? "missing"}
 print $marked.marker.name
 print ${contextual[0].name}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """7
 inner
 kept
@@ -91,7 +91,7 @@ list
 }
 
 test test_generic_constructor_uses_annotated_function_slots_and_returns { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Marker[T] = {name: Str}
 type Observation[T] = {value: T?}
@@ -112,8 +112,8 @@ print ${absent().value ?? 7}
 print (marker().name)
 print (result_marker()?.name)
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """slot
 7
 return
@@ -122,7 +122,7 @@ result
 }
 
 test test_generic_constructor_preserves_named_spreads_puns_and_field_order { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Pair[T] = {left: T, right: T, items: List[T] = []}
 var visits = 0
@@ -139,8 +139,8 @@ print ${spread.left + spread.right}
 print ${ordered.left * 10 + ordered.right}
 print $visits
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """15
 7
 12
@@ -157,7 +157,7 @@ let wrong = Pair(...{left: 1}, left: 2, right: 3)
 }
 
 test test_generic_constructor_constants_use_the_same_field_and_context_constraints { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Inner[T] = {value: T?}
 type Outer[T] = {inner: Inner[T], anchor: T, items: List[T] = []}
@@ -170,8 +170,8 @@ print $marked.name
 print ${spread.inner.value ?? "missing"}
 print ${inferred.items.len()}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """7
 constant
 text
@@ -180,7 +180,7 @@ text
 }
 
 test test_generic_constructor_retains_both_typed_map_parameters { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Table[K, V] = {entries: Map[K, V]}
 let numbers = Table(entries: {[1]: "one", [2]: "two"})
@@ -192,8 +192,8 @@ print ${strings.entries["one"] + strings.entries["two"]}
 print ${nested.entries.len()}
 print ${prepared.entries[3]}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """ONE
 3
 0
@@ -202,7 +202,7 @@ three
 }
 
 test test_generic_constructor_context_reaches_nested_container_instances { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Marker[T] = {name: Str}
 type Batch[T] = {markers: List[Marker[T]], keyed: Map[Marker[T]], anchor: T}
@@ -215,8 +215,8 @@ print ${selected[0].name}
 print ${made.markers[0].name}
 print ${made.keyed["first"].name}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """list
 map
 expected
@@ -226,7 +226,7 @@ prepared
 }
 
 test test_generic_constructor_phantom_arguments_preserve_structural_assignability { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Marker[T] = {name: Str}
 type Wrap[T] = {marker: Marker[T]}
@@ -234,8 +234,8 @@ let marker: Marker[Str] = Marker(name: "structural")
 let wrapped: Wrap[Int] = Wrap(marker: marker)
 print $wrapped.marker.name
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """structural
 """
   let unresolved = test.run_script(
@@ -259,7 +259,7 @@ export type Box[T] = {value: T, owner: Local}
 ## A generic alias with a nested argument.
 export type Alias[T] = Box[List[T]]
 """)
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""use model as m
 type Local = {name: Int}
@@ -268,17 +268,17 @@ let values = m.Alias(value: [3, 4], owner: {name: "alias"})
 print ${count.value + values.value[0]}
 print ${count.owner.name.upper()}
 """,
-    [],
-    {XSH_MODULE_PATH: root},
+    status: 0,
+    args: [],
+    env: {XSH_MODULE_PATH: root},
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """10
 PRIVATE
 """
 }
 
 test test_generic_constructor_explicit_any_and_null_are_authoritative { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Box[T] = {value: T}
 let dynamic: Box[Any] = Box(value: 7)
@@ -286,8 +286,8 @@ let nothing: Box[Null] = Box(value: null)
 print ${dynamic.value.require(Int)?}
 print ${nothing.value == null}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """7
 true
 """
@@ -303,7 +303,7 @@ let unknown = Box(value: raw)
 }
 
 test test_generic_constructor_receiver_slots_retain_declared_application_context { |ctx|
-  let executed = test.run_script(
+  let executed = test.expect(
     ctx,
     r"""type Marker[T] = {name: Str}
 type Holder[T] = {items: List[Marker[T]]}
@@ -323,8 +323,8 @@ print ${third[0].name}
 print ${fourth[3].name}
 print ${fifth[0].name}
 """,
+    status: 0,
   )?
-  assert executed.success, executed.stderr
   assert executed.stdout == """binding
 destructured
 return
@@ -346,15 +346,15 @@ test test_generic_constructor_infers_exact_instances_without_later_use_evidence 
   let declaration = r"""enum ObservationState { Observed, Absent }
 type Observation[T] = {state: ObservationState, value: T?}
 """
-  let accepted = test.run_script(
+  let accepted = test.expect(
     ctx,
     declaration + r"""let measured = Observation(state: Observed, value: 12)
 let exact: Observation[Int] = measured
 let value: Int? = measured.value
 print ${(value ?? 0) + (exact.value ?? 0)} ${measured.state == Observed}
 """,
+    status: 0,
   )?
-  assert accepted.success, accepted.stderr
   assert accepted.stdout == """24 true
 """
   for source in [

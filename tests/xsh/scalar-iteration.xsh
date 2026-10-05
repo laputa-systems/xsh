@@ -1,19 +1,11 @@
 test str_iteration_keeps_unicode_scalars_and_nul {
-  var characters = []
-  for character in "Aéé🙂\0" {
-    characters += [character]
-  }
-
+  var characters = [character for character in "Aéé🙂\0"]
   assert characters == ["A", "é", "e", "́", "🙂", "\0"]
   assert [character for character in ""] == []
 }
 
 test bytes_iteration_keeps_all_octets_without_decoding {
-  var octets = []
-  for octet in b"\0\x7f\x80\xff" {
-    octets += [octet]
-  }
-
+  var octets = [octet for octet in b"\0\x7f\x80\xff"]
   assert octets == [0, 127, 128, 255]
   assert [octet for octet in b""] == []
 }

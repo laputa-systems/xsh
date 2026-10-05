@@ -16,8 +16,7 @@ test harden_script_edits_file_and_keeps_backup { |ctx|
   config.write("#PermitRootLogin yes\n")
 
   let source = p"bin/harden.xsh".read_text()?
-  let result = test.run_script(ctx, source, args: ["--config", config.display()])?
-  assert result.success, result.stderr
+  let _ = test.expect(ctx, source, status: 0, args: ["--config", config.display()])?
   assert config.read_text()? == "PermitRootLogin no\n"
   assert fp"{config}.bak".exists()?
 }
