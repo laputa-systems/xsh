@@ -27,16 +27,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.templates.len() > 1 { gnu.usage_error("too many templates") }
   let pattern = if opts.templates.is_empty() { "tmp.XXXXXXXXXX" } else { opts.templates[0] }
   if opts.suffix != null and ! pattern.ends_with("X") { gnu.error(f"with --suffix, template {gnu.quote(pattern)} must end in X"); exit 1 }
-  var end = pattern.byte_len()
-  while end > 0 and pattern.byte_slice(end - 1, length: 1) != "X" { end -= 1 }
+  let raw = bytes.from_text(pattern)
+  var end = raw.len()
+  while end > 0 and raw.byte_at(end - 1) != 88 { end -= 1 }
   var start = end
-  while start > 0 and pattern.byte_slice(start - 1, length: 1) == "X" { start -= 1 }
+  while start > 0 and raw.byte_at(start - 1) == 88 { start -= 1 }
   if end - start < 3 { gnu.error(f"too few X's in template {gnu.quote(pattern)}"); exit 1 }
   let suffix = pattern.byte_slice(end) + (opts.suffix ?? "")
-  if "/" in suffix { gnu.error(f"suffix {gnu.quote(suffix)} contains directory separator"); exit 1 }
+  if "/" in suffix { gnu.error(f"invalid suffix {gnu.quote(suffix)}, contains directory separator"); exit 1 }
   if opts.legacy and "/" in pattern { gnu.error(f"invalid template, {gnu.quote(pattern)}, contains directory separator"); exit 1 }
   let default_dir = env.get_or("TMPDIR", "/tmp") ?? "/tmp"
-  var directory = opts.tmpdir ?? opts.parent ?? ""
+  var directory = opts.parent ?? opts.tmpdir ?? ""
   let use_dir = opts.tmpdir != null or opts.parent != null or opts.legacy or opts.templates.is_empty()
   if opts.legacy and (env.get_or("TMPDIR", "") ?? "") != "" { directory = default_dir }
   if use_dir and directory == "" { directory = if default_dir == "" { "/tmp" } else { default_dir } }
@@ -64,7 +65,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if made is Ok(_) { gnu.write_text(name + "\n"); return }
     if let Err(failure) = made {
       continue when failure.errno == 17
-      if ! opts.quiet { gnu.error(f"failed to create {if opts.directory { "directory" } else { "file" }} via template {gnu.quote(pattern)}: {gnu.strerror(failure)}") }
+      if ! opts.quiet { gnu.error(f"failed to create {if opts.directory { "directory" } else { "file" }} via template {gnu.quote((if use_dir { directory + "/" } else { "" }) + pattern)}: {gnu.strerror(failure)}") }
       exit 1
     }
   }

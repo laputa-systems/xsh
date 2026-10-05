@@ -33,3 +33,10 @@ test test_mkfifo_copied_permissions_and_multiple_mode_operations { |ctx|
   assert result.status == 0, result.stderr
   assert fs.stat(fp"{root}/pipe")?.mode.bit_and(0o777) == 0o640
 }
+
+
+test test_mkfifo_unspecified_classes_obey_umask { |ctx|
+  let root = test.temp_dir(ctx, name: "mkfifo-umask")?
+  assert run_applet(ctx, root, ["-m", "=rwx", "pipe"])?.status == 0
+  assert fs.stat(fp"{root}/pipe")?.mode.bit_and(0o777) == 0o777.clear_bits(fs.umask()?)
+}

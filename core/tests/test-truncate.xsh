@@ -38,3 +38,17 @@ test test_truncate_invalid_sizes_preserve_files_and_no_create { |ctx|
   assert run_applet(ctx, root, ["-s", "2", "missing/file", "file"])?.status == 1
   assert file.read_text()? == "ke"
 }
+
+
+test test_truncate_unit_only_radices_and_relative_reference_requirement { |ctx|
+  let root = test.temp_dir(ctx, name: "truncate-unit")?
+  assert run_applet(ctx, root, ["-s", "K", "file"])?.status == 0
+  assert fs.stat(fp"{root}/file")?.size == 1024
+  assert run_applet(ctx, root, ["-s", "0x10", "file"])?.status == 0
+  assert fs.stat(fp"{root}/file")?.size == 16
+  assert run_applet(ctx, root, ["-s", "020", "file"])?.status == 0
+  assert fs.stat(fp"{root}/file")?.size == 16
+  assert run_applet(ctx, root, ["-r", "file", "-s", "2", "new"])?.status == 1
+  assert ! fp"{root}/new".exists()?
+  assert run_applet(ctx, root, ["-s", "1b", "new"])?.status == 1
+}

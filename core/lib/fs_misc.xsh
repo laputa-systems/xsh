@@ -125,7 +125,7 @@ pure remove_mask(mode: Int, mask: Int) -> Int {
   mode.clear_bits(mask)
 }
 
-pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
+pure symbolic_mode(spec: Str, current: Int, is_dir: Bool, umask: Int) -> Result[Int] {
   var mode = current % 4096
   for clause in spec.split(",") {
     var who = ""
@@ -146,7 +146,8 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
       }
       return Err(FsMiscError.Invalid(f"invalid mode '{spec}'")) when ! rx"^[rwxXstugo]*$".matches(perms)
       return Err(FsMiscError.Invalid(f"invalid mode '{spec}'")) when perms.byte_len() > 1 and ("u" in perms or "g" in perms or "o" in perms)
-      let mask = perm_mask(perms, who, mode, is_dir)
+      let permissions = perm_mask(perms, who, mode, is_dir)
+      let mask = if who == "" { permissions.clear_bits(umask) } else { permissions }
       match op {
         "+" => mode = add_mask(mode, mask)
         "-" => mode = remove_mask(mode, mask)
@@ -159,9 +160,9 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
 }
 
 ## Evaluate an octal or symbolic permission mode.
-export pure mode_for(spec: Str, current: Int, is_dir: Bool) -> Result[Int, Error] {
+export pure mode_for(spec: Str, current: Int, is_dir: Bool, umask = 0) -> Result[Int, Error] {
   if "+" in spec or "-" in spec or "=" in spec {
-    return symbolic_mode(spec, current, is_dir)
+    return symbolic_mode(spec, current, is_dir, umask)
   }
 
   octal_mode(spec)
@@ -171,26 +172,38 @@ export pure mode_for(spec: Str, current: Int, is_dir: Bool) -> Result[Int, Error
 # Size arithmetic is bounded before multiplying so invalid sizes never create files.
 export pure size_value(raw: Str) -> Int? {
   let text = raw.trim()
+  return null when text == ""
+  var at = 0
+  var radix = 10
+  if text.starts_with("0x") { at = 2; radix = 16 } else if text.starts_with("0b") { at = 2; radix = 2 }
   var digits = ""
-  for ch in text {
-    break when ! rx"^[0-9]$".matches(ch)
+  while at < text.byte_len() {
+    let ch = text.byte_slice(at, length: 1)
+    let valid = if radix == 16 { rx"^[0-9A-Fa-f]$".matches(ch) } else if radix == 2 { ch in "01" } else { ch in "0123456789" }
+    break when ! valid
     digits += ch
+    at += 1
   }
-  return null when digits == ""
-  let number = digits.parse_int()
+  if radix == 10 and digits.byte_len() > 1 and digits.starts_with("0") { radix = 8 }
+  let number: Result[Int, Error] = if digits == "" and radix == 10 { Ok(1) } else {
+    ((if radix == 16 { "0x" } else if radix == 2 { "0b" } else if radix == 8 { "0o" } else { "" }) + digits).parse_int()
+  }
   return null when number is Err(_)
-  let suffix = text.byte_slice(digits.byte_len())
-  let units = ["", "K", "M", "G", "T", "P", "E"]
+  let suffix = text.byte_slice(at)
+  let units = ["", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"]
   var multiplier = 1
-  if suffix == "b" {
-    multiplier = 512
-  } else if suffix != "" {
+  if suffix == "b" { multiplier = 512 } else if suffix != "" {
     var valid = false
     for index in range(1, units.len()) {
       let unit = units[index]
-      if suffix == unit or (unit == "K" and suffix == "k") or suffix == unit + "iB" or suffix == unit + "B" {
-        let base = if suffix == unit + "B" { 1000 } else { 1024 }
-        for unused in range(index) { multiplier *= base }
+      let first = suffix.byte_slice(0, length: 1).upper()
+      let rest = suffix.byte_slice(1)
+      if first == unit and rest in ["", "iB", "B", "D"] {
+        let base = if rest in ["B", "D"] { 1000 } else { 1024 }
+        for unused in range(index) {
+          if multiplier > 9223372036854775807 / base { return if (number ?? 0) == 0 { 0 } else { null } }
+          multiplier *= base
+        }
         valid = true
         break
       }
@@ -246,7 +259,8 @@ export proc canonical(name: Str, missing: Str, logical = false, strip = false) [
       }
     } else if missing != "missing" {
       let info = fs.stat(fp"{current}", follow_symlinks: true)
-      if let Err(failure) = info { return Err(failure) when missing == "existing" or ! pending.is_empty() or failure.errno != 2 }
+      if let Ok(found) = info { return Err(FsMiscError.Invalid("Not a directory")) when ! pending.is_empty() and found.kind != "dir" }
+      if let Err(failure) = info { return Err(failure) when missing == "existing" or remaining_component(pending) or failure.errno != 2 }
     }
     parts += [part]
   }
@@ -288,4 +302,12 @@ export pure canonical_mode(args: List[Str], initial: Str) -> Str {
 pure remaining_component(parts: List[Str]) -> Bool {
   for part in parts { return true when part != "" }
   false
+}
+
+## Recognize range errors separately from malformed size arguments.
+export pure size_overflow(raw: Str) -> Bool {
+  let text = raw.trim()
+  if ! rx"^(0x[0-9A-Fa-f]+|0b[01]+|[0-9]+)?([kKmMgGtTpPeEzZyYrRqQ](iB|B|D)?)?$".matches(text) or text == "" { return false }
+  if rx"^0[0-9]+$".matches(text) and rx"[89]".matches(text) { return false }
+  size_value(text) == null
 }

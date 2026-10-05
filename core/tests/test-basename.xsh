@@ -132,3 +132,9 @@ test test_basename_runs_as_executable_shebang_script { |ctx|
   assert output == """demo.txt
 """
 }
+
+
+test test_basename_unicode_final_component { |ctx|
+  assert basename_run(ctx, ["path/😀"])?.stdout == "😀\n"
+  assert basename_run(ctx, ["😀///"])?.stdout == "😀\n"
+}

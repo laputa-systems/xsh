@@ -34,6 +34,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if arg == "--verbose" { verbose = true } else if arg == "--quiet" or arg == "--silent" { verbose = false } else if arg.starts_with("-") and ! arg.starts_with("--") { for flag in arg { if flag == "v" { verbose = true } else if flag == "q" or flag == "s" { verbose = false } } }
   }
   let mode = fs_misc.canonical_mode(argv, if opts.existing { "existing" } else if opts.missing { "missing" } else { "normal" })
+  if env.get("POSIXLY_CORRECT") is Ok(_) { verbose = true }
   var failed = false
   for name in opts.paths {
     let result = if opts.canonical or opts.existing or opts.missing {

@@ -17,3 +17,12 @@ test test_mknod_fifo_and_invalid_device_number { |ctx|
   assert run_applet(ctx, root, ["node", "c", "bad", "3"])?.status == 1
   assert ! fp"{root}/node".exists()?
 }
+
+
+test test_mknod_type_mnemonics_and_operand_diagnostics { |ctx|
+  let root = test.temp_dir(ctx, name: "mknod-types")?
+  assert run_applet(ctx, root, ["pipe", "pipe"])?.status == 0
+  assert fs.stat(fp"{root}/pipe")?.kind == "fifo"
+  assert "Special files require major and minor device numbers." in run_applet(ctx, root, ["node", "c"])?.stderr
+  assert "Fifos do not have major and minor device numbers." in run_applet(ctx, root, ["other", "p", "1", "2"])?.stderr
+}

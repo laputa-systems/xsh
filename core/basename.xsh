@@ -25,8 +25,9 @@ type BasenameOptions = {
 # The last path component of NAME after trailing slashes are dropped; a NAME of
 # only slashes is "/". A SUFFIX is removed unless that would leave nothing.
 pure basename_value(name: Str, suffix: Str) -> Str {
-  var end = name.byte_len()
-  while end > 0 and name.byte_slice(end - 1, length: 1) == "/" {
+  let raw = bytes.from_text(name)
+  var end = raw.len()
+  while end > 0 and raw.byte_at(end - 1) == 47 {
     end -= 1
   }
 

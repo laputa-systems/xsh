@@ -5,12 +5,13 @@ type Options = {zero: Bool, help: Bool, version: Bool, paths: List[Str]}
 
 # dirname removes components lexically, retaining dots and repeated interior slashes.
 pure dirname_value(name: Str) -> Str {
-  var end = name.byte_len()
-  while end > 0 and name.byte_slice(end - 1, length: 1) == "/" { end -= 1 }
+  let raw = bytes.from_text(name)
+  var end = raw.len()
+  while end > 0 and raw.byte_at(end - 1) == 47 { end -= 1 }
   return "/" when end == 0 and name != ""
-  while end > 0 and name.byte_slice(end - 1, length: 1) != "/" { end -= 1 }
+  while end > 0 and raw.byte_at(end - 1) != 47 { end -= 1 }
   return "." when end == 0
-  while end > 0 and name.byte_slice(end - 1, length: 1) == "/" { end -= 1 }
+  while end > 0 and raw.byte_at(end - 1) == 47 { end -= 1 }
   if end == 0 { "/" } else { name.byte_slice(0, length: end) }
 }
 

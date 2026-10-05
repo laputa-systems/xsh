@@ -25,3 +25,9 @@ test test_dirname_lexical_components_and_nul { |ctx|
   assert result.stdout == "foo/.\0foo\0/\0.\0foo\0"
   assert run_applet(ctx, root, [])?.status == 1
 }
+
+
+test test_dirname_unicode_components { |ctx|
+  let root = test.temp_dir(ctx, name: "dirname-unicode")?
+  assert run_applet(ctx, root, ["emoji/😀", "😀/.", "😀///file"])?.stdout == "emoji\n😀\n😀\n"
+}

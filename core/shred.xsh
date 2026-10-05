@@ -88,15 +88,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var remove = opts.remove ?? (if opts.unlink { "wipesync" } else { "" })
   if remove != "" {
     var matches: List[Str] = []
-    for method in ["unlink", "wipe", "wipesync"] { if method.starts_with(remove) { matches += [method] } }
+    if remove in ["unlink", "wipe", "wipesync"] { matches = [remove] } else {
+      for method in ["unlink", "wipe", "wipesync"] { if method.starts_with(remove) { matches += [method] } }
+    }
     if matches.len() != 1 { gnu.error(f"invalid argument {gnu.quote(remove)} for 'remove'"); exit 1 }
     remove = matches[0]
   }
   let source = fp"{opts.source ?? "/dev/urandom"}"
   if opts.source != null {
     let info = fs.stat(source, follow_symlinks: true)
-    if let Err(failure) = info { gnu.error(f"{gnu.quote(source.display())}: {gnu.strerror(failure)}"); exit 1 }
-    if info?.kind == "dir" { gnu.error(f"{gnu.quote(source.display())}: Is a directory"); exit 1 }
+    if let Err(failure) = info { gnu.error(f"{gnu.quote_maybe(source.display())}: {gnu.strerror(failure)}"); exit 1 }
+    if info?.kind == "dir" { gnu.error(f"{gnu.quote_maybe(source.display())}: Is a directory"); exit 1 }
   }
   var failed = false
   var source_offset = 0
@@ -105,7 +107,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata { gnu.name_error(name, failure); failed = true; continue }
     let info = metadata?
-    if info.kind != "file" { gnu.error(f"{gnu.quote(name)}: invalid file type"); failed = true; continue }
+    if info.kind != "file" { gnu.error(f"{gnu.quote_maybe(name)}: {if info.kind == "dir" { "Is a directory" } else { "invalid file type" }}"); failed = true; continue }
     if opts.force {
       if let Err(failure) = target.chmod(info.mode.bit_or(0o200)) { gnu.name_error(name, failure); failed = true; continue }
     }
@@ -144,7 +146,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           let renamed = fs.rename_noreplace(last, next)
           if let Err(failure) = renamed {
             if failure.errno != 17 {
-              gnu.error(f"{gnu.quote(name)}: failed to rename: {gnu.strerror(failure)}")
+              gnu.error(f"{gnu.quote_maybe(name)}: Couldn't rename to {gnu.quote(next.display())}: {gnu.strerror(failure)}")
               failed = true
               complete = false
               break

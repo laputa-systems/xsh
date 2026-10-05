@@ -29,8 +29,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       operation = value.byte_slice(0, length: 1)
       value = value.byte_slice(1)
     }
-    let parsed = fs_misc.size_value(value)
-    if parsed == null { gnu.error(f"invalid number: {gnu.quote_value(raw)}"); exit 1 }
+    let parsed: Int? = if value.ends_with("b") { null } else { fs_misc.size_value(value) }
+    if parsed == null {
+      let detail = if fs_misc.size_overflow(value) { ": Value too large for defined data type" } else { "" }
+      gnu.error(f"Invalid number: {gnu.quote_value(raw)}{detail}")
+      exit 1
+    }
     quantity = parsed ?? 0
     if quantity == 0 and operation in ["/", "%"] { gnu.error("division by zero"); exit 1 }
   }
@@ -41,6 +45,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if let Err(failure) = info { gnu.cannot("stat", name, failure); exit 1 }
     reference = info?.size
   }
+  if opts.reference != null and opts.size != null and operation == "" { gnu.error("you must specify a relative size with --reference"); exit 1 }
   var failed = false
   for name in opts.paths {
     let target = fp"{name}"
@@ -54,7 +59,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       let info = if metadata is Ok(_) { metadata } else { fs.stat(target.parent(), follow_symlinks: true) }
       if let Err(failure) = info { gnu.cannot("stat", name, failure); failed = true; continue }
       let block = info?.blksize
-      if amount > 9223372036854775807 / block { gnu.error(f"invalid number: {gnu.quote_value(raw)}"); failed = true; continue }
+      if amount > 9223372036854775807 / block { gnu.error(f"Invalid number: {gnu.quote_value(raw)}"); failed = true; continue }
       amount *= block
     }
     if opts.size != null {

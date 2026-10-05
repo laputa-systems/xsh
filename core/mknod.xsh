@@ -16,11 +16,21 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.version { gnu.version("mknod"); return }
   let args = opts.operands
   if args.len() < 2 { if args.is_empty() { gnu.missing_operand() } else { gnu.missing_operand_after(args[0]) } }
-  let kind = match args[1] { "p" => "fifo", "b" => "block", "c" => "char", "u" => "char", else => "" }
+  let kind = match bytes.from_text(args[1]).byte_at(0) ?? 0 { 112 => "fifo", 98 => "block", 99 => "char", 117 => "char", else => "" }
   if kind == "" { gnu.usage_error(f"invalid device type {gnu.quote(args[1])}") }
   let count = if kind == "fifo" { 2 } else { 4 }
-  if args.len() < count { gnu.missing_operand_after(args[-1]) }
-  if args.len() > count { gnu.extra_operand(args[count]) }
+  if args.len() < count {
+    gnu.error(f"missing operand after {gnu.quote(args[-1])}")
+    eprint "Special files require major and minor device numbers."
+    gnu.try_help()
+    exit 1
+  }
+  if args.len() > count {
+    gnu.error(f"extra operand {gnu.quote(args[count])}")
+    if kind == "fifo" { eprint "Fifos do not have major and minor device numbers." }
+    gnu.try_help()
+    exit 1
+  }
   var major = 0
   var minor = 0
   if kind != "fifo" {
@@ -33,7 +43,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   var mode = 0o666
   if opts.mode != null {
-    let parsed = fs_misc.mode_for(opts.mode ?? "", mode, false)
+    let parsed = fs_misc.mode_for(opts.mode ?? "", mode, false, umask: fs.umask()?)
     if parsed is Err(_) { gnu.error(f"invalid mode {gnu.quote(opts.mode ?? "")}"); exit 1 }
     mode = parsed?
     if mode > 0o777 { gnu.error("mode must specify only file permission bits"); exit 1 }

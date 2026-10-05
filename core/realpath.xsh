@@ -32,6 +32,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   let missing = fs_misc.canonical_mode(argv, if opts.existing { "existing" } else if opts.missing { "missing" } else { "normal" })
+  if opts.relative_base == "" or opts.relative_to == "" { gnu.error("No such file or directory"); exit 1 }
   let base_name = opts.relative_base ?? ""
   let to_name = opts.relative_to ?? base_name
   var base = ""

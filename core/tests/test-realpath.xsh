@@ -27,3 +27,22 @@ test test_realpath_physical_logical_relative_and_missing { |ctx|
   assert run_applet(ctx, root, ["-e", "absent"])?.status == 1
   assert run_applet(ctx, root, ["-s", "alias"])?.stdout == root.display() + "/alias\n"
 }
+
+
+test test_realpath_canonical_modes_in_order_and_trailing_slashes { |ctx|
+  let root = test.temp_dir(ctx, name: "realpath-trailing")?
+  fp"{root}/file".write("data")
+  fp"{root}/link".symlink(to: p"absent")
+  assert run_applet(ctx, root, ["link/"])?.stdout == root.display() + "/absent\n"
+  assert run_applet(ctx, root, ["-e", "-m", "absent/child"])?.status == 0
+  assert run_applet(ctx, root, ["-m", "-e", "absent/child"])?.status == 1
+  assert run_applet(ctx, root, ["-s", "file/."])?.status == 1
+  assert run_applet(ctx, root, ["-m", "file/child"])?.stdout == root.display() + "/file/child\n"
+}
+
+
+test test_realpath_empty_relative_options_fail { |ctx|
+  let root = test.temp_dir(ctx, name: "realpath-relative-empty")?
+  assert run_applet(ctx, root, ["--relative-to=", "."])?.status == 1
+  assert run_applet(ctx, root, ["--relative-base=", "--relative-to=.", "."])?.status == 1
+}
