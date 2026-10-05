@@ -549,9 +549,11 @@ wrote: a `Str` value, an f-string, and a name bound to text always need
 expected: `Any`, an unannotated binding, and a standard function whose
 overloads disagree about the parameter (`hash.sha256` takes `Bytes` or a
 `Path`, so a file is `hash.sha256(p"image.bin")`). `"text" in path` stays
-display-text containment. `env.PATH` requires a spelled path for `append`,
-`prepend`, and `in`. A literal that contains NUL cannot be a `Path` and is
-rejected where one is expected.
+display-text containment. The entries of `env.PATH` are paths, so a literal
+is a `Path` in `env.PATH.append("/opt/bin")`, `prepend`, and
+`"/opt/bin" in env.PATH`; text that is not a literal is still rejected there.
+`process.which` takes text or a `Path`, so its literal stays `Str`. A literal
+that contains NUL cannot be a `Path` and is rejected where one is expected.
 
 Questions about a path's spelling are `Path` methods, so they need no
 `.display()` and lose no bytes. `p.starts_with(prefix)` and
@@ -3023,7 +3025,8 @@ env LC_ALL=C {
 - Reads and assignments need the `env` effect and are rejected in `pure`
   functions.
 - `env.PATH` is a scoped mutable view with `prepend(path)`, `append(path)`,
-  `pop()`, and `in`/`not in`. Its operands must be `Path` values. Its methods
+  `pop()`, and `in`/`not in`. Its operands must be `Path` values; a string
+  literal there is one (4.4). Its methods
   assign the environment, so they need the `env` effect like any assignment.
 
 ## 11. Processes
@@ -3175,10 +3178,21 @@ whatever `file` contains.
 
 Every place that hands bytes to the operating system converts this way, so a
 `Path` goes there as itself: an item of `process.command_argv`'s `argv` and
-its `target`, a value of an `env` scope overlay, and a value of the `env` of a
-command plan (`process.command`, `process.command_argv`) or of a native test
-run (`test.run_script`, `test.run_xsh`, `test.run_xsht_trace`). `.display()`
-before such a sink only replaces the bytes that are not UTF-8.
+its `target`, the name given to `process.which`, an item of the `args` of
+`test.run_script` and `test.expect`, a value of an `env` scope overlay, and a
+value of the `env` of a command plan (`process.command`,
+`process.command_argv`) or of a native test run (`test.run_script`,
+`test.run_xsh`, `test.run_xsht_trace`). `.display()` before such a sink only
+replaces the bytes that are not UTF-8.
+
+An argument list may be written in the call or built first. Its type is then
+`List[Str]`, `List[Path]`, or `List[Union[Str, Path]]` when it holds both:
+
+```xsh
+let tar = process.which("tar")?
+let argv: List[Union[Str, Path]] = [tar, "-cf", out, @inputs]
+let plan = process.command_argv(tar, argv)
+```
 
 ### 11.5 Capture
 

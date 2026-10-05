@@ -23,7 +23,7 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   let input = fp"{root}/capture.txt"
   input.write(llvm_lines_capture)
   let source = fp"{fs.cwd()?}/tools/llvm-lines-repeat-offenders.xsh".read_text()?
-  let text = test.run_script(ctx, source, args: [input.display(), "--limit", "1", "--examples", "1"])?
+  let text = test.run_script(ctx, source, args: [input, "--limit", "1", "--examples", "1"])?
   let {success: text_succeeded, stderr: text_failure_details, ..} = text
   assert text_succeeded, text_failure_details
   assert "top 1 llvm-lines repeat offenders" in text.stdout
@@ -33,7 +33,7 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   let report_text = text.stdout
   assert dependencies_absent, report_text
 
-  let owned = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
+  let owned = test.run_script(ctx, source, args: [input, "--sum", "--json"])?
   let {success: owned_succeeded, stderr: owned_failure_details, ..} = owned
   assert owned_succeeded, owned_failure_details
   let summary = json.decode(owned.stdout)?.require(LlvmLinesIntegralSummary)?
@@ -47,7 +47,7 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   let dependencies = test.run_script(
     ctx,
     source,
-    args: [input.display(), "--sum", "--all", "--filter", "dependency", "--json"],
+    args: [input, "--sum", "--all", "--filter", "dependency", "--json"],
   )?
   let {success: dependencies_succeeded, stderr: dependencies_failure_details, ..} = dependencies
   assert dependencies_succeeded, dependencies_failure_details
@@ -65,14 +65,14 @@ test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals 
   let source = fp"{fs.cwd()?}/tools/llvm-lines-repeat-offenders.xsh".read_text()?
   input.write("""01 1% 1% 2 1% 1% xsh[abc]::work::<u8>
 """)
-  let rejected = test.expect(ctx, source, status: 3, args: [input.display(), "--sum", "--json"])?
+  let rejected = test.expect(ctx, source, status: 3, args: [input, "--sum", "--json"])?
   assert rejected.stdout == ""
   assert "json" in rejected.stderr
 
   input.write(
     llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", to: "true 100% 100% 10 100% 100% (TOTAL)"),
   )
-  let unknown = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
+  let unknown = test.run_script(ctx, source, args: [input, "--sum", "--json"])?
   let {success: succeeded, stderr: failure_details, ..} = unknown
   assert succeeded, failure_details
   let summary = json.decode(unknown.stdout)?.require(LlvmLinesIntegralSummary)?

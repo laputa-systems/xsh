@@ -26,7 +26,7 @@ proc nested(base: Path) {
 nested(root)
 """,
     status: 0,
-    args: [root.display()],
+    args: [root],
   )?
   assert output.stdout == """/tmp/parsed
 3 5

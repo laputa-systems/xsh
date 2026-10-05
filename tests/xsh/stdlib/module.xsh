@@ -1239,7 +1239,7 @@ proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
 }
 main(@args)?
 """,
-    [static_src.display(), static_out.display()],
+    [static_src, static_out],
     {XSH_MODULE_PATH: root},
   )?
   {

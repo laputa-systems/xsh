@@ -33,7 +33,7 @@ proc main(...argv: List[Str]) [fs, env, process, time, error] {
   print ${fp"{root}/leaked".exists()?}
 }
 """,
-    [root.display()],
+    [root],
     env: {XSH_ACCEPT_SCOPE: "consumer"},
   )?
   {
@@ -88,7 +88,7 @@ proc main(...argv: List[Str]) [fs, env, process, error] {
   test.eq(env.get("XSH_ACCEPT_SCOPE")?, "consumer")?
 }
 """,
-    [root.display()],
+    [root],
     env: {XSH_ACCEPT_SCOPE: "consumer"},
   )?
   {
@@ -277,7 +277,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print $third
 }
 """,
-    [root.display()],
+    [root],
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output

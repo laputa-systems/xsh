@@ -234,7 +234,7 @@ print json.encode(restored)?
 print ("\"ready\"" in json.encode(restored, pretty: true)?)
 }
 """,
-    [fp"{root}/packet.json".display()],
+    [fp"{root}/packet.json"],
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
@@ -267,7 +267,7 @@ proc main(source: Path) [fs, error] {
   match loaded.prepared { model.Ready => print "same constructor" }
 }
 """,
-    [source.display()],
+    [source],
     {XSH_MODULE_PATH: root},
   )?
   {

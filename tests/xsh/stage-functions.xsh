@@ -298,7 +298,7 @@ proc main(...argv: List[Str]) [fs, error] {
   print digest.hex()
 }
 """,
-    [file.display()],
+    [file],
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
