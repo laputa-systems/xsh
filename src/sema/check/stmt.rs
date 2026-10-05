@@ -1160,6 +1160,8 @@ impl Checker {
                     return ConditionNarrowings {
                         when_true: vec![binding.proof.fact(name, path, (**present).clone())],
                         when_false: Vec::new(),
+                    };
+                }
                 // A type test splits a union's members: the ones it accepts
                 // remain when it passes, the others when it fails.
                 if let Type::Union(members) = &subject_ty {
