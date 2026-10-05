@@ -75,6 +75,11 @@ pub enum Type {
     /// checked fact about every value that reaches the type, never a runtime
     /// test, so no dynamic value converts to it.
     Callable(Arc<TypedCallable>),
+    /// A base type narrowed by a validation, such as `NonEmpty[T]` over
+    /// `List[T]`. At run time it is a value of the base; the validation is a
+    /// checked fact about every value that reaches the type. It fits its base
+    /// and never the reverse.
+    Validated(Box<super::validated::ValidatedType>),
 }
 
 /// The contract of a typed callable. `sig.effects` is the upper bound a call
@@ -479,6 +484,7 @@ impl Type {
             }
             Self::Record(fields) => fields.values().any(Self::has_unsigned_constraint),
             Self::Union(members) => members.iter().any(Self::has_unsigned_constraint),
+            Self::Validated(validated) => validated.base().has_unsigned_constraint(),
             _ => false,
         }
     }
@@ -507,6 +513,7 @@ impl Type {
             }
             Self::Record(fields) => fields.values().all(Self::can_escape_context_scope),
             Self::Union(members) => members.iter().all(Self::can_escape_context_scope),
+            Self::Validated(validated) => validated.base().can_escape_context_scope(),
             _ => true,
         }
     }
@@ -521,9 +528,10 @@ impl Type {
                 (Name::intern("key"), (**key).clone()),
                 (Name::intern("value"), (**item).clone()),
             ]))),
+            Self::Validated(validated) => validated.base().iteration_item_type(),
             Self::Result(ok, _)
                 if matches!(
-                    ok.as_ref(),
+                    ok.unvalidated(),
                     Self::List(_) | Self::Stream(_) | Self::Map(_, _) | Self::Str | Self::Bytes
                 ) =>
             {
@@ -570,6 +578,9 @@ impl Type {
             }
             Self::Callable(callable) => {
                 total = total.saturating_add(callable.sig.retained_bytes());
+            }
+            Self::Validated(validated) => {
+                total = total.saturating_add(validated.base().retained_bytes());
             }
             _ => {}
         }
@@ -640,6 +651,10 @@ impl Type {
                 });
                 Self::Callable(Arc::new(callable))
             }
+            ArenaTypeExprTag::NonEmpty => Self::non_empty(Self::from_arena(
+                arena,
+                TypeExprId::from_index(data.lhs as usize),
+            )),
         }
     }
 
@@ -725,7 +740,8 @@ impl Type {
             | Self::Tag(_)
             | Self::Optional(_)
             | Self::Union(_)
-            | Self::Callable(_) => None,
+            | Self::Callable(_)
+            | Self::Validated(_) => None,
         }
     }
 
@@ -757,6 +773,7 @@ impl Type {
                 }
                 Self::Record(fields) => pending.extend(fields.values()),
                 Self::Union(members) => pending.extend(members),
+                Self::Validated(validated) => pending.push(validated.base()),
                 Self::Callable(callable) => {
                     pending.push(&callable.sig.return_ty);
                     pending.extend(callable.sig.params.iter().map(|param| &param.ty));
@@ -791,6 +808,7 @@ impl Type {
             }
             Self::Record(fields) => fields.values().any(Self::contains_typed_callable),
             Self::Union(members) => members.iter().any(Self::contains_typed_callable),
+            Self::Validated(validated) => validated.base().contains_typed_callable(),
             _ => false,
         }
     }
@@ -803,6 +821,7 @@ impl Type {
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
             Self::Union(members) => members.iter().any(Self::contains_any),
+            Self::Validated(validated) => validated.base().contains_any(),
             Self::Callable(callable) => {
                 callable.sig.params.iter().any(|param| param.ty.contains_any())
                     || callable.sig.return_ty.contains_any()
@@ -856,6 +875,10 @@ impl Type {
                         .is_some_and(|actual| module_export_any_flows_to_concrete(actual, expected))
                 })
             }
+            (Self::Validated(actual), Self::Validated(expected)) => {
+                actual.base().any_flows_to_concrete(expected.base())
+            }
+            (Self::Validated(actual), expected) => actual.base().any_flows_to_concrete(expected),
             (actual, Self::Optional(expected)) => actual.any_flows_to_concrete(expected),
             _ => false,
         }
@@ -889,6 +912,13 @@ impl Type {
         }
         match (self, expected) {
             (Self::Any, _) => false,
+            // A validated type fits the same validation over a fitting base.
+            // Nothing else fits a validated type: a value of the base has
+            // not been validated.
+            (Self::Validated(actual), Self::Validated(expected)) => {
+                actual.validation().implies(expected.validation())
+                    && actual.base().matches_expected(expected.base())
+            }
             // A union fits another when each of its members does; it never
             // fits a single member, which needs a narrowing type test.
             (Self::Union(actual), Self::Union(_)) => {
@@ -960,6 +990,9 @@ impl Type {
             (Self::Null, Self::Optional(_)) => true,
             // T matches Optional[T]
             (actual, Self::Optional(expected)) => actual.matches_expected(expected),
+            // After the union and optional rules, which ask about the
+            // validated type itself, it fits whatever its base fits.
+            (Self::Validated(actual), expected) => actual.base().matches_expected(expected),
             _ => false,
         }
     }
@@ -987,6 +1020,10 @@ impl Type {
                             .get(name)
                             .is_some_and(|actual| actual.matches_invariant(ty))
                     })
+            }
+            (Self::Validated(actual), Self::Validated(expected)) => {
+                actual.validation() == expected.validation()
+                    && actual.base().matches_invariant(expected.base())
             }
             _ => self.matches_expected(expected) && expected.matches_expected(self),
         }
@@ -1091,6 +1128,7 @@ impl Type {
             Self::Union(members) => members
                 .iter()
                 .all(|member| member.is_json_compatible_with(wire_enum)),
+            Self::Validated(validated) => validated.base().is_json_compatible_with(wire_enum),
             _ => false,
         }
     }
@@ -1179,6 +1217,7 @@ impl Type {
                     callable.sig.return_ty.annotation_source()?
                 ))
             }
+            Self::Validated(validated) => validated.annotation_source(),
         }
     }
 }
@@ -1255,6 +1294,7 @@ impl fmt::Display for Type {
                 }
                 write!(f, " -> {}", callable.sig.return_ty)
             }
+            Self::Validated(validated) => write!(f, "{validated}"),
         }
     }
 }

@@ -480,6 +480,7 @@ diagnostic_codes! {
         CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
         CheckCallableType = "check.callable-type", error, "Reject a callable type whose parameters have a default, a rest marker, a repeated name, or no type, and a callable type used as a runtime type test";
         CheckCallableMismatch = "check.callable-mismatch", error, "Reject a function whose kind, parameters, return type, or effects do not fit the callable type expected of it, and a call through a callable type that splices its arguments";
+        CheckValidatedLiteral = "check.validated-literal", error, "Reject a literal that fails the validation of the type expected of it, such as a list literal that may be empty where a `NonEmpty[T]` is expected";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";
@@ -645,6 +646,7 @@ diagnostic_codes! {
         LintExplicitMissingOk = "lint.explicit-missing-ok", warning, "Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in)";
         LintPreferIsEmpty = "lint.prefer-is-empty", warning, "Use `is_empty()` instead of comparing a length with zero";
         LintPreferNegativeIndex = "lint.prefer-negative-index", warning, "Use `list[-N]` instead of `list[list.len() - N]`";
+        LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", warning, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

@@ -120,6 +120,8 @@ pub enum Type {
     /// tried against them. A signature lists at least two members, none of
     /// which accepts another's values.
     Union(Vec<Type>),
+    /// A list of the element type that holds at least one element.
+    NonEmpty(Box<Type>),
 }
 
 /// The full CLI outcome always contains this envelope, independently of the

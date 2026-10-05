@@ -77,7 +77,7 @@ fn is_bare_ident(text: &str) -> bool {
 /// rendering.
 pub(super) fn can_be_env_value(ty: &Type) -> bool {
     ty.can_be_argv_item()
-        || matches!(ty, Type::List(item) if matches!(**item, Type::Path | Type::Unknown))
+        || matches!(ty.unvalidated(), Type::List(item) if matches!(**item, Type::Path | Type::Unknown))
 }
 
 pub(super) fn valid_env_name(name: &str) -> bool {
@@ -146,7 +146,7 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
             return Type::Unknown;
         }
-        match base_ty {
+        match base_ty.into_unvalidated() {
             Type::List(item) => *item,
             Type::Any => Type::Any,
             Type::Record(_) | Type::Unknown => Type::Unknown,
@@ -182,6 +182,7 @@ impl Checker {
     /// scalars; an `Any` must be validated first. Reports and returns `true`
     /// for an `Any`.
     pub(super) fn reject_dynamic_word(&mut self, ty: &Type, span: Span) -> bool {
+        let ty = ty.unvalidated();
         let dynamic = *ty == Type::Any || matches!(ty, Type::List(item) if **item == Type::Any);
         if dynamic {
             self.reject_dynamic_use("a command word or printed value", None, span);
@@ -193,7 +194,8 @@ impl Checker {
         if self.reject_dynamic_word(ty, span) {
             return;
         }
-        match ty {
+        // A splice reads the list; a validated list splices as its base.
+        match ty.unvalidated() {
             Type::List(item) if item.can_be_argv_item() => {}
             Type::List(_) => self.error(
                 span,
@@ -826,6 +828,20 @@ impl Checker {
             );
         } else {
             self.check_external_arg_arena(arena, source, &segment.target);
+            // The target was just checked, so its type is a fact to read.
+            let vector = match segment.target.kind {
+                ArenaCommandArgKind::SpliceExpr(list) => {
+                    self.expr_types.get(&arena.arena.expr(list).span).cloned()
+                }
+                ArenaCommandArgKind::SpliceName(name) => self
+                    .lookup(name)
+                    .and_then(|binding| self.type_constraints.resolve(&binding.ty).ok()),
+                ArenaCommandArgKind::Word(_) | ArenaCommandArgKind::Typed(_) => None,
+            };
+            if let Some(vector @ Type::List(_)) = vector {
+                self.unvalidated_command_vectors
+                    .insert(arena.arena.span(segment.target.span), vector);
+            }
         }
         for assignment in arena.arena.env_assignments(segment.env) {
             self.check_env_assignment_arena(arena, source, assignment);
@@ -1112,7 +1128,7 @@ impl Checker {
                         }
                         let valid = if standalone_interpolation {
                             ty.can_be_argv_item()
-                                || matches!(&ty, Type::List(item) if item.can_be_argv_item())
+                                || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item())
                         } else {
                             ty.can_display()
                         };

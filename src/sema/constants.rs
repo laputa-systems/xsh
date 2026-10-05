@@ -94,6 +94,7 @@ impl LiteralConstant {
             )),
             (Self::Str(text), Type::Path) => Self::Path(text),
             (value, Type::Optional(inner)) => value.in_type(inner),
+            (value, Type::Validated(validated)) => value.in_type(validated.base()),
             (value, _) => value,
         }
     }
@@ -1121,7 +1122,7 @@ impl RecordConstructors {
                     .collect::<Result<Vec<_>, _>>()?;
                 return self.expectation_definition(arena, id, &arguments, &contexts, active);
             }
-            ArenaTypeExprTag::List | ArenaTypeExprTag::Stream => {
+            ArenaTypeExprTag::List | ArenaTypeExprTag::Stream | ArenaTypeExprTag::NonEmpty => {
                 result.children.insert(
                     SchemaComponent::Item,
                     self.expectation_annotation(
@@ -1192,6 +1193,7 @@ impl RecordConstructors {
                 Self::contains_template_parameter(ok) || Self::contains_template_parameter(error)
             }
             Type::Record(fields) => fields.values().any(Self::contains_template_parameter),
+            Type::Validated(validated) => Self::contains_template_parameter(validated.base()),
             Type::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => Self::contains_template_parameter(ty),
                 ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
@@ -1476,6 +1478,9 @@ impl RecordConstructors {
             ArenaTypeExprTag::List => Type::List(Box::new(
                 self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
             )),
+            ArenaTypeExprTag::NonEmpty => Type::non_empty(
+                self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
+            ),
             ArenaTypeExprTag::Map => {
                 let key = TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Str), |key| {
                     self.resolve_instance_annotation(arena, key, namespace, bindings, active)
@@ -3054,7 +3059,10 @@ impl ConstantPreparation<'_> {
                 }
             }
             ArenaExprKind::List(items) => {
-                let item_ty = match expected {
+                // The elements and spreads are read against the base; the
+                // finished value is judged against a validation below.
+                let list_expected = expected.map(Type::unvalidated);
+                let item_ty = match list_expected {
                     Some(Type::List(item)) => Some(item.as_ref()),
                     _ => None,
                 };
@@ -3065,7 +3073,7 @@ impl ConstantPreparation<'_> {
                 for item in arena.list_elements(items) {
                     if item.splice_span.is_some() {
                         let LiteralConstant::List(items) =
-                            self.expression(item.value, scope, expected, depth + 1)?
+                            self.expression(item.value, scope, list_expected, depth + 1)?
                         else {
                             return Err(failure());
                         };
@@ -3526,6 +3534,7 @@ fn constant_type_allowed(ty: &Type) -> bool {
         | Type::Regex
         | Type::Tag(_) => true,
         Type::List(item) | Type::Optional(item) => constant_type_allowed(item),
+        Type::Validated(validated) => constant_type_allowed(validated.base()),
         Type::Map(key, value) => key.is_map_key() && constant_type_allowed(value),
         Type::Record(fields) => fields.values().all(constant_type_allowed),
         _ => false,
@@ -3676,7 +3685,24 @@ fn constant_matches_type(value: &LiteralConstant, ty: &Type) -> bool {
         }
         (LiteralConstant::Null, Type::Optional(_)) => true,
         (value, Type::Optional(inner)) => constant_matches_type(value, inner),
+        (value, Type::Validated(validated)) => {
+            constant_matches_type(value, validated.base())
+                && constant_passes_validation(validated.validation(), value)
+        }
         (value, ty) => &value.value_type() == ty,
+    }
+}
+
+/// A constant is a known value, so whether it passes a validation is decided
+/// from the value itself, as a literal's is.
+fn constant_passes_validation(
+    validation: crate::sema::validated::Validation,
+    value: &LiteralConstant,
+) -> bool {
+    match validation {
+        crate::sema::validated::Validation::NonEmpty => {
+            matches!(value, LiteralConstant::List(values) if !values.is_empty())
+        }
     }
 }
 
@@ -3856,6 +3882,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
             }
             return Some(classes);
         }
+        Type::Validated(validated) => return value_classes(validated.base()),
         Type::Tag(name) if name.as_str().starts_with("type parameter ") => return None,
         Type::BuiltinParameter(_)
         | Type::Inference(_)

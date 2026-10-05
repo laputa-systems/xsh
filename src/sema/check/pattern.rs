@@ -255,6 +255,15 @@ impl Checker {
             }
             return;
         }
+        // A value of a validated type's base may be tested for the
+        // validation: the test is the validation's one runtime check, and it
+        // narrows the value where it passes. A value that already has the
+        // type passes the same test.
+        if let Type::Validated(validated) = tested
+            && value_ty.unvalidated().matches_invariant(validated.base())
+        {
+            return;
+        }
         let family = match tested {
             Type::ErrorFamily(family) => Some(*family),
             Type::ProcessError => Some(Name::PROCESS_ERROR),
@@ -536,7 +545,7 @@ impl Checker {
                 self.expect_type(value_ty, &actual, expr_span);
             }
             ArenaPatternKind::List { elements, rest } => {
-                let element_ty = match value_ty {
+                let element_ty = match value_ty.unvalidated() {
                     Type::List(element) => element.as_ref().clone(),
                     Type::Any => Type::Any,
                     Type::Unknown | Type::Invalid => Type::Unknown,
@@ -871,7 +880,7 @@ impl Checker {
                 patterns.push(pattern);
             }
         }
-        if matches!(value_ty, Type::List(_))
+        if matches!(value_ty.unvalidated(), Type::List(_))
             && !super::stmt::patterns_are_exhaustive_arena(
                 arena,
                 value_ty,

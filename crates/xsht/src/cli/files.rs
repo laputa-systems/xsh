@@ -213,6 +213,7 @@ pub struct LintConfig {
     pub prefer_typed_callables: bool,
     /// On only when `explicit-missing-ok = true`.
     pub explicit_missing_ok: bool,
+    pub prefer_non_empty_argv: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -230,6 +231,7 @@ impl Default for LintConfig {
             prefer_inferred_proc_returns: false,
             prefer_typed_callables: false,
             explicit_missing_ok: false,
+            prefer_non_empty_argv: false,
             runless_except: Vec::new(),
         }
     }
@@ -368,6 +370,8 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_typed_callables: ini_string(lint, "prefer-typed-callables")
             .is_some_and(|value| value == "true"),
         explicit_missing_ok: ini_string(lint, "explicit-missing-ok")
+            .is_some_and(|value| value == "true"),
+        prefer_non_empty_argv: ini_string(lint, "prefer-non-empty-argv")
             .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }

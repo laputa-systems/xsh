@@ -251,6 +251,7 @@ enum ArenaTypeExprKind {
     Optional(TypeExprId),
     Union(Vec<TypeExprId>),
     Callable(xsh::frontend::syntax::arena::ArenaCallableTypeExpr),
+    NonEmpty(TypeExprId),
 }
 
 fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
@@ -293,6 +294,9 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
             ArenaTypeExprKind::Union(arena.union_type_members(id).collect())
         }
         ArenaTypeExprTag::Callable => ArenaTypeExprKind::Callable(arena.callable_type_expr(id)),
+        ArenaTypeExprTag::NonEmpty => {
+            ArenaTypeExprKind::NonEmpty(TypeExprId::from_index(data.lhs as usize))
+        }
     }
 }
 
@@ -3804,6 +3808,11 @@ impl<'a> Writer<'a> {
             }
             ArenaTypeExprKind::List(inner) => {
                 output.push_str("List[");
+                self.write_type(inner, output);
+                output.push(']');
+            }
+            ArenaTypeExprKind::NonEmpty(inner) => {
+                output.push_str("NonEmpty[");
                 self.write_type(inner, output);
                 output.push(']');
             }

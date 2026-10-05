@@ -724,6 +724,8 @@ fn set_checked_lint_facts_for_source(
         source_checked_set(&checked.redundant_condition_propagations, source_id);
     options.implicitly_captured_runs =
         source_checked_set(&checked.implicitly_captured_runs, source_id);
+    options.unvalidated_command_vectors =
+        source_checked_map(&checked.unvalidated_command_vectors, source_id);
     options.membership_migration_spans =
         source_checked_set(&checked.membership_migration_spans, source_id);
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
@@ -1518,6 +1520,7 @@ fn lint_config_for_file(
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
             && !configured_return_annotations,
         prefer_typed_callables: tool_config.config.lint.prefer_typed_callables,
+        prefer_non_empty_argv: tool_config.config.lint.prefer_non_empty_argv,
         return_proof: Some(crate::xsht::lint::ReturnProofContext {
             file: file.to_string(),
             module_roots: module_roots.clone(),
@@ -1540,6 +1543,7 @@ fn lint_config_for_file(
         propagating_statements: Default::default(),
         redundant_condition_propagations: Default::default(),
         implicitly_captured_runs: Default::default(),
+        unvalidated_command_vectors: Default::default(),
         membership_migration_spans: Default::default(),
         standard_call_spans: Default::default(),
         statically_resolved_call_spans: Default::default(),
@@ -1621,6 +1625,7 @@ fn lint_one_file_with_fixes(
     lint_options.redundant_condition_propagations =
         checked.redundant_condition_propagations.clone();
     lint_options.implicitly_captured_runs = checked.implicitly_captured_runs.clone();
+    lint_options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
@@ -1912,6 +1917,7 @@ fn apply_cst_fixes(
         options.redundant_condition_propagations =
             checked.redundant_condition_propagations.clone();
         options.implicitly_captured_runs = checked.implicitly_captured_runs.clone();
+        options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();

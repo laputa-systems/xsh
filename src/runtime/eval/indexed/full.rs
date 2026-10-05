@@ -2923,6 +2923,9 @@ fn executable_type(ty: &Type) -> Type {
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
         Type::Union(members) => Type::Union(members.iter().map(executable_type).collect()),
+        Type::Validated(validated) => {
+            Type::Validated(Box::new(validated.map_base(executable_type)))
+        }
         Type::Callable(callable) => {
             Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
                 pure: callable.pure,
@@ -3016,6 +3019,8 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) | Type::Union(_) => LoweredType::Any,
+        // A validated value is stored as a value of its base.
+        Type::Validated(validated) => lowered_type_from_type(validated.base())?,
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
@@ -11376,7 +11381,10 @@ proc configured() [] -> Int {
                         .any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
                     PreparedSchema::List(schema)
                     | PreparedSchema::Map(_, schema)
-                    | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    | PreparedSchema::Optional(schema)
+                    | PreparedSchema::Validated(_, schema) => {
+                        change_mapping(Arc::make_mut(schema))
+                    }
                     PreparedSchema::Union(_, members) => members
                         .iter_mut()
                         .any(|schema| change_mapping(Arc::make_mut(schema))),
@@ -11990,6 +11998,94 @@ pure union_task(source: Str) -> Result[Str] {
             };
             members.pop();
             assert!(FullVerifier::verify(&dropped).is_err());
+        });
+    }
+
+    // A validated type reaches the verified program as a type-pool row and
+    // as a prepared schema that decodes the base and then tests the
+    // validation. A program that names an unknown validation, validates the
+    // wrong base, or drops the test from the schema is rejected.
+    #[test]
+    fn validated_types_and_schemas_reject_corruption_in_a_lowered_program() {
+        use super::super::super::require::PreparedSchema;
+        run_with_large_stack(|| {
+            let source = r#"pure validated_first(source: Str) -> Result[Str] {
+  let argv = json.decode(source)?.require(NonEmpty[Str])?
+  return Ok(argv.first())
+}
+"#;
+            let program = Arc::new(fixture("validated-types.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let call = |raw: &str| {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "validated_first")),
+                        LoweredFunctionKind::Pure,
+                        &[Value::Str(Arc::from(raw))],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("validated function exists")
+                    .unwrap()
+            };
+            assert_eq!(call("[\"ls\", \"-l\"]"), Value::ok(Value::Str(Arc::from("ls"))));
+            // The empty list is refused by the validation, before `first()`.
+            assert!(matches!(
+                call("[]"),
+                Value::Result(crate::runtime::value::ResultValue::Err(_))
+            ));
+
+            let schema = program
+                .store
+                .prepared_schemas
+                .iter()
+                .position(|schema| matches!(schema.as_ref(), PreparedSchema::Validated(..)))
+                .expect("the validated schema");
+
+            // The schema decodes the base and no longer tests the validation.
+            let mut unvalidated = (*program).clone();
+            let PreparedSchema::Validated(_, base) = program.store.prepared_schemas[schema].as_ref()
+            else {
+                panic!("the schema is the validated one");
+            };
+            unvalidated.store.prepared_schemas[schema] = Arc::clone(base);
+            assert!(
+                FullVerifier::verify(&unvalidated)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            // The base schema is not the schema of the validated type's base.
+            let mut rebased = (*program).clone();
+            let PreparedSchema::Validated(_, base) =
+                Arc::make_mut(&mut rebased.store.prepared_schemas[schema])
+            else {
+                panic!("the schema is the validated one");
+            };
+            *base = Arc::new(PreparedSchema::Validate(Type::Str));
+            assert!(
+                FullVerifier::verify(&rebased)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            let mut unknown = (*program).clone();
+            assert!(unknown.store.semantic.corrupt_first_validated_for_test(false));
+            assert!(
+                FullVerifier::verify(&unknown)
+                    .unwrap_err()
+                    .message
+                    .contains("names no validation")
+            );
+
+            let mut wrong_base = (*program).clone();
+            assert!(wrong_base.store.semantic.corrupt_first_validated_for_test(true));
+            assert!(FullVerifier::verify(&wrong_base).is_err());
         });
     }
 

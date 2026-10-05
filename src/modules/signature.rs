@@ -457,6 +457,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Union(members) => {
             Type::Union(members.iter().map(convert_type).collect())
         }
+        xsh_registry::types::Type::NonEmpty(item) => Type::non_empty(convert_type(item)),
     }
 }
 

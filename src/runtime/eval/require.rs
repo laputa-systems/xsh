@@ -17,6 +17,10 @@ pub(super) enum PreparedSchema {
     /// first that accepts. A union no member of which converts is a plain
     /// `Validate`, which asks the same question without rebuilding the value.
     Union(Type, Vec<Arc<PreparedSchema>>),
+    /// A validated type and the schema of its base. Decoding checks the base
+    /// first, so a failure inside the value is reported at its own path, and
+    /// then tests the validation once on the decoded value.
+    Validated(Type, Arc<PreparedSchema>),
 }
 
 impl PreparedSchema {
@@ -42,6 +46,9 @@ impl PreparedSchema {
                     Self::Validate(ty.clone())
                 }
             }
+            Type::Validated(validated) => {
+                Self::Validated(ty.clone(), Self::compile(validated.base(), enums))
+            }
             Type::Tag(name) if enums.mappings.contains_key(name) => {
                 Self::WireEnum(enums.mappings[name].clone())
             }
@@ -53,9 +60,10 @@ impl PreparedSchema {
         match self {
             Self::WireEnum(_) => true,
             Self::Record(fields) => fields.iter().any(|(_, schema)| schema.converts_wire()),
-            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) => {
-                schema.converts_wire()
-            }
+            Self::List(schema)
+            | Self::Map(_, schema)
+            | Self::Optional(schema)
+            | Self::Validated(_, schema) => schema.converts_wire(),
             Self::Union(_, members) => members.iter().any(|schema| schema.converts_wire()),
             Self::Validate(_) => false,
         }
@@ -74,7 +82,9 @@ impl PreparedSchema {
             }
             Self::Record(fields) => fields.iter().all(|(_, schema)| schema.valid()),
             Self::Map(key, schema) => key.is_map_key() && schema.valid(),
-            Self::List(schema) | Self::Optional(schema) => schema.valid(),
+            Self::List(schema) | Self::Optional(schema) | Self::Validated(_, schema) => {
+                schema.valid()
+            }
             Self::Union(_, members) => members.iter().all(|schema| schema.valid()),
             Self::Validate(_) => true,
         }
@@ -89,9 +99,10 @@ impl PreparedSchema {
             Self::Record(fields) => fields
                 .iter()
                 .all(|(_, schema)| schema.visit_wire_mappings(visit)),
-            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) => {
-                schema.visit_wire_mappings(visit)
-            }
+            Self::List(schema)
+            | Self::Map(_, schema)
+            | Self::Optional(schema)
+            | Self::Validated(_, schema) => schema.visit_wire_mappings(visit),
             Self::Union(_, members) => members
                 .iter()
                 .all(|schema| schema.visit_wire_mappings(visit)),
@@ -112,6 +123,13 @@ impl PreparedSchema {
                                 .iter()
                                 .zip(members)
                                 .all(|(schema, member)| schema.matches_type(member)))
+            }
+            // The base schema decodes the value the validation then tests,
+            // so it has to be the schema of this type's own base.
+            (Self::Validated(expected, schema), actual) => {
+                expected == actual
+                    && matches!(expected, Type::Validated(validated)
+                        if schema.matches_type(validated.base()))
             }
             (Self::WireEnum(mapping), Type::Tag(name)) => mapping.type_name == *name,
             (Self::Record(schemas), Type::Record(fields)) => {
@@ -196,6 +214,23 @@ impl PreparedSchema {
                     Ok(value)
                 } else {
                     schema.decode(evaluator, value, path, span)
+                }
+            }
+            Self::Validated(ty, schema) => {
+                let decoded = schema.decode(evaluator, value, path, span)?;
+                match ty {
+                    Type::Validated(validated)
+                        if !super::validated::lowered_value_passes(
+                            validated.validation(),
+                            &decoded,
+                        ) =>
+                    {
+                        Err(failure(format!(
+                            "expected {ty}, found {}",
+                            validated.validation().failure()
+                        )))
+                    }
+                    _ => Ok(decoded),
                 }
             }
             Self::Union(ty, members) => {

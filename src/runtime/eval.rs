@@ -54,6 +54,7 @@ mod lowered_run;
 mod module_contract;
 mod modules;
 mod require;
+mod validated;
 #[cfg(feature = "native-tests")]
 pub use modules::{LinuxFake, UnixFake};
 mod net_job;
@@ -366,7 +367,7 @@ impl Default for CompactLowerConstructProbeOutput {
 
 pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
-pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 11;
+pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 12;
 pub const COMPACT_STMT_KIND_COUNT: usize = 30;
 pub const COMPACT_EXPR_KIND_COUNT: usize = 47;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
@@ -2990,6 +2991,8 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "extend",
     "set",
     "remove",
+    "first",
+    "last",
 ];
 
 fn lowered_method_name(name: &str) -> bool {
@@ -7491,6 +7494,10 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             })
             .is_some()
         }
+        Type::Validated(validated) => {
+            value_matches_static_type(value, validated.base())
+                && validated::value_passes(validated.validation(), value)
+        }
     }
 }
 
@@ -7636,6 +7643,10 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
                 lowered_value_matches_static_type(value, member)
             })
             .is_some()
+        }
+        Type::Validated(validated) => {
+            lowered_value_matches_static_type(value, validated.base())
+                && validated::lowered_value_passes(validated.validation(), value)
         }
     }
 }

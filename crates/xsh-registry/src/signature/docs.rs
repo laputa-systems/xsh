@@ -46,6 +46,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::ProcessHandle => "ProcessHandle",
         MethodReceiver::NetJob => "NetJob",
         MethodReceiver::FsRoot => "FsRoot",
+        MethodReceiver::NonEmpty => "NonEmpty",
     }
 }
 
@@ -1667,6 +1668,26 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Joins list values into text.",
             "Conversion is explicit at the text boundary and does not invoke shell word splitting.",
             &["list", "text"],
+        )),
+        ("NonEmpty", "first") => Some((
+            "Returns the first element.",
+            "The receiver is known to hold an element, so there is no failure to handle. A plain list has no `first()`: validate it with `.require(NonEmpty[T])?`, or read `.get(0)`.",
+            &["list", "non-empty", "lookup"],
+        )),
+        ("NonEmpty", "last") => Some((
+            "Returns the last element.",
+            "The receiver is known to hold an element, so there is no failure to handle. A plain list has no `last()`: validate it with `.require(NonEmpty[T])?`.",
+            &["list", "non-empty", "lookup"],
+        )),
+        ("NonEmpty", "push") => Some((
+            "Returns a non-empty list with one value appended.",
+            "Appending cannot empty a list, so the result keeps the `NonEmpty[T]` type.",
+            &["list", "non-empty", "mutation"],
+        )),
+        ("NonEmpty", "extend") => Some((
+            "Returns a non-empty list with another list appended.",
+            "Appending cannot empty a list, so the result keeps the `NonEmpty[T]` type whatever the other list holds.",
+            &["list", "non-empty", "mutation", "collection"],
         )),
         ("Str", "trim") => Some((
             "Removes surrounding Unicode whitespace.",

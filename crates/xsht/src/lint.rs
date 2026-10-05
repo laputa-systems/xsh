@@ -101,6 +101,8 @@ mod lint_prefer_typed_callable;
 mod lint_explicit_run_capture;
 #[path = "lint_explicit_missing_ok.rs"]
 mod lint_explicit_missing_ok;
+#[path = "lint_prefer_non_empty_argv.rs"]
+mod lint_prefer_non_empty_argv;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -469,6 +471,8 @@ pub struct LintOptions {
     /// Opt in to `lint.explicit-missing-ok`, which a corpus turns on once,
     /// before the default of `remove` changes.
     pub explicit_missing_ok: bool,
+    /// Opt in to `lint.prefer-non-empty-argv`.
+    pub prefer_non_empty_argv: bool,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -502,6 +506,9 @@ pub struct LintOptions {
     /// Value-position run forms whose `Result` is the value and that are not
     /// written under `try`; empty without checked facts.
     pub implicitly_captured_runs: BTreeSet<Span>,
+    /// Spliced `run` targets typed as a list without a validation; empty
+    /// without checked facts.
+    pub unvalidated_command_vectors: BTreeMap<Span, Type>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
 
@@ -539,6 +546,7 @@ impl Default for LintOptions {
             prefer_inferred_proc_returns: false,
             prefer_typed_callables: false,
             explicit_missing_ok: false,
+            prefer_non_empty_argv: false,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -558,6 +566,7 @@ impl Default for LintOptions {
             propagating_statements: BTreeSet::default(),
             redundant_condition_propagations: BTreeSet::default(),
             implicitly_captured_runs: BTreeSet::default(),
+            unvalidated_command_vectors: BTreeMap::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
             statically_resolved_call_spans: BTreeSet::default(),
@@ -632,6 +641,8 @@ pub struct Linter<'a> {
     propagating_statements: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
     implicitly_captured_runs: BTreeSet<Span>,
+    /// Empty unless `lint.prefer-non-empty-argv` was asked for.
+    unvalidated_command_vectors: BTreeMap<Span, Type>,
     /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
     /// there without changing the function's effect contract.
     propagation_function: Option<bool>,
@@ -688,12 +699,15 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Named => {
             ArenaTypeExprKind::Named(Name::from_symbol(Symbol::from_raw(data.lhs)))
         }
-        // The rules that read type expressions treat a union and a callable
-        // type as they treat any type they cannot see into.
+        // The rules that read type expressions treat a union, a callable
+        // type, and a validated type as they treat any type they cannot see
+        // into: a `NonEmpty[T]` is not interchangeable with the `List[T]`
+        // those rules reason about.
         ArenaTypeExprTag::Applied
         | ArenaTypeExprTag::Qualified
         | ArenaTypeExprTag::Union
-        | ArenaTypeExprTag::Callable => ArenaTypeExprKind::Qualified,
+        | ArenaTypeExprTag::Callable
+        | ArenaTypeExprTag::NonEmpty => ArenaTypeExprKind::Qualified,
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
@@ -838,6 +852,15 @@ impl<'a> Linter<'a> {
             propagating_statements: options.propagating_statements,
             redundant_condition_propagations: options.redundant_condition_propagations,
             implicitly_captured_runs: options.implicitly_captured_runs,
+            // Naming the rule in `--only` asks for it as the setting does.
+            unvalidated_command_vectors: if options.prefer_non_empty_argv
+                || only.as_deref().is_some_and(|only| {
+                    only.contains(&DiagnosticCode::LintPreferNonEmptyArgv)
+                }) {
+                options.unvalidated_command_vectors
+            } else {
+                BTreeMap::new()
+            },
             propagation_function: None,
             propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
@@ -1511,6 +1534,13 @@ impl<'a> Linter<'a> {
             for argument in arguments {
                 self.collect_type_expr_refs(argument);
             }
+            return;
+        }
+        // The rules see a validated type as opaque, but its element type is
+        // still a reference to whatever it names.
+        if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::NonEmpty {
+            let inner = TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize);
+            self.collect_type_expr_refs(inner);
             return;
         }
         match type_expr_kind(self.arena, ty) {
@@ -2227,7 +2257,26 @@ impl<'a> Linter<'a> {
                         types.push(error);
                     }
                 }
-                _ => types.push(TypeExprId::from_index(data.lhs as usize)),
+                ArenaTypeExprTag::Map => {
+                    types.push(TypeExprId::from_index(data.lhs as usize));
+                    if let Some(key) = TypeExprId::from_optional_raw(data.rhs) {
+                        types.push(key);
+                    }
+                }
+                // `lhs` is not a child here: the members and arguments live
+                // in the side table.
+                ArenaTypeExprTag::Union => types.extend(self.arena.union_type_members(id)),
+                ArenaTypeExprTag::Applied => {
+                    types.push(TypeExprId::from_index(data.lhs as usize));
+                    types.extend(self.arena.applied_type_arguments(id));
+                }
+                ArenaTypeExprTag::List
+                | ArenaTypeExprTag::Stream
+                | ArenaTypeExprTag::Module
+                | ArenaTypeExprTag::Optional
+                | ArenaTypeExprTag::NonEmpty => {
+                    types.push(TypeExprId::from_index(data.lhs as usize))
+                }
             }
         }
         let start = scan_before_arrow(self.source, ty_span.start());
@@ -3414,6 +3463,18 @@ impl<'a> Linter<'a> {
                         .expr_types
                         .get(&expression.span)
                         .is_some_and(type_has_contextual_collection_domain)
+                    // A literal has a validated type only because one was
+                    // expected, and an element of a validated type is read
+                    // as its base only because the base was expected.
+                    || self
+                        .expr_types
+                        .get(&expression.span)
+                        .is_some_and(|ty| ty.validated().is_some())
+                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                        self.expr_types
+                            .get(&self.arena.expr(child).span)
+                            .is_some_and(|ty| ty.validated().is_some())
+                    })
                     // A constant's elements carry no checked type of their
                     // own; in a collection of paths a string literal element
                     // is a Path only through the collection's declared type.
@@ -13064,6 +13125,13 @@ impl LintExprVisitor<'_, '_> {
         }
         let run_form = arena.run_form(run).clone();
         for segment in arena.run_segments(run_form.segments).to_vec() {
+            if let Some(diagnostic) = lint_prefer_non_empty_argv::prefer_non_empty_argv(
+                arena,
+                &self.linter.unvalidated_command_vectors,
+                &segment.target,
+            ) {
+                self.linter.diagnostics.push(diagnostic);
+            }
             let seg_span = arena.span(segment.span);
             if segment.kind == RunKind::Plain
                 && segment.accept.is_none()
@@ -15941,6 +16009,39 @@ mod annotation_probe_tests {
             1,
             "a failed baseline makes every candidate unprovable"
         );
+    }
+
+    // A union keeps its members in a side table, so its data words name no
+    // child type. Whether the annotation is all builtin is read from the
+    // members, wherever the union sits among the file's type expressions.
+    #[test]
+    fn a_union_return_is_judged_by_its_members() {
+        let reported = |source: &str| {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            Linter::lint(
+                &parsed.arena,
+                source,
+                LintOptions {
+                    prefer_inferred_pure_returns: true,
+                    function_effect_facts_checked: true,
+                    ..LintOptions::default()
+                },
+            )
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::LintPreferInferredPureReturn)
+            })
+        };
+        // The file's first type expression names a user type.
+        assert!(reported(
+            "type Alias = Other\n\ntype Other = {name: Str}\n\npure pass(value: Union[Int, Str]) -> Union[Int, Str] {\n  value\n}\n\nlet shown: Alias = {name: \"x\"}\nprint ${pass(1) == 1} ${shown.name}\n"
+        ));
+        // The file's first type expression is builtin; the union is not.
+        assert!(!reported(
+            "type Other = {name: Str}\n\npure pass(value: Union[Int, Other]) -> Union[Int, Other] {\n  value\n}\n\nprint ${pass(1) == 1}\n"
+        ));
     }
 }
 

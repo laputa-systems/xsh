@@ -2125,13 +2125,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     star(seq([t(T::Comma), r("type_expr")])),
                     t(T::RBracket),
                 ]),
+                seq([w("NonEmpty"), t(T::LBracket), r("type_expr"), t(T::RBracket)]),
             ]),
         ),
         rule(
             Types,
             "named_type",
             seq([
-                not(["List", "Map", "Stream", "Module", "Result", "Union"]
+                not(["List", "Map", "Stream", "Module", "Result", "Union", "NonEmpty"]
                     .map(|word| vec![word_term(word, false)])),
                 ident(),
                 opt(seq([t(T::Dot), ident()])),

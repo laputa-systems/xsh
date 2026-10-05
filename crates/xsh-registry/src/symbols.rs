@@ -82,7 +82,10 @@ fn collect_error_symbols(output: &mut BTreeSet<String>) {
 
 fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
     match ty {
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner)
+        | Type::Stream(inner)
+        | Type::Optional(inner)
+        | Type::NonEmpty(inner) => {
             collect_type_symbols(inner, output);
         }
         Type::Record(fields) | Type::Module(fields) => {
@@ -251,7 +254,10 @@ mod tests {
 
     fn assert_type_symbols_are_present(symbols: &BTreeSet<String>, ty: &Type) {
         match ty {
-            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner)
+            | Type::Stream(inner)
+            | Type::Optional(inner)
+            | Type::NonEmpty(inner) => {
                 assert_type_symbols_are_present(symbols, inner);
             }
             Type::Record(fields) | Type::Module(fields) => {

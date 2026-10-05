@@ -154,6 +154,9 @@ fn instantiate_type(
                 .map(|(name, ty)| (*name, instantiate_type(ty, parameters, constraints, span)))
                 .collect(),
         ),
+        Type::Validated(validated) => Type::Validated(Box::new(validated.map_base(|base| {
+            instantiate_type(base, parameters, constraints, span)
+        }))),
         ty => ty.clone(),
     }
 }
@@ -185,6 +188,9 @@ fn seed_receiver_domains(
             seed_receiver_domains(left_ok, right_ok, parameters);
             seed_receiver_domains(left_error, right_error, parameters);
         }
+        (Type::Validated(left), Type::Validated(right)) => {
+            seed_receiver_domains(left.base(), right.base(), parameters)
+        }
         _ => {}
     }
 }
@@ -210,6 +216,7 @@ fn seed_fixed_parameters(
                 seed_fixed_parameters(field, domain, parameters);
             }
         }
+        Type::Validated(validated) => seed_fixed_parameters(validated.base(), domain, parameters),
         _ => {}
     }
 }
@@ -254,7 +261,7 @@ pub(crate) fn parameter_schema_contexts(
 ) -> Vec<Option<super::constants::SchemaExpectation>> {
     use super::constants::{SchemaComponent, SchemaExpectation};
     fn children(ty: &Type) -> Vec<(SchemaComponent, &Type)> {
-        match ty {
+        match ty.unvalidated() {
             Type::List(inner) | Type::Stream(inner) => vec![(SchemaComponent::Item, inner)],
             Type::Optional(inner) => vec![(SchemaComponent::Optional, inner)],
             Type::Map(key, value) => {

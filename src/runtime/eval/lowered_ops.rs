@@ -2560,6 +2560,7 @@ pub(super) fn lowered_list_method_value(
         "collect" if args.is_empty() => Ok(LoweredValue::List(items)),
         "len" if args.is_empty() => Ok(LoweredValue::Int(items.len() as i64)),
         "is_empty" if args.is_empty() => Ok(LoweredValue::Bool(items.is_empty())),
+        "first" | "last" if args.is_empty() => lowered_list_end(&items, name, span),
         "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(
@@ -2606,6 +2607,28 @@ pub(super) fn lowered_list_method_value(
     }
 }
 
+/// `first()` and `last()`. The checker allows them only on a `NonEmpty[T]`,
+/// so an empty list here is a dynamic receiver, or a value that reached a
+/// `NonEmpty[T]` slot without being validated; both fail here.
+fn lowered_list_end(
+    items: &[LoweredValue],
+    name: &str,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let item = if name == "first" {
+        items.first()
+    } else {
+        items.last()
+    };
+    item.cloned().ok_or_else(|| {
+        RuntimeError::new(
+            "index-out-of-bounds",
+            format!("`{name}()` needs a non-empty list, found an empty list"),
+        )
+        .with_span(span)
+    })
+}
+
 pub(super) fn lowered_list_method_ref(
     items: &[LoweredValue],
     name: &str,
@@ -2615,6 +2638,7 @@ pub(super) fn lowered_list_method_ref(
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(items.len() as i64))),
         "is_empty" if args.is_empty() => Ok(Some(LoweredValue::Bool(items.is_empty()))),
+        "first" | "last" if args.is_empty() => lowered_list_end(items, name, span).map(Some),
         "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(

@@ -703,6 +703,7 @@ fn return_type_is_concrete(ty: &Type) -> bool {
         Type::Map(key, value) => return_type_is_concrete(key) && return_type_is_concrete(value),
         Type::Result(ok, err) => return_type_is_concrete(ok) && return_type_is_concrete(err),
         Type::Record(fields) => fields.values().all(return_type_is_concrete),
+        Type::Validated(validated) => return_type_is_concrete(validated.base()),
         Type::Module(_) => false,
         _ => true,
     }

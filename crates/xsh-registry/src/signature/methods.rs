@@ -1230,6 +1230,55 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
             ]),
         },
+        // Only the operations a non-empty list guarantees (`first`, `last`)
+        // or survives (`push`, `extend`) are listed here. Anything else
+        // called on a `NonEmpty[T]` is the `List` method and returns what
+        // that returns.
+        MethodReceiverSig {
+            receiver: MethodReceiver::NonEmpty,
+            methods: method_map(vec![
+                method(
+                    "first",
+                    Vec::new(),
+                    Type::BuiltinParameter(BuiltinTypeParameter::Element),
+                    true,
+                    RuntimeOp::NonEmptyFirst,
+                ),
+                method(
+                    "last",
+                    Vec::new(),
+                    Type::BuiltinParameter(BuiltinTypeParameter::Element),
+                    true,
+                    RuntimeOp::NonEmptyLast,
+                ),
+                method(
+                    "push",
+                    vec![param(
+                        "item",
+                        Type::BuiltinParameter(BuiltinTypeParameter::Element),
+                    )],
+                    Type::NonEmpty(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    ))),
+                    true,
+                    RuntimeOp::ListPush,
+                ),
+                method(
+                    "extend",
+                    vec![param(
+                        "other",
+                        Type::List(Box::new(Type::BuiltinParameter(
+                            BuiltinTypeParameter::Element,
+                        ))),
+                    )],
+                    Type::NonEmpty(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    ))),
+                    true,
+                    RuntimeOp::ListExtend,
+                ),
+            ]),
+        },
     ];
     for receiver in &mut receivers {
         for method in &mut receiver.methods {
@@ -1252,6 +1301,9 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                         }),
                     )),
                     MethodReceiver::Stream => Some(Type::Stream(Box::new(variable(
+                        BuiltinTypeParameter::Element,
+                    )))),
+                    MethodReceiver::NonEmpty => Some(Type::NonEmpty(Box::new(variable(
                         BuiltinTypeParameter::Element,
                     )))),
                     MethodReceiver::Result => Some(Type::Result(

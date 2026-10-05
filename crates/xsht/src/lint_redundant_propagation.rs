@@ -181,6 +181,7 @@ pub(super) mod tests {
                 propagating_statements: checked.propagating_statements,
                 redundant_condition_propagations: checked.redundant_condition_propagations,
                 implicitly_captured_runs: checked.implicitly_captured_runs,
+                unvalidated_command_vectors: checked.unvalidated_command_vectors,
                 function_effect_facts: checked.function_effect_facts,
                 function_effect_facts_checked: true,
                 only: Some(vec![rule]),

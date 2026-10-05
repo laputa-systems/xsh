@@ -70,6 +70,16 @@ impl<'a> Parser<'a> {
                 let end = self.previous_end();
                 arena.push_union_type_expr(&members, self.span(start, end))
             }
+            "NonEmpty" => {
+                self.expect(TokenKindMatch::LBracket, "expected `[` after `NonEmpty`");
+                let inner = self.parse_type_expr(arena)?;
+                self.expect(
+                    TokenKindMatch::RBracket,
+                    "expected `]` after the element type of `NonEmpty`",
+                );
+                let end = self.previous_end();
+                arena.push_non_empty_type_expr(inner, self.span(start, end))
+            }
             _ => {
                 if self.consume(TokenKindMatch::Dot).is_some() {
                     let ty_name = self.expect_ident("expected type name after `.`")?;

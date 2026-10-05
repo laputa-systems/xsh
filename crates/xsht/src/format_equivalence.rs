@@ -742,6 +742,10 @@ impl CanonicalWriter<'_> {
                 self.put("list;");
                 self.ty(inner);
             }
+            ArenaTypeExprKind::NonEmpty(inner) => {
+                self.put("non-empty;");
+                self.ty(inner);
+            }
             ArenaTypeExprKind::Map(key, value) => {
                 self.put("map;");
                 self.opt_type(key);

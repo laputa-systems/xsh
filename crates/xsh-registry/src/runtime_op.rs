@@ -71,6 +71,8 @@ pub enum RuntimeOp {
     ListPush,
     ListExtend,
     ListGet,
+    NonEmptyFirst,
+    NonEmptyLast,
     IntFloat,
     IntBitAnd,
     IntBitOr,

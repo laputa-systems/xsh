@@ -1209,7 +1209,8 @@ fn lowered_arena_type_inner(
                 None => Some(LoweredType::Record),
             }
         }
-        ArenaTypeExprTag::List => Some(LoweredType::List),
+        // A validated type is stored as its base.
+        ArenaTypeExprTag::List | ArenaTypeExprTag::NonEmpty => Some(LoweredType::List),
         ArenaTypeExprTag::Map => Some(LoweredType::Map),
         ArenaTypeExprTag::Stream => Some(LoweredType::Stream),
         ArenaTypeExprTag::Module => Some(LoweredType::Module),
@@ -2217,6 +2218,7 @@ fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
         ArenaTypeExprTag::Optional => 7,
         ArenaTypeExprTag::Union => 9,
         ArenaTypeExprTag::Callable => 10,
+        ArenaTypeExprTag::NonEmpty => 11,
     }
 }
 
@@ -2997,14 +2999,14 @@ fn compact_body_tail_command_blocker(
     }
 }
 
-const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 11];
+const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 12];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
 const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 47];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
 fn stream_item_type(ty: &Type) -> Option<&Type> {
-    match ty {
+    match ty.unvalidated() {
         Type::List(item) | Type::Stream(item) => Some(item.as_ref()),
         _ => None,
     }
@@ -4682,6 +4684,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 return self.checked_expr_type(base).is_some_and(|narrowed| {
                     self.lowered_method_supported_for_type(&narrowed, name, arg_count)
                 });
+            }
+            // A slot of a base type holds a validated value where a type
+            // test proved it, and the checker then resolved the call against
+            // the validated type; that fact, not the declaration, says which
+            // methods the receiver has.
+            if let Some(narrowed) = self
+                .checked_expr_type(base)
+                .filter(|narrowed| narrowed.validated().is_some())
+            {
+                return self.lowered_method_supported_for_type(&narrowed, name, arg_count);
             }
             return self.lowered_method_supported_for_type(ty, name, arg_count);
         }
@@ -14351,7 +14363,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             }
             ArenaAssignTargetKind::Index { base, .. } => {
-                match self.assign_target_checked_type(base, slots)? {
+                match self.assign_target_checked_type(base, slots)?.into_unvalidated() {
                     Type::List(item) | Type::Map(_, item) => Some(*item),
                     _ => None,
                 }
@@ -14768,6 +14780,12 @@ fn compact_runtime_type_inner(
             declarations,
             depth,
         ))),
+        ArenaTypeExprTag::NonEmpty => Type::non_empty(compact_runtime_type_inner(
+            arena,
+            TypeExprId::from_index(data.lhs as usize),
+            declarations,
+            depth,
+        )),
         ArenaTypeExprTag::Map => Type::Map(
             Box::new(
                 TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| {
@@ -14908,6 +14926,10 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
         }
         ArenaTypeExprTag::List => format!(
             "List[{}]",
+            compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
+        ),
+        ArenaTypeExprTag::NonEmpty => format!(
+            "NonEmpty[{}]",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
         ArenaTypeExprTag::Map => {
@@ -15070,6 +15092,8 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         // A union value is stored as whichever member it is, so its slot
         // has no single storage kind.
         Type::Union(_) => Some(LoweredType::Any),
+        // A validated value is stored as a value of its base.
+        Type::Validated(validated) => lowered_checked_type(validated.base()),
         _ => None,
     }
 }
@@ -15083,6 +15107,21 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         // narrowed to one member, so no checked receiver has this type. A
         // receiver that does is not guessed at from its members.
         Type::Union(_) => false,
+        // The checker resolved the call against the validation's own
+        // receiver when that lists the method, and against the base
+        // otherwise.
+        Type::Validated(validated) => {
+            validated
+                .validation()
+                .method_receiver()
+                .and_then(|receiver| api_spec().method_overloads(receiver, &name.as_str()))
+                .is_some_and(|methods| {
+                    methods
+                        .iter()
+                        .any(|method| method.sig.params.len() == arg_count)
+                })
+                || lowered_method_supported_for_type(validated.base(), name, arg_count)
+        }
         Type::Result(ok, _) => {
             name == "context" && (arg_count == 1 || arg_count == 2)
                 || lowered_method_supported_for_type(ok, name, arg_count)
@@ -15210,6 +15249,7 @@ fn checked_fact_is_resolved(ty: &Type) -> bool {
                 checked_fact_is_resolved(key) && checked_fact_is_resolved(value)
             }
             Type::Record(fields) => fields.values().all(checked_fact_is_resolved),
+            Type::Validated(validated) => checked_fact_is_resolved(validated.base()),
             _ => true,
         }
 }

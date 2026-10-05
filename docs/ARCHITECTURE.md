@@ -331,6 +331,62 @@ cannot be sugar, because declaration scans do not look inside a surface form:
    carry the core form's wording; change a synthetic span, not the checker, if
    one lands in the wrong place.
 
+## Adding a validated type
+
+A validated type is a base type plus a property the checker tracks
+(`docs/SPEC.md` 4.13): `Type::Validated` holds a `ValidatedType`, a
+`Validation` and the base it narrows. There is one mechanism, in
+`src/sema/validated.rs`, and `NonEmpty[T]` is its first instance. The rules
+that make a validated type sound are written once, for every instance:
+
+- **Assignability.** `Type::matches_expected` lets a validated type fit its
+  base and nothing fit a validated type except the same validation.
+- **Erasure.** An operation reads its operand through `Type::unvalidated`, so
+  it sees the base and returns what the base returns. Only the places named
+  below produce a validated type.
+- **Representation.** Lowering stores a validated value as its base
+  (`lowered_type_from_type`). The type pool row `TypeTag::Validated` holds the
+  base type id and the validation's code; `SemanticPools::verify` rejects an
+  unknown code and a base the validation does not accept.
+- **The one runtime test.** `value_matches_static_type` and its lowered and
+  test twins test the base and then ask `runtime/eval/validated.rs`. That is
+  what `.require(T)`, `is T`, a type pattern, and a dynamic call boundary
+  run. `PreparedSchema::Validated` decodes the base and then tests the
+  validation, and the verifier ties that schema to its type
+  (`PreparedSchema::matches_type`).
+
+An instance is one `Validation` variant. Adding it makes each `match` on
+`Validation` fail to compile until the instance says:
+
+1. in `src/sema/validated.rs`: its code, the base form it accepts
+   (`base_error`), how it prints, what a failing value is called, the note
+   that names the conversion, the registry receiver that lists its
+   operations (`method_receiver`), and whether it survives concatenation and
+   element-wise mapping;
+2. in `src/sema/check/validated.rs`: which literals pass
+   (`validated_list_literal` is the list case; a scalar instance adds its own
+   literal case beside it and calls it from that literal's arm of
+   `check_expr_arena_inner`);
+3. in `src/sema/constants.rs::constant_passes_validation`: which constant
+   values pass;
+4. in `src/runtime/eval/validated.rs`: which runtime values pass, for `Value`
+   and for `LoweredValue`.
+
+The operations an instance guarantees or survives are ordinary registry
+methods on its own `MethodReceiver` (`crates/xsh-registry`): `NonEmpty` lists
+`first`, `last`, `push`, and `extend`. `check_method_dispatch_arena` looks a
+method up there first and, when it is absent, dispatches on the base type, so
+"every other operation returns the base type" needs no list. A guaranteed
+operation keeps a defended runtime failure for the value the checker ruled
+out.
+
+The type's spelling is separate from the mechanism: a type constructor gets an
+`ArenaTypeExprTag` and an arm in each type-expression resolver
+(`Checker::type_from_arena`, `RecordConstructors::resolve_instance_annotation`
+and `expectation_annotation`, `Type::from_arena`, and the three in
+`src/runtime/eval/lower.rs`), a builtin name gets a row in
+`BuiltinTypeName`, and a declared type resolves through its alias.
+
 Change frame layouts, token/arena storage, or instruction encodings only with
 retained-memory, RSS, latency, or stack-depth evidence from
 `xsh-frontend-stats` (`src/frontend_stats.rs`) or `xsh-runtime-stats`

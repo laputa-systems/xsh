@@ -423,6 +423,8 @@ pub(super) fn patterns_are_exhaustive_arena(
     facts: &ExhaustivenessFacts<'_>,
 ) -> bool {
     use crate::syntax::arena::ArenaPatternKind;
+    // Patterns match the value, which is a value of the base type.
+    let value_ty = value_ty.unvalidated();
     let tag_variants = facts.tag_variants;
     let mut pending: Vec<_> = patterns.collect();
     let mut patterns = Vec::new();
@@ -600,8 +602,15 @@ impl Checker {
             }
             return Type::Duration;
         }
-        if op == AssignOp::Add && matches!(left, Type::List(_) | Type::Str) {
-            self.expect_type(left, right, rhs_span);
+        // Appending reads both operands as lists. The target keeps its type,
+        // so a validated target must be one that survives concatenation.
+        if op == AssignOp::Add
+            && matches!(left.unvalidated(), Type::List(_) | Type::Str)
+            && left
+                .validated()
+                .is_none_or(|validated| validated.validation().survives_concatenation())
+        {
+            self.expect_type(left.unvalidated(), right, rhs_span);
             return left.clone();
         }
         if matches!(left, Type::Float) && op != AssignOp::Rem {
@@ -2754,7 +2763,10 @@ impl Checker {
             self.invalidate_binding_projection_arena(arena, target, name);
             return;
         }
-        let rhs = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
+        // The operand is read as the base type: what is appended to a
+        // validated list need not pass the validation itself.
+        let rhs =
+            self.check_expr_or_run_arena(arena, source, value, Some(target_ty.unvalidated()));
         let value_span = expr_or_run_span_arena(arena, value);
         let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
         self.expect_type(&target_ty, &result, span);
@@ -2894,8 +2906,11 @@ impl Checker {
                 }
             }
             ArenaAssignTargetKind::Index { base, index } => {
-                let base_ty =
-                    self.assignment_target_type_arena(arena, source, *base, root_ty, span);
+                // Replacing an element keeps the list's length, so the
+                // target is read as its base and keeps its own type.
+                let base_ty = self
+                    .assignment_target_type_arena(arena, source, *base, root_ty, span)
+                    .into_unvalidated();
                 let literal_key = match &base_ty {
                     Type::Map(key_ty, _) => self.path_literal_expectation(arena, *index, key_ty),
                     _ => None,
@@ -3051,7 +3066,7 @@ impl Checker {
         };
         let actual = self.check_expr_arena(arena, source, value, collection.as_ref());
         let value_span = arena.arena.expr(value).span;
-        match actual {
+        match actual.into_unvalidated() {
             Type::List(item) | Type::Stream(item) => {
                 if !self.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
                     self.error(

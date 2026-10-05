@@ -782,6 +782,9 @@ fn qualify_error_type(ty: &mut Type, namespace: Name, families: &FxHashSet<Name>
                 qualify_error_type(field, namespace, families);
             }
         }
+        Type::Validated(validated) => {
+            validated.rewrite_base(|base| qualify_error_type(base, namespace, families))
+        }
         _ => {}
     }
 }
@@ -1197,6 +1200,7 @@ impl Checker {
                     || matches!(
                         parameter.as_str().as_str(),
                         "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown" | "Union"
+                            | "NonEmpty"
                     )
                 {
                     self.error(

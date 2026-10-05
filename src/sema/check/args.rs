@@ -357,7 +357,7 @@ impl Checker {
                         | ArenaCallArgKind::NamedSpread { value, span } => {
                             let splice_span = arena.arena.span(*span);
                             let actual = self.check_expr_arena(arena, source, *value, None);
-                            match actual {
+                            match actual.into_unvalidated() {
                                 Type::List(item) if item.matches_expected(&item_ty) => {}
                                 Type::List(_) => self.error(
                                     splice_span,
@@ -394,7 +394,7 @@ impl Checker {
             {
                 let splice_span = arena.arena.span(*span);
                 let actual = self.check_expr_arena(arena, source, *value, None);
-                if !matches!(actual, Type::List(_) | Type::Any | Type::Unknown) {
+                if !matches!(actual.unvalidated(), Type::List(_) | Type::Any | Type::Unknown) {
                     self.error(
                         splice_span,
                         "`@` splices require List values",

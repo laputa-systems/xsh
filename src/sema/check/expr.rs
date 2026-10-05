@@ -84,7 +84,7 @@ impl Checker {
             ArenaExprKind::Index { base, .. } => {
                 let context = self.schema_expectation_for_expr(arena, base)?;
                 let ty = self.expr_types.get(&arena.arena.expr(base).span)?;
-                let component = match ty {
+                let component = match ty.unvalidated() {
                     Type::List(_) => SchemaComponent::Item,
                     Type::Map(_, _) => SchemaComponent::Value,
                     _ => return None,
@@ -1208,11 +1208,20 @@ impl Checker {
         source: &str,
         range: crate::syntax::arena::ArenaListElementRange,
         expected: Option<&Type>,
-        _span: Span,
+        literal_span: Span,
     ) -> Type {
         if range.is_empty() && matches!(expected, Some(Type::Any)) {
             return Type::List(Box::new(Type::Any));
         }
+        // A literal written where a validated list is expected is checked
+        // against the base and then judged against the validation.
+        let validated = expected
+            .map(|ty| ty.optional_inner().unwrap_or(ty))
+            .and_then(Type::validated);
+        let expected = match validated {
+            Some(validated) => Some(validated.base()),
+            None => expected,
+        };
         let expected_item = match expected {
             Some(Type::List(item)) => Some(item.as_ref()),
             _ => None,
@@ -1228,7 +1237,7 @@ impl Checker {
                 let list_expected = item_expected.cloned().map(|ty| Type::List(Box::new(ty)));
                 let actual =
                     self.check_expr_arena(arena, source, item.value, list_expected.as_ref());
-                match actual {
+                match actual.into_unvalidated() {
                     Type::List(ty) => *ty,
                     Type::Unknown => Type::Unknown,
                     _ => {
@@ -1265,7 +1274,13 @@ impl Checker {
                 self.expect_type(&inferred, &actual, span);
             }
         }
-        Type::List(Box::new(inferred))
+        let list = Type::List(Box::new(inferred));
+        match validated {
+            Some(validated) => {
+                self.validated_list_literal(arena, validated, range, list, literal_span)
+            }
+            None => list,
+        }
     }
 
     fn check_schema_child_expr_arena(
@@ -1431,6 +1446,9 @@ impl Checker {
                 (Type::Result(actual, error), Type::Result(expected, expected_error)) => {
                     requires_validation(actual, expected)
                         || requires_validation(error, expected_error)
+                }
+                (Type::Validated(actual), Type::Validated(expected)) => {
+                    requires_validation(actual.base(), expected.base())
                 }
                 _ => false,
             }
@@ -1865,7 +1883,7 @@ impl Checker {
         _span: Span,
     ) -> Type {
         let scopes = self.check_comp_qualifiers_arena(arena, source, qualifiers, false);
-        let expected_item = match expected {
+        let expected_item = match expected.map(Type::unvalidated) {
             Some(Type::List(item)) => Some(item.as_ref()),
             _ => None,
         };
@@ -1876,7 +1894,24 @@ impl Checker {
         for _ in 0..scopes {
             self.pop_scope();
         }
-        Type::List(Box::new(expected_item.cloned().unwrap_or(elem_ty)))
+        let list = Type::List(Box::new(expected_item.cloned().unwrap_or(elem_ty)));
+        // One `for` clause and no filter yields one element per source
+        // element, so the result is as non-empty as the source.
+        let mapped = match arena.arena.comp_qualifiers(qualifiers) {
+            [ArenaCompQualifier::For { iter, .. }] => self
+                .expr_types
+                .get(&arena.arena.expr(*iter).span)
+                .and_then(Type::validated)
+                .map(|source| source.validation())
+                .filter(|validation| validation.survives_mapping()),
+            _ => None,
+        };
+        match mapped.map(|validation| {
+            crate::sema::validated::ValidatedType::new(validation, list.clone())
+        }) {
+            Some(Ok(validated)) => Type::Validated(Box::new(validated)),
+            _ => list,
+        }
     }
 
     fn check_map_comp_arena(
@@ -2186,7 +2221,7 @@ impl Checker {
             self.check_expr_arena(arena, source, form.target, None)
         };
         let target_span = arena.arena.expr(form.target).span;
-        match ty {
+        match ty.into_unvalidated() {
             Type::ProcessHandle => {
                 Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
             }
@@ -2670,7 +2705,8 @@ impl Checker {
                 // literal as text: that membership is text containment.
                 let (left_ty, right_ty) =
                     if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_)) {
-                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        let right_ty =
+                            self.check_expr_arena(arena, source, right, None).into_unvalidated();
                         let expected = match &right_ty {
                             Type::Map(member, _) | Type::List(member) => {
                                 self.path_literal_expectation(arena, left, member)
@@ -2683,7 +2719,8 @@ impl Checker {
                         (left_ty, right_ty)
                     } else {
                         let left_ty = self.check_expr_arena(arena, source, left, None);
-                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        let right_ty =
+                            self.check_expr_arena(arena, source, right, None).into_unvalidated();
                         (left_ty, right_ty)
                     };
                 if left_ty == Type::Any && matches!(right_ty, Type::Path | Type::Any) {
@@ -2749,8 +2786,13 @@ impl Checker {
                 // concatenation; Duration arithmetic mixes Int and Duration, so
                 // an expectation for the result must not constrain an operand
                 // such as `(if c { 1s } else { 2s }) / 1ms`.
+                // An operand is read as its base type. Which validations the
+                // operands carried decides only the type of a concatenation.
+                let expected = expected.map(Type::unvalidated);
                 let left_expected = expected.filter(|ty| matches!(ty, Type::List(_)));
                 let left_ty = self.check_expr_arena(arena, source, left, left_expected);
+                let left_validation = left_ty.validated().map(|validated| validated.validation());
+                let left_ty = left_ty.into_unvalidated();
                 let right_expected = match &left_ty {
                     Type::List(item) if **item == Type::Unknown => expected,
                     Type::Duration => None,
@@ -2758,6 +2800,9 @@ impl Checker {
                     _ => Some(&left_ty),
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
+                let right_validation =
+                    right_ty.validated().map(|validated| validated.validation());
+                let right_ty = right_ty.into_unvalidated();
                 if left_ty == Type::Any || right_ty == Type::Any {
                     return self
                         .reject_dynamic_arithmetic(op, &left_ty, &right_ty, left_span, right_span);
@@ -2790,11 +2835,14 @@ impl Checker {
                     }
                     Type::List(ref item) if matches!(op, BinaryOp::Add) => {
                         self.expect_type(&left_ty, &right_ty, right_span);
-                        Type::List(Box::new(if **item == Type::Unknown {
-                            collection_item_ty(&right_ty)
-                        } else {
-                            item.as_ref().clone()
-                        }))
+                        Self::concatenation_type(
+                            [left_validation, right_validation],
+                            Type::List(Box::new(if **item == Type::Unknown {
+                                collection_item_ty(&right_ty)
+                            } else {
+                                item.as_ref().clone()
+                            })),
+                        )
                     }
                     Type::Path
                     | Type::Bool
@@ -3188,10 +3236,14 @@ impl Checker {
     }
 
     fn checked_postfix_receiver(&mut self, ty: Type, guarded: bool, span: Span) -> (Type, bool) {
+        // Indexing and slicing are operations of the base type.
         if !guarded {
-            return (ty, false);
+            return (ty.into_unvalidated(), false);
         }
         match ty {
+            Type::Optional(inner) if inner.validated().is_some() => {
+                (inner.into_unvalidated(), true)
+            }
             Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&ty, span), false),
             _ => {

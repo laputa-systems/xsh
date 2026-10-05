@@ -166,6 +166,7 @@ pub(super) fn parameter_type_is_concrete(ty: &Type) -> bool {
         Type::Record(fields) => {
             !fields.is_empty() && fields.values().all(parameter_type_is_concrete)
         }
+        Type::Validated(validated) => parameter_type_is_concrete(validated.base()),
         _ => true,
     }
 }

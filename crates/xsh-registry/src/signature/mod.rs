@@ -261,6 +261,9 @@ pub enum MethodReceiver {
     ProcessHandle,
     NetJob,
     FsRoot,
+    /// A `NonEmpty[T]` value: the operations the validation guarantees or
+    /// survives. Every other method of the value is a `List` method.
+    NonEmpty,
 }
 
 #[derive(Clone, Debug)]

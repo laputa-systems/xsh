@@ -406,7 +406,7 @@ impl Checker {
                 let actual = result_ok_or_self(
                     &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                 );
-                match actual {
+                match actual.into_unvalidated() {
                     Type::List(item) | Type::Stream(item) => Type::Stream(item),
                     Type::Unknown => Type::Stream(Box::new(Type::Unknown)),
                     _ => {
@@ -972,8 +972,8 @@ impl Checker {
 }
 
 fn stream_type_from_input(ty: Type) -> Option<Type> {
-    match ty {
-        Type::Stream(_) => Some(ty),
+    match ty.into_unvalidated() {
+        ty @ Type::Stream(_) => Some(ty),
         Type::List(item) => Some(Type::Stream(item)),
         Type::Result(ok, _) => stream_type_from_input(*ok),
         Type::Any => Some(Type::Stream(Box::new(Type::Any))),

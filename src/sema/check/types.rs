@@ -323,6 +323,7 @@ impl Checker {
                 }
                 _ => false,
             };
+            let unvalidated = Self::validated_mismatch_note(expected, actual);
             let (expected, actual) = self.mismatch_labels(expected, actual);
             let mut diagnostic = Diagnostic::error("type mismatch")
                 .with_code(DiagnosticCode::CheckTypeMismatch)
@@ -330,6 +331,9 @@ impl Checker {
                     span,
                     format!("expected {expected}, found {actual}"),
                 ));
+            if let Some(note) = unvalidated {
+                diagnostic = diagnostic.with_note(note);
+            }
             if unnarrowed_member {
                 diagnostic = diagnostic.with_note(format!(
                     "a union value is a {expected} only after `value is {expected}` or a `name is {expected}` match arm proves it"
@@ -523,6 +527,9 @@ impl Checker {
             ArenaTypeExprTag::List => Type::List(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
+            ArenaTypeExprTag::NonEmpty => Type::non_empty(
+                self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
+            ),
             ArenaTypeExprTag::Map => {
                 let key = TypeExprId::from_optional_raw(data.rhs)
                     .map_or(Type::Str, |id| self.type_from_arena(program, id));

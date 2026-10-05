@@ -1,5 +1,6 @@
 use super::{IR_NONE, IrBuildError, IrData, IrRange, IrVerifyError, ShapeId, SignatureId, TypeId};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
+use crate::sema::validated::{ValidatedType, Validation};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
@@ -59,6 +60,9 @@ pub(super) enum TypeTag {
     // signature has no defaulted or rest parameter.
     TypedProc,
     TypedPure,
+    // A base type narrowed by a validation. `lhs` is the base type id and
+    // `rhs` the validation's code.
+    Validated,
 }
 
 impl TypeTag {
@@ -286,6 +290,27 @@ impl SemanticPools {
         true
     }
 
+    /// Rewrites the first validated type in the pool as a corrupted program
+    /// would: to name no validation, or (`rebase`) to validate its own
+    /// element type instead of its base. Reports whether the pool has one.
+    #[cfg(test)]
+    pub(super) fn corrupt_first_validated_for_test(&mut self, rebase: bool) -> bool {
+        let Some(index) = self
+            .type_tags
+            .iter()
+            .position(|tag| *tag == TypeTag::Validated)
+        else {
+            return false;
+        };
+        if rebase {
+            let base = TypeId::from_raw(self.type_data[index].lhs).expect("a base type id");
+            self.type_data[index].lhs = self.type_data[base.index()].lhs;
+        } else {
+            self.type_data[index].rhs = 0;
+        }
+        true
+    }
+
     pub(super) fn display_type(&self, id: TypeId) -> Result<String, IrVerifyError> {
         self.display_type_inner(id, 0)
     }
@@ -409,6 +434,15 @@ impl SemanticPools {
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
+            TypeTag::Validated => {
+                let validation = Validation::from_code(data.rhs)
+                    .ok_or_else(|| IrVerifyError::new("validated type names no validation"))?;
+                Type::Validated(Box::new(
+                    ValidatedType::new(validation, child(data.lhs)?).map_err(|_| {
+                        IrVerifyError::new("validated type has a base its validation rejects")
+                    })?,
+                ))
+            }
             TypeTag::Union => Type::Union(
                 self.union_members(id)?
                     .iter()
@@ -551,6 +585,7 @@ impl SemanticPools {
                 Name::from_symbol(Symbol::from_raw(data.lhs)),
                 Name::from_symbol(Symbol::from_raw(data.rhs))
             )),
+            TypeTag::Validated => Ok(self.to_type_inner(id, depth)?.to_string()),
             TypeTag::Union => {
                 let mut members = Vec::new();
                 for raw in self.union_members(id)? {
@@ -682,6 +717,15 @@ impl SemanticPools {
                     }
                 }
                 TypeTag::ErrorVariant => {}
+                // A validated type is published only for a validation the
+                // checker knows, over a base that validation applies to; the
+                // runtime test of the type reads the base's representation.
+                TypeTag::Validated => {
+                    verify_type_raw(self, data.lhs, Some(index))?;
+                    let id =
+                        TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
+                    self.to_type(id)?;
+                }
                 // The checker never publishes a union it would have to
                 // simplify, and the runtime tries members in order, so a
                 // pool whose union has one member, repeats one, or lists a
@@ -843,6 +887,8 @@ enum TypeKey {
     /// Member type ids in the order the union lists them.
     Union(Box<[u32]>),
     Callable(TypeTag, SignatureId),
+    /// A validation code and the base type it narrows.
+    Validated(u32, TypeId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1057,6 +1103,15 @@ impl SemanticPoolBuilder {
                     words,
                 )
             }
+            Type::Validated(validated) => {
+                let base = self.intern_type(pools, validated.base())?;
+                let code = validated.validation().code();
+                (
+                    TypeKey::Validated(code, base),
+                    IrData::new(base.raw(), code),
+                    Vec::new(),
+                )
+            }
             Type::Callable(callable) => {
                 let signature = self.intern_signature(pools, &callable.sig)?;
                 let tag = if callable.pure {
@@ -1084,6 +1139,7 @@ impl SemanticPoolBuilder {
             | TypeKey::Aggregate(tag, _, _) => *tag,
             TypeKey::Union(_) => TypeTag::Union,
             TypeKey::Callable(tag, _) => *tag,
+            TypeKey::Validated(_, _) => TypeTag::Validated,
         };
         pools.type_tags.push(tag);
         pools.type_data.push(data);
@@ -1485,6 +1541,43 @@ mod tests {
             let mut bad_member = pools.clone();
             bad_member.type_extra[data.rhs as usize] = member;
             assert!(bad_member.verify().is_err());
+        }
+    }
+
+    #[test]
+    fn validated_types_round_trip_and_reject_corruption() {
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let names = Type::non_empty(Type::Str);
+        let list = builder
+            .intern_type(&mut pools, &Type::List(Box::new(Type::Str)))
+            .unwrap();
+        let id = builder.intern_type(&mut pools, &names).unwrap();
+        // The validated type and its base are different types to the runtime.
+        assert_ne!(id, list);
+        assert_eq!(builder.intern_type(&mut pools, &names).unwrap(), id);
+        assert_eq!(pools.to_type(id).unwrap(), names);
+        assert_eq!(pools.display_type(id).unwrap(), "NonEmpty[Str]");
+        pools.verify().unwrap();
+
+        // A validation the checker does not know.
+        let mut unknown_validation = pools.clone();
+        unknown_validation.type_data[id.index()].rhs = 0;
+        assert!(unknown_validation.verify().is_err());
+        unknown_validation.type_data[id.index()].rhs = u32::MAX;
+        assert!(unknown_validation.verify().is_err());
+
+        // A base the validation does not apply to: `Str` is not a list.
+        let text = builder.intern_type(&mut pools, &Type::Str).unwrap();
+        let mut wrong_base = pools.clone();
+        wrong_base.type_data[id.index()].lhs = text.raw();
+        assert!(wrong_base.verify().is_err());
+
+        // A base that does not precede the type, or is no type at all.
+        for base in [id.raw(), 0, u32::MAX] {
+            let mut bad_base = pools.clone();
+            bad_base.type_data[id.index()].lhs = base;
+            assert!(bad_base.verify().is_err());
         }
     }
 

@@ -236,6 +236,20 @@ impl TypeConstraints {
                     pending.push(((**left_key).clone(), (**right_key).clone()));
                 }
                 (Type::Optional(left), right) => pending.push(((**left).clone(), right.clone())),
+                // The validations are compared by the assignability rule
+                // once the bases are solved; here only the bases unify. A
+                // validated value contributes its base to an expectation of
+                // the base's own form.
+                (Type::Validated(left), Type::Validated(right))
+                    if right.validation().implies(left.validation()) =>
+                {
+                    pending.push((left.base().clone(), right.base().clone()))
+                }
+                (left, Type::Validated(right))
+                    if std::mem::discriminant(left) == std::mem::discriminant(right.base()) =>
+                {
+                    pending.push((left.clone(), right.base().clone()))
+                }
                 (Type::Result(left_ok, left_error), Type::Result(right_ok, right_error)) => {
                     pending.push(((**left_error).clone(), (**right_error).clone()));
                     pending.push(((**left_ok).clone(), (**right_ok).clone()));
@@ -359,6 +373,9 @@ impl TypeConstraints {
                     self.resolve_depth(member, depth + 1)?;
                 }
             }
+            Type::Validated(validated) => {
+                validated.rewrite_base(|base| self.resolve_depth(base, depth + 1))?
+            }
             // Module contracts are shared; copy one only when it must be rewritten.
             Type::Module(exports) if module_has_inference(exports, depth)? => {
                 for export in Arc::make_mut(exports).exports.values_mut() {
@@ -437,6 +454,7 @@ impl TypeConstraints {
                 }
                 Type::Record(fields) => pending.extend(fields.values().map(|ty| (ty, depth + 1))),
                 Type::Union(members) => pending.extend(members.iter().map(|ty| (ty, depth + 1))),
+                Type::Validated(validated) => pending.push((validated.base(), depth + 1)),
                 Type::Module(exports) => {
                     for export in exports.values() {
                         match export {
@@ -524,6 +542,7 @@ fn has_anchor(ty: &Type, annotation: bool) -> bool {
                 pending.extend(fields.values().map(|ty| (ty, depth + 1)));
             }
             Type::Union(members) => pending.extend(members.iter().map(|ty| (ty, depth + 1))),
+            Type::Validated(validated) => pending.push((validated.base(), depth + 1)),
             Type::Module(exports) => {
                 for export in exports.values() {
                     match export {
@@ -575,6 +594,7 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
             }
             false
         }
+        Type::Validated(validated) => has_inference(validated.base(), depth + 1)?,
         Type::Module(exports) => module_has_inference(exports, depth)?,
         _ => false,
     })

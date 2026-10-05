@@ -318,6 +318,10 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             })
             .is_some()
         }
+        Type::Validated(validated) => {
+            test_value_matches_type(value, validated.base())
+                && super::validated::value_passes(validated.validation(), value)
+        }
     }
 }
 

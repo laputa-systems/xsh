@@ -476,6 +476,8 @@ pub enum ArenaTypeExprTag {
     Optional,
     Union,
     Callable,
+    /// `NonEmpty[T]`: `lhs` is the element type.
+    NonEmpty,
 }
 
 /// A callable type expression, `proc(PARAMS) [EFFECTS] -> T` or
@@ -2445,6 +2447,15 @@ impl<'a> ArenaProgramBuilder<'a> {
     pub fn push_list_type_expr(&mut self, inner: TypeExprId, span: Span) -> TypeExprId {
         self.push_type_expr_row(
             ArenaTypeExprTag::List,
+            ArenaTypeExprData::new(raw_type_expr_id(inner), 0),
+            span,
+        )
+    }
+
+    /// `NonEmpty[T]`: a list of `T` that holds at least one element.
+    pub fn push_non_empty_type_expr(&mut self, inner: TypeExprId, span: Span) -> TypeExprId {
+        self.push_type_expr_row(
+            ArenaTypeExprTag::NonEmpty,
             ArenaTypeExprData::new(raw_type_expr_id(inner), 0),
             span,
         )

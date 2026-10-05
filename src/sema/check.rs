@@ -67,6 +67,8 @@ mod stream;
 mod types;
 #[path = "check/typed_callable.rs"]
 mod typed_callable;
+#[path = "check/validated.rs"]
+mod validated;
 
 use self::args::{
     call_arg_expr_id_arena, call_arg_span_arena, common_module_overload_expected_arena,
@@ -165,6 +167,9 @@ pub struct CheckOutput {
     /// Value-position run forms whose `Result` is the value and that are not
     /// written under `try`, keyed by the run form's span.
     pub implicitly_captured_runs: BTreeSet<Span>,
+    /// Spliced `run` targets whose type is a list without a validation, by
+    /// the splice's span: the command vectors that may be empty.
+    pub unvalidated_command_vectors: BTreeMap<Span, Type>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
@@ -705,6 +710,7 @@ pub struct Checker {
     propagating_conditions: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
     implicitly_captured_runs: BTreeSet<Span>,
+    unvalidated_command_vectors: BTreeMap<Span, Type>,
     /// The next expression checked is in a control position of a condition.
     control_condition: bool,
     /// The expression being checked is in a control position of a condition,
@@ -867,6 +873,7 @@ impl Checker {
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
                 implicitly_captured_runs: checker.implicitly_captured_runs,
+                unvalidated_command_vectors: checker.unvalidated_command_vectors,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -1043,6 +1050,7 @@ impl Checker {
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
                 implicitly_captured_runs: checker.implicitly_captured_runs,
+                unvalidated_command_vectors: checker.unvalidated_command_vectors,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -1119,6 +1127,7 @@ impl Checker {
             propagating_conditions: BTreeSet::new(),
             redundant_condition_propagations: BTreeSet::new(),
             implicitly_captured_runs: BTreeSet::new(),
+            unvalidated_command_vectors: BTreeMap::new(),
             control_condition: false,
             in_control_position: false,
             membership_migration_spans: BTreeSet::new(),

@@ -58,6 +58,30 @@ impl Checker {
             }
             return Type::Bool;
         }
+        if let Type::Validated(validated) = &base_ty {
+            // The validation's receiver lists what it guarantees and what
+            // it survives. Any other method is the base type's and returns
+            // what the base returns.
+            if let Some(receiver) = validated.validation().method_receiver()
+                && api_spec().method_overloads(receiver, name).is_some()
+            {
+                return self.check_registered_method_arena(
+                    arena,
+                    source,
+                    receiver,
+                    name,
+                    args,
+                    span,
+                    &base_ty,
+                    DiagnosticCode::CheckUnknownMethod,
+                    expected,
+                    self.schema_expectation_for_expr(arena, base),
+                );
+            }
+            let base_ty = validated.base().clone();
+            return self
+                .check_method_dispatch_arena(arena, source, base, base_ty, name, args, span, expected);
+        }
         if base_ty == Type::Any {
             // A dynamic method has no checked signature to bind names
             // against; such a call used to check and then fail preparation.
@@ -595,6 +619,26 @@ impl Checker {
         if receiver == MethodReceiver::List && matches!(name, "append" | "add") {
             diagnostic = diagnostic.with_note("lists are values: append to a `var` with `items += [value]`, or build a new list with `.push(value)`");
             candidates.clear();
+        }
+        // A method that only a validated form of the receiver has: say how
+        // the value gets that type.
+        for validation in crate::sema::validated::Validation::ALL {
+            if let Some(validated_receiver) = validation.method_receiver()
+                && api_spec()
+                    .method_overloads(validated_receiver, name)
+                    .is_some()
+                && let Ok(validated) = crate::sema::validated::ValidatedType::new(
+                    validation,
+                    receiver_ty.clone(),
+                )
+            {
+                let validated = Type::Validated(Box::new(validated));
+                diagnostic = diagnostic.with_note(format!(
+                    "`{name}()` is a method of {validated}: {}",
+                    validation.conversion_note(&validated)
+                ));
+                candidates.clear();
+            }
         }
         if !candidates.is_empty() {
             diagnostic = diagnostic.with_note(format!(

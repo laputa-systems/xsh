@@ -2187,7 +2187,7 @@ impl Checker {
             for item in arena.arena.list_elements(items) {
                 let actual = self.check_expr_arena(arena, source, item.value, None);
                 let item_ty = if let Some(splice_span) = item.splice_span {
-                    match actual {
+                    match actual.into_unvalidated() {
                         Type::List(ty) => *ty,
                         _ => {
                             self.error(
@@ -2213,7 +2213,7 @@ impl Checker {
         }
 
         let actual = self.check_call_arg_arena(arena, source, arg, None);
-        match actual {
+        match actual.into_unvalidated() {
             Type::List(item) if process_command_argv_item_type_is_valid(&item) => {}
             Type::Any | Type::Unknown => {}
             Type::List(_) => self.error(
@@ -2410,7 +2410,7 @@ impl Checker {
                     self.check_call_arg_arena(arena, source, &args[1].kind, Some(&expected));
                 // Serialization consumes a concrete list without changing its
                 // element domain. Dynamic inputs must still establish a list.
-                if !matches!(value_ty, Type::List(_)) {
+                if !matches!(value_ty.unvalidated(), Type::List(_)) {
                     self.expect_type(
                         &expected,
                         &value_ty,

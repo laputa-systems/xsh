@@ -7,6 +7,7 @@ pub mod constraints;
 pub mod projection;
 pub mod records;
 pub mod types;
+pub mod validated;
 
 pub(crate) mod stage_arguments;
 pub mod wire_enums;
