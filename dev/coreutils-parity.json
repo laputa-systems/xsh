@@ -9,10 +9,9 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 41,
-    "present_in_scope": 41,
+    "present": 54,
+    "present_in_scope": 54,
     "missing_in_scope": [
-      "arch",
       "b2sum",
       "base32",
       "base64",
@@ -24,19 +23,13 @@
       "dd",
       "dir",
       "dircolors",
-      "echo",
       "expand",
       "expr",
       "factor",
-      "false",
       "fmt",
-      "groups",
-      "hostid",
-      "id",
       "install",
       "join",
       "kill",
-      "logname",
       "md5sum",
       "mkfifo",
       "mknod",
@@ -57,39 +50,33 @@
       "sha384sum",
       "sha512sum",
       "shred",
-      "sleep",
       "stdbuf",
       "stty",
       "sum",
       "sync",
       "tac",
-      "test",
       "timeout",
-      "true",
       "truncate",
       "tsort",
-      "tty",
       "unexpand",
       "unlink",
       "uptime",
       "users",
       "vdir",
-      "who",
-      "whoami",
-      "yes"
+      "who"
     ]
   },
   "utilities": [
     {
       "utility": "arch",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/arch.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-arch.xsh",
       "uutils_test_count": 4,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 4,
+        "pass": 3,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -520,13 +507,13 @@
     {
       "utility": "echo",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/echo.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-echo.xsh",
       "uutils_test_count": 65,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 64,
+        "pass": 59,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -592,13 +579,13 @@
     {
       "utility": "false",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/false.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-false.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 7,
+        "pass": 6,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -664,13 +651,13 @@
     {
       "utility": "hostid",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/hostid.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-hostid.xsh",
       "uutils_test_count": 3,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 3,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -921,8 +908,8 @@
       "native_tests": "core/tests/test-printenv.xsh",
       "uutils_test_count": 9,
       "uutils_integration": {
-        "pass": 5,
-        "fail": 4,
+        "pass": 6,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1114,13 +1101,13 @@
     {
       "utility": "sleep",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sleep.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sleep.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 13,
-        "fail": 41,
+        "pass": 42,
+        "fail": 12,
         "skip": 0,
         "excluded": 0
       },
@@ -1240,13 +1227,13 @@
     {
       "utility": "test",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/test.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-test.xsh",
       "uutils_test_count": 126,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 114,
+        "pass": 97,
+        "fail": 18,
         "skip": 0,
         "excluded": 0
       },
@@ -1294,13 +1281,13 @@
     {
       "utility": "true",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/true.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-true.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 7,
+        "pass": 6,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1348,13 +1335,13 @@
     {
       "utility": "tty",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/tty.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tty.xsh",
       "uutils_test_count": 11,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 11,
+        "pass": 9,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1371,8 +1358,8 @@
       "native_tests": "core/tests/test-uname.xsh",
       "uutils_test_count": 14,
       "uutils_integration": {
-        "pass": 6,
-        "fail": 8,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1474,13 +1461,13 @@
     {
       "utility": "yes",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/yes.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-yes.xsh",
       "uutils_test_count": 10,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 10,
+        "pass": 2,
+        "fail": 8,
         "skip": 0,
         "excluded": 0
       },
@@ -1551,8 +1538,8 @@
       "native_tests": "core/tests/test-hostname.xsh",
       "uutils_test_count": 5,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 4,
+        "pass": 5,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1605,8 +1592,8 @@
       "native_tests": "core/tests/test-nproc.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 6,
+        "pass": 7,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1690,13 +1677,13 @@
     {
       "utility": "whoami",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/whoami.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-whoami.xsh",
       "uutils_test_count": 5,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 4,
+        "pass": 5,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1780,13 +1767,13 @@
     {
       "utility": "groups",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/groups.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-groups.xsh",
       "uutils_test_count": 4,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 4,
+        "pass": 2,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1798,13 +1785,13 @@
     {
       "utility": "id",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/id.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-id.xsh",
       "uutils_test_count": 22,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 18,
+        "pass": 13,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -1834,13 +1821,13 @@
     {
       "utility": "logname",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/logname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-logname.xsh",
       "uutils_test_count": 4,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 4,
+        "pass": 1,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },

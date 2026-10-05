@@ -2,17 +2,14 @@
   "suite": "uutils-integration",
   "utilities": {
     "arch": {
-      "pass": 0,
-      "fail": 4,
+      "pass": 3,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_arch::test_arch",
-        "test_arch::test_arch_help",
-        "test_arch::test_arch_output_is_not_empty",
-        "test_arch::test_invalid_arg"
+        "test_arch::test_arch_help"
       ],
-      "applet": false
+      "applet": true
     },
     "b2sum": {
       "pass": 0,
@@ -1919,77 +1916,19 @@
       "applet": true
     },
     "echo": {
-      "pass": 1,
-      "fail": 64,
+      "pass": 59,
+      "fail": 6,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_echo::full_help_argument",
         "test_echo::full_version_argument",
-        "test_echo::multibyte_escape_unicode",
-        "test_echo::multiple_help_argument",
-        "test_echo::multiple_version_argument",
-        "test_echo::nine_bit_octal",
         "test_echo::non_utf_8",
-        "test_echo::non_utf_8_hex_round_trip",
-        "test_echo::old_octal_syntax",
-        "test_echo::partial_help_argument",
-        "test_echo::partial_version_argument",
-        "test_echo::posixly_correct::ignore_options",
-        "test_echo::posixly_correct::process_escapes",
-        "test_echo::posixly_correct::process_n_option",
-        "test_echo::slash_eight_off_by_one",
         "test_echo::test_backslash_n_last_char_in_last_argument",
-        "test_echo::test_child_when_run_with_a_non_blocking_util",
-        "test_echo::test_cmd_result_stderr_check_and_stderr_str_check",
-        "test_echo::test_cmd_result_stdout_check_and_stdout_str_check",
-        "test_echo::test_cmd_result_stdout_str_check_when_false_then_panics",
-        "test_echo::test_default",
-        "test_echo::test_disable_escapes",
-        "test_echo::test_disable_escapes_unicode_and_quote",
         "test_echo::test_double_hyphens",
-        "test_echo::test_double_hyphens_after_flags",
-        "test_echo::test_double_hyphens_after_single_hyphen",
         "test_echo::test_double_hyphens_at_start",
-        "test_echo::test_emoji_output",
-        "test_echo::test_empty_args",
-        "test_echo::test_escape_alert",
-        "test_echo::test_escape_backslash",
-        "test_echo::test_escape_backspace",
-        "test_echo::test_escape_carriage_return",
-        "test_echo::test_escape_escape",
-        "test_echo::test_escape_form_feed",
-        "test_echo::test_escape_hex",
-        "test_echo::test_escape_malformed_unicode_not_recognized",
-        "test_echo::test_escape_newline",
-        "test_echo::test_escape_no_further_output",
-        "test_echo::test_escape_no_hex",
-        "test_echo::test_escape_nul",
-        "test_echo::test_escape_octal",
-        "test_echo::test_escape_octal_invalid_digit",
-        "test_echo::test_escape_one_slash",
-        "test_echo::test_escape_one_slash_multi",
-        "test_echo::test_escape_override",
-        "test_echo::test_escape_recognized_sequences_still_expand",
-        "test_echo::test_escape_sequence_ctrl_c",
-        "test_echo::test_escape_short_hex",
-        "test_echo::test_escape_short_octal",
-        "test_echo::test_escape_tab",
-        "test_echo::test_escape_unicode_and_quote_not_recognized",
-        "test_echo::test_escape_vertical_tab",
-        "test_echo::test_flag_like_arguments_which_are_no_flags",
-        "test_echo::test_hyphen_value",
-        "test_echo::test_hyphen_values_at_start",
-        "test_echo::test_hyphen_values_between",
-        "test_echo::test_hyphen_values_inside_string",
-        "test_echo::test_multiple_hyphen_values",
-        "test_echo::test_no_trailing_newline",
-        "test_echo::test_normalized_newlines_stdout_is",
-        "test_echo::test_normalized_newlines_stdout_is_fail",
-        "test_echo::test_uchild_when_run_no_wait_with_a_non_blocking_util",
-        "test_echo::wrapping_octal"
+        "test_echo::test_flag_like_arguments_which_are_no_flags"
       ],
-      "applet": false
+      "applet": true
     },
     "env": {
       "pass": 34,
@@ -2335,20 +2274,14 @@
       "applet": false
     },
     "false": {
-      "pass": 0,
-      "fail": 7,
+      "pass": 6,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_false::test_conflict",
-        "test_false::test_extra_args",
-        "test_false::test_full",
-        "test_false::test_help",
-        "test_false::test_no_args",
-        "test_false::test_short_options",
-        "test_false::test_version"
+        "test_false::test_full"
       ],
-      "applet": false
+      "applet": true
     },
     "fmt": {
       "pass": 0,
@@ -2504,17 +2437,15 @@
       "applet": true
     },
     "groups": {
-      "pass": 0,
-      "fail": 4,
+      "pass": 2,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_groups::test_groups",
         "test_groups::test_groups_username",
-        "test_groups::test_groups_username_multiple",
-        "test_groups::test_invalid_arg"
+        "test_groups::test_groups_username_multiple"
       ],
-      "applet": false
+      "applet": true
     },
     "head": {
       "pass": 9,
@@ -2590,56 +2521,35 @@
       "applet": true
     },
     "hostid": {
-      "pass": 0,
-      "fail": 3,
+      "pass": 3,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_hostid::test_help",
-        "test_hostid::test_invalid_flag",
-        "test_hostid::test_output_format"
-      ],
-      "applet": false
+      "failing": [],
+      "applet": true
     },
     "hostname": {
-      "pass": 1,
-      "fail": 4,
+      "pass": 5,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_hostname::test_hostname",
-        "test_hostname::test_hostname_domain_empty",
-        "test_hostname::test_hostname_ip",
-        "test_hostname::test_invalid_arg"
-      ],
+      "failing": [],
       "applet": true
     },
     "id": {
-      "pass": 1,
-      "fail": 18,
+      "pass": 13,
+      "fail": 6,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_id::test_id_default_format",
-        "test_id::test_id_groups_ordering",
-        "test_id::test_id_ignore",
         "test_id::test_id_multiple_users",
         "test_id::test_id_multiple_users_non_existing",
         "test_id::test_id_name",
-        "test_id::test_id_name_or_real_with_default_format",
-        "test_id::test_id_no_specified_user",
-        "test_id::test_id_no_specified_user_posixly",
         "test_id::test_id_pretty_print_password_record",
         "test_id::test_id_pretty_print_suid_binary",
-        "test_id::test_id_real",
-        "test_id::test_id_single_user",
-        "test_id::test_id_single_user_non_existing",
-        "test_id::test_id_zero",
-        "test_id::test_id_zero_with_default_format",
-        "test_id::test_id_zero_with_name_or_real",
-        "test_id::test_invalid_arg"
+        "test_id::test_id_single_user"
       ],
-      "applet": false
+      "applet": true
     },
     "install": {
       "pass": 3,
@@ -2943,17 +2853,16 @@
       "applet": true
     },
     "logname": {
-      "pass": 0,
-      "fail": 4,
+      "pass": 1,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_logname::test_help",
-        "test_logname::test_invalid_arg",
         "test_logname::test_normal",
         "test_logname::test_output_format"
       ],
-      "applet": false
+      "applet": true
     },
     "ls": {
       "pass": 17,
@@ -3590,18 +3499,11 @@
       "applet": false
     },
     "nproc": {
-      "pass": 1,
-      "fail": 6,
+      "pass": 7,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_nproc::test_invalid_arg",
-        "test_nproc::test_nproc_all_omp",
-        "test_nproc::test_nproc_ignore",
-        "test_nproc::test_nproc_ignore_all_omp",
-        "test_nproc::test_nproc_omp_limit",
-        "test_nproc::test_nproc_omp_num_threads_with_whitespace"
-      ],
+      "failing": [],
       "applet": true
     },
     "numfmt": {
@@ -4053,15 +3955,14 @@
       "applet": false
     },
     "printenv": {
-      "pass": 5,
-      "fail": 4,
+      "pass": 6,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_printenv::test_invalid_option_exit_code",
         "test_printenv::test_non_utf8_env_vars",
-        "test_printenv::test_non_utf8_value",
-        "test_printenv::test_null_separator"
+        "test_printenv::test_non_utf8_value"
       ],
       "applet": true
     },
@@ -4749,54 +4650,25 @@
       "applet": true
     },
     "sleep": {
-      "pass": 13,
-      "fail": 41,
+      "pass": 42,
+      "fail": 12,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_sleep::test_invalid_duration::case_1_negative",
         "test_sleep::test_invalid_duration::case_2_negative_suffix",
         "test_sleep::test_invalid_duration::case_3_negative_frac_suffix",
-        "test_sleep::test_invalid_duration::case_4_wrong_capitalization",
-        "test_sleep::test_invalid_duration::case_5_wrong_capitalization",
-        "test_sleep::test_invalid_duration::case_6_wrong_capitalization",
-        "test_sleep::test_invalid_duration::case_7_single_quote",
         "test_sleep::test_invalid_time_interval",
         "test_sleep::test_negative_interval",
-        "test_sleep::test_sleep_h_suffix",
-        "test_sleep::test_sleep_m_suffix",
         "test_sleep::test_sleep_no_argument",
-        "test_sleep::test_sleep_no_suffix",
-        "test_sleep::test_sleep_s_suffix",
         "test_sleep::test_sleep_stops_after_sigbus",
         "test_sleep::test_sleep_stops_after_sigsegv",
-        "test_sleep::test_sleep_sum_duration_different_suffix",
-        "test_sleep::test_sleep_sum_duration_many",
-        "test_sleep::test_sleep_sum_duration_same_suffix",
-        "test_sleep::test_sleep_when_input_has_leading_whitespace_then_no_error::case_1_whitespace_prefix",
-        "test_sleep::test_sleep_when_input_has_leading_whitespace_then_no_error::case_2_multiple_whitespace_prefix",
-        "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_1_only_space",
         "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab",
         "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_3_only_newline",
-        "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_1_whitespace_suffix",
         "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs",
-        "test_sleep::test_sleep_when_multiple_input_some_with_error_then_shows_all_errors",
-        "test_sleep::test_sleep_when_multiple_inputs_exceed_max_duration_then_no_error",
-        "test_sleep::test_sleep_when_single_input_exceeds_max_duration_then_no_error",
-        "test_sleep::test_sleep_zero_duration",
-        "test_sleep::test_uchild_when_wait_and_timeout_is_reached_then_timeout_error",
-        "test_sleep::test_ucommand_when_run_with_timeout_and_timeout_is_reached_then_panic",
-        "test_sleep::test_valid_hex_duration::case_1_int",
-        "test_sleep::test_valid_hex_duration::case_2_negative_zero",
-        "test_sleep::test_valid_hex_duration::case_3_int_suffix",
-        "test_sleep::test_valid_hex_duration::case_4_int_suffix",
-        "test_sleep::test_valid_hex_duration::case_5_frac",
-        "test_sleep::test_valid_hex_duration::case_6_frac_suffix",
-        "test_sleep::test_valid_hex_duration::case_7_frac_suffix",
-        "test_sleep::test_valid_hex_duration::case_8_scientific",
-        "test_sleep::test_valid_hex_duration::case_9_scientific_suffix"
+        "test_sleep::test_valid_hex_duration::case_2_negative_zero"
       ],
-      "applet": false
+      "applet": true
     },
     "sort": {
       "pass": 34,
@@ -5557,127 +5429,31 @@
       "applet": true
     },
     "test": {
-      "pass": 1,
-      "fail": 114,
+      "pass": 97,
+      "fail": 18,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
         "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
-        "test_test::diagnostics::test_dash_t_plain_message_is_unchanged",
         "test_test::diagnostics::test_extra_argument_points_past_the_expression",
         "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
         "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
-        "test_test::diagnostics::test_missing_operand_plain_message_is_unchanged",
         "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
-        "test_test::diagnostics::test_plain_message_is_the_default",
         "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
-        "test_test::test_a_bunch_of_not",
-        "test_test::test_and_not_is_false",
-        "test_test::test_and_or_do_not_short_circuit",
-        "test_test::test_bang_bool_op_precedence",
-        "test_test::test_boolop_without_right_operand",
-        "test_test::test_bracket_syntax_failure",
-        "test_test::test_bracket_syntax_help",
-        "test_test::test_bracket_syntax_missing_right_bracket",
-        "test_test::test_bracket_syntax_success",
         "test_test::test_bracket_syntax_version",
-        "test_test::test_complicated_parenthesized_expression",
-        "test_test::test_dangling_parenthesis",
-        "test_test::test_dangling_string_comparison_is_error",
-        "test_test::test_directory_is_executable",
-        "test_test::test_double_equal_is_string_comparison_op",
-        "test_test::test_double_not_is_false",
-        "test_test::test_empty_string_is_false",
-        "test_test::test_empty_test_equivalent_to_false",
-        "test_test::test_erroneous_parenthesized_expression",
-        "test_test::test_errors_miss_and_or",
-        "test_test::test_file_N",
-        "test_test::test_file_exists",
-        "test_test::test_file_exists_and_is_regular",
-        "test_test::test_file_is_executable",
         "test_test::test_file_is_itself",
-        "test_test::test_file_is_newer_than_and_older_than_itself",
-        "test_test::test_file_is_newer_than_non_existing_file",
-        "test_test::test_file_is_not_executable",
         "test_test::test_file_is_not_readable",
-        "test_test::test_file_is_not_sticky",
-        "test_test::test_file_is_not_symlink",
         "test_test::test_file_is_not_writable",
-        "test_test::test_file_is_readable",
-        "test_test::test_file_is_sticky",
-        "test_test::test_file_is_writable",
         "test_test::test_file_not_owned_by_egid",
         "test_test::test_file_not_owned_by_euid",
-        "test_test::test_file_operator_rejects_length_operand",
-        "test_test::test_file_owned_by_egid",
-        "test_test::test_file_owned_by_euid",
-        "test_test::test_filename_or_with_equal",
-        "test_test::test_float_inequality_is_error",
         "test_test::test_hard_link_is_same_file",
-        "test_test::test_int_compares_ignore_redundant_sign_and_leading_zeros",
-        "test_test::test_integer_length_operands",
-        "test_test::test_integer_whitespace_stripping",
         "test_test::test_invalid_utf8_integer_compare",
-        "test_test::test_inverted_parenthetical_bool_op_precedence",
-        "test_test::test_is_not_empty",
-        "test_test::test_isatty_invalid_fd_is_false",
-        "test_test::test_isatty_whitespace_stripping",
-        "test_test::test_large_int_compares",
-        "test_test::test_large_negative_int_compares",
-        "test_test::test_lone_boolop_is_a_string",
-        "test_test::test_malformed_integers_are_still_errors",
-        "test_test::test_missing_argument_after",
-        "test_test::test_negated_boolean_precedence",
-        "test_test::test_negated_or",
-        "test_test::test_negative_arg_is_a_string",
-        "test_test::test_negative_int_compare",
-        "test_test::test_newer_file",
-        "test_test::test_nonexistent_file_does_not_exist",
-        "test_test::test_nonexistent_file_is_not_regular",
-        "test_test::test_nonexistent_file_is_not_symlink",
-        "test_test::test_nonexistent_file_not_owned_by_egid",
-        "test_test::test_nonexistent_file_not_owned_by_euid",
-        "test_test::test_nonexistent_file_size_test_is_false",
-        "test_test::test_not_and_is_false",
-        "test_test::test_not_and_not_is_a_syntax_error",
-        "test_test::test_not_is_not_empty",
-        "test_test::test_nothing_is_empty",
-        "test_test::test_op_precedence_and_or_1",
-        "test_test::test_op_precedence_and_or_1_overridden_by_parentheses",
-        "test_test::test_op_precedence_and_or_2",
-        "test_test::test_op_precedence_and_or_2_overridden_by_parentheses",
-        "test_test::test_or_as_filename",
-        "test_test::test_parenthesized_literal",
-        "test_test::test_parenthesized_op_compares_literal_parenthesis",
-        "test_test::test_parenthesized_right_parenthesis_as_literal",
         "test_test::test_parenthesized_string_comparison",
-        "test_test::test_pseudofloat_equal",
-        "test_test::test_pseudofloat_not_equal",
         "test_test::test_same_device_inode",
-        "test_test::test_simple_or",
-        "test_test::test_solo_and_or_or_is_a_literal",
-        "test_test::test_solo_empty_parenthetical_is_error",
-        "test_test::test_solo_not",
-        "test_test::test_some_int_compares",
-        "test_test::test_some_literals",
-        "test_test::test_string_comparison",
-        "test_test::test_string_length_and_nothing",
-        "test_test::test_string_length_of_empty",
-        "test_test::test_string_length_of_nothing",
-        "test_test::test_string_lt_gt_operator",
-        "test_test::test_string_operator_is_literal_after_bang",
-        "test_test::test_symlink_is_symlink",
-        "test_test::test_tty_out_of_range_is_false",
-        "test_test::test_unary_op_as_literal_in_three_arg_form",
-        "test_test::test_unknown_two_byte_operator_errors",
-        "test_test::test_values_greater_than_i128_allowed",
-        "test_test::test_values_greater_than_i64_allowed",
-        "test_test::test_zero_len_equals_zero_len",
-        "test_test::test_zero_len_not_equals_zero_len_is_false",
-        "test_test::test_zero_len_of_empty"
+        "test_test::test_some_literals"
       ],
-      "applet": false
+      "applet": true
     },
     "timeout": {
       "pass": 1,
@@ -5956,20 +5732,14 @@
       "applet": true
     },
     "true": {
-      "pass": 0,
-      "fail": 7,
+      "pass": 6,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_true::test_conflict",
-        "test_true::test_extra_args",
-        "test_true::test_full",
-        "test_true::test_help",
-        "test_true::test_no_args",
-        "test_true::test_short_options",
-        "test_true::test_version"
+        "test_true::test_full"
       ],
-      "applet": false
+      "applet": true
     },
     "truncate": {
       "pass": 2,
@@ -6062,40 +5832,22 @@
       "applet": false
     },
     "tty": {
-      "pass": 0,
-      "fail": 11,
+      "pass": 9,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_tty::test_close_stdin",
-        "test_tty::test_close_stdin_silent",
-        "test_tty::test_close_stdin_silent_alias",
-        "test_tty::test_close_stdin_silent_long",
-        "test_tty::test_dev_null",
-        "test_tty::test_dev_null_silent",
-        "test_tty::test_help",
         "test_tty::test_stdout_fail",
-        "test_tty::test_version_pipe_no_stderr",
-        "test_tty::test_write_error",
-        "test_tty::test_wrong_argument"
+        "test_tty::test_write_error"
       ],
-      "applet": false
+      "applet": true
     },
     "uname": {
-      "pass": 6,
-      "fail": 8,
+      "pass": 14,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_uname::test_invalid_arg",
-        "test_uname::test_uname_all_labeled",
-        "test_uname::test_uname_all_labeled_long_flag",
-        "test_uname::test_uname_hardware_platform",
-        "test_uname::test_uname_help",
-        "test_uname::test_uname_kernel",
-        "test_uname::test_uname_operating_system",
-        "test_uname::test_uname_processor"
-      ],
+      "failing": [],
       "applet": true
     },
     "unexpand": {
@@ -6347,41 +6099,34 @@
       "applet": false
     },
     "whoami": {
-      "pass": 1,
-      "fail": 4,
+      "pass": 5,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_whoami::test_invalid_arg",
-        "test_whoami::test_normal",
-        "test_whoami::test_normal_compare_id",
-        "test_whoami::test_succeeds_on_all_platforms"
-      ],
-      "applet": false
+      "failing": [],
+      "applet": true
     },
     "yes": {
-      "pass": 0,
-      "fail": 10,
+      "pass": 2,
+      "fail": 8,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_yes::test_args",
-        "test_yes::test_invalid_arg",
         "test_yes::test_long_input",
         "test_yes::test_long_line_exceeds_pipe_capacity",
         "test_yes::test_long_odd_output",
         "test_yes::test_long_output",
         "test_yes::test_non_utf8",
         "test_yes::test_piped_to_dev_full",
-        "test_yes::test_simple",
-        "test_yes::test_version"
+        "test_yes::test_simple"
       ],
-      "applet": false
+      "applet": true
     }
   },
   "totals": {
-    "pass": 553,
-    "fail": 5423,
+    "pass": 803,
+    "fail": 5173,
     "skip": 0,
     "excluded": 2
   }
