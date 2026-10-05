@@ -553,6 +553,11 @@ fn lint_workspace_with_parallelism(
     let mut input_errors = Vec::new();
     let mut candidate_keys = Vec::new();
     for file in &discovery.files {
+        // A pending signal ends the command; its caller reports the signal
+        // and discards whatever was loaded.
+        if cancellation_output().is_some() {
+            break;
+        }
         let path = PathBuf::from(file);
         let config = match lint_config_for_file(file, runless, cwd_config, config_cache) {
             Ok(config) => config,
@@ -832,6 +837,10 @@ fn lint_workspace_root(
     ordered.extend(keys);
     let mut results = Vec::new();
     for key in ordered {
+        // A pending signal ends the command, which then writes no file.
+        if cancellation_output().is_some() {
+            break;
+        }
         if key != root {
             let mut linted_modules = linted_modules
                 .lock()
@@ -902,11 +911,18 @@ fn lint_workspace_root(
         linted
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only, diagnostic.code));
-        let check_diagnostics = checked
+        // A fix round is judged against every check diagnostic the file had,
+        // selected or not: a rewrite may not add one, and one it leaves in
+        // place is not new.
+        let file_check_diagnostics = checked
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
             .chain(&module_grouping)
+            .cloned()
+            .collect::<Vec<_>>();
+        let check_diagnostics = file_check_diagnostics
+            .iter()
             .filter(|diagnostic| lint_code_selected(only, diagnostic.code))
             .cloned()
             .collect::<Vec<_>>();
@@ -917,6 +933,7 @@ fn lint_workspace_root(
                     module,
                     &linted.diagnostics,
                     &check_diagnostics,
+                    &file_check_diagnostics,
                     &workspace.sources,
                     key != root,
                 )
@@ -1351,6 +1368,7 @@ fn lint_workspace_node_with_fixes(
     module: &WorkspaceModule,
     lint_diagnostics: &[Diagnostic],
     check_diagnostics: &[Diagnostic],
+    file_check_diagnostics: &[Diagnostic],
     sources: &SourceMap,
     is_module: bool,
 ) -> LintResult {
@@ -1389,7 +1407,7 @@ fn lint_workspace_node_with_fixes(
         &module.text,
         &fixes,
         config,
-        check_diagnostics,
+        file_check_diagnostics,
         is_module,
     ) {
         Ok(Some(fixed)) => fixed,
@@ -1746,8 +1764,15 @@ fn validate_fixed_text(
             render_diagnostics_with_keys(diagnostics, &checked_program.sources),
         ));
     }
+    let only = config.lint_options.only.as_deref();
+    let selected = checked
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| lint_code_selected(only, diagnostic.code))
+        .cloned()
+        .collect::<Vec<_>>();
     Ok(render_diagnostics_with_keys(
-        &checked.diagnostics,
+        &selected,
         &checked_program.sources,
     ))
 }
@@ -1775,6 +1800,10 @@ fn apply_cst_fixes(
     // Outer edits can expose safe inner edits. Every round uses fresh checked
     // facts and source spans; a rejected round never reaches the filesystem.
     for _ in 0..64 {
+        // A pending signal ends the command, which then writes no file.
+        if cancellation_output().is_some() {
+            return Ok(None);
+        }
         let edits = fixes
             .iter()
             .map(|(start, end, replacement)| SourceEdit {
@@ -1837,8 +1866,16 @@ fn apply_cst_fixes(
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
             return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
         }
+        // Only the selected codes are reported; the rest of the file's check
+        // diagnostics were there before and are not this run's subject.
+        let selected_checks = checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| lint_code_selected(only, diagnostic.code))
+            .cloned()
+            .collect::<Vec<_>>();
         remaining_diagnostics = Some(render_diagnostics_with_keys(
-            &checked.diagnostics,
+            &selected_checks,
             &program.sources,
         ));
         if migrating_syntax {
@@ -1880,12 +1917,6 @@ fn apply_cst_fixes(
             Linter::lint(&program.parsed.arena, &candidate, options)
         };
         fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
-        let selected_checks = checked
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| lint_code_selected(only, diagnostic.code))
-            .cloned()
-            .collect::<Vec<_>>();
         fixes.extend(collect_fix_spans_for_source(
             &selected_checks,
             SourceId::new(0),

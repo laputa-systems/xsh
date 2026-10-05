@@ -2790,6 +2790,66 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
     }
 }
 
+/// A signal during a long `xsht lint --fix` ends the run between files or
+/// fix rounds. Fixed files are written only after every file is done, so an
+/// interrupted run leaves each file exactly as it was.
+#[test]
+fn lint_fix_cancellation_writes_no_file() {
+    let mut functions = String::new();
+    for index in 0..1000 {
+        functions.push_str(&format!(
+            "pure pick_{index}(n: Int) -> Int {{\n  let chosen = match n {{\n    1 => 10,\n    _ => 20,\n  }}\n  chosen + 1\n}}\n\n"
+        ));
+    }
+    functions.push_str("print ${pick_0(1)}\n");
+    for signal in [libc::SIGTERM, libc::SIGINT] {
+        let root = TempDir::new().expect("temporary lint fixture");
+        for file in 0..96 {
+            fs::write(root.path().join(format!("module_{file}.xsh")), &functions)
+                .expect("write lint fixture");
+        }
+        let mut lint = Command::new(release_bin!("xsht"))
+            .args(["lint", "--fix", "."])
+            .current_dir(root.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("start xsht lint");
+        // Long enough for the handlers to be installed, far shorter than the
+        // run: every file has a thousand fixes.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            lint.try_wait().expect("poll lint").is_none(),
+            "the lint run ended before it could be interrupted; the fixture is too small"
+        );
+        assert_eq!(unsafe { libc::kill(lint.id() as libc::pid_t, signal) }, 0);
+        let started = std::time::Instant::now();
+        let output = lint.wait_with_output().expect("wait for lint");
+        assert_eq!(
+            output.status.code(),
+            Some(128 + signal),
+            "{:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // One file's check and one fix round at most separate two looks at
+        // the signal.
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+        for file in 0..96 {
+            let path = root.path().join(format!("module_{file}.xsh"));
+            assert!(
+                fs::read_to_string(&path).expect("read lint fixture") == functions,
+                "{} changed",
+                path.display()
+            );
+        }
+    }
+}
+
 #[test]
 fn test_runner_times_out_hung_tests_and_stops_their_descendants() {
     let root = TempDir::new().expect("temporary timeout fixture");

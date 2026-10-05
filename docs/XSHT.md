@@ -84,6 +84,10 @@ exact edits with no formatting pass (`apply_cst_fixes`), while unrestricted
 its span, so when formatting would move a comment between two other words of
 code the round keeps its exact edits unformatted (`edit.rs::comment_anchors`);
 otherwise a later round could apply the declined fix across the moved comment.
+A fix round is accepted when the rewritten file has no check diagnostic the
+file did not have before, whether or not `--only` selects its code. SIGINT or
+SIGTERM is observed between files and between fix rounds; fixed files are
+written only after every file is done, so an interrupted run writes none.
 
 Lint selects true entry roots during directory discovery (files with no inbound
 import; one deterministic root per import cycle; explicitly named files always),
