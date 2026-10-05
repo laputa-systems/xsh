@@ -326,6 +326,12 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
     if lowered_native_test_op_supported(op) {
         return true;
     }
+    if crate::modules::process::is_prim(op)
+        || crate::modules::unix::is_prim(op)
+        || matches!(op, RuntimeOp::ProcessWaitTimeout | RuntimeOp::IoFlushStdout)
+    {
+        return true;
+    }
     matches!(
         op,
         RuntimeOp::CpuCount
@@ -14827,7 +14833,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::Status => match name.as_str().as_str() {
-            "exited" | "signaled" | "exit_code" | "signal_number" => arg_count == 0,
+            "exited" | "signaled" | "exit_code" | "signal_number" | "shell_code" => arg_count == 0,
             "exited_with" => arg_count == 1,
             _ => false,
         },

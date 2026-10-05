@@ -23,6 +23,25 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+mod sessions;
+mod tty;
+
+/// Whether `op` is a typed terminal or session primitive from the submodules.
+pub(crate) fn is_prim(op: crate::modules::RuntimeOp) -> bool {
+    tty::handles(op) || sessions::handles(op)
+}
+
+pub(crate) fn prim_call(
+    op: crate::modules::RuntimeOp,
+    args: &crate::modules::process::Args<'_>,
+) -> Result<Value, RuntimeError> {
+    if tty::handles(op) {
+        tty::call(op, args)
+    } else {
+        sessions::call(op, args)
+    }
+}
+
 const LINUX_COMM_LIMIT: usize = 15;
 const WAIT_POLL: Duration = Duration::from_millis(100);
 static PENDING_SIGNAL: AtomicI32 = AtomicI32::new(0);
@@ -481,8 +500,21 @@ pub(crate) fn tty_attrs(fd: i64, span: Span) -> Result<Value, RuntimeError> {
 pub(crate) fn set_tty_attrs(
     record: &crate::runtime::value::RecordMap,
     fd: i64,
+    when: &str,
     span: Span,
 ) -> Result<Value, RuntimeError> {
+    let when = match when {
+        "now" => termios::OptionalActions::Now,
+        "drain" => termios::OptionalActions::Drain,
+        "flush" => termios::OptionalActions::Flush,
+        other => {
+            return Err(RuntimeError::new(
+                "invalid-argument",
+                format!("when must be `now`, `drain`, or `flush`, found `{other}`"),
+            )
+            .with_span(span));
+        }
+    };
     let fd = match raw_fd_arg(fd, "unix-tty-attrs", span) {
         Ok(fd) => fd,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
@@ -554,7 +586,7 @@ pub(crate) fn set_tty_attrs(
             span,
         ));
     }
-    match termios::tcsetattr(borrowed, termios::OptionalActions::Now, &attrs) {
+    match termios::tcsetattr(borrowed, when, &attrs) {
         Ok(()) => Ok(ok_unit()),
         Err(e) => Ok(io_error("unix-tty-attrs", io::Error::from(e), span)),
     }

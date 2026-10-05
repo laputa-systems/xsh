@@ -592,6 +592,15 @@ fn io_module() -> ModuleSig {
                 RuntimeOp::IoWriteStdoutBytes,
             ),
         ),
+        (
+            "flush_stdout",
+            sig(
+                Vec::new(),
+                result(Type::Unit),
+                false,
+                RuntimeOp::IoFlushStdout,
+            ),
+        ),
     ])
 }
 
@@ -2988,10 +2997,159 @@ fn unix_module() -> ModuleSig {
                 vec![
                     param("attrs", Type::Record(BTreeMap::new())),
                     default_param("fd", Type::Int),
+                    default_param("when", Type::Str),
                 ],
                 result(Type::Unit),
                 false,
                 RuntimeOp::UnixSetTtyAttrs,
+            ),
+        ),
+        (
+            "isatty",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                Type::Bool,
+                false,
+                RuntimeOp::UnixIsatty,
+            ),
+        ),
+        (
+            "ttyname",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(Type::Str),
+                false,
+                RuntimeOp::UnixTtyname,
+            ),
+        ),
+        (
+            "controlling_tty",
+            sig(
+                Vec::new(),
+                result(Type::Str),
+                false,
+                RuntimeOp::UnixControllingTty,
+            ),
+        ),
+        (
+            "open_fd",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("write", Type::Bool),
+                    default_param("nonblock", Type::Bool),
+                ],
+                result(Type::Int),
+                false,
+                RuntimeOp::UnixOpenFd,
+            ),
+        ),
+        (
+            "close_fd",
+            sig(
+                vec![param("fd", Type::Int)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::UnixCloseFd,
+            ),
+        ),
+        (
+            "open_pty",
+            sig(
+                Vec::new(),
+                result(crate::records::unix_pty_type()),
+                false,
+                RuntimeOp::UnixOpenPty,
+            ),
+        ),
+        (
+            "tty_table",
+            sig(
+                Vec::new(),
+                crate::records::unix_tty_table_type(),
+                true,
+                RuntimeOp::UnixTtyTable,
+            ),
+        ),
+        (
+            "tty_mode",
+            sig(
+                vec![
+                    param("attrs", Type::Record(BTreeMap::new())),
+                    param("mode", Type::Str),
+                ],
+                result(unix_tty_attrs_type()),
+                true,
+                RuntimeOp::UnixTtyMode,
+            ),
+        ),
+        (
+            "window_size",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(crate::records::unix_window_size_type()),
+                false,
+                RuntimeOp::UnixWindowSize,
+            ),
+        ),
+        (
+            "set_window_size",
+            sig(
+                vec![
+                    param("rows", Type::Int),
+                    param("cols", Type::Int),
+                    default_param("xpixel", Type::Int),
+                    default_param("ypixel", Type::Int),
+                    default_param("fd", Type::Int),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::UnixSetWindowSize,
+            ),
+        ),
+        (
+            "foreground_group",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::UnixForegroundGroup,
+            ),
+        ),
+        (
+            "set_foreground_group",
+            sig(
+                vec![param("pgid", Type::Int), default_param("fd", Type::Int)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::UnixSetForegroundGroup,
+            ),
+        ),
+        (
+            "tty_session",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::UnixTtySession,
+            ),
+        ),
+        (
+            "read_utmp",
+            sig(
+                vec![default_param("path", Type::Path)],
+                result(Type::List(Box::new(crate::records::unix_utmp_type()))),
+                false,
+                RuntimeOp::UnixReadUtmp,
+            ),
+        ),
+        (
+            "load_average",
+            sig(
+                Vec::new(),
+                result(crate::records::unix_load_average_type()),
+                false,
+                RuntimeOp::UnixLoadAverage,
             ),
         ),
         (
@@ -3367,6 +3525,164 @@ fn process_module() -> ModuleSig {
                 ),
                 false,
                 RuntimeOp::ProcessWaitReady,
+            ),
+        ),
+        (
+            "wait_timeout",
+            sig(
+                vec![
+                    param("handles", Type::List(Box::new(Type::ProcessHandle))),
+                    param("timeout", Type::Duration),
+                ],
+                Type::Result(
+                    Box::new(Type::Optional(Box::new(process_wait_any_type()))),
+                    Box::new(Type::ProcessError),
+                ),
+                false,
+                RuntimeOp::ProcessWaitTimeout,
+            ),
+        ),
+        (
+            "signals",
+            sig(
+                Vec::new(),
+                Type::List(Box::new(signal_record_type())),
+                true,
+                RuntimeOp::ProcessSignals,
+            ),
+        ),
+        (
+            "parent_pid",
+            sig(
+                Vec::new(),
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessParentPid,
+            ),
+        ),
+        (
+            "group_id",
+            sig(
+                vec![default_param("pid", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessGroupId,
+            ),
+        ),
+        (
+            "set_group_id",
+            sig(
+                vec![param("pid", Type::Int), param("pgid", Type::Int)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetGroupId,
+            ),
+        ),
+        (
+            "session_id",
+            sig(
+                vec![default_param("pid", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessSessionId,
+            ),
+        ),
+        (
+            "new_session",
+            sig(
+                Vec::new(),
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessNewSession,
+            ),
+        ),
+        (
+            "kill_group",
+            sig(
+                vec![param("pgid", Type::Int), default_param("signal", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessKillGroup,
+            ),
+        ),
+        (
+            "priority",
+            sig(
+                vec![default_param("pid", Type::Int), default_param("which", Type::Str)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessPriority,
+            ),
+        ),
+        (
+            "set_priority",
+            sig(
+                vec![
+                    param("pid", Type::Int),
+                    param("value", Type::Int),
+                    default_param("which", Type::Str),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetPriority,
+            ),
+        ),
+        (
+            "nice",
+            sig(
+                vec![param("increment", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessNice,
+            ),
+        ),
+        (
+            "rlimit",
+            sig(
+                vec![param("resource", Type::Str)],
+                result(crate::records::rlimit_type()),
+                false,
+                RuntimeOp::ProcessRlimit,
+            ),
+        ),
+        (
+            "rlimits",
+            sig(
+                Vec::new(),
+                result(Type::List(Box::new(crate::records::rlimit_type()))),
+                false,
+                RuntimeOp::ProcessRlimits,
+            ),
+        ),
+        (
+            "set_rlimit",
+            sig(
+                vec![
+                    param("resource", Type::Str),
+                    default_param("soft", Type::Optional(Box::new(Type::Int))),
+                    default_param("hard", Type::Optional(Box::new(Type::Int))),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetRlimit,
+            ),
+        ),
+        (
+            "signal_action",
+            sig(
+                vec![param("signal", Type::Str)],
+                result(Type::Str),
+                false,
+                RuntimeOp::ProcessSignalAction,
+            ),
+        ),
+        (
+            "set_signal_action",
+            sig(
+                vec![param("signal", Type::Str), param("action", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetSignalAction,
             ),
         ),
         (
@@ -4190,6 +4506,46 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes one thread belonging to a process.",
             "Thread data is a host snapshot and does not retain or synchronize with the thread.",
             &["process", "thread", "record"],
+        ),
+        "Rlimit" => (
+            "Describes one resource limit of the calling process.",
+            "soft and hard are null for unlimited; the limits are process-global state that child processes inherit.",
+            &["process", "limits", "record"],
+        ),
+        "UnixTtyFlag" => (
+            "Describes one named terminal mode flag of the termios tables.",
+            "field names the UnixTtyAttrs word it lives in; a flag is on when the word masked by mask equals value, so single-bit flags have mask equal to value and delay or size groups share a mask; sane marks the flags the sane mode turns on.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixTtyChar" => (
+            "Describes one named terminal control character slot.",
+            "index is the position in UnixTtyAttrs.control_chars; sane is the value the sane mode assigns, and 0 means the character is disabled (min and time are counts, not characters).",
+            &["unix", "tty", "record"],
+        ),
+        "UnixTtyTable" => (
+            "Lists the terminal flags, control characters, and baud rates the host knows by name.",
+            "The table is the host's termios vocabulary as stty spells it; entries a platform lacks are absent, so scripts must treat a missing name as unsupported.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixWindowSize" => (
+            "Describes a terminal's window size.",
+            "A size of 0 means the terminal has not been told; pixel sizes are usually 0.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixPty" => (
+            "Describes a pseudo-terminal pair opened by unix.open_pty.",
+            "master and replica are bare descriptor numbers the script must close with unix.close_fd; name is the replica's device path and works as an stty --file target while the master stays open.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixUtmp" => (
+            "Describes one record of a utmp or wtmp file.",
+            "kind names the record type (boot_time, user_process, dead_process, and so on); times are the record's 32-bit seconds and microseconds; strings stop at their first NUL.",
+            &["unix", "sessions", "record"],
+        ),
+        "UnixLoadAverage" => (
+            "Reports the system load averages over one, five, and fifteen minutes.",
+            "The values are a point-in-time host observation.",
+            &["unix", "system", "record"],
         ),
         "Signal" => (
             "Describes a Unix signal value.",
