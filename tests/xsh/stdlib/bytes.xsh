@@ -69,7 +69,7 @@ WJj""".base64_decode()? == b"abc"
   assert b"\0hello marker-one\0xx marker-two!!\xff".strings(min_len: 7)[0] == "hello marker-one"
   assert "68 65 6c 6c 6f" in b"hello".dump("hex-u8")
   assert b"hello".dump("octal-u8") == "0000000 150 145 154 154 157"
-  assert b"hello".utf8()? == "hello"
+  assert b"hello" as Str == "hello"
   assert b"abcdef".chunks(2).len() == 3
   let comparison = b"abc\nxyz".compare(b"abc\nxqz")
   let eof = b"abc".compare(b"abcd")

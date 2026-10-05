@@ -37,14 +37,14 @@ test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   let prefix = parent.bytes()
   let root_bytes = bytes.concat([prefix, b"/", b"\xff"])
   let outside_bytes = bytes.concat([prefix, b"/", b"\xfe"])
-  let root = Path.parse_bytes(root_bytes)?
-  let outside = Path.parse_bytes(outside_bytes)?
+  let root = root_bytes as Path
+  let outside = outside_bytes as Path
   root.mkdir()
   outside.mkdir()
   let root_alias = fp"{parent}/root-alias"
   fs.symlink(root, root_alias)
-  let target = Path.parse_bytes(bytes.concat([outside_bytes, b"/target"]))?
-  let link = Path.parse_bytes(bytes.concat([root_bytes, b"/escape"]))?
+  let target = bytes.concat([outside_bytes, b"/target"]) as Path
+  let link = bytes.concat([root_bytes, b"/escape"]) as Path
   target.write("outside")
   fs.symlink(target, link)
 

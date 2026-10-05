@@ -38,9 +38,9 @@ pure agrees_with_strip_prefix(whole: Path, prefix: Path) -> Bool {
 
 test test_path_component_queries_keep_native_bytes {
   # Display text would merge these two names into one replacement character.
-  let raw = Path.parse_bytes(b"dir/bad\xffname")?
-  assert raw.ends_with(Path.parse_bytes(b"bad\xffname")?)
-  assert ! raw.ends_with(Path.parse_bytes(b"bad\xfename")?)
+  let raw = b"dir/bad\xffname" as Path
+  assert raw.ends_with(b"bad\xffname" as Path)
+  assert ! raw.ends_with(b"bad\xfename" as Path)
   assert raw.starts_with(p"dir")
 }
 
@@ -136,7 +136,7 @@ test test_path_components_split_as_the_component_queries_read {
   assert parts[-1].display() == whole.name()
 
   # Each component keeps its native bytes.
-  let raw = Path.parse_bytes(b"dir/bad\xffname")?
-  assert raw.components() == [p"dir", Path.parse_bytes(b"bad\xffname")?]
-  assert raw.components()[1] != Path.parse_bytes(b"bad\xfename")?
+  let raw = b"dir/bad\xffname" as Path
+  assert raw.components() == [p"dir", b"bad\xffname" as Path]
+  assert raw.components()[1] != b"bad\xfename" as Path
 }

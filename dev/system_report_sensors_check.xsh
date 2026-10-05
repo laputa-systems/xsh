@@ -295,7 +295,7 @@ export proc compare_live_sensors_json(
 
   let before_bytes = before_source.data
   let after_bytes = after_source.data
-  let candidate_text = candidate_source.data.utf8()?
+  let candidate_text = candidate_source.data as Str
   let candidate_mode = json.get(json.decode(candidate_text)?, ["source_mode"])?.require(Str)?
   if candidate_mode != "live_linux" {
     return Err(sensors_check_failure("candidate is not a live Linux report"))
@@ -303,8 +303,8 @@ export proc compare_live_sensors_json(
 
   let comparison = compare_sensors_json(
     candidate_text,
-    parse_sensors_json(before_bytes.utf8()?)?,
-    parse_sensors_json(after_bytes.utf8()?)?,
+    parse_sensors_json(before_bytes as Str)?,
+    parse_sensors_json(after_bytes as Str)?,
   )?
   Ok({
     comparison: comparison,

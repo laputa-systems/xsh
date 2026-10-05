@@ -10,8 +10,8 @@ stream hits(file: Path) [fs, error] -> Stream[Hit] {
         client: fields[1],
         method: fields[2],
         url: fields[3],
-        status: fields[4].parse_int()?,
-        size: fields[5].parse_int()?,
+        status: fields[4] as Int,
+        size: fields[5] as Int,
       )
     }
   }

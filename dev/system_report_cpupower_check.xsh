@@ -93,7 +93,7 @@ pure decimal_khz(value: Str) -> Result[Int] {
     }
   }
 
-  let number = value.parse_int()?
+  let number = value as Int
   if number > 9007199254740991 {
     return Err(cpupower_failure("cpupower hardware limit exceeds exact JSON range"))
   }
@@ -233,7 +233,7 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
     return Err(cpupower_failure(f"cpupower {name} output is incomplete"))
   }
 
-  raw.data.utf8()?
+  (raw.data as Str)
 }
 
 ## Runs only explicit utility subcommands around one product collection.
@@ -299,7 +299,7 @@ export proc compare_live_cpupower(
     return Err(cpupower_failure("candidate CPU output is incomplete"))
   }
 
-  let candidate = candidate_raw.data.utf8()?
+  let candidate = candidate_raw.data as Str
   if json.get(json.decode(candidate)?, ["source_mode"])?.require(Str)? != "live_linux" {
     return Err(cpupower_failure("candidate is not a live Linux report"))
   }

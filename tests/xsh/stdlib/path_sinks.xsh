@@ -1,9 +1,9 @@
 test test_path_bytes_are_the_native_bytes {
   assert p"usr/lib".bytes() == b"usr/lib"
   assert p"".bytes() == b""
-  let raw = Path.parse_bytes(b"dir/bad\xffname")?
+  let raw = b"dir/bad\xffname" as Path
   assert raw.bytes() == b"dir/bad\xffname"
-  assert Path.parse_bytes(raw.bytes())? == raw
+  assert raw.bytes() as Path == raw
 
   # Display text has already replaced the byte that is not UTF-8.
   let shown = raw.display()
@@ -13,7 +13,7 @@ test test_path_bytes_are_the_native_bytes {
 test test_command_plan_env_receives_a_path_as_native_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "path-sink-env")?
   let sh = process.which("sh")?
-  let raw = Path.parse_bytes(b"dir/bad\xffname")?
+  let raw = b"dir/bad\xffname" as Path
   let script = "printf '%s' \"$SINK\""
 
   let by_argv = fp"{root}/argv.out"
@@ -40,7 +40,7 @@ test test_command_plan_env_receives_a_path_as_native_bytes { |ctx|
 test test_command_argv_takes_paths_as_target_and_items { |ctx|
   let root = test.temp_dir(ctx, name: "path-sink-argv")?
   let sh = process.which("sh")?
-  let raw = Path.parse_bytes(b"bad\xffname")?
+  let raw = b"bad\xffname" as Path
   let out = fp"{root}/argv.out"
   let plan = process.command_argv(sh, [sh, "-c", "printf '%s|' \"$@\"", "arg0", raw, "text"], stdout: out)
   assert process.run(plan)?.exited_with(0)

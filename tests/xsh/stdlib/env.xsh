@@ -471,7 +471,7 @@ test test_env_string_assignment_reaches_child_processes {
 }
 
 test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
-  let raw = Path.parse_bytes(b"/tmp/xsh-estr-\xff")?
+  let raw = b"/tmp/xsh-estr-\xff" as Path
   env XSH_ESTR_RAW_SCOPE=1 {
     e"XSH_ESTR_RAW" = raw
     # The text read fails rather than decoding lossily; the path read and the

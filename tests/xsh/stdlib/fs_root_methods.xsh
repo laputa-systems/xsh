@@ -16,12 +16,12 @@ test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
 test fs_root_methods_preserve_bounded_observations_and_raw_names {
   let root = fs.tempdir()?
   defer root.close()?
-  let raw = Path.parse_bytes(b"raw-name")?
+  let raw = b"raw-name" as Path
   root.write(raw, b"abc\0def")
   root.write_atomic(p"text", "atomic")
   root.write_atomic(p"binary", b"bytes")
   assert root.read_bytes(raw)? == b"abc\0def"
-  let native_name = Path.parse_bytes(b"raw-\xff")?
+  let native_name = b"raw-\xff" as Path
   let native_observation = root.read_result(native_name)?
   assert native_observation.state in ["absent", "read_failure"]
   assert root.read_text(p"text")? == "atomic"

@@ -435,7 +435,7 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
     return Err(lsusb_failure(f"lsusb {name} output is incomplete"))
   }
 
-  raw.data.utf8()?
+  (raw.data as Str)
 }
 
 ## Selects one verbose device from the independent list and brackets identity and tree shape.
@@ -487,7 +487,7 @@ export proc compare_live_lsusb(
     return Err(lsusb_failure("candidate USB output is incomplete"))
   }
 
-  let candidate = candidate_raw.data.utf8()?
+  let candidate = candidate_raw.data as Str
   if json.get(json.decode(candidate)?, ["source_mode"])?.require(Str)? != "live_linux" {
     return Err(lsusb_failure("candidate is not a live Linux report"))
   }

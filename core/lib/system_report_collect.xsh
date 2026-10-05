@@ -266,7 +266,7 @@ export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error] {
     }
   }
 
-  let parsed = value.parse_int()?
+  let parsed = value as Int
   if parsed > 9007199254740991 {
     return Err(
       SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute exceeds the exact JSON integer range"),

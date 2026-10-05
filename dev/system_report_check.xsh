@@ -5459,7 +5459,7 @@ export proc capture_powercap_bundle(
 ## Rejects altered source identities, link topology, and raw bytes before replay.
 export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference], Error] {
   let metadata = capture_metadata_bytes(bundle)?
-  let capture = json.decode(metadata.utf8()?)?.require(PowerCapCapture)?
+  let capture = json.decode(metadata as Str)?.require(PowerCapCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "powercap-raw-v1" or ! capture.scoreable or capture.reference == null or ! capture.layout.complete {
     return Err(check_failure("powercap capture has no scoreable reference"))
   }
@@ -7555,7 +7555,7 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
     return Err(check_failure("CPU set capture metadata is missing or incomplete"))
   }
 
-  let metadata_text = metadata.data.utf8()?
+  let metadata_text = metadata.data as Str
   let capture = json.decode(metadata_text)?.require(CpuSetCapture)?
   if capture.schema_version != 2 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "xsh-dev-sysfs-cpu-list-v1" or capture.sources.len() != 4 {
     return Err(check_failure("CPU set capture metadata has an unsupported contract"))
@@ -8419,7 +8419,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     return Err(check_failure("memory capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(MemoryCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(MemoryCapture)?
   let paths = memory_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "xsh-dev-memory-raw-v1" or capture.sources.len() != paths.len() {
     return Err(check_failure("memory capture metadata has an unsupported contract"))
@@ -9093,7 +9093,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     return Err(check_failure("vulnerability capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(VulnerabilityCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(VulnerabilityCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "vulnerability-sysfs-raw-v1" or ! capture.stable or capture.listing_state != "complete" or capture.listing_errno != null or capture.listing_error_kind != null or capture.sources.is_empty() or capture.reference == null {
     return Err(check_failure("vulnerability capture has no stable complete reference"))
   }
@@ -9336,7 +9336,7 @@ pure psi_reference_total(value: Str) -> Result[Int] {
     }
   }
 
-  let total = value.parse_int()?
+  let total = value as Int
   if total < 0 or total > 9007199254740991 {
     return Err(check_failure("PSI reference total exceeds the exact integer range"))
   }
@@ -9636,7 +9636,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     return Err(check_failure("pressure capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(PressureCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(PressureCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "pressure-procfs-raw-v1" or capture.sources.len() != 3 or capture.reference == null {
     return Err(check_failure("pressure capture has no complete reference"))
   }
@@ -9720,7 +9720,7 @@ pure reference_swap_number(value: Str, signed: Bool) -> Result[Int] {
     }
   }
 
-  let parsed = value.parse_int()?
+  let parsed = value as Int
   if parsed > 9007199254740991 or parsed < -9007199254740991 {
     return Err(check_failure("swap reference number exceeds the exact JSON integer range"))
   }
@@ -9868,7 +9868,7 @@ export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[Lis
     return Err(check_failure("proc swap capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(ProcSwapsCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(ProcSwapsCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-swaps-raw-v1" or ! capture.stable or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference == null {
     return Err(check_failure("proc swap capture has no stable complete reference"))
   }
@@ -10156,7 +10156,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], E
         }
       }
 
-      let parsed = numa_text.parse_int()?
+      let parsed = numa_text as Int
       if parsed < 0 or parsed > 9007199254740991 {
         return Err(check_failure("lspci reference has an invalid NUMA node"))
       }
@@ -10826,7 +10826,7 @@ proc reference_thermal_number(root: FsRoot, source_path: Path) [fs, error] -> Re
     }
   }
 
-  let parsed = value.parse_int()?
+  let parsed = value as Int
   if parsed < -9007199254740991 or parsed > 9007199254740991 {
     return Err(check_failure("thermal reference integer exceeds exact JSON range"))
   }
@@ -10843,7 +10843,7 @@ pure reference_thermal_index(value: Str) -> Result[Int] {
     }
   }
 
-  let parsed = value.parse_int()?
+  let parsed = value as Int
   if parsed > 9007199254740991 or f"{parsed}" != value {
     return Err(check_failure("thermal reference index is noncanonical or exceeds exact JSON range"))
   }
@@ -11059,7 +11059,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     return Err(check_failure("thermal capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(ThermalCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(ThermalCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "thermal-raw-v1" or ! capture.scoreable or capture.reference == null or ! capture.layout.complete {
     return Err(check_failure("thermal capture has no stable scoreable reference"))
   }
@@ -12445,7 +12445,7 @@ pure ip_address_scope(value: Str) -> Result[Str] {
     }
   }
 
-  let number = value.parse_int()?
+  let number = value as Int
   if number < 0 or number > 255 {
     return Err(check_failure("ip address reference has an invalid scope number"))
   }
@@ -12755,7 +12755,7 @@ pure ip_rule_table(value: Str) -> Result[Int] {
     }
   }
 
-  let number = value.parse_int()?
+  let number = value as Int
   if number < 0 or number > 4294967295 {
     return Err(check_failure("ip rule reference has an invalid table number"))
   }
@@ -12796,7 +12796,7 @@ pure ip_rule_hex(value: Str?) -> Result[Int?] {
     return Err(check_failure("ip rule reference has an invalid hex selector"))
   }
 
-  let parsed = raw.parse_int()?
+  let parsed = raw as Int
   if parsed < 0 or parsed > 4294967295 {
     return Err(check_failure("ip rule reference has an out-of-range hex selector"))
   }
@@ -12821,7 +12821,7 @@ pure ip_rule_action(value: Str) -> Result[Str] {
     return Ok(value) when character not in "0123456789"
   }
 
-  let number = value.parse_int()?
+  let number = value as Int
   if number < 0 or number > 255 {
     return Err(check_failure("ip rule reference has an out-of-range action"))
   }
@@ -13192,7 +13192,7 @@ pure ip_route_destination(value: Str, family: Str) -> Result[List[Str]] {
       }
     }
 
-    length = parts[1].parse_int()?
+    length = parts[1] as Int
   }
 
   if length < 0 or length > maximum {
@@ -13209,7 +13209,7 @@ pure ip_route_numeric_enum(value: Str) -> Result[Int?] {
     return Ok(null) when digit not in "0123456789"
   }
 
-  let number = value.parse_int()?
+  let number = value as Int
   if number < 0 or number > 255 {
     return Err(check_failure("ip route reference has an out-of-range enum"))
   }
@@ -13462,14 +13462,14 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
     if source_text != null {
       let parts = ip_route_destination(source_text, family)?
       source = parts[0]
-      source_prefix_length = parts[1].parse_int()?
+      source_prefix_length = parts[1] as Int
     } else if zero_source != null {
       let parts = ip_route_destination(zero_source, family)?
       if parts[0] != "0" {
         return Err(check_failure("ip route reference has an invalid zero-address source selector"))
       }
 
-      source_prefix_length = parts[1].parse_int()?
+      source_prefix_length = parts[1] as Int
     }
 
     let preferred_source = json.get(row, ["prefsrc"], null).require(Str?)?
@@ -13520,7 +13520,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
     let route = IpRouteReference(
       family:,
       destination: destination_parts[0],
-      prefix_length: destination_parts[1].parse_int()?,
+      prefix_length: destination_parts[1] as Int,
       source:,
       source_prefix_length:,
       preferred_source:,
@@ -13760,7 +13760,7 @@ pure parse_major_minor_reference(value: Str, adapter: Str) -> Result[List[Int]] 
       }
     }
 
-    let number = part.parse_int()?
+    let number = part as Int
     if number > 9007199254740991 {
       return Err(check_failure(f"{adapter} reference has a JSON-unsafe major:minor component"))
     }
@@ -14323,7 +14323,7 @@ pure parse_block_queue_stat(output: Str) -> Result[List[BlockQueueCounter]] {
       }
     }
 
-    let value = word.parse_int()?
+    let value = word as Int
     if value > 9007199254740991 {
       return Err(check_failure("block stat reference counter exceeds the exact JSON integer range"))
     }
@@ -14585,7 +14585,7 @@ pure block_raw_decimal(raw: Str, label: Str) -> Result[Int] {
     }
   }
 
-  let value = raw.parse_int()?
+  let value = raw as Int
   if value > 9007199254740991 {
     return Err(check_failure(f"block {label} source exceeds exact JSON range"))
   }
@@ -15579,8 +15579,8 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
       }
     }
 
-    let mount_id = fields[0].parse_int()?
-    let parent_id = fields[1].parse_int()?
+    let mount_id = fields[0] as Int
+    let parent_id = fields[1] as Int
     let device = parse_major_minor_reference(fields[2], "mountinfo")?
     let key = f"{mount_id}"
     if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or key in seen {
@@ -15692,7 +15692,7 @@ export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List
     return Err(check_failure("mountinfo capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(MountinfoCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(MountinfoCapture)?
   if capture.schema_version != 2 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "mountinfo-procfs-raw-v2" or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference == null {
     return Err(check_failure("mountinfo capture has no complete reference"))
   }
@@ -15705,7 +15705,7 @@ export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List
     return Err(check_failure("mountinfo capture bytes differ from metadata"))
   }
 
-  let source = raw.data.utf8()?
+  let source = raw.data as Str
   let reference = parse_mountinfo_raw_reference(source)?
   if reference.is_empty() or reference != capture.reference {
     return Err(check_failure("mountinfo capture oracle differs from saved bytes"))
@@ -16155,7 +16155,7 @@ pure reference_module_number(value: Str) -> Result[Int] {
     }
   }
 
-  let number = value.parse_int()?
+  let number = value as Int
   if number > 9007199254740991 {
     return Err(check_failure("module reference number exceeds the exact JSON integer range"))
   }
@@ -16422,7 +16422,7 @@ export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result
     return Err(check_failure("kernel module capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(KernelModulesCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(KernelModulesCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-modules-raw-v1" or ! capture.stable or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference == null {
     return Err(check_failure("kernel module capture has no stable complete reference"))
   }
@@ -16550,7 +16550,7 @@ export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> R
     return Err(check_failure("kernel command-line capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(KernelCommandLineCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(KernelCommandLineCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-cmdline-raw-v1" or ! capture.stable or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference_base64 == null {
     return Err(check_failure("kernel command-line capture has no stable complete reference"))
   }
@@ -16824,7 +16824,7 @@ export proc validate_kernel_parameters_bundle(
     return Err(check_failure("kernel parameter capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(KernelParametersCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(KernelParametersCapture)?
   let sources = kernel_parameter_sources()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "kernel-parameters-raw-v1" or ! capture.stable or capture.sources.len() != sources.len() or capture.reference == null {
     return Err(check_failure("kernel parameter capture has no stable complete reference"))
@@ -17136,7 +17136,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(OsReleaseCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(OsReleaseCapture)?
   let paths = os_release_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "os-release-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() {
     return Err(check_failure("os-release capture metadata has an unsupported contract"))
@@ -17191,7 +17191,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release selected source changed during validation"))
   }
 
-  let reference = parse_reference_os_release(selected.data.utf8()?)?
+  let reference = parse_reference_os_release(selected.data as Str)?
   if reference != (capture.reference ?? reference) {
     return Err(check_failure("os-release reference differs from raw source"))
   }
@@ -17259,7 +17259,7 @@ export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Byte
       }
     }
 
-    values += [f"0x{token}".parse_int()?]
+    values += [f"0x{token}" as Int]
   }
 
   bytes.from_ints(values)?
@@ -17474,7 +17474,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     return Err(check_failure("device-tree capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(DeviceTreeCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(DeviceTreeCapture)?
   let paths = device_tree_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "device-tree-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() or capture.reference == null {
     return Err(check_failure("device-tree capture has no stable complete reference"))
@@ -17672,7 +17672,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     return Err(check_failure("DMI identity capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(DmiIdentityCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(DmiIdentityCapture)?
   let paths = dmi_identity_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "dmi-identity-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() or capture.reference == null {
     return Err(check_failure("DMI identity capture has no stable complete reference"))
@@ -17972,7 +17972,7 @@ export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int, Er
     return Err(check_failure("uptime capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode(metadata.data.utf8()?)?.require(UptimeCapture)?
+  let capture = json.decode(metadata.data as Str)?.require(UptimeCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-uptime-raw-v1" or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference_seconds == null {
     return Err(check_failure("uptime capture has no complete reference"))
   }
@@ -22183,7 +22183,7 @@ export pure parse_huge_page_counter_reference(source: Str) -> Result[Int, Error]
     }
   }
 
-  let parsed = value.parse_int()?
+  let parsed = value as Int
   if parsed < 0 or parsed > 9007199254740991 {
     return Err(check_failure("huge-page reference counter exceeds the exact integer range"))
   }

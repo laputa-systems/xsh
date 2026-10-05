@@ -17,7 +17,7 @@ env JOBS=8 VERBOSE=yes PREFIX=/opt/app {
 }
 
 # Text reads never decode bytes lossily; path reads keep them.
-let data = Path.parse_bytes(b"/srv/caf\xe9")?
+let data = b"/srv/caf\xe9" as Path
 env ({DATA_DIR: data}) {
   match e"DATA_DIR" {
     Ok(text) => print f"text: {text}"

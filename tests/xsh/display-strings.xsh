@@ -50,8 +50,8 @@ big"""
 }
 
 test test_path_display_strings_join_native_path_bytes {
-  let raw = Path.parse_bytes(b"raw\xff")?
-  assert fp"{{{raw}}}/{1}" == Path.parse_bytes(b"{raw\xff}/1")?
+  let raw = b"raw\xff" as Path
+  assert fp"{{{raw}}}/{1}" == b"{raw\xff}/1" as Path
 }
 
 proc assert_rejected(ctx: TestContext, source: Str, code: Str, location: Str) [fs, process, error] {

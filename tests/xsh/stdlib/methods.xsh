@@ -175,7 +175,7 @@ test test_collection_number_text_status_and_result_methods {
   assert 3.2.floor()? == 3
   assert 3.2.ceil()? == 4
   assert 3.5.round()? == 4
-  assert "3.14159".parse_float()? == 3.14159
+  assert "3.14159" as Float == 3.14159
   test.error_kind("not-a-number".parse_float(), "parse-float")
   assert 16.0.sqrt() == 4.0
   assert 2.0.pow(3.0) == 8.0
@@ -234,10 +234,10 @@ beta""".find("a", 1) == 4
   assert """alpha
 beta""".find("z") == null
 
-  assert "42".parse_int()? == 42
+  assert "42" as Int == 42
   assert "42".parse_int_decimal()? == 42
-  assert "42".parse_uint()? == 42
-  assert "0".parse_uint()? == 0
+  assert "42" as UInt == 42
+  assert "0" as UInt == 0
   test.error_kind("+42".parse_uint(), "parse-uint")
   test.error_kind("-1".parse_uint(), "parse-uint")
   assert "42".parse_uint_positive()? == 42

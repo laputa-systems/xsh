@@ -1,6 +1,6 @@
 proc disk_used_kb(root: Path) -> Result[Int] {
   let out = run.text du -sk $root ?
-  out.fields()[0].parse_int()?
+  out.fields()[0] as Int
 }
 
 pure percent(part: Int, whole: Int) -> Int {

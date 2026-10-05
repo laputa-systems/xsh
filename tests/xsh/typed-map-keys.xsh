@@ -166,8 +166,8 @@ values = bad
 }
 
 test test_typed_map_path_and_bytes_keep_native_identity {
-  let first = Path.parse_bytes(b"\xff")?
-  let second = Path.parse_bytes(b"\xfe")?
+  let first = b"\xff" as Path
+  let second = b"\xfe" as Path
   let paths: Map[Path, Int] = {[first]: 1, [second]: 2}
   assert paths.len() == 2
   assert paths.keys() == [second, first]

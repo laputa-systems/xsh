@@ -77,7 +77,7 @@ test test_string_literal_compares_and_matches_as_a_path {
 
   # The literal is the bytes written, so a path that only displays the same
   # is a different path.
-  let raw = Path.parse_bytes(b"bad\xffname")?
+  let raw = b"bad\xffname" as Path
   assert raw.display() == "bad�name"
   assert raw != "bad�name"
 }

@@ -1,5 +1,5 @@
 test test_env_overlay_joins_a_path_list_and_reads_it_back {
-  let raw = Path.parse_bytes(b"/opt/bad\xffname/bin")?
+  let raw = b"/opt/bad\xffname/bin" as Path
   let dirs = [/opt/stage/usr/bin, raw, /bin]
   env ({XSH_PATH_LIST: dirs}) {
     assert env.PathList.XSH_PATH_LIST? == dirs

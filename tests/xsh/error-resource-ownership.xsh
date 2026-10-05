@@ -269,7 +269,7 @@ test test_secondary_defer_failure_releases_its_child { |ctx|
     Ok(_) => test.fail("missing primary failure")
   }
 
-  let pid = (marker.read_text()?).parse_int()?
+  let pid = marker.read_text()? as Int
   assert ! (process.list()? |> any .pid == pid), "secondary cleanup resource must close locally"
 }
 

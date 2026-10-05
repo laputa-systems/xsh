@@ -11,5 +11,5 @@ export pure parse(text: Str) -> Result[Version, Error] {
     return Version(major: 0, minor: 0, patch: 0)
   }
 
-  Version(major: parts[0].parse_int()?, minor: parts[1].parse_int()?, patch: parts[2].parse_int()?)
+  Version(major: parts[0] as Int, minor: parts[1] as Int, patch: parts[2] as Int)
 }

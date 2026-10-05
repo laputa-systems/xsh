@@ -1,4 +1,4 @@
 let count = ctx "reading configured count" {
-  "7".parse_int()?
+  "7" as Int
 }
 print $count

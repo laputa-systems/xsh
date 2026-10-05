@@ -12,7 +12,7 @@ test test_process_which_takes_a_path_or_text {
 test test_an_argv_list_built_first_may_hold_text_and_paths { |ctx|
   let root = test.temp_dir(ctx, name: "path-sink-argv-union")?
   let sh = process.which("sh")?
-  let raw = Path.parse_bytes(b"bad\xffname")?
+  let raw = b"bad\xffname" as Path
   let out = fp"{root}/argv.out"
 
   let argv: List[Union[Str, Path]] = [sh, "-c", "printf '%s|' \"$@\"", "arg0", raw, "text"]

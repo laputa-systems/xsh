@@ -395,7 +395,7 @@ test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
 
   let dir = test.temp_dir(ctx, name: "fs-raw-name")?
   let root = fs.open_root(dir)?
-  let raw_name = Path.parse_bytes(b"raw\xfffile")?
+  let raw_name = b"raw\xfffile" as Path
   root.write(raw_name, b"ok")
   assert root.read_bytes(raw_name)? == b"ok"
   assert root.children(p".")?.children == [raw_name]

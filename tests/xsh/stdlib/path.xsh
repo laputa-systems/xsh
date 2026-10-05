@@ -86,7 +86,7 @@ name"""
   run test -f $dashed
   let meta = spaced.metadata()?
   assert path_entry_name(meta) == "space name"
-  let raw_path = Path.parse_bytes(b"bad\xffname")?
+  let raw_path = b"bad\xffname" as Path
   assert "bad" in raw_path.display()
 
   let raw = test.run_script(
@@ -134,10 +134,10 @@ print ${{files[0]}}
 }
 
 test test_path_interpolation_retains_native_bytes_and_text_boundaries { |ctx|
-  let raw = Path.parse_bytes(b"raw\xff name")?
-  assert fp"prefix/{raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?
+  let raw = b"raw\xff name" as Path
+  assert fp"prefix/{raw}/../end" == b"prefix/raw\xff name/../end" as Path
   assert fp"{p"left"}/{"right"}/{7}/{false}" == p"left/right/7/false"
-  assert fp"{raw:>12}" == Path.parse_bytes(b"   raw\xff name")?
+  assert fp"{raw:>12}" == b"   raw\xff name" as Path
   assert f"{raw}" == raw.display()
   let shown = raw.display()
   assert fp"{shown}" != raw

@@ -1,1 +1,1 @@
-let text = b"hello".utf8()?
+let text = b"hello" as Str

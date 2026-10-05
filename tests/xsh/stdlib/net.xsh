@@ -135,8 +135,8 @@ test test_net_job_progresses_while_synchronous_request_waits {
     headers: [{name: "Connection", value: "close"}],
   })?
 
-  assert foreground.body.utf8()? == "sync"
-  assert job.wait()?.body.utf8()? == "job"
+  assert foreground.body as Str == "sync"
+  assert job.wait()?.body as Str == "job"
 }
 
 test test_net_start_transfers_returned_job_ownership { |ctx|
@@ -403,14 +403,14 @@ test test_net_transport_http_contracts { |ctx|
   assert pool.idle_timeout_ms == 1000
   assert first.reason == "OK"
   assert first.url == f"{url}/hello"
-  assert first.body.utf8()? == "hello"
-  assert second.body.utf8()? == "hello"
+  assert first.body as Str == "hello"
+  assert second.body as Str == "hello"
   assert headed.status == 200
   assert headed.bytes == 0
-  assert redirected.body.utf8()? == "hello"
-  assert posted.body.utf8()? == "echo:payload"
-  assert posted_file.body.utf8()? == "echo:upload-body"
-  assert posted_bytes.body.utf8()? == "echo:bytes"
+  assert redirected.body as Str == "hello"
+  assert posted.body as Str == "echo:payload"
+  assert posted_file.body as Str == "echo:upload-body"
+  assert posted_bytes.body as Str == "echo:bytes"
   assert status.status == 404
   assert downloaded.status == 200
   assert downloaded.bytes == 11
@@ -548,7 +548,7 @@ test test_net_transport_timeout_contracts { |ctx|
 
   test.error_kind(net.request({method: "GET", url: f"{url}/slow", timeout: 50ms}), "net-timeout")
   let response = net.request({method: "GET", url: f"{url}/slow", connect_timeout: 50ms})?
-  assert response.body.utf8()? == "slow"
+  assert response.body as Str == "slow"
   test.error_kind(
     net.request({method: "GET", url: f"{url}/slow", headers_timeout: 50ms}),
     "net-headers-timeout",
@@ -652,16 +652,16 @@ test test_net_transport_batch_contracts { |ctx|
     pool: "batch-queued-timeout",
   })?
 
-  assert requests[0]?.body.utf8()? == "hello"
+  assert requests[0]?.body as Str == "hello"
   test.error_kind(requests[1], "net-scheme")
   test.error_kind(requests[2], "net-status")
-  assert requests[3]?.body.utf8()? == "hello"
+  assert requests[3]?.body as Str == "hello"
   assert downloads[0]?.bytes == 5
   assert downloads[1]?.bytes == 5
   assert first.read_text()? == "hello"
   assert second.read_text()? == "hello"
-  assert queued_timeout_requests[0]?.body.utf8()? == "slow"
-  assert queued_timeout_requests[1]?.body.utf8()? == "hello"
+  assert queued_timeout_requests[0]?.body as Str == "slow"
+  assert queued_timeout_requests[1]?.body as Str == "hello"
 }
 
 test test_net_transport_batch_download_error_contract { |ctx|
@@ -726,8 +726,8 @@ test test_net_transport_tls_contracts {
   })?
 
   test.error_kind(rejected, "net-tls")
-  assert unverified.body.utf8()? == "secure"
-  assert verified.body.utf8()? == "secure"
+  assert unverified.body as Str == "secure"
+  assert verified.body as Str == "secure"
 }
 
 test test_net_transport_https_http1_contract {
@@ -745,7 +745,7 @@ test test_net_transport_https_http1_contract {
     pool: "h1-alpn",
   })?
 
-  assert response.body.utf8()? == "secure"
+  assert response.body as Str == "secure"
 }
 
 test test_net_transport_request_many_https_h2_contract {
@@ -774,8 +774,8 @@ test test_net_transport_request_many_https_h2_contract {
   }
   let requests = net.request_many(batch)?
 
-  assert requests[0]?.body.utf8()? == "h2"
-  assert requests[1]?.body.utf8()? == "h2"
+  assert requests[0]?.body as Str == "h2"
+  assert requests[1]?.body as Str == "h2"
 }
 
 test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
@@ -793,7 +793,7 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
     ca_certificate: fp"{ca}",
     pool: pool,
   })?
-  assert warmed[0]?.body.utf8()? == "warm"
+  assert warmed[0]?.body as Str == "warm"
 
   let stalled = net.start({
     method: "GET",
@@ -808,7 +808,7 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
     pool: pool,
   })?
   let fast = sibling.wait()?
-  assert fast.body.utf8()? == "fast"
+  assert fast.body as Str == "fast"
   stalled.cancel()
 
   let later = net.request_many({
@@ -817,7 +817,7 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
     ca_certificate: fp"{ca}",
     pool: pool,
   })?
-  assert later[0]?.body.utf8()? == "later"
+  assert later[0]?.body as Str == "later"
 }
 
 test test_net_transport_download_many_https_h2_contract { |ctx|
@@ -851,7 +851,7 @@ test test_net_transport_linux_system_ca_dir {
 
   let response = net.request({method: "GET", url: f"{url}/secure"})?
   assert response.status == 200
-  assert response.body.utf8()? == "secure"
+  assert response.body as Str == "secure"
 }
 
 # A `within` deadline stops a request that is waiting for its response.

@@ -1912,7 +1912,7 @@ test test_system_report_pci_collection_reports_non_utf8_names_without_losing_val
   let root = fs.tempdir()?
   defer root.close()?
   let valid = p"sys/bus/pci/devices/0000:00:01.0"
-  let invalid = Path.parse_bytes(b"sys/bus/pci/devices/raw\xffname")?
+  let invalid = b"sys/bus/pci/devices/raw\xffname" as Path
   root.mkdir(valid, parents: true)
   root.mkdir(invalid, parents: true)
   for source in ["vendor", "device", "subsystem_vendor", "subsystem_device", "class", "revision"] {
