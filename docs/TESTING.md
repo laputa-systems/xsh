@@ -78,7 +78,7 @@ debug builds for compile checks, and build only the package you need
 | lowering vs checker types | `cargo test -p xsh --lib corpus_lowering_agrees_with_checked_types` (lowers the corpus and embedded stdlib; debug builds report any disagreement with the checker) | `tests/xsh/lowering-coverage.xsh`; full native suite |
 | runtime | native module, then `cargo test --release --test integration runtime::NAME` | `cargo test --release --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
 | frames, stack depth | `cargo test --release --test integration runtime::stack_depth` | runtime gate |
-| lint, tooling | `cargo test --release -p xsht --test integration lint::NAME` | `cargo test --release -p xsht` |
+| lint, tooling | `target/release/xsht test tests/xsh/tooling-NAME.xsh` (the `check`, `fmt`, `lint`, and `test` command lines, the lint migration fixes, and help); `cargo test --release -p xsht --test integration lint::NAME` | `cargo test --release -p xsht` |
 | API, registry, docs | `target/release/xsht test tests/xsh/api-tool.xsh`; `cargo test --release -p xsht --test integration api::` | API gate below |
 | standard modules | `target/release/xsht test tests/xsh/stdlib/NAME.xsh` | `target/release/xsht test tests/xsh/stdlib` |
 | retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `target/release/xsht frontend-stats --json tests/fixtures/frontend-indexed` |
@@ -211,9 +211,11 @@ Behavior `ish` lacks is tested in `tests/runtime/interactive.rs`.
   `cargo dev lint --fix` (`make lint`), `xsht fmt`, `xsht lint --fix`. They
   rewrite unrelated files; formatting is the owner's responsibility. Check-only
   forms are fine.
-- Unfiltered `cargo test --release` in agent work: `runtime::coverage` and
-  two `runtime::examples` cases launch `xsht fmt`/`xsht lint`. Use the
-  filtered runtime gate.
+- Unfiltered `cargo test --release` in agent work: `runtime::coverage` runs
+  the whole native suite (`xsh_native_tests`), and two `runtime::examples`
+  cases launch `xsht fmt`/`xsht lint`. Use the filtered runtime gate. The
+  native tooling tests (`tests/xsh/tooling-*.xsh`) run `xsht fmt` and
+  `xsht lint --fix` only on files in their own temp directories.
 - Debug `cargo test` of a target that spawns binaries: each such test fails
   with the `cargo test --release` instruction instead of running.
 - The `dist` profile, bare `cargo build --release`, and more than one full

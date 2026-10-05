@@ -183,13 +183,6 @@ pub(crate) fn json_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
     }
 }
 
-pub(crate) fn json_index(value: &JsonValue, index: usize) -> &JsonValue {
-    match value {
-        JsonValue::Array(items) => &items[index],
-        _ => panic!("expected JSON array"),
-    }
-}
-
 pub(crate) fn json_array(value: &JsonValue) -> &miniserde::json::Array {
     match value {
         JsonValue::Array(items) => items,
@@ -633,9 +626,4 @@ pub(crate) fn assert_exit(output: &std::process::Output, code: i32) {
         stdout_text(output),
         stderr_text(output)
     );
-}
-
-pub(crate) fn assert_stderr_contains(output: &std::process::Output, needle: &str) {
-    let stderr = stderr_text(output);
-    assert!(stderr.contains(needle), "{stderr}");
 }
