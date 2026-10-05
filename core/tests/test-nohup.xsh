@@ -1,12 +1,16 @@
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
-proc invoke(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran] {
+proc invoke(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "nohup")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/nohup.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
+  let plan = if posix {
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: "", POSIXLY_CORRECT: "1"}, b"", out, err)
+  } else {
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
+  }
   let status = process.run(plan)?
   Ok({status: status.shell_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
 }
@@ -27,4 +31,11 @@ test nohup_launch_failures_are_conventional { |ctx|
   assert invoke(ctx, ["/nonexistent/xsh-command"])?.status == 127
   assert invoke(ctx, ["/"])?.status == 126
   assert invoke(ctx, [])?.status == 125
+}
+
+
+test nohup_posix_environment_changes_only_internal_failure_status { |ctx|
+  assert invoke(ctx, [], posix: true)?.status == 127
+  assert invoke(ctx, ["--invalid"], posix: true)?.status == 127
+  assert invoke(ctx, ["sh", "-c", "exit 7"], posix: true)?.status == 7
 }

@@ -15,7 +15,7 @@ If standard error is a terminal, redirect it to standard output.
 type Options = {help: Bool, version: Bool, command: List[Str]}
 
 # Attempt cwd first, preserving existing permissions and creating private output.
-proc output_file() [fs, process, env, error] -> Path {
+proc output_file(failure_status: Int) [fs, process, env, error] -> Path {
   let local = p"nohup.out"
   let attempted = unix.redirect_fd(1, local, write: true, append: true, mode: 384)
   if let Ok(_) = attempted { return local }
@@ -24,7 +24,7 @@ proc output_file() [fs, process, env, error] -> Path {
     if let Err(failure) = attempted {
       gnu.error(f"failed to open {gnu.quote(local.display())}: {gnu.strerror(failure)}")
     }
-    exit 125
+    exit failure_status
   }
   let fallback = fp"{home}/nohup.out"
   if let Err(failure) = unix.redirect_fd(1, fallback, write: true, append: true, mode: 384) {
@@ -32,39 +32,40 @@ proc output_file() [fs, process, env, error] -> Path {
       gnu.error(f"failed to open {gnu.quote(local.display())}: {gnu.strerror(local_failure)}")
     }
     gnu.error(f"failed to open {gnu.quote(fallback.display())}: {gnu.strerror(failure)}")
-    exit 125
+    exit failure_status
   }
   fallback
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let failure_status = if let Ok(_) = env.get("POSIXLY_CORRECT") { 127 } else { 125 }
   let opts: Options = cli.applet(argv, {
-    gnu: {status: 125, permute: false},
+    gnu: {status: failure_status, permute: false},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     command: {form: "...COMMAND"},
-  })?
+  })?.require(Options)?
   if opts.help { gnu.help(USAGE); return }
   if opts.version { gnu.version("nohup"); return }
-  if opts.command.is_empty() { gnu.missing_operand(125) }
+  if opts.command.is_empty() { gnu.missing_operand(failure_status) }
   let input_terminal = unix.isatty(0)
   let output_terminal = unix.isatty(1)
   let error_terminal = unix.isatty(2)
   if input_terminal {
     if let Err(failure) = unix.redirect_fd(0, /dev/null, write: true) {
       gnu.error(f"failed to redirect standard input: {gnu.strerror(failure)}")
-      exit 125
+      exit failure_status
     }
   }
   if output_terminal {
-    let destination = output_file()
+    let destination = output_file(failure_status)
     let prefix = if input_terminal { "ignoring input and appending output to" } else { "appending output to" }
-    gnu.error(f"{prefix} {gnu.quote(destination.display())}")
+    eprint --flush f"{gnu.prog()}: {prefix} {gnu.quote(destination.display())}"
   } else if input_terminal {
-    gnu.error("ignoring input")
+    eprint --flush f"{gnu.prog()}: ignoring input"
   }
   if error_terminal {
-    if ! output_terminal { gnu.error("redirecting stderr to stdout") }
+    if ! output_terminal { eprint --flush f"{gnu.prog()}: redirecting stderr to stdout" }
     unix.dup_fd(1, 2)?
   }
   process.set_signal_action("HUP", "ignore")?
