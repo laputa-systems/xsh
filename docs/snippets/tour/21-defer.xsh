@@ -2,7 +2,7 @@ proc rotate(dir: Path) {
   let lock = fp"{dir}/.rotate.lock"
   lock.write("locked\n")
   defer {
-    lock.remove()
+    lock.remove(missing_ok: false)
     print "released lock"
   }
 

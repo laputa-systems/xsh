@@ -294,7 +294,7 @@ proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
   }
 
   if new_lines.is_empty() {
-    state_path.remove()
+    state_path.remove(missing_ok: false)
     return
   }
 

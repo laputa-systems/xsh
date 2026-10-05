@@ -173,7 +173,7 @@ test test_docs_check_requires_exactly_the_annotated_diagnostics { |ctx|
     Err(error) => assert "02-undefined.xsh is rejected but names no `# error: CODE`" in error.message, error.message
   }
 
-  fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".remove()
+  fp"{root}/docs/snippets/spec/rejected/02-undefined.xsh".remove(missing_ok: false)
   fp"{root}/docs/snippets/spec/02-undefined.xsh".write("""print $missing
 """)
   match docs.check(root, tools(ctx)) {

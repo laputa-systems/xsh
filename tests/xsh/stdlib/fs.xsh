@@ -114,14 +114,14 @@ test test_fs_remove_deletes_trees_without_following_symlinks { |ctx|
   fp"{tree}/nested/deeper/file.txt".write("gone")
   fs.symlink(outside, fp"{tree}/nested/link")
 
-  tree.remove()
+  tree.remove(missing_ok: false)
   assert ! tree.exists()?
   assert fp"{outside}/kept.txt".read_text()? == "kept"
 
   let path_tree = fp"{root}/path-tree"
   fp"{path_tree}/child".mkdir()
   fp"{path_tree}/child/file.txt".write("gone")
-  path_tree.remove()
+  path_tree.remove(missing_ok: false)
   assert ! path_tree.exists()?
 }
 

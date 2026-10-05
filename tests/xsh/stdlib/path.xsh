@@ -56,7 +56,7 @@ test test_path_methods { |ctx|
   assert symlink.readlink()?.display() == file.display()
   link.unlink()
   assert ! link.exists()?
-  renamed.remove()
+  renamed.remove(missing_ok: false)
   let empty_dir = fp"{root}/empty"
   empty_dir.mkdir()
   empty_dir.remove_dir()

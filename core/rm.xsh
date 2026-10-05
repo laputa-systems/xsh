@@ -43,7 +43,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     if ! target.exists() {
       continue when force
-      target.remove()
+      target.remove(missing_ok: false)
     }
 
     if target.is_dir() {

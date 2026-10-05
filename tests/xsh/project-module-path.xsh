@@ -138,7 +138,7 @@ test a_malformed_project_config_stops_the_run { |ctx|
 
 test a_script_without_a_project_config_has_no_project_roots { |ctx|
   let root = project(ctx, "no-config", "module_path = lib\n")?
-  fp"{root}/xsht-config.ini".remove()
+  fp"{root}/xsht-config.ini".remove(missing_ok: false)
 
   let output = run.capture --text "xsh" fp"{root}/bin/entry.xsh" ?
   assert ! output.status.ok, output.stdout
