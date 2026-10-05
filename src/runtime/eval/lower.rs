@@ -15090,6 +15090,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "count_lines"
             | "count_words"
             | "count_chars"
+            | "is_empty"
             | "byte_len" => arg_count == 0,
             "fields" | "squeeze" => arg_count <= 1,
             "split" => arg_count == 1 || arg_count == 2,
@@ -15101,7 +15102,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         },
         Type::Bytes => match name.as_str().as_str() {
             "trim" | "lines" | "count_lines" | "len" | "lower" | "base64" | "base32" | "md5"
-            | "sha1" | "sha256" | "sha512" | "utf8" => arg_count == 0,
+            | "sha1" | "sha256" | "sha512" | "utf8" | "is_empty" => arg_count == 0,
             "dump" | "strings" => arg_count <= 1,
             "chunks" | "compare" | "starts_with" | "ends_with" => arg_count == 1,
             "byte_at" => arg_count == 1,
@@ -15137,14 +15138,14 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
                 || matches!(name.as_str().as_str(), "keys" | "len") && arg_count == 0
         }
         Type::List(_) => match name.as_str().as_str() {
-            "collect" | "len" => arg_count == 0,
+            "collect" | "len" | "is_empty" => arg_count == 0,
             "push" | "extend" => arg_count == 1,
             "get" => arg_count == 1,
             "join" => arg_count <= 1,
             _ => false,
         },
         Type::Map(_, _) => match name.as_str().as_str() {
-            "len" | "keys" | "values" => arg_count == 0,
+            "len" | "keys" | "values" | "is_empty" => arg_count == 0,
             "remove" => arg_count == 1,
             "get" => arg_count == 1,
             "set" | "push" => arg_count == 2,

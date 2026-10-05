@@ -1603,6 +1603,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The returned names describe the record value and are ordered by the record map contract.",
             &["record", "collection"],
         )),
+        ("Str" | "Bytes" | "List" | "Map", "is_empty") => Some((
+            "Tests whether a value has no elements.",
+            "True for the empty string, empty bytes, a list with no items, and a map with no entries; it is `len() == 0` (for `Str`, `byte_len() == 0`) said directly.",
+            &["collection", "text"],
+        )),
         ("Map", "len") => Some((
             "Returns the number of entries in a map.",
             "The count is a pure snapshot of the map value.",

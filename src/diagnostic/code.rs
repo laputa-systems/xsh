@@ -642,6 +642,7 @@ diagnostic_codes! {
         LintPreferTypedCallable = "lint.prefer-typed-callable", warning, "Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature";
         LintPreferTestExpect = "lint.prefer-test-expect", warning, "State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script`";
         LintExplicitMissingOk = "lint.explicit-missing-ok", warning, "Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in)";
+        LintPreferIsEmpty = "lint.prefer-is-empty", warning, "Use `is_empty()` instead of comparing a length with zero";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

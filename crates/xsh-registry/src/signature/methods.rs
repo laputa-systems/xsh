@@ -491,6 +491,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Map,
             methods: method_map(vec![
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::MapLen),
+                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::MapIsEmpty),
                 method(
                     "get",
                     vec![param(
@@ -571,6 +572,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::StreamCollect,
                 ),
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::ListLen),
+                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::ListIsEmpty),
                 method(
                     "get",
                     vec![param("index", Type::Int)],
@@ -695,6 +697,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     true,
                     RuntimeOp::TextTranslate,
                 ),
+                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::TextIsEmpty),
                 method("lower", Vec::new(), Type::Str, true, RuntimeOp::TextLower),
                 method("upper", Vec::new(), Type::Str, true, RuntimeOp::TextUpper),
                 method(
@@ -828,6 +831,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Bytes,
             methods: method_map(vec![
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::BytesLen),
+                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::BytesIsEmpty),
                 method(
                     "slice",
                     vec![

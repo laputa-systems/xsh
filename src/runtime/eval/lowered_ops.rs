@@ -1708,6 +1708,7 @@ pub(super) fn lowered_str_method_value(
                 Err(message) => Ok(lowered_result_err("invalid-base32", message)),
             }
         }
+        "is_empty" if args.is_empty() => Ok(LoweredValue::Bool(text_value.is_empty())),
         "count_lines" if args.is_empty() => {
             Ok(LoweredValue::Int(lowered_str_count_lines_text(text_value)))
         }
@@ -1842,6 +1843,7 @@ pub(super) fn lowered_bytes_method_value(
             crate::runtime::text_bytes::count_lines_bytes(bytes) as i64,
         )),
         "len" if args.is_empty() => Ok(LoweredValue::Int(crate::modules::bytes::len(bytes))),
+        "is_empty" if args.is_empty() => Ok(LoweredValue::Bool(bytes.is_empty())),
         "dump" if args.is_empty() || args.len() == 1 => {
             let format = match args.first() {
                 Some(value) => lowered_str_arg(value, "dump", span)?,
@@ -2528,6 +2530,7 @@ pub(super) fn lowered_list_method_value(
     match name {
         "collect" if args.is_empty() => Ok(LoweredValue::List(items)),
         "len" if args.is_empty() => Ok(LoweredValue::Int(items.len() as i64)),
+        "is_empty" if args.is_empty() => Ok(LoweredValue::Bool(items.is_empty())),
         "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(
@@ -2582,6 +2585,7 @@ pub(super) fn lowered_list_method_ref(
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(items.len() as i64))),
+        "is_empty" if args.is_empty() => Ok(Some(LoweredValue::Bool(items.is_empty()))),
         "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(
@@ -2659,6 +2663,7 @@ fn lowered_map_method_ref(
             Ok(Some(LoweredValue::List(map.values().cloned().collect())))
         }
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
+        "is_empty" if args.is_empty() => Ok(Some(LoweredValue::Bool(map.is_empty()))),
         "get" if args.len() == 1 => {
             let key = lowered_map_key_ref(&args[0], span)?;
             require_lowered_map_key_domain(map, key, span)?;
@@ -2680,6 +2685,7 @@ pub(super) fn lowered_map_method_value(
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(LoweredValue::Int(map.len() as i64)),
+        "is_empty" if args.is_empty() => Ok(LoweredValue::Bool(map.is_empty())),
         "get" if args.len() == 1 => {
             let key = lowered_map_key_ref(&args[0], span)?;
             require_lowered_map_key_domain(&map, key, span)?;

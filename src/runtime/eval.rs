@@ -2856,6 +2856,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "count_words",
     "count_chars",
     "byte_len",
+    "is_empty",
     "len",
     "length",
     "byte_at",

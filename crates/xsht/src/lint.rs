@@ -87,6 +87,8 @@ mod lint_prefer_test_expect;
 
 #[path = "lint_path_kind.rs"]
 mod lint_path_kind;
+#[path = "lint_prefer_is_empty.rs"]
+mod lint_prefer_is_empty;
 
 #[path = "lint_fs_method.rs"]
 mod lint_fs_method;
@@ -10906,6 +10908,13 @@ impl<'a> Linter<'a> {
             );
             self.diagnostics.extend(removal);
         }
+        let emptiness = lint_prefer_is_empty::length_compared_with_zero(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            expr,
+        );
+        self.diagnostics.extend(emptiness);
     }
 
     fn lint_redundant_named_bool(

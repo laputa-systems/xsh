@@ -91,6 +91,37 @@ fn every_registry_path_method_lowers() {
     assert!(calls > 160, "only {calls} calls were lowered");
 }
 
+/// `is_empty` is declared once per receiver in the registry and routed by
+/// name in lowering, so each receiver needs its own route.
+#[test]
+fn is_empty_lowers_for_every_receiver_that_declares_it() {
+    let mut receivers = 0;
+    for entry in &api_spec().methods {
+        if !entry.methods.iter().any(|method| method.name == "is_empty") {
+            continue;
+        }
+        let ty = match entry.receiver {
+            MethodReceiver::Str => "Str",
+            MethodReceiver::Bytes => "Bytes",
+            MethodReceiver::List => "List[Int]",
+            MethodReceiver::Map => "Map[Str, Int]",
+            other => panic!("no parameter type for an `is_empty` receiver {other:?}"),
+        };
+        for (parameter, access) in [(ty.to_owned(), "."), (format!("{ty}?"), "?.")] {
+            let source = format!(
+                "proc probe(target: {parameter}) {{\n  let _ = target{access}is_empty()\n}}\n"
+            );
+            let diagnostics = check_and_lower(&source);
+            assert!(
+                diagnostics.is_empty(),
+                "`is_empty` does not lower:\n{source}{diagnostics:#?}"
+            );
+        }
+        receivers += 1;
+    }
+    assert_eq!(receivers, 4);
+}
+
 // The check above is only as good as its probe: a method the registry does
 // not have must fail it.
 #[test]
