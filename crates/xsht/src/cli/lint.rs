@@ -715,7 +715,6 @@ fn set_checked_lint_facts_for_source(
         .map(|(id, fact)| (*id, fact.clone()))
         .collect();
     options.function_effect_facts_checked = true;
-    options.terminating_call_spans = source_checked_set(&checked.terminating_call_spans, source_id);
     options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
     options.statement_expression_spans =
         source_checked_set(&checked.statement_expression_spans, source_id);
@@ -1537,7 +1536,6 @@ fn lint_config_for_file(
         callable_effects: Default::default(),
         function_effect_facts: Default::default(),
         function_effect_facts_checked: false,
-        terminating_call_spans: Default::default(),
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
         propagating_statements: Default::default(),
@@ -1618,7 +1616,6 @@ fn lint_one_file_with_fixes(
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.function_effect_facts = checked.function_effect_facts.clone();
     lint_options.function_effect_facts_checked = true;
-    lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
     lint_options.propagating_statements = checked.propagating_statements.clone();
@@ -1910,7 +1907,6 @@ fn apply_cst_fixes(
         options.callable_effects = checked.callable_effects.clone();
         options.function_effect_facts = checked.function_effect_facts.clone();
         options.function_effect_facts_checked = true;
-        options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
         options.propagating_statements = checked.propagating_statements.clone();

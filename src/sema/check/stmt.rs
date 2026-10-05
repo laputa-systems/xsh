@@ -3388,12 +3388,6 @@ impl Checker {
     }
 
     fn expr_definitely_exits_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
-        if self
-            .terminating_call_spans
-            .contains(&arena.arena.expr(expr).span)
-        {
-            return true;
-        }
         match arena.arena.expr(expr).kind {
             ArenaExprKind::ValueBlock(block) => self.block_definitely_exits_arena(arena, block),
             _ => false,

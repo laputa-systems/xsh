@@ -203,3 +203,30 @@ match classify() {
   assert output.stdout == """stopped
 """
 }
+
+test test_lint_flow_folds_a_literal_boolean_guard { |ctx|
+  let source = r"""proc always() -> Int {
+  guard false else {
+    return 1
+  }
+  2
+}
+
+proc never() -> Int {
+  guard true else {
+    return 1
+  }
+  2
+}
+
+print ${always() + never()}
+"""
+  let file = test.temp_file(ctx, name: "literal-guards.xsh", contents: bytes.from_text(source))?
+  let report = run.capture --text "xsht" lint --only "lint.dead-code" $file ?
+  let findings = report.stdout + report.stderr
+
+  # `guard false` always leaves through its else block, so what follows it is
+  # dead; `guard true` never does, so what follows it is live.
+  assert findings.split("warn[lint.dead-code]").len() == 2, findings
+  assert ":5:3\n    2\n" in findings, findings
+}

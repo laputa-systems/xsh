@@ -3271,7 +3271,6 @@ proc main() {
         &parsed.arena,
         source,
         LintOptions {
-            terminating_call_spans: checked.terminating_call_spans,
             ..LintOptions::default()
         },
     );

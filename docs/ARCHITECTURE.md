@@ -138,7 +138,7 @@ diagnostic and continues with an internal recovery type; public dynamic data is
 expression and binding types, the selected overload and argument slots for every
 registered call (`CheckedApiCall`), argument bindings for user calls and stages
 (`CheckedArguments`), statement positions, function return and effect facts,
-prepared constants, and terminating calls. `CompactBodyFacts` re-keys them by
+and prepared constants. `CompactBodyFacts` re-keys them by
 arena identity. Lowering, lint, and annotation all consume these facts instead
 of re-deriving them. A program is checked once: the runner, `xsht check`, and
 `xsht test` check with `CheckOptions::embedded_bodies`, render that check's

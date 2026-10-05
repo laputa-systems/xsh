@@ -493,7 +493,6 @@ pub struct LintOptions {
     /// A checked source without callable declarations supplies a valid empty
     /// fact set. Distinguish it from a caller requesting effect analysis.
     pub function_effect_facts_checked: bool,
-    pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     /// Expression statements whose `Result[Unit]` value propagates instead of
@@ -560,7 +559,6 @@ impl Default for LintOptions {
             callable_effects: FxHashMap::default(),
             function_effect_facts: BTreeMap::default(),
             function_effect_facts_checked: false,
-            terminating_call_spans: BTreeSet::default(),
             assertion_effect_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
             propagating_statements: BTreeSet::default(),
@@ -629,7 +627,6 @@ pub struct Linter<'a> {
         xsh::frontend::check::EffectDeclarationId,
         xsh::frontend::check::FunctionEffectFact,
     >,
-    terminating_call_spans: BTreeSet<Span>,
     assertion_effect_spans: BTreeSet<Span>,
     statement_expression_spans: BTreeSet<Span>,
     membership_migration_spans: BTreeSet<Span>,
@@ -840,7 +837,6 @@ impl<'a> Linter<'a> {
             result_return_ok_types: Vec::new(),
             function_return_types: Vec::new(),
             checked_effects,
-            terminating_call_spans: options.terminating_call_spans,
             assertion_effect_spans: options.assertion_effect_spans,
             statement_expression_spans: options.statement_expression_spans,
             membership_migration_spans: options.membership_migration_spans,
@@ -5958,7 +5954,7 @@ impl<'a> Linter<'a> {
             }
             self.lint_stmt(stmt, false);
             if flow.fallthrough {
-                flow = flow.then(stmt_flow(self.arena, stmt, &self.terminating_call_spans));
+                flow = flow.then(stmt_flow(self.arena, stmt));
             }
         }
     }
@@ -14875,14 +14871,13 @@ impl FlowSummary {
 fn block_flow(
     arena: &AstArena,
     block: BlockId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for stmt in arena.stmt_ids(arena.block(block).statements) {
         if !flow.fallthrough {
             break;
         }
-        flow = flow.then(stmt_flow(arena, stmt, terminating_call_spans));
+        flow = flow.then(stmt_flow(arena, stmt));
     }
     flow
 }
@@ -14890,40 +14885,54 @@ fn block_flow(
 fn stmt_flow(
     arena: &AstArena,
     stmt: StmtId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match arena.stmt(stmt).kind {
+        ArenaStmtKind::Export(inner) => stmt_flow(arena, inner),
         // Control flow is the form's meaning, which only its expansion states.
-        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
-            stmt_flow(arena, inner, terminating_call_spans)
-        }
+        // The exception is a guard on a literal: `guard true` never runs its
+        // else block and `guard false` always does, which the expansion's
+        // `if !CONDITION` does not say to a reader of its condition's flow.
+        ArenaStmtKind::Sugar {
+            form,
+            operands,
+            expansion,
+        } => match arena.sugar(form, operands) {
+            ArenaSugar::Guard {
+                condition,
+                else_block,
+            } => match arena.expr(condition).kind {
+                ArenaExprKind::Bool(true) => FlowSummary::fallthrough(),
+                ArenaExprKind::Bool(false) => block_flow(arena, else_block),
+                _ => stmt_flow(arena, expansion),
+            },
+            _ => stmt_flow(arena, expansion),
+        },
         ArenaStmtKind::Let { initializer, .. }
         | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. } => {
-            expr_or_run_flow(arena, &initializer, terminating_call_spans)
+            expr_or_run_flow(arena, &initializer)
         }
         ArenaStmtKind::Assign { target, value, .. } => assign_target_flow(
             arena,
             target,
-            terminating_call_spans,
         )
-        .then(expr_or_run_flow(arena, &value, terminating_call_spans)),
+        .then(expr_or_run_flow(arena, &value)),
         ArenaStmtKind::Return(value) => value
             .as_ref()
-            .map(|value| expr_or_run_flow(arena, value, terminating_call_spans))
+            .map(|value| expr_or_run_flow(arena, value))
             .unwrap_or_else(FlowSummary::fallthrough)
             .then(FlowSummary::returning()),
         // A deferred expression is registered now and runs only during unwind.
         // It must still be linted, but it cannot make following source dead.
         ArenaStmtKind::Defer(..) => FlowSummary::fallthrough(),
-        ArenaStmtKind::Yield(value) => expr_or_run_flow(arena, &value, terminating_call_spans),
+        ArenaStmtKind::Yield(value) => expr_or_run_flow(arena, &value),
         ArenaStmtKind::If {
             branches,
             else_block,
-        } => if_stmt_flow(arena, branches, else_block, terminating_call_spans),
+        } => if_stmt_flow(arena, branches, else_block),
         ArenaStmtKind::While { condition, block } => {
-            let condition = expr_flow(arena, condition, terminating_call_spans);
-            let body = block_flow(arena, block, terminating_call_spans);
+            let condition = expr_flow(arena, condition);
+            let body = block_flow(arena, block);
             // The condition may be false before the first iteration.
             FlowSummary {
                 fallthrough: condition.fallthrough,
@@ -14934,8 +14943,8 @@ fn stmt_flow(
             }
         }
         ArenaStmtKind::For { iter, block, .. } => {
-            let iter = expr_flow(arena, iter, terminating_call_spans);
-            let body = block_flow(arena, block, terminating_call_spans);
+            let iter = expr_flow(arena, iter);
+            let body = block_flow(arena, block);
             // A successful iterator may be empty.
             FlowSummary {
                 fallthrough: iter.fallthrough,
@@ -14950,34 +14959,34 @@ fn stmt_flow(
             body,
             else_block,
             ..
-        } => with_stmt_flow(arena, bindings, body, else_block, terminating_call_spans),
-        ArenaStmtKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
+        } => with_stmt_flow(arena, bindings, body, else_block),
+        ArenaStmtKind::Loop { block } => loop_flow(arena, block),
         ArenaStmtKind::Guard {
             initializer,
             else_block,
             ..
         } => {
-            let initializer = expr_or_run_flow(arena, &initializer, terminating_call_spans);
-            let else_flow = block_flow(arena, else_block, terminating_call_spans);
+            let initializer = expr_or_run_flow(arena, &initializer);
+            let else_flow = block_flow(arena, else_block);
             // A successful guard always continues after the statement.
             initializer.then(FlowSummary::fallthrough().union(else_flow))
         }
         ArenaStmtKind::Assert { condition, message } => {
-            expr_flow(arena, condition, terminating_call_spans).then(
+            expr_flow(arena, condition).then(
                 FlowSummary::fallthrough().union(match message {
-                    Some(message) => expr_flow(arena, message, terminating_call_spans)
+                    Some(message) => expr_flow(arena, message)
                         .then(FlowSummary::terminating()),
                     None => FlowSummary::terminating(),
                 }),
             )
         }
         ArenaStmtKind::Break { value } => value
-            .map(|value| expr_flow(arena, value, terminating_call_spans))
+            .map(|value| expr_flow(arena, value))
             .unwrap_or_else(FlowSummary::fallthrough)
             .then(FlowSummary::breaking()),
         ArenaStmtKind::Continue => FlowSummary::continuing(),
         ArenaStmtKind::Match { value, arms } => {
-            let value = expr_flow(arena, value, terminating_call_spans);
+            let value = expr_flow(arena, value);
             if !value.fallthrough {
                 return value;
             }
@@ -14985,18 +14994,18 @@ fn stmt_flow(
             // `match-no-arm` runtime error rather than falling through.
             let mut arms_flow = FlowSummary::terminating();
             for arm in arena.match_arms(arms) {
-                arms_flow = arms_flow.union(block_flow(arena, arm.block, terminating_call_spans));
+                arms_flow = arms_flow.union(block_flow(arena, arm.block));
             }
             value.then(arms_flow)
         }
-        ArenaStmtKind::Command(command) => command_flow(arena, command, terminating_call_spans),
+        ArenaStmtKind::Command(command) => command_flow(arena, command),
         ArenaStmtKind::TailBareIdent(_) => FlowSummary::fallthrough(),
         ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
-            expr_flow(arena, expr, terminating_call_spans)
+            expr_flow(arena, expr)
         }
         // The status is evaluated, and then nothing after the statement runs.
         ArenaStmtKind::Exit(status) => {
-            expr_flow(arena, status, terminating_call_spans).then(FlowSummary::terminating())
+            expr_flow(arena, status).then(FlowSummary::terminating())
         }
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::TypeDef(_)
@@ -15013,7 +15022,6 @@ fn if_stmt_flow(
     arena: &AstArena,
     branches: ArenaRange,
     else_block: Option<BlockId>,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::default();
     let mut next_condition_reachable = true;
@@ -15021,7 +15029,7 @@ fn if_stmt_flow(
         if !next_condition_reachable {
             break;
         }
-        let condition = expr_flow(arena, branch.condition, terminating_call_spans);
+        let condition = expr_flow(arena, branch.condition);
         flow = flow.union(FlowSummary {
             fallthrough: false,
             returns: condition.returns,
@@ -15030,13 +15038,13 @@ fn if_stmt_flow(
             terminates: condition.terminates,
         });
         if condition.fallthrough {
-            flow = flow.union(block_flow(arena, branch.block, terminating_call_spans));
+            flow = flow.union(block_flow(arena, branch.block));
         }
         next_condition_reachable = condition.fallthrough;
     }
     if next_condition_reachable {
         flow = flow.union(match else_block {
-            Some(block) => block_flow(arena, block, terminating_call_spans),
+            Some(block) => block_flow(arena, block),
             None => FlowSummary::fallthrough(),
         });
     }
@@ -15048,21 +15056,18 @@ fn with_stmt_flow(
     bindings: ArenaRange,
     body: BlockId,
     else_block: BlockId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut bindings_flow = FlowSummary::fallthrough();
     for binding in arena.with_bindings(bindings) {
         bindings_flow = bindings_flow.then(expr_flow(
             arena,
             binding.initializer,
-            terminating_call_spans,
         ));
     }
     bindings_flow.then(
-        block_flow(arena, body, terminating_call_spans).union(block_flow(
+        block_flow(arena, body).union(block_flow(
             arena,
             else_block,
-            terminating_call_spans,
         )),
     )
 }
@@ -15070,9 +15075,8 @@ fn with_stmt_flow(
 fn loop_flow(
     arena: &AstArena,
     block: BlockId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
-    let body = block_flow(arena, block, terminating_call_spans);
+    let body = block_flow(arena, block);
     FlowSummary {
         fallthrough: body.breaks,
         returns: body.returns,
@@ -15085,47 +15089,44 @@ fn loop_flow(
 fn expr_or_run_flow(
     arena: &AstArena,
     value: &ArenaExprOrRun,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match value {
-        ArenaExprOrRun::Expr(expr) => expr_flow(arena, *expr, terminating_call_spans),
-        ArenaExprOrRun::Run(run) => run_flow(arena, *run, terminating_call_spans),
+        ArenaExprOrRun::Expr(expr) => expr_flow(arena, *expr),
+        ArenaExprOrRun::Run(run) => run_flow(arena, *run),
     }
 }
 
 fn expr_flow(
     arena: &AstArena,
     expr: ExprId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let arena_expr = arena.expr(expr);
     match arena_expr.kind {
         ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_flow(
             arena,
             input,
-            terminating_call_spans,
         )
-        .then(expr_flow(arena, call, terminating_call_spans)),
+        .then(expr_flow(arena, call)),
 
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
             .fold(FlowSummary::fallthrough(), |flow, part| match part {
                 ArenaFmtPart::Expr(expr, _) => {
-                    flow.then(expr_flow(arena, expr, terminating_call_spans))
+                    flow.then(expr_flow(arena, expr))
                 }
                 ArenaFmtPart::Text(_) => flow,
             }),
         ArenaExprKind::List(items) => arena
             .list_element_exprs(items)
             .fold(FlowSummary::fallthrough(), |flow, item| {
-                flow.then(expr_flow(arena, item, terminating_call_spans))
+                flow.then(expr_flow(arena, item))
             }),
         ArenaExprKind::ListComp { qualifiers, .. } | ArenaExprKind::MapComp { qualifiers, .. } => {
             let first = arena
                 .comp_qualifiers(qualifiers)
                 .first()
                 .expect("comprehension has initial for");
-            expr_flow(arena, first.expr(), terminating_call_spans)
+            expr_flow(arena, first.expr())
         }
         ArenaExprKind::Record(fields) => {
             arena
@@ -15133,14 +15134,14 @@ fn expr_flow(
                 .iter()
                 .fold(FlowSummary::fallthrough(), |flow, field| match field.kind {
                     ArenaRecordFieldKind::Computed { key, value, .. } => flow
-                        .then(expr_flow(arena, key, terminating_call_spans))
-                        .then(expr_flow(arena, value, terminating_call_spans)),
+                        .then(expr_flow(arena, key))
+                        .then(expr_flow(arena, value)),
                     ArenaRecordFieldKind::Named { value, .. }
                     | ArenaRecordFieldKind::Path { value, .. } => {
-                        flow.then(expr_flow(arena, value, terminating_call_spans))
+                        flow.then(expr_flow(arena, value))
                     }
                     ArenaRecordFieldKind::Spread { expr, .. } => {
-                        flow.then(expr_flow(arena, expr, terminating_call_spans))
+                        flow.then(expr_flow(arena, expr))
                     }
                     ArenaRecordFieldKind::Shorthand { .. } => flow,
                 })
@@ -15148,11 +15149,11 @@ fn expr_flow(
         ArenaExprKind::If {
             branches,
             else_value,
-        } => if_expr_flow(arena, branches, else_value, terminating_call_spans),
+        } => if_expr_flow(arena, branches, else_value),
         ArenaExprKind::Match { value, arms }
         | ArenaExprKind::PatternTest { value, arms }
         | ArenaExprKind::PatternCondition { value, arms } => {
-            let value = expr_flow(arena, value, terminating_call_spans);
+            let value = expr_flow(arena, value);
             if !value.fallthrough {
                 return value;
             }
@@ -15160,32 +15161,31 @@ fn expr_flow(
             for arm in arena.match_expr_arms(arms) {
                 let arm_flow = arm
                     .guard
-                    .map(|guard| expr_flow(arena, guard, terminating_call_spans))
+                    .map(|guard| expr_flow(arena, guard))
                     .unwrap_or_else(FlowSummary::fallthrough)
-                    .then(expr_flow(arena, arm.value, terminating_call_spans));
+                    .then(expr_flow(arena, arm.value));
                 arms_flow = arms_flow.union(arm_flow);
             }
             value.then(arms_flow)
         }
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
-            expr_flow(arena, expr, terminating_call_spans)
+            expr_flow(arena, expr)
         }
         ArenaExprKind::ComparisonChain(pairs) => {
             let mut operands = arena.comparison_chain_operands(pairs);
             let first = operands
                 .next()
-                .map(|operand| expr_flow(arena, operand, terminating_call_spans))
+                .map(|operand| expr_flow(arena, operand))
                 .unwrap_or_else(FlowSummary::fallthrough);
             let second = operands
                 .next()
-                .map(|operand| expr_flow(arena, operand, terminating_call_spans))
+                .map(|operand| expr_flow(arena, operand))
                 .unwrap_or_else(FlowSummary::fallthrough);
             let mut flow = first.then(second);
             for operand in operands {
                 flow = flow.then(FlowSummary::fallthrough().union(expr_flow(
                     arena,
                     operand,
-                    terminating_call_spans,
                 )));
             }
             flow
@@ -15194,20 +15194,17 @@ fn expr_flow(
             op: BinaryOp::ResultFallback,
             left,
             right,
-        } => expr_flow(arena, left, terminating_call_spans).then(
-            expr_flow(arena, right, terminating_call_spans).union(FlowSummary::fallthrough()),
+        } => expr_flow(arena, left).then(
+            expr_flow(arena, right).union(FlowSummary::fallthrough()),
         ),
-        ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left, terminating_call_spans)
-            .then(expr_flow(arena, right, terminating_call_spans)),
+        ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left)
+            .then(expr_flow(arena, right)),
         ArenaExprKind::Call { callee, args } => {
-            let receiver_flow = expr_flow(arena, callee, terminating_call_spans);
+            let receiver_flow = expr_flow(arena, callee);
             let guarded = matches!(arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. });
             let mut flow = FlowSummary::fallthrough();
             for arg in arena.call_args(args) {
-                flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
-            }
-            if terminating_call_spans.contains(&arena_expr.span) {
-                flow = flow.then(FlowSummary::terminating());
+                flow = flow.then(call_arg_flow(arena, arg));
             }
             receiver_flow.then(if guarded {
                 flow.union(FlowSummary::fallthrough())
@@ -15216,15 +15213,15 @@ fn expr_flow(
             })
         }
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
-            expr_flow(arena, base, terminating_call_spans)
+            expr_flow(arena, base)
         }
         ArenaExprKind::Index {
             base,
             index,
             guarded,
         } => {
-            let selected = expr_flow(arena, index, terminating_call_spans);
-            expr_flow(arena, base, terminating_call_spans).then(if guarded {
+            let selected = expr_flow(arena, index);
+            expr_flow(arena, base).then(if guarded {
                 selected.union(FlowSummary::fallthrough())
             } else {
                 selected
@@ -15237,73 +15234,71 @@ fn expr_flow(
             guarded,
         } => {
             let selected = start
-                .map(|start| expr_flow(arena, start, terminating_call_spans))
+                .map(|start| expr_flow(arena, start))
                 .unwrap_or_else(FlowSummary::fallthrough)
                 .then(
-                    end.map(|end| expr_flow(arena, end, terminating_call_spans))
+                    end.map(|end| expr_flow(arena, end))
                         .unwrap_or_else(FlowSummary::fallthrough),
                 );
-            expr_flow(arena, base, terminating_call_spans).then(if guarded {
+            expr_flow(arena, base).then(if guarded {
                 selected.union(FlowSummary::fallthrough())
             } else {
                 selected
             })
         }
         ArenaExprKind::Pipeline { input, stages } => {
-            let mut flow = expr_flow(arena, input, terminating_call_spans);
+            let mut flow = expr_flow(arena, input);
             for stage in arena.pipe_stages(stages) {
-                flow = flow.then(pipe_stage_flow(arena, stage, terminating_call_spans));
+                flow = flow.then(pipe_stage_flow(arena, stage));
             }
             flow
         }
         ArenaExprKind::StructuredPipeline { input, stages } => {
-            let mut flow = expr_flow(arena, input, terminating_call_spans);
+            let mut flow = expr_flow(arena, input);
             for stage in arena.stream_stages(stages) {
-                flow = flow.then(stream_stage_flow(arena, stage, terminating_call_spans));
+                flow = flow.then(stream_stage_flow(arena, stage));
             }
             flow
         }
-        ArenaExprKind::Run(run) => run_flow(arena, run, terminating_call_spans),
+        ArenaExprKind::Run(run) => run_flow(arena, run),
         ArenaExprKind::Spawn(form) => match form.target {
-            ArenaSpawnTarget::Run(run) => run_flow(arena, run, terminating_call_spans),
-            ArenaSpawnTarget::Command(command) => expr_flow(arena, command, terminating_call_spans),
+            ArenaSpawnTarget::Run(run) => run_flow(arena, run),
+            ArenaSpawnTarget::Command(command) => expr_flow(arena, command),
         },
-        ArenaExprKind::Wait(form) => expr_flow(arena, form.target, terminating_call_spans),
+        ArenaExprKind::Wait(form) => expr_flow(arena, form.target),
         ArenaExprKind::BuilderCall { call, block } => {
-            expr_flow(arena, call, terminating_call_spans).then(builder_block_setup_flow(
+            expr_flow(arena, call).then(builder_block_setup_flow(
                 arena,
                 block,
-                terminating_call_spans,
             ))
         }
-        ArenaExprKind::Require { value, .. } => expr_flow(arena, value, terminating_call_spans),
+        ArenaExprKind::Require { value, .. } => expr_flow(arena, value),
         ArenaExprKind::ContextScope { input, block, .. } => {
-            expr_flow(arena, input, terminating_call_spans).then(
-                FlowSummary::fallthrough().union(block_flow(arena, block, terminating_call_spans)),
+            expr_flow(arena, input).then(
+                FlowSummary::fallthrough().union(block_flow(arena, block)),
             )
         }
         // Creating the directory may fail before the body runs.
         ArenaExprKind::TempDirScope { block, .. } => {
-            FlowSummary::fallthrough().union(block_flow(arena, block, terminating_call_spans))
+            FlowSummary::fallthrough().union(block_flow(arena, block))
         }
         ArenaExprKind::ErrorContext { message, block } => expr_flow(
             arena,
             message,
-            terminating_call_spans,
         )
-        .then(block_flow(arena, block, terminating_call_spans)),
+        .then(block_flow(arena, block)),
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => {
-            block_flow(arena, block, terminating_call_spans)
+            block_flow(arena, block)
         }
-        ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
+        ArenaExprKind::Loop { block } => loop_flow(arena, block),
         // A retry retries failed attempts, but a normally-completing attempt
         // produces the expression's `Result`; it is not an infinite loop.
         ArenaExprKind::Retry { delays, block, .. } => arena
             .expr_ids(delays)
             .fold(FlowSummary::fallthrough(), |flow, delay| {
-                flow.then(expr_flow(arena, delay, terminating_call_spans))
+                flow.then(expr_flow(arena, delay))
             })
-            .then(block_flow(arena, block, terminating_call_spans)),
+            .then(block_flow(arena, block)),
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -15326,7 +15321,6 @@ fn if_expr_flow(
     arena: &AstArena,
     branches: ArenaRange,
     else_value: ExprId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::default();
     let mut next_condition_reachable = true;
@@ -15334,7 +15328,7 @@ fn if_expr_flow(
         if !next_condition_reachable {
             break;
         }
-        let condition = expr_flow(arena, branch.condition, terminating_call_spans);
+        let condition = expr_flow(arena, branch.condition);
         flow = flow.union(FlowSummary {
             fallthrough: false,
             returns: condition.returns,
@@ -15343,12 +15337,12 @@ fn if_expr_flow(
             terminates: condition.terminates,
         });
         if condition.fallthrough {
-            flow = flow.union(expr_flow(arena, branch.value, terminating_call_spans));
+            flow = flow.union(expr_flow(arena, branch.value));
         }
         next_condition_reachable = condition.fallthrough;
     }
     if next_condition_reachable {
-        flow = flow.union(expr_flow(arena, else_value, terminating_call_spans));
+        flow = flow.union(expr_flow(arena, else_value));
     }
     flow
 }
@@ -15356,14 +15350,13 @@ fn if_expr_flow(
 fn call_arg_flow(
     arena: &AstArena,
     arg: &ArenaCallArg,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
         | ArenaCallArgKind::Splice { value: expr, .. }
         | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
-            expr_flow(arena, expr, terminating_call_spans)
+            expr_flow(arena, expr)
         }
     }
 }
@@ -15371,12 +15364,11 @@ fn call_arg_flow(
 fn pipe_stage_flow(
     arena: &AstArena,
     stage: &ArenaPipeStage,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match &stage.kind {
-        ArenaPipeStageKind::Expr(expr) => expr_flow(arena, *expr, terminating_call_spans),
+        ArenaPipeStageKind::Expr(expr) => expr_flow(arena, *expr),
         ArenaPipeStageKind::Stream(stage) => {
-            stream_stage_flow(arena, stage, terminating_call_spans)
+            stream_stage_flow(arena, stage)
         }
     }
 }
@@ -15384,11 +15376,10 @@ fn pipe_stage_flow(
 fn stream_stage_flow(
     arena: &AstArena,
     stage: &ArenaStreamStage,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for arg in arena.call_args(stage.args) {
-        flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
+        flow = flow.then(call_arg_flow(arena, arg));
     }
     // Stream-stage blocks execute in their own item region. Their flow does
     // not determine whether the enclosing pipeline expression returns.
@@ -15398,23 +15389,21 @@ fn stream_stage_flow(
 fn builder_block_setup_flow(
     arena: &AstArena,
     block: BuilderBlockId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for entry in arena.builder_entries(arena.builder_block(block).entries) {
         match &entry.kind {
             ArenaBuilderEntryKind::Field { value, .. } => {
-                flow = flow.then(expr_flow(arena, *value, terminating_call_spans));
+                flow = flow.then(expr_flow(arena, *value));
             }
             ArenaBuilderEntryKind::Entry { args, block, .. } => {
                 for arg in arena.command_args(*args) {
-                    flow = flow.then(command_arg_flow(arena, arg, terminating_call_spans));
+                    flow = flow.then(command_arg_flow(arena, arg));
                 }
                 if let Some(block) = block {
                     flow = flow.then(builder_block_setup_flow(
                         arena,
                         *block,
-                        terminating_call_spans,
                     ));
                 }
             }
@@ -15429,87 +15418,83 @@ fn builder_block_setup_flow(
 fn assign_target_flow(
     arena: &AstArena,
     target: AssignTargetId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match arena.assign_target(target).kind {
         ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {
             FlowSummary::fallthrough()
         }
         ArenaAssignTargetKind::Field { base, .. } => {
-            assign_target_flow(arena, base, terminating_call_spans)
+            assign_target_flow(arena, base)
         }
         ArenaAssignTargetKind::Index { base, index } => assign_target_flow(
             arena,
             base,
-            terminating_call_spans,
         )
-        .then(expr_flow(arena, index, terminating_call_spans)),
+        .then(expr_flow(arena, index)),
     }
 }
 
 fn command_flow(
     arena: &AstArena,
     command: CommandStmtId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match arena.command_stmt(command).command.clone() {
         ArenaCommand::Proc { args, .. } => arena
             .command_args(args)
             .iter()
             .fold(FlowSummary::fallthrough(), |flow, arg| {
-                flow.then(command_arg_flow(arena, arg, terminating_call_spans))
+                flow.then(command_arg_flow(arena, arg))
             }),
         ArenaCommand::Core {
             args, env, block, ..
         } => {
             let mut flow = FlowSummary::fallthrough();
             for arg in arena.command_args(args) {
-                flow = flow.then(command_arg_flow(arena, arg, terminating_call_spans));
+                flow = flow.then(command_arg_flow(arena, arg));
             }
             for assignment in arena.env_assignments(env) {
                 let assignment_flow = match &assignment.value {
                     ArenaEnvAssignmentValue::CommandArg(arg) => {
-                        command_arg_flow(arena, arg, terminating_call_spans)
+                        command_arg_flow(arena, arg)
                     }
                     ArenaEnvAssignmentValue::Expr(expr) => {
-                        expr_flow(arena, *expr, terminating_call_spans)
+                        expr_flow(arena, *expr)
                     }
                 };
                 flow = flow.then(assignment_flow);
             }
             if let Some(block) = block {
-                flow.then(block_flow(arena, block, terminating_call_spans))
+                flow.then(block_flow(arena, block))
             } else {
                 flow
             }
         }
-        ArenaCommand::Run(run) => run_flow(arena, run, terminating_call_spans),
+        ArenaCommand::Run(run) => run_flow(arena, run),
     }
 }
 
 fn run_flow(
     arena: &AstArena,
     run: RunFormId,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for segment in arena.run_segments(arena.run_form(run).segments) {
         if let Some(timeout) = segment.timeout {
-            flow = flow.then(expr_flow(arena, timeout, terminating_call_spans));
+            flow = flow.then(expr_flow(arena, timeout));
         }
         if let Some(cpu_max) = segment.cpu_max {
-            flow = flow.then(expr_flow(arena, cpu_max, terminating_call_spans));
+            flow = flow.then(expr_flow(arena, cpu_max));
         }
         if let Some(accept) = segment.accept {
-            flow = flow.then(expr_flow(arena, accept, terminating_call_spans));
+            flow = flow.then(expr_flow(arena, accept));
         }
         for assignment in arena.env_assignments(segment.env) {
             let assignment_flow = match &assignment.value {
                 ArenaEnvAssignmentValue::CommandArg(arg) => {
-                    command_arg_flow(arena, arg, terminating_call_spans)
+                    command_arg_flow(arena, arg)
                 }
                 ArenaEnvAssignmentValue::Expr(expr) => {
-                    expr_flow(arena, *expr, terminating_call_spans)
+                    expr_flow(arena, *expr)
                 }
             };
             flow = flow.then(assignment_flow);
@@ -15517,16 +15502,15 @@ fn run_flow(
         flow = flow.then(command_arg_flow(
             arena,
             &segment.target,
-            terminating_call_spans,
         ));
         for arg in arena.command_args(segment.args) {
-            flow = flow.then(command_arg_flow(arena, arg, terminating_call_spans));
+            flow = flow.then(command_arg_flow(arena, arg));
         }
         for redirection in arena.redirections(segment.redirections) {
             let target = match &redirection.target {
                 ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
             };
-            flow = flow.then(command_arg_flow(arena, target, terminating_call_spans));
+            flow = flow.then(command_arg_flow(arena, target));
         }
     }
     flow
@@ -15535,7 +15519,6 @@ fn run_flow(
 fn command_arg_flow(
     arena: &AstArena,
     arg: &ArenaCommandArg,
-    terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match &arg.kind {
         ArenaCommandArgKind::Word(parts) => {
@@ -15543,13 +15526,13 @@ fn command_arg_flow(
                 .word_parts(*parts)
                 .fold(FlowSummary::fallthrough(), |flow, part| match part {
                     ArenaWordPart::Interpolation(expr) | ArenaWordPart::Shorthand(expr) => {
-                        flow.then(expr_flow(arena, expr, terminating_call_spans))
+                        flow.then(expr_flow(arena, expr))
                     }
                     ArenaWordPart::Bare(_) | ArenaWordPart::Quoted(_) => flow,
                 })
         }
         ArenaCommandArgKind::SpliceExpr(expr) | ArenaCommandArgKind::Typed(expr) => {
-            expr_flow(arena, *expr, terminating_call_spans)
+            expr_flow(arena, *expr)
         }
         ArenaCommandArgKind::SpliceName(_) => FlowSummary::fallthrough(),
     }
