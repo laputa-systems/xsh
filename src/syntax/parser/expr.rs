@@ -1123,13 +1123,22 @@ impl<'a> Parser<'a> {
         false
     }
 
-    /// `tempdir NAME {` on one line. `tempdir` is contextual: it starts a scope
-    /// only before a binder name and a block.
+    /// `tempdir NAME {` or `tempdir NAME at` on one line. Neither word is
+    /// reserved: `tempdir` starts a scope only before a binder name and then
+    /// a block or the word `at`. Nothing else puts three names in a row at
+    /// the start of a statement or of an expression, so the path after `at`
+    /// is an ordinary head expression, as the source of a `for` is.
     pub(super) fn lookahead_is_tempdir_scope(&self) -> bool {
         self.current_tag() == TokenTag::Ident
             && self.current_name().is_some_and(|name| name == "tempdir")
             && self.peek_tag(1) == Some(TokenTag::Ident)
-            && self.peek_tag(2) == Some(TokenTag::LBrace)
+            && (self.peek_tag(2) == Some(TokenTag::LBrace) || self.tempdir_scope_has_path())
+    }
+
+    /// Whether the third token of a `tempdir NAME ...` head is the word `at`.
+    fn tempdir_scope_has_path(&self) -> bool {
+        self.peek_tag(2) == Some(TokenTag::Ident)
+            && self.peek_name(2).is_some_and(|name| name == "at")
     }
 
     pub(super) fn parse_tempdir_scope_arena_only(
@@ -1138,6 +1147,9 @@ impl<'a> Parser<'a> {
         value_body: bool,
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
+        // The word `at` is read from the `tempdir` word, as the lookahead
+        // reads it.
+        let has_path = self.tempdir_scope_has_path();
         self.bump();
         let name_start = self.current_start();
         let name = self.expect_ident("expected a directory name after `tempdir`")?;
@@ -1145,10 +1157,16 @@ impl<'a> Parser<'a> {
             name,
             span: self.span(name_start, self.previous_end()),
         };
+        let path = if has_path {
+            self.bump();
+            Some(self.parse_head_expr_arena_only(arena)?.id)
+        } else {
+            None
+        };
         let block = self.parse_block_with_params_arena_only(arena, Some(bound))?;
         let span = self.span(start, self.previous_end());
         Some(ArenaOnlyExpr {
-            id: arena.push_tempdir_scope_expr(block, value_body, span),
+            id: arena.push_tempdir_scope_expr(path, block, value_body, span),
             span,
             bare_ident: None,
         })

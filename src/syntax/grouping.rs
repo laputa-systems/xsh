@@ -1033,9 +1033,9 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         {
             Context::arm_body(Follow::CLOSE)
         }
-        ArenaExprKind::ErrorContext { .. } | ArenaExprKind::PatternCondition { .. } => {
-            open(Follow::BRACE)
-        }
+        ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::TempDirScope { .. } => open(Follow::BRACE),
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
@@ -1219,6 +1219,9 @@ fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId
         }
         ArenaExprKind::ErrorContext { message, .. } => visit(message),
         ArenaExprKind::ContextScope { input, .. } => visit(input),
+        ArenaExprKind::TempDirScope {
+            path: Some(path), ..
+        } => visit(path),
         ArenaExprKind::Retry { delays, .. } => arena.expr_ids(delays).for_each(visit),
         _ => {}
     }

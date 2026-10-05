@@ -3636,12 +3636,19 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn push_tempdir_scope_expr(
         &mut self,
+        path: Option<ExprId>,
         block: BlockId,
         value_body: bool,
         span: Span,
     ) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::TempDirScope { block, value_body }, span)
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::TempDirScope {
+                path,
+                block,
+                value_body,
+            },
+            span,
+        )
     }
 
     pub fn push_value_block_expr(&mut self, block: BlockId, span: Span) -> ExprId {
@@ -4791,6 +4798,7 @@ impl AstArena {
             },
             ArenaExprTag::TempDirScope | ArenaExprTag::TempDirStatementScope => {
                 ArenaExprKind::TempDirScope {
+                    path: optional_expr_id(data.rhs),
                     block: BlockId::new(data.lhs as usize),
                     value_body: matches!(tag, ArenaExprTag::TempDirScope),
                 }
@@ -5103,17 +5111,6 @@ impl AstArena {
             },
             (SugarForm::Guard, operands) => {
                 unreachable!("`guard` has a condition and a failure block, found {operands:?}")
-            }
-            (
-                SugarForm::Tempdir,
-                &[
-                    ArenaSugarOperand::BindingTarget(name),
-                    ArenaSugarOperand::Expr(path),
-                    ArenaSugarOperand::Block(body),
-                ],
-            ) => ArenaSugar::Tempdir { name, path, body },
-            (SugarForm::Tempdir, operands) => {
-                unreachable!("`tempdir` has a name, a path, and a body, found {operands:?}")
             }
             (SugarForm::Fail, &[ArenaSugarOperand::Expr(failure)]) => ArenaSugar::Fail {
                 failure,
@@ -5826,9 +5823,6 @@ pub enum SugarForm {
     /// `guard CONDITION else { BLOCK }`: operands are the condition and the
     /// failure block.
     Guard,
-    /// `tempdir NAME at PATH { BODY }`: operands are the binding that names
-    /// the directory, the path expression, and the body block.
-    Tempdir,
     /// `fail FAILURE` and `fail FAILURE because CAUSE`: operands are the
     /// message or `.Variant(...)` expression and then the cause, when the
     /// statement has one.
@@ -5843,12 +5837,11 @@ pub enum SugarForm {
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
         Self::Guard,
-        Self::Tempdir,
         Self::Fail,
         Self::Atomically,
         Self::ForIndex,
@@ -5857,9 +5850,7 @@ impl SugarForm {
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
-            Self::Repeat | Self::Guard | Self::Tempdir | Self::Atomically | Self::ForIndex => {
-                true
-            }
+            Self::Repeat | Self::Guard | Self::Atomically | Self::ForIndex => true,
             Self::When | Self::Unless | Self::Fail => false,
         }
     }
@@ -5893,11 +5884,6 @@ pub enum ArenaSugar {
         condition: ExprId,
     },
     Guard { condition: ExprId, else_block: BlockId },
-    Tempdir {
-        name: BindingTargetId,
-        path: ExprId,
-        body: BlockId,
-    },
     /// `failure` is a message, or an error written `.Variant(...)`.
     Fail {
         failure: ExprId,
@@ -6520,9 +6506,13 @@ pub enum ArenaExprKind {
         block: BlockId,
         value_body: bool,
     },
-    /// `tempdir NAME { ... }`: the block's single parameter is `NAME`, bound
-    /// to a fresh temporary directory that is removed when the block ends.
+    /// `tempdir NAME { ... }` and `tempdir NAME at PATH { ... }`: the block's
+    /// single parameter is `NAME`, bound to a directory that is removed when
+    /// the block ends. Without `path` the directory is a fresh one the
+    /// runtime names; with it, the directory is created at that path after
+    /// whatever was there is removed.
     TempDirScope {
+        path: Option<ExprId>,
         block: BlockId,
         value_body: bool,
     },
@@ -7764,13 +7754,17 @@ impl ArenaLowerer<'_> {
                 },
                 ArenaExprData::new(raw_expr_id(input), raw_block_id(block)),
             ),
-            ArenaExprKind::TempDirScope { block, value_body } => (
+            ArenaExprKind::TempDirScope {
+                path,
+                block,
+                value_body,
+            } => (
                 if value_body {
                     ArenaExprTag::TempDirScope
                 } else {
                     ArenaExprTag::TempDirStatementScope
                 },
-                ArenaExprData::new(raw_block_id(block), 0),
+                ArenaExprData::new(raw_block_id(block), optional_raw_expr_id(path)),
             ),
             ArenaExprKind::Loop { block } => (
                 ArenaExprTag::Loop,

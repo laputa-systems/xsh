@@ -742,7 +742,11 @@ impl Checker {
                 self.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
-            ArenaExprKind::TempDirScope { block, value_body } => {
+            ArenaExprKind::TempDirScope {
+                path,
+                block,
+                value_body,
+            } => {
                 let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
                 if self.in_pure {
                     self.error(
@@ -752,6 +756,12 @@ impl Checker {
                     );
                 }
                 self.require_effect(crate::syntax::node::Effect::Fs, expr.span, "`tempdir`");
+                // The path is written outside the scope: the directory name
+                // is not bound yet.
+                if let Some(path) = path {
+                    let ty = self.check_expr_arena(arena, source, *path, Some(&Type::Path));
+                    self.expect_type(&Type::Path, &ty, arena.arena.expr(*path).span);
+                }
                 self.push_scope();
                 if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first()
                     && param.name != "_"

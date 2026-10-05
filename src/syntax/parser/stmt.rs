@@ -64,9 +64,6 @@ impl<'a> Parser<'a> {
                 if self.lookahead_is_without() {
                     return self.parse_without_arena_only(start, arena);
                 }
-                if self.lookahead_is_tempdir() {
-                    return self.parse_tempdir_arena_only(start, arena);
-                }
                 if self.lookahead_is_atomically() {
                     return self.parse_atomically_arena_only(start, arena);
                 }

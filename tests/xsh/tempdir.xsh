@@ -114,8 +114,8 @@ proc staged(target: Path) [fs, error] -> Result[Str] {
   }
 }
 
-# The body is a block, so as a tail it produces its own tail, and that value
-# is computed before the directory goes.
+# As the tail of a function that returns `Result[T]` the scope is that
+# `Result`: `Ok` of the body's tail, computed before the directory goes.
 test test_tempdir_as_a_tail_produces_the_body_tail { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-tail")?
   let target = fp"{root}/scratch"
@@ -221,8 +221,8 @@ test test_tempdir_path_may_span_lines { |ctx|
   assert name == "second"
 }
 
-# The three words that begin the statement are on one line; anything else is
-# a statement that begins with a name.
+# The three words that begin the scope are on one line; anything else is a
+# statement that begins with a name.
 test test_tempdir_words_are_on_one_line { |ctx|
   let output = test.run_script(
     ctx,
@@ -256,18 +256,103 @@ test test_tempdir_creation_failure_stops_before_the_body { |ctx|
   let blocker = fp"{root}/file"
   blocker.write("not a directory")
   var ran = false
-  let outcome = try {
-    tempdir scratch at fp"{blocker}/below" {
-      ran = scratch.exists()?
-    }
+  let outcome = tempdir scratch at fp"{blocker}/below" {
+    ran = scratch.exists()?
   }
   assert failure_message(outcome) != ""
   assert ! ran
   assert blocker.read_text()? == "not a directory"
 }
 
-# When the body succeeded, a removal that fails on exit is the statement's
-# failure; when the body failed, the body's failure stays primary.
+proc stage_below(parent: Path) [fs, error] {
+  tempdir scratch at fp"{parent}/below" {
+    print $scratch
+  }
+  print "after"
+}
+
+# In statement position a failure to clear or create the directory leaves the
+# function, as any failing statement does; a `?` says the same.
+test test_tempdir_statement_propagates_a_creation_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "tempdir-statement")?
+  let blocker = fp"{root}/file"
+  blocker.write("not a directory")
+  let bare = try { stage_below(blocker)? }
+  assert failure_message(bare) != ""
+
+  var ran = false
+  let marked = try {
+    tempdir scratch at fp"{blocker}/below" {
+      ran = scratch.exists()?
+    }?
+    "after"
+  }
+  assert marked is Err(_)
+  assert ! ran
+}
+
+# In value position the scope is `Result[T]` of the body's tail, computed
+# before the directory is removed.
+test test_tempdir_value_scope_returns_the_tail_as_a_result { |ctx|
+  let root = test.temp_dir(ctx, name: "tempdir-value")?
+  let target = fp"{root}/scratch"
+  let count = tempdir scratch at target {
+    fp"{scratch}/a".write("1")
+    fp"{scratch}/b".write("2")
+    entry_count(scratch)?
+  }
+  assert count == Ok(2)
+  assert ! target.exists()?
+
+  let name = tempdir scratch at target { scratch.name }?
+  assert name == "scratch"
+}
+
+# A producer that yields from inside the scope keeps its directory between
+# pulls, and loses it when it ends or its consumer stops early.
+test test_tempdir_producer_keeps_its_directory_between_pulls { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""
+stream staged_names(target: Path) [fs, error] -> Stream[Str] {
+  tempdir scratch at target {
+    fp"{scratch}/stamp".write("x")
+    for name in ["a", "b"] {
+      yield f"{name} {fp"{scratch}/stamp".exists()?}"
+    }
+  }
+}
+let root = fs.tempdir()?
+defer root.close()?
+let target = fp"{root.host_path()?}/scratch"
+print ${(staged_names(target) |> collect()).join(",")} ${target.exists()?}
+print ${staged_names(target) |> take(1) |> first()?} ${target.exists()?}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "a true,b true false\na true false\n"
+}
+
+# A `Result` tail stays nested, and so does the scope as the tail of `try`:
+# the outer `Result` is the directory's, the inner one the body's.
+test test_tempdir_result_tail_stays_nested { |ctx|
+  let root = test.temp_dir(ctx, name: "tempdir-nested")?
+  let target = fp"{root}/scratch"
+  let read = tempdir scratch at target {
+    try { fp"{scratch}/missing".read_text()? }
+  }
+  assert read is Ok(Err(_))
+
+  let captured = try {
+    tempdir scratch at target { scratch.name }
+  }
+  assert captured == Ok(Ok("scratch"))
+  assert ! target.exists()?
+}
+
+# The removal is deferred, so its failure on exit is not the scope's `Err`:
+# when the body succeeded it leaves the function as the failure of a deferred
+# action does, and when the body failed, the body's failure stays primary.
 test test_tempdir_removal_failure_on_exit { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-exit")?
   let script = f"""proc stage(fail: Bool) [fs, error] -> Result[Unit] {{
@@ -327,7 +412,7 @@ print stage(p"{root}")?
   }
 """ in candidate.read_text()?
 
-  # The lint reports the written statements, never the expansion of a `tempdir`.
+  # The lint reports the written statements, never a `tempdir` scope.
   let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate ?
   let report = linted.stdout + linted.stderr
   assert report.split("lint.prefer-tempdir").len() == 2, report
@@ -349,7 +434,8 @@ print stage(p"{root}")?
   assert after.stdout == before.stdout
 }
 
-test test_tempdir_expansion_is_invisible_to_grep { |ctx|
+# The scope calls nothing a pattern over `fs` calls could match.
+test test_tempdir_scope_is_no_fs_call_to_grep { |ctx|
   let candidate = test.temp_file(
     ctx,
     name: "tempdir-grep.xsh",

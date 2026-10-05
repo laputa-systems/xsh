@@ -643,6 +643,9 @@ pub struct Linter<'a> {
     result_path_functions: Vec<bool>,
     result_return_ok_types: Vec<Option<Type>>,
     function_return_types: Vec<Type>,
+    /// The body of each function being linted, beside its entry in
+    /// `function_return_types`.
+    function_bodies: Vec<BlockId>,
     checked_effects: BTreeMap<
         xsh::frontend::check::EffectDeclarationId,
         xsh::frontend::check::FunctionEffectFact,
@@ -871,6 +874,7 @@ impl<'a> Linter<'a> {
             result_path_functions: Vec::new(),
             result_return_ok_types: Vec::new(),
             function_return_types: Vec::new(),
+            function_bodies: Vec::new(),
             checked_effects,
             assertion_effect_spans: options.assertion_effect_spans,
             statement_expression_spans: options.statement_expression_spans,
@@ -1955,19 +1959,6 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Continue => {}
             ArenaStmtKind::Loop { block } => self.lint_block(block),
-            // The name a `tempdir` binds is in scope for its body only, and
-            // the form itself uses it, so it is never an unused binding.
-            ArenaStmtKind::Sugar { form: SugarForm::Tempdir, operands, .. } => {
-                if let ArenaSugar::Tempdir { name, path, body } =
-                    self.arena.sugar(SugarForm::Tempdir, operands)
-                {
-                    self.lint_expr(path);
-                    self.push_scope();
-                    self.define_binding_target(name, stmt.span, false);
-                    self.lint_block(body);
-                    self.pop_scope();
-                }
-            }
             // The name `atomically replace` binds is in scope for its body
             // only, and the form itself renames it, so it is never an unused
             // binding.
@@ -2628,6 +2619,7 @@ impl<'a> Linter<'a> {
         self.result_path_functions.push(result_path);
         self.result_return_ok_types.push(result_ok.clone());
         self.function_return_types.push(return_ty);
+        self.function_bodies.push(def.body);
         if result_unit {
             self.lint_redundant_bare_return(def.body);
         }
@@ -2665,6 +2657,7 @@ impl<'a> Linter<'a> {
         self.result_path_functions.pop();
         self.result_return_ok_types.pop();
         self.function_return_types.pop();
+        self.function_bodies.pop();
         self.pop_scope();
     }
 
@@ -11878,6 +11871,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         }
         ArenaExprKind::ErrorContext { message, .. }
         | ArenaExprKind::ContextScope { input: message, .. } => out.push(message),
+        ArenaExprKind::TempDirScope { path, .. } => out.extend(path),
         ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -11897,8 +11891,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
-        | ArenaExprKind::Loop { .. }
-        | ArenaExprKind::TempDirScope { .. } => {}
+        | ArenaExprKind::Loop { .. } => {}
     }
     out
 }
@@ -12973,8 +12966,28 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Loop { block } => self.linter.lint_block(block),
-            // The directory name is the block's parameter.
-            ArenaExprKind::TempDirScope { block, .. } => self.linter.lint_stream_block(block),
+            // The directory name is the block's parameter, in scope for the
+            // body and not for the path.
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                if let Some(path) = path {
+                    self.visit_expr(path);
+                    // A body may reach a directory at a path the program
+                    // chose through that path, so its name is not an unused
+                    // binding.
+                    self.linter.push_scope();
+                    for parameter in arena.block_params(arena.block(block).params) {
+                        self.linter.define(
+                            parameter.name.as_str().as_str(),
+                            arena.span(parameter.span),
+                            false,
+                        );
+                    }
+                    self.linter.lint_block_statements(block);
+                    self.linter.pop_scope();
+                } else {
+                    self.linter.lint_stream_block(block);
+                }
+            }
             ArenaExprKind::Retry {
                 delays,
                 pattern,
@@ -14327,15 +14340,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaStmtKind::Loop { block } => self.scan_block(block),
             ArenaStmtKind::Sugar { form, operands, .. } => {
                 match self.arena().sugar(form, operands) {
-                    // The name is in scope for the body, not for the path.
-                    ArenaSugar::Tempdir { name, path, body } => {
-                        self.scan_expr(path);
-                        self.push_scope();
-                        self.define_binding_target(name);
-                        self.scan_block(body);
-                        self.pop_scope();
-                    }
-                    // Likewise for the destination and the temporary path.
+                    // The name is in scope for the body, not for the
+                    // destination.
                     ArenaSugar::Atomically { dest, name, body } => {
                         self.scan_expr(dest);
                         self.push_scope();
@@ -14609,8 +14615,13 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaExprKind::Capture(block)
             | ArenaExprKind::ValueBlock(block)
-            | ArenaExprKind::Loop { block }
-            | ArenaExprKind::TempDirScope { block, .. } => self.scan_block(block),
+            | ArenaExprKind::Loop { block } => self.scan_block(block),
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                if let Some(path) = path {
+                    self.scan_expr(path);
+                }
+                self.scan_block(block);
+            }
             ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
                     self.scan_expr(delay);
@@ -15415,8 +15426,12 @@ fn expr_flow(
             )
         }
         // Creating the directory may fail before the body runs.
-        ArenaExprKind::TempDirScope { block, .. } => {
-            FlowSummary::fallthrough().union(block_flow(arena, block))
+        ArenaExprKind::TempDirScope { path, block, .. } => {
+            let entered = FlowSummary::fallthrough().union(block_flow(arena, block));
+            match path {
+                Some(path) => expr_flow(arena, path).then(entered),
+                None => entered,
+            }
         }
         ArenaExprKind::ErrorContext { message, block } => expr_flow(
             arena,

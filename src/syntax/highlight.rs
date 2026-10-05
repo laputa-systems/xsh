@@ -421,7 +421,7 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
         return Kind::Keyword;
     }
     // `tempdir` and `at` are ordinary names except in the head of a
-    // `tempdir NAME at PATH {` statement.
+    // `tempdir NAME at PATH {` scope.
     if matches!(text, "tempdir" | "at") && tempdir_head_word(source, tokens, at) {
         return Kind::Keyword;
     }
@@ -626,12 +626,15 @@ fn without_head_word(source: &str, tokens: &[Token], at: usize, previous: Option
     }
 }
 
-/// Whether `tokens[at]` is the `tempdir` or the `at` of a statement that
-/// begins `tempdir NAME at`.
+/// Whether `tokens[at]` is the `tempdir` or the `at` of a scope that begins
+/// `tempdir NAME at`. The scope opens wherever an expression may start, and
+/// nothing else puts these three words in a row.
 fn tempdir_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
     let text = |token: &Token| &source[token.start..token.end];
     let is_head = |first: usize| {
-        statement_start(first.checked_sub(1).map(|before| tokens[before]), source)
+        !first
+            .checked_sub(1)
+            .is_some_and(|before| tokens[before].tag == TokenTag::Dot)
             && matches!(
                 tokens.get(first..first + 3),
                 Some([keyword, name, word])
@@ -1023,10 +1026,13 @@ mod tests {
     }
 
     #[test]
-    fn tempdir_head_words_are_keywords_only_in_a_tempdir_statement() {
+    fn tempdir_head_words_are_keywords_only_in_a_tempdir_head() {
         let source = "tempdir at at tempdir {\n}\nlet tempdir = at\nlet at = fs.tempdir()\n";
         assert_eq!(kind_of(source, "tempdir at"), Kind::Keyword);
         assert_eq!(kind_of(source, "at tempdir"), Kind::Keyword);
+        let value = "let n = tempdir dir at root { 1 }?\n";
+        assert_eq!(kind_of(value, "tempdir dir"), Kind::Keyword);
+        assert_eq!(kind_of(value, "at root"), Kind::Keyword);
         assert_eq!(kind_of(source, "tempdir {"), Kind::Plain);
         assert_eq!(kind_of(source, "tempdir ="), Kind::Plain);
         assert_eq!(kind_of(source, "at = fs"), Kind::Plain);

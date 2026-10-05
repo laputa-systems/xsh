@@ -17,14 +17,15 @@ guard ready else { return }
 ```
 
 `when`, `unless`, and `guard ... else` each read aloud the way the program
-behaves; `tempdir scratch at PATH { ... }` follows the same rule.
+behaves; `tempdir scratch at PATH { ... }` follows the same rule, though it
+is a core scope and not sugar.
 A reader who has never seen the form can guess it, and a reader who has can
 grep for it.
 
 Such a form must desugar trivially: it has a short, local, mechanical
 expansion into forms the language already has, with the same evaluation
 order, effects, and failures. `return x when c` is `if c { return x }`;
-a fixed-path `tempdir` is remove, create, a deferred remove, and the body.
+`repeat n times { ... }` is `for _ in range(n) { ... }`.
 If explaining a form needs a new runtime concept, it is not sugar and must
 justify itself as a feature. The implementation takes this literally: the
 parser builds a sugar form's expansion beside its operands, the checker and
@@ -37,6 +38,12 @@ It puts a binding in the enclosing block, and the only core statements that
 bind there are `let` and `var`, which have no failure branch; the nearest
 spelling, `let NAME = EXPR else { ... }`, would be `guard let` under another
 name. It stays a core form with its own checking and lowering.
+
+`tempdir NAME at PATH { ... }` began as sugar for a block and was moved out
+for another reason: a second spelling of an existing core form must behave as
+that form does. `tempdir NAME { ... }` already was a scope that returns a
+`Result`, usable as a value; a block that propagates its failures could not
+be that, so the fixed-path form became a second head of the same scope.
 
 ## One name per concept, no overloaded sigils
 

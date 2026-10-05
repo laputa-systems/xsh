@@ -3,11 +3,11 @@ use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind,
-    ArenaSugar, AstArena, BlockId, DeferTrigger, ExprId, StmtId,
+    AstArena, BlockId, DeferTrigger, ExprId, StmtId,
 };
 use xsh::frontend::syntax::parser::Parser;
 use xsh::frontend::syntax::token::TokenTag;
-use xsh::frontend::check::Type;
+use xsh::frontend::check::{StatementPosition, Type};
 
 /// Three adjacent statements that clear a path, create a directory there, and
 /// defer its removal are what `tempdir NAME at PATH { ... }` is defined to
@@ -216,7 +216,7 @@ fn tempdir_rewrite(
     let rest = &stmts[index + 3..];
     if rest
         .last()
-        .is_some_and(|tail| tail_may_be_a_result(linter, *tail))
+        .is_some_and(|tail| !tail_keeps_its_meaning(linter, block, *tail))
     {
         return None;
     }
@@ -291,14 +291,14 @@ fn tempdir_rewrite(
     let (Some(statement), None) = (statements.next(), statements.next()) else {
         return None;
     };
-    let ArenaStmtKind::Sugar { form, operands, .. } = rewritten.stmt(statement).kind else {
+    let ArenaStmtKind::Expr(scope) = rewritten.stmt(statement).kind else {
         return None;
     };
-    let ArenaSugar::Tempdir {
-        path: new_path,
-        body: new_body,
+    let ArenaExprKind::TempDirScope {
+        path: Some(new_path),
+        block: new_body,
         ..
-    } = rewritten.sugar(form, operands)
+    } = rewritten.expr(scope).kind
     else {
         return None;
     };
@@ -316,11 +316,18 @@ fn tempdir_rewrite(
             .symbol_owner()
             .with_current(|| super::super::format::canonical_subtree(rewritten, &replacement, root))
     };
-    // A block's key is its statements' keys in order after this opening, so
-    // the body holds the rest of the block exactly when its statements' keys
-    // end the block's key.
+    if !matches!(
+        rewritten.block_params(rewritten.block(new_body).params),
+        [bound] if bound.name == name
+    ) {
+        return None;
+    }
+    // A block's key is its statements' keys in order after its opening, which
+    // ends at the first `|`: the body's opening holds the directory name, an
+    // identifier. So the body holds the rest of the block exactly when its
+    // statements' keys end the block's key.
     let moved = new_key(Ok(new_body));
-    let moved = moved.strip_prefix("B(|")?;
+    let (_, moved) = moved.strip_prefix("B(")?.split_once('|')?;
     if key(Err(path)) != new_key(Err(new_path)) || !key(Ok(block)).ends_with(moved) {
         return None;
     }
@@ -331,12 +338,46 @@ fn tempdir_rewrite(
     ))
 }
 
+/// Whether `tail`, the last statement of `block`, means the same as the last
+/// statement of a `tempdir` scope that is itself the last statement of
+/// `block`.
+///
+/// A scope whose value is used is a `Result` of its body's tail. So a tail
+/// that is only a statement moves freely, and a tail that is the block's
+/// value moves only where a `Result` of it is what the block may produce: in
+/// the body of a function that returns `Result[T]`, for a tail that is a `T`.
+fn tail_keeps_its_meaning(linter: &super::Linter<'_>, block: BlockId, tail: StmtId) -> bool {
+    let arena = linter.arena;
+    let mut core = tail;
+    while let ArenaStmtKind::Sugar { expansion, .. } = arena.stmt(core).kind {
+        core = expansion;
+    }
+    let statement = arena.stmt(core);
+    let produces_value = match statement.kind {
+        ArenaStmtKind::Expr(_)
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::TailBareIdent(_) => {
+            linter.statement_positions.get(&statement.span) != Some(&StatementPosition::Statement)
+        }
+        _ => false,
+    };
+    if !produces_value {
+        return true;
+    }
+    linter.function_bodies.last() == Some(&block)
+        && matches!(linter.function_return_types.last(), Some(Type::Result(..)))
+        && !tail_may_be_a_result(linter, tail)
+}
+
 /// Whether `stmt`, as the last statement of a block, may give the block a
 /// `Result` value other than `Result[Unit]`.
 ///
 /// The tail of a function that returns `Result[T]` may be a `T` or a
-/// `Result[T]`, but the tail of a block nested in it must be a `T`. Moving
-/// such a tail into the body of a `tempdir` would stop the program checking.
+/// `Result[T]`, but the tail of a `tempdir` scope there must be a `T`: the
+/// scope's value is a `Result` of it.
 fn tail_may_be_a_result(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
     let arena = linter.arena;
     let block_tail = |block| {
@@ -505,6 +546,8 @@ mod tests {
             source,
             LintOptions {
                 expr_types: checked.expr_types,
+                statement_positions: checked.statement_positions,
+                function_return_types: checked.function_return_types,
                 ..LintOptions::default()
             },
         )
@@ -540,7 +583,21 @@ mod tests {
             fixed,
             "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let label = \"stage\"\n  fs.mkdir(root)?\n  tempdir scratch at fp\"{root}/{label}\" {\n\n    let stamp = fp\"{scratch}/stamp\"\n    stamp.write(label)? # mark\n    stamp.read_text()?\n  }\n}\n"
         );
-        // The fixed program checks, and its expansion is not reported again.
+        // The fixed program checks and is not reported again.
+        assert!(scratch_directories(&fixed).is_empty());
+    }
+
+    /// A tail that is only a statement moves into the scope from any block.
+    #[test]
+    fn a_statement_tail_moves_from_a_nested_block() {
+        let source = "proc stage(roots: List[Path]) [fs, error] {\n  for root in roots {\n    let scratch = fp\"{root}/s\"\n    fs.remove(scratch, missing_ok: true)\n    fs.mkdir(scratch)\n    defer fs.remove(scratch, missing_ok: true)\n    fp\"{scratch}/stamp\".write(\"x\")\n  }\n}\n";
+        let diagnostics = scratch_directories(source);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "proc stage(roots: List[Path]) [fs, error] {\n  for root in roots {\n    tempdir scratch at fp\"{root}/s\" {\n      fp\"{scratch}/stamp\".write(\"x\")\n    }\n  }\n}\n"
+        );
         assert!(scratch_directories(&fixed).is_empty());
     }
 
@@ -590,10 +647,13 @@ mod tests {
             format!(
                 "proc stage(root: Path) [fs, process, error] {{\n  let job = spawn run sleep 1 ?\n  let scratch = fp\"{{root}}/s\"\n{triple}  job.cancel()?\n}}\n"
             ),
-            // A `Result` tail is not accepted from a block nested in the body.
+            // A `Result` tail would nest in the scope's own `Result`.
             format!(
                 "proc stage(root: Path) [fs, error] -> Result[Str] {{\n  let scratch = fp\"{{root}}/s\"\n{triple}  fp\"{{scratch}}/stamp\".read_text()\n}}\n"
             ),
+            // The value of a block that is not a function's body would become
+            // a `Result` of it.
+            "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let text = {\n    let scratch = fp\"{root}/s\"\n    fs.remove(scratch, missing_ok: true)\n    fs.mkdir(scratch)\n    defer fs.remove(scratch, missing_ok: true)\n    fp\"{scratch}/stamp\".read_text()?\n  }\n  text\n}\n".to_owned(),
             // A comment among the replaced statements would be dropped.
             format!(
                 "proc stage(root: Path) [fs, error] {{\n  let scratch = fp\"{{root}}/s\" # where\n{triple}}}\n"

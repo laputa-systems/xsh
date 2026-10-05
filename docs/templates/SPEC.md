@@ -101,7 +101,7 @@ true try type unless use var wait when while with yield
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
-statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
+statement (8.6), `at` in the head of a `tempdir NAME at PATH` scope (10.4),
 `fail` at the start of a `fail` statement and `because` after its first
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
@@ -2146,8 +2146,8 @@ runs with the error (the common nominal type, or `Error` for mixed families).
 Bindings are not visible in the handler.
 
 Parameterized blocks always put the parameters inside the brace:
-`{ |name| ... }`, except `tempdir NAME { ... }` (10.4), whose name before the
-brace is its parameter. Plain conditional branches, `guard` failure blocks,
+`{ |name| ... }`, except a `tempdir` scope (10.4), whose name after the word
+`tempdir` is its parameter. Plain conditional branches, `guard` failure blocks,
 and deferred blocks take no parameters.
 
 ### 8.7 `defer`
@@ -2199,39 +2199,8 @@ cleanup failure is reported with its location. At the top level, the scope is
 the script, and it leaves with an error when the script fails or exits with
 `exit`.
 
-`tempdir name at path { ... }` runs its block with a scratch directory at a
-path the program chooses. It is sugar, defined by its expansion:
-
-```xsh
-{{.spec.tempdir.source}}
-```
-
-means exactly
-
-```xsh
-{{.spec.tempdir.desugared}}
-```
-
-So the path is a `Path` evaluated once and bound to the immutable `name`,
-which is in scope for the body only. Both removals are `fs.remove` (15),
-which the expansion writes with its default `missing_ok: true`: whatever is
-at the path, a file, a symlink (itself, never
-its target), or a directory with everything below it, is removed, and nothing
-being there is not an error. A failure to remove what is there or to create
-the directory propagates before the body runs. The deferred removal runs
-however control leaves the statement, after the body's own defers, and follows
-the `defer` rules above: when it fails, the body's failure stays primary, and
-if the body succeeded the removal's failure is the statement's failure. The
-statement needs the `fs` effect, and the `error` effect where a failure can
-leave a restricted proc. The body is a block (6.9): as the tail of a body that
-produces a value it produces its own tail, computed before the directory is
-removed. The expansion names the standard `fs` module, so the statement is
-rejected where a local binding named `fs` hides it. A statement is a `tempdir`
-statement when it begins with the word `tempdir`, a name, and the word `at`
-on one line; neither word is reserved, and the path is a head expression like
-the source of a `for`.
-`fs.tempdir()` (15) is the other scratch directory: a private one at a path
-the runtime chooses, owned through its handle.
+A `tempdir` scope (10.4) removes its directory with a deferred action of this
+kind, registered before the body runs.
 
 `atomically replace dest as name { ... }` publishes a file that something
 other than XSH writes (an archiver, a compiler, an image builder): the block
@@ -2293,7 +2262,7 @@ a `for`. It ends at the `as` that stands directly before the name and the `{`
 of the body, outside every bracket the destination opens: a pattern test
 there keeps an alias of its own only inside brackets or before that word
 (`atomically replace (kind is Image as image) as partial {`). Those two words,
-like the three that begin a `tempdir NAME at PATH` statement, never begin a
+like the three that begin a `tempdir NAME at PATH` scope, never begin a
 command. `Path.write_atomic` (15) is the same publication for bytes the
 program already holds.
 
@@ -2726,27 +2695,68 @@ escape a scope as its value, through an assignment, a `return`, or a `yield`;
 consume it inside. A producer that yields from inside a scope keeps its own
 directory and environment between pulls.
 
-`tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
-temporary directory, which is removed with its contents when the body ends for
-any reason, after the body's defers run and its owned handles are cleaned up
-(8.7, 11.8). It is the scope that `let root = fs.tempdir()?`,
-`defer root.close()?`, and `let NAME = root.host_path()?` open over the rest
-of a block, without the handle: use that form when the code needs the
-`FsRoot`'s rooted operations or passes the handle on. Removal is the handle's
-`close()`.
+`tempdir` is the scope for scratch space. It has two heads:
 
 ```xsh
 {{.spec.tempdir_scope.source}}
 ```
 
-Like `cd` and `env`, a `tempdir` scope returns `Result[Unit]` in statement
-position and `Result[T]` of the body's tail in value position, where it needs
-no parentheses (`let count = tempdir dir { ... }?`). Its `Err` reports only a
-failure to create the directory; failures inside the body propagate to their
-ordinary destination. It needs the `fs` effect and is rejected in pure
-functions. The path is an ordinary value that may leave the scope, but it
-names a removed directory once the scope ends. `tempdir` starts a scope only
-when the name and `{` follow on the same line.
+`tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
+temporary directory at a path the runtime chooses. It is the scope that
+`let root = fs.tempdir()?`, `defer root.close()?`, and
+`let NAME = root.host_path()?` open over the rest of a block, without the
+handle: use that form when the code needs the `FsRoot`'s rooted operations or
+passes the handle on.
+
+`tempdir NAME at PATH { ... }` runs its body with `NAME` bound to a directory
+at a path the program names:
+
+```xsh
+{{.spec.tempdir.source}}
+```
+
+`PATH` is a `Path`, evaluated once, before `NAME` is in scope. Whatever is at
+the path is removed first, as `fs.remove` with `missing_ok: true` removes it:
+a file, a symlink (itself, never its target), or a directory with everything
+below it, and nothing being there is not an error. Then the directory is
+created, with any missing parents.
+
+With either head, `NAME` is immutable and in scope for the body only, and the
+directory is removed with its contents when the body ends for any reason,
+after the body's defers run and its owned handles are cleaned up (8.7, 11.8).
+The removal is a deferred action (8.7) registered before the body runs: when
+it fails after a body that failed, the body's failure stays primary, and
+after a body that succeeded its failure leaves the enclosing function as any
+deferred action's does. It is not the scope's `Err`.
+
+Both heads follow the rule of `cd` and `env`. In statement position the scope
+returns `Result[Unit]`, and a failure propagates as a failed statement does
+(8.1), with or without `?`. In value position it returns `Result[T]` of the
+body's tail and needs no parentheses (`let count = tempdir dir { ... }?`,
+`let text = tempdir dir at path { ... }?`); the tail is computed before the
+directory is removed. A `Result` tail stays nested, and so does the scope as
+the tail of a `try` block: `try { tempdir dir at path { 1 } }` is a
+`Result[Result[Int]]`. As the tail of a function that returns `Result[T]`,
+the scope with a `T` tail is the function's result. The scope's `Err` reports
+only a failure to enter: to create the fresh directory, or to clear the path
+and create the directory there; the body does not run. Failures inside the
+body propagate to their ordinary destination. The scope needs the `fs` effect
+and is rejected in pure functions. The path is an ordinary value that may
+leave the scope, but it names a removed directory once the scope ends.
+
+Neither `tempdir` nor `at` is reserved. `tempdir` starts a scope only when a
+name and then `{` or the word `at` follow on the same line; the path after
+`at` is a head expression like the source of a `for`, and the body takes no
+`|...|` parameters.
+
+Two lints lead to the scope. `lint.prefer-tempdir-scope` reports
+`let root = fs.tempdir()?` with its `defer root.close()?` where the handle is
+used only for its path, and `lint.prefer-tempdir` reports
+`fs.remove(NAME, missing_ok: true)`, `fs.mkdir(NAME)`, and
+`defer fs.remove(NAME, missing_ok: true)` in a row. Each offers the rewrite
+of the rest of the block into the scope's body only where that is the same
+program; in particular a last statement that is the block's value moves only
+out of the body of a function that returns `Result[T]`, as a `T`.
 
 `within DURATION { ... }` runs its body under a deadline, `DURATION` from
 the moment the scope is entered:

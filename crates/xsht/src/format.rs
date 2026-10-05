@@ -865,14 +865,6 @@ impl<'a> Writer<'a> {
                         output.push_str(" else ");
                         self.write_block(else_block, indent, output);
                     }
-                    ArenaSugar::Tempdir { name, path, body } => {
-                        output.push_str("tempdir ");
-                        self.write_binding_target(name, output);
-                        output.push_str(" at ");
-                        self.write_expr(path, BRACE, output);
-                        output.push(' ');
-                        self.write_block(body, indent, output);
-                    }
                     ArenaSugar::Fail { failure, cause } => {
                         self.write_fail(failure, cause, Follow::END, output);
                     }
@@ -2891,7 +2883,9 @@ impl<'a> Writer<'a> {
                 output.push_str(close);
                 self.write_block(*block, indent, output);
             }
-            ArenaExprKind::TempDirScope { block, .. } => {
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                // Indentation is that of the line the head starts.
+                let indent = indent_for_expr(output);
                 output.push_str("tempdir ");
                 if let Some(param) = self
                     .arena
@@ -2900,9 +2894,13 @@ impl<'a> Writer<'a> {
                 {
                     output.push_str(param.name.as_str().as_str());
                 }
+                if let Some(path) = path {
+                    output.push_str(" at ");
+                    self.write_expr(*path, child(*path), output);
+                }
                 output.push(' ');
                 self.binder_blocks.insert(*block);
-                self.write_block(*block, indent_for_expr(output), output);
+                self.write_block(*block, indent, output);
             }
             ArenaExprKind::ErrorContext { message, block } => {
                 output.push_str("ctx ");

@@ -1,10 +1,15 @@
-proc stage(root: Path) -> Result[Str] {
+proc stage(root: Path) [fs, error] -> Result[Str] {
   # begin example
   tempdir scratch at fp"{root}/stage" {
     fp"{scratch}/stamp".write("staged\n")
-    fp"{scratch}/stamp".read_text()?
   }
+
+  let stamp = tempdir scratch at fp"{root}/stage" {
+    fp"{scratch}/stamp".write("staged again\n")
+    fp"{scratch}/stamp".read_text()?
+  }?
   # end example
+  stamp
 }
 
 let root = fs.tempdir()?

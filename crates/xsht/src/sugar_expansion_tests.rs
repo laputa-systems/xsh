@@ -81,24 +81,6 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 core: Core::Written("for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n"),
             },
         ],
-        SugarForm::Tempdir => &[
-            Case {
-                sugar: include_str!("../../../docs/snippets/spec/60-tempdir.xsh"),
-                core: Core::Desugared,
-            },
-            // At the top level, nested, with a body that defers and leaves
-            // early, and with a path that is a block of its own.
-            Case {
-                sugar: "let root = p\"/tmp\"\ntempdir outer at fp\"{root}/outer\" {\n  defer { print \"outer\" }\n  repeat 2 times {\n    tempdir inner at { fp\"{outer}/inner\" } {\n      break when inner.exists()?\n    }\n  }\n}\n",
-                core: Core::Written("let root = p\"/tmp\"\n{\n  let outer: Path = fp\"{root}/outer\"\n  fs.remove(outer, missing_ok: true)\n  fs.mkdir(outer)\n  defer fs.remove(outer, missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let inner: Path = { fp\"{outer}/inner\" }\n        fs.remove(inner, missing_ok: true)\n        fs.mkdir(inner)\n        defer fs.remove(inner, missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n      }\n    }\n  }\n}\n"),
-            },
-            // The words stay names: `tempdir` and `at` as the bound name, the
-            // path, and a match arm's statement.
-            Case {
-                sugar: "proc stage(at: Path, tempdir: Int) {\n  match tempdir {\n    0 => tempdir at at at { print $at }\n    _ => {\n      tempdir tempdir at at {\n        print $tempdir\n      }\n    }\n  }\n}\n",
-                core: Core::Written("proc stage(at: Path, tempdir: Int) {\n  match tempdir {\n    0 => {\n      {\n        let at: Path = at\n        fs.remove(at, missing_ok: true)\n        fs.mkdir(at)\n        defer fs.remove(at, missing_ok: true)\n        { print $at }\n      }\n    }\n    _ => {\n      {\n        let tempdir: Path = at\n        fs.remove(tempdir, missing_ok: true)\n        fs.mkdir(tempdir)\n        defer fs.remove(tempdir, missing_ok: true)\n        {\n          print $tempdir\n        }\n      }\n    }\n  }\n}\n"),
-            },
-        ],
         SugarForm::Fail => &[
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/61-fail.xsh"),

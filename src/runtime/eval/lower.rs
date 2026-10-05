@@ -1947,7 +1947,17 @@ fn compact_collect_expr_call_edges(
         | ArenaExprKind::ValueBlock(block)
         | ArenaExprKind::Loop { block }
         | ArenaExprKind::Retry { block, .. }
-        | ArenaExprKind::TempDirScope { block, .. } => {
+        | ArenaExprKind::TempDirScope {
+            path: None, block, ..
+        } => {
+            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
+        }
+        ArenaExprKind::TempDirScope {
+            path: Some(path),
+            block,
+            ..
+        } => {
+            compact_collect_expr_call_edges(program, path, namespace, index_of, edges);
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
         ArenaExprKind::BuilderCall { call, .. } => {
@@ -8085,8 +8095,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 ))
             }
-            ArenaExprKind::TempDirScope { block, .. } => {
-                self.lower_tempdir_scope(block, span, slots, current_function, item_slot)
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                self.lower_tempdir_scope(path, block, span, slots, current_function, item_slot)
             }
             ArenaExprKind::ValueBlock(block) => {
                 self.lower_block_value_expr(block, slots, current_function, item_slot)
@@ -13329,7 +13339,206 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// directory is removed after the body's own cleanup on every exit, by the
     /// same defer machinery. Only a failure to create the directory becomes the
     /// scope's `Err`; the body's tail (or `Unit`) is its `Ok`.
+    ///
+    /// `tempdir NAME at PATH { body }` is the same scope over a directory the
+    /// program names: `PATH` is evaluated once, whatever is there is removed,
+    /// the directory is created, and its removal is deferred around the body.
+    /// A failure to clear or create it is the scope's `Err`.
     fn lower_tempdir_scope(
+        &mut self,
+        path: Option<ExprId>,
+        block: BlockId,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let Some(path) = path else {
+            return self.lower_fresh_tempdir_scope(block, span, slots, current_function, item_slot);
+        };
+        // The path is evaluated where the scope is written, before the
+        // directory name exists.
+        let path = self.lower_expr(path, slots, current_function, item_slot)?;
+        let saved = slots.enter();
+        let result = (|| {
+            let at_slot = slots.reserve("tempdir.at");
+            let at = |lowerer: &mut Self| {
+                push_build_row!(lowerer, expr, BuildExprRow::Param(at_slot))
+            };
+            let remove = |lowerer: &mut Self| {
+                let path = at(lowerer);
+                let missing_ok = push_build_row!(lowerer, expr, BuildExprRow::Bool(true));
+                push_build_row!(
+                    lowerer,
+                    expr,
+                    BuildExprRow::FsRemove {
+                        path,
+                        missing_ok: Some(missing_ok),
+                        span,
+                    }
+                )
+            };
+            let failed_slot = slots.reserve("tempdir.failed");
+            // An arm that hands a failed step's `Err` on as the scope's value.
+            let failed_arm = |lowerer: &mut Self| {
+                let failed = push_build_row!(
+                    lowerer,
+                    pattern,
+                    BuildPatternRow::Bind { slot: failed_slot }
+                );
+                let failure = push_build_row!(lowerer, expr, BuildExprRow::Param(failed_slot));
+                (failed, None, failure)
+            };
+            let done = |lowerer: &mut Self| {
+                push_build_row!(
+                    lowerer,
+                    pattern,
+                    BuildPatternRow::ResultOk {
+                        slot: None,
+                        unit_only: false
+                    }
+                )
+            };
+
+            let scope = {
+                let inner = slots.enter();
+                let scope = (|| {
+                    let removal = remove(self);
+                    let removal = push_build_row!(self, expr, BuildExprRow::Try(removal));
+                    let mut body = vec![push_build_row!(
+                        self,
+                        stmt,
+                        BuildStmtRow::Defer {
+                            value: removal,
+                            on_error: false,
+                        }
+                    )];
+                    let value = at(self);
+                    let path_slot = match self
+                        .program
+                        .arena
+                        .block_params(self.program.arena.block(block).params)
+                    {
+                        [param] if param.name.as_str() != "_" => {
+                            slots.declare_with_type(param.name, Some(Type::Path))
+                        }
+                        _ => slots.reserve("tempdir.path"),
+                    };
+                    body.push(push_build_row!(
+                        self,
+                        stmt,
+                        BuildStmtRow::Let {
+                            slot: path_slot,
+                            value
+                        }
+                    ));
+                    self.lower_tempdir_body(block, body, span, slots, current_function, item_slot)
+                })();
+                slots.exit(inner);
+                scope?
+            };
+
+            let created = {
+                let path = at(self);
+                push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::FsMkdir {
+                        path,
+                        parents: None,
+                        span,
+                    }
+                )
+            };
+            let entered = {
+                let arms = vec![(done(self), None, scope), failed_arm(self)];
+                push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::MatchExpr {
+                        value: created,
+                        arms,
+                        span,
+                    }
+                )
+            };
+            let cleared = remove(self);
+            let outcome = {
+                let arms = vec![(done(self), None, entered), failed_arm(self)];
+                push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::MatchExpr {
+                        value: cleared,
+                        arms,
+                        span,
+                    }
+                )
+            };
+            let body = vec![
+                push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Let {
+                        slot: at_slot,
+                        value: path
+                    }
+                ),
+                push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }),
+            ];
+            Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+        })();
+        slots.exit(saved);
+        result
+    }
+
+    /// The statements of a `tempdir` body after `prefix`, which holds the
+    /// deferred removal and the binding of the directory name, as the value
+    /// block whose value is `Ok` of the body's tail.
+    fn lower_tempdir_body(
+        &mut self,
+        block: BlockId,
+        prefix: Vec<BuildStmtId>,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let mut body = prefix;
+        let statements = self.program.arena.block(block).statements;
+        let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
+        let mut tail = None;
+        if let Some((&last, prefix)) = statements.split_last() {
+            for &stmt in prefix {
+                body.push(self.lower_stmt_with_blocker_guard(
+                    stmt,
+                    slots,
+                    current_function,
+                    item_slot,
+                )?);
+            }
+            if self.bodies.statement_positions.get(&last)
+                != Some(&crate::sema::check::StatementPosition::Statement)
+                && let Some(value) =
+                    self.lower_tail_stmt_as_expr(last, slots, current_function, item_slot)
+            {
+                tail = Some(value);
+            } else {
+                body.push(self.lower_stmt_with_blocker_guard(
+                    last,
+                    slots,
+                    current_function,
+                    item_slot,
+                )?);
+            }
+        }
+        let tail = tail.unwrap_or_else(|| push_build_row!(self, expr, BuildExprRow::Unit));
+        let value = push_build_row!(self, expr, BuildExprRow::Ok(tail));
+        body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+        Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+    }
+
+    fn lower_fresh_tempdir_scope(
         &mut self,
         block: BlockId,
         span: Span,
@@ -13399,37 +13608,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: path
                 }
             ));
-            let statements = self.program.arena.block(block).statements;
-            let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-            let mut tail = None;
-            if let Some((&last, prefix)) = statements.split_last() {
-                for &stmt in prefix {
-                    body.push(self.lower_stmt_with_blocker_guard(
-                        stmt,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-                if self.bodies.statement_positions.get(&last)
-                    != Some(&crate::sema::check::StatementPosition::Statement)
-                    && let Some(value) =
-                        self.lower_tail_stmt_as_expr(last, slots, current_function, item_slot)
-                {
-                    tail = Some(value);
-                } else {
-                    body.push(self.lower_stmt_with_blocker_guard(
-                        last,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-            }
-            let tail = tail.unwrap_or_else(|| push_build_row!(self, expr, BuildExprRow::Unit));
-            let value = push_build_row!(self, expr, BuildExprRow::Ok(tail));
-            body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
-            let scope = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span });
+            let scope =
+                self.lower_tempdir_body(block, body, span, slots, current_function, item_slot)?;
             Some((opened, scope))
         })();
         slots.exit(saved);

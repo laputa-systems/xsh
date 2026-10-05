@@ -687,7 +687,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
                 r("repeat_statement"),
                 r("without_statement"),
-                r("tempdir_statement"),
                 r("atomically_statement"),
             ])),
         ),
@@ -1260,19 +1259,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         alt(effect_names().into_iter().map(w)),
                     ])),
                 ])),
-                block(),
-            ]),
-        ),
-        // `tempdir` and `at` are contextual words: the statement is recognized
-        // by the three words that begin it.
-        rule(
-            Statements,
-            "tempdir_statement",
-            seq([
-                w("tempdir"),
-                t(T::Ident),
-                w("at"),
-                r("condition_expression"),
                 block(),
             ]),
         ),
@@ -1866,12 +1852,16 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 block(),
             ]),
         ),
+        // `tempdir` and `at` are contextual words: the scope is recognized by
+        // `tempdir`, a name, and then `{` or `at`. The path after `at` ends
+        // where the source of a `for` ends.
         rule(
             Expressions,
             "tempdir_scope",
             seq([
                 w("tempdir"),
                 ident(),
+                opt(seq([w("at"), r("condition_expression")])),
                 t(T::LBrace),
                 star(sep()),
                 r("statements"),
@@ -2201,7 +2191,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     line(plus(r("env_assignment"))),
                     block(),
                 ]),
-                // The words that begin a `tempdir NAME at PATH` or an
+                // The words that begin a `tempdir NAME at PATH` scope or an
                 // `atomically replace` statement always begin one: the parser
                 // decides on them alone, so a command cannot start that way.
                 seq([

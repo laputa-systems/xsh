@@ -1051,9 +1051,17 @@ impl CanonicalWriter<'_> {
                 self.expr(*input);
                 self.block(*block);
             }
-            ArenaExprKind::TempDirScope { block, value_body } => {
+            ArenaExprKind::TempDirScope {
+                path,
+                block,
+                value_body,
+            } => {
                 self.put("tempdir;");
                 self.debug(value_body);
+                if let Some(path) = path {
+                    self.put("at;");
+                    self.expr(*path);
+                }
                 self.block(*block);
             }
         }
