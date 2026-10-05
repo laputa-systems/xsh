@@ -418,6 +418,7 @@ diagnostic_codes! {
         CheckSchemaField = "check.schema-field", error, "Reject an unknown or missing field in a schema-checked record";
         CheckSignalHook = "check.signal-hook", error, "Reject an invalid signal hook declaration, placement, option, or body";
         CheckSignalHookModule = "check.signal-hook-module", error, "Reject a signal hook declared in a module instead of the entry script";
+        CheckSizeLiteral = "check.size-literal", error, "Reject a size literal whose byte count exceeds the 64-bit signed range";
         CheckSliceType = "check.slice-type", error, "Reject slicing a value that is not a `List`, `Str`, or `Bytes`";
         CheckSpawnRunKind = "check.spawn-run-kind", error, "Reject `spawn run` with a form other than `run` or `run.status`";
         CheckSpawnRunShape = "check.spawn-run-shape", error, "Reject `spawn run` without exactly one run segment";
@@ -565,6 +566,7 @@ diagnostic_codes! {
         LintPreferRepeat = "lint.prefer-repeat", warning, "Use `repeat N times` instead of `for _ in range(N)`";
         LintPreferScalarIteration = "lint.prefer-scalar-iteration", warning, "Iterate a Str by scalars or bytes without a split List or unused offsets";
         LintPreferSignatureCli = "lint.prefer-signature-cli", warning, "Declare a literal CLI schema as a `cli main(...)` entry signature";
+        LintPreferSizeLiteral = "lint.prefer-size-literal", warning, "Write a byte count that is a product of literals and powers of 1024 as a size literal";
         LintPreferSlice = "lint.prefer-slice", warning, "Use half-open slicing where offset/count method bounds are equivalent";
         LintPreferStreamProducer = "lint.prefer-stream-producer", warning, "Suggest a `stream` producer with `yield` for a proc that builds a list item by item";
         LintPreferStringConcat = "lint.prefer-string-concat", warning, "Use `+` instead of joining literal pieces with an empty separator";

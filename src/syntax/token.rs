@@ -540,6 +540,7 @@ fn scan_number_end(source: &str, start: usize) -> usize {
     while matches!(bytes.get(offset), Some(byte) if byte.is_ascii_digit()) {
         offset += 1;
     }
+    let integer_end = offset;
     if bytes.get(offset) == Some(&b'.')
         && matches!(bytes.get(offset + 1), Some(byte) if byte.is_ascii_digit())
     {
@@ -557,7 +558,14 @@ fn scan_number_end(source: &str, start: usize) -> usize {
             offset += 1;
         }
     }
-    offset + crate::syntax::grammar::duration_suffix_at(bytes, offset).map_or(0, str::len)
+    // Only an integer takes a size unit: the lexer ends a float before one.
+    let size_suffix = (offset == integer_end)
+        .then(|| crate::syntax::grammar::size_suffix_at(bytes, offset))
+        .flatten();
+    offset
+        + crate::syntax::grammar::duration_suffix_at(bytes, offset)
+            .or(size_suffix)
+            .map_or(0, str::len)
 }
 
 fn scan_until(source: &str, start: usize, keep_going: impl Fn(u8) -> bool) -> usize {

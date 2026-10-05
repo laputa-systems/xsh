@@ -3347,6 +3347,15 @@ impl ConstantPreparation<'_> {
                     value
                 }
             }
+            // A size literal is `UInt`, which its integer value alone does
+            // not say; a concrete expected type still decides the constant's.
+            ArenaExprKind::Int(literal) if arena.int_literal(literal).is_size() => {
+                let bytes = arena.int_literal(literal).value().ok_or_else(failure)?;
+                if expected.is_none_or(Type::contains_inference) {
+                    self.prepared.types.insert(id, Type::UInt);
+                }
+                LiteralConstant::Int(bytes)
+            }
             _ => LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?,
         };
         if matches!(

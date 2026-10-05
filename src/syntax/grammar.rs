@@ -622,6 +622,33 @@ pub fn duration_suffix_at(bytes: &[u8], offset: usize) -> Option<&'static str> {
         .find(|suffix| rest.starts_with(suffix.as_bytes()))
 }
 
+/// Size literal suffixes with the number of bytes each stands for: binary
+/// units are powers of 1024 and decimal units powers of 1000.
+pub const SIZE_SUFFIXES: [(&str, u64); 6] = [
+    ("KiB", 1 << 10),
+    ("MiB", 1 << 20),
+    ("GiB", 1 << 30),
+    ("KB", 1_000),
+    ("MB", 1_000_000),
+    ("GB", 1_000_000_000),
+];
+
+/// The size suffix written at `offset`, right after an integer's digits. A
+/// suffix that runs on into more name characters is not one: `1KBps` is not
+/// a size.
+pub fn size_suffix_at(bytes: &[u8], offset: usize) -> Option<&'static str> {
+    let rest = bytes.get(offset..)?;
+    SIZE_SUFFIXES
+        .into_iter()
+        .map(|(suffix, _)| suffix)
+        .find(|suffix| {
+            rest.starts_with(suffix.as_bytes())
+                && !rest
+                    .get(suffix.len())
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        })
+}
+
 /// A `|>` stage that the parser reads as a structured stream stage rather
 /// than a value expression.
 #[derive(Clone, Copy, Debug)]

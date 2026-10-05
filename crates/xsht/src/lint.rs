@@ -25,6 +25,8 @@ mod lint_write_lines;
 
 #[path = "lint_read_lines.rs"]
 mod lint_read_lines;
+#[path = "lint_size_literal.rs"]
+mod lint_size_literal;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -670,6 +672,9 @@ impl<'a> Linter<'a> {
         let read_lines =
             lint_read_lines::lint_read_lines(program, source, &linter.expr_types, &line_loops);
         linter.diagnostics.extend(read_lines);
+        linter
+            .diagnostics
+            .extend(lint_size_literal::lint_size_products(program, source));
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));

@@ -112,6 +112,13 @@ impl FromStr for Effect {
     }
 }
 
+/// The digits of a size literal and the number of bytes in its unit.
+fn size_literal_parts(text: &str) -> Option<(&str, i64)> {
+    crate::syntax::grammar::SIZE_SUFFIXES
+        .into_iter()
+        .find_map(|(suffix, bytes)| Some((text.strip_suffix(suffix)?, bytes as i64)))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IntLiteral {
     value: Option<i64>,
@@ -123,6 +130,17 @@ impl IntLiteral {
         if let Some(octal) = text.strip_prefix("0o") {
             return Self {
                 value: i64::from_str_radix(octal, 8).ok(),
+                raw: Some(Arc::from(text)),
+            };
+        }
+        // A size literal keeps its spelling and holds its byte count; one
+        // that does not fit has no value.
+        if let Some((count, bytes)) = size_literal_parts(text) {
+            return Self {
+                value: count
+                    .parse::<i64>()
+                    .ok()
+                    .and_then(|count| count.checked_mul(bytes)),
                 raw: Some(Arc::from(text)),
             };
         }
@@ -140,6 +158,13 @@ impl IntLiteral {
 
     pub fn value(&self) -> Option<i64> {
         self.value
+    }
+
+    /// Whether the literal is spelled with a size unit, such as `64MiB`.
+    pub fn is_size(&self) -> bool {
+        self.raw
+            .as_deref()
+            .is_some_and(|raw| size_literal_parts(raw).is_some())
     }
 
     pub fn write(&self, output: &mut String) {

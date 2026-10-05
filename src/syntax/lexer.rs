@@ -468,6 +468,10 @@ impl<'a> Lexer<'a> {
             self.push(TokenKind::Duration, start, self.offset);
             return;
         }
+        // A size literal is an integer literal spelled with a unit.
+        if let Some(suffix) = grammar::size_suffix_at(self.source.as_bytes(), self.offset) {
+            self.offset += suffix.len();
+        }
         self.push(TokenKind::Int, start, self.offset);
     }
 

@@ -261,6 +261,13 @@ exponent: `1.0`, `0.25`, `1.5e6`, `10e-3`.
 **Durations.** A decimal integer followed immediately by `ms`, `s`, `m`, or
 `h`: `250ms`, `30s`, `2h`.
 
+**Sizes.** A decimal integer followed immediately by `KiB`, `MiB`, `GiB`,
+`KB`, `MB`, or `GB` is an integer literal that counts bytes: `4KiB` is `4096`
+and `64MB` is `64000000`. Binary units are powers of 1024 and decimal units
+powers of 1000. Like a duration, a size has no fractional form (write
+`1536KiB`, not `1.5MiB`) and no space before its unit, and a unit that runs
+on into more letters is not one (`1KBps`). The literal has type `UInt` (4.2).
+
 ## 3. Programs And Modules
 
 ### 3.1 Scripts
@@ -412,6 +419,16 @@ keys and values, arguments, defaults, returns, and stream items as they are
 produced. A negative value fails at that point with `type-error`, leaves the
 target unchanged, and runs ordinary cleanup; `try` does not turn it into data.
 Use `value.require(UInt)?` to validate untrusted integers recoverably.
+
+A size literal (2.6) is a `UInt` number of bytes, not a separate type: it
+displays, compares, and computes as the integer it stands for, so
+`f"{64MiB}"` is `67108864` and `limit / 1MiB` is an `Int`. A size literal
+whose byte count exceeds `9223372036854775807` is a check error
+(`check.size-literal`).
+
+```xsh
+{{.spec.size_literals.source}}
+```
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject

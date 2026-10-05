@@ -446,14 +446,27 @@ impl Checker {
             ArenaExprKind::Null => Type::Null,
             ArenaExprKind::Bool(_) => Type::Bool,
             ArenaExprKind::Int(value) => {
-                if arena.arena.int_literal(*value).value().is_none() {
-                    self.error(
-                        expr.span,
-                        "integer literal is outside the 64-bit signed range",
-                        DiagnosticCode::CheckIntLiteral,
-                    );
+                let literal = arena.arena.int_literal(*value);
+                // A size literal counts bytes, so it is never negative.
+                if literal.is_size() {
+                    if literal.value().is_none() {
+                        self.error(
+                            expr.span,
+                            "size literal exceeds 9223372036854775807 bytes",
+                            DiagnosticCode::CheckSizeLiteral,
+                        );
+                    }
+                    Type::UInt
+                } else {
+                    if literal.value().is_none() {
+                        self.error(
+                            expr.span,
+                            "integer literal is outside the 64-bit signed range",
+                            DiagnosticCode::CheckIntLiteral,
+                        );
+                    }
+                    Type::Int
                 }
-                Type::Int
             }
             ArenaExprKind::Float(_) => Type::Float,
             ArenaExprKind::Duration(value) => {
