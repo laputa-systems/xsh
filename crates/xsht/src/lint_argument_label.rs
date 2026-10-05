@@ -54,6 +54,67 @@ fn fits_line(source: &str, span: Span, replacement: &str) -> bool {
     after <= width || before > width
 }
 
+/// The edit that replaces `call` with `replacement` as the formatter prints
+/// the result: the span it covers and its text.
+///
+/// The method spelling can be wider than the function's, and a call that no
+/// longer fits its line is one the formatter breaks. How it breaks depends on
+/// the statement around the call, so the formatter is asked for the whole
+/// file with the call replaced, and the edit is the part of its answer that
+/// differs from the source, widened to hold the call.
+///
+/// That is the formatter's rendering of this call only in a file the
+/// formatter leaves alone. In any other file, and where the formatter
+/// rejects the result, the call is replaced where it stands and the next
+/// format lays it out.
+fn formatted_replacement(source: &str, call: Span, replacement: String) -> (Span, String) {
+    let in_place = (call, replacement.clone());
+    // A call that still fits its line stays on it; only one that does not is
+    // worth formatting the file for.
+    if fits_line(source, call, &replacement) {
+        return in_place;
+    }
+    let format = |text: &str| {
+        let output =
+            super::super::format::Formatter::new().format_source(call.source_id, text);
+        output.diagnostics.is_empty().then_some(output.formatted)
+    };
+    let mut rewritten = source.to_owned();
+    rewritten.replace_range(call.range(), &replacement);
+    let Some(formatted) = format(&rewritten) else {
+        return in_place;
+    };
+    if formatted == rewritten || format(source).as_deref() != Some(source) {
+        return in_place;
+    }
+    // Everything before the call and everything after it that the formatter
+    // kept is outside the edit.
+    let prefix = source
+        .bytes()
+        .zip(formatted.bytes())
+        .take_while(|(old, new)| old == new)
+        .count()
+        .min(call.start());
+    let suffix = source[prefix..]
+        .bytes()
+        .rev()
+        .zip(formatted[prefix..].bytes().rev())
+        .take_while(|(old, new)| old == new)
+        .count()
+        .min(source.len() - call.end());
+    let (old_end, new_end) = (source.len() - suffix, formatted.len() - suffix);
+    if !source.is_char_boundary(prefix)
+        || !source.is_char_boundary(old_end)
+        || !formatted.is_char_boundary(new_end)
+    {
+        return in_place;
+    }
+    (
+        Span::new(call.source_id, prefix, old_end),
+        formatted[prefix..new_end].to_owned(),
+    )
+}
+
 /// `fs.symlink(target, link)`, whose operands are in the order of `ln -s` and
 /// are both paths, so a swapped pair checks.
 fn symlink_function(
@@ -106,18 +167,13 @@ fn symlink_function(
     } else {
         format!("to: {}", source.get(target.span.range())?)
     };
-    let replacement = format!("{receiver}.symlink({argument})");
-    Some(if fits_line(source, call, &replacement) {
-        diagnostic.with_fix_hint(FixHint::replacement(
-            call,
-            "call the method on the link",
-            replacement,
-        ))
-    } else {
-        diagnostic.with_note(
-            "the method call no longer fits the line; rewrite it as `LINK.symlink(to: TARGET)` and break the call",
-        )
-    })
+    let (span, replacement) =
+        formatted_replacement(source, call, format!("{receiver}.symlink({argument})"));
+    Some(diagnostic.with_fix_hint(FixHint::replacement(
+        span,
+        "call the method on the link",
+        replacement,
+    )))
 }
 
 /// Whether evaluating `second` before `first` gives what evaluating `first`
@@ -209,5 +265,53 @@ mod tests {
         assert!(diagnostics[0].fix_hints.is_empty(), "{diagnostics:?}");
         assert!(diagnostics[0].notes[0].contains("evaluates the link before the target"));
         assert!(diagnostics[1].fix_hints.is_empty(), "{diagnostics:?}");
+    }
+
+    /// A statement of `width` columns that links a literal, whose method
+    /// spelling `p"..."` is one column wider than the function's `"..."`.
+    fn literal_link_statement(width: usize) -> String {
+        let fixed = "  fs.symlink(root.parent(), \"\")".len();
+        format!(
+            "proc stage(root: Path) [fs, error] {{\n  fs.symlink(root.parent(), \"{}\")\n}}\n",
+            "l".repeat(width - fixed)
+        )
+    }
+
+    // The method call is one column wider than the function call here. Where
+    // that column is the first past the formatter's width the fix is the
+    // broken call the formatter prints, and one column earlier it is the
+    // call on its line.
+    #[test]
+    fn a_call_the_label_pushes_past_the_width_is_broken_as_the_formatter_breaks_it() {
+        let width = super::super::super::format::DEFAULT_LINE_WIDTH;
+        let format = |text: &str| {
+            let output = super::super::super::format::Formatter::new()
+                .format_source(xsh::frontend::source::SourceId::new(0), text);
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            output.formatted
+        };
+        for (statement_width, broken) in [(width - 1, false), (width, true)] {
+            let source = literal_link_statement(statement_width);
+            assert_eq!(format(&source), source, "the fixture is formatted");
+            let diagnostics = lint(&source);
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
+            let fixed = fixed(&source);
+            assert_eq!(format(&fixed), fixed, "the fix prints what the formatter prints");
+            assert_eq!(fixed.contains(".symlink(\n    to: root.parent(),\n  )\n"), broken, "{fixed}");
+            assert!(fixed.contains("\n  p\"l") && fixed.contains("l\".symlink("), "{fixed}");
+        }
+    }
+
+    // In a file the formatter would change elsewhere, the formatter's
+    // rendering of the whole file is not the fix: the call is rewritten in
+    // place and left to the next format.
+    #[test]
+    fn a_call_in_an_unformatted_file_is_rewritten_in_place() {
+        let width = super::super::super::format::DEFAULT_LINE_WIDTH;
+        let source = literal_link_statement(width).replace("proc stage(root: Path)", "proc stage( root: Path )");
+        let fixed = fixed(&source);
+        assert!(fixed.starts_with("proc stage( root: Path ) [fs, error] {\n  p\""), "{fixed}");
+        assert!(fixed.ends_with("\".symlink(to: root.parent())\n}\n"), "{fixed}");
     }
 }

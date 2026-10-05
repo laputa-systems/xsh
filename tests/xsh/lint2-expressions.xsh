@@ -245,3 +245,36 @@ test test_invalid_input { |ctx|
   assert fixed(file, "lint.redundant-discard")? == declared.replace("  let _ = test", with: "  test")
   assert_checked(file)
 }
+
+# `link.symlink(to: target)` is one column wider than `fs.symlink(target,
+# link)` when the link is a string literal, which the method spells `p"..."`.
+# Where that column is the first one past the formatter's width, the fix is
+# the broken call that `xsht fmt` prints, not a note to break it by hand.
+test test_argument_label_fix_breaks_a_call_that_no_longer_fits_its_line { |ctx|
+  let width = 120
+  let around = "  fs.symlink(root.parent(), \"\")".byte_len()
+  let filler = "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+  for statement_width in [width - 1, width] {
+    let link = filler.byte_slice(0, statement_width - around)
+    let source = f"proc stage(root: Path) [fs, error] {{\n  fs.symlink(root.parent(), \"{link}\")\n}}\n"
+    let file = script(ctx, source)?
+    assert_checked(file)
+    assert findings(file, "lint.prefer-argument-label")? == 1
+    let text = fixed(file, "lint.prefer-argument-label")?
+    let call = f"p\"{link}\".symlink("
+    let expected = if statement_width == width {
+      f"  {call}\n    to: root.parent(),\n  )\n"
+    } else {
+      f"  {call}to: root.parent())\n"
+    }
+
+    assert expected in text, text
+    assert findings(file, "lint.prefer-argument-label")? == 0
+    assert_checked(file)
+    let formatted = cd (file.parent()) {
+      run.capture --text "xsht" fmt --check $file
+    }?
+
+    assert formatted.status.exited_with(0), formatted.stdout
+  }
+}
