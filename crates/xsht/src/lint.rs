@@ -103,8 +103,6 @@ mod lint_fs_method;
 mod lint_prefer_typed_callable;
 #[path = "lint_explicit_run_capture.rs"]
 mod lint_explicit_run_capture;
-#[path = "lint_explicit_missing_ok.rs"]
-mod lint_explicit_missing_ok;
 #[path = "lint_prefer_non_empty_argv.rs"]
 mod lint_prefer_non_empty_argv;
 #[path = "lint_prefer_rel_path.rs"]
@@ -483,9 +481,6 @@ pub struct LintOptions {
     pub prefer_inferred_proc_returns: bool,
     /// Opt in to `lint.prefer-typed-callable`.
     pub prefer_typed_callables: bool,
-    /// Opt in to `lint.explicit-missing-ok`, which a corpus turns on once,
-    /// before the default of `remove` changes.
-    pub explicit_missing_ok: bool,
     /// Opt in to `lint.prefer-non-empty-argv`.
     pub prefer_non_empty_argv: bool,
     /// Opt in to `lint.prefer-text-pattern`, which has no fix: it notes
@@ -565,7 +560,6 @@ impl Default for LintOptions {
             message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
             prefer_typed_callables: false,
-            explicit_missing_ok: false,
             prefer_non_empty_argv: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
@@ -624,7 +618,6 @@ pub struct Linter<'a> {
     prefer_positional_constructors: bool,
     prefer_inferred_proc_returns: bool,
     prefer_typed_callables: bool,
-    explicit_missing_ok: bool,
     prefer_text_pattern: bool,
     prefer_rel_path: bool,
     return_proof: Option<ReturnProofContext>,
@@ -841,12 +834,6 @@ impl<'a> Linter<'a> {
             prefer_tempdir_scope: options.prefer_tempdir_scope,
             prefer_inferred_variants,
             prefer_positional_constructors,
-            // Naming the rule asks for it as the setting does, so its sites
-            // can be counted without a configuration file.
-            explicit_missing_ok: options.explicit_missing_ok
-                || only.as_deref().is_some_and(|only| {
-                    only.contains(&DiagnosticCode::LintExplicitMissingOk)
-                }),
             prefer_text_pattern: options.prefer_text_pattern
                 || only.as_deref().is_some_and(|only| {
                     only.contains(&DiagnosticCode::LintPreferTextPattern)
@@ -10114,8 +10101,7 @@ impl<'a> Linter<'a> {
                     "mkdir creates parent directories by default"
                 },
             );
-        } else if xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT && self.is_path_remove(callee)
-        {
+        } else if self.is_path_remove(callee) {
             self.lint_redundant_named_bool(
                 args,
                 "missing_ok",
@@ -11191,16 +11177,6 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(method);
-        if self.explicit_missing_ok {
-            let removal = lint_explicit_missing_ok::implicit_missing_ok(
-                self.arena,
-                self.source,
-                &self.expr_types,
-                fs_is_shadowed,
-                expr,
-            );
-            self.diagnostics.extend(removal);
-        }
         if self.prefer_rel_path {
             let rooted =
                 lint_prefer_rel_path::unvalidated_rooted_path(self.arena, &self.expr_types, expr);

@@ -1,7 +1,7 @@
 proc fetch(url: Str, out: Path) {
   let partial = fp"{out}.partial"
   defer {
-    partial.remove(missing_ok: true)
+    partial.remove()
     print "removed partial download"
   }
 

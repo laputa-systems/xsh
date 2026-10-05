@@ -2189,8 +2189,9 @@ means exactly
 ```
 
 So the path is a `Path` evaluated once and bound to the immutable `name`,
-which is in scope for the body only. Both removals are `fs.remove` with
-`missing_ok: true`: whatever is at the path, a file, a symlink (itself, never
+which is in scope for the body only. Both removals are `fs.remove` (15),
+which the expansion writes with its default `missing_ok: true`: whatever is
+at the path, a file, a symlink (itself, never
 its target), or a directory with everything below it, is removed, and nothing
 being there is not an error. A failure to remove what is there or to create
 the directory propagates before the body runs. The deferred removal runs
@@ -2600,7 +2601,7 @@ standard-module call written in command style:
 Command style is available only for effectful standard APIs that return
 `Result[Unit]`, and the statement propagates failure. A defaulted `Bool`
 parameter may be passed as a flag, mapping kebab case to snake case
-(`--missing-ok` means `missing_ok: true`). Everything else uses expression
+(`--pretty` means `pretty: true`). Everything else uses expression
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
 
@@ -3404,6 +3405,14 @@ Contracts worth knowing without consulting the reference:
   so operands are still evaluated left to right. `fs` keeps what has no
   single path to be a method of: the working directory and roots, traversal,
   locks, mounts, temporary files, and installs.
+- `p.remove()` leaves the path gone. It removes a file, a symlink (itself,
+  never its target), or a directory with everything below it, and it succeeds
+  when nothing is there: `missing_ok` defaults to `true`, in the method, the
+  function, and the command spelling. `p.remove(missing_ok: false)` makes a
+  missing path an error, for a caller that reads absence as a sign that
+  something else went wrong. `lint.redundant-default` removes a written
+  `missing_ok: true`. `p.remove_dir()` removes one empty directory and fails
+  on a missing path.
 - `Path.is_dir()`, `Path.is_file()`, and `Path.is_symlink()` each return
   `Result[Bool]` and ask what the path itself is:
 

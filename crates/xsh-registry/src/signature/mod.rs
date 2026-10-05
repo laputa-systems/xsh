@@ -433,10 +433,10 @@ pub fn default_param(name: &'static str, ty: Type) -> ParamSig {
 }
 
 /// What `Path.remove` and `fs.remove` do about a missing path when a call
-/// leaves `missing_ok` out. The registry records only that the parameter has
-/// a default; the runtime and the lint that removes a redundant argument both
-/// read the value here, so they cannot disagree.
-pub const REMOVE_MISSING_OK_DEFAULT: bool = false;
+/// leaves `missing_ok` out: nothing, because the caller wants the path gone
+/// and it is. The registry records only that the parameter has a default, so
+/// every runtime path reads the value here.
+pub const REMOVE_MISSING_OK_DEFAULT: bool = true;
 
 pub fn result(ok: Type) -> Type {
     Type::Result(Box::new(ok), Box::new(Type::Error))

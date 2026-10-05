@@ -211,8 +211,6 @@ pub struct LintConfig {
     pub prefer_implicit_messages: bool,
     pub prefer_inferred_proc_returns: bool,
     pub prefer_typed_callables: bool,
-    /// On only when `explicit-missing-ok = true`.
-    pub explicit_missing_ok: bool,
     pub prefer_non_empty_argv: bool,
     /// On only when `prefer-text-pattern = true`.
     pub prefer_text_pattern: bool,
@@ -233,7 +231,6 @@ impl Default for LintConfig {
             prefer_implicit_messages: false,
             prefer_inferred_proc_returns: false,
             prefer_typed_callables: false,
-            explicit_missing_ok: false,
             prefer_non_empty_argv: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
@@ -373,8 +370,6 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_inferred_proc_returns: ini_string(lint, "prefer-inferred-proc-returns")
             .is_some_and(|value| value == "true"),
         prefer_typed_callables: ini_string(lint, "prefer-typed-callables")
-            .is_some_and(|value| value == "true"),
-        explicit_missing_ok: ini_string(lint, "explicit-missing-ok")
             .is_some_and(|value| value == "true"),
         prefer_non_empty_argv: ini_string(lint, "prefer-non-empty-argv")
             .is_some_and(|value| value == "true"),
@@ -649,17 +644,6 @@ mod tests {
         assert!(load_config_from(&path).unwrap().lint.prefer_text_pattern);
         fs::write(&path, "[lint]\n").unwrap();
         assert!(!load_config_from(&path).unwrap().lint.prefer_text_pattern);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn explicit_missing_ok_lint_is_explicit_opt_in() {
-        let root = temp_root("explicit-missing-ok-lint-config");
-        let path = root.join("xsht-config.ini");
-        fs::write(&path, "[lint]\nexplicit-missing-ok = true\n").unwrap();
-        assert!(load_config_from(&path).unwrap().lint.explicit_missing_ok);
-        fs::write(&path, "[lint]\n").unwrap();
-        assert!(!load_config_from(&path).unwrap().lint.explicit_missing_ok);
         let _ = fs::remove_dir_all(root);
     }
 

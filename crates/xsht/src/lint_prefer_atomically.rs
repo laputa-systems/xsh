@@ -182,13 +182,15 @@ fn is_true_flag(arena: &AstArena, argument: &ArenaCallArgKind, flag: &str) -> bo
     )
 }
 
-/// The local in a removal with `missing_ok: true`.
+/// The local in a removal that accepts a missing path: one that leaves
+/// `missing_ok` out, or one that writes the default `missing_ok: true`.
 fn removed_path(arena: &AstArena, expr: ExprId) -> Option<Name> {
     let (path, arguments) = path_operation(arena, expr, "remove")?;
-    let [flag] = &arguments[..] else {
-        return None;
-    };
-    is_true_flag(arena, flag, "missing_ok").then(|| local(arena, path))?
+    match &arguments[..] {
+        [] => local(arena, path),
+        [flag] if is_true_flag(arena, flag, "missing_ok") => local(arena, path),
+        _ => None,
+    }
 }
 
 fn cleared_path(arena: &AstArena, stmt: StmtId) -> Option<Name> {
@@ -841,5 +843,13 @@ mod tests {
         ] {
             assert!(published_files(source).is_empty(), "{source}");
         }
+    }
+
+    // A removal that leaves `missing_ok` out accepts a missing path, as the
+    // statement's own removals do.
+    #[test]
+    fn a_removal_without_missing_ok_is_the_same_removal() {
+        let source = "proc publish(dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  partial.remove()\n  defer partial.remove()\n  partial.write(\"text\")\n  partial.rename(dest, overwrite: true)\n}\n";
+        assert_eq!(published_files(source).len(), 1, "{source}");
     }
 }

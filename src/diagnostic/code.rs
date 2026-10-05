@@ -648,7 +648,6 @@ diagnostic_codes! {
         LintPreferPathMethod = "lint.prefer-path-method", warning, "Call the `Path` method instead of the `fs` function that takes the path first";
         LintPreferTypedCallable = "lint.prefer-typed-callable", warning, "Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature";
         LintPreferTestExpect = "lint.prefer-test-expect", warning, "State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script`";
-        LintExplicitMissingOk = "lint.explicit-missing-ok", warning, "Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in)";
         LintPreferIsEmpty = "lint.prefer-is-empty", warning, "Use `is_empty()` instead of comparing a length with zero";
         LintPreferNegativeIndex = "lint.prefer-negative-index", warning, "Use `list[-N]` instead of `list[list.len() - N]`";
         LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", warning, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";

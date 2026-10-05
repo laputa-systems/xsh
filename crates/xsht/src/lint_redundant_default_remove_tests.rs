@@ -20,11 +20,48 @@ fn lint(source: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
-// While a missing path is an error by default, `missing_ok: true` changes
-// what the call does and `missing_ok: false` is what a migration writes
-// before the default changes, so neither is reported.
+fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
+    let mut fixes = diagnostics
+        .iter()
+        .flat_map(|diagnostic| &diagnostic.fix_hints)
+        .collect::<Vec<_>>();
+    fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
+    let mut fixed = source.to_owned();
+    for fix in fixes {
+        fixed.replace_range(
+            fix.span.unwrap().range(),
+            fix.replacement.as_deref().unwrap_or_default(),
+        );
+    }
+    fixed
+}
+
+// The row and the runtime must name the same default: the fix deletes the
+// argument, which is only the same call while a missing path is accepted
+// without it.
 #[test]
-fn an_explicit_missing_ok_is_kept_while_the_default_is_false() {
-    let source = "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove(missing_ok: true)\n  fs.remove(root, missing_ok: true)\n  stale.remove(missing_ok: false)\n  fs.remove(root, missing_ok: false)\n}\n";
+fn the_default_the_row_removes_is_the_runtime_default() {
+    assert!(xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT);
+}
+
+#[test]
+fn a_written_missing_ok_true_is_removed() {
+    let source = "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove(missing_ok: true)\n  fs.remove(root, missing_ok: true)\n  fs.remove(\n    root,\n    missing_ok: true,\n  )\n  let _ = fp\"{root}/cache\".remove(missing_ok: true)\n}\n";
+    let diagnostics = lint(source);
+    assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
+    let fixed = apply(&diagnostics, source);
+    assert_eq!(
+        fixed,
+        "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove()\n  fs.remove(root)\n  fs.remove(\n    root,\n  )\n  let _ = fp\"{root}/cache\".remove()\n}\n"
+    );
+    assert!(lint(&fixed).is_empty());
+}
+
+// `missing_ok: false` changes what the call does. A map's `remove`, a rooted
+// `remove`, a user function named `remove`, and the removals a scratch
+// directory or an atomic replacement expands to are other calls.
+#[test]
+fn other_removals_are_left_alone() {
+    let source = "proc remove(stale: Path, missing_ok: Bool = false) [fs, error] {\n  stale.remove(missing_ok: false)\n  fs.remove(stale, missing_ok: missing_ok)\n}\n\nproc clean(stale: Path, root: FsRoot, seen: Map[Int]) [fs, error] {\n  var counts = seen\n  counts = counts.remove(\"stale\")\n  root.remove(p\"cache\", dir: true)\n  remove(stale, missing_ok: true)\n  tempdir scratch at stale {\n    fp\"{scratch}/stamp\".write(\"staged\")\n  }\n  atomically replace stale as partial {\n    partial.write(f\"{counts.len()}\")\n  }\n}\n";
     assert!(lint(source).is_empty(), "{:?}", lint(source));
 }

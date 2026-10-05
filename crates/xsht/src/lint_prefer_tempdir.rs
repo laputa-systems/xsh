@@ -102,16 +102,19 @@ fn local(arena: &AstArena, argument: &ArenaCallArgKind) -> Option<Name> {
     }
 }
 
-/// The local in `fs.remove(NAME, missing_ok: true)`.
+/// The local in `fs.remove(NAME)` or `fs.remove(NAME, missing_ok: true)`,
+/// which are the same call: a missing path is accepted by default.
 fn removed_path(arena: &AstArena, expr: ExprId) -> Option<Name> {
-    let [path, ArenaCallArgKind::Named { name, value, .. }] = &fs_call(arena, expr, "remove")?[..]
-    else {
-        return None;
-    };
-    if *name != "missing_ok" || !matches!(arena.expr(*value).kind, ArenaExprKind::Bool(true)) {
-        return None;
+    match &fs_call(arena, expr, "remove")?[..] {
+        [path] => local(arena, path),
+        [path, ArenaCallArgKind::Named { name, value, .. }]
+            if *name == "missing_ok"
+                && matches!(arena.expr(*value).kind, ArenaExprKind::Bool(true)) =>
+        {
+            local(arena, path)
+        }
+        _ => None,
     }
-    local(arena, path)
 }
 
 fn cleared_path(arena: &AstArena, stmt: StmtId) -> Option<Name> {
@@ -610,12 +613,20 @@ mod tests {
             // The removal is registered before the directory exists.
             "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  defer fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n}\n",
             // A missing directory is an error for one of the removals.
-            "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch)\n}\n",
+            "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: false)\n}\n",
             // Two different paths.
             "proc stage(scratch: Path, other: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(other)\n  defer fs.remove(scratch, missing_ok: true)\n}\n",
             "proc stage(root: Path) [fs, error] {\n  tempdir scratch at root {\n    print $scratch\n  }\n}\n",
         ] {
             assert!(scratch_directories(source).is_empty(), "{source}");
         }
+    }
+
+    // A removal that leaves `missing_ok` out accepts a missing path, as the
+    // statement's own removals do.
+    #[test]
+    fn a_removal_without_missing_ok_is_the_same_removal() {
+        let source = "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch)\n  print $scratch\n}\n";
+        assert_eq!(scratch_directories(source).len(), 1, "{source}");
     }
 }
