@@ -895,7 +895,7 @@ proc helper() -> Result[Unit] {
   return Ok()
 }
 
-export proc public() -> Result[Unit] {
+export proc public() -> Result[Unit, Error] {
   return Ok()
 }
 ";
