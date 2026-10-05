@@ -1244,6 +1244,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The value is a host clock observation and is not a monotonic duration source.",
             &["time", "clock", "host-state"],
         )),
+        ("time", "format") => Some((
+            "Formats an epoch nanosecond timestamp as calendar text.",
+            "Uses the process TZ and system timezone rules unless utc is true. Supports strftime directives plus nanoseconds (%N), epoch seconds (%s), quarter (%q), and colon timezone offsets. Format widths and total output are limited to 65536 bytes; embedded NUL and non-UTF-8 output are errors.",
+            &["time", "calendar", "timezone"],
+        )),
+        ("time", "parse") => Some((
+            "Parses calendar text into nanoseconds since the Unix epoch.",
+            "Accepts @seconds with up to nine fractional digits, numeric ISO dates and times, explicit numeric timezone offsets, common English month dates, compact touch timestamps, now/today/yesterday/tomorrow, and relative calendar or duration units with optional ago. Relative dates use base_ns when supplied and otherwise observe the wall clock. Local dates use TZ unless utc is true. Invalid dates and nanosecond overflow are errors.",
+            &["time", "calendar", "timezone"],
+        )),
+        ("time", "from_calendar") => Some((
+            "Converts typed calendar fields to nanoseconds since the Unix epoch.",
+            "Month is 1 through 12; day is validated against the month and leap year. Hour, minute and second default to zero. Local TZ and DST rules apply unless utc is true; impossible dates and missing DST hours are rejected. Ambiguous DST hours follow the host calendar library. The signed Int nanosecond range is approximately 1677 through 2262.",
+            &["time", "calendar", "timezone"],
+        )),
         ("time", "sleep") => Some((
             "Suspends the current XSH operation for a duration.",
             "Sleep is interruptible host work and consumes the declared time effect.",
