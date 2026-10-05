@@ -3,7 +3,7 @@ name = "xsht"
 version = "0.0.1"
 edition = "2024"
 publish = false
-# Keep cli, grep, and lint in one integration binary instead of one per file.
+# Keep cli, desugar, and lint in one integration binary instead of one per file.
 autotests = false
 
 [features]
