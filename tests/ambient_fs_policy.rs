@@ -97,42 +97,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "host command specs preserve ambient cwd/path interop",
     ),
     (
-        "crates/xshi/src/interactive/app.rs",
-        "xshi app tests and completion fixtures use host temp paths",
-    ),
-    (
-        "crates/xshi/src/interactive/bench.rs",
-        "xshi benchmarks initialize from host cwd",
-    ),
-    (
-        "crates/xshi/src/interactive/complete.rs",
-        "xshi completion inspects host filesystem paths",
-    ),
-    (
-        "crates/xshi/src/interactive/config.rs",
-        "xshi config/profile loading is host-facing",
-    ),
-    (
-        "crates/xshi/src/interactive/denv.rs",
-        "xshi direnv-style discovery and tests inspect host project files",
-    ),
-    (
-        "crates/xshi/src/interactive/history.rs",
-        "xshi history persists to host files",
-    ),
-    (
-        "crates/xshi/src/interactive/listing.rs",
-        "xshi listing inspects host directory entries",
-    ),
-    (
-        "crates/xshi/src/interactive/session.rs",
-        "xshi session owns cwd changes and host directory snapshots",
-    ),
-    (
-        "crates/xshi/src/interactive/shell/glob.rs",
-        "xshi shell globbing expands host paths",
-    ),
-    (
         "src/modules/archive/cpio.rs",
         "archive cpio helpers operate on user-supplied archive paths",
     ),

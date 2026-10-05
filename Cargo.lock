@@ -814,12 +814,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
-name = "lexopt"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
-
-[[package]]
 name = "libbz2-rs-sys"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1195,24 +1189,6 @@ dependencies = [
  "rustls-pki-types",
  "untrusted",
 ]
-
-[[package]]
-name = "rustybench"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b30d630ac8c78e1d96607fcbb39803f30c641602723f4fea9ee5e7fb99f000d"
-dependencies = [
- "lexopt",
- "miniserde",
- "regex-lite",
- "rustybench-macros",
-]
-
-[[package]]
-name = "rustybench-macros"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "909f333eabde4ac2811394ae88d2cf3f4273bc7a7dceb4508a229e7d0860e843"
 
 [[package]]
 name = "same-file"
@@ -1878,16 +1854,6 @@ dependencies = [
 [[package]]
 name = "xshi"
 version = "0.0.1"
-dependencies = [
- "libc",
- "mimalloc",
- "rustc-hash",
- "rustix",
- "rustybench",
- "sha2",
- "tempfile",
- "xsh",
-]
 
 [[package]]
 name = "xsht"

@@ -1,8 +1,15 @@
-pub mod xshi;
+//! xshi is disabled.
+//!
+//! The interactive shell implementation has been removed and no longer
+//! compiles. This stub keeps the `xshi` crate — and therefore the `xshi`
+//! binary target — buildable so workspace commands that still reference the
+//! `xshi` package keep working. The original implementation remains in git
+//! history.
 
-pub use xshi::app;
-pub use xshi::interactive;
-pub use xshi::interactive::{
-    OneCommandOptions, RunOptions, check_source, run, run_one_command,
-    run_one_command_with_options, run_with_options,
-};
+use std::process::ExitCode;
+
+/// Stub entry point kept so the `xshi` binary still compiles.
+pub fn stub_main() -> ExitCode {
+    eprintln!("xshi: disabled — the interactive shell is no longer available");
+    ExitCode::FAILURE
+}
