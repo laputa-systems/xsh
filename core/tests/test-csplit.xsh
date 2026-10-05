@@ -184,6 +184,14 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
   assert piece(root, "xx01")? == b"", "and so does the piece being opened"
   clean(root)?
 
+  let behind = csplit_run(ctx, root, ["n", "/^15$/-3", "14", "/^15$/"])?
+  assert behind.stdout == b"24\n6\n21\n", "a line number leaves the lines already read by a negative offset unmatched"
+  assert behind.stderr == "csplit: '/^15$/': match not found\n", behind.stderr
+
+  let over = csplit_run(ctx, root, ["--suppress-matched", "n", "21", "30"])?
+  assert over.stdout == b"51\n0\n"
+  assert over.stderr == "csplit: '30': line number out of range\n", over.stderr
+
   let spare = csplit_run(ctx, root, ["--suppress-matched", "n", "21"])?
   assert spare.status == 0, "a line number one past the end is not out of range when the matched line is suppressed"
   assert spare.stdout == b"51\n0\n"

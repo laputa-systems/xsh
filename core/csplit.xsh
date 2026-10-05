@@ -420,7 +420,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       if item.kind == "line" {
         if begin >= total {
-          walk = {cur: total, held: 0, pieces: pieces, failure: DISAPPEARED}
+          if opts.suppress {
+            let at = if total == 0 { 0 } else { spans[total - 1] }
+
+            pieces += [{from: at, to: at}]
+            walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+          } else {
+            walk = {cur: total, held: 0, pieces: pieces, failure: DISAPPEARED}
+          }
+
           continue
         }
 
@@ -437,7 +445,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         } else {
           let upto = if stop == 0 { 0 } else { spans[stop - 1] }
           var next = stop
-          var held = if stop > begin { 0 } else { walk.held }
+          let read = if begin + walk.held > stop { begin + walk.held } else { stop }
+          var held = read - stop
 
           pieces += [{from: from, to: upto}]
 
