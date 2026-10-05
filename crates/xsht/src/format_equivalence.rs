@@ -76,6 +76,25 @@ pub(crate) fn canonical_subtree(
     writer.out
 }
 
+/// Canonical form of the program the checker and the runtime read: every
+/// sugar statement stands for its expansion.
+pub(super) fn canonical_expanded(program: &ArenaProgram, source: &str) -> Canonical {
+    let mut writer = CanonicalWriter {
+        arena: &program.arena,
+        source,
+        out: String::new(),
+        marks: Vec::new(),
+        expanded: Some(Vec::new()),
+    };
+    for stmt in program.statement_ids() {
+        writer.stmt(stmt);
+    }
+    Canonical {
+        text: writer.out,
+        marks: writer.marks,
+    }
+}
+
 /// The walk a sugar statement's meaning is read from: its expansion instead
 /// of its operands, with every node entered recorded in walk order.
 #[cfg(test)]
@@ -107,8 +126,9 @@ struct CanonicalWriter<'a> {
     source: &'a str,
     out: String,
     marks: Vec<(usize, usize)>,
-    /// Set only by the expansion tests. The formatter's walk leaves it unset
-    /// and compares what the user wrote: a sugar statement's form and operands.
+    /// Set to read each sugar statement as its expansion, recording every
+    /// node entered. The formatter's walk leaves it unset and compares what
+    /// the user wrote: a sugar statement's form and operands.
     expanded: Option<Vec<ArenaSugarOperand>>,
 }
 

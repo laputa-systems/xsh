@@ -323,6 +323,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         examples: &[],
     },
     CommandSpec {
+        name: "desugar",
+        summary: "Print a script with every sugar form expanded",
+        quick_label: "Expand sugar",
+        args: "SCRIPT",
+        usage: &[&[UsagePart::Args]],
+        options: &[],
+        removed: &[],
+        options_end_at_first_argument: false,
+        notes: &[
+            "Each sugar statement, such as `repeat N times { ... }` or `return x when c`,",
+            "  is replaced by the core statements that define it, with its comments.",
+            "The output is formatted XSH on stdout. SCRIPT is not modified and not",
+            "  checked: the output checks when SCRIPT does.",
+        ],
+        examples: &[],
+    },
+    CommandSpec {
         name: "grammar",
         summary: "Print the language grammar",
         quick_label: "Read the grammar",

@@ -73,6 +73,7 @@ debug builds for compile checks, and build only the package you need
 | parser, CST, formatter | `cargo test --release --test integration syntax::NAME` | `cargo test --release --test integration syntax::`; `tests/xsh/formatter.xsh` |
 | grammar (`src/syntax/grammar.rs`) | `cargo test --release --test integration syntax::grammar::` | `cargo test --release -p xsh-fuzz --test soundness generated_programs_are_grammar_sentences`; `make docs-check` |
 | checker | `cargo test --release --test integration sema::NAME` | `cargo test --release --test integration sema::` |
+| sugar forms, `xsht desugar` | `cargo test -p xsht --lib sugar_expansion_tests`; `cargo test -p xsht --lib desugar_tests` | `cargo test --release -p xsht --test integration desugar::` (desugars every native test file that holds sugar, in a copy of the workspace, and requires the same check diagnostics and test results) |
 | lowering, verifier | `cargo test -p xsh --lib runtime::eval::indexed::full::tests::NAME` | `cargo test -p xsh --lib runtime::eval` |
 | lowering vs checker types | `cargo test -p xsh --lib corpus_lowering_agrees_with_checked_types` (lowers the corpus and embedded stdlib; debug builds report any disagreement with the checker) | `tests/xsh/lowering-coverage.xsh`; full native suite |
 | runtime | native module, then `cargo test --release --test integration runtime::NAME` | `cargo test --release --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |

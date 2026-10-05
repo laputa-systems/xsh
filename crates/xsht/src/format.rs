@@ -32,6 +32,9 @@ pub(crate) use format_equivalence::canonical_subtree;
 #[cfg(test)]
 #[path = "format_proofs.rs"]
 mod format_proofs;
+#[cfg(test)]
+#[path = "desugar_tests.rs"]
+mod desugar_tests;
 
 pub const DEFAULT_LINE_WIDTH: usize = 120;
 /// Inside delimiters, before `,`, `)`, `]`, `:`, or `=>`.
@@ -205,6 +208,16 @@ struct Writer<'a> {
     after_expression: bool,
     /// Set while writing the unbraced expression statement of a `match` arm.
     arm_statement: bool,
+    /// Set by a desugared print: a sugar statement is written as its
+    /// expansion instead of as the user spelled it.
+    expand_sugar: bool,
+    /// For a desugared print, the source range of every sugar statement in
+    /// source order, outermost first. Text that holds one is never copied
+    /// from the source, because the copy would keep the sugar.
+    sugar_ranges: Arc<Vec<std::ops::Range<usize>>>,
+    /// For a desugared print, the legal spelling of each local an expansion
+    /// bound under a name no identifier can spell.
+    hidden_names: Arc<Vec<(Name, String)>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -348,12 +361,69 @@ impl Formatter {
         verify_formatted_output(source_id, source, &original, output)
     }
 
+    /// Prints `source` with every sugar statement replaced by its expansion
+    /// into core forms, laid out as `format_source` would lay out that
+    /// program.
+    ///
+    /// A comment on a sugar statement stays on its expansion. A local the
+    /// expansion bound under a name no identifier can spell is printed under
+    /// a fresh name that the source spells nowhere. The result is refused,
+    /// with a diagnostic, unless it parses to exactly the tree the checker
+    /// and the runtime read for `source`.
+    pub fn desugar_source(&self, source_id: SourceId, source: &str) -> FormatOutput {
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        if !parsed.diagnostics.is_empty() {
+            return FormatOutput {
+                formatted: String::new(),
+                diagnostics: parsed.diagnostics,
+            };
+        }
+        let mut writer = self.writer(source, &parsed.arena, parsed.cst.get());
+        writer.expand_sugar = true;
+        writer.sugar_ranges = Arc::new(sugar_ranges(&parsed.arena, source_id));
+        writer.hidden_names = Arc::new(hidden_names(&parsed.arena.arena, source));
+        let renamed = !writer.hidden_names.is_empty();
+        let expanded = writer.format_program(&parsed.arena);
+        let refuse = |message: String| FormatOutput {
+            formatted: String::new(),
+            diagnostics: vec![
+                Diagnostic::error(format!("cannot print the expansion of this file: {message}"))
+                    .with_code(DiagnosticCode::FormatEquivalence)
+                    .with_span(Span::new(source_id, 0, 0))
+                    .with_note("this is an `xsht desugar` bug"),
+            ],
+        };
+        let reparsed = Parser::parse_source_arena_only(source_id, &expanded);
+        if let Some(error) = reparsed.diagnostics.first() {
+            return refuse(format!("the expansion does not parse: {}", error.message));
+        }
+        if !reparsed.arena.arena.sugar_expansions.is_empty() {
+            return refuse("a sugar statement was left as written".to_string());
+        }
+        // A renamed local spells differently on purpose; every other program
+        // must come back node for node.
+        if !renamed
+            && format_equivalence::canonical(&reparsed.arena, &expanded).text
+                != format_equivalence::canonical_expanded(&parsed.arena, source).text
+        {
+            return refuse("the printed program is not the expansion".to_string());
+        }
+        self.format_source(source_id, &expanded)
+    }
+
     fn format_program_with_cst(
         &self,
         source: &str,
         program: &ArenaProgram,
         cst: &SyntaxTree,
     ) -> FormatOutput {
+        FormatOutput {
+            formatted: self.writer(source, program, cst).format_program(program),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn writer<'a>(&self, source: &str, program: &'a ArenaProgram, cst: &SyntaxTree) -> Writer<'a> {
         let comments = cst
             .comment_trivia()
             .map(|(id, comment)| PendingComment {
@@ -366,22 +436,104 @@ impl Formatter {
             })
             .collect();
 
-        FormatOutput {
-            formatted: Writer {
-                arena: &program.arena,
-                source: Arc::from(source),
-                comments,
-                next_comment: 0,
-                line_width: self.line_width,
-                force_collection_expanded: false,
-                inline_only: false,
-                after_expression: false,
-                arm_statement: false,
-            }
-            .format_program(program),
-            diagnostics: Vec::new(),
+        Writer {
+            arena: &program.arena,
+            source: Arc::from(source),
+            comments,
+            next_comment: 0,
+            line_width: self.line_width,
+            force_collection_expanded: false,
+            inline_only: false,
+            after_expression: false,
+            arm_statement: false,
+            expand_sugar: false,
+            sugar_ranges: Arc::default(),
+            hidden_names: Arc::default(),
         }
     }
+}
+
+/// The source range of every sugar statement of the root source, in source
+/// order with an enclosing statement before the ones inside it.
+fn sugar_ranges(program: &ArenaProgram, source_id: SourceId) -> Vec<std::ops::Range<usize>> {
+    let arena = &program.arena;
+    let mut ranges = (0..arena.stmt_tags.len())
+        .map(|index| arena.stmt(StmtId::from_index(index)))
+        .filter(|stmt| {
+            matches!(stmt.kind, ArenaStmtKind::Sugar { .. }) && stmt.span.source_id == source_id
+        })
+        .map(|stmt| stmt.span.range())
+        .collect::<Vec<_>>();
+    ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+    ranges
+}
+
+/// Whether `text` is one identifier token, so a name spelled that way can be
+/// written in source.
+fn is_spellable_name(text: &str) -> bool {
+    matches!(
+        lex_spellings(text).as_slice(),
+        [(TokenTag::Ident | TokenTag::ProcIdent, spelled)] if *spelled == text
+    )
+}
+
+/// A legal name for the hidden local `hidden` that `taken` does not hold,
+/// recorded in `taken`. It keeps the identifier characters of the hidden
+/// name so a reader can tell which form bound it.
+fn fresh_name(hidden: &str, taken: &mut std::collections::BTreeSet<String>) -> String {
+    let stem = hidden
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+    let stem = stem.trim_start_matches(|ch: char| ch.is_ascii_digit() || ch == '_');
+    let stem = if stem.is_empty() { "local" } else { stem };
+    // The numeric suffix keeps the name from being a keyword.
+    (1..)
+        .map(|n| format!("{stem}_{n}"))
+        .find(|candidate| taken.insert(candidate.clone()))
+        .expect("an unused suffix exists")
+}
+
+/// The printed spelling of every local of the program whose name no
+/// identifier can spell. Each fresh name differs from every identifier-shaped
+/// word of `source`, so it cannot collide with a name in any scope.
+fn hidden_names(arena: &AstArena, source: &str) -> Vec<(Name, String)> {
+    let mut hidden: Vec<Name> = Vec::new();
+    let mut note = |name: Name| {
+        if !hidden.contains(&name) && !is_spellable_name(name.as_str().as_str()) {
+            hidden.push(name);
+        }
+    };
+    for target in &arena.binding_targets {
+        if let ArenaBindingTargetKind::Name(name) = target.kind {
+            note(name);
+        }
+    }
+    for target in &arena.assign_targets {
+        if let xsh::frontend::syntax::arena::ArenaAssignTargetKind::Name(name) = target.kind {
+            note(name);
+        }
+    }
+    for index in 0..arena.expr_tags.len() {
+        if let ArenaExprKind::Ident(name) = arena.expr(ExprId::from_index(index)).kind {
+            note(name);
+        }
+    }
+    if hidden.is_empty() {
+        return Vec::new();
+    }
+    let mut taken = source
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect::<std::collections::BTreeSet<_>>();
+    hidden
+        .into_iter()
+        .map(|name| {
+            let fresh = fresh_name(name.as_str().as_str(), &mut taken);
+            (name, fresh)
+        })
+        .collect()
 }
 
 impl<'a> Writer<'a> {
@@ -391,7 +543,7 @@ impl<'a> Writer<'a> {
         let mut previous_span: Option<Span> = None;
 
         for stmt_id in program.statement_ids() {
-            let stmt = self.arena.stmt(stmt_id);
+            let stmt = self.arena.stmt(self.layout_stmt(stmt_id));
             if let Some(previous_span) = previous_span {
                 output.push('\n');
                 let forced = previous
@@ -449,9 +601,40 @@ impl<'a> Writer<'a> {
         self.blank_line_between(self.text_end(previous), next)
     }
 
+    /// The statement whose kind decides layout: the statement itself, or in a
+    /// desugared print the expansion that is written in its place. The two
+    /// share a span.
+    fn layout_stmt(&self, id: StmtId) -> StmtId {
+        if self.expand_sugar {
+            self.arena.core_stmt_id(id)
+        } else {
+            id
+        }
+    }
+
+    /// Whether a desugared print must write this text itself because a
+    /// sugar statement lies inside it.
+    fn holds_sugar(&self, span: Span) -> bool {
+        let first = self
+            .sugar_ranges
+            .partition_point(|range| range.start < span.start());
+        self.sugar_ranges
+            .get(first)
+            .is_some_and(|range| range.end <= span.end())
+    }
+
+    /// The spelling a name is printed under.
+    fn name_text(&self, name: Name) -> String {
+        self.hidden_names
+            .iter()
+            .find(|(hidden, _)| *hidden == name)
+            .map_or_else(|| name.as_str().as_str().to_string(), |(_, fresh)| fresh.clone())
+    }
+
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
         let stmt = self.arena.stmt(stmt_id);
-        let skip_formatting = self.write_comments_before(stmt.span.start(), indent, output);
+        let skip_formatting = self.write_comments_before(stmt.span.start(), indent, output)
+            && !self.holds_sugar(stmt.span);
         if skip_formatting {
             self.write_indent(indent, output);
             self.write_raw_stmt(stmt.span, output);
@@ -630,6 +813,9 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Loop { block } => {
                 output.push_str("loop ");
                 self.write_block(*block, indent, output);
+            }
+            ArenaStmtKind::Sugar { expansion, .. } if self.expand_sugar => {
+                self.write_stmt_body(*expansion, indent, output);
             }
             ArenaStmtKind::Sugar { form, operands, .. } => {
                 match self.arena.sugar(*form, *operands) {
@@ -1195,7 +1381,7 @@ impl<'a> Writer<'a> {
             let stmts: Vec<StmtId> = self.arena.stmt_ids(block.statements).collect();
             if stmts.len() == 1 && block.params.is_empty() {
                 let stmt_id = stmts[0];
-                let stmt = self.arena.stmt(stmt_id);
+                let stmt = self.arena.stmt(self.layout_stmt(stmt_id));
                 let definition = matches!(
                     stmt.kind,
                     ArenaStmtKind::ProcDef(_)
@@ -1463,7 +1649,7 @@ impl<'a> Writer<'a> {
         }
         let kind = self.arena.binding_target(target_id).kind.clone();
         match &kind {
-            ArenaBindingTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
+            ArenaBindingTargetKind::Name(name) => output.push_str(&self.name_text(*name)),
             ArenaBindingTargetKind::Record { fields, rest } => {
                 output.push('{');
                 let fields = self.arena.destructure_fields(*fields).to_vec();
@@ -1498,7 +1684,7 @@ impl<'a> Writer<'a> {
         use xsh::frontend::syntax::arena::ArenaAssignTargetKind;
         let kind = self.arena.assign_target(target_id).kind.clone();
         match &kind {
-            ArenaAssignTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
+            ArenaAssignTargetKind::Name(name) => output.push_str(&self.name_text(*name)),
             ArenaAssignTargetKind::Env(name) => write_env_string(*name, output),
             ArenaAssignTargetKind::Field { base, name } => {
                 self.write_assign_target(*base, output);
@@ -1654,7 +1840,7 @@ impl<'a> Writer<'a> {
         let mut previous_span: Option<Span> = None;
         let mut previous_multiline_control_flow = false;
         for (index, stmt_id) in stmts.iter().enumerate() {
-            let stmt = self.arena.stmt(*stmt_id);
+            let stmt = self.arena.stmt(self.layout_stmt(*stmt_id));
             let stmt_span = stmt.span;
             if let Some(previous) = previous_span {
                 output.push('\n');
@@ -1667,7 +1853,9 @@ impl<'a> Writer<'a> {
             let stmt_output_start = output.len();
             let grouped = preserve_value_shape && index == 0 && params.is_empty();
             self.after_expression = index > 0
-                && grouping::statement_may_continue(&self.arena.stmt(stmts[index - 1]).kind);
+                && grouping::statement_may_continue(
+                    &self.arena.stmt(self.layout_stmt(stmts[index - 1])).kind,
+                );
             match stmt.kind {
                 ArenaStmtKind::TailBareIdent(name) if grouped => {
                     self.write_comments_before(stmt_span.start(), indent + 1, output);
@@ -2300,7 +2488,7 @@ impl<'a> Writer<'a> {
                 output.push_str(&literal.source_text);
             }
             ArenaExprKind::Bytes(value) => write_bytes(self.arena.bytes_literal(*value), output),
-            ArenaExprKind::Ident(name) => output.push_str(name.as_str().as_str()),
+            ArenaExprKind::Ident(name) => output.push_str(&self.name_text(*name)),
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::LastStatus => output.push_str("$?"),
             ArenaExprKind::List(items) => self.write_list(expr_id, *items, output),
@@ -2639,7 +2827,7 @@ impl<'a> Writer<'a> {
         let has_comment = self.comments[self.next_comment..].iter().any(|comment| {
             comment.span.start() >= span.start() && comment.span.start() < span.end()
         });
-        if !has_comment {
+        if !has_comment || self.holds_sugar(span) {
             return false;
         }
         if let Some(raw) = self.source.get(span.range()) {
@@ -4213,6 +4401,9 @@ impl<'a> Writer<'a> {
             inline_only: true,
             after_expression: false,
             arm_statement: false,
+            expand_sugar: self.expand_sugar,
+            sugar_ranges: Arc::clone(&self.sugar_ranges),
+            hidden_names: Arc::clone(&self.hidden_names),
         };
         let mut output = String::new();
         f(&mut writer, &mut output);

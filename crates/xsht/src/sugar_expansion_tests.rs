@@ -2,6 +2,7 @@
 //! expansion to the rules that make that safe, and to the hand-written
 //! expansion the language specification states.
 
+use super::super::Formatter;
 use super::expanded_walk;
 use std::collections::BTreeMap;
 use xsh::frontend::source::{SourceId, Span};
@@ -12,61 +13,71 @@ use xsh::frontend::syntax::parser::Parser;
 
 struct Case {
     sugar: &'static str,
-    /// The same program written with the core forms the sugar stands for.
-    core: &'static str,
+    core: Core,
+}
+
+/// The program a sugar program must expand to.
+enum Core {
+    /// Hand-written with the core forms the sugar stands for. This is the
+    /// independent statement of a form's meaning.
+    Written(&'static str),
+    /// What `xsht desugar` prints for the sugar program, which is the text
+    /// the specification shows beside the snippet.
+    Desugared,
 }
 
 /// The programs each form is tested on. The match is exhaustive, so a new
-/// form cannot be added without cases. The first case of a form is the pair
-/// of programs the specification shows for it.
+/// form cannot be added without cases. The first case of a form is the
+/// snippet the specification shows for it, beside its desugared form; at
+/// least one other case states the expansion by hand.
 fn cases(form: SugarForm) -> &'static [Case] {
     match form {
         SugarForm::Repeat => &[
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/45-repeat.xsh"),
-                core: include_str!("../../../docs/snippets/spec/46-repeat-expansion.xsh"),
+                core: Core::Desugared,
             },
             Case {
                 sugar: "var n = 0\nrepeat 2 times {\n  repeat (n + 1) * 2 times {\n    n += 1\n    continue when n == 3\n  }\n}\n",
-                core: "var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    if n == 3 {\n      continue\n    }\n  }\n}\n",
+                core: Core::Written("var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    if n == 3 {\n      continue\n    }\n  }\n}\n"),
             },
             Case {
                 sugar: "proc poll(times: Int) {\n  match times {\n    0 => repeat 1 times { print \"once\" }\n    _ => {\n      repeat times times {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
-                core: "proc poll(times: Int) {\n  match times {\n    0 => for _ in range(1) { print \"once\" }\n    _ => {\n      for _ in range(times) {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
+                core: Core::Written("proc poll(times: Int) {\n  match times {\n    0 => for _ in range(1) { print \"once\" }\n    _ => {\n      for _ in range(times) {\n        print \"tick\"\n      }\n    }\n  }\n}\n"),
             },
         ],
         SugarForm::When => &[
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/47-when.xsh"),
-                core: include_str!("../../../docs/snippets/spec/47-when-expansion.xsh"),
+                core: Core::Desugared,
             },
             Case {
                 sugar: "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    break when row < 0\n    yield row when row > 0\n    yield @[row, row] when row == 0\n  }\n}\n",
-                core: "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    if row < 0 {\n      break\n    }\n    if row > 0 {\n      yield row\n    }\n    if row == 0 {\n      yield @[row, row]\n    }\n  }\n}\n",
+                core: Core::Written("stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    if row < 0 {\n      break\n    }\n    if row > 0 {\n      yield row\n    }\n    if row == 0 {\n      yield @[row, row]\n    }\n  }\n}\n"),
             },
             Case {
                 sugar: "proc built(ready: Bool) [process] -> Status {\n  return (run.status make) when ready\n  return when (run.status true)\n  run.status false\n}\n",
-                core: "proc built(ready: Bool) [process] -> Status {\n  if ready {\n    return (run.status make)\n  }\n  if (run.status true) {\n    return\n  }\n  run.status false\n}\n",
+                core: Core::Written("proc built(ready: Bool) [process] -> Status {\n  if ready {\n    return (run.status make)\n  }\n  if (run.status true) {\n    return\n  }\n  run.status false\n}\n"),
             },
         ],
         SugarForm::Unless => &[
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/48-unless.xsh"),
-                core: include_str!("../../../docs/snippets/spec/48-unless-expansion.xsh"),
+                core: Core::Desugared,
             },
             Case {
                 sugar: "pure read(raw: Str?) -> Str {\n  let present = raw != null\n  return \"missing\" unless present\n  raw.trim()\n}\n",
-                core: "pure read(raw: Str?) -> Str {\n  let present = raw != null\n  if present {\n  } else {\n    return \"missing\"\n  }\n  raw.trim()\n}\n",
+                core: Core::Written("pure read(raw: Str?) -> Str {\n  let present = raw != null\n  if present {\n  } else {\n    return \"missing\"\n  }\n  raw.trim()\n}\n"),
             },
         ],
         SugarForm::Guard => &[
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/49-guard-else.xsh"),
-                core: include_str!("../../../docs/snippets/spec/49-guard-else-expansion.xsh"),
+                core: Core::Desugared,
             },
             Case {
                 sugar: "for raw in [1, 2] {\n  guard raw > 0 else {\n    guard raw < 0 else { continue }\n    break unless raw == 0\n    continue\n  }\n  print $raw\n}\n",
-                core: "for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n",
+                core: Core::Written("for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n"),
             },
         ],
     }
@@ -280,19 +291,34 @@ fn a_guard_requires_only_its_failure_block_to_exit() {
 #[test]
 fn every_form_expands_to_its_stated_core_program() {
     for form in SugarForm::ALL {
+        assert!(
+            cases(form)
+                .iter()
+                .any(|case| matches!(case.core, Core::Written(_))),
+            "no case states the expansion of {form:?} by hand"
+        );
         for case in cases(form) {
             let sugar = parse(case.sugar);
-            let core = parse(case.core);
+            let desugared;
+            let core_source = match case.core {
+                Core::Written(core) => core,
+                Core::Desugared => {
+                    let output = Formatter::new().desugar_source(SourceId::new(0), case.sugar);
+                    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                    desugared = output.formatted;
+                    &desugared
+                }
+            };
+            let core = parse(core_source);
             assert!(
                 sugar_statements(&core).is_empty(),
-                "the core program still uses sugar:\n{}",
-                case.core
+                "the core program still uses sugar:\n{core_source}"
             );
             let sugar_roots = sugar.statement_ids().collect::<Vec<_>>();
             let core_roots = core.statement_ids().collect::<Vec<_>>();
             assert_eq!(
                 expanded_walk(&sugar.arena, case.sugar, &sugar_roots).text,
-                expanded_walk(&core.arena, case.core, &core_roots).text,
+                expanded_walk(&core.arena, core_source, &core_roots).text,
                 "{form:?}:\n{}",
                 case.sugar
             );

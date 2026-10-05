@@ -417,6 +417,7 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
         "lint",
         "ast",
         "highlight",
+        "desugar",
         "grammar",
         "trace",
         "api",

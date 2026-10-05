@@ -99,6 +99,7 @@ fn cancellation_signal_name(signal: i32) -> String {
 mod api;
 mod check;
 mod coverage;
+mod desugar;
 mod files;
 mod fmt;
 mod grep;
@@ -119,6 +120,7 @@ pub use check::{
     check_paths_with_summary_options, check_script, check_script_with_options,
 };
 pub use coverage::CoverageCollector;
+pub use desugar::desugar_script;
 pub use files::{
     CONFIG_FILE_NAME, CoverageConfig, DeadCodeConfig, FormatConfig, XshConfig,
     collect_configured_xsh_files, collect_xsh_files, load_config,

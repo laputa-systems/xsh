@@ -21,6 +21,7 @@ the authoritative option reference.
 | `xsht grep` / `xsht refactor` | AST-pattern search and span-based rewrite | `crates/xsht/src/grep.rs`, `crates/xsht/src/cli/refactor.rs` |
 | `xsht ast SCRIPT` | parser debug output | `crates/xsht/src/cli/syntax_tree.rs` |
 | `xsht highlight SCRIPT` | syntax highlighting runs as JSON Lines, from the lexer (`src/syntax/highlight.rs`) | `src/syntax/highlight.rs`, `crates/xsht/src/cli/highlight.rs` |
+| `xsht desugar SCRIPT` | the script with every sugar statement replaced by its expansion | `crates/xsht/src/format.rs` (`Formatter::desugar_source`), `crates/xsht/src/cli/desugar.rs` |
 | `xsht grammar [--format ebnf\|json]` | the language's productions as EBNF, or the JSON reference that `make docs` renders | `src/syntax/grammar/reference.rs`, `crates/xsht/src/app.rs` |
 
 Dispatch starts in `xsht::app::main` (`crates/xsht/src/app.rs`); every command
@@ -156,6 +157,38 @@ Items carry a purpose, an optional contract (only constraints that prevent a
 wrong program), derived effects, signatures, tags, and an example; they never
 expose Rust names, implementation paths, or tests. The registry rejects missing
 or unknown documentation.
+
+## Desugar
+
+`xsht desugar SCRIPT` prints the program the checker and the runtime read:
+each sugar statement (`docs/DESIGN.md`) is replaced by the core statements its
+expansion builds, and everything else is printed as `xsht fmt` prints it. It
+is the formatter with one switch, so a form needs no code of its own here: a
+`SugarForm` added in `src/syntax/parser/sugar.rs` is expanded the day it
+parses.
+
+- The script is parsed, not checked. The output checks when the script does,
+  with the same diagnostics apart from positions, and runs the same.
+- Comments stay on the statement they lead. A trailing comment stays on the
+  statement's line when the expansion fits on one line and moves to the
+  guarded statement otherwise.
+- A local that an expansion binds under a name no identifier can spell is
+  printed under a fresh name, `STEM_N`, that the script spells nowhere.
+- A statement after `# fmt: skip`, or an expression with a comment inside,
+  is copied from the source by `xsht fmt`; when it holds sugar, `desugar`
+  prints it instead, formatted.
+- One rule is not in the output: the failure block of `guard cond else` must
+  leave the enclosing continuation, and the `if` printed for it may fall
+  through. A script that checks loses nothing.
+- The command refuses to print (exit 1, a diagnostic on stderr) when the
+  script does not parse, or when what it would print does not parse back to
+  exactly the expansion. The second is a bug in the command.
+
+`make docs` shows a snippet's expansion in the SPEC with
+`{{.spec.NAME.desugared}}`, which runs this command, so a documented expansion
+is the implemented one. `the_desugared_corpus_checks_and_tests_like_the_corpus`
+(`crates/xsht/tests/desugar.rs`) desugars every native test file that holds
+sugar and requires the same check diagnostics and test results.
 
 ## Source representations
 

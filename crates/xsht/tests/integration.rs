@@ -24,6 +24,8 @@ fn stderr_before_timing_line<'a>(command: &str, stderr: &'a [u8]) -> &'a str {
 
 #[path = "cli.rs"]
 mod cli;
+#[path = "desugar.rs"]
+mod desugar;
 #[path = "grep.rs"]
 mod grep;
 #[path = "lint.rs"]

@@ -1294,7 +1294,7 @@ It is sugar, defined by its expansion:
 means exactly
 
 ```xsh
-{{.spec.repeat_expansion.source}}
+{{.spec.repeat.desugared}}
 ```
 
 So the count is an `Int` evaluated once before the first iteration, `break`
@@ -1320,7 +1320,7 @@ Both are sugar, defined by their expansions. `statement when cond`:
 means exactly
 
 ```xsh
-{{.spec.when_expansion.source}}
+{{.spec.when.desugared}}
 ```
 
 and `statement unless cond`:
@@ -1332,7 +1332,7 @@ and `statement unless cond`:
 means exactly
 
 ```xsh
-{{.spec.unless_expansion.source}}
+{{.spec.unless.desugared}}
 ```
 
 So the condition runs first and the payload runs only if selected, the
@@ -1353,7 +1353,7 @@ block. It is sugar too:
 means exactly
 
 ```xsh
-{{.spec.guard_else_expansion.source}}
+{{.spec.guard_else.desugared}}
 ```
 
 with one rule the `if` does not have: the block must leave the enclosing
@@ -2351,6 +2351,7 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] SCRIPT ARGS...` | run with tracing |
 | `xsht api [QUERY...]` | query language and standard-library reference data |
 | `xsht ast SCRIPT` | print the parse tree |
+| `xsht desugar SCRIPT` | print the script with every sugar statement replaced by its expansion |
 | `xsht grep PATTERN [FILE...]`, `xsht refactor PATTERN REPLACEMENT [FILE...]` | structural search and rewrite |
 
 `xsht help [COMMAND]` and `COMMAND --help` print generated usage, collected in

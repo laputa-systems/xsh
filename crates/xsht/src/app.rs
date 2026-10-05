@@ -1,7 +1,7 @@
 use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
     AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions,
-    api_command, ast_script, check_paths_timed, format_files, grep_scripts, highlight_script,
+    api_command, ast_script, check_paths_timed, desugar_script, format_files, grep_scripts, highlight_script,
     lint_files_timed, refactor_scripts, trace_script,
 };
 use crate::xsht::commands::{self, ParsedArgs};
@@ -65,6 +65,7 @@ pub fn main() -> ExitCode {
         }),
         Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
         Ok(Command::Highlight { script }) => finish_command(|| highlight_script(&script)),
+        Ok(Command::Desugar { script }) => finish_command(|| desugar_script(&script)),
         Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
         Ok(Command::Api { options }) => finish_command(|| api_command(&options)),
         Ok(Command::Test { options }) => finish_command(|| test_scripts(options)),
@@ -118,6 +119,9 @@ enum Command {
     Highlight {
         script: String,
     },
+    Desugar {
+        script: String,
+    },
     Trace {
         options: TraceOptions,
     },
@@ -161,6 +165,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "ast" => parse_ast(&args[1..]),
         "grammar" => parse_grammar(&args[1..]),
         "highlight" => parse_highlight(&args[1..]),
+        "desugar" => parse_desugar(&args[1..]),
         "trace" => parse_trace(&args[1..]),
         "api" => parse_api(&args[1..]),
         "test" => parse_test(&args[1..]),
@@ -351,6 +356,18 @@ fn parse_ast(args: &[String]) -> Result<Command, String> {
             script: script.clone(),
         }),
         _ => Err("`xsht ast` accepts exactly one SCRIPT".to_string()),
+    })
+}
+
+fn parse_desugar(args: &[String]) -> Result<Command, String> {
+    parse_command("desugar", args, |parsed| {
+        match parsed.positionals.as_slice() {
+            [] => Err("`xsht desugar` requires SCRIPT".to_string()),
+            [script] => Ok(Command::Desugar {
+                script: script.clone(),
+            }),
+            _ => Err("`xsht desugar` accepts exactly one SCRIPT".to_string()),
+        }
     })
 }
 

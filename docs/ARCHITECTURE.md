@@ -263,8 +263,12 @@ annotated ones, and `xsht test` in the project.
    block); `guard cond else` uses it, and no checker code names a form.
    `every_form_keeps_the_expansion_rules` checks this for every `SugarForm`,
    and `every_form_expands_to_its_stated_core_program` holds each expansion to
-   the hand-written core program the SPEC shows
-   (`crates/xsht/src/sugar_expansion_tests.rs`).
+   a hand-written core program and to the text `xsht desugar` prints, which
+   is what the SPEC shows (`crates/xsht/src/sugar_expansion_tests.rs`). A
+   semantic walker that matches statement kinds with a wildcard arm can still
+   skip a sugar node; `the_desugared_corpus_checks_and_tests_like_the_corpus`
+   (`crates/xsht/tests/desugar.rs`) catches that by requiring the native test
+   corpus to check and run the same once desugared.
 
 ## Adding a language feature
 
@@ -300,8 +304,9 @@ not special-case the form. A form that binds a name in the enclosing block
 cannot be sugar, because declaration scans do not look inside a surface form:
 `guard let` is a core statement for that reason.
 
-1. Specify it in `docs/templates/SPEC.md` by its expansion, with the sugar and
-   the hand-written core program as two snippets in `docs/snippets/spec/`.
+1. Specify it in `docs/templates/SPEC.md` by its expansion: one snippet in
+   `docs/snippets/spec/` shown as written (`{{.spec.NAME.source}}`) and as
+   `xsht desugar` prints it (`{{.spec.NAME.desugared}}`).
 2. Add its productions and any keyword or contextual-word rows to
    `src/syntax/grammar.rs`, a `SugarForm` variant with its `ArenaSugar` view in
    `src/syntax/arena.rs`, and one function in `src/syntax/parser/sugar.rs` that
@@ -313,9 +318,11 @@ cannot be sugar, because declaration scans do not look inside a surface form:
 3. Print it in `crates/xsht/src/format.rs` and paint its contextual words in
    `src/syntax/highlight.rs`. A form whose operands bind names also states
    their scope in the `Sugar` arm of `Linter::lint_stmt`.
-4. Add its two snippets to `cases` in
+4. Add its snippet and at least one hand-written core program to `cases` in
    `crates/xsht/src/sugar_expansion_tests.rs`, native tests under `tests/xsh/`,
    and the migration lint with its autofix in its own `lint_*.rs` file.
+   `xsht desugar` needs nothing: it prints any form's expansion, and gives a
+   local bound under an unspellable name a fresh legal one.
 5. Read the diagnostics a user sees for a wrong operand and a wrong body. They
    carry the core form's wording; change a synthetic span, not the checker, if
    one lands in the wrong place.
