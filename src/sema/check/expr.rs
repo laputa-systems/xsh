@@ -884,11 +884,7 @@ impl Checker {
                     inner_expected.as_ref(),
                     schema,
                 );
-                // A run form under `?` propagates; it is not captured.
-                if let ArenaExprKind::Run(run_id) = arena.arena.expr(*inner).kind {
-                    let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
-                    self.implicitly_captured_runs.remove(&run_span);
-                }
+                self.note_run_propagated(arena, *inner);
                 self.check_propagation(&ty, expr.span)
             }
             ArenaExprKind::Require { value, schema } => {
@@ -1824,6 +1820,7 @@ impl Checker {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
                     if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
                     {
+                        self.note_run_propagated(arena, iter);
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
@@ -2067,6 +2064,16 @@ impl Checker {
                 );
             }
             _ => {}
+        }
+    }
+
+    /// A run form whose failure the enclosing form propagates is not
+    /// captured: the operand of `?`, the receiver of `?.` or `?[`, and the
+    /// subject of a `for` that iterates the text a `Result` holds.
+    pub(super) fn note_run_propagated(&mut self, arena: &ArenaProgram, operand: ExprId) {
+        if let ArenaExprKind::Run(run_id) = arena.arena.expr(operand).kind {
+            let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
+            self.implicitly_captured_runs.remove(&run_span);
         }
     }
 
@@ -3076,7 +3083,10 @@ impl Checker {
         }
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
-            Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
+            Type::Result(_, _) => {
+                self.note_run_propagated(arena, base);
+                (self.check_propagation(&base_ty, span), false)
+            }
             Type::Any => return Type::Any,
             Type::Unknown => return Type::Unknown,
             _ => {
@@ -3214,6 +3224,9 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
             return Type::Unknown;
         }
+        if guarded && base_ty.is_result() {
+            self.note_run_propagated(arena, base);
+        }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
             Type::Map(key, item) => {
@@ -3295,6 +3308,9 @@ impl Checker {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         if self.reject_unnarrowed_union(&base_ty, "slicing", span) {
             return Type::Unknown;
+        }
+        if guarded && base_ty.is_result() {
+            self.note_run_propagated(arena, base);
         }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {

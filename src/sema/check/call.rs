@@ -606,7 +606,10 @@ impl Checker {
                 Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => {
                     (*inner, true)
                 }
-                Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
+                Type::Result(_, _) => {
+                    self.note_run_propagated(arena, base);
+                    (self.check_propagation(&base_ty, span), false)
+                }
                 _ => {
                     self.error(
                         span,

@@ -1620,6 +1620,7 @@ impl Checker {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
         if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
         {
+            self.note_run_propagated(arena, iter);
             self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
         }
         let item_ty = iter_ty

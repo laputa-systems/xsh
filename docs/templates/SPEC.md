@@ -1232,9 +1232,20 @@ offsets instead of clamping.
 The receiver evaluates once. When it is `null` the whole operation is `null`
 and its arguments are not evaluated; otherwise the ordinary operation runs and
 its result is made optional. Guard each hop: `config?.server?.host?.trim()`.
-On a `Result` receiver, `?.` and `?[` propagate the outer `Err` first. An
+The receiver's type decides what the `?` of `?.` and `?[` guards. On a
+`Result` receiver it is propagation (8.3) followed by the ordinary operation:
+`load()?.trim()` means `(load()?).trim()`, fails as that does, and its value is
+not optional. One hop is one layer, so a `Result[T?]` receiver needs both:
+`(find()?)?.trim()`; `find()?.trim()` is `check.optional-method`. On any other
+receiver `?.` is `check.null-safe-field`. An
 optional method that returns a `Result` produces `Result[T, E]?`; handle the
 layers separately, as in `(text?.parse_int() ?? Ok(0))?`.
+
+After a grouped run form, `(run.text cmd)?.lines()` propagates the form's
+failure in the same way. Where a run form is the subject of a `for` or of a
+comprehension's `for`, a `?.` written after its last word also applies to the
+whole form; where it is an initializer, the `?.` belongs to that last word.
+Group the run form to say which is meant.
 
 ### 6.8 Conditional and match expressions
 
@@ -1470,6 +1481,9 @@ statement-position `Result[Unit]` cannot propagate there either
 but the function's `Result`. Error handler blocks, `if`, `match`, loops, and bare
 blocks are not boundaries. In a restricted proc, `?` that can leave the proc
 requires the `error` effect.
+
+`expr?.name`, `expr?.method(...)`, and `expr?[i]` on a `Result` are this
+operator followed by the access (6.7).
 
 `expr ?` with a space is the same operator in expression context. In a command
 argument, a separated `?` belongs to the whole command or run form: write
