@@ -578,7 +578,9 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "fs-copy-proc")?
-  let expected = source.read_bytes()?
+  let proc_root = fs.open_root(/proc)?
+  defer proc_root.close()
+  let expected = proc_root.read_bytes(p"version")?
   assert fs.stat(source)?.size == 0
   assert expected.len() > 0
   for sparse in ["auto", "always", "never"] {
@@ -644,4 +646,48 @@ test test_copy_file_streams_device_sources_and_keeps_same_inode_symlinks { |ctx|
   alias.symlink(to: p"source")
   assert fs.copy_file(source, alias) is Err(_)
   assert source.read_text()? == "keep"
+}
+
+test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-device-output")?
+  let source = fp"{root}/source"
+  let payload = bytes.concat([bytes.zero(65536)?, b"payload"])
+  source.write(payload)
+  for sparse in ["auto", "always", "never"] {
+    let report = fs.copy_file(source, /dev/null, sparse: sparse, reflink: "auto")?
+    assert report.bytes == payload.len()
+    assert report.hole_bytes == 0
+    assert report.method == "read_write"
+    assert fs.stat(/dev/null)?.kind == "char"
+  }
+  assert fs.copy_file(source, /dev/null, reflink: "always") is Err(_)
+  if /dev/full.exists()? {
+    let full = fs.copy_file(source, /dev/full)
+    assert full is Err(_)
+    if let Err(failure) = full {
+      assert failure.errno == 28
+    }
+    assert fs.stat(/dev/full)?.kind == "char"
+  }
+}
+
+test test_copy_file_streams_every_byte_to_a_fifo_destination { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-fifo-output")?
+  let source = fp"{root}/source"
+  let fifo = fp"{root}/fifo"
+  let received = fp"{root}/received"
+  let payload = bytes.concat([bytes.zero(131072)?, b"tail"])
+  source.write(payload)
+  fs.mkfifo(fifo, 0o600)
+  // The child owns the reader and exits at EOF; the native spawn lifecycle
+  // cleans it up if copying or an assertion fails.
+  let reader = spawn run sh -c "cat < \"$1\" > \"$2\"" sh $fifo $received ?
+  let report = fs.copy_file(source, fifo, sparse: "always", reflink: "auto")?
+  assert (wait reader?).ok
+  assert report.bytes == payload.len()
+  assert report.hole_bytes == 0
+  assert report.method == "read_write"
+  assert received.read_bytes()? == payload
+  assert fs.stat(fifo)?.kind == "fifo"
+  assert fs.copy_file(source, fifo, reflink: "always") is Err(_)
 }

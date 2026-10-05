@@ -9,7 +9,7 @@ use crate::source::Span;
 use rustix::fs::{self as rfs, AtFlags, CWD, Mode, StatVfsMountFlags, Timespec, Timestamps};
 use rustix::fs::{UTIME_NOW, UTIME_OMIT};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -488,6 +488,13 @@ fn copy_file_unnamed(
             if existing.dev() == source_metadata.dev() && existing.ino() == source_metadata.ino() {
                 return Err(fail("source and destination are the same file"));
             }
+            let kind = existing.file_type();
+            if !(kind.is_file() || kind.is_fifo() || kind.is_char_device() || kind.is_block_device()) {
+                return Err(fail("destination is not a regular file, FIFO, or device"));
+            }
+            if !kind.is_file() && options.reflink == Policy::Always {
+                return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
+            }
             true
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::symlink_metadata(&dest) {
@@ -511,7 +518,6 @@ fn copy_file_unnamed(
         .create(true)
         .create_new(!options.overwrite)
         .truncate(false)
-        .custom_flags(libc::O_NONBLOCK)
         .mode(mode)
         .open(&dest)
         .map_err(host)?;
@@ -519,11 +525,20 @@ fn copy_file_unnamed(
     if destination_metadata.dev() == metadata.dev() && destination_metadata.ino() == metadata.ino() {
         return Err(fail("source and destination are the same file"));
     }
-    if !destination_metadata.is_file() {
-        return Err(fail("destination is not a regular file"));
+    let destination_kind = destination_metadata.file_type();
+    if !(destination_kind.is_file() || destination_kind.is_fifo() || destination_kind.is_char_device() || destination_kind.is_block_device()) {
+        return Err(fail("destination is not a regular file, FIFO, or device"));
     }
-    output.set_len(0).map_err(host)?;
-    let outcome = transfer(&input, &output, &metadata, len, &options, span);
+    let outcome = if destination_kind.is_file() {
+        output.set_len(0).map_err(host)?;
+        transfer(&input, &output, &metadata, len, &options, span)
+    } else if options.reflink == Policy::Always {
+        Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)))
+    } else {
+        copy_special_destination(&input, &output)
+            .map(|bytes| (METHOD_USER, bytes, 0))
+            .map_err(host)
+    };
     if outcome.is_err() && !existed {
         let _ = std::fs::remove_file(&dest);
     }
@@ -670,4 +685,25 @@ fn copy_stream(mut input: &File, output: &File, sparse: bool) -> std::io::Result
     }
     output.set_len(offset)?;
     Ok((offset, written))
+}
+
+/// Devices and FIFOs receive every byte, including source holes and zero
+/// blocks: seeking would lose data or fail, and truncation could damage the
+/// destination's identity. Sparse policies therefore never claim holes here.
+fn copy_special_destination(mut input: &File, mut output: &File) -> std::io::Result<u64> {
+    let mut buffer = vec![0; 1 << 16];
+    let mut copied = 0u64;
+    loop {
+        let read = match input.read(&mut buffer) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if read == 0 {
+            return Ok(copied);
+        }
+        output.write_all(&buffer[..read])?;
+        copied = copied.checked_add(read as u64).ok_or_else(|| {
+            std::io::Error::other("copied byte count exceeds the host file size limit")
+        })?;
+    }
 }
