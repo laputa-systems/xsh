@@ -199,11 +199,19 @@ test test_pinky_last_of_long_and_short_decides { |ctx|
   assert pinky_run(ctx, ["-s", "-l", "alice"], w)?.stdout.starts_with("Login name: alice")
 }
 
-test test_pinky_lookup_keeps_unresolvable_hosts { |ctx|
-  let w = world(ctx, [utmp_record(USER_PROCESS, "pts/1", "alice", "nonexistent.invalid:0")?])?
-  let result = pinky_run(ctx, ["--lookup", "-f"], w)?
-  assert result.status == 0
-  assert result.stdout.ends_with("Nov 14 22:13 nonexistent.invalid:0\n"), result.stdout
+test test_pinky_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
+  let numeric = world(ctx, [utmp_record(USER_PROCESS, "pts/1", "alice", "192.0.2.7:0")?])?
+  let kept = pinky_run(ctx, ["--lookup", "-f"], numeric)?
+  assert kept.status == 0
+  assert kept.stdout.ends_with("Nov 14 22:13 192.0.2.7:0\n"), kept.stdout
+
+  let named = world(ctx, [utmp_record(USER_PROCESS, "pts/1", "alice", "box.invalid:0")?])?
+  let refused = pinky_run(ctx, ["--lookup", "-f"], named)?
+  assert refused.status == 1
+  assert refused.stderr == "pinky: --lookup: cannot canonicalize host name 'box.invalid': canonical names are not available\n", refused.stderr
+
+  let nobody = pinky_run(ctx, ["--lookup"], world(ctx, [])?)?
+  assert nobody.status == 0, "--lookup with no hosts to canonicalize is harmless"
 }
 
 test test_pinky_missing_utmp_lists_only_the_heading { |ctx|

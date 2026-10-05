@@ -186,29 +186,15 @@ pure trim_end(text: Str) -> Str {
   text.byte_slice(0, length: end)
 }
 
-# Follow CNAME records to the canonical name; an unresolvable name stays.
-proc canonical_host(host: Str) [error, process, net] -> Str {
-  var name = host
-  var hops = 0
+# GNU `--lookup` replaces a host name by its canonical name (getaddrinfo with
+# AI_CANONNAME). `dns` resolves only A and AAAA records and gives no canonical
+# name, so a numeric address (its own canonical form) passes and a name is a
+# plain failure rather than a quietly ignored option (request: dns.canonical).
+proc canonical_host(host: Str) [process, env] -> Str {
+  return host when rx"^[0-9.]+$".matches(host) or rx"^[0-9A-Fa-f:]+$".matches(host)
 
-  while hops < 8 {
-    guard let found = dns.lookup(name, "CNAME") else {
-      return name
-    }
-
-    guard found.len() > 0 else {
-      return name
-    }
-
-    name = trim_end_dot(found[0].value)
-    hops += 1
-  }
-
-  name
-}
-
-pure trim_end_dot(text: Str) -> Str {
-  if text.ends_with(".") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
+  gnu.error(f"--lookup: cannot canonicalize host name {gnu.quote_value(host)}: canonical names are not available")
+  exit 1
 }
 
 proc read_sessions(file: Path) [process, env, error] -> List[UnixUtmp] {
@@ -281,7 +267,7 @@ pure idle_text(now: Int, last: Int) -> Str {
   f"{two(seconds / 3600)}:{two(seconds % 3600 / 60)}"
 }
 
-proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env, net] -> Str {
+proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env] -> Str {
   var state = "?"
   var last = 0
 
@@ -332,7 +318,7 @@ pure chr(code: Int) -> Str {
 }
 
 # The selected line for one record, or null when the plan skips it.
-proc describe(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env, net] -> Str? {
+proc describe(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env] -> Str? {
   let stamp = time_string(entry.time_sec, tz, plan.hard_time)
 
   if plan.users and is_user(entry) {
@@ -381,7 +367,7 @@ proc process_exists(pid: Int) [process] -> Bool {
   }
 }
 
-proc main(...argv: List[Str]) [process, env, error, io, fs, time, net] {
+proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
   let opts: WhoOptions = cli.applet(
     argv,
     {

@@ -149,29 +149,15 @@ pure idle_text(now: Int, last: Int) -> Str {
   f"{seconds / 86400}d"
 }
 
-# Follow CNAME records to the canonical name; an unresolvable name stays.
-proc canonical_host(host: Str) [error, process, net] -> Str {
-  var name = host
-  var hops = 0
+# GNU `--lookup` replaces a host name by its canonical name (getaddrinfo with
+# AI_CANONNAME). `dns` resolves only A and AAAA records and gives no canonical
+# name, so a numeric address (its own canonical form) passes and a name is a
+# plain failure rather than a quietly ignored option (request: dns.canonical).
+proc canonical_host(host: Str) [process, env] -> Str {
+  return host when rx"^[0-9.]+$".matches(host) or rx"^[0-9A-Fa-f:]+$".matches(host)
 
-  while hops < 8 {
-    guard let found = dns.lookup(name, "CNAME") else {
-      return name
-    }
-
-    guard found.len() > 0 else {
-      return name
-    }
-
-    name = trim_end_dot(found[0].value)
-    hops += 1
-  }
-
-  name
-}
-
-pure trim_end_dot(text: Str) -> Str {
-  if text.ends_with(".") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
+  gnu.error(f"--lookup: cannot canonicalize host name {gnu.quote_value(host)}: canonical names are not available")
+  exit 1
 }
 
 pure capitalize(text: Str) -> Str {
@@ -258,7 +244,7 @@ pure heading(columns: Columns) -> Str {
   text
 }
 
-proc entry_line(columns: Columns, accounts: List[auth.PasswdEntry], entry: UnixUtmp, tz: Tz, now: Int) [fs, error, process, net] -> Str {
+proc entry_line(columns: Columns, accounts: List[auth.PasswdEntry], entry: UnixUtmp, tz: Tz, now: Int) [fs, error, process, env] -> Str {
   let device = if entry.line.starts_with("/") { fp"{entry.line}" } else { fp"/dev/{entry.line}" }
   var mesg = "?"
   var last = 0
@@ -309,7 +295,7 @@ proc entry_line(columns: Columns, accounts: List[auth.PasswdEntry], entry: UnixU
   text
 }
 
-proc short_format(opts: PinkyOptions) [fs, process, env, error, io, time, net] {
+proc short_format(opts: PinkyOptions) [fs, process, env, error, io, time] {
   let columns: Columns = {
     name: ! (opts.omit_name or opts.omit_name_host or opts.omit_name_host_idle),
     idle: ! opts.omit_name_host_idle,
@@ -368,7 +354,7 @@ proc long_entry(opts: PinkyOptions, accounts: List[auth.PasswdEntry], login: Str
   gnu.write_text("\n")
 }
 
-proc main(...argv: List[Str]) [process, env, error, io, fs, time, net] {
+proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
   let opts: PinkyOptions = cli.applet(
     argv,
     {

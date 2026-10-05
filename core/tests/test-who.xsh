@@ -169,6 +169,20 @@ test test_who_host_display_is_kept_after_the_host { |ctx|
   assert who_run(ctx, [file.display()])?.stdout == "bob      tty1         Nov 14 22:13 (box:0)\neve      tty2         Nov 14 22:13 (:1)\n"
 }
 
+test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
+  let root = test.temp_dir(ctx, name: "who-lookup")?
+  let file = fp"{root}/utmp"
+  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "192.0.2.7:0")?)?
+  assert who_run(ctx, ["--lookup", file.display()])?.stdout == "bob      tty1         Nov 14 22:13 (192.0.2.7:0)\n"
+
+  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "box.invalid")?)?
+  let refused = who_run(ctx, ["--lookup", file.display()])?
+  assert refused.status == 1
+  assert refused.stderr == "who: --lookup: cannot canonicalize host name 'box.invalid': canonical names are not available\n", refused.stderr
+  assert who_run(ctx, [file.display()])?.status == 0, "names pass untouched without --lookup"
+  assert who_file(ctx, ["--lookup"])?.status == 1, "the fixture's example.org is a name"
+}
+
 test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let root = test.temp_dir(ctx, name: "who-tty")?
