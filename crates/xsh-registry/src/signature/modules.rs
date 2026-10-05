@@ -12,7 +12,7 @@ use super::{
     linux_interface_type, linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
     linux_module_type, linux_network_dump_type, linux_open_file_type, linux_partition_table_type,
     linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type,
-    mime_parse_type, module_sig, net_pool_type, net_response_type, param, patch_result_type,
+    mime_parse_type, labeled_param, module_sig, net_pool_type, net_response_type, param, patch_result_type,
     process_entry_type, process_port_type, process_stats_type, process_thread_type,
     process_wait_any_type, result, script_sig, script_sig_with_arg_check, sig, sig_with_arg_check,
     signal_record_type, spawn_record_type, system_execution_units_type, system_memory_type,
@@ -2823,6 +2823,31 @@ fn unix_module() -> ModuleSig {
                 false,
                 RuntimeOp::UnixExec,
             ),
+        ),
+        (
+            "redirect_fd",
+            sig(
+                vec![param("fd", Type::Int), param("path", Type::Path),
+                    default_param("write", Type::Bool), default_param("append", Type::Bool),
+                    default_param("mode", Type::Int)],
+                result(Type::Unit), false, RuntimeOp::UnixRedirectFd,
+            ),
+        ),
+        (
+            "dup_fd",
+            sig(vec![param("source", Type::Int), param("target", Type::Int)],
+                result(Type::Unit), false, RuntimeOp::UnixDupFd),
+        ),
+        (
+            "set_groups",
+            sig(vec![param("groups", Type::List(Box::new(Type::Int)))],
+                result(Type::Unit), false, RuntimeOp::UnixSetGroups),
+        ),
+        (
+            "set_credentials",
+            sig(vec![labeled_param("uid", Type::Int), labeled_param("gid", Type::Int),
+                labeled_param("groups", Type::List(Box::new(Type::Int)))],
+                result(Type::Unit), false, RuntimeOp::UnixSetCredentials),
         ),
         (
             "set_hostname",

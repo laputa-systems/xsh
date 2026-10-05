@@ -2318,7 +2318,7 @@ fn exec_failure_segment(index: usize, target: &[u8], error: RunError) -> Process
     }
 }
 
-fn validate_input_sources(redirections: &[ProcessRedirection]) -> Result<(), RunError> {
+pub(crate) fn validate_input_sources(redirections: &[ProcessRedirection]) -> Result<(), RunError> {
     if redirections
         .iter()
         .any(|item| matches!(item, ProcessRedirection::Input { .. }))
@@ -2353,7 +2353,7 @@ fn validate_input_sources(redirections: &[ProcessRedirection]) -> Result<(), Run
     Ok(())
 }
 
-fn apply_redirections(
+pub(crate) fn apply_redirections(
     command: &mut Command,
     redirections: &[ProcessRedirection],
 ) -> Result<(), RunError> {
