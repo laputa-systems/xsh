@@ -877,9 +877,18 @@ impl Checker {
             ArenaExprKind::PatternCondition { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
+                // Over an error family only a catch-all counts as unable to
+                // fail here. Variant and facet patterns that happen to cover
+                // every variant of the family stay accepted conditions: they
+                // were before families became closed for `match`, and
+                // rejecting them needs a rewrite to offer first.
+                let coverage_ty = match &value_ty {
+                    Type::ErrorFamily(_) => &Type::Error,
+                    other => other,
+                };
                 let cannot_fail = super::stmt::patterns_are_exhaustive_arena(
                     arena,
-                    &value_ty,
+                    coverage_ty,
                     std::iter::once(pattern),
                     &self.exhaustiveness_facts(),
                 );

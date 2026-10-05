@@ -544,7 +544,6 @@ for step in range(4) {
   let label = match kind {
     k.File | k.Binary => "leaf"
     k.Tree(_) => "tree"
-    _ => "other"
   }
   print $label (kind is k.Binary) (fetch(step) is Err(FetchError.Usage))
   match broad(step) {

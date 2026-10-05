@@ -294,3 +294,34 @@ for step in [0, 1] {
   assert output.stdout == "0\n", output.stdout
   assert "match-no-arm" in output.stderr, output.stderr
 }
+
+# A family is closed for `match` only. A pattern condition whose variant or
+# facet patterns happen to cover every variant is still an accepted
+# condition; only a catch-all cannot fail.
+test test_pattern_conditions_over_a_family_stay_refutable { |ctx|
+  let accepted = test.run_script(
+    ctx,
+    """error FetchError = Usage(message: Str) : NotFound | Gone(message: Str) : NotFound
+
+let failure: FetchError = FetchError.Gone(message: "gone")
+if let is NotFound = failure { print "facet" }
+if let (FetchError.Usage {message} | FetchError.Gone {message}) as original = failure {
+  print \$message \${original.message}
+}
+""",
+  )?
+  assert accepted.success, accepted.stderr
+  assert accepted.stderr == "", accepted.stderr
+  assert accepted.stdout == "facet\ngone gone\n", accepted.stdout
+
+  let stderr = check_errors(
+    ctx,
+    """error FetchError = Usage(message: Str) | Gone(message: Str)
+
+let failure: FetchError = FetchError.Gone(message: "gone")
+if let whole = failure { print \${whole.message} }
+""",
+  )?
+  assert count(stderr, "err[check.irrefutable-pattern-condition]") == 1, stderr
+  assert count(stderr, "err[") == 1, stderr
+}

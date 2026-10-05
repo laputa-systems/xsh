@@ -1727,7 +1727,9 @@ where it is an optional binding: `if let name = subject` with `subject: T?`
 takes the `else` branch (and `while let` ends the loop) on `null`, and
 otherwise matches the pattern against the value as a `T`. A pattern that can
 fail on its own is matched against an optional subject as it is, with no
-unwrapping.
+unwrapping. Over a value of one error family only a catch-all cannot fail:
+variant and facet patterns that together cover the family (6.8) are still a
+condition.
 
 An optional binding also narrows its subject (5.4): after
 `guard let name = subject else { ... }`, and inside the branch or body selected

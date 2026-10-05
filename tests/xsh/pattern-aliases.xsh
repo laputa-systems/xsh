@@ -223,7 +223,6 @@ pure alias_failure_message(failure: AliasFailure) -> Str {
       let typed: AliasFailure = original
       message + typed.message
     }
-    _ => "other"
   }
 }
 
