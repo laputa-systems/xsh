@@ -55,3 +55,11 @@ test test_time_calendar_timezone_and_dst { |ctx|
   let missing = test.run_xsh(ctx, "assert time.parse(\"2024-03-10 02:30:00\") is Err(_)", env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
   assert missing.success
 }
+
+test test_time_clock_resolution {
+  assert time.clock_resolution()? > 0
+  assert time.format(0, "%65536Y%65536Y", utc: true) is Err(_)
+  assert time.format(0, "%! %_::::z", utc: true)? == "%! %_::::z"
+  assert time.parse("A", utc: true, base_ns: 0)? == -3600000000000
+  assert time.parse("y", utc: true, base_ns: 0)? == 43200000000000
+}

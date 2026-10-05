@@ -92,6 +92,7 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
   }
   var input = colors.DATABASE
   if file != "" {
+    if file != "-" and (fp"{file}".is_dir() ?? false) { gnu.error(f"expected file, got directory {gnu.quote(file)}"); exit 1 }
     match gnu.read_operand(file) {
       Ok(data) => {
         match data.utf8() {
@@ -125,7 +126,7 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
       continue
     }
     entries = true
-    if ! selected { continue }
+    if ! selected and ! (display and file == "") { continue }
     if key.lower() == "options" or key.lower() == "color" or key.lower() == "eightbit" { continue }
     let named = color_key(key)
     let code = if key.starts_with(".") { f"*{key}" } else if key.starts_with("*") { key } else { named }

@@ -506,6 +506,7 @@ pub enum RuntimeOp {
     TestExpect,
     TemplateRender,
     TimeNow,
+    TimeClockResolution,
     TimeFormat,
     TimeParse,
     TimeFromCalendar,

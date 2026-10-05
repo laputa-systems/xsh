@@ -1324,6 +1324,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Month is 1 through 12; day is validated against the month and leap year. Hour, minute and second default to zero. Local TZ and DST rules apply unless utc is true; impossible dates and missing DST hours are rejected. Ambiguous DST hours follow the host calendar library. The signed Int nanosecond range is approximately 1677 through 2262.",
             &["time", "calendar", "timezone"],
         )),
+        ("time", "clock_resolution") => Some((
+            "Reads the host wall-clock resolution in nanoseconds.",
+            "Queries CLOCK_REALTIME; resolution describes the clock's supported precision rather than the accuracy of the current time.",
+            &["time", "clock", "host-state"],
+        )),
         ("time", "sleep") => Some((
             "Suspends the current XSH operation for a duration.",
             "Sleep is interruptible host work and consumes the declared time effect.",

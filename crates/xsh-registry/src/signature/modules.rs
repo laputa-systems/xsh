@@ -4077,6 +4077,7 @@ fn template_module() -> ModuleSig {
 fn time_module() -> ModuleSig {
     module_sig(vec![
         ("now", sig(Vec::new(), Type::Int, false, RuntimeOp::TimeNow)),
+        ("clock_resolution", sig(Vec::new(), result(Type::Int), false, RuntimeOp::TimeClockResolution)),
         ("format", sig(vec![param("epoch_ns", Type::Int), param("format", Type::Str), default_param("utc", Type::Bool)], result(Type::Str), false, RuntimeOp::TimeFormat)),
         ("parse", sig(vec![param("text", Type::Str), default_param("utc", Type::Bool), default_param("base_ns", Type::Optional(Box::new(Type::Int)))], result(Type::Int), false, RuntimeOp::TimeParse)),
         ("from_calendar", sig(vec![param("year", Type::Int), param("month", Type::Int), param("day", Type::Int), default_param("hour", Type::Int), default_param("minute", Type::Int), default_param("second", Type::Int), default_param("utc", Type::Bool)], result(Type::Int), false, RuntimeOp::TimeFromCalendar)),
