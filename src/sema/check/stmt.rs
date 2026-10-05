@@ -3751,7 +3751,15 @@ impl Checker {
                     self.statement_expression_spans
                         .insert(arena.arena.expr(expr_id).span);
                 }
-                let ctx = tail_expr_context_arena(arena, expr_id, expected);
+                // A bare block in tail position has this tail's rule for its
+                // own last statement: where a `Result[T]` is expected, that
+                // statement may be a `T` or a `Result[T]`. So the block takes
+                // the whole expectation, as the branches of a tail `if` do,
+                // instead of the success type alone.
+                let ctx = match arena.arena.expr(expr_id).kind {
+                    ArenaExprKind::ValueBlock(_) => expected.cloned(),
+                    _ => tail_expr_context_arena(arena, expr_id, expected),
+                };
                 let previous = std::mem::replace(&mut self.context_scope_tail_value, true);
                 let schema = self.expected_schema.as_ref().map(|schema| {
                     if matches!(expected, Some(Type::Result(_, _)))

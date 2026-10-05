@@ -37,6 +37,38 @@ proc middle(value: Int) [error] -> Result[Int] {
   leaf(value)?
 }
 
+proc block_tail_result(value: Int) [error] -> Result[Int] {
+  {
+    let doubled = value * 2
+    leaf(doubled)
+  }
+}
+
+proc block_tail_value(value: Int) [error] -> Result[Int] {
+  {
+    let doubled = value * 2
+    doubled
+  }
+}
+
+proc nested_block_tail_failure() [error] -> Result[Int] {
+  {
+    {
+      fail_leaf()
+    }
+  }
+}
+
+proc branch_block_tail(value: Int) [error] -> Result[Int] {
+  if value > 0 {
+    {
+      leaf(value)
+    }
+  } else {
+    0
+  }
+}
+
 test test_value_returning_error_helper { |ctx|
   let output = test.run_script(
     ctx,
@@ -225,4 +257,35 @@ print values[0]?[0] values[1]?[0]
   assert succeeded, failure_details
   assert output.stdout == """ok ok
 """
+}
+
+# A bare block that is the tail of a function is that function's tail: where
+# the function returns `Result[T]`, the block's own tail may be a `T` or a
+# `Result[T]`, and a `Result` is the function's result, not a value inside it.
+test test_bare_block_tail_takes_the_function_tail_rule {
+  assert block_tail_result(2)? == 4
+  assert block_tail_value(2)? == 4
+  assert branch_block_tail(3)? == 3
+  assert branch_block_tail(0)? == 0
+  if let Err(error) = nested_block_tail_failure() {
+    assert error.message == "propagated failure"
+  } else {
+    assert false
+  }
+}
+
+# The rule is the function's and no wider: a block tail of the wrong type, a
+# `Result` of a `Result`, and a `Result` where the function returns a plain
+# value are still rejected.
+test test_bare_block_tail_keeps_the_function_tail_limits { |ctx|
+  let helper = "proc leaf(value: Int) [error] -> Result[Int] {\n  value\n}\n"
+  for body in [
+    "proc wrong(value: Int) [error] -> Result[Int] {\n  {\n    f\"{value}\"\n  }\n}\n",
+    "proc nested(value: Int) [error] -> Result[Int] {\n  {\n    Ok(leaf(value))\n  }\n}\n",
+    "proc plain(value: Int) [error] -> Int {\n  {\n    leaf(value)\n  }\n}\n",
+  ] {
+    let output = test.run_script(ctx, helper + body)?
+    assert ! output.success, body
+    assert "check.type-mismatch" in output.stderr, f"{body}: {output.stderr}"
+  }
 }

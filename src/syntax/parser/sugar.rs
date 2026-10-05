@@ -580,6 +580,32 @@ mod tests {
         assert!(sentences > 300, "only {sentences} sentences");
     }
 
+    /// A stage that takes a block owns the `{` after its name or its
+    /// arguments, so in a head that a block must follow, such as the source
+    /// of a `for`, that `{` is never the body. The grammar and the parser
+    /// read it the same way whether or not the stage has arguments.
+    #[test]
+    fn a_block_after_a_stage_is_the_stage_block_in_a_head() {
+        let recognizer = Recognizer::new(grammar());
+        for (source, sentence) in [
+            ("for x in xs |> sort-by { |c| c }\n", false),
+            ("for x in xs |> sort-by { |c| c } { print $x }\n", true),
+            ("for x in xs |> fold(0) { |a, c| c }\n", false),
+            ("for x in xs |> fold(0) { |a, c| a + c } { print $x }\n", true),
+            ("for x in xs |> count() { |c| c }\n", false),
+            ("while xs |> count() { |c| c }\n", false),
+            ("tempdir d at xs |> reduce-by(1) { |c| c }\n", false),
+            // A stage that takes no block leaves the `{` to the statement.
+            ("for x in xs |> take(2) { print $x }\n", true),
+            ("for x in xs |> sort { print $x }\n", true),
+        ] {
+            let tokens = lex_grammar_tokens(source).expect("lexes");
+            assert_eq!(recognizer.recognize(&tokens).is_ok(), sentence, "grammar: {source}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert_eq!(parsed.diagnostics.is_empty(), sentence, "parser: {source}");
+        }
+    }
+
     /// A `tempdir` scope is recognized by lookahead, and `tempdir NAME at
     /// PATH {` has no word between its path and its body, so its head ends
     /// where the head of `for NAME in PATH {` ends. The grammar is looser than

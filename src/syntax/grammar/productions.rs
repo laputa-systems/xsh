@@ -184,15 +184,21 @@ fn stream_stages(context: ExpressionContext) -> Item {
         }
     }
     alt(groups.into_iter().map(|((block, inline), names)| {
-        let arguments = opt(seq([
-            t(TokenTag::LParen),
-            r("call_arguments"),
-            t(TokenTag::RParen),
-        ]));
+        // A `(` after the stage name is always its argument list: without
+        // this, a stage that takes a block could leave `(...)` to be a call
+        // suffix and a `{` after it to whatever follows the pipeline, such as
+        // the body of a `for`.
+        let arguments = alt([
+            seq([
+                t(TokenTag::LParen),
+                r("call_arguments"),
+                t(TokenTag::RParen),
+            ]),
+            not([vec![tag_term(TokenTag::LParen)]]),
+        ]);
         let continued = || seq([star(r("postfix")), r(context.rule("logical_tail"))]);
         let no_block = || not([vec![tag_term(TokenTag::LBrace)]]);
         let tail = match (block, inline) {
-            // A `(` after the stage name is always its argument list.
             (true, true) => alt([
                 seq([r("block"), continued()]),
                 seq([

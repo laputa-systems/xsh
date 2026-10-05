@@ -1897,6 +1897,20 @@ function declared `-> Result[T]` may return or tail-produce either a
 simply finish. Ignoring a value-producing `Result` is an error; `let _ =`
 discards one deliberately.
 
+A tail that is a bare block (6.9), or a branch of a tail `if` or `match`, is
+still the function's tail, so its own last statement follows the same rule.
+A scope there (`try`, `cd`, `env`, `tempdir`, `within`; 8.8, 10.4) does not:
+its value is a `Result` of its body's tail, so the body's tail must be the
+plain `T`, and a `Result` there is propagated with `?`:
+
+```xsh
+{{.spec.block_tail.source}}
+```
+
+```xsh
+{{.spec.scope_result_tail.source}}
+```
+
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
 
@@ -3193,6 +3207,12 @@ Stage blocks see the current item as `.` (`where .kind == "file"`,
 `map { .path.name }`) or bind it explicitly with `{ |item| ... }`, but not
 both (6.9). They may contain statements followed by a tail. Inside a stage
 block `.name` is always a field of the item, never a target-typed variant (5.5).
+
+A `(` after a stage name always opens that stage's arguments, and a `{` after
+the name or its arguments is always the block of a stage that takes one. That
+holds in the head of a `for`, `while`, `if`, or `tempdir ... at` too: in
+`for x in xs |> fold(0) { ... }` the block belongs to `fold` and the loop has
+no body, so group the pipeline or bind it first.
 
 A stage that is not a stream stage is a value call: a bare method name uses
 the previous value as its receiver (`text |> split(",")` is `text.split(",")`),
