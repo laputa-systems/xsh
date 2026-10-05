@@ -111,8 +111,8 @@ stage(p"ROOT", "a-b")
   before.mkdir()
   after.mkdir()
   let output = "a-b ../absent\n"
-  let _ = test.expect(ctx, source.replace("ROOT", with: before.display()), status: 0, stdout: [output])?
-  let _ = test.expect(ctx, expected.replace("ROOT", with: after.display()), status: 0, stdout: [output])?
+  test.expect(ctx, source.replace("ROOT", with: before.display()), status: 0, stdout: [output])?
+  test.expect(ctx, expected.replace("ROOT", with: after.display()), status: 0, stdout: [output])?
 }
 
 test test_prefer_argument_label_lint_keeps_an_observable_order { |ctx|

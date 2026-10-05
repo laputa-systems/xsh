@@ -51,7 +51,7 @@ test test_a_result_of_an_optional_takes_one_hop_for_each_layer { |ctx|
   }
 
   let source = "pure both(text: Str) -> Result[Str?] {\n  Ok(text)\n}\n\npure upper(text: Str) -> Result[Str?] {\n  Ok(both(text)?.upper())\n}\n"
-  let _ = test.expect(
+  test.expect(
     ctx,
     source,
     status: 2,
@@ -162,9 +162,9 @@ pure listed(kind: Str) -> Result[List[Str]?] {
 }
 """
   let field = "pure kind(kind: Str) -> Result[Str?] {\n  Ok(found(kind)?.kind)\n}\n"
-  let _ = test.expect(ctx, declarations + field, status: 2, stderr: [f"err[check.null-safe-field]: {held}"])?
+  test.expect(ctx, declarations + field, status: 2, stderr: [f"err[check.null-safe-field]: {held}"])?
   let index = "pure first(kind: Str) -> Result[Str?] {\n  Ok(listed(kind)?[0])\n}\n"
-  let _ = test.expect(ctx, declarations + index, status: 2, stderr: [f"err[check.null-safe-index]: {held}"])?
+  test.expect(ctx, declarations + index, status: 2, stderr: [f"err[check.null-safe-index]: {held}"])?
   let slice = "pure some(kind: Str) -> Result[List[Str]?] {\n  Ok(listed(kind)?[0..1])\n}\n"
   let sliced = test.expect(ctx, declarations + slice, status: 2, stderr: [f"err[check.null-safe-index]: {held}"])?
   # The one error is the whole report.
@@ -197,13 +197,13 @@ test test_guarded_hop_on_a_run_form_propagates_its_failure {
 # Where a run form is an initializer its words are read first, so a `?.`
 # there belongs to the last word and not to the form.
 test test_a_guarded_hop_after_an_initializer_run_form_belongs_to_its_last_word { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let text = run.text sh -c \"echo hi\"?.trim()\n",
     status: 2,
     stderr: ["err[check.null-safe-field]: `?.` requires an Optional or Result value"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let words = [\"sh\"]\nlet text = run.text @words?.trim()\n",
     status: 2,

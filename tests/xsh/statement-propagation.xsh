@@ -353,7 +353,7 @@ print ${block_value()?}
   )?
   assert output.stdout == "restricted\nrestricted\ntrue true true true\ntrue\n7\n"
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     PRELUDE + r"""
 proc work() {

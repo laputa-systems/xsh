@@ -78,7 +78,7 @@ assert condition(), message()
 }
 
 test test_assert_messages_preserve_retry_capture_and_cleanup { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""proc cleanup() [io] { print "cleaned" }
 let result: Result[Unit] = retry [] {

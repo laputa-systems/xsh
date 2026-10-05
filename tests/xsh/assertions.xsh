@@ -180,7 +180,7 @@ test test_assertion_contexts_require_result_effect_and_compatible_error { |ctx|
     """p"missing".exists()
 """,
   ] {
-    let _ = test.expect(ctx, source, status: 2)?
+    test.expect(ctx, source, status: 2)?
   }
 }
 
@@ -250,7 +250,7 @@ print "unreachable"
     status: 3,
   )?
   assert literal.stdout == ""
-  let _ = test.expect(
+  test.expect(
     ctx,
     """proc check() {
   match 1 {
@@ -294,7 +294,7 @@ print "done"
     stderr: ["check.ignored-result"],
   )?
   assert "check.bool-statement" not in dynamic.stderr, dynamic.stderr
-  let _ = test.expect(
+  test.expect(
     ctx,
     """7
 """,
@@ -320,7 +320,7 @@ for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)]
 }
 
 test test_assertion_diagnostics_include_values_and_only_evaluated_operands { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let actual = [1, 2]
 assert actual == [1, 3]
@@ -328,7 +328,7 @@ assert actual == [1, 3]
     status: 3,
     stderr: ["left: [1, 2]", "right: [1, 3]"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let small = 2
 assert small > 5
@@ -336,7 +336,7 @@ assert small > 5
     status: 3,
     stderr: ["left: 2", "right: 5", ":2:8"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     """assert "missing" in {present: null}
 """,
@@ -351,7 +351,7 @@ assert false and skipped()?
     status: 3,
   )?
   assert compound.stdout == ""
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let actual = "old\\nline\\n"
 assert actual == "new\\nline\\n"
@@ -397,7 +397,7 @@ assert p".".exists()?
 }
 
 test test_retained_assertion_named_arguments_keep_source_evaluation_order { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 var order = 0
@@ -490,7 +490,7 @@ print "done"
     assert "check.bool-statement" not in output.stderr, output.stderr
   }
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """proc check() -> Result[Unit] { let code = 7; (code) }
 check()?
@@ -515,7 +515,7 @@ let _ = fields.has("one")""",
     "test.contains(\"abc\", \"a\")?",
     "test.not_contains(\"abc\", \"z\")?",
   ] {
-    let _ = test.expect(ctx, statement + "\n", status: 2, stderr: ["check.removed-membership"])?
+    test.expect(ctx, statement + "\n", status: 2, stderr: ["check.removed-membership"])?
   }
 
   for case in [
@@ -536,7 +536,7 @@ let _ = fields.has("one")""",
       code: "check.membership-type",
     },
   ] {
-    let _ = test.expect(ctx, "let _ = " + case.expression + "\n", status: 2, stderr: [case.code])?
+    test.expect(ctx, "let _ = " + case.expression + "\n", status: 2, stderr: [case.code])?
   }
 }
 

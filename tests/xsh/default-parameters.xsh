@@ -43,7 +43,7 @@ cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.ve
   let supplied = test.expect(ctx, source, status: 0, args: ["--jobs=9", "--delay=30ms", "--verbose", "--tags=3"])?
   assert supplied.stdout == """9 30ms true 1,2,3
 """
-  let _ = test.expect(ctx, source, status: 0, stdout: ["Int, default: 5", "Duration, default: 20ms"], args: ["--help"])?
+  test.expect(ctx, source, status: 0, stdout: ["Int, default: 5", "Duration, default: 20ms"], args: ["--help"])?
 }
 
 test test_default_parameters_cli_rejects_runtime_defaults_without_execution { |ctx|
@@ -450,6 +450,6 @@ test test_default_parameters_inference_needs_own_default_anchor_and_never_body_o
     "pure choose(first: Int = 1, second = first) -> Int { second }\n",
     "pure choose(value = later) -> Int { value }\nlet later = 4\nlet supplied = choose(9)\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.infer-param]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.infer-param]"])?
   }
 }

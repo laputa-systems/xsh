@@ -606,7 +606,7 @@ let built = {call}
     assert "check.positional-error-arguments" in rejected.stderr, rejected.stderr
   }
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """error E = Pair(second: Str, first: Str) | Triple(zulu: Int, mike: Str, alpha: Bool)
 let pair = E.Pair("s", first: "f")
@@ -643,7 +643,7 @@ match result {
 }
 
 test test_error_family_reports_removed_error_record_and_payload_errors { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 error FsError = NotFound(file: Path) : NotFound

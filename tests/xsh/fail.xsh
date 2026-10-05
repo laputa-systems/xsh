@@ -61,7 +61,7 @@ test test_fail_leaves_the_function_and_runs_cleanup { |ctx|
 }
 
 test test_an_uncaught_fail_reports_its_message_and_statement { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "proc load() -> Result[Int] {\n  fail \"no configuration\"\n}\n\nlet value = load()?\n",
     status: 3,

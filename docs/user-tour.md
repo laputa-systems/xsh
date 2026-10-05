@@ -144,7 +144,10 @@ cli main(root: Path, limit: UInt = 5, hidden = false) {
 
 Required parameters are positional; defaulted ones become options
 (`--limit 3`, `--hidden`); `-h` prints generated help. A bad `--limit` value
-is rejected with usage status 2 before any of your code runs.
+is rejected with usage status 2 before any of your code runs. A tool with
+several commands declares one entry for each, named by its subcommand path:
+`cli main repo check(repo = default_repo()) { ... }` runs for
+`tool repo check`, and `tool --help` lists the commands.
 
 ## Values at a Glance
 
@@ -1755,7 +1758,7 @@ test harden_script_edits_file_and_keeps_backup { |ctx|
   config.write("#PermitRootLogin yes\n")
 
   let source = p"bin/harden.xsh".read_text()?
-  let _ = test.expect(ctx, source, status: 0, args: ["--config", config])?
+  test.expect(ctx, source, status: 0, args: ["--config", config])?
   assert config.read_text()? == "PermitRootLogin no\n"
   assert fp"{config}.bak".exists()?
 }

@@ -24,7 +24,7 @@ proc formatted(ctx: TestContext, source: Str) [fs, process, error] -> Result[Str
 test test_fmt_keeps_float_literals { |ctx|
   let source = "let a = 1.0\nlet b = 0.25\nlet c = 10e-3\nlet d = 1.5e6\nlet m = 1.float()\n"
   assert formatted(ctx, source)? == source
-  let _ = test.expect(ctx, source + "print \${a + b} \${c * 100.0 + d + m}\n", status: 0, stdout: ["1.25 1500002"])?
+  test.expect(ctx, source + "print \${a + b} \${c * 100.0 + d + m}\n", status: 0, stdout: ["1.25 1500002"])?
 }
 
 test test_fmt_keeps_a_map_comprehension { |ctx|
@@ -32,7 +32,7 @@ test test_fmt_keeps_a_map_comprehension { |ctx|
 let by_name = {item.name: item.version for item in items if item.version != ""}
 """
   assert formatted(ctx, source)? == source
-  let _ = test.expect(
+  test.expect(
     ctx,
     source + "print \${by_name.keys().join(\",\")} \${by_name[\"a\"]}\n",
     status: 0,
@@ -45,7 +45,7 @@ test test_fmt_keeps_a_bracketed_computed_map_key { |ctx|
 let by_name = {[item.name]: item.version}
 """
   assert formatted(ctx, source)? == source
-  let _ = test.expect(ctx, source + "print \${by_name[\"demo\"]}\n", status: 0, stdout: ["2"])?
+  test.expect(ctx, source + "print \${by_name[\"demo\"]}\n", status: 0, stdout: ["2"])?
 }
 
 test test_fmt_keeps_type_patterns { |ctx|
@@ -57,7 +57,7 @@ test test_fmt_keeps_type_patterns { |ctx|
 }
 """
   assert formatted(ctx, source)? == source
-  let _ = test.expect(ctx, source, status: 0, stdout: ["1.25"])?
+  test.expect(ctx, source, status: 0, stdout: ["1.25"])?
 }
 
 test test_fmt_keeps_module_contract_types { |ctx|
@@ -670,7 +670,7 @@ test test_fmt_breaks_a_long_call_chain_between_calls { |ctx|
   assert "\n  .push" in actual, actual
   assert "common.push(" in actual, actual
   # The broken chain is still one statement: every call lands in `files`.
-  let _ = test.expect(ctx, actual + "print \${files.len()}\n", status: 0, stdout: ["3"])?
+  test.expect(ctx, actual + "print \${files.len()}\n", status: 0, stdout: ["3"])?
 }
 
 test test_fmt_keeps_run_capture_records { |ctx|
@@ -950,7 +950,7 @@ let record = missing ?? {name: "record"}
 """
   let stable = formatted(ctx, failing)?
   assert stable == failing, stable
-  let _ = test.expect(ctx, failing + "print \$recovered \$record.name\n", status: 0, stdout: ["false record"])?
+  test.expect(ctx, failing + "print \$recovered \$record.name\n", status: 0, stdout: ["false record"])?
 }
 
 test test_fmt_keeps_keyword_and_dotted_field_labels { |ctx|

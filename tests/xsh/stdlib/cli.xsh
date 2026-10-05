@@ -161,7 +161,7 @@ test test_cli_usage_rejects_a_schema_it_cannot_interpret { |ctx|
   # message, exactly as the baseline's native route does. The rejection is a
   # runtime error rather than a returned value, so it is observed here through a
   # script that propagates it at top level: status 3, the rejection on stderr.
-  let _ = test.expect(
+  test.expect(
     ctx,
     """use cli
 print cli.usage({count: {kind: "Nope"}}, "demo")
@@ -1019,7 +1019,7 @@ proc main() [io, error, fs] {
   )?
   assert "usage: mytool" not in descriptor.stderr
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""use cli
 

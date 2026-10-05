@@ -155,6 +155,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-collect` | Build a list that is declared empty and then only appended to with `collect { ... }` |
 | `lint.prefer-wait-until` | Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit |
 | `lint.legacy-set-call` | Note a `set.empty`, `set.from`, `set.add`, or `set.remove` call in its `Map[Str, Bool]` form that `lint.prefer-set` has no fix for; a `Set[T]` has `.add` and `.remove` |
+| `lint.redundant-discard` | Remove `let _ =` from a propagated call whose value the registry marks discardable, such as `test.expect(...)?` |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

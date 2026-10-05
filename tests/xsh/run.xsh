@@ -33,7 +33,7 @@ test test_mutable_string_accumulator_uses_string_addition_in_loop { |ctx|
 }
 
 test test_reassigning_let_names_mutable_binding { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let x = 1
 x = 2
@@ -57,7 +57,7 @@ print $value.length()
 }
 
 test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let value: Any = "abc"
 let _ = value.length()
@@ -223,12 +223,12 @@ test test_run_targets_that_cannot_execute_fail_with_distinct_kinds { |ctx|
   }
 
   for {target, kind} in cases {
-    let _ = test.expect(ctx, "run (Path(args[0]))\n", status: 3, stderr: [kind], args: [target])?
+    test.expect(ctx, "run (Path(args[0]))\n", status: 3, stderr: [kind], args: [target])?
   }
 }
 
 test test_modules_are_not_command_namespaces { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """use fs
 fs read
@@ -294,7 +294,7 @@ constant words
 }
 
 test test_nul_run_targets_proc_splice_and_match_diagnostics { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 proc main(args: List[Str]) -> Result[Unit] {
@@ -308,7 +308,7 @@ main(args)?
     stderr: ["nul"],
   )?
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let _ = Path("bad\\0path")
 """,
@@ -316,7 +316,7 @@ main(args)?
     stderr: ["nul"],
   )?
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run printf ("bad\\0arg") ?
 """,
@@ -344,7 +344,7 @@ pair(@parts)?
   assert spliced.stdout == """left right
 """
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let value = 1
 match value {
@@ -612,7 +612,7 @@ print \${opts.path}
   assert "usage:" in usage_error.stderr
   assert "traceback" not in usage_error.stderr
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 error AppError = usage(message: Str)
@@ -645,7 +645,7 @@ main()?
 }
 
 test test_whole_script_run_error_diagnostics { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run false "two words" ?
 """,
@@ -666,7 +666,7 @@ test test_whole_script_run_error_diagnostics { |ctx|
 }
 
 test test_pipeline_failures_and_trace_are_visible { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run false | run true ?
 """,
@@ -674,7 +674,7 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
     stderr: ["pipeline segment 0", "false"],
   )?
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run true | run false ?
 """,
@@ -719,7 +719,7 @@ print "after"
   )?
   assert "after" not in late.stdout
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run sh -c "kill -TERM $$" | run true
 """,
@@ -738,7 +738,7 @@ print "after"
   assert "after" not in missing.stdout
 
   let marker = test.temp_path(ctx)
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""run sh -c "exit 3" | run sh -c "cat >/dev/null; echo ran > {marker}"
 """,
@@ -757,7 +757,7 @@ test test_pipeline_sigpipe_after_successful_downstream_exit_is_not_failure { |ct
   assert status.success
   assert status.segments[0].kind == "signal"
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run yes | run sh -c "head -n 1 >/dev/null; exit 4"
 """,
@@ -835,7 +835,7 @@ test test_pipeline_capture_form_is_chosen_by_the_head_segment { |ctx|
     "let x = run.text printf a | run.status cat",
   ]
   for source in cases {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["check.pipeline-capture"])?
+    test.expect(ctx, source, status: 2, stderr: ["check.pipeline-capture"])?
   }
 }
 
@@ -977,7 +977,7 @@ test test_run_fixture_behaviors { |ctx|
   assert run.text printf "%s\n" "hello world"? == """hello world
 """
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """run false
 """,
@@ -993,7 +993,7 @@ test test_run_fixture_behaviors { |ctx|
 }
 
 test test_signaled_status_exit_code_is_structured_error { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let status = run sh -c "kill -TERM $$"
 let _ = status.exit_code()?
@@ -1004,7 +1004,7 @@ let _ = status.exit_code()?
 }
 
 test test_nested_traceback_includes_user_procs_and_pure_functions { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 pure leaf() -> Result[Unit] {
@@ -1066,7 +1066,7 @@ beta
 }
 
 test test_run_timeout_error { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let _ = run --timeout=10ms sh -c "sleep 1" ?
 """,

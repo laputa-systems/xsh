@@ -49,7 +49,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
 exit 23""",
   )
   let inherited_path = env.get_or("PATH", "")?
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use build
@@ -86,7 +86,7 @@ test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
     f"""p"{cargo_marker}".write(args.join("|"))?
 exit 23""",
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use build
@@ -167,7 +167,7 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
 exit 23""",
   )
   write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context
@@ -210,7 +210,7 @@ if "run" in args {{
 }}
 """,
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context
@@ -374,7 +374,7 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
     f"""p"{codesign_marker}".write("codesign")?
 exit 25""",
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context
@@ -415,7 +415,7 @@ test test_darwin_install_rejects_linux_target_before_building { |ctx|
     f"""p"{cargo_marker}".write("cargo")?
 """,
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context
@@ -463,7 +463,7 @@ test test_linux_install_requires_native_musl_target { |ctx|
     f"""p"{cargo_marker}".write("cargo")?
 """,
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context
@@ -497,7 +497,7 @@ match install.linux_install(ctx) {{
   )?
   assert ! cargo_marker.exists()?, "cross-arch Linux install must fail before cargo"
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context

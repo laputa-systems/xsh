@@ -134,7 +134,7 @@ test test_a_result_elsewhere_in_a_condition_is_data { |ctx|
 
 test test_a_condition_cannot_propagate_where_a_statement_cannot { |ctx|
   let prelude = "pure known(name: Str) -> Result[Bool] {\n  Ok(name != \"\")\n}\n\n"
-  let _ = test.expect(
+  test.expect(
     ctx,
     prelude + "pure label(name: Str) -> Str {\n  if known(name) { return name }\n  \"anonymous\"\n}\n",
     status: 2,
@@ -142,13 +142,13 @@ test test_a_condition_cannot_propagate_where_a_statement_cannot { |ctx|
       "err[check.try-context]: a `Result[Bool]` condition propagates its failure, which requires a Result-returning context",
     ],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     prelude + "proc label(name: Str) [io] -> Str {\n  return name when known(name)\n  \"anonymous\"\n}\n",
     status: 2,
     stderr: ["err[check.effect-violation]: condition failure propagation requires the `error` effect"],
   )?
-  let _ = test.expect(ctx, "if \"4\".parse_int() { print \"yes\" }\n", status: 2, stderr: ["err[check.if-condition]"])?
+  test.expect(ctx, "if \"4\".parse_int() { print \"yes\" }\n", status: 2, stderr: ["err[check.if-condition]"])?
 }
 
 test test_redundant_propagation_removes_the_condition_question_mark { |ctx|

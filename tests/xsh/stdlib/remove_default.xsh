@@ -41,7 +41,7 @@ gone.remove()?
 gone.remove(missing_ok: true)?
 print (gone.remove(missing_ok: false) is Err(_))
 """.replace("ROOT", with: root.display())
-  let _ = test.expect(ctx, script, status: 0, stdout: ["true\n"])?
+  test.expect(ctx, script, status: 0, stdout: ["true\n"])?
 }
 
 # With the default written out the call is the same call, so the lint removes

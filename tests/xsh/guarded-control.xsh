@@ -232,7 +232,7 @@ pure cached(value: Str?) -> Str {
   )?
   assert accepted.stderr == "", accepted.stderr
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 pure cached(value: Str?) -> Str {
@@ -243,7 +243,7 @@ pure cached(value: Str?) -> Str {
     status: 2,
     stderr: ["[check.type-mismatch]"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     "pure value() -> Int { return 1 when 2; return 3 }\n",
     status: 2,
@@ -259,6 +259,6 @@ test test_guarded_value_control_retains_lexical_targets_and_effects { |ctx|
     "pure value() -> Int { return \"bad\" when false; return 1 }\n",
     "proc value() [] -> Status { return (run.status /usr/bin/true) when false; return (run.status /usr/bin/true) }\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check."])?
+    test.expect(ctx, source, status: 2, stderr: ["[check."])?
   }
 }

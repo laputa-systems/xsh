@@ -64,7 +64,7 @@ test test_integer_division_spellings_point_at_slash { |ctx|
     assert "help: replace with integer `/` -> /\n" in stderr, stderr
   }
 
-  let _ = test.expect(ctx, "let quotient = 7 / 2\nprint \$quotient\n", status: 0, stdout: ["3"])?
+  test.expect(ctx, "let quotient = 7 / 2\nprint \$quotient\n", status: 0, stdout: ["3"])?
 }
 
 test test_signal_hook_requires_effects_and_a_duration_option { |ctx|
@@ -159,7 +159,7 @@ test test_stream_stage_flag_migration_offers_no_fix_when_ambiguous { |ctx|
 test test_selective_retry_requires_a_parenthesized_clause { |ctx|
   expect_rejected(ctx, "let result = retry [] on FetchError.Busy { fetch()? }", "parse.expected-token")
   # `on` stays an ordinary name and command word.
-  let _ = test.expect(ctx, "let on = 1\nlet result = retry [] { on }\nrun echo on\n", status: 0, stdout: ["on"])?
+  test.expect(ctx, "let on = 1\nlet result = retry [] { on }\nrun echo on\n", status: 0, stdout: ["on"])?
 }
 
 # A punned argument `value:` reads the lexical name `value`; when there is

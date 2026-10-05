@@ -265,7 +265,7 @@ test test_accept_policy_requires_bounded_int_codes_on_every_plan_route { |ctx|
     "let command = process.command { accept = [-1]\nrun sh }\n",
     "let command = process.command_argv(\"sh\", [\"sh\"], accept: [0,0])\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.accept-policy]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.accept-policy]"])?
   }
 
   for source in [
@@ -273,6 +273,6 @@ test test_accept_policy_requires_bounded_int_codes_on_every_plan_route { |ctx|
     "let command = process.command { accept = [\"zero\"]\nrun sh }\n",
     "let command = process.command_argv(\"sh\", [\"sh\"], accept: [false])\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
   }
 }

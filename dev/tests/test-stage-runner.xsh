@@ -11,7 +11,7 @@ export proc execute(spec: stage_contract.CommandSpec) [process, error, io] -> Re
   return Ok()
 }
 """)
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 use stage_contract

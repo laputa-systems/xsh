@@ -232,12 +232,12 @@ test test_nested_record_binding_rejects_contract_violations { |ctx|
       code: "check.destructure-type",
     },
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+    test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
   }
 }
 
 test test_nested_record_binding_keeps_selected_field_types { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let {outer: {value: selected}} = {outer: {value: 1}}\nlet wrong: Str = selected\n",
     status: 2,

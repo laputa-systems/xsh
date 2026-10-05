@@ -208,7 +208,7 @@ error_variant = NAME ( "(" list(LABEL ":" type_expr) ")" )? ( ":" IDENT ( "," ID
 proc_declaration = "proc" NAME "(" parameters ")" effects? ( "->" type_expr )? block ;
 pure_declaration = "pure" IDENT "(" parameters ")" ( "->" type_expr )? block ;
 stream_declaration = "stream" IDENT "(" parameters ")" effects? "->" type_expr block ;
-cli_main = "cli" "main" "(" parameters ")" effects? ( "->" type_expr )? block ;
+cli_main = "cli" "main" IDENT* "(" parameters ")" effects? ( "->" type_expr )? block ;
 test_declaration = "test" IDENT effects? "{" separator* ( "|" IDENT ","? "|" )? statements "}" ;
 parameters = list(parameter) ;
 parameter = IDENT ":" type_expr ( "=" expression )? | IDENT "=" expression | "." ~"." ~"." IDENT ":" type_expr ;

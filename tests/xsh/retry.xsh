@@ -33,7 +33,7 @@ print f"{value} {attempts}"
 }
 
 test test_retry_exhaustion_returns_final_error { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 var attempts = 0
@@ -320,7 +320,7 @@ match result { Err(_) => print "stopped"; _ => print "wrong" }
 }
 
 test test_retry_filter_rejects_captures_and_impossible_families { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 error FetchError = Busy(message: Str)
@@ -330,7 +330,7 @@ let result = retry [] on (FetchError.Busy {message}) { attempt()? }
     status: 2,
     stderr: ["check.pattern-test-binding"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 error FetchError = Busy(message: Str)
@@ -403,7 +403,7 @@ proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")
 let result = retry [] on (NotFound) { attempt()? }
 """,
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["check.pattern-"])?
+    test.expect(ctx, source, status: 2, stderr: ["check.pattern-"])?
   }
 }
 
@@ -435,7 +435,7 @@ print \${cleaned}
 }
 
 test test_retry_filter_rejects_string_classification { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """
 proc attempt() -> Result[Str, Str] { Err("busy") }
@@ -497,7 +497,7 @@ test test_retry_body_uses_the_expected_success_type {
 }
 
 test test_retry_attempt_local_try_needs_no_error_effect { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 proc fetch() [net] -> Result[Str] {
@@ -515,7 +515,7 @@ proc main() [net] -> Unit {
 }
 
 test test_retry_delays_require_the_time_effect { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 proc main() [fs] -> Unit {
@@ -530,7 +530,7 @@ proc main() [fs] -> Unit {
 }
 
 test test_retry_rejects_non_duration_delays { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let value = retry ["soon"] {
@@ -560,6 +560,6 @@ test test_retry_family_selectors_keep_builtin_and_user_error_identity { |ctx|
     "error LocalError = Failed(message: Str)\nlet failed: Result[Unit, LocalError] = Err(LocalError.Failed(message: \"local\"))\nlet result = retry [] on (AssertionError) { failed? }\n",
     "let value = 1\nlet tested = value is Str\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.pattern-type]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.pattern-type]"])?
   }
 }

@@ -7,7 +7,7 @@ type Name = {name: Str}
 type NullableVersion = {name: Str, version: Str?}
 
 test test_record_require_removed_api_has_actionable_diagnostic { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let checked = record.require({name: "demo"}, {name: "Str"})?

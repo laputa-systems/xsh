@@ -190,7 +190,7 @@ test test_atomically_discards_the_temporary_file_on_exit { |ctx|
   let root = test.temp_dir(ctx, name: "atomically-exit")?
   let dest = fp"{root}/out"
   dest.write("old")
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""atomically replace p"{dest}" as partial {{
   partial.write("new")

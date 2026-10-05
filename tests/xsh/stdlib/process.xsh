@@ -47,7 +47,7 @@ test test_process_module {
 }
 
 test test_process_command_argv_requires_argv0 { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let command = process.command_argv("echo", [])
 """,
@@ -669,5 +669,5 @@ proc in_block(marker: Path) [process, fs, time, error] -> Result[Unit] {
 scoped(Path("ROOT/call"))?
 in_block(Path("ROOT/block"))?
 """
-  let _ = test.expect(ctx, source.replace("ROOT", with: root.display()), status: 0, stdout: ["true\ntrue\n"])?
+  test.expect(ctx, source.replace("ROOT", with: root.display()), status: 0, stdout: ["true\ntrue\n"])?
 }

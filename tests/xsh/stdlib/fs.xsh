@@ -1,6 +1,6 @@
 test test_missing_file_read_propagates_structured_error { |ctx|
   let missing = test.temp_path(ctx, name: "missing-read")
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""let _ = p"{missing}".read_bytes()?
 """,
@@ -36,7 +36,7 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fp"{root}/file.txt".write("data")
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 let root = p"{root}"
@@ -91,7 +91,7 @@ test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
     |> first()?
   assert normal.size == 4
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 let root = p"{root}"
@@ -190,7 +190,7 @@ test test_fs_tree_metadata_install_and_locking { |ctx|
   let listed = fs.children(nested, stat: true, ordered: true)? |> sort-by .name
   assert children.len() == listed.len()
   assert fs.children(nested, stat: false, ordered: false)? |> any .name == "data.txt"
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 let entry = fs.children(fp"{nested}", stat: false, ordered: false)? |> first()?
@@ -629,7 +629,7 @@ test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext { |ctx|
   assert cheap_c.name == "main.c"
   assert cheap_c.ext == "c"
   assert cheap_c.kind == "file"
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 let entry = fs.files(fp"{root}", false, false, [], true) |> first()?

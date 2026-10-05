@@ -128,7 +128,7 @@ test test_bool_value_callbacks_and_retry {
 }
 
 test test_bool_statement_branch_tails_are_rejected { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """proc assertion() {
   if true {
@@ -268,7 +268,7 @@ test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
     status: 2,
   )?
   assert matched.stderr.split("err[check.ignored-result]").len() == 3, matched.stderr
-  let _ = test.expect(
+  test.expect(
     ctx,
     """3
 """,

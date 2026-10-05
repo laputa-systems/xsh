@@ -20,7 +20,7 @@ test test_an_argv_list_built_first_may_hold_text_and_paths { |ctx|
   assert process.run(plan)?.exited_with(0)
   assert out.read_bytes()? == b"bad\xffname|text|"
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let argv: List[Union[Str, Int]] = [\"true\", 1]\nlet plan = process.command_argv(\"true\", argv)\n",
     status: 2,
@@ -34,7 +34,7 @@ test test_native_test_runs_take_path_arguments { |ctx|
 
   # A path in a list written in the call, a list of paths, and a list of
   # text and paths built first.
-  let _ = test.expect(ctx, source, status: 0, stdout: [f"{root} 2"], args: [root, "second"])?
+  test.expect(ctx, source, status: 0, stdout: [f"{root} 2"], args: [root, "second"])?
 
   let paths = [root, fp"{root}/below"]
   let by_paths = test.run_script(ctx, source, paths)?

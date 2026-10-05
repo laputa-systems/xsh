@@ -162,7 +162,7 @@ test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
 }
 
 test test_ergonomics_statement_branch_bool_is_rejected { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     """proc check_branch() [] {
   if true {

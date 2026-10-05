@@ -275,7 +275,7 @@ reveal_type(names)
 }
 
 test test_xsh_rejects_reveal_type { |ctx|
-  let _ = test.expect(ctx, "reveal_type(1)\n", status: 2, stderr: ["err[check.reveal-type]"])?
+  test.expect(ctx, "reveal_type(1)\n", status: 2, stderr: ["err[check.reveal-type]"])?
 }
 
 test test_check_rejects_undefined_utility_commands { |ctx|

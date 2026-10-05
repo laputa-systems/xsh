@@ -128,7 +128,7 @@ let ctx: context.Context = {context_source}
 docs.build_release(ctx)?
 test_workflows.rust(ctx)?
 """
-  let _ = test.expect(
+  test.expect(
     ctx,
     script,
     status: 0,
@@ -154,7 +154,7 @@ test_workflows.rust(ctx)?
   ]
 
   log.remove(missing_ok: false)
-  let _ = test.expect(
+  test.expect(
     ctx,
     script,
     status: 0,

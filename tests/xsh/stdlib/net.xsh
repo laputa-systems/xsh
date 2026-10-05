@@ -481,7 +481,8 @@ test test_net_transport_error_contracts { |ctx|
 }
 
 proc assert_invalid_net_input(ctx: TestContext, source: Str, kind: Str) [error] {
-  let _ = test.expect(ctx, source, status: 3, stderr: [kind])?
+  let failed = test.expect(ctx, source, status: 3, stderr: [kind])?
+  assert failed.stdout == "", failed.stdout
 }
 
 test test_net_transport_rejects_invalid_shapes { |ctx|

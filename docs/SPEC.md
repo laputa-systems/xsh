@@ -370,15 +370,77 @@ cli main(src: Path, dest: Path, jobs: UInt = 4, verbose = false) {
 - Parameter types may be `Str`, `Int`, `UInt`, `Bool`, `Path`, or `Duration`,
   or aliases of them. `Bool` options accept a bare switch or an explicit value.
   Defaulted `List` options append repeated occurrences.
-- Defaults must be constants; reading them runs no code.
+- A default is a constant or any other expression. Reading a constant runs no
+  code, and help shows its value. A *computed* default (`repo: Path =
+  default_repo()`) is the entry's own parameter default (9.1): it is checked
+  against the parameter's type, its effects are charged to the entry, and it
+  is evaluated only when the command line does not give the option, after the
+  command line is parsed and the top-level statements have run, immediately
+  before the body. Its failure is an ordinary failure of the script. Help
+  shows its source text and does not evaluate it.
 - `-h` and `--help` print generated help (types, defaults, and doc comments)
   and exit `0`. Unknown or duplicate options and malformed values print usage
   and exit `2`. Both happen before any top-level statement or module
   initializer runs.
 - `cli main` is not callable or exportable, appears only at the entry script's
-  top level, and cannot coexist with `proc main`.
+  top level, and cannot coexist with `proc main`. A `cli` entry in an imported
+  module is a check error (`check.cli-entry`).
 
-For subcommands, dynamic schemas, or other advanced policies, use `cli.parse`,
+A script with several commands declares one entry per command, each named by a
+subcommand path after `main`:
+
+```xsh
+##! Inspect and repair package repositories.
+
+proc default_repo() [env] -> Str {
+  env.get("REPO_ROOT") ?? "/srv/repo"
+}
+
+## Verify the index of a repository.
+cli main repo check(repo = default_repo(), deep_scan = false) [env] {
+  print f"checking {repo} (deep scan: {deep_scan})"
+}
+
+## Copy a repository to its mirrors.
+cli main repo sync_all(target: Str, jobs: UInt = 4) {
+  print f"syncing to {target} with {jobs} jobs"
+}
+
+## Print the version.
+cli main version() {
+  print "1.0"
+}
+```
+
+- Each entry is a `cli main` in every respect above: its own positionals,
+  options, defaults, effects, doc comment, and generated help.
+- A path word is an identifier, typed on the command line in kebab case as
+  options are (`sync_all` is `sync-all`). A keyword cannot be a path word.
+- The leading arguments select the entry: words are read while they continue
+  a declared path, and the rest of the command line is parsed by the entry
+  reached (`tool repo check --repo /srv`).
+- `-h` or `--help` in place of a path word prints a listing of the entries
+  under the words read so far, each with the first line of its doc comment,
+  and exits `0`; at the top it starts with the script's module doc comment. A
+  missing or unknown word prints the same listing after the error and exits
+  `2`. As for a single entry, this happens before any top-level statement
+  runs.
+- A bare `cli main(...)` cannot be declared beside subcommand entries, two
+  entries cannot have the same path, and a path cannot continue another
+  entry's path (a word names an entry or a group, not both). `help` is
+  reserved. Each is `check.cli-entry`:
+
+```xsh
+cli main version() {
+  print "1.0"
+}
+
+cli main(root: Path) { # error: check.cli-entry
+  print f"{root}"
+}
+```
+
+For dynamic schemas or other advanced policies, use `cli.parse`,
 `cli.parse_full`, and `cli.commands`. A `cli.parse` error propagated with `?`
 at the top level prints usage and exits `2` (or `0` for help) without a
 traceback.
@@ -2585,6 +2647,14 @@ In statement position:
   it as the tail, or discard it with `let _ = ...`. A discarded collection
   update such as `items.push(x)` is reported as the mistake it usually is:
   the call returns the updated copy and leaves `items` unchanged.
+- The propagated value of a call to a standard function registered as
+  *discardable* is discarded: `test.expect(ctx, source, status: 0)?` is a
+  statement. The mark is a fact of the function's signature in the API
+  registry, and `test.expect` is the only function that has it. It covers the
+  success value alone: without `?` the statement is still a dropped
+  `Result[T]`, and the failure propagates as from any other call. Binding the
+  value only to discard it, `let _ = test.expect(...)?`, is
+  `lint.redundant-discard`.
 
 Every callable tail in value position is data. A `Bool` tail returns its value,
 including `false`; a `Result` tail is returned as a value, not unwrapped.
@@ -3531,6 +3601,12 @@ Return types may be omitted only on private functions:
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
+
+At most 10000 function calls are open at once. The call that would be one
+more fails with the runtime error `stack-overflow`, whose message names the
+innermost open calls, so recursion that never ends is an error instead of a
+script that runs until memory does. Recursion over data stays far below the
+limit; write a loop where a list is long enough to reach it.
 
 A function declared `Result[T, E]?` returns `null`, an `Ok`, or an `Err` as
 the value it is: an `Err` it returns is data for the caller, bound by a plain
@@ -4847,7 +4923,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `diff`, `patch` | unified diffs and confined patch application |
 | `net`, `dns` | HTTP(S) requests, downloads, uploads, batches, pooled clients, `NetJob`; DNS lookups |
 | `time` | clock, `sleep`, measurement, duration helpers |
-| `cli` | argument parsing beyond `cli main` |
+| `cli` | argument parsing beyond `cli main` and its subcommand entries |
 | `module` | runtime module loading |
 | `error` | `error.fail` validation failures |
 | `map`, `set` | empty-map factory; `set.empty()` and `set.from(items)`, which build a `Set[T]` where one is expected and otherwise the legacy `Map[Bool]` string set that `set.add` and `set.remove` update |
@@ -5238,7 +5314,8 @@ fragments the captured text must contain and default to none. When the status
 differs or a fragment is missing, the call is a failed assertion whose message
 names every mismatch and then gives the script's status, stdout, and stderr in
 full. Otherwise it returns the output record `test.run_script` returns, so
-further assertions can follow.
+further assertions can follow. The record is discardable (8.1): a call that
+needs nothing more is the statement `test.expect(...)?`.
 
 Each test runs under a time limit counted from its start: the runner's
 `xsht test --timeout` value unless the test calls `test.timeout(ctx, limit)`,

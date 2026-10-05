@@ -240,7 +240,7 @@ test test_private_pure_inference_requires_annotations_for_recursive_and_contextu
       code: "check.try-context",
     },
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+    test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
   }
 }
 
@@ -254,7 +254,7 @@ test test_private_pure_inference_destructured_capture { |ctx|
 }
 
 test test_private_pure_inference_preserves_prefix_capture_visibility { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "pure captured() { prefix + \"!\" }\nlet prefix = \"later\"\n",
     status: 2,
@@ -277,6 +277,6 @@ test test_private_pure_inference_pattern_captures_do_not_create_recursive_depend
     "pure selected(outcome: Result[Int]) { if let Ok(selected) = selected(outcome) { selected } else { 0 } }\n",
     "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.required-return]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.required-return]"])?
   }
 }

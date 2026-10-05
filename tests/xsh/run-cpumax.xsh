@@ -8,7 +8,7 @@ test test_run_cpumax_leaves_no_scope_under_the_cgroup_root { |ctx|
     return
   }
   let root = test.temp_dir(ctx, name: "run-cpumax-cgroup")?
-  let _ = test.expect(ctx, "run --cpumax=80 true\n", status: 0, env: {XSH_CGROUP_ROOT: root})?
+  test.expect(ctx, "run --cpumax=80 true\n", status: 0, env: {XSH_CGROUP_ROOT: root})?
   assert (fs.children(root)? |> count()) == 0
 }
 

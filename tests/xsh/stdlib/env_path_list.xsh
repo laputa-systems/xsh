@@ -121,7 +121,7 @@ test test_a_list_word_that_is_not_a_path_list_keeps_the_one_item_rule { |ctx|
     assert e"XSH_PATH_LIST"? == "only"
   }
   for names in ["[\"a\", \"b\"]", "[]"] {
-    let _ = test.expect(
+    test.expect(
       ctx,
       f"let names: List[Str] = {names}\nenv NAMES=\$names {{\n  print \"entered\"\n}}\n",
       status: 3,

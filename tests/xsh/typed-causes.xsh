@@ -228,7 +228,7 @@ ctx "publish" { translated? }
 }
 
 test test_err_typed_cause_one_argument_retains_existing_chain_through_try { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)
@@ -309,7 +309,7 @@ outcome?
 }
 
 test test_err_typed_cause_retains_checked_assertion_failure { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 error OuterError = Failed(message: Str)

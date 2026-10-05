@@ -7,7 +7,7 @@ test test_exit_ends_the_script_with_its_status { |ctx|
 
 test test_exit_status_is_an_expression { |ctx|
   let source = "proc finish(code: Int) {\n  match code {\n    0 => exit 0\n    _ => exit if code > 100 { 1 } else { code + 1 }\n  }\n}\n\nfinish(41)\n"
-  let _ = test.expect(ctx, source, status: 42)?
+  test.expect(ctx, source, status: 42)?
 }
 
 test test_exit_runs_deferred_cleanup_and_is_not_captured { |ctx|
@@ -39,7 +39,7 @@ test test_desugar_keeps_exit_as_written { |ctx|
 }
 
 test test_abort_is_gone_and_names_exit { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "abort(9)\n",
     status: 2,
@@ -75,7 +75,7 @@ stop(pick(5))
   assert file.read_text()? == source.replace("abort(code + 1)", with: "exit code + 1")
     .replace("abort(2)", with: "exit 2")
     .replace("abort(4)", with: "exit 4")
-  let _ = test.expect(ctx, file.read_text()?, status: 6)?
+  test.expect(ctx, file.read_text()?, status: 6)?
 }
 
 test test_abort_in_an_expression_or_with_force_has_no_rewrite { |ctx|

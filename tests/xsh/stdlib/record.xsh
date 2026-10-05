@@ -21,7 +21,7 @@ test test_record_schema_validation_and_any_require {
 }
 
 test test_standard_record_schemas_reject_bad_dynamic_records { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 proc entry_name(entry: FsEntry) -> Str {
@@ -49,7 +49,7 @@ print ${entry_name(raw)}
 }
 
 test test_schema_runtime_checks_unknown_values { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 type Package = { name: Str, root: Path }

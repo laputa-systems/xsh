@@ -250,7 +250,7 @@ test test_record_update_rejects_nested_contract_violations { |ctx|
       code: "check.record-update-field",
     },
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+    test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
   }
 }
 

@@ -503,7 +503,7 @@ test test_env_string_rejections { |ctx|
 }
 
 test test_env_string_value_with_nul_fails_at_runtime { |ctx|
-  let _ = test.expect(ctx, "e\"XSH_ESTR_NUL\" = \"a\\0b\"\n", status: 3, stderr: ["NUL"])?
+  test.expect(ctx, "e\"XSH_ESTR_NUL\" = \"a\\0b\"\n", status: 3, stderr: ["NUL"])?
 }
 
 # A script that reads a variable as text stops with exit status 3 when the

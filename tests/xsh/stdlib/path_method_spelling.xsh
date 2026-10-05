@@ -1,5 +1,5 @@
 test test_removed_fs_function_names_the_path_method { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "fs.write(p\"/tmp/xsh-removed-fs-never/file\", \"text\")\n",
     status: 2,

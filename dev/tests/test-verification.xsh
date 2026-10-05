@@ -81,7 +81,7 @@ test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
   print ""
 }""",
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context
@@ -113,7 +113,7 @@ main()?
   print "NEEDED"
 }""",
   )
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""
 use context

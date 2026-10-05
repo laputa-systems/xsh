@@ -111,7 +111,7 @@ data()
 
   # An entry `main` the last statement does not call runs afterwards and owns
   # the exit status, so that last statement's Int would be dropped.
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""proc main() [] -> Int { 4 }
 5
@@ -119,7 +119,7 @@ data()
     status: 2,
     stderr: ["check.ignored-result"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""proc main() [] -> Int { 4 }
 main()

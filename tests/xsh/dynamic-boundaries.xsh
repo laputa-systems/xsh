@@ -664,7 +664,7 @@ let sum = raw.a + raw.b
 }
 
 test test_dynamic_boundary_accepts_any_as_the_public_dynamic_type { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""
 let x: Any = json.decode("{}")?
@@ -672,7 +672,7 @@ let y: Any = {name: "demo"}.get("name")?
 """,
     status: 0,
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let x: Unknown = json.decode(\"{}\")?\n",
     status: 2,

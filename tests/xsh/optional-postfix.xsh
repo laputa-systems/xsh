@@ -299,7 +299,7 @@ test test_optional_postfix_preserves_outer_result_effect_checks { |ctx|
     "proc value(input: Result[List[Int]]) [io] -> Int {\n  return input?[0]\n}\n",
     "proc value(input: Result[Str]) [io] -> Str {\n  return input?.trim()\n}\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.effect-violation]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.effect-violation]"])?
   }
 }
 
@@ -310,6 +310,6 @@ test test_optional_postfix_rejects_guessed_wrappers_and_unguarded_nullable_hops 
     "let value: Str? = null\nlet item = value?.trim().trim()\n",
     "let value: Result[Str?] = Ok(null)\nlet item = value?.trim()\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check."])?
+    test.expect(ctx, source, status: 2, stderr: ["[check."])?
   }
 }

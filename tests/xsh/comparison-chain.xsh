@@ -92,7 +92,7 @@ let result = value is Int < true
     assert "parse.mixed-comparison" in invalid.stderr
   }
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """let value = (0 < 1 < 2) == true
 """,

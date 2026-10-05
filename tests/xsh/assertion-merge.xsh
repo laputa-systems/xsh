@@ -101,7 +101,7 @@ print "checked"
   assert output.stdout == """checked
 """
   for statement in ["let _ = \"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
-    let _ = test.expect(
+    test.expect(
       ctx,
       """let values: Map[Int, Str] = {[1]: "one"}
 """ + statement + "\n",

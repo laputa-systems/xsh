@@ -65,15 +65,15 @@ let first = ["a", "b"] |> get(0)?
 }
 
 test test_leading_operator_continues_the_previous_line { |ctx|
-  let _ = test.expect(ctx, "let x = 1\n+ 2\nprint \$x\n", status: 0, stdout: ["3"])?
+  test.expect(ctx, "let x = 1\n+ 2\nprint \$x\n", status: 0, stdout: ["3"])?
 }
 
 test test_trailing_operator_continues_onto_the_next_line { |ctx|
-  let _ = test.expect(ctx, "let x = 1 +\n2\nprint \$x\n", status: 0, stdout: ["3"])?
+  test.expect(ctx, "let x = 1 +\n2\nprint \$x\n", status: 0, stdout: ["3"])?
 }
 
 test test_chained_comparisons_continue_across_newlines { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let x = 5\nlet y = 1\nlet ok = x > 0\nand x < 10\nand y != 0\nprint \$ok\n",
     status: 0,
@@ -82,7 +82,7 @@ test test_chained_comparisons_continue_across_newlines { |ctx|
 }
 
 test test_newline_without_an_operator_ends_the_statement { |ctx|
-  let _ = test.expect(ctx, "let x = 1\nlet y = 2\nprint \$x \$y\n", status: 0, stdout: ["1 2"])?
+  test.expect(ctx, "let x = 1\nlet y = 2\nprint \$x \$y\n", status: 0, stdout: ["1 2"])?
 }
 
 # A line that begins with a token that can start a statement is its own
@@ -109,20 +109,20 @@ test test_line_starting_with_a_statement_token_starts_a_new_statement { |ctx|
 
 test test_parenthesized_expression_spans_lines { |ctx|
   expect_parses(ctx, "let x = (1 +\n2)\n")
-  let _ = test.expect(ctx, "let x = (1 +\n2) * 2\nprint \$x\n", status: 0, stdout: ["6"])?
+  test.expect(ctx, "let x = (1 +\n2) * 2\nprint \$x\n", status: 0, stdout: ["6"])?
 }
 
 test test_list_literal_spans_lines { |ctx|
-  let _ = test.expect(ctx, "let xs = [\n1,\n2,\n3\n]\nprint \${xs.len()}\n", status: 0, stdout: ["3"])?
+  test.expect(ctx, "let xs = [\n1,\n2,\n3\n]\nprint \${xs.len()}\n", status: 0, stdout: ["3"])?
 }
 
 test test_record_literal_spans_lines { |ctx|
-  let _ = test.expect(ctx, "let r = {\na: 1,\nb: 2,\n}\nprint \${r.a + r.b}\n", status: 0, stdout: ["3"])?
+  test.expect(ctx, "let r = {\na: 1,\nb: 2,\n}\nprint \${r.a + r.b}\n", status: 0, stdout: ["3"])?
 }
 
 # The exhaustive match proves the declaration has exactly these variants.
 test test_enum_declaration_spans_lines { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""enum T {
   A,
@@ -143,7 +143,7 @@ for value in [A, B, C(3)] {
 }
 
 test test_enum_declaration_with_payload_variants_spans_lines { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""enum Tok {
   TNum(Float),
@@ -168,7 +168,7 @@ for token in [TNum(1.5), TStr("s"), TOp("+"), TEOF] {
 # A one-variant `enum` is still a nominal type, and `type NAME = Other` with
 # an identifier on the right stays an alias for it.
 test test_singleton_enum_is_nominal_and_an_identifier_alias_names_it { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""enum Token { Present(Str), }
 type Alias = Token
@@ -184,21 +184,21 @@ match same {
 }
 
 test test_plus_concatenates_strings { |ctx|
-  let _ = test.expect(ctx, "let x = \"a\" + \"b\"\nprint \$x\n", status: 0, stdout: ["ab"])?
+  test.expect(ctx, "let x = \"a\" + \"b\"\nprint \$x\n", status: 0, stdout: ["ab"])?
 }
 
 test test_plus_concatenates_a_chain_of_strings { |ctx|
-  let _ = test.expect(ctx, "let x = \"a\" + \"b\" + \"c\"\nprint \$x\n", status: 0, stdout: ["abc"])?
+  test.expect(ctx, "let x = \"a\" + \"b\" + \"c\"\nprint \$x\n", status: 0, stdout: ["abc"])?
 }
 
 test test_command_arguments_take_call_and_index_chains { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "proc main() {\n  let c = {stderr: \"err\\n\"}\n  print c.stderr.trim()\n}\n\nmain()\n",
     status: 0,
     stdout: ["err"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     "proc main() {\n  let c = {stderr: \"err\\n\"}\n  print \${c.stderr.trim()}\n}\n\nmain()\n",
     status: 0,

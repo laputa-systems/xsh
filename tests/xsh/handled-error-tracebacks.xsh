@@ -183,7 +183,7 @@ print $checked.len()""",
 }
 
 test test_a_repropagated_error_keeps_its_original_traceback { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     handled_script(
   "",
@@ -271,7 +271,7 @@ test test_a_propagation_inside_a_function_reports_its_own_place { |ctx|
     {call: "deferred(2)", at: ":40:9-40:19", frame: "proc deferred"},
   ]
   for site in sites {
-    let _ = test.expect(
+    test.expect(
       ctx,
       PROPAGATION_SITES + "proc caller() [error] -> Result[Int] {\n  let value = " + site.call + "?\n  Ok(value)\n}\n\ncaller()?\n",
       status: 3,

@@ -475,7 +475,7 @@ let nested: Result[Result[Int, LocalError]] = try { fail() }
 }
 
 test test_try_capture_rejects_underconstrained_success_and_outer_effects { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""error LocalError = Failed(message: Str)
 let result = try { Err(LocalError.Failed(message: "failure"))? }

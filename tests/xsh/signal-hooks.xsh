@@ -112,7 +112,7 @@ print "after"
 test test_signal_hook_local_defers_run_at_hook_exit { |ctx|
   let root = test.temp_dir(ctx, name: "hook-defer")?
   let marker = fp"{root}/marker"
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""let marker = Path(args[0])
 
@@ -133,7 +133,7 @@ test test_signal_hook_runs_during_an_outer_defer_and_cleanup_resumes { |ctx|
   let root = test.temp_dir(ctx, name: "hook-outer-defer")?
   let hook_marker = fp"{root}/hook"
   let cleanup_marker = fp"{root}/cleanup"
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""let hook_marker = Path(args[0])
 let cleanup_marker = Path(args[1])
@@ -172,7 +172,7 @@ run sh -c r"kill -USR1 $PPID; sleep 1"
 test test_signal_hook_pre_cancel_forwards_to_the_active_child_before_the_hook_finishes { |ctx|
   let root = test.temp_dir(ctx, name: "hook-pre-cancel")?
   let marker = fp"{root}/forwarded"
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""let marker = Path(args[0])
 
@@ -209,7 +209,7 @@ print "after"
 test test_signal_hook_failure_does_not_orphan_active_child_processes { |ctx|
   let root = test.temp_dir(ctx, name: "hook-failure")?
   let leaked = fp"{root}/leaked"
-  let _ = test.expect(
+  test.expect(
     ctx,
     r"""let leaked = Path(args[0])
 

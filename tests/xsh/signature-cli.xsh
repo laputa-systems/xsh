@@ -282,13 +282,13 @@ cli main(root: Root, jobs: Int = 4, ...paths: List[Path]) [error] { guard jobs >
   assert checked.status.exited_with(0), checked.stderr
   assert "[check." not in checked.stderr, checked.stderr
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     "cli main() [] {}\nlet callable = main\nmain()\n",
     status: 2,
     stderr: ["[check.unresolved-name]"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     "cli main() [] { p\"file\".read_text()? }\n",
     status: 2,
@@ -309,6 +309,6 @@ test test_signature_cli_rejects_imported_entries_and_unprepared_defaults { |ctx|
     "cli main(verbose: Bool = false, root: Path) [] {}\n",
     "type Count = UInt\ncli main(count: Count = -1) [] {}\n",
   ] {
-    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.cli-entry]"])?
+    test.expect(ctx, source, status: 2, stderr: ["[check.cli-entry]"])?
   }
 }

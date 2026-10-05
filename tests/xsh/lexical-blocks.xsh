@@ -321,7 +321,7 @@ test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
     assert wrong_return, diagnostics
   }
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """proc value() [] { { 7 }; print retained }
 value()

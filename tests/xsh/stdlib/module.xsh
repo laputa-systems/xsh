@@ -280,7 +280,7 @@ proc main() [io] {
   )?
   assert accepted.stdout == "cache 1\n", accepted.stdout
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """type Service = exact module {
   export let name: Str
@@ -296,7 +296,7 @@ let checked: Service = service
     env: env_root,
   )?
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     """type Open = module {
   export let name: Str
@@ -450,7 +450,7 @@ checked.build("built")?
 demo-built
 """
 
-  let _ = test.expect(
+  test.expect(
     ctx,
     f"""let loaded = module.load(p"{package}")?
 let value = loaded.prefix
@@ -1176,7 +1176,7 @@ export let value = 1
 use a
 export let value = 2
 """)
-  let _ = test.expect(
+  test.expect(
     ctx,
     """use a
 """,

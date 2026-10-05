@@ -101,19 +101,19 @@ match nested {
 }
 
 test test_try_run_rejects_a_propagating_or_status_form { |ctx|
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let text = try run.text sh -c \"echo x\" ?\n",
     status: 2,
     stderr: ["`try` keeps the run form's failure as a value, and `?` would propagate it"],
   )?
-  let _ = test.expect(
+  test.expect(
     ctx,
     "let status = try run.status sh -c \"exit 3\"\n",
     status: 2,
     stderr: ["err[check.try-result]: `try` captures a run form that can fail, and this one yields `Status`"],
   )?
-  let _ = test.expect(ctx, "let status = try run sh -c \"exit 3\"\n", status: 2, stderr: ["err[check.try-result]"])?
+  test.expect(ctx, "let status = try run sh -c \"exit 3\"\n", status: 2, stderr: ["err[check.try-result]"])?
 }
 
 test test_redundant_propagation_removes_it_from_a_capturing_run_form { |ctx|
