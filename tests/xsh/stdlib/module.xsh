@@ -184,6 +184,155 @@ test test_module_contract_failure_reports_both_categories { |ctx|
   }
 }
 
+type ExactFixture = exact module {
+  export let name: Str
+  export optional let description: Str
+  export pure label(value: Str) -> Str
+  export proc build(root: Path) [fs, error] -> Result[Path]
+}
+
+type ExactTooSmall = exact module {
+  export let name: Str
+  export optional let description: Str
+}
+
+type ExactAllCategories = exact module {
+  export let name: Int
+  export let version: Int
+}
+
+# An exact contract is the module's whole surface: the same module passes when
+# every export is listed (an optional one may be absent) and fails, naming each
+# extra export, when the contract lists fewer.
+test test_exact_module_contract_rejects_unexpected_exports { |ctx|
+  let fixture = contract_fixture(ctx)?
+  let exact = module.load(fixture)?.require(ExactFixture)?
+  assert exact.label("x") == "label-x"
+
+  match module.load(fixture)?.require(ExactTooSmall) {
+    Ok(_) => test.fail("a module with unlisted exports satisfied an exact contract")?
+    Err(error) => {
+      assert error is UnexpectedExport
+      assert !(error is MissingExport)
+      assert !(error is MismatchedExport)
+      assert "unexpected export `build`: `export proc build(root: Path) [fs, error] -> Result[Path, Error]` is not in the exact contract" in error.message, error.message
+      assert "unexpected export `label`: `export pure label(value: Str) -> Str` is not in the exact contract" in error.message, error.message
+      assert "`name`" not in error.message, error.message
+      assert "description" not in error.message, error.message
+      test.error_kind(error, "schema")?
+    }
+  }
+
+  match module.load(fixture)?.require(ExactAllCategories) {
+    Ok(_) => test.fail("an unsatisfied exact contract succeeded")?
+    Err(error) => {
+      assert error is MissingExport
+      assert error is MismatchedExport
+      assert error is UnexpectedExport
+      assert "mismatched export `name`" in error.message, error.message
+      assert "missing export `version`" in error.message, error.message
+      assert "unexpected export `build`" in error.message, error.message
+      assert "unexpected export `label`" in error.message, error.message
+    }
+  }
+
+  # The open form of the same small contract still allows the extras.
+  let _ = module.load(fixture)?.require(OpenNameOnly)?
+}
+
+type OpenNameOnly = module {
+  export let name: Str
+}
+
+# A statically imported module satisfies an exact contract only when it
+# exports nothing else, and a value typed by an open contract never does.
+test test_exact_module_contract_is_checked_statically { |ctx|
+  let root = test.temp_dir(ctx, name: "exact-static")?
+  fp"{root}/service.xsh".write("""##! Service fixture.
+
+## The service name.
+export let name: Str = "cache"
+
+## An export the small contract does not list.
+export pure extra() -> Int {
+  1
+}
+""")?
+  let env_root = {XSH_MODULE_PATH: root.display()}
+
+  let accepted = test.run_script(
+    ctx,
+    r"""type Service = exact module {
+  export let name: Str
+  export pure extra() -> Int
+  export optional let description: Str
+}
+
+use service
+
+proc main() [io] {
+  let checked: Service = service
+  print ${checked.name} ${checked.extra()}
+}
+""",
+    [],
+    env_root,
+  )?
+  assert accepted.success, accepted.stderr
+  assert accepted.stdout == "cache 1\n", accepted.stdout
+
+  let rejected = test.run_script(
+    ctx,
+    """type Service = exact module {
+  export let name: Str
+}
+
+use service
+
+let checked: Service = service
+""",
+    [],
+    env_root,
+  )?
+  assert rejected.status == 2, rejected.stderr
+  assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  assert "unexpected export `extra`: the exact contract does not list it" in rejected.stderr, rejected.stderr
+
+  let widened = test.run_script(
+    ctx,
+    """type Open = module {
+  export let name: Str
+}
+
+type Service = exact module {
+  export let name: Str
+}
+
+use service
+
+let open: Open = service
+let checked: Service = open
+""",
+    [],
+    env_root,
+  )?
+  assert widened.status == 2, widened.stderr
+  assert "check.type-mismatch" in widened.stderr, widened.stderr
+  assert "an exact contract needs `.require(Contract)`" in widened.stderr, widened.stderr
+
+  # Outside a contract position `exact` stays an ordinary name.
+  let ordinary = test.run_script(
+    ctx,
+    r"""let exact = 3
+type Count = Int
+let count: Count = exact
+print $count
+""",
+  )?
+  assert ordinary.success, ordinary.stderr
+  assert ordinary.stdout == "3\n", ordinary.stdout
+}
+
 type VersionedModule = module {
   export let version: Int
 }

@@ -6,7 +6,7 @@
 //! of every category it contains.
 
 use super::{Evaluator, LoweredValue, ModuleExportSignature, Name, RuntimeError, Span};
-use crate::sema::types::{CallableType, ModuleExportType};
+use crate::sema::types::{CallableType, ModuleExportType, ModuleType};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -25,6 +25,8 @@ enum ContractViolation {
         found: String,
         reason: String,
     },
+    /// An export the exact contract does not list.
+    Unexpected { found: String },
 }
 
 impl ContractViolation {
@@ -32,6 +34,7 @@ impl ContractViolation {
         match self {
             Self::Missing { .. } => ErrorFacet::MissingExport,
             Self::Mismatched { .. } => ErrorFacet::MismatchedExport,
+            Self::Unexpected { .. } => ErrorFacet::UnexpectedExport,
         }
     }
 
@@ -47,19 +50,23 @@ impl ContractViolation {
             } => format!(
                 "mismatched export `{name}`: expected `{expected}`, found `{found}` ({reason})"
             ),
+            Self::Unexpected { found } => format!(
+                "unexpected export `{name}`: `{found}` is not in the exact contract"
+            ),
         }
     }
 }
 
-/// Every violation of `contract` by `module`, in export-name order. Empty
-/// means the module satisfies the contract.
+/// Every violation of `contract` by `module`: the contract's entries in name
+/// order, then, for an exact contract, the module's exports outside it in
+/// name order. Empty means the module satisfies the contract.
 fn contract_violations(
     evaluator: &Evaluator,
     module: &BTreeMap<Arc<str>, LoweredValue>,
-    contract: &BTreeMap<Name, ModuleExportType>,
+    contract: &ModuleType,
 ) -> Vec<(Name, ContractViolation)> {
     let mut violations = Vec::new();
-    for (name, expected) in contract {
+    for (name, expected) in contract.iter() {
         let Some(value) = module.get::<str>(name.as_str().as_str()) else {
             if !expected.optional() {
                 violations.push((
@@ -80,6 +87,19 @@ fn contract_violations(
                     reason,
                 },
             ));
+        }
+    }
+    if contract.exact {
+        for (exported, value) in module {
+            let name = Name::intern(exported.as_ref());
+            if !contract.contains_key(&name) {
+                violations.push((
+                    name,
+                    ContractViolation::Unexpected {
+                        found: render_found_export(evaluator, name, value),
+                    },
+                ));
+            }
         }
     }
     violations
@@ -248,7 +268,7 @@ fn render_found_export(evaluator: &Evaluator, name: Name, value: &LoweredValue) 
 pub(super) fn require_module_contract(
     evaluator: &Evaluator,
     module: &BTreeMap<Arc<str>, LoweredValue>,
-    contract: &BTreeMap<Name, ModuleExportType>,
+    contract: &ModuleType,
     path: &str,
     span: Span,
 ) -> Result<(), RuntimeError> {

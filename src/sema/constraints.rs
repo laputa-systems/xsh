@@ -356,7 +356,7 @@ impl TypeConstraints {
             }
             // Module contracts are shared; copy one only when it must be rewritten.
             Type::Module(exports) if module_has_inference(exports, depth)? => {
-                for export in Arc::make_mut(exports).values_mut() {
+                for export in Arc::make_mut(exports).exports.values_mut() {
                     match export {
                         ModuleExportType::Value { ty, .. } => self.resolve_depth(ty, depth + 1)?,
                         ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {

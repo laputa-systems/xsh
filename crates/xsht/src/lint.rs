@@ -1282,7 +1282,7 @@ impl<'a> Linter<'a> {
                     }
                 }
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
+            ArenaTypeDefBody::ModuleContract { entries, .. } => {
                 for entry in self.arena.module_contract_entries(*entries).to_vec() {
                     match &entry.kind {
                         ArenaModuleContractEntryKind::Value(ty) => self.collect_type_expr_refs(*ty),

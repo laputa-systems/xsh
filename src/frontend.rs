@@ -22,7 +22,9 @@ pub mod check {
         SchemaComponent, SchemaExpectation, SchemaInstance, SchemaTypeError,
     };
     pub use crate::sema::records::record_schemas;
-    pub use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
+    pub use crate::sema::types::{
+        CallableParamType, CallableType, ModuleExportType, ModuleType, Type,
+    };
 }
 
 pub mod load {

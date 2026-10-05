@@ -293,9 +293,20 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKindMatch::Equals, "expected `=` in type definition");
         let body_start = self.index;
-        let body = if self.at_ident("module") {
+        // `exact` is a word only here, directly before `module`; anywhere
+        // else it stays an ordinary name, so `type T = exact` aliases a type.
+        let exact = self.at_ident("exact")
+            && self.peek_tag(1) == Some(TokenTag::Ident)
+            && self.peek_name(1).is_some_and(|name| name == "module");
+        let body = if exact || self.at_ident("module") {
+            if exact {
+                self.bump();
+            }
             self.bump();
-            ArenaTypeDefBody::ModuleContract(self.parse_module_contract_arena_only(arena)?)
+            ArenaTypeDefBody::ModuleContract {
+                entries: self.parse_module_contract_arena_only(arena)?,
+                exact,
+            }
         } else if self.at(TokenKindMatch::LBrace) {
             ArenaTypeDefBody::RecordSchema(self.parse_record_schema_arena_only(arena)?)
         } else if let Some(variants) = self.recover_legacy_tag_union_arena_only(arena) {

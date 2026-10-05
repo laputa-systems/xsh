@@ -242,15 +242,23 @@ impl Checker {
             return;
         }
         if !actual.matches_expected(expected) {
+            // Two module types print alike; the exports that differ are the
+            // useful part of the report.
+            let unmet_exports = match (expected, actual) {
+                (Type::Module(expected), Type::Module(actual)) => expected.unmet_by(actual),
+                _ => Vec::new(),
+            };
             let (expected, actual) = self.mismatch_labels(expected, actual);
-            self.diagnostics.push(
-                Diagnostic::error("type mismatch")
-                    .with_code(DiagnosticCode::CheckTypeMismatch)
-                    .with_label(Label::primary(
-                        span,
-                        format!("expected {expected}, found {actual}"),
-                    )),
-            );
+            let mut diagnostic = Diagnostic::error("type mismatch")
+                .with_code(DiagnosticCode::CheckTypeMismatch)
+                .with_label(Label::primary(
+                    span,
+                    format!("expected {expected}, found {actual}"),
+                ));
+            for reason in unmet_exports {
+                diagnostic = diagnostic.with_note(reason);
+            }
+            self.diagnostics.push(diagnostic);
         }
     }
 
@@ -445,9 +453,11 @@ impl Checker {
                                 )
                             })
                             .collect::<BTreeMap<_, _>>();
-                        Type::Module(exports.into())
+                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(exports)))
                     }
-                    Type::Unknown | Type::Invalid => Type::Module(Default::default()),
+                    Type::Unknown | Type::Invalid => {
+                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(BTreeMap::new())))
+                    }
                     other => {
                         self.error(
                             program.arena.type_expr_span(inner),
@@ -569,7 +579,7 @@ impl Checker {
                 }
                 Type::Record(record)
             }
-            TypeDefBody::ModuleContract(entries) => {
+            TypeDefBody::ModuleContract { entries, exact } => {
                 let mut exports = BTreeMap::new();
                 for entry in entries {
                     let export_ty = match entry.kind {
@@ -594,7 +604,7 @@ impl Checker {
                     };
                     exports.insert(entry.name, export_ty);
                 }
-                Type::Module(exports.into())
+                Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType { exports, exact }))
             }
             TypeDefBody::TagUnion(variants) => {
                 Type::Tag(variants.first().map_or(key, |variant| variant.type_name))

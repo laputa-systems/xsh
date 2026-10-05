@@ -59,7 +59,7 @@ pub struct CompactDeclOutput {
 pub enum CompactTypeDefInfo {
     Alias(TypeExprId),
     Record(BTreeMap<Name, Type>),
-    Module(std::sync::Arc<BTreeMap<Name, ModuleExportType>>),
+    Module(std::sync::Arc<crate::sema::types::ModuleType>),
     TagUnion,
 }
 
@@ -379,7 +379,7 @@ impl CompactDeclCollector {
                 }
                 CompactTypeDefInfo::Record(record)
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
+            ArenaTypeDefBody::ModuleContract { entries, exact } => {
                 let mut names = FxHashSet::default();
                 let entries = program.arena.module_contract_entries(entries);
                 self.output.module_contract_entries += entries.len();
@@ -428,7 +428,7 @@ impl CompactDeclCollector {
                         }
                     }
                 }
-                CompactTypeDefInfo::Module(exports.into())
+                CompactTypeDefInfo::Module(std::sync::Arc::new(crate::sema::types::ModuleType { exports, exact }))
             }
             ArenaTypeDefBody::TagUnion(variants) => {
                 let variants = program.arena.tag_variants(variants);

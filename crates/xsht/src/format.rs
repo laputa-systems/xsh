@@ -784,8 +784,8 @@ impl<'a> Writer<'a> {
                 output.push_str(" = ");
                 self.write_record_schema(*fields, output);
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
-                output.push_str(" = ");
+            ArenaTypeDefBody::ModuleContract { entries, exact } => {
+                output.push_str(if *exact { " = exact " } else { " = " });
                 self.write_module_contract(*entries, output);
             }
             ArenaTypeDefBody::TagUnion(variants) => {

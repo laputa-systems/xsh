@@ -19,6 +19,7 @@ pub enum ErrorFacet {
     ProcessFailure,
     MissingExport,
     MismatchedExport,
+    UnexpectedExport,
 }
 
 impl ErrorFacet {
@@ -35,6 +36,7 @@ impl ErrorFacet {
         Self::ProcessFailure,
         Self::MissingExport,
         Self::MismatchedExport,
+        Self::UnexpectedExport,
     ];
 
     /// The source spelling in `is Facet` patterns and `error` declarations.
@@ -52,6 +54,7 @@ impl ErrorFacet {
             Self::ProcessFailure => "ProcessFailure",
             Self::MissingExport => "MissingExport",
             Self::MismatchedExport => "MismatchedExport",
+            Self::UnexpectedExport => "UnexpectedExport",
         }
     }
 
@@ -78,6 +81,7 @@ impl ErrorFacet {
             Self::MismatchedExport => {
                 "A module export has another kind or signature than its contract declares."
             }
+            Self::UnexpectedExport => "A module has an export its exact contract does not list.",
         }
     }
 
@@ -90,6 +94,9 @@ impl ErrorFacet {
             }
             Self::MismatchedExport => Some(
                 "a failed `.require(Contract)` on a module whose export differs from the contract",
+            ),
+            Self::UnexpectedExport => Some(
+                "a failed `.require(Contract)` on a module with an export outside an `exact module` contract",
             ),
             _ => None,
         }

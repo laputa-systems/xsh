@@ -5539,7 +5539,12 @@ pub struct ArenaTypeDef {
 pub enum ArenaTypeDefBody {
     Alias(TypeExprId),
     RecordSchema(ArenaRange),
-    ModuleContract(ArenaRange),
+    /// A module contract's entries. `exact` is the `exact module { ... }`
+    /// form, whose listed exports are the module's whole surface.
+    ModuleContract {
+        entries: ArenaRange,
+        exact: bool,
+    },
     TagUnion(ArenaRange),
 }
 

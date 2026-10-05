@@ -2885,8 +2885,9 @@ fn executable_type(ty: &Type) -> Type {
                 .map(|(name, ty)| (*name, executable_type(ty)))
                 .collect(),
         ),
-        Type::Module(exports) => Type::Module(
-            exports
+        Type::Module(module) => Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
+            exact: module.exact,
+            exports: module
                 .iter()
                 .map(|(name, export)| {
                     let export = match export {
@@ -2905,9 +2906,8 @@ fn executable_type(ty: &Type) -> Type {
                     };
                     (*name, export)
                 })
-                .collect::<BTreeMap<_, _>>()
-                .into(),
-        ),
+                .collect::<BTreeMap<_, _>>(),
+        })),
         ty => ty.clone(),
     }
 }

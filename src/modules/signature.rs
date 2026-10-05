@@ -422,21 +422,22 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
                 .collect(),
         ),
         xsh_registry::types::Type::Module(exports) if exports.is_empty() => Type::DynamicModule,
-        xsh_registry::types::Type::Module(exports) => Type::Module(
-            exports
-                .iter()
-                .map(|(name, ty)| {
-                    (
-                        Name::intern(name),
-                        ModuleExportType::Value {
-                            ty: convert_type(ty),
-                            optional: false,
-                        },
-                    )
-                })
-                .collect::<BTreeMap<_, _>>()
-                .into(),
-        ),
+        xsh_registry::types::Type::Module(exports) => {
+            Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(
+                exports
+                    .iter()
+                    .map(|(name, ty)| {
+                        (
+                            Name::intern(name),
+                            ModuleExportType::Value {
+                                ty: convert_type(ty),
+                                optional: false,
+                            },
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>(),
+            )))
+        }
         xsh_registry::types::Type::Result(ok, err) => {
             Type::Result(Box::new(convert_type(ok)), Box::new(convert_type(err)))
         }

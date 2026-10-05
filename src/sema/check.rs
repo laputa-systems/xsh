@@ -332,7 +332,10 @@ pub(super) enum TypeDefBody {
     Resolved(Type),
     Alias(TypeAnnRef),
     RecordSchema(Vec<SchemaField>),
-    ModuleContract(Vec<ModuleContractEntry>),
+    ModuleContract {
+        entries: Vec<ModuleContractEntry>,
+        exact: bool,
+    },
     TagUnion(Vec<TagVariant>),
 }
 

@@ -49,6 +49,9 @@ pub(super) enum TypeTag {
     UInt,
     ErasedRecord,
     DynamicModule,
+    // A module type whose listed exports are the module's whole surface.
+    // The payload is the same as `Module`.
+    ExactModule,
 }
 
 impl TypeTag {
@@ -245,7 +248,7 @@ impl SemanticPools {
                 }
                 Type::Record(fields)
             }
-            TypeTag::Module => {
+            TypeTag::Module | TypeTag::ExactModule => {
                 let shape = ShapeId::from_raw(data.lhs)
                     .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
                 let names = self.shape_fields(shape)?;
@@ -290,7 +293,10 @@ impl SemanticPools {
                     };
                     fields.insert(name, value);
                 }
-                Type::Module(fields.into())
+                Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
+                    exports: fields,
+                    exact: tag == TypeTag::ExactModule,
+                }))
             }
             TypeTag::Result => Type::Result(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Status => Type::Status,
@@ -389,7 +395,7 @@ impl SemanticPools {
             TypeTag::Regex => Some("Regex"),
             TypeTag::Path => Some("Path"),
             TypeTag::Record => Some("Record"),
-            TypeTag::Module => Some("Module"),
+            TypeTag::Module | TypeTag::ExactModule => Some("Module"),
             TypeTag::Status => Some("Status"),
             TypeTag::EnvPathList => Some("EnvPathList"),
             TypeTag::Error => Some("Error"),
@@ -579,7 +585,7 @@ impl SemanticPools {
                         verify_type_raw(self, *raw, Some(index))?;
                     }
                 }
-                TypeTag::Module => {
+                TypeTag::Module | TypeTag::ExactModule => {
                     let shape = ShapeId::from_raw(data.lhs)
                         .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
                     let fields = self.shape_fields(shape)?;
@@ -839,8 +845,12 @@ impl SemanticPoolBuilder {
                         }
                     }
                 }
-                let key =
-                    TypeKey::Aggregate(TypeTag::Module, shape, words.clone().into_boxed_slice());
+                let tag = if exports.exact {
+                    TypeTag::ExactModule
+                } else {
+                    TypeTag::Module
+                };
+                let key = TypeKey::Aggregate(tag, shape, words.clone().into_boxed_slice());
                 let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
                 (key, IrData::new(shape.raw(), start), words)
             }
@@ -1073,6 +1083,12 @@ mod tests {
     use crate::sema::types::{CallableParamType, CallableType};
     use std::collections::BTreeMap;
 
+    fn module_type(
+        exports: BTreeMap<Name, ModuleExportType>,
+    ) -> std::sync::Arc<crate::sema::types::ModuleType> {
+        std::sync::Arc::new(crate::sema::types::ModuleType::open(exports))
+    }
+
     fn callable() -> CallableType {
         CallableType {
             params: vec![
@@ -1122,7 +1138,7 @@ mod tests {
             first_signature
         );
 
-        let module = Type::Module(std::sync::Arc::new(BTreeMap::from([
+        let module = Type::Module(module_type(BTreeMap::from([
             (
                 Name::intern("count"),
                 ModuleExportType::Value {
@@ -1146,6 +1162,41 @@ mod tests {
         pools.verify().unwrap();
     }
 
+    // Exactness is part of a module type's identity: it survives the pool,
+    // and an exact payload is verified like an open one.
+    #[test]
+    fn exact_module_types_keep_their_exactness_and_are_verified() {
+        use crate::sema::types::ModuleType;
+        let exports = BTreeMap::from([(
+            Name::intern("count"),
+            ModuleExportType::Value {
+                ty: Type::Int,
+                optional: false,
+            },
+        )]);
+        let open = Type::Module(std::sync::Arc::new(ModuleType::open(exports.clone())));
+        let exact = Type::Module(std::sync::Arc::new(ModuleType::exact(exports)));
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let open_id = builder.intern_type(&mut pools, &open).unwrap();
+        let exact_id = builder.intern_type(&mut pools, &exact).unwrap();
+        assert_ne!(open_id, exact_id);
+        assert_eq!(pools.to_type(open_id).unwrap(), open);
+        assert_eq!(pools.to_type(exact_id).unwrap(), exact);
+        pools.verify().unwrap();
+
+        let mut corrupted = pools.clone();
+        let payload = corrupted.type_data[exact_id.index()].rhs as usize;
+        corrupted.type_extra[payload] = 3;
+        assert!(
+            corrupted
+                .verify()
+                .unwrap_err()
+                .message
+                .contains("module export flags are invalid")
+        );
+    }
+
     #[test]
     fn erased_record_and_module_facts_remain_distinct_from_empty_shapes() {
         let mut pools = SemanticPools::default();
@@ -1162,7 +1213,7 @@ mod tests {
         let empty_module = builder
             .intern_type(
                 &mut pools,
-                &Type::Module(std::sync::Arc::new(BTreeMap::new())),
+                &Type::Module(module_type(BTreeMap::new())),
             )
             .unwrap();
         assert_ne!(erased_record, empty_record);
@@ -1175,7 +1226,7 @@ mod tests {
         assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
         assert_eq!(
             pools.to_type(empty_module).unwrap(),
-            Type::Module(std::sync::Arc::new(BTreeMap::new()))
+            Type::Module(module_type(BTreeMap::new()))
         );
         pools.verify().unwrap();
     }

@@ -1263,7 +1263,7 @@ impl RecordConstructors {
             ArenaTypeDefBody::TagUnion(_) if arguments.is_empty() => {
                 Ok(Type::Tag(self.nominal_names[&id]))
             }
-            ArenaTypeDefBody::ModuleContract(entries) if arguments.is_empty() => arena
+            ArenaTypeDefBody::ModuleContract { entries, exact } if arguments.is_empty() => arena
                 .module_contract_entries(entries)
                 .iter()
                 .map(|entry| {
@@ -1302,7 +1302,7 @@ impl RecordConstructors {
                     Ok((entry.name, export))
                 })
                 .collect::<Result<BTreeMap<_, _>, SchemaTypeError>>()
-                .map(|exports| Type::Module(exports.into())),
+                .map(|exports| Type::Module(Arc::new(crate::sema::types::ModuleType { exports, exact }))),
             _ => Err(SchemaTypeError::new(
                 DiagnosticCode::CheckTypeParameters,
                 "type parameters are supported only on record schemas and aliases",
@@ -1511,7 +1511,7 @@ impl RecordConstructors {
             ArenaTypeExprTag::Module => {
                 match self.resolve_instance_annotation(arena, inner, namespace, bindings, active)? {
                     Type::Module(exports) => Type::Module(exports),
-                    Type::Record(fields) => Type::Module(
+                    Type::Record(fields) => Type::Module(Arc::new(crate::sema::types::ModuleType::open(
                         fields
                             .into_iter()
                             .map(|(name, ty)| {
@@ -1523,9 +1523,8 @@ impl RecordConstructors {
                                     },
                                 )
                             })
-                            .collect::<BTreeMap<_, _>>()
-                            .into(),
-                    ),
+                            .collect::<BTreeMap<_, _>>(),
+                    ))),
                     _ => Type::Invalid,
                 }
             }

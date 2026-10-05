@@ -814,7 +814,9 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
             },
         );
     }
-    Type::Module(exports.into())
+    // The checker has every export of a statically imported module, so its
+    // type is the module's whole surface.
+    Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(exports)))
 }
 
 #[allow(dead_code)]
@@ -1050,8 +1052,9 @@ fn type_def_body_arena(
                 })
                 .collect(),
         ),
-        ArenaTypeDefBody::ModuleContract(entries) => TypeDefBody::ModuleContract(
-            program
+        ArenaTypeDefBody::ModuleContract { entries, exact } => TypeDefBody::ModuleContract {
+            exact,
+            entries: program
                 .arena
                 .module_contract_entries(entries)
                 .iter()
@@ -1081,7 +1084,7 @@ fn type_def_body_arena(
                     },
                 })
                 .collect(),
-        ),
+        },
         ArenaTypeDefBody::TagUnion(variants) => TypeDefBody::TagUnion(
             program
                 .arena
@@ -1296,7 +1299,7 @@ impl Checker {
                     );
                 }
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
+            ArenaTypeDefBody::ModuleContract { entries, .. } => {
                 let entry_list = arena.arena.module_contract_entries(*entries);
                 let mut names = FxHashSet::default();
                 for entry in entry_list {

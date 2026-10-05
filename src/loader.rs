@@ -421,7 +421,7 @@ fn add_compact_file_declaration(
         ArenaStmtKind::Export(inner) => add_compact_file_declaration(program, inner, summary),
         ArenaStmtKind::TypeDef(def) => {
             summary.type_defs += 1;
-            if let crate::syntax::arena::ArenaTypeDefBody::ModuleContract(entries) =
+            if let crate::syntax::arena::ArenaTypeDefBody::ModuleContract { entries, .. } =
                 program.arena.type_def(def).body
             {
                 summary.module_contract_entries +=

@@ -753,7 +753,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ])),
                 t(T::Equals),
                 alt([
-                    seq([w("module"), r("module_contract")]),
+                    seq([opt(w("exact")), w("module"), r("module_contract")]),
                     r("record_schema"),
                     r("type_expr"),
                 ]),

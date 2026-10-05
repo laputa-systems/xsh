@@ -214,8 +214,8 @@ impl CanonicalWriter<'_> {
                         self.put("record;");
                         self.schema_fields(fields);
                     }
-                    ArenaTypeDefBody::ModuleContract(entries) => {
-                        self.put("module;");
+                    ArenaTypeDefBody::ModuleContract { entries, exact } => {
+                        self.put(if exact { "exact module;" } else { "module;" });
                         for entry in self.arena.module_contract_entries(entries) {
                             self.debug(&(entry.name, entry.optional));
                             match &entry.kind {

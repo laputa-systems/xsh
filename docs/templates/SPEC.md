@@ -640,6 +640,23 @@ implements both when both occur.
 {{.spec.module_contract_failure.source}}
 ```
 
+`exact module { ... }` declares a closed contract: the module's exports are
+no larger than the contract. `.require(Contract)` on an exact contract also
+rejects every export the contract does not list, naming each one with its
+signature, and the error then implements `UnexpectedExport`. `optional`
+entries may still be absent. Exactness is about the callable and value
+surface a module value carries; exported types, error families, and streams
+are not contract members and are not counted.
+
+```xsh
+{{.spec.exact_module_contract.source}}
+```
+
+A statically imported module satisfies an exact contract only when it
+exports nothing else. A value typed by an open contract does not satisfy an
+exact one, because its type does not say what else the module exports; check
+it with `.require(Exact)`.
+
 ### 4.10 Errors
 
 `Error` is the common structured error. Programs declare nominal error
