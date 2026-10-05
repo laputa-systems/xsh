@@ -191,16 +191,3 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         );
     }
 }
-
-/// The command reports what stops it and never prints a partial program.
-#[test]
-fn desugar_reports_a_file_it_cannot_parse() {
-    let dir = TempDir::new().expect("create temp dir");
-    fs::write(dir.path().join("broken.xsh"), "repeat 2 times {\n").expect("write script");
-    let output = xsht(dir.path(), &["desugar", "broken.xsh"]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    let stderr = String::from_utf8(output.stderr).expect("UTF-8 stderr");
-    assert!(stderr.contains("err[parse."), "{stderr}");
-    assert!(stderr.contains("broken.xsh:"), "{stderr}");
-}

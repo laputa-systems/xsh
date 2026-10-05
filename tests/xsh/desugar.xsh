@@ -85,14 +85,12 @@ test test_desugar_leaves_the_script_alone_and_refuses_one_that_does_not_parse { 
   assert script.read_text()? == """repeat 2 times { print "tick" }
 """
 
-  let broken = test.temp_file(
-    ctx,
-    name: "broken.xsh",
-    contents: bytes.from_text("""return 1 when
-"""),
-  )?
+  let broken = fp"{test.temp_dir(ctx, name: "refused")?}/broken.xsh"
+  broken.write("""return 1 when
+""")
   let refused = run.capture --text "xsht" desugar $broken
   assert refused.status.exited_with(1), refused.stderr
   assert refused.stdout == ""
   assert "err[parse." in refused.stderr, refused.stderr
+  assert "broken.xsh:" in refused.stderr, refused.stderr
 }
