@@ -41,7 +41,7 @@ type Draw = {value: Int, pos: Int, state: Int, entropy: Int, ok: Bool}
 
 # Output stops here for an unbounded `-r`: stdout is flushed only when the
 # script ends, so endless output could never be delivered.
-const OUTPUT_LIMIT = 33554432
+const OUTPUT_LIMIT = 262144
 
 # The largest range one draw supports: its entropy has to fit in an Int.
 const DRAW_LIMIT = 36028797018963968
@@ -397,7 +397,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if limited {
-    gnu.error("unbounded output stopped at 32 MiB: stdout is only flushed when the script ends")
+    gnu.error("unbounded output stopped at 256 KiB: stdout is only flushed when the script ends")
     exit 1
   }
 }
