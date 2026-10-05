@@ -236,7 +236,6 @@ process.set_signal_action("USR1", "default")?
 assert process.signal_action("USR1")? == "default"
 test_invalid_action()
 process.set_signal_action("USR2", "ignore")?
-io.flush_stdout()?
 unix.exec(process.command {
   run sh -c "kill -USR2 $$; echo survived"
 })?

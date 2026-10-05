@@ -508,11 +508,11 @@ pub(crate) fn set_tty_attrs(
         "drain" => termios::OptionalActions::Drain,
         "flush" => termios::OptionalActions::Flush,
         other => {
-            return Err(RuntimeError::new(
+            return Ok(error_value(
                 "invalid-argument",
                 format!("when must be `now`, `drain`, or `flush`, found `{other}`"),
-            )
-            .with_span(span));
+                span,
+            ));
         }
     };
     let fd = match raw_fd_arg(fd, "unix-tty-attrs", span) {

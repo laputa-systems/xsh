@@ -8676,6 +8676,8 @@ impl Evaluator {
                     span,
                 )?;
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
+                // Buffered output would otherwise die with the replaced image.
+                self.flush_shared_stdio();
                 unix_module::exec(&invocation, span)
             }
             RuntimeOp::UnixSetHostname => {

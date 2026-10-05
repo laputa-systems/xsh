@@ -157,13 +157,13 @@ fn close_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     if fd <= libc::STDERR_FILENO {
         return Err(invalid("refusing to close a standard stream", span));
     }
-    // SAFETY: the caller names a descriptor it owns; the kernel reports EBADF
-    // for a number that is not open.
-    if unsafe { libc::close(fd) } == 0 {
-        ok(Value::Unit)
-    } else {
-        Err(host_error("unix-close-fd", io::Error::last_os_error(), span))
-    }
+    // The kernel reports EBADF for a number that is not open; close(2) itself
+    // has no failure rustix would surface.
+    rustix::io::fcntl_getfd(borrow(fd))
+        .map_err(|error| host_error("unix-close-fd", error, span))?;
+    // SAFETY: the caller names a descriptor it owns, and it was just found open.
+    unsafe { rustix::io::close(fd) };
+    ok(Value::Unit)
 }
 
 /// A new pseudo-terminal pair: the controller (master) and the replica

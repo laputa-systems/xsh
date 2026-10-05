@@ -5,7 +5,7 @@
 use super::{signal_info, signal_record, signal_table};
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
-use rustix::process::{self as rprocess, Pid};
+use rustix::process::{self as rprocess, Pid, Resource, Rlimit, getrlimit, setrlimit};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -217,7 +217,7 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
         RuntimeOp::ProcessSetPriority => set_priority(args),
         RuntimeOp::ProcessNice => nice(args),
         RuntimeOp::ProcessRlimit => rlimit(args),
-        RuntimeOp::ProcessRlimits => rlimits(args),
+        RuntimeOp::ProcessRlimits => rlimits(),
         RuntimeOp::ProcessSetRlimit => set_rlimit(args),
         RuntimeOp::ProcessSignalAction => signal_action(args),
         RuntimeOp::ProcessSetSignalAction => set_signal_action(args),
@@ -418,32 +418,32 @@ fn nice(args: &Args<'_>) -> Result<Value, RuntimeError> {
     }
 }
 
-const RLIMIT_NAMES: &[(&str, i32)] = &[
-    ("cpu", libc::RLIMIT_CPU as i32),
-    ("fsize", libc::RLIMIT_FSIZE as i32),
-    ("data", libc::RLIMIT_DATA as i32),
-    ("stack", libc::RLIMIT_STACK as i32),
-    ("core", libc::RLIMIT_CORE as i32),
-    ("rss", libc::RLIMIT_RSS as i32),
-    ("nproc", libc::RLIMIT_NPROC as i32),
-    ("nofile", libc::RLIMIT_NOFILE as i32),
-    ("memlock", libc::RLIMIT_MEMLOCK as i32),
-    ("as", libc::RLIMIT_AS as i32),
+const RLIMIT_NAMES: &[(&str, Resource)] = &[
+    ("cpu", Resource::Cpu),
+    ("fsize", Resource::Fsize),
+    ("data", Resource::Data),
+    ("stack", Resource::Stack),
+    ("core", Resource::Core),
+    ("rss", Resource::Rss),
+    ("nproc", Resource::Nproc),
+    ("nofile", Resource::Nofile),
+    ("memlock", Resource::Memlock),
+    ("as", Resource::As),
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("locks", libc::RLIMIT_LOCKS as i32),
+    ("locks", Resource::Locks),
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("sigpending", libc::RLIMIT_SIGPENDING as i32),
+    ("sigpending", Resource::Sigpending),
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("msgqueue", libc::RLIMIT_MSGQUEUE as i32),
+    ("msgqueue", Resource::Msgqueue),
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("nice", libc::RLIMIT_NICE as i32),
+    ("nice", Resource::Nice),
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("rtprio", libc::RLIMIT_RTPRIO as i32),
+    ("rtprio", Resource::Rtprio),
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("rttime", libc::RLIMIT_RTTIME as i32),
+    ("rttime", Resource::Rttime),
 ];
 
-fn resource_arg(args: &Args<'_>, index: usize) -> Result<(&'static str, i32), RuntimeError> {
+fn resource_arg(args: &Args<'_>, index: usize) -> Result<(&'static str, Resource), RuntimeError> {
     let name = args.str(index)?;
     RLIMIT_NAMES
         .iter()
@@ -465,77 +465,63 @@ fn resource_arg(args: &Args<'_>, index: usize) -> Result<(&'static str, i32), Ru
         })
 }
 
-fn read_rlimit(resource: i32, span: Span) -> Result<libc::rlimit, RuntimeError> {
-    let mut limit = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    // SAFETY: `limit` is a valid out-pointer for the call.
-    if unsafe { libc::getrlimit(resource as _, &mut limit) } == 0 {
-        Ok(limit)
-    } else {
-        Err(host_error("process-rlimit", io::Error::last_os_error(), span))
-    }
+/// `None` is unlimited; a finite value beyond `Int` saturates.
+fn limit_value(limit: Option<u64>) -> Value {
+    optional_int(limit.map(|limit| i64::try_from(limit).unwrap_or(i64::MAX)))
 }
 
-/// `None` is `RLIM_INFINITY`; a finite value beyond `Int` saturates.
-fn limit_value(limit: libc::rlim_t) -> Option<i64> {
-    (limit != libc::RLIM_INFINITY).then(|| i64::try_from(limit).unwrap_or(i64::MAX))
-}
-
-fn rlimit_record(name: &str, limit: libc::rlimit) -> Value {
+fn rlimit_record(name: &str, limit: Rlimit) -> Value {
     Value::Record(RecordMap::from([
         (key("resource"), Value::Str(name.into())),
-        (key("soft"), optional_int(limit_value(limit.rlim_cur))),
-        (key("hard"), optional_int(limit_value(limit.rlim_max))),
+        (key("soft"), limit_value(limit.current)),
+        (key("hard"), limit_value(limit.maximum)),
     ]))
 }
 
 fn rlimit(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let (name, resource) = resource_arg(args, 0)?;
-    ok(rlimit_record(name, read_rlimit(resource, args.span())?))
+    ok(rlimit_record(name, getrlimit(resource)))
 }
 
-fn rlimits(args: &Args<'_>) -> Result<Value, RuntimeError> {
-    let mut records = Vec::with_capacity(RLIMIT_NAMES.len());
-    for (name, resource) in RLIMIT_NAMES {
-        records.push(rlimit_record(name, read_rlimit(*resource, args.span())?));
-    }
-    ok(Value::List(records))
+fn rlimits() -> Result<Value, RuntimeError> {
+    ok(Value::List(
+        RLIMIT_NAMES
+            .iter()
+            .map(|(name, resource)| rlimit_record(name, getrlimit(*resource)))
+            .collect(),
+    ))
 }
 
 /// Sets the soft and hard limits named by non-omitted arguments; `null` is
-/// unlimited. Lowering the hard limit below the soft one lowers the soft one.
+/// unlimited. Lowering the hard limit below an omitted soft one lowers the
+/// soft one with it.
 fn set_rlimit(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let span = args.span();
     let (_, resource) = resource_arg(args, 0)?;
-    let mut limit = read_rlimit(resource, span)?;
-    let apply = |slot: Slot<i64>, target: &mut libc::rlim_t| match slot {
+    let mut limit = getrlimit(resource);
+    let apply = |slot: Slot<i64>, target: &mut Option<u64>| match slot {
         Slot::Omitted => Ok(()),
         Slot::Null => {
-            *target = libc::RLIM_INFINITY;
+            *target = None;
             Ok(())
         }
-        Slot::Value(value) => libc::rlim_t::try_from(value)
-            .map(|value| *target = value)
+        Slot::Value(value) => u64::try_from(value)
+            .map(|value| *target = Some(value))
             .map_err(|_| invalid("invalid-argument", "limit cannot be negative", span)),
     };
     let soft = args.slot(1)?;
     let hard = args.slot(2)?;
-    apply(soft, &mut limit.rlim_cur)?;
-    apply(hard, &mut limit.rlim_max)?;
-    if soft == Slot::Omitted && limit.rlim_cur > limit.rlim_max {
-        limit.rlim_cur = limit.rlim_max;
+    apply(soft, &mut limit.current)?;
+    apply(hard, &mut limit.maximum)?;
+    if soft == Slot::Omitted
+        && let Some(maximum) = limit.maximum
+        && limit.current.is_none_or(|current| current > maximum)
+    {
+        limit.current = Some(maximum);
     }
-    // SAFETY: `limit` is a valid in-pointer for the call.
-    if unsafe { libc::setrlimit(resource as _, &limit) } == 0 {
-        ok(Value::Unit)
-    } else {
-        Err(host_error(
-            "process-set-rlimit",
-            io::Error::last_os_error(),
-            span,
-        ))
+    match setrlimit(resource, limit) {
+        Ok(()) => ok(Value::Unit),
+        Err(error) => Err(host_error("process-set-rlimit", error, span)),
     }
 }
 
