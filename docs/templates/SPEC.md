@@ -4270,13 +4270,18 @@ the generated `docs/reference/cli.md`. `xsh` is a plain runner and rejects
 tracing flags. Runtime stdout and stderr are never
 decorated; diagnostics go to stderr.
 
-Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
-file under the current directory plus `include` entries from the nearest
-`xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
-nearest config among its ancestors (for `module_path`, `[format] line-width`
-(default 120), lint options, and `[check] annotate`); a file with no config
-above it has no project module roots (3.3). `xsht fmt` discovery also
-skips the discovery root's `[format] exclude` patterns.
+Without paths, `check`, `lint`, `fmt`, `grep`, and `refactor` process every
+`.xsh` file under the current directory and under the `include` entries of
+the `xsht-config.ini` in the current directory; a directory argument stands
+for the files under it. Each file is governed by the nearest config above
+it and by no other, wherever the command was started: that config supplies
+the file's `module_path`, `[format] line-width` (default 120), lint options,
+and `[check] annotate`. A file with no config above it takes the defaults
+and has no project module roots (3.3). Discovery skips a file named by the
+`exclude` (for `xsht fmt`, also the `[format] exclude`) of any config from
+the file's nearest one up to the one governing the directory discovery
+started from, so an exclusion covers the projects nested below it. A file
+named on the command line is processed whatever an `exclude` says.
 
 `xsht check` runs exactly the checks that execution runs before evaluating
 anything, plus a lowering check that also needs no execution. Dynamic
@@ -4361,8 +4366,9 @@ nowhere yet, so its traceback starts at the caller's form.
 
 ## 17. Native Tests
 
-`xsht test` discovers tests in `tests/**/*.xsh` and `showcase/tests/**/*.xsh`
-under the current directory. Missing roots mean zero tests. Test ids have the
+`xsht test` discovers tests in the `test_roots` of the `xsht-config.ini` in
+the current directory, or in `tests` when it names none. Missing roots mean
+zero tests. Test ids have the
 form `tests/file.xsh::name`.
 
 ```xsh

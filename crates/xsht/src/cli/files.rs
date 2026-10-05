@@ -1,28 +1,31 @@
 use crate::xsht::format::DEFAULT_LINE_WIDTH;
 use std::fs;
 use std::io;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::thread;
 use xsh::process::cancellation_requested_signal;
 
 pub const CONFIG_FILE_NAME: &str = xsh::frontend::load::PROJECT_CONFIG_FILE_NAME;
 
-pub fn collect_xsh_files(
-    root: &Path,
-    excludes: &[String],
-    files: &mut Vec<PathBuf>,
-) -> Result<(), String> {
-    collect_xsh_files_below(root, root, excludes, files)
+/// Which exclusion lists of a config keep a file out of discovery.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DiscoveryFor {
+    /// `exclude` alone.
+    Scripts,
+    /// `exclude` and `[format] exclude`.
+    Formatting,
 }
 
-/// Collects the scripts under `root`. `excludes` are the patterns of the
-/// config in `config_dir` and name paths below that directory, so a walk
-/// that starts deeper in the project excludes exactly what a walk from the
-/// config's directory excludes there.
-pub fn collect_xsh_files_below(
+/// The scripts `xsht` processes under `root`: every `.xsh` file below it
+/// that the ignore files do not hide and that no config from the file up to
+/// the one governing `root` excludes. A `root` that is a file is taken as
+/// written, whatever any config says about it.
+pub(crate) fn collect_xsh_files(
     root: &Path,
-    config_dir: &Path,
-    excludes: &[String],
+    configs: &ConfigCache,
+    purpose: DiscoveryFor,
     files: &mut Vec<PathBuf>,
 ) -> Result<(), String> {
     check_cancellation()?;
@@ -32,75 +35,138 @@ pub fn collect_xsh_files_below(
         }
         return Ok(());
     }
-    let mut discovered = collect_xsh_files_parallel(root, config_dir, excludes)?;
-    files.append(&mut discovered);
-    files.sort_unstable();
-    files.dedup();
-    Ok(())
-}
-
-pub fn collect_configured_xsh_files(
-    root: &Path,
-    config: &XshConfig,
-    files: &mut Vec<PathBuf>,
-) -> Result<(), String> {
-    collect_xsh_files(root, &config.exclude, files)?;
-    for include in &config.include {
-        let path = configured_include_path(root, include);
-        if !path.exists() {
-            return Err(format!(
-                "configured include '{}' does not exist",
-                path.display()
-            ));
+    for path in collect_xsh_files_parallel(root)? {
+        if !configs.excludes_from_discovery(root, &path, purpose)? {
+            files.push(path);
         }
-        collect_xsh_files(&path, &config.exclude, files)?;
     }
     files.sort_unstable();
     files.dedup();
     Ok(())
 }
 
-pub(crate) fn collect_configured_or_explicit_xsh_files(
-    root: &Path,
-    config: &XshConfig,
+/// The scripts a path-oriented command processes. Without `paths` they are
+/// the scripts under the current directory and under each `include` entry of
+/// `cwd_config`, the config in the current directory: `include` lists the
+/// extra roots of one project, so it is read from the project the command
+/// was started in and from no other. A directory in `paths` contributes the
+/// scripts under it, and a file in `paths` is taken as written.
+pub(crate) fn discover_scripts(
     paths: &[String],
+    cwd_config: &XshConfig,
+    configs: &ConfigCache,
+    purpose: DiscoveryFor,
 ) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     if paths.is_empty() {
-        collect_configured_xsh_files(root, config, &mut files)?;
+        collect_xsh_files(Path::new("."), configs, purpose, &mut files)?;
+        for include in &cwd_config.include {
+            // Spelled like the files found under `.`, so a root that lies
+            // below the current directory adds no second name for a file.
+            let path = Path::new(".").join(include);
+            if !path.exists() {
+                return Err(format!(
+                    "configured include '{}' does not exist",
+                    path.display()
+                ));
+            }
+            collect_xsh_files(&path, configs, purpose, &mut files)?;
+        }
     } else {
         for path in paths {
             let path = Path::new(path);
             if path.is_dir() {
-                collect_xsh_files_below(path, root, &config.exclude, &mut files)?;
+                collect_xsh_files(path, configs, purpose, &mut files)?;
             } else {
                 files.push(path.to_path_buf());
             }
         }
-        files.sort_unstable();
-        files.dedup();
     }
+    files.sort_unstable();
+    files.dedup();
     Ok(files)
 }
 
-fn configured_include_path(root: &Path, include: &str) -> PathBuf {
-    let path = PathBuf::from(include);
-    if path.is_absolute() {
-        path
-    } else {
-        root.join(path)
+type NearestConfig = Result<Option<(PathBuf, XshConfig)>, String>;
+
+/// The nearest project config of every directory a command asks about, read
+/// and decoded once per directory.
+#[derive(Default)]
+pub(crate) struct ConfigCache {
+    nearest: Mutex<FxHashMap<PathBuf, NearestConfig>>,
+}
+
+impl ConfigCache {
+    /// The config that governs `file`: the nearest one in its directory or
+    /// above, with the directory it was found in.
+    pub(crate) fn nearest_config_for_file(&self, file: &Path) -> NearestConfig {
+        // Keyed by the directory the search starts in, spelled one way, so
+        // `a.xsh`, `./a.xsh`, and a directory probed from below share an entry
+        // only when they really start in the same place.
+        let key = lexically_absolute(file).and_then(|file| file.parent().map(Path::to_path_buf));
+        let Some(key) = key else {
+            return nearest_config_for_file(file);
+        };
+        if let Some(cached) = self
+            .nearest
+            .lock()
+            .expect("config cache mutex poisoned")
+            .get(&key)
+            .cloned()
+        {
+            return cached;
+        }
+        let resolved = nearest_config_for_file(file);
+        self.nearest
+            .lock()
+            .expect("config cache mutex poisoned")
+            .insert(key, resolved.clone());
+        resolved
+    }
+
+    /// Whether discovery under `root` skips `file`.
+    ///
+    /// The settings of a file come from its nearest config alone, but an
+    /// exclusion also holds for the projects nested below the config that
+    /// states it: a project that excludes `vendor/**` or its worktrees means
+    /// the directory, whether or not something in it carries a config of its
+    /// own. So every config from the file up to the one that governs `root`
+    /// is asked. Configs above that one are not: a command about a nested
+    /// project sees the project as it sees itself.
+    pub(crate) fn excludes_from_discovery(
+        &self,
+        root: &Path,
+        file: &Path,
+        purpose: DiscoveryFor,
+    ) -> Result<bool, String> {
+        let root = lexically_absolute(root);
+        let mut governed = file.to_path_buf();
+        while let Some((config_dir, config)) = self.nearest_config_for_file(&governed)? {
+            if is_path_excluded(&config_dir, file, &config.exclude)
+                || (purpose == DiscoveryFor::Formatting
+                    && is_path_excluded(&config_dir, file, &config.format.exclude))
+            {
+                return Ok(true);
+            }
+            let below_root = match (&root, lexically_absolute(&config_dir)) {
+                (Some(root), Some(config_dir)) => {
+                    config_dir != *root && config_dir.starts_with(root)
+                }
+                _ => false,
+            };
+            if !below_root {
+                break;
+            }
+            // The next config is the one governing this config's directory.
+            governed = config_dir;
+        }
+        Ok(false)
     }
 }
 
 #[allow(clippy::single_call_fn)]
-fn collect_xsh_files_parallel(
-    root: &Path,
-    config_dir: &Path,
-    excludes: &[String],
-) -> Result<Vec<PathBuf>, String> {
+fn collect_xsh_files_parallel(root: &Path) -> Result<Vec<PathBuf>, String> {
     let root = root.to_path_buf();
-    let config_dir = config_dir.to_path_buf();
-    let excludes = excludes.to_vec();
     let workers = thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
@@ -120,8 +186,6 @@ fn collect_xsh_files_parallel(
     let walker = builder.build_parallel();
     walker.run(|| {
         let tx = tx.clone();
-        let config_dir = config_dir.clone();
-        let excludes = excludes.clone();
         Box::new(move |result| {
             if let Err(error) = check_cancellation() {
                 let _ = tx.send(Err(error));
@@ -139,7 +203,6 @@ fn collect_xsh_files_parallel(
                 .file_type()
                 .is_some_and(|file_type| file_type.is_file())
                 && path.extension().is_some_and(|extension| extension == "xsh")
-                && !is_path_excluded(&config_dir, path, &excludes)
                 && tx.send(Ok(path.to_path_buf())).is_err()
             {
                 return ignore::WalkState::Quit;
@@ -169,34 +232,48 @@ fn check_cancellation() -> Result<(), String> {
     }
 }
 
-#[allow(clippy::single_call_fn)]
-pub(crate) fn is_path_excluded(root: &Path, path: &Path, excludes: &[String]) -> bool {
+/// Whether one of `excludes`, the glob patterns of the config in
+/// `config_dir`, names `path`. A pattern is matched against the path of the
+/// file below the config's directory, so the answer is the same from every
+/// directory a command is started in and for every spelling of the path. A
+/// file outside the config's directory is never named.
+pub(crate) fn is_path_excluded(config_dir: &Path, path: &Path, excludes: &[String]) -> bool {
     if excludes.is_empty() {
         return false;
     }
-    let path_str = path.to_string_lossy();
-    let normalized = path_str.strip_prefix("./").unwrap_or(&path_str);
-    if excludes.iter().any(|pat| glob_matches(pat, normalized)) {
-        return true;
-    }
-    // A config found above the current directory has an absolute root; a
-    // relative path is then made absolute the same way before the two meet.
-    let absolute;
-    let path = if root.is_absolute() && path.is_relative() {
-        absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-        absolute.as_path()
-    } else {
-        // Discovery from the current directory yields `./project/a.xsh` while
-        // a config below it is named `project`: both are compared without the
-        // leading `.`, or the config's patterns would never see the file.
-        Path::new(normalized)
-    };
-    let root = root.strip_prefix(".").unwrap_or(root);
-    let Ok(stripped) = path.strip_prefix(root) else {
+    let (Some(config_dir), Some(path)) = (lexically_absolute(config_dir), lexically_absolute(path))
+    else {
         return false;
     };
-    let relative = stripped.to_string_lossy();
+    let Ok(relative) = path.strip_prefix(&config_dir) else {
+        return false;
+    };
+    let relative = relative.to_string_lossy();
     excludes.iter().any(|pat| glob_matches(pat, &relative))
+}
+
+/// `path` from the filesystem root with `.` dropped and each `..` cancelling
+/// the component before it, without consulting symbolic links: the same
+/// reading of a path that finds its nearest config. `None` when a relative
+/// path has no current directory to start from.
+fn lexically_absolute(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in joined.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    Some(normalized)
 }
 
 #[derive(Clone, Debug)]
@@ -514,7 +591,8 @@ fn seg_match(pat: &[u8], seg: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::xsht::cli::files::{
-        CONFIG_FILE_NAME, LintRuleExclude, XshConfig, collect_configured_xsh_files, collect_xsh_files, load_config_from,
+        CONFIG_FILE_NAME, ConfigCache, DiscoveryFor, LintRuleExclude, collect_xsh_files,
+        load_config_from,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -622,30 +700,38 @@ mod tests {
     }
 
     #[test]
-    fn configured_includes_add_extra_script_roots() {
-        let root = temp_root("includes");
-        fs::create_dir_all(root.join(".github").join("scripts")).expect("create scripts dir");
-        fs::write(root.join("main.xsh"), "let value = 1\n").expect("write main");
-        fs::write(
-            root.join(".github").join("scripts").join("release.xsh"),
-            "let value = 1\n",
-        )
-        .expect("write included");
+    fn discovery_applies_the_exclusions_of_each_config_from_the_file_up_to_the_root() {
+        let root = temp_root("nearest-excludes");
+        let inner = root.join("vendor").join("inner");
+        fs::create_dir_all(inner.join("generated")).expect("create inner project");
+        fs::write(root.join(CONFIG_FILE_NAME), "exclude = vendor/**\n  skip.xsh\n")
+            .expect("write outer config");
+        fs::write(inner.join(CONFIG_FILE_NAME), "exclude = generated/**\n")
+            .expect("write inner config");
+        for file in [
+            root.join("keep.xsh"),
+            root.join("skip.xsh"),
+            root.join("vendor").join("loose.xsh"),
+            inner.join("main.xsh"),
+            inner.join("skip.xsh"),
+            inner.join("generated").join("out.xsh"),
+        ] {
+            fs::write(file, "let value = 1\n").expect("write script");
+        }
 
-        let mut files = Vec::new();
-        collect_configured_xsh_files(
-            &root,
-            &XshConfig {
-                include: vec![".github/scripts".to_string()],
-                ..XshConfig::default()
-            },
-            &mut files,
-        )
-        .expect("collect configured files");
-
+        // From the outer project, its `vendor/**` drops the whole directory,
+        // the project nested in it included. From the nested project only
+        // its own config speaks: it drops `generated/**` and knows nothing of
+        // the outer `vendor/**` or `skip.xsh`.
+        let files = discover(&root, &[]);
+        assert_eq!(relative_paths(&root, &files), vec!["keep.xsh"]);
         assert_eq!(
-            relative_paths(&root, &files),
-            vec![".github/scripts/release.xsh", "main.xsh"]
+            relative_paths(&root, &discover(&root.join("vendor"), &[])),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            relative_paths(&root, &discover(&inner, &[])),
+            vec!["vendor/inner/main.xsh", "vendor/inner/skip.xsh"]
         );
         let _ = fs::remove_dir_all(root);
     }
@@ -661,7 +747,13 @@ mod tests {
         assert_eq!(discover(&root, &[]), Vec::<PathBuf>::new());
 
         let mut files = Vec::new();
-        collect_xsh_files(&ignored, &[], &mut files).expect("collect explicit file");
+        collect_xsh_files(
+            &ignored,
+            &ConfigCache::default(),
+            DiscoveryFor::Scripts,
+            &mut files,
+        )
+        .expect("collect explicit file");
         assert_eq!(files, vec![ignored]);
         let _ = fs::remove_dir_all(root);
     }
@@ -676,8 +768,11 @@ mod tests {
         fs::write(root.join("b").join("b.xsh"), "let value = 1\n").expect("write b");
 
         let mut files = Vec::new();
-        collect_xsh_files(&root, &[], &mut files).expect("first collection");
-        collect_xsh_files(&root, &[], &mut files).expect("second collection");
+        let configs = ConfigCache::default();
+        collect_xsh_files(&root, &configs, DiscoveryFor::Scripts, &mut files)
+            .expect("first collection");
+        collect_xsh_files(&root, &configs, DiscoveryFor::Scripts, &mut files)
+            .expect("second collection");
 
         assert_eq!(
             relative_paths(&root, &files),
@@ -759,9 +854,24 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// The scripts discovery finds under `root`, after writing `excludes`,
+    /// when there are any, as the `exclude` of a config in `root`.
     fn discover(root: &Path, excludes: &[String]) -> Vec<PathBuf> {
+        if !excludes.is_empty() {
+            fs::write(
+                root.join(CONFIG_FILE_NAME),
+                format!("exclude = {}\n", excludes.join("\n  ")),
+            )
+            .expect("write config");
+        }
         let mut files = Vec::new();
-        collect_xsh_files(root, excludes, &mut files).expect("collect xsh files");
+        collect_xsh_files(
+            root,
+            &ConfigCache::default(),
+            DiscoveryFor::Scripts,
+            &mut files,
+        )
+        .expect("collect xsh files");
         files
     }
 

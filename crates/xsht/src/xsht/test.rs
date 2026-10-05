@@ -1,11 +1,10 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::xsht::cli::{
-    CliOutput, CoverageCollector, cancellation_output, collect_configured_xsh_files,
-    collect_xsh_files, load_config,
+    CliOutput, ConfigCache, CoverageCollector, DiscoveryFor, cancellation_output,
+    collect_xsh_files, discover_scripts, load_config,
 };
-use crate::xsht::cli::XshConfig;
-use crate::xsht::config::config_for_file;
+use crate::xsht::config::FileToolConfig;
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::ffi::OsString;
 use std::fs;
@@ -56,7 +55,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
 
     let mut cases = Vec::new();
-    let mut coverage_source_files = Vec::new();
+    let mut coverage_source_files: Vec<PathBuf> = Vec::new();
     let mut stdout = String::new();
     let stderr = String::new();
 
@@ -73,17 +72,20 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         }
     };
     let coverage_exclude = config.coverage.exclude.clone();
-    if options.collect_coverage()
-        && let Err(message) =
-            collect_configured_xsh_files(Path::new("."), &config, &mut coverage_source_files)
-    {
-        return CliOutput {
-            status: 2,
-            stdout: stdout.into_bytes(),
-            stderr: text_bytes(format!("xsht: {message}\n")),
-            trace_text: String::new(),
-            syscall_summary: None,
-        };
+    let configs = ConfigCache::default();
+    if options.collect_coverage() {
+        match discover_scripts(&[], &config, &configs, DiscoveryFor::Scripts) {
+            Ok(files) => coverage_source_files = files,
+            Err(message) => {
+                return CliOutput {
+                    status: 2,
+                    stdout: stdout.into_bytes(),
+                    stderr: text_bytes(format!("xsht: {message}\n")),
+                    trace_text: String::new(),
+                    syscall_summary: None,
+                };
+            }
+        }
     }
     let test_roots: Vec<PathBuf> = if config.test_roots.is_empty() {
         vec![PathBuf::from("tests")]
@@ -91,12 +93,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         config.test_roots.iter().map(PathBuf::from).collect()
     };
     for root in &test_roots {
-        match discover_native_tests(
-            root,
-            &config.exclude,
-            &config,
-            &options,
-        ) {
+        match discover_native_tests(root, &configs, &options) {
             Ok(native) => cases.extend(native),
             Err(message) => {
                 if let Some(output) = cancellation_output() {
@@ -527,15 +524,14 @@ fn native_test_signature_uses_ctx(
 
 fn discover_native_tests(
     root: &Path,
-    excludes: &[String],
-    fallback_config: &XshConfig,
+    configs: &ConfigCache,
     options: &TestOptions,
 ) -> Result<Vec<TestCase>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    collect_xsh_files(root, excludes, &mut files)?;
+    collect_xsh_files(root, configs, DiscoveryFor::Scripts, &mut files)?;
     files.sort_unstable();
 
     let mut cases = Vec::new();
@@ -546,7 +542,8 @@ fn discover_native_tests(
         }
         // A test file loads with the project module roots of the config
         // above it, exactly as `xsh` and `xsht check` load it.
-        let module_roots = config_for_file(&file_name, fallback_config)?.module_roots();
+        let module_roots =
+            FileToolConfig::new(configs.nearest_config_for_file(&file)?).module_roots();
         let child_module_path = child_module_path(&module_roots);
         let (sources, parsed) = match parse_script_with_module_roots(&file_name, &module_roots) {
             Ok(parsed) => parsed,

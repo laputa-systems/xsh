@@ -123,10 +123,10 @@ pub use coverage::CoverageCollector;
 pub use desugar::desugar_script;
 pub use files::{
     CONFIG_FILE_NAME, CoverageConfig, DeadCodeConfig, FormatConfig, XshConfig,
-    collect_configured_xsh_files, collect_xsh_files, collect_xsh_files_below, load_config,
+    load_config,
 };
 pub(crate) use files::{
-    collect_configured_or_explicit_xsh_files, is_path_excluded, load_config_from,
+    ConfigCache, DiscoveryFor, collect_xsh_files, discover_scripts, is_path_excluded, load_config_from,
     nearest_config_for_file,
 };
 pub use fmt::format_files;

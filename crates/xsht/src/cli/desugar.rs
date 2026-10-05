@@ -17,7 +17,7 @@ pub fn desugar_script(script: &str) -> CliOutput {
         trace_text: String::new(),
         syscall_summary: None,
     };
-    let config = match config_for_file(script, &XshConfig::default()) {
+    let config = match config_for_file(script) {
         Ok(config) => config,
         Err(message) => return failure(2, format!("xsht: {message}\n")),
     };

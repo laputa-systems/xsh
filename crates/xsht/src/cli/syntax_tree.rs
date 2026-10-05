@@ -1,21 +1,9 @@
-use crate::xsht::cli::{CliOutput, load_config, parse_script_with_module_roots, text_bytes};
+use crate::xsht::cli::{CliOutput, parse_script_with_module_roots, text_bytes};
 use crate::xsht::config::config_for_file;
 use xsh::diagnostic::DiagnosticRenderer;
 
 pub fn ast_script(script: &str) -> CliOutput {
-    let config = match load_config() {
-        Ok(config) => config,
-        Err(message) => {
-            return CliOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsht: {message}\n")),
-                trace_text: String::new(),
-                syscall_summary: None,
-            };
-        }
-    };
-    let module_roots = match config_for_file(script, &config) {
+    let module_roots = match config_for_file(script) {
         Ok(file_config) => file_config.module_roots(),
         Err(message) => {
             return CliOutput {

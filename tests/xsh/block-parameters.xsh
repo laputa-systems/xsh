@@ -218,7 +218,9 @@ exercise()?
 }
 
 test test_block_header_migration_preserves_comments_and_converges { |ctx|
-  let source = r"""proc recover() [] -> Int {
+  # The source is already what the default rules leave alone apart from the
+  # header: the file has no project config above it, so every default applies.
+  let source = r"""proc recover() -> Int {
   guard let value = "invalid".parse_int() else |failure| {
     # Keep the handler body and its comment.
     print ${failure.message}
@@ -226,6 +228,7 @@ test test_block_header_migration_preserves_comments_and_converges { |ctx|
   }
   value
 }
+
 print recover()
 """
   let candidate = test.temp_file(ctx, name: "legacy-header.xsh", contents: bytes.from_text(source))?

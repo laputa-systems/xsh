@@ -1,9 +1,9 @@
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files_below,
+    CliOutput, ConfigCache, DiscoveryFor, XshConfig, cancellation_output, discover_scripts,
     load_config, text_bytes,
 };
-use crate::xsht::config::{config_for_dir, config_for_file};
+use crate::xsht::config::config_for_file;
 use crate::xsht::format::Formatter;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -159,25 +159,9 @@ pub fn check_paths_timed(
             };
         }
     };
-    let annotation_policy = match annotation_selection {
-        None => None,
-        Some(AnnotationSelection::Configured) => match configured_annotation_policy(&config) {
-            Ok(policy) => Some(policy),
-            Err(message) => {
-                return CliOutput {
-                    status: 2,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
-        },
-        Some(AnnotationSelection::Policy(policy)) => Some(policy),
-    };
-    let mut files = Vec::new();
-    if paths.is_empty() {
-        if let Err(message) = collect_configured_xsh_files(Path::new("."), &config, &mut files) {
+    let mut files = match discover_scripts(paths, &config, &ConfigCache::default(), DiscoveryFor::Scripts) {
+        Ok(files) => files,
+        Err(message) => {
             if let Some(output) = cancellation_output() {
                 return output;
             }
@@ -189,46 +173,7 @@ pub fn check_paths_timed(
                 syscall_summary: None,
             };
         }
-    } else {
-        for path in paths {
-            let path = Path::new(path);
-            if path.is_dir() {
-                let dir_config = match config_for_dir(path, &config) {
-                    Ok(tool_config) => tool_config,
-                    Err(message) => {
-                        return CliOutput {
-                            status: 2,
-                            stdout: Vec::new(),
-                            stderr: text_bytes(format!("xsht: {message}\n")),
-                            trace_text: String::new(),
-                            syscall_summary: None,
-                        };
-                    }
-                };
-                if let Err(message) = collect_xsh_files_below(
-                    path,
-                    &dir_config.config_dir,
-                    &dir_config.config.exclude,
-                    &mut files,
-                ) {
-                    if let Some(output) = cancellation_output() {
-                        return output;
-                    }
-                    return CliOutput {
-                        status: 2,
-                        stdout: Vec::new(),
-                        stderr: text_bytes(format!("xsht: {message}\n")),
-                        trace_text: String::new(),
-                        syscall_summary: None,
-                    };
-                }
-            } else {
-                files.push(path.to_path_buf());
-            }
-        }
-    }
-    files.sort_unstable();
-    files.dedup();
+    };
     let mut summary_counts = CheckSummary::default();
     let mut status = 0;
     let mut stderr = String::new();
@@ -245,7 +190,7 @@ pub fn check_paths_timed(
 
     // Annotation rewrites files that later entries import, so each entry must
     // finish before the next one loads.
-    let worker_count = if annotation_policy.is_some() {
+    let worker_count = if annotation_selection.is_some() {
         1
     } else {
         std::thread::available_parallelism()
@@ -258,7 +203,7 @@ pub fn check_paths_timed(
         let (report_tx, report_rx) = crossbeam_channel::unbounded();
         for _ in 0..worker_count {
             let report_tx = report_tx.clone();
-            let (files, config, next_file) = (&files, &config, &next_file);
+            let (files, next_file) = (&files, &next_file);
             std::thread::Builder::new()
                 .name("xsht-check".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
@@ -271,12 +216,8 @@ pub fn check_paths_timed(
                         let Some(file) = files.get(file_index) else {
                             break;
                         };
-                        let report = check_entry(
-                            &file.to_string_lossy(),
-                            config,
-                            annotation_policy,
-                            timings,
-                        );
+                        let report =
+                            check_entry(&file.to_string_lossy(), annotation_selection, timings);
                         if report_tx.send((file_index, report)).is_err() {
                             break;
                         }
@@ -368,12 +309,12 @@ impl EntryReport {
     }
 }
 
-/// Load, check, and lower one entry file. With an annotation policy, also
-/// write the inferred annotations back to the file.
+/// Load, check, and lower one entry file. With an annotation selection, also
+/// write the inferred annotations back to the file; a selection that defers
+/// to configuration reads `[check] annotate` from the file's own config.
 fn check_entry(
     path_str: &str,
-    config: &XshConfig,
-    annotation_policy: Option<AnnotationPolicy>,
+    annotation_selection: Option<AnnotationSelection>,
     timings: &StageTimings,
 ) -> EntryReport {
     let mut report = EntryReport {
@@ -382,10 +323,22 @@ fn check_entry(
         status: None,
         sources: SourceMap::new(),
     };
-    let file_config = match config_for_file(path_str, config) {
+    let file_config = match config_for_file(path_str) {
         Ok(file_config) => file_config,
         Err(message) => {
             return report.failed(2, EntryOutput::Text(format!("xsht: {message}\n")));
+        }
+    };
+    let annotation_policy = match annotation_selection {
+        None => None,
+        Some(AnnotationSelection::Policy(policy)) => Some(policy),
+        Some(AnnotationSelection::Configured) => {
+            match configured_annotation_policy(&file_config.config) {
+                Ok(policy) => Some(policy),
+                Err(message) => {
+                    return report.failed(2, EntryOutput::Text(format!("xsht: {message}\n")));
+                }
+            }
         }
     };
     let line_width = file_config.line_width();
@@ -579,45 +532,24 @@ fn diagnostic_summary_location(diagnostic: &Diagnostic, sources: &SourceMap) -> 
 }
 
 pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
-    let config = match load_config() {
-        Ok(config) => config,
-        Err(message) => {
-            return CliOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsht: {message}\n")),
-                trace_text: String::new(),
-                syscall_summary: None,
-            };
-        }
+    let failed = |message: String| CliOutput {
+        status: 2,
+        stdout: Vec::new(),
+        stderr: text_bytes(format!("xsht: {message}\n")),
+        trace_text: String::new(),
+        syscall_summary: None,
+    };
+    let file_config = match config_for_file(script) {
+        Ok(file_config) => file_config,
+        Err(message) => return failed(message),
     };
     let annotation_policy = if annotate {
-        match configured_annotation_policy(&config) {
+        match configured_annotation_policy(&file_config.config) {
             Ok(policy) => Some(policy),
-            Err(message) => {
-                return CliOutput {
-                    status: 2,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
+            Err(message) => return failed(message),
         }
     } else {
         None
-    };
-    let file_config = match config_for_file(script, &config) {
-        Ok(file_config) => file_config,
-        Err(message) => {
-            return CliOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsht: {message}\n")),
-                trace_text: String::new(),
-                syscall_summary: None,
-            };
-        }
     };
     check_one_script(
         script,
@@ -807,13 +739,6 @@ fn configured_annotation_policy(
     };
     AnnotationPolicy::from_names(classes.iter().map(String::as_str))
         .map_err(|message| format!("invalid xsht-config.ini check.annotate: {message}"))
-}
-
-fn formatter_line_width_for_script(
-    script: &str,
-    fallback_config: &XshConfig,
-) -> Result<usize, String> {
-    Ok(config_for_file(script, fallback_config)?.line_width())
 }
 
 #[allow(clippy::single_call_fn)]

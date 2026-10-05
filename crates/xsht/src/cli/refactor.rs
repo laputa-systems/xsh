@@ -1,5 +1,5 @@
 use crate::xsht::cli::{
-    CliOutput, cancellation_output, collect_configured_or_explicit_xsh_files, load_config,
+    CliOutput, ConfigCache, DiscoveryFor, cancellation_output, discover_scripts, load_config,
     text_bytes,
 };
 use crate::xsht::grep::{
@@ -59,7 +59,7 @@ pub fn refactor_scripts(
             };
         }
     };
-    let files = match collect_configured_or_explicit_xsh_files(Path::new("."), &config, paths) {
+    let files = match discover_scripts(paths, &config, &ConfigCache::default(), DiscoveryFor::Scripts) {
         Ok(files) => files,
         Err(message) => {
             return CliOutput {

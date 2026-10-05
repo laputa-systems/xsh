@@ -1030,10 +1030,13 @@ Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
 
 ### `xsht-config.ini`
 
-`xsht` reads the nearest `xsht-config.ini` above each file; `xsh` reads its
-`module_path` for the entry script and ignores the rest. Relative paths
-resolve from the config's directory. A config that does not decode is an
-error for both.
+`xsht` reads the nearest `xsht-config.ini` above each file, and that config
+alone governs the file, from whatever directory the command is started; a
+file with none above it gets the defaults. `include` and `test_roots` list
+one project's directories, so they are read from the config in the current
+directory. `xsh` reads `module_path` for the entry script and ignores the
+rest. Relative paths resolve from the config's directory. A config that does
+not decode is an error for both.
 
 ```ini
 # Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.

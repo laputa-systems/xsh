@@ -40,22 +40,47 @@ last line (`StageTimings`, `crates/xsht/src/cli/timing.rs`).
 
 ## Configuration
 
-`xsht-config.ini` is resolved per file from the nearest ancestor of the file's
-absolute location; the current directory's config controls no-argument
-discovery. Relative paths resolve from the config's directory. A file with no
-config above it takes tool settings from the current directory's config or
-the defaults, and has no project module roots. An invalid file is a command
-error.
+One rule decides which `xsht-config.ini` governs a file: the nearest one above
+the file's absolute location, found without resolving symbolic links. That
+config alone supplies the file's `module_path`, `[format] line-width`,
+`[check] annotate`, `[lint]` keys, `[lint.RULE] exclude`, and `[dead-code]`,
+for `check`, `lint`, `fmt`, `grep`, `refactor`, `ast`, `desugar`, and `test`,
+whether the file was named, found under a directory argument or `.`, or found
+by no-argument discovery, and whatever directory the command was started in.
+A config further up supplies none of them, so a project nested in another
+keeps its own settings. A file with no config above it takes every default
+and has no project module roots; the current directory's config does not
+stand in. Patterns and relative paths in a config resolve from the config's
+directory. An invalid file is a command error.
+
+Discovery skips a file that the `exclude` (for `xsht fmt`, also the
+`[format] exclude`) of its nearest config names. An exclusion also covers the
+projects nested below the config that states it: discovery from a directory
+asks every config from the file up to the one governing that directory, so a
+project that excludes `vendor/**` or its worktrees skips them even when they
+hold a config of their own. Configs above the one governing the directory
+are not asked: a command started in the nested project, or given its
+directory, sees that project's own `exclude` and nothing else. A file named
+on the command line is always processed.
+
+Two keys list the roots of one project and are therefore read only from the
+`xsht-config.ini` in the current directory: `include`, the extra roots of
+no-argument discovery, and `test_roots`, the directories `xsht test`
+searches. `[coverage] exclude`, which shapes the one report of a test run,
+is read from the same file. Started above a project, `xsht test` does not
+find that project's tests, and no-argument discovery does not follow its
+`include`; the files they do find are still governed by their own nearest
+configs.
 
 | Key | Meaning |
 |---|---|
-| `include` | extra roots for no-argument discovery |
-| `exclude` | glob patterns removed from discovery for path-oriented commands; an explicit directory uses its nearest config's `exclude` |
+| `include` | extra roots for no-argument discovery, read from the current directory's config |
+| `exclude` | glob patterns, relative to the config, of files that discovery skips, nested projects included; a file named on the command line is always processed |
 | `module_path` | module search roots (default `.`, the config's directory), searched after file-relative lookup and `XSH_MODULE_PATH`; `xsh` and `xshi` read this one key for the entry script through the same `project_module_roots` (`src/project.rs`); `xsht test` also passes the roots to `module.load` and appends them to children's `XSH_MODULE_PATH` |
-| `test_roots` | directories `xsht test` searches |
+| `test_roots` | directories `xsht test` searches, read from the current directory's config |
 | `[format] line-width` | formatter width target (default 120) |
-| `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
-| `[check] annotate` | default `--annotate` policy |
+| `[format] exclude` | glob patterns, relative to the config, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
+| `[check] annotate` | the `--annotate` policy of each file the config governs, when the flag names none |
 | `[lint] prefer-inferred-pure-returns` | opt-in removal of private pure return annotations the checker can infer |
 | `[lint] prefer-inferred-private-effects` | `false` turns off `lint.prefer-inferred-private-effects`, which is on by default |
 | `[lint] prefer-env-string`, `prefer-item-shorthand`, `prefer-tempdir-scope` | each rule is on by default; `false` disables its corpus-migration suggestion |
@@ -68,7 +93,7 @@ error.
 | `[lint] runless-except` | commands allowed under `--runless` |
 | `[lint.RULE] exclude` | files `xsht lint` does not report one rule in, as globs relative to the configuration file; the section is named by the rule's code, as in `[lint.prefer-inferred-variant]`, and a name that is not a lint rule is an error. For a corpus that shows an older spelling on purpose, such as documentation examples |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |
-| `[coverage] exclude` | files removed from the `xsht test --cov` denominator only |
+| `[coverage] exclude` | files removed from the `xsht test --cov` denominator only, read from the current directory's config |
 
 ## Lint
 

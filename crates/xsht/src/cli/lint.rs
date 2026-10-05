@@ -1,9 +1,9 @@
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files_below,
-    is_path_excluded, load_config, nearest_config_for_file, text_bytes,
+    CliOutput, ConfigCache, DiscoveryFor, XshConfig, cancellation_output, discover_scripts,
+    is_path_excluded, load_config, text_bytes,
 };
-use crate::xsht::config::{FileToolConfig, config_for_dir};
+use crate::xsht::config::FileToolConfig;
 use crate::xsht::edit::{
     SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code,
 };
@@ -92,7 +92,6 @@ pub fn lint_files_timed(
         &discovered,
         fix,
         runless,
-        &cwd_config,
         &config_cache,
         timings,
     );
@@ -230,38 +229,19 @@ struct LintDiscovery {
     only: Option<Vec<DiagnosticCode>>,
 }
 
-fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDiscovery, String> {
-    let mut paths = Vec::new();
-    let mut explicit_roots = FxHashSet::default();
-    if files.is_empty() {
-        collect_configured_xsh_files(Path::new("."), config, &mut paths)?;
-        let config_cache = ConfigCache::default();
-        let mut filtered = Vec::with_capacity(paths.len());
-        for path in paths {
-            if !excluded_by_nearest_config(&path, config, &config_cache)? {
-                filtered.push(path);
-            }
-        }
-        paths = filtered;
-    } else {
-        for file in files {
-            let path = Path::new(file);
-            if path.is_dir() {
-                let dir_config = config_for_dir(path, config)?;
-                collect_xsh_files_below(
-                    path,
-                    &dir_config.config_dir,
-                    &dir_config.config.exclude,
-                    &mut paths,
-                )?;
-            } else {
-                paths.push(path.to_path_buf());
-                explicit_roots.insert(module_key(path));
-            }
-        }
-    }
-    paths.sort_unstable();
-    paths.dedup();
+fn discover_lint_files(files: &[String], cwd_config: &XshConfig) -> Result<LintDiscovery, String> {
+    let paths = discover_scripts(
+        files,
+        cwd_config,
+        &ConfigCache::default(),
+        DiscoveryFor::Scripts,
+    )?;
+    let explicit_roots = files
+        .iter()
+        .map(Path::new)
+        .filter(|path| !path.is_dir())
+        .map(module_key)
+        .collect();
     let files = paths
         .into_iter()
         .map(|path| path.to_string_lossy().into_owned())
@@ -323,39 +303,6 @@ struct ResolvedLintConfig {
     lint_options: LintOptions,
     line_width: usize,
     module_roots: Vec<PathBuf>,
-}
-
-type CachedConfig = Result<Option<(PathBuf, XshConfig)>, String>;
-
-#[derive(Default)]
-struct ConfigCache {
-    nearest: Mutex<FxHashMap<PathBuf, CachedConfig>>,
-}
-
-impl ConfigCache {
-    fn nearest_config_for_file(&self, file: &Path) -> CachedConfig {
-        let parent = file.parent().unwrap_or_else(|| Path::new("."));
-        let key = if parent.as_os_str().is_empty() {
-            PathBuf::from(".")
-        } else {
-            parent.to_path_buf()
-        };
-        if let Some(cached) = self
-            .nearest
-            .lock()
-            .expect("config cache mutex poisoned")
-            .get(&key)
-            .cloned()
-        {
-            return cached;
-        }
-        let resolved = nearest_config_for_file(file);
-        self.nearest
-            .lock()
-            .expect("config cache mutex poisoned")
-            .insert(key, resolved.clone());
-        resolved
-    }
 }
 
 #[derive(Clone)]
@@ -569,7 +516,6 @@ fn lint_workspace(
     discovery: &LintDiscovery,
     fix: bool,
     runless: bool,
-    cwd_config: &XshConfig,
     config_cache: &ConfigCache,
     timings: &StageTimings,
 ) -> Vec<LintResult> {
@@ -580,7 +526,6 @@ fn lint_workspace(
         discovery,
         fix,
         runless,
-        cwd_config,
         config_cache,
         available,
         timings,
@@ -591,7 +536,6 @@ fn lint_workspace_with_parallelism(
     discovery: &LintDiscovery,
     fix: bool,
     runless: bool,
-    cwd_config: &XshConfig,
     config_cache: &ConfigCache,
     available: usize,
     timings: &StageTimings,
@@ -607,7 +551,7 @@ fn lint_workspace_with_parallelism(
             break;
         }
         let path = PathBuf::from(file);
-        let config = match lint_config_for_file(file, runless, cwd_config, config_cache) {
+        let config = match lint_config_for_file(file, runless, config_cache) {
             Ok(config) => config,
             Err(message) => {
                 input_errors.push(format!("xsht: {message}\n"));
@@ -634,7 +578,6 @@ fn lint_workspace_with_parallelism(
         if let Ok(config) = lint_config_for_file(
             &module.path.to_string_lossy(),
             runless,
-            cwd_config,
             config_cache,
         ) {
             module.config = config;
@@ -1566,13 +1509,9 @@ fn lint_workspace_node_with_fixes(
 fn lint_config_for_file(
     file: &str,
     runless: bool,
-    cwd_config: &XshConfig,
     config_cache: &ConfigCache,
 ) -> Result<ResolvedLintConfig, String> {
-    let tool_config = FileToolConfig::new(
-        config_cache.nearest_config_for_file(Path::new(file))?,
-        cwd_config,
-    );
+    let tool_config = FileToolConfig::new(config_cache.nearest_config_for_file(Path::new(file))?);
     let line_width = tool_config.line_width();
     let module_roots = tool_config.module_roots();
     let configured_return_annotations = tool_config
@@ -1664,17 +1603,6 @@ fn lint_config_for_file(
         line_width,
         module_roots,
     })
-}
-
-fn excluded_by_nearest_config(
-    path: &Path,
-    cwd_config: &XshConfig,
-    config_cache: &ConfigCache,
-) -> Result<bool, String> {
-    let (config_dir, config) = config_cache
-        .nearest_config_for_file(path)?
-        .unwrap_or_else(|| (PathBuf::from("."), cwd_config.clone()));
-    Ok(is_path_excluded(&config_dir, path, &config.exclude))
 }
 
 #[allow(clippy::single_call_fn)]
@@ -2285,7 +2213,6 @@ mod tests {
         let config = lint_config_for_file(
             snippet.to_str().expect("utf-8 snippet path"),
             false,
-            &crate::xsht::cli::XshConfig::default(),
             &ConfigCache::default(),
         )
         .expect("resolve lint config");
@@ -2309,7 +2236,6 @@ mod tests {
             lint_config_for_file(
                 file.to_str().expect("utf-8 path"),
                 false,
-                &crate::xsht::cli::XshConfig::default(),
                 &ConfigCache::default(),
             )
             .expect("resolve lint config")
@@ -2364,7 +2290,6 @@ mod tests {
                 &discovery,
                 false,
                 false,
-                &config,
                 &ConfigCache::default(),
                 available,
                 &StageTimings::start(),
@@ -2660,7 +2585,6 @@ print ${name}
             &discovery,
             true,
             false,
-            &config,
             &ConfigCache::default(),
             &StageTimings::start(),
         );
@@ -2866,7 +2790,6 @@ print ${name}
             &discovery,
             false,
             false,
-            &config,
             &ConfigCache::default(),
             &StageTimings::start(),
         );
@@ -2903,7 +2826,6 @@ print ${name}
             &discovery,
             true,
             false,
-            &config,
             &ConfigCache::default(),
             &StageTimings::start(),
         );
@@ -2961,7 +2883,6 @@ print ${name}
             &discovery,
             false,
             false,
-            &config,
             &ConfigCache::default(),
             &StageTimings::start(),
         );
