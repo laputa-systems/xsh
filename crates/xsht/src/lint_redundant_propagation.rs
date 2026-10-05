@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{StatementPosition, Type};
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{ArenaExprKind, ArenaStmtKind, AstArena, ExprId, StmtId};
+use xsh::frontend::syntax::arena::{
+    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, StmtId,
+};
+use xsh::frontend::syntax::node::RunKind;
 
 /// The checked facts that decide whether a statement's `?` is redundant.
 pub(super) struct PropagationFacts<'a> {
@@ -87,6 +90,101 @@ pub(super) fn redundant_propagation(
             ))
             .with_fix_hint(FixHint::deletion(found.removal, "remove `?`"))
     })
+}
+
+/// `run make ?` as a statement spells propagation twice: a plain `run`
+/// statement, and a byte pipeline that begins with one, already fails on an
+/// unsuccessful command. The `?` is redundant only where the statement keeps
+/// no value; as the tail of a body that yields its `Status`, `run make` is
+/// data and `run make ?` is not.
+pub(super) fn redundant_run_propagation(
+    arena: &AstArena,
+    source: &str,
+    facts: &PropagationFacts<'_>,
+    statement: StmtId,
+) -> Option<Diagnostic> {
+    let statement = arena.stmt(statement);
+    let ArenaStmtKind::Command(command) = statement.kind else {
+        return None;
+    };
+    let ArenaCommand::Run(run) = arena.command_stmt(command).command else {
+        return None;
+    };
+    let run = arena.run_form(run);
+    if !run.propagate
+        || arena.run_segments(run.segments).first()?.kind != RunKind::Plain
+        || facts.statement_positions.get(&statement.span) != Some(&StatementPosition::Statement)
+    {
+        return None;
+    }
+    let form = arena.span(run.span);
+    // A command statement's span runs through its terminator.
+    let after = source.get(form.end()..statement.span.end())?;
+    let propagation = after.trim_start_matches([' ', '\t']);
+    let blanks = after.len() - propagation.len();
+    if !propagation
+        .strip_prefix('?')
+        .is_some_and(|rest| rest.trim_matches([' ', '\t', '\r', '\n', ';']).is_empty())
+    {
+        return None;
+    }
+    let removal = Span::new(form.source_id, form.end(), form.end() + blanks + 1);
+    Some(
+        Diagnostic::warning("`?` on a `run` statement that already fails with its command")
+            .with_code(DiagnosticCode::LintRedundantPropagation)
+            .with_label(Label::secondary(
+                removal,
+                "a plain `run` statement propagates a failed command without `?`",
+            ))
+            .with_fix_hint(FixHint::deletion(removal, "remove `?`")),
+    )
+}
+
+/// `defer root.close()?` spells propagation twice: a deferred `Result[Unit]`
+/// fails its action with or without `?`, at the same place and with the same
+/// error. Only a call operand is reported, for the reason given on
+/// `redundant_propagation`; a deferred block's statements are expression
+/// statements and are reported there.
+pub(super) fn redundant_defer_propagation(
+    arena: &AstArena,
+    source: &str,
+    facts: &PropagationFacts<'_>,
+    statement: StmtId,
+) -> Option<Diagnostic> {
+    let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(action), _) = arena.stmt(statement).kind else {
+        return None;
+    };
+    let propagation = arena.expr(action);
+    let ArenaExprKind::Try(operand) = propagation.kind else {
+        return None;
+    };
+    let operand_span = arena.expr(operand).span;
+    if !matches!(arena.expr(operand).kind, ArenaExprKind::Call { .. })
+        || !facts
+            .expr_types
+            .get(&operand_span)
+            .is_some_and(Type::is_result_unit)
+        || operand_span.end() > propagation.span.end()
+    {
+        return None;
+    }
+    let removal = Span::new(
+        propagation.span.source_id,
+        operand_span.end(),
+        propagation.span.end(),
+    );
+    source
+        .get(removal.range())
+        .is_some_and(|text| text.trim_matches([' ', '\t']) == "?")
+        .then(|| {
+            Diagnostic::warning("`?` on a deferred action that already fails with its `Result`")
+                .with_code(DiagnosticCode::LintRedundantPropagation)
+                .with_label(Label::secondary(
+                    removal,
+                    "a deferred `Result[Unit]` fails its action without `?`",
+                ))
+                .with_fix_hint(FixHint::deletion(removal, "remove `?`"))
+        })
 }
 
 /// `if fs.exists(path)? { ... }` spells propagation twice: a `Result[Bool]`
@@ -355,17 +453,31 @@ pub(super) mod tests {
         );
     }
 
-    // `defer` takes the expression itself; it is not an expression statement.
+    // A deferred `Result[Unit]` fails its action under either spelling.
     #[test]
-    fn a_deferred_expression_keeps_its_propagation() {
-        unflagged("proc work() -> Result[Int, E] {\n  defer step(false)?\n  1\n}\n");
+    fn a_deferred_call_loses_its_propagation() {
+        fixed(
+            "proc work() -> Result[Int, E] {\n  defer step(false)?\n  errdefer step(true) ?\n  defer {\n    step(false)?\n  }\n  1\n}\n",
+            "proc work() -> Result[Int, E] {\n  defer step(false)\n  errdefer step(true)\n  defer {\n    step(false)\n  }\n  1\n}\n",
+        );
+        fixed("defer step(false)?\nprint \"done\"\n", "defer step(false)\nprint \"done\"\n");
     }
 
-    // A separated `?` after a command belongs to the whole command form.
+    // A deferred value other than `Unit` is rejected without its `?`, and a
+    // bare name without `?` would be a command word.
     #[test]
-    fn command_forms_keep_their_propagation() {
+    fn a_deferred_action_that_needs_its_propagation_keeps_it() {
         unflagged(
-            "proc work(dir: Path) [process, env, error] -> Result[Int] {\n  run true ?\n  let text = run.text echo hi ?\n  print $text\n  1\n}\n",
+            "proc work() -> Result[Int, E] {\n  let outcome = step(false)\n  defer outcome?\n  1\n}\n",
+        );
+    }
+
+    // A separated `?` after a run form whose value is used belongs to the
+    // whole form and is its propagation.
+    #[test]
+    fn a_bound_run_form_keeps_its_propagation() {
+        unflagged(
+            "proc work(dir: Path) [process, env, error] -> Result[Int] {\n  let text = run.text echo hi ?\n  print $text\n  1\n}\n",
         );
     }
 
@@ -429,5 +541,34 @@ pub(super) mod tests {
             );
             assert!(lint(&source).is_empty(), "{body}");
         }
+    }
+
+    #[test]
+    fn a_plain_run_statement_loses_its_propagation() {
+        let source = "proc build(target: Str) -> Result[Status] {\n  run make clean ?\n  run make $target | run tee build.log ?\n  if target == \"all\" {\n    run make install ?\n  }\n\n  run.status make check ?\n  let listed = run.text make --version ?\n  print $listed\n  let status = run make $target\n  Ok(status)\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        let after = apply(&diagnostics, source);
+        // `run.status` discards its status, and a bound form keeps its `?`.
+        assert_eq!(
+            after,
+            "proc build(target: Str) -> Result[Status] {\n  run make clean\n  run make $target | run tee build.log\n  if target == \"all\" {\n    run make install\n  }\n\n  run.status make check ?\n  let listed = run.text make --version ?\n  print $listed\n  let status = run make $target\n  Ok(status)\n}\n"
+        );
+        assert!(lint(&after).is_empty(), "{after}");
+    }
+
+    #[test]
+    fn a_run_statement_that_ends_a_unit_body_is_a_statement_too() {
+        // The checker reads the last statement of a `Unit` body, and of a
+        // `try` block that is one, as a statement: the bare form asserts.
+        let source = "proc build() {\n  run make all ?\n}\n\nproc both() -> Result[Unit] {\n  try {\n    run make all ?\n  }\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        let after = apply(&diagnostics, source);
+        assert_eq!(
+            after,
+            "proc build() {\n  run make all\n}\n\nproc both() -> Result[Unit] {\n  try {\n    run make all\n  }\n}\n"
+        );
+        assert!(lint(&after).is_empty(), "{after}");
     }
 }

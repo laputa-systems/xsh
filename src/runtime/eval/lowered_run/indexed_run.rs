@@ -8601,6 +8601,12 @@ impl Evaluator {
                 )
                 .with_span(span));
             }
+            // A deferred `Result[Unit]` that arrives as a value was written
+            // without `?`. It fails the action exactly as `defer f()?` does,
+            // so it records the same propagation and traceback.
+            (ControlFlow::Continue(value @ LoweredValue::ResultErr(_)), None) => {
+                self.lowered_question_propagation_value(value, span)?
+            }
             (ControlFlow::Continue(value) | ControlFlow::Break(value), None) => value,
         };
         match value {

@@ -620,7 +620,7 @@ diagnostic_codes! {
         LintRedundantPathInterpolation = "lint.redundant-path-interpolation", warning, "Remove a single-value path interpolation that wraps one value";
         LintRedundantPathParse = "lint.redundant-path-parse", warning, "Remove a Path display then parse round trip on a value already a Path";
         LintRedundantPipelineStage = "lint.redundant-pipeline-stage", warning, "Remove no-op `where true` and `map .` pipeline stages";
-        LintRedundantPropagation = "lint.redundant-propagation", warning, "Remove `?` from a statement-position `Result[Unit]` call, which already propagates";
+        LintRedundantPropagation = "lint.redundant-propagation", warning, "Remove `?` from a statement-position `Result[Unit]` call, a plain `run` statement, or a deferred `Result[Unit]` call, which already propagate";
         LintRedundantRequire = "lint.redundant-require", warning, "Remove a schema `require` on an expression that already has the required type";
         LintRedundantResultUnit = "lint.redundant-result-unit", warning, "Remove a `Result[Unit]` return annotation that a proc without a value tail infers";
         LintRedundantScopePropagation = "lint.redundant-scope-propagation", warning, "Remove `?` from a statement-position `cd`, `env`, `try`, or `retry` block, which already propagates";

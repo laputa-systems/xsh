@@ -1712,6 +1712,18 @@ impl<'a> Linter<'a> {
                 &facts,
                 statement,
             ),
+            lint_redundant_propagation::redundant_run_propagation(
+                self.arena,
+                self.source,
+                &facts,
+                statement,
+            ),
+            lint_redundant_propagation::redundant_defer_propagation(
+                self.arena,
+                self.source,
+                &facts,
+                statement,
+            ),
             self.propagation_function
                 .filter(|_| self.propagation_boundary_depth == 0)
                 .and_then(|allowed| {

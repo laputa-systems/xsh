@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{EffectDeclarationId, FunctionEffectFact, StatementPosition, Type};
 use xsh::frontend::source::Span;
+use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind, ArenaStmtKind, AstArena,
-    ExprId, FunctionDefId, StmtId,
+    ArenaAssignTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind,
+    ArenaStmtKind, AstArena, ExprId, FunctionDefId, StmtId,
 };
-use xsh::frontend::syntax::node::Effect;
+use xsh::frontend::syntax::node::{AssignOp, Effect};
 
 /// Whether `?` may replace `return Err(e)` in this function without changing
 /// its contract. `return Err(e)` needs no effect, while `?` needs `error` in a
@@ -34,6 +35,9 @@ pub(super) fn propagation_allowed(
 ///
 /// Only that exact shape is reported: an `Ok(_)` arm with an empty body and an
 /// `Err(name)` arm whose whole body is `return Err(name)`, with no guards.
+/// `Ok(value) => target = value` beside the same `Err` arm is `target = f()?`
+/// written out, where `target` is a plain name: the scrutinee still runs
+/// before the assignment, and a target with selectors would run them first.
 /// The caller passes only a statement that a proc or pure body reaches
 /// through statement blocks alone. Inside a `try`, a `retry`, a stream
 /// callback, or a deferred block the two differ, because `return` leaves the
@@ -71,15 +75,33 @@ pub(super) fn repropagating_match(
         }
         _ => return None,
     };
-    let (_, ArenaPatternKind::Wildcard) = constructor(ok.pattern)? else {
-        return None;
+    let mut ok_body = arena.stmt_ids(arena.block(ok.block).statements);
+    let assigned = match (constructor(ok.pattern)?.1, ok_body.next(), ok_body.next()) {
+        (ArenaPatternKind::Wildcard, None, None) => None,
+        (ArenaPatternKind::Binding(value), Some(only), None) => {
+            let ArenaStmtKind::Assign {
+                target,
+                op: AssignOp::Set,
+                value: ArenaExprOrRun::Expr(assigned),
+            } = arena.stmt(only).kind
+            else {
+                return None;
+            };
+            let ArenaAssignTargetKind::Name(target) = arena.assign_target(target).kind else {
+                return None;
+            };
+            if target == value
+                || !matches!(arena.expr(assigned).kind, ArenaExprKind::Ident(name) if name == value)
+            {
+                return None;
+            }
+            Some(target)
+        }
+        _ => return None,
     };
     let (_, ArenaPatternKind::Binding(binding)) = constructor(error.pattern)? else {
         return None;
     };
-    if arena.stmt_ids(arena.block(ok.block).statements).next().is_some() {
-        return None;
-    }
     let mut error_body = arena.stmt_ids(arena.block(error.block).statements);
     let (Some(only), None) = (error_body.next(), error_body.next()) else {
         return None;
@@ -120,7 +142,11 @@ pub(super) fn repropagating_match(
         source,
         statement.span,
         value,
-        **success == Type::Unit,
+        match assigned {
+            Some(target) => Kept::Assigned(target),
+            None if **success == Type::Unit => Kept::Nothing,
+            None => Kept::Dropped,
+        },
         propagation_allowed,
     ) {
         diagnostic = diagnostic.with_fix_hint(fix);
@@ -128,8 +154,19 @@ pub(super) fn repropagating_match(
     Some(diagnostic)
 }
 
-/// `SCRUTINEE?`, or `let _ = SCRUTINEE?` when success carries a value the
-/// `Ok(_)` arm dropped. A scrutinee other than a call may need grouping under
+/// What the `Ok` arm did with the success value.
+enum Kept {
+    /// There is none: the success type is `Unit`.
+    Nothing,
+    /// `Ok(_)` dropped it.
+    Dropped,
+    /// `Ok(value) => NAME = value` assigned it.
+    Assigned(Name),
+}
+
+/// `SCRUTINEE?`, `let _ = SCRUTINEE?` when success carries a value the
+/// `Ok(_)` arm dropped, or `NAME = SCRUTINEE?` when the arm assigned it. A
+/// scrutinee other than a call may need grouping under
 /// `?`, and a comment inside the match has no place in the rewrite; both keep
 /// the report and lose the fix.
 fn propagation_fix(
@@ -137,7 +174,7 @@ fn propagation_fix(
     source: &str,
     statement: Span,
     value: ExprId,
-    unit: bool,
+    kept: Kept,
     propagation_allowed: bool,
 ) -> Option<FixHint> {
     let scrutinee = arena.expr(value);
@@ -152,10 +189,10 @@ fn propagation_fix(
     if !text.ends_with('}') || before.contains('#') || after.contains('#') {
         return None;
     }
-    let replacement = if unit {
-        format!("{scrutinee_text}?")
-    } else {
-        format!("let _ = {scrutinee_text}?")
+    let replacement = match kept {
+        Kept::Nothing => format!("{scrutinee_text}?"),
+        Kept::Dropped => format!("let _ = {scrutinee_text}?"),
+        Kept::Assigned(target) => format!("{target} = {scrutinee_text}?"),
     };
     Some(FixHint::replacement(
         Span::new(statement.source_id, statement.start(), statement.start() + text.len()),
@@ -207,6 +244,19 @@ mod tests {
         fixed(
             "proc work() [error] -> Result[Int, E] {\n  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }\n  match step(true) {\n    Err(problem) => {\n      return Err(problem)\n    }\n    Ok(_) => {}\n  }\n  1\n}\n",
             "proc work() [error] -> Result[Int, E] {\n  step(false)?\n  step(true)?\n  1\n}\n",
+        );
+    }
+
+    #[test]
+    fn an_assigning_success_arm_becomes_an_assignment() {
+        fixed(
+            "pure work() -> Result[Int, E] {\n  var total = 0\n  match count() {\n    Ok(value) => total = value\n    Err(problem) => return Err(problem)\n  }\n  total + 1\n}\n",
+            "pure work() -> Result[Int, E] {\n  var total = 0\n  total = count()?\n  total + 1\n}\n",
+        );
+        // A compound assignment, a target with a selector, and an arm that
+        // assigns something else are different programs.
+        unflagged(
+            "pure work() -> Result[Int, E] {\n  var total = 0\n  var totals = [0]\n  match count() {\n    Ok(value) => total += value\n    Err(problem) => return Err(problem)\n  }\n  match count() {\n    Ok(value) => totals[0] = value\n    Err(problem) => return Err(problem)\n  }\n  match count() {\n    Ok(value) => total = value + 1\n    Err(problem) => return Err(problem)\n  }\n  total + totals[0]\n}\n",
         );
     }
 

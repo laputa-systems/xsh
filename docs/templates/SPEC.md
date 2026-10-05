@@ -1836,6 +1836,14 @@ A statement-position `Result[Unit]` propagates without `?` (8.1), so
 Both leave a `?` whose operand would otherwise be the value of its body, such
 as the tail of a `try` block that is bound.
 
+Two more statements fail without `?` and are written without it: a plain
+`run` statement, which fails with its command (11.1), and `defer call()` or
+`errdefer call()` whose call is a `Result[Unit]`, which fails its action
+(8.7). `run make ?` and `defer root.close()?` behave exactly as the bare
+forms do, with the same error, traceback, and cleanup order, and
+`lint.redundant-propagation` removes the `?` from each. A plain `run` that is
+the value of its body is a `Status`, and there `?` is its propagation.
+
 A `Result` propagates without `?` only in a control position, where it
 cannot be a value. There are two. A statement-position `Result[Unit]` is one
 (8.1). A `Result[Bool]` condition is the other:
@@ -2173,7 +2181,9 @@ runtime failure, `return`, `break`, `continue`, or cancellation.
 
 A deferred block resolves names at registration but reads their values when it
 runs; snapshot an earlier value with `let`. Its statements are in statement
-position, so a failing `Result[Unit]` stops that action. Other actions still
+position, so a failing `Result[Unit]` stops that action, and a deferred
+expression that is a `Result[Unit]` fails its action the same way, with or
+without `?`. Other actions still
 run. The original failure stays primary; if there was none, the first cleanup
 failure becomes primary, and later cleanup failures are reported with their
 locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
