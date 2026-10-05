@@ -83,6 +83,9 @@ Build the exact binary or package needed for the task instead of using bare
 user-facing binaries, while the root package also owns `xsh-test-helper`, the
 one native child process the tests spawn (a subcommand per mode). Do not use the
 `dist` profile for agent work; it is reserved for CI release packaging.
+On a musl host `cargo dev` preloads jemalloc into its build steps and never
+into a test run (`docs/TESTING.md`, "Gates"); do the same for a `cargo build`
+you type by hand.
 
 Bound machine load: run one full native suite at a time, run ad-hoc `xsh`
 probes with a wall-clock limit, and never leave processes running after a lane

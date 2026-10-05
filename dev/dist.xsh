@@ -1,4 +1,5 @@
 ##! Distribution build selection, target environment, normalization, and verification.
+use cargo_steps
 use context
 use docker
 use stage as stages
@@ -101,7 +102,7 @@ export proc native_dist(
     "--bin",
     "xshi",
   ]
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "dist-build",
       ctx.target.triple,

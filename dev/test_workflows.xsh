@@ -1,4 +1,5 @@
 ##! Rust, native XSH, and privileged platform test command policy.
+use cargo_steps
 use context
 use docker
 use stage as stages
@@ -7,8 +8,8 @@ use stage as stages
 ## only, so the integration targets build in the release profile. The unit
 ## tests spawn nothing and run in debug, where the checks compiled only under
 ## debug assertions (such as lowering's agreement with the checker) exist.
-export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
-  stages.execute(
+export proc rust(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+  cargo_steps.run_test(
     stages.command(
       "test-rust",
       ctx.target.triple,
@@ -31,7 +32,7 @@ export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit, Erro
       {},
     ),
   )
-  stages.execute(
+  cargo_steps.run_test(
     stages.command(
       "test-rust-debug-assertions",
       ctx.target.triple,
@@ -45,8 +46,8 @@ export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit, Erro
 
 ## Runs only the native XSH test corpus through the release `xsht`, which
 ## spawns its sibling release `xsh`.
-export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
-  stages.execute(
+export proc xsh(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+  cargo_steps.run_build(
     stages.command(
       "test-xsh-build",
       ctx.target.triple,
@@ -90,8 +91,8 @@ export proc linux_test(ctx: context.Context, ci: Bool) [process, env, error, io]
 }
 
 ## Runs the selected Darwin CI test contract directly on macOS.
-export proc macos_ci(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
-  stages.execute(
+export proc macos_ci(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+  cargo_steps.run_test(
     stages.command(
       "test-macos-ci",
       ctx.target.triple,

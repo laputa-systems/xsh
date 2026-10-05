@@ -1,5 +1,6 @@
 ##! Container-internal lifecycle commands invoked directly by Docker through XSH.
 use build
+use cargo_steps
 use context
 use dist
 use stage as stages
@@ -45,7 +46,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       {},
     ),
   )
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "linux-build-test-tools",
       ctx.target.triple,
@@ -72,7 +73,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
   p"/bin/xsh".remove()
   p"/bin/xsh".symlink(to: fp"{ctx.target_dir}/release/xsh")
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
-  stages.execute(
+  cargo_steps.run_test(
     stages.command(
       "linux-rust-tests",
       ctx.target.triple,
@@ -96,7 +97,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       {XSH_OS_STRESS_REPEAT: if stress_repeat == "" { "25" } else { stress_repeat }},
     ),
   )
-  stages.execute(
+  cargo_steps.run_test(
     stages.command(
       "linux-rust-unit-tests",
       ctx.target.triple,
@@ -134,7 +135,7 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
     ),
   )
   let environment = targets.docker_test_env(ctx.target.triple)?
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "linux-ci-build-products",
       ctx.target.triple,
@@ -177,7 +178,7 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
     }
   }
 
-  stages.execute(
+  cargo_steps.run_test(
     stages.command(
       "linux-ci-tests",
       ctx.target.triple,

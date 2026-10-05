@@ -1,4 +1,5 @@
 ##! Build and non-mutating repository checks for the development lifecycle.
+use cargo_steps
 use context
 use docs as documentation
 use stage as stages
@@ -24,9 +25,9 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
 }
 
 ## Builds the repository with the current development Cargo profile.
-export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit, Error] {
+export proc build(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   prepare_native_musl(ctx)
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "build",
       ctx.target.triple,
@@ -68,7 +69,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
 ## Compiles the release lint gate before measuring read-only lint on the configured repository corpus,
 ## then checks generated docs with release binaries.
 export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.execute(
+  cargo_steps.run_test(
     stages.command(
       "check-lint",
       ctx.target.triple,
@@ -106,7 +107,7 @@ export proc check_docs(
 ## Runs the focused, source-non-mutating development check suite. Its tools
 ## and tests run release binaries, as every test does.
 export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "check-build",
       ctx.target.triple,
@@ -142,7 +143,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       {},
     ),
   )
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "check-clippy",
       ctx.target.triple,
@@ -207,7 +208,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
 }
 
 ## Runs the repository-owner-only formatting and autofix workflow.
-export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
+export proc lint_fix(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "lint-rustfmt",
@@ -218,7 +219,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       {},
     ),
   )
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "lint-clippy",
       ctx.target.triple,
@@ -228,7 +229,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       {},
     ),
   )
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "lint-build-xsh",
       ctx.target.triple,
@@ -238,7 +239,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       {},
     ),
   )
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "lint-build-xsht",
       ctx.target.triple,

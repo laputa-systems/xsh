@@ -68,6 +68,20 @@ integration targets with `--test` instead of a bare `cargo test --release`. Use
 debug builds for compile checks, and build only the package you need
 (`cargo build --release -p xsht --bin xsht`, not a bare workspace build).
 
+On a musl host (Alpine) `rustc` allocates through musl's allocator and a
+thin-LTO build spends most of its time in the kernel. `cargo dev` therefore
+preloads jemalloc into its build steps there: when `rustc -vV` reports a
+`-musl` host and `/usr/lib/libjemalloc.so.2` exists, each step that only
+compiles runs with it in `LD_PRELOAD`, and each `cargo test` step first
+builds its executables with `--no-run` under the preload (stage `NAME-build`)
+and then runs them without it, so no test or spawned binary inherits the
+library. `XSH_DEV_BUILD_PRELOAD` names another library, and set to the empty
+string disables the preload; a missing library means none and is not an
+error. Steps that run what they build (`cargo run`, `cargo bench`) are never
+preloaded, and neither is a `cargo` you type yourself: prefix a manual build
+with `LD_PRELOAD=/usr/lib/libjemalloc.so.2`, and never a test run. The policy
+is `dev/cargo_steps.xsh`.
+
 | Change | Narrow | Broader |
 |---|---|---|
 | parser, CST, formatter | `cargo test --release --test integration syntax::NAME` | `cargo test --release --test integration syntax::`; `tests/xsh/formatter.xsh` |

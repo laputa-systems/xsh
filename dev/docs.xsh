@@ -26,6 +26,7 @@
 ##!
 ##! `docs/user-tour.html` is not a template: `tour_html` renders it from the
 ##! rendered `docs/user-tour.md`.
+use cargo_steps
 use context
 use stage as stages
 use tour_html
@@ -631,8 +632,8 @@ export pure release_tools(ctx: context.Context) -> DocTools {
 }
 
 ## Builds the release `xsh` and `xsht` that render the docs.
-export proc build_release(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
-  stages.execute(
+export proc build_release(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+  cargo_steps.run_build(
     stages.command(
       "docs-build",
       ctx.target.triple,

@@ -1,4 +1,5 @@
 ##! Host-dispatched installation with explicit Darwin signing and Linux linker setup.
+use cargo_steps
 use context
 use stage as stages
 use targets
@@ -39,7 +40,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
     build_std = process.argv_words(build_std_value)?
   }
 
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "install-darwin-build",
       ctx.target.triple,
@@ -156,7 +157,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
     "LINUX_INSTALL_RUSTFLAGS",
     f"-C linker=clang -C link-arg=-B{ctx.root}/target/llvm-crt -C link-arg=-B{ctx.root}/tools -C link-arg=-fuse-ld=lld",
   )?
-  stages.execute(
+  cargo_steps.run_build(
     stages.command(
       "install-linux-build",
       ctx.target.triple,
