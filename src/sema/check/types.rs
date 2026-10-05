@@ -192,12 +192,37 @@ impl Checker {
         }
     }
 
+    /// A pure function reports failure only through its `Result`. A statement
+    /// that propagates outside any capture needs that `Result` exactly as `?`
+    /// does; otherwise the failure would unwind out of a function whose
+    /// signature says it cannot fail. A proc is held to its `error` effect
+    /// instead.
+    fn require_pure_propagation_context(&mut self, error: &Type, span: Span) {
+        if !self.in_pure || self.current_yield.is_some() {
+            return;
+        }
+        if self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown) {
+            self.inferred_propagations.push((error.clone(), span));
+        } else if self
+            .current_return
+            .as_ref()
+            .is_some_and(|return_ty| !return_ty.is_result())
+        {
+            self.error(
+                span,
+                "a statement-position `Result[Unit]` propagates its failure, which requires a Result-returning context",
+                DiagnosticCode::CheckTryContext,
+            );
+        }
+    }
+
     pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
         let Type::Result(_, error) = ty else {
             return;
         };
         self.require_effect(Effect::Error, span, "statement failure propagation");
         if self.retry_attempt_depth == 0 {
+            self.require_pure_propagation_context(error, span);
             return;
         }
         if let Some(errors) = self.error_boundary_errors.last_mut() {

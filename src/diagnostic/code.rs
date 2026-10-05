@@ -448,7 +448,7 @@ diagnostic_codes! {
         CheckTestFeatureDisabled = "check.test-feature-disabled", error, "Reject `test` declarations in a build without native-test support";
         CheckTestNested = "check.test-nested", error, "Reject a `test` declaration that is not top-level";
         CheckTestTopLevel = "check.test-top-level", error, "Reject top-level commands, mutation, or control flow in a test file";
-        CheckTryContext = "check.try-context", error, "Reject `?` outside a Result-returning context";
+        CheckTryContext = "check.try-context", error, "Reject `?` or a propagating statement outside a Result-returning context";
         CheckTryError = "check.try-error", error, "Reject `?` that propagates an error type the enclosing Result does not accept";
         CheckTryResult = "check.try-result", error, "Reject `?` applied to a value that is not a `Result`";
         CheckTrySuccessType = "check.try-success-type", error, "Reject a `try` block whose success type cannot be inferred";

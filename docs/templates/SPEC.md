@@ -1388,8 +1388,10 @@ guard (5.4).
 | a proc returning a non-`Result` type | the call itself fails; the failure keeps unwinding through callers until a `try`, `retry`, or the top level captures it |
 | top level | the script prints a traceback and exits `3` |
 
-A pure function whose return type is not a `Result` cannot use `?`
-(`check.try-context`). Error handler blocks, `if`, `match`, loops, and bare
+A pure function whose return type is not a `Result` cannot use `?`, and a
+statement-position `Result[Unit]` cannot propagate there either
+(`check.try-context`): outside a `try` or `retry`, neither has anywhere to go
+but the function's `Result`. Error handler blocks, `if`, `match`, loops, and bare
 blocks are not boundaries. In a restricted proc, `?` that can leave the proc
 requires the `error` effect.
 

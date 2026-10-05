@@ -467,3 +467,78 @@ test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
   assert repeated.status.exited_with(0)
   assert "lint." not in repeated.stderr
 }
+
+# A pure function fails only through its `Result`. Without one, a propagating
+# statement is rejected like `?`, instead of unwinding out of a function whose
+# signature says it cannot fail.
+test test_pure_statement_propagation_needs_a_result_return { |ctx|
+  let rejected = [
+    """
+pure length(fail: Bool) -> Int {
+  step(fail)
+  1
+}
+""",
+    """
+pure length(fail: Bool) {
+  step(fail)
+  1
+}
+""",
+    """
+pure length(fail: Bool) -> Int {
+  if fail {
+    step(fail)
+  }
+  step(false) ?? { |_|
+    step(fail)
+  }
+  1
+}
+""",
+  ]
+  for body in rejected {
+    let call = r"""
+print ${length(false)}
+"""
+    let checked = test.run_script(ctx, PRELUDE.replace("proc step", "pure step") + body + call)?
+    assert ! checked.success
+    assert checked.status == 2
+    assert "check.try-context" in checked.stderr, checked.stderr
+    assert checked.stdout == ""
+  }
+
+  # A capture gives the failure somewhere to go, and so does a `Result`.
+  let accepted = test.run_script(
+    ctx,
+    PRELUDE.replace("proc step", "pure step") + r"""
+pure captured(fail: Bool) -> Int {
+  let outcome = try {
+    step(fail)
+    1
+  }
+  outcome ?? 0
+}
+
+pure fallible(fail: Bool) -> Result[Int, Step] {
+  step(fail)
+  1
+}
+
+pure inferred(fail: Bool) {
+  step(fail)
+  Ok(1)
+}
+
+proc plain(fail: Bool) [error] -> Int {
+  step(fail)
+  1
+}
+
+let unwound = try { plain(true) }
+print ${captured(true)} ${captured(false)} ${fallible(true) is Err(_)} ${inferred(false)?} ${unwound is Err(_)}
+""",
+  )?
+  assert accepted.success, accepted.stderr
+  assert accepted.stdout == "0 1 true 1 true\n"
+}

@@ -488,7 +488,7 @@ impl Checker {
                         ty = Type::Invalid;
                     }
                     _ => {
-                        self.error(span, "`?` requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
+                        self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
                         ty = Type::Invalid;
                     }
                 }
