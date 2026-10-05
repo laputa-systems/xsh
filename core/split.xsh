@@ -1,140 +1,807 @@
 #!/bin/xsh
-error AppletError = Usage(message: Str) : Usage
+use lib.gnu
+use lib.textio_a1 as tio
 
-pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
+const USAGE = """Usage: split [OPTION]... [FILE [PREFIX]]
+Output pieces of FILE to PREFIXaa, PREFIXab, ...;
+default size is 1000 lines, and default PREFIX is 'x'.
+
+With no FILE, or when FILE is -, read standard input.
+
+Mandatory arguments to long options are mandatory for short options too.
+  -a, --suffix-length=N   generate suffixes of length N (default 2)
+      --additional-suffix=SUFFIX  append an additional SUFFIX to file names
+  -b, --bytes=SIZE        put SIZE bytes per output file
+  -C, --line-bytes=SIZE   put at most SIZE bytes of records per output file
+  -d                      use numeric suffixes starting at 0, not alphabetic
+      --numeric-suffixes[=FROM]  same as -d, but allow setting the start value
+  -x                      use hex suffixes starting at 0, not alphabetic
+      --hex-suffixes[=FROM]  same as -x, but allow setting the start value
+  -e, --elide-empty-files  do not generate empty output files with '-n'
+      --filter=COMMAND    write to shell COMMAND; file name is $FILE
+  -l, --lines=NUMBER      put NUMBER lines/records per output file
+  -n, --number=CHUNKS     generate CHUNKS output files; see explanation below
+  -t, --separator=SEP     use SEP instead of newline as the record separator;
+                            '\\0' (zero) specifies the NUL character
+  -u, --unbuffered        immediately copy input to output with '-n r/...'
+      --verbose           print a diagnostic just before each
+                            output file is opened
+      --help        display this help and exit
+      --version     output version information and exit
+
+The SIZE argument is an integer and optional unit (example: 10K is 10*1024).
+Units are K,M,G,T,P,E,Z,Y,R,Q (powers of 1024) or KB,MB,... (powers of 1000).
+Binary prefixes can be used, too: KiB=K, MiB=M, and so on.
+
+CHUNKS may be:
+  N       split into N files based on size of input
+  K/N     output Kth of N to stdout
+  l/N     split into N files without splitting lines/records
+  l/K/N   output Kth of N to stdout without splitting lines/records
+  r/N     like 'l' but use round robin distribution
+  r/K/N   likewise but only output Kth of N to stdout
+"""
+
+type SplitOptions = {
+  suffix_length: Str,
+  additional: Str,
+  bytes: Str,
+  line_bytes: Str,
+  short_numeric: Bool,
+  numeric: Str,
+  short_hex: Bool,
+  hex: Str,
+  elide: Bool,
+  filter: Str?,
+  lines: Str,
+  number: Str,
+  separator: List[Str],
+  unbuffered: Bool,
+  verbose: Bool,
+  help: Bool,
+  version: Bool,
+  files: List[Str],
 }
 
-pure usage_error(applet_name: Str, summary: Str) -> Error {
-  AppletError.Usage(usage(applet_name, summary))
-}
+# Chunks for `-n`: `kind` is bytes, l or r; `k` is the chunk to print (0 for
+# every chunk); `n` the chunk count.
+type Chunks = {kind: Str, k: Int, n: Int}
 
-pure common_int(raw: Str, label: Str) -> Result[Int] {
-  if raw.ends_with("k") or raw.ends_with("K") {
-    return raw.replace("k", "").replace("K", "").parse_int().context("usage", f"unsupported {label} '{raw}'")? * 1024
+# How output names are built: radix and width of the suffix, its first value,
+# and whether the width grows when the names run out.
+type Naming = {prefix: Str, radix: Int, width: Int, start: Int, widen: Bool, extra: Str}
+
+type Rewritten = {argv: List[Str], obsolete: Str, blksize: Str}
+
+const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+# Rewrite the obsolete `-NUM` (lines per file) out of the argument list: digit
+# runs inside a short cluster are removed and remembered, the way `-NUM` and
+# `-d200a4` read. A value that merely starts with `-` stays untouched. The
+# undocumented `---io-blksize` is taken out as well (the cli cannot declare an
+# option name that starts with a dash).
+pure modernize(argv: List[Str]) -> Rewritten {
+  var out: List[Str] = []
+  var obsolete = ""
+  var blksize = ""
+  var pending = false
+  var options = true
+  var value = false
+
+  for item in argv {
+    if pending {
+      blksize = item
+      pending = false
+    } else if ! options or value {
+      out += [item]
+      value = false
+    } else if item == "--" {
+      options = false
+      out += [item]
+    } else if item == "---io-blksize" {
+      pending = true
+    } else if item.starts_with("---io-blksize=") {
+      blksize = item.byte_slice(14)
+    } else if item.starts_with("--") or ! item.starts_with("-") or item.byte_len() < 2 {
+      out += [item]
+      value = item in ["--suffix-length", "--additional-suffix", "--bytes", "--line-bytes", "--filter", "--lines", "--number", "--separator"]
+    } else {
+      var kept = "-"
+      var at = 1
+      var taken = false
+
+      while at < item.byte_len() {
+        let ch = item.byte_slice(at, length: 1)
+
+        if ch in DIGITS {
+          var stop = at
+
+          while stop < item.byte_len() and item.byte_slice(stop, length: 1) in DIGITS {
+            stop += 1
+          }
+
+          obsolete = item.byte_slice(at, length: stop - at)
+          at = stop
+        } else if ch in ["a", "b", "C", "l", "n", "t"] {
+          kept = kept + item.byte_slice(at)
+          taken = at == item.byte_len() - 1
+          at = item.byte_len()
+        } else {
+          kept = kept + ch
+          at += 1
+        }
+      }
+
+      if kept != "-" {
+        out += [kept]
+      }
+
+      value = taken
+    }
   }
 
-  if raw.ends_with("m") or raw.ends_with("M") {
-    return raw.replace("m", "").replace("M", "").parse_int().context("usage", f"unsupported {label} '{raw}'")? * 1024 * 1024
+  {argv: out, obsolete: obsolete, blksize: blksize}
+}
+
+# An unsigned decimal; values past u64 are null, values past Int clamp.
+pure parse_u64(text: Str) -> Int? {
+  return null when ! rx"^[0-9]+$".matches(text)
+
+  let digits = rx"^0+".replace(text, "")
+
+  return 0 when digits == ""
+  return null when digits.byte_len() > 20 or (digits.byte_len() == 20 and digits > "18446744073709551615")
+  return tio.MAX_COUNT when digits.byte_len() > 18
+
+  digits.parse_int() ?? 0
+}
+
+# The number of digits in RADIX needed to write the values below LIMIT.
+pure digits_needed(limit: Int, radix: Int) -> Int {
+  var width = 0
+  var reach = 1
+
+  while reach < limit {
+    if reach > tio.MAX_COUNT / radix {
+      return width + 1
+    }
+
+    reach *= radix
+    width += 1
   }
 
-  raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
+  width
 }
 
-pure suffix(index: Int) -> Str {
-  let letters = [
-    "a",
-    "b",
-    "c",
-    "d",
-    "e",
-    "f",
-    "g",
-    "h",
-    "i",
-    "j",
-    "k",
-    "l",
-    "m",
-    "n",
-    "o",
-    "p",
-    "q",
-    "r",
-    "s",
-    "t",
-    "u",
-    "v",
-    "w",
-    "x",
-    "y",
-    "z",
-  ]
+pure digit_char(value: Int, radix: Int) -> Str {
+  return "abcdefghijklmnopqrstuvwxyz".byte_slice(value, length: 1) when radix == 26
 
-  f"{letters[index / 26 % 26]}{letters[index % 26]}"
+  "0123456789abcdef".byte_slice(value, length: 1)
 }
 
-proc read_text_input(source: Str) [fs, error, io] -> Result[Str] {
-  return io.stdin_text()? when source == "-"
+# VALUE written with exactly WIDTH digits, or "" when it does not fit.
+pure fixed_name(value: Int, radix: Int, width: Int) -> Str {
+  var rest = value
+  var out = ""
 
-  fp"{source}".read_text()?
+  for _ in range(width) {
+    out = digit_char(rest % radix, radix) + out
+    rest = rest / radix
+  }
+
+  if rest > 0 { "" } else { out }
 }
 
-proc read_bytes_input(source: Str) [fs, error, io] -> Result[Bytes] {
-  return io.stdin_bytes()? when source == "-"
+# The suffix of the file at position INDEX; "" when the names are exhausted.
+# Auto-widening names put a fill of top digits in front: xaa..xyz, xzaaa, ...
+pure suffix_name(index: Int, naming: Naming) -> Str {
+  let current = naming.start + index
 
-  fp"{source}".read_bytes()?
+  return fixed_name(current, naming.radix, naming.width) when ! naming.widen
+
+  var remaining = current
+  var span = (naming.radix - 1) * naming.radix
+  var width = 2
+
+  while remaining >= span {
+    remaining -= span
+    span *= naming.radix
+    width += 1
+  }
+
+  var digits = ""
+
+  for _ in range(width) {
+    digits = digit_char(remaining % naming.radix, naming.radix) + digits
+    remaining = remaining / naming.radix
+  }
+
+  var fill = ""
+
+  for _ in range(width - 2) {
+    fill = fill + digit_char(naming.radix - 1, naming.radix)
+  }
+
+  fill + digits
 }
 
-type SplitOptions = {lines: Str, bytes: Str, suffix_length: Str, paths: List[Str]}
+# Offsets just past each record separator, plus the end of an unterminated
+# final record.
+proc record_ends(data: Bytes, sep: Int) [error] -> Result[List[Int]] {
+  var ends: List[Int] = []
 
-proc main(...argv: List[Str]) [fs, error, io] {
+  if sep == 10 {
+    ends = tio.line_ends(data, false)
+  } else if let Ok(text) = data.utf8() {
+    let mark = if sep == 0 { "\0" } else { bytes.from_ints([sep])?.utf8() ?? "\n" }
+    let parts = text.split(mark)
+    var at = 0
+
+    for part in parts[..parts.len() - 1] {
+      at += part.byte_len() + 1
+      ends += [at]
+    }
+  } else {
+    for index in range(data.len()) {
+      if data.byte_at(index) == sep {
+        ends += [index + 1]
+      }
+    }
+  }
+
+  if data.len() > 0 and (ends.len() == 0 or ends[ends.len() - 1] != data.len()) {
+    ends += [data.len()]
+  }
+
+  ends
+}
+
+pure bytes_pieces(data: Bytes, size: Int) -> List[Bytes] {
+  var out: List[Bytes] = []
+  var at = 0
+  let total = data.len()
+
+  while at < total {
+    let stop = if size < total - at { at + size } else { total }
+
+    out += [data[at..stop]]
+    at = stop
+  }
+
+  out
+}
+
+pure lines_pieces(data: Bytes, ends: List[Int], per: Int) -> List[Bytes] {
+  var out: List[Bytes] = []
+  var first = 0
+  let count = ends.len()
+
+  while first < count {
+    let last = if per < count - first { first + per } else { count }
+    let from = if first == 0 { 0 } else { ends[first - 1] }
+
+    out += [data[from..ends[last - 1]]]
+    first = last
+  }
+
+  out
+}
+
+# `-C`: whole records up to SIZE bytes per piece; a record longer than SIZE
+# starts a fresh piece and is cut every SIZE bytes, its tail staying open.
+pure line_bytes_pieces(data: Bytes, ends: List[Int], size: Int) -> List[Bytes] {
+  var out: List[Bytes] = []
+  var origin = 0
+  var used = 0
+
+  for index in range(ends.len()) {
+    let from = if index == 0 { 0 } else { ends[index - 1] }
+    let width = ends[index] - from
+
+    if used > 0 and used + width > size {
+      out += [data[origin..origin + used]]
+      origin = from
+      used = 0
+    }
+
+    if used + width <= size {
+      used += width
+    } else {
+      var at = from
+
+      while ends[index] - at > size {
+        out += [data[at..at + size]]
+        at += size
+      }
+
+      origin = at
+      used = ends[index] - at
+    }
+  }
+
+  if used > 0 {
+    out += [data[origin..origin + used]]
+  }
+
+  out
+}
+
+# The 1-based chunk of `-n N` that contains byte POSITION of a SIZE-byte input.
+pure chunk_of(position: Int, size: Int, count: Int) -> Int {
+  let quotient = size / count
+  let remainder = size % count
+  let border = remainder * (quotient + 1)
+
+  return position / (quotient + 1) + 1 when position < border
+
+  remainder + (position - border) / quotient + 1
+}
+
+pure chunk_bytes(data: Bytes, count: Int, k: Int) -> Bytes {
+  let size = data.len()
+  let quotient = size / count
+  let remainder = size % count
+  let from = (k - 1) * quotient + (if k - 1 < remainder { k - 1 } else { remainder })
+  let to = from + quotient + (if k <= remainder { 1 } else { 0 })
+
+  data[from..to]
+}
+
+# The Kth of COUNT chunks without splitting records, or every chunk (K = 0).
+pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) -> List[Bytes] {
+  var out: List[Bytes] = []
+  var current = 0
+  var origin = 0
+  var stop = 0
+  let size = data.len()
+
+  for index in range(ends.len()) {
+    let from = if index == 0 { 0 } else { ends[index - 1] }
+    let chunk = chunk_of(from, size, count)
+
+    if chunk != current {
+      if current > 0 and (k == 0 or k == current) {
+        out += [data[origin..stop]]
+      }
+
+      if k == 0 and ! elide {
+        for _ in range(chunk - current - 1) {
+          out += [b""]
+        }
+      }
+
+      current = chunk
+      origin = from
+    }
+
+    stop = ends[index]
+  }
+
+  if current > 0 and (k == 0 or k == current) {
+    out += [data[origin..stop]]
+  }
+
+  if k == 0 and ! elide {
+    for _ in range(count - current) {
+      out += [b""]
+    }
+  } else if k > 0 and out.len() == 0 {
+    out += [b""]
+  }
+
+  out
+}
+
+pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) -> List[Bytes] {
+  if k > 0 {
+    var parts: List[Bytes] = []
+
+    for index in range(ends.len()) {
+      if index % count == k - 1 {
+        let from = if index == 0 { 0 } else { ends[index - 1] }
+        parts += [data[from..ends[index]]]
+      }
+    }
+
+    return [bytes.concat(parts)]
+  }
+
+  let width = if count < ends.len() { count } else { ends.len() }
+  var buckets: List[List[Bytes]] = [[] for _ in range(width)]
+
+  for index in range(ends.len()) {
+    let from = if index == 0 { 0 } else { ends[index - 1] }
+    let slot = index % count
+
+    buckets[slot] += [data[from..ends[index]]]
+  }
+
+  var out: List[Bytes] = [bytes.concat(parts) for parts in buckets]
+
+  if ! elide {
+    for _ in range(count - width) {
+      out += [b""]
+    }
+  }
+
+  out
+}
+
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let rewritten = modernize(argv)
   let opts: SplitOptions = cli.applet(
-    argv,
+    rewritten.argv,
     {
-      lines: {
-        form: "-l LINES",
-        default: "100",
-      },
-      bytes: {
-        form: "-b BYTES",
-        default: "0",
-      },
-      suffix_length: {
-        form: "-a LENGTH",
-        default: "2",
-      },
-      paths: {
-        form: "...FILE",
-      },
+      gnu: {status: 1},
+      suffix_length: {form: "-a --suffix-length N", default: ""},
+      additional: {form: "--additional-suffix SUFFIX", default: ""},
+      bytes: {form: "-b --bytes SIZE", default: ""},
+      line_bytes: {form: "-C --line-bytes SIZE", default: ""},
+      short_numeric: {form: "-d", default: false, conflicts: ["numeric", "short_hex", "hex"]},
+      numeric: {form: "--numeric-suffixes[=FROM]", default: "-", optional_default: "", conflicts: ["short_numeric", "short_hex", "hex"]},
+      short_hex: {form: "-x", default: false, conflicts: ["numeric", "short_numeric", "hex"]},
+      hex: {form: "--hex-suffixes[=FROM]", default: "-", optional_default: "", conflicts: ["numeric", "short_numeric", "short_hex"]},
+      elide: {form: "-e --elide-empty-files", default: false},
+      filter: {form: "--filter COMMAND"},
+      lines: {form: "-l --lines NUMBER", default: ""},
+      number: {form: "-n --number CHUNKS", default: ""},
+      separator: {form: "-t --separator SEP", repeated: true},
+      unbuffered: {form: "-u --unbuffered", default: false},
+      verbose: {form: "--verbose", default: false},
+      help: {form: "--help", default: false, stop: true},
+      version: {form: "--version", default: false, stop: true},
+      files: {form: "...FILE"},
     },
   )?
-  let lines_per_file = common_int(opts.lines, "line count")?
-  let bytes_per_file = common_int(opts.bytes, "byte count")?
-  let paths = opts.paths
 
-  if opts.suffix_length != "2" {
-    return Err(usage_error("split", "only two-letter suffixes are supported"))
+  if opts.help {
+    gnu.help(USAGE)
+    return
   }
 
-  if lines_per_file <= 0 or bytes_per_file < 0 {
-    return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]"))
+  if opts.version {
+    gnu.version("split")
+    return
   }
 
-  return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]")) when paths.len() > 2
+  if opts.files.len() > 2 {
+    gnu.extra_operand(opts.files[2])
+  }
 
-  let input_path = paths.get(0) ?? "-"
-  let prefix = paths.get(1) ?? "x"
+  var blksize = 131072
 
-  if bytes_per_file > 0 {
-    let input = read_bytes_input(input_path)?
-    var offset = 0
-    var chunk = 0
+  if rewritten.blksize != "" {
+    let parsed = if rx"^[0-9]".matches(rewritten.blksize) { tio.parse_count(rewritten.blksize) } else { null }
 
-    while offset < input.len() {
-      let remaining = input.len() - offset
-      let chunk_end = if bytes_per_file < remaining { offset + bytes_per_file } else { input.len() }
-      fp"{prefix}{suffix(chunk)}".write(input[offset..chunk_end])
-      offset += bytes_per_file
-      chunk += 1
+    if parsed == null or (parsed ?? 0) > 2147483647 or (parsed ?? 0) == 0 {
+      gnu.error(f"invalid IO block size: {gnu.quote(rewritten.blksize)}")
+      exit 1
+    }
+
+    blksize = parsed ?? blksize
+  }
+
+  let line_text = if rewritten.obsolete != "" { rewritten.obsolete } else { opts.lines }
+  var ways = 0
+
+  for given in [line_text != "", opts.bytes != "", opts.line_bytes != "", opts.number != ""] {
+    if given {
+      ways += 1
+    }
+  }
+
+  if ways > 1 {
+    gnu.error("cannot split in more than one way")
+    exit 1
+  }
+
+  var lines = 1000
+  var size = 0
+  var line_size = 0
+  var chunks: Chunks = {kind: "", k: 0, n: 0}
+
+  if line_text != "" {
+    let parsed = parse_u64(line_text)
+
+    if parsed == null or (parsed ?? 0) == 0 {
+      gnu.error(f"invalid number of lines: {if parsed == null { gnu.quote(line_text) } else { "0" }}")
+      exit 1
+    }
+
+    lines = parsed ?? 1000
+  }
+
+  for text in [opts.bytes, opts.line_bytes] {
+    if text != "" {
+      let parsed = if rx"^[0-9]".matches(text) { tio.parse_count(text) } else { null }
+
+      if parsed == null or (parsed ?? 0) == 0 {
+        gnu.error(f"invalid number of bytes: {if parsed == null { gnu.quote(text) } else { "0" }}")
+        exit 1
+      }
+
+      if text == opts.bytes {
+        size = parsed ?? 0
+      } else {
+        line_size = parsed ?? 0
+      }
+    }
+  }
+
+  if opts.number != "" {
+    let parts = opts.number.split("/")
+    var kind = "bytes"
+    var k_text = ""
+    var n_text = ""
+
+    if parts.len() == 1 {
+      n_text = parts[0]
+    } else if parts.len() == 2 and parts[0] in ["l", "r"] {
+      kind = parts[0]
+      n_text = parts[1]
+    } else if parts.len() == 2 {
+      k_text = parts[0]
+      n_text = parts[1]
+    } else if parts.len() == 3 and parts[0] in ["l", "r"] {
+      kind = parts[0]
+      k_text = parts[1]
+      n_text = parts[2]
+    } else {
+      gnu.error(f"invalid number of chunks: {gnu.quote(opts.number)}")
+      exit 1
+    }
+
+    let total = parse_u64(n_text)
+
+    if total == null or (total ?? 0) == 0 {
+      gnu.error(f"invalid number of chunks: {gnu.quote(n_text)}")
+      exit 1
+    }
+
+    var which = 0
+
+    if k_text != "" {
+      let picked = parse_u64(k_text)
+
+      if picked == null or (picked ?? 0) == 0 or (picked ?? 0) > (total ?? 0) {
+        gnu.error(f"invalid chunk number: {gnu.quote(k_text)}")
+        exit 1
+      }
+
+      which = picked ?? 0
+    }
+
+    chunks = {kind: kind, k: which, n: total ?? 0}
+  }
+
+  if opts.filter != null and chunks.k > 0 {
+    gnu.error("--filter does not process a chunk extracted to stdout")
+    exit 1
+  }
+
+  var sep = 10
+  var distinct: List[Str] = []
+
+  for text in opts.separator {
+    if ! (text in distinct) {
+      distinct += [text]
+    }
+  }
+
+  if distinct.len() > 1 {
+    gnu.error("multiple separator characters specified")
+    exit 1
+  }
+
+  if distinct.len() == 1 {
+    let text = distinct[0]
+
+    if text == "\\0" {
+      sep = 0
+    } else if text.byte_len() == 1 {
+      sep = text.byte_at(0) ?? 10
+    } else {
+      gnu.error(f"multi-character separator {gnu.quote(text)}")
+      exit 1
+    }
+  }
+
+  if opts.additional.find("/") != null {
+    gnu.usage_error(f"invalid suffix {gnu.quote(opts.additional)}, contains directory separator")
+  }
+
+  let numbered = opts.short_numeric or opts.numeric != "-"
+  let hexed = opts.short_hex or opts.hex != "-"
+  let radix = if hexed { 16 } else if numbered { 10 } else { 26 }
+  let start_text = if opts.numeric != "-" { opts.numeric } else if opts.hex != "-" { opts.hex } else { "" }
+  var start = 0
+  var widen = true
+
+  if start_text != "" {
+    let parsed = if hexed { ("0x" + start_text).parse_int() ?? -1 } else { parse_u64(start_text) ?? -1 }
+
+    if parsed < 0 or ! rx"^[0-9a-fA-F]+$".matches(start_text) {
+      gnu.error(f"invalid suffix length: {gnu.quote(start_text)}")
+      exit 1
+    }
+
+    start = parsed
+    widen = false
+  }
+
+  var width = 2
+  var length_given = false
+
+  if opts.suffix_length != "" {
+    let parsed = parse_u64(opts.suffix_length)
+
+    if parsed == null or (parsed ?? 0) > 4096 {
+      gnu.error(f"invalid suffix length: {gnu.quote(opts.suffix_length)}")
+      exit 1
+    }
+
+    width = parsed ?? 2
+    length_given = true
+
+    if width > 0 {
+      widen = false
+    }
+  }
+
+  if chunks.n > 0 {
+    let required = digits_needed(start + chunks.n, radix)
+
+    if start < chunks.n and ! (length_given and width > 0) {
+      widen = false
+
+      if width < required {
+        width = required
+      }
+    }
+
+    if width < required {
+      gnu.error(f"the suffix length needs to be at least {required}")
+      exit 1
+    }
+  }
+
+  if length_given and width == 0 {
+    width = 2
+  }
+
+  let naming: Naming = {
+    prefix: opts.files.get(1) ?? "x",
+    radix: radix,
+    width: width,
+    start: start,
+    widen: widen,
+    extra: opts.additional,
+  }
+
+  if ! widen and fixed_name(start, radix, width) == "" {
+    gnu.error("numerical suffix start value is too large for the suffix length")
+    exit 1
+  }
+
+  let input_name = opts.files.get(0) ?? "-"
+
+  guard let data = gnu.read_operand(input_name) else { |failure|
+    if gnu.errno(failure) == 21 {
+      gnu.error_reading(input_name, failure)
+    } else {
+      gnu.cannot_open(input_name, failure)
+    }
+
+    exit 1
+  }
+
+  var input_ino = -1
+  var input_dev = -1
+
+  if input_name != "-" {
+    if let Ok(found) = fs.stat(fp"{input_name}", follow_symlinks: true) {
+      input_ino = found.ino
+      input_dev = found.dev
+
+      if chunks.n > 0 and found.kind != "file" and input_name != "/dev/null" and data.len() == 0 {
+        gnu.error(f"{gnu.quote_maybe(input_name)}: cannot determine file size")
+        exit 1
+      }
+    }
+  } else if chunks.n > 0 and data.len() > blksize {
+    gnu.error("-: cannot determine input size")
+    exit 1
+  }
+
+  var pieces: List[Bytes] = []
+  let ends = if chunks.kind in ["l", "r"] or (chunks.n == 0 and size == 0) { record_ends(data, sep)? } else { [] }
+
+  if chunks.n > 0 {
+    if chunks.kind == "bytes" {
+      if chunks.k > 0 {
+        pieces = [chunk_bytes(data, chunks.n, chunks.k)]
+      } else {
+        let limit = if opts.elide and chunks.n > data.len() { data.len() } else { chunks.n }
+
+        for index in range(limit) {
+          let piece = chunk_bytes(data, chunks.n, index + 1)
+
+          if piece.len() > 0 or ! opts.elide {
+            pieces += [piece]
+          }
+        }
+      }
+    } else if chunks.kind == "l" {
+      pieces = chunk_lines(data, ends, chunks.n, chunks.k, opts.elide)
+    } else {
+      pieces = round_robin(data, ends, chunks.n, chunks.k, opts.elide)
+    }
+
+    if opts.elide {
+      pieces = [piece for piece in pieces if piece.len() > 0]
+    }
+  } else if size > 0 {
+    pieces = bytes_pieces(data, size)
+  } else if line_size > 0 {
+    pieces = line_bytes_pieces(data, record_ends(data, sep)?, line_size)
+  } else {
+    pieces = lines_pieces(data, ends, lines)
+  }
+
+  if chunks.k > 0 {
+    for piece in pieces {
+      gnu.write_bytes(piece)
     }
 
     return
   }
 
-  let input = read_text_input(input_path)?.lines().collect()
-  var chunk = 0
-  var current = []
+  # -u only changes how `-n r/...` output is buffered; every piece is written
+  # as soon as it is complete, so there is nothing further to do for it.
+  var made = 0
 
-  for item in input |> enumerate() {
-    current += [item.value]
+  for piece in pieces {
+    let tail = suffix_name(made, naming)
 
-    if current.len() == lines_per_file or item.index + 1 == input.len() {
-      fp"{prefix}{suffix(chunk)}".write(f"""{current.join("\n")}
-""")
-
-      current = []
-      chunk += 1
+    if tail == "" {
+      gnu.error("output file suffixes exhausted")
+      exit 1
     }
+
+    let name = f"{naming.prefix}{tail}{naming.extra}"
+
+    if input_ino >= 0 {
+      if let Ok(found) = fs.stat(fp"{name}", follow_symlinks: true) {
+        if found.ino == input_ino and found.dev == input_dev {
+          gnu.error(f"{gnu.quote(name)} would overwrite input; aborting")
+          exit 1
+        }
+      }
+    }
+
+    if opts.verbose {
+      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+    }
+
+    if opts.filter != null {
+      let command = opts.filter ?? ""
+      let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, piece)
+      let status = process.run(plan)?
+
+      if (status.exit_code() ?? 0) != 0 {
+        gnu.error(f"with filter '{command}': failed")
+        exit 1
+      }
+    } else if let Err(failure) = fp"{name}".write(piece) {
+      if gnu.errno(failure) == 28 {
+        gnu.name_error(name, failure)
+      } else {
+        gnu.error(f"{gnu.quote(name)}: {gnu.strerror(failure)}")
+      }
+
+      exit 1
+    }
+
+    made += 1
   }
 }
