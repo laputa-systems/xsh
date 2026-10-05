@@ -209,7 +209,14 @@ fn parse_epoch(text: &str) -> Result<i64, String> {
 }
 
 pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, String> {
-    let text = text.trim();
+    let mut uncommented = String::new();
+    let mut comment_depth = 0usize;
+    for ch in text.chars() {
+        if ch == '(' { comment_depth += 1; }
+        else if ch == ')' && comment_depth > 0 { comment_depth -= 1; }
+        else if comment_depth == 0 { uncommented.push(ch); }
+    }
+    let text = uncommented.trim();
     if let Some(value) = text.strip_prefix('@') { return parse_epoch(value); }
     let now = match base_ns { Some(value) => value, None => now_epoch_ms().checked_mul(1_000_000).ok_or("timestamp out of range")? };
     let lower = text.to_ascii_lowercase();
@@ -303,9 +310,9 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     }
     let mut input = text.to_owned();
     let mut explicit_offset = None;
-    for (suffix, offset) in [(" MEZ", 3600), (" MESZ", 7200), (" KST", 32400), (" JST", 32400), (" AWST", 28800), (" ACST", 34200), (" ACDT", 37800), (" AEST", 36000), (" AEDT", 39600), (" WET", 0), (" WEST", 3600), (" CET", 3600), (" CEST", 7200), (" MET", 3600), (" MEST", 7200), (" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
+    for (suffix, offset) in [(" IST", 19800), (" MEZ", 3600), (" MESZ", 7200), (" KST", 32400), (" JST", 32400), (" AWST", 28800), (" ACST", 34200), (" ACDT", 37800), (" AEST", 36000), (" AEDT", 39600), (" WET", 0), (" WEST", 3600), (" CET", 3600), (" CEST", 7200), (" MET", 3600), (" MEST", 7200), (" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
         if input.eq_ignore_ascii_case(suffix.trim()) { input.clear(); explicit_offset = Some(offset); break; }
-        if let Some(rest) = input.strip_suffix(suffix) { input = rest.trim_end().into(); explicit_offset = Some(offset); break; }
+        if input.to_ascii_uppercase().ends_with(suffix) { input.truncate(input.len() - suffix.len()); input = input.trim_end().into(); explicit_offset = Some(offset); break; }
     }
     if explicit_offset.is_none() {
         let last = input.split_whitespace().last().unwrap_or("");
@@ -358,9 +365,10 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
             input.truncate(dot);
         }
     }
+    input = input.replace("a.m.", "AM").replace("p.m.", "PM").replace("A.M.", "AM").replace("P.M.", "PM");
     let text_c = std::ffi::CString::new(input.as_str()).map_err(|_| "date contains NUL")?;
     let current = calendar(now / NANOS_PER_SECOND, utc)?;
-    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y %I:%M%p", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%I:%M%p", "%I%p", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
+    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %I:%M%p", "%Y-%m-%d %I:%M %p", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y %I:%M%p", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%I:%M%p", "%I%p", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
     for pattern in formats {
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         tm.tm_year = current.tm_year; tm.tm_mon = current.tm_mon; tm.tm_mday = current.tm_mday;

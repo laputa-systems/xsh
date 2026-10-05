@@ -47,3 +47,11 @@ fn calendar_format_flags_apply_before_bounded_padding() {
     assert_eq!(format(epoch, "%#z", true).unwrap(), "+0000");
     assert_eq!(parse("2000-02-29 + 2 years", true, None).unwrap(), parse("2002-03-01", true, None).unwrap());
 }
+
+#[test]
+fn calendar_meridiem_and_parenthesized_comments() {
+    assert_eq!(parse("2024-06-15 3:00 p.m.", true, None).unwrap(), parse("2024-06-15 15:00", true, None).unwrap());
+    assert_eq!(parse("2026(comment)-01-05", true, None).unwrap(), parse("2026-01-05", true, None).unwrap());
+    assert_eq!(parse("((ignored)2026-01-05)", true, Some(0)).unwrap(), 0);
+    assert_eq!(parse("2024-01-15 12:00 IST", true, None).unwrap(), parse("2024-01-15 06:30", true, None).unwrap());
+}
