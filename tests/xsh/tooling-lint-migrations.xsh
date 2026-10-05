@@ -170,7 +170,7 @@ test test_membership_migration_does_not_suppress_unrelated_checker_failure { |ct
 
 test test_regex_literal_lint_fixture_preserves_execution_and_is_idempotent { |ctx|
   let source = r"""let assignment = regex.compile("^([A-Z]+)=([0-9]+)$")? # keep
-print ${assignment.matches("COUNT=42")} ${assignment.captures("COUNT=42")[2]} ${assignment.replace("COUNT=42", "$2")}
+print ${assignment.matches("COUNT=42")} ${assignment.captures("COUNT=42")[2]} ${assignment.replace("COUNT=42", with: "$2")}
 """
   let root = project(ctx, {"regex.xsh": source})?
   let fixture = fp"{root}/regex.xsh"
