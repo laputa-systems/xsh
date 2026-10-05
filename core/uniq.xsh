@@ -346,7 +346,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
 
       if lines.len() > 0 {
-        let before = select.delimit == "prepend" or (select.delimit == "both") or (select.delimit == "separate" and printed > 0)
+        let before = select.delimit == "prepend" or select.delimit == "both" or (select.delimit == "separate" and printed > 0)
 
         if before {
           out += [mark]
