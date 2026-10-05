@@ -577,6 +577,19 @@ pub(crate) fn set_tty_attrs(
             }
         }
     }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if let Some(Value::Int(line)) = record.get("line") {
+        match u8::try_from(*line) {
+            Ok(line) => attrs.line_discipline = line,
+            Err(_) => {
+                return Ok(error_value(
+                    "invalid-argument",
+                    "line must be between 0 and 255",
+                    span,
+                ));
+            }
+        }
+    }
     let ispeed = record_uint(record, "ispeed", "unix-tty-attrs", span)? as u32;
     let ospeed = record_uint(record, "ospeed", "unix-tty-attrs", span)? as u32;
     if attrs.set_input_speed(ispeed).is_err() || attrs.set_output_speed(ospeed).is_err() {
@@ -1295,6 +1308,17 @@ fn raw_fd_arg(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeErr
     }
 }
 
+/// The line discipline (`c_line`), which only Linux-like hosts carry.
+fn line_discipline(attrs: &termios::Termios) -> i64 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return i64::from(attrs.line_discipline);
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = attrs;
+        0
+    }
+}
+
 fn tty_attrs_record(attrs: &termios::Termios) -> Value {
     // SpecialCodes wraps [u8; NCCS] with layout verified by rustix's own static checks.
     let nccs = std::mem::size_of_val(&attrs.special_codes);
@@ -1320,6 +1344,7 @@ fn tty_attrs_record(attrs: &termios::Termios) -> Value {
             Arc::from("lflag"),
             Value::Int(attrs.local_modes.bits() as i64),
         ),
+        (Arc::from("line"), Value::Int(line_discipline(attrs))),
         (Arc::from("ispeed"), Value::Int(attrs.input_speed() as i64)),
         (Arc::from("ospeed"), Value::Int(attrs.output_speed() as i64)),
         (

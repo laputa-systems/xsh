@@ -155,6 +155,8 @@ test test_tty_attrs_follow_the_table_through_a_round_trip { |ctx|
   assert flag_on(table, attrs, "echo") == attrs.echo
   assert flag_on(table, attrs, "icrnl") == attrs.crnl
   assert attrs.ispeed > 0 and attrs.ospeed > 0
+  assert attrs.line == 0
+  test.error_kind(unix.set_tty_attrs({...attrs, line: 300}, fd: pty.replica), "invalid-argument")
 
   # Clear ECHO through the table and write it back.
   let echo = flag_named(table, "echo")

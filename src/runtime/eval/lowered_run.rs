@@ -2639,6 +2639,7 @@ fn unix_fake_tty_attrs() -> Value {
         (Arc::from("oflag"), Value::Int(0)),
         (Arc::from("cflag"), Value::Int(0)),
         (Arc::from("lflag"), Value::Int(0)),
+        (Arc::from("line"), Value::Int(0)),
         (Arc::from("ispeed"), Value::Int(0)),
         (Arc::from("ospeed"), Value::Int(0)),
         (Arc::from("echo"), Value::Bool(false)),

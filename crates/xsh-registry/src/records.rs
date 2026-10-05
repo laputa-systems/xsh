@@ -942,6 +942,7 @@ pub fn unix_tty_attrs_type() -> Type {
         ("oflag".to_string(), Type::Int),
         ("cflag".to_string(), Type::Int),
         ("lflag".to_string(), Type::Int),
+        ("line".to_string(), Type::Int),
         ("ispeed".to_string(), Type::Int),
         ("ospeed".to_string(), Type::Int),
         ("echo".to_string(), Type::Bool),
