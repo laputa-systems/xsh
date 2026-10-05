@@ -213,7 +213,13 @@ pure make_chunks(layout: Layout, before_cs: List[Str], keyword: Str, after_cs: L
 }
 
 pure tex_field(text: Str) -> Str {
-  text.replace("\\", with: "\u{1}").replace("$", with: "\\$").replace("%", with: "\\%").replace("#", with: "\\#").replace("&", with: "\\&").replace("_", with: "\\_").replace("}", with: "$\\}$").replace("{", with: "$\\{$").replace("\u{1}", with: "\\backslash{}")
+  text.replace("\\", with: "\u{1}").replace("$", with: "\\$").replace("%", with: "\\%").replace("#", with: "\\#").replace(
+    "&",
+    with: "\\&",
+  ).replace("_", with: "\\_").replace("}", with: "$\\}$").replace("{", with: "$\\{$").replace(
+    "\u{1}",
+    with: "\\backslash{}",
+  )
 }
 
 pure roff_field(text: Str) -> Str {
@@ -268,7 +274,17 @@ pure lossy(data: Bytes) -> Str {
 
   while at < total {
     let lead = data.byte_at(at) ?? 0
-    let need = if lead < 128 { 1 } else if lead >= 194 and lead <= 223 { 2 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 240 and lead <= 244 { 4 } else { 0 }
+    let need = if lead < 128 {
+      1
+    } else if lead >= 194 and lead <= 223 {
+      2
+    } else if lead >= 224 and lead <= 239 {
+      3
+    } else if lead >= 240 and lead <= 244 {
+      4
+    } else {
+      0
+    }
 
     if need > 0 and at + need <= total {
       if let Ok(piece) = data[at..at + need].utf8() {
@@ -278,7 +294,7 @@ pure lossy(data: Bytes) -> Str {
       }
     }
 
-    out = out + "\u{fffd}"
+    out = out + "�"
     at += 1
   }
 
@@ -454,7 +470,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let found = [name for name in names if name.starts_with(opts.format)]
 
     if found.len() != 1 and ! (opts.format in names) {
-      gnu.usage_error(f"invalid argument {gnu.quote(opts.format)} for '--format'\nValid arguments are:\n  - 'roff'\n  - 'tex'")
+      gnu.usage_error(
+        f"invalid argument {gnu.quote(opts.format)} for '--format'\nValid arguments are:\n  - 'roff'\n  - 'tex'",
+      )
     }
 
     format = if opts.format in names { opts.format } else { found[0] }
@@ -630,7 +648,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let layout: Layout = Layout(format:, width: line_width, gap:, truncation: opts.truncation, macro_name: opts.macro_name, refs: layout_refs, right: opts.right_refs)
+  let layout: Layout = Layout(
+    format:,
+    width: line_width,
+    gap:,
+    truncation: opts.truncation,
+    macro_name: opts.macro_name,
+    refs: layout_refs,
+    right: opts.right_refs,
+  )
 
   let out: List[Str] = collect {
     for item in ordered {

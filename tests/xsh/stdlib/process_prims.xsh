@@ -7,6 +7,7 @@ test test_signal_table_is_ordered_and_named {
     assert signal.number > previous, f"{signal.name} is out of order"
     previous = signal.number
   }
+
   assert [s.number for s in table if s.name == "HUP"] == [1]
   assert [s.number for s in table if s.name == "KILL"] == [9]
   assert [s.number for s in table if s.name == "TERM"] == [15]
@@ -32,6 +33,7 @@ test test_realtime_signals_are_named_by_offset {
   if last.name != "RTMAX" {
     test.skip("the host has no real-time signals")
   }
+
   let rtmin = process.signal("RTMIN")?
   assert last.number > rtmin.number
   assert process.signal("SIGRTMIN")?.number == rtmin.number
@@ -62,6 +64,7 @@ test test_process_identity_reads { |ctx|
   if let Err(failure) = missing {
     assert failure.errno == 3
   }
+
   test.error_kind(process.session_id(-5), "pid-range")
 }
 
@@ -91,6 +94,7 @@ test test_kill_group_reports_a_missing_group_and_a_bad_signal {
   if let Err(failure) = missing {
     assert failure.errno == 3
   }
+
   test.error_kind(process.kill_group(0), "pid-range")
   test.error_kind(process.kill_group(-3), "pid-range")
   test.error_kind(process.kill_group(1, "NOSUCH"), "invalid-signal")
@@ -192,6 +196,7 @@ test test_rlimits_are_read_and_lowered_by_name { |ctx|
   for name in ["cpu", "fsize", "data", "stack", "core", "nofile", "as"] {
     assert [l.resource for l in all if l.resource == name] == [name]
   }
+
   let nofile = process.rlimit("nofile")?
   assert nofile.resource == "nofile"
   assert (nofile.soft ?? 1000000000) <= (nofile.hard ?? 1000000000) or nofile.hard == null

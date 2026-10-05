@@ -71,6 +71,7 @@ test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams { |c
     assert failure.errno == 2
     assert "/nonexistent/xsh-tty" in failure.message
   }
+
   test.error_kind(unix.close_fd(1), "invalid-argument")
   assert ! unix.isatty(fd)
 }
@@ -187,16 +188,22 @@ test test_tty_modes_follow_stty_definitions { |ctx|
   for name in ["icanon", "isig", "opost", "icrnl", "ixon", "istrip", "brkint"] {
     assert ! flag_on(table, raw, name), f"raw leaves {name} on"
   }
+
   assert raw.control_chars[char_named(table, "min").index] == 1
   assert raw.control_chars[char_named(table, "time").index] == 0
   assert raw.ispeed == start.ispeed
   assert raw.cflag == start.cflag
-  assert raw.raw == (! flag_on(table, raw, "icanon") and ! flag_on(table, raw, "echo") and ! flag_on(table, raw, "isig") and ! flag_on(table, raw, "icrnl") and ! flag_on(table, raw, "ixon"))
+  assert raw.raw == (! flag_on(table, raw, "icanon") and ! flag_on(table, raw, "echo") and ! flag_on(table, raw, "isig") and ! flag_on(
+    table,
+    raw,
+    "icrnl",
+  ) and ! flag_on(table, raw, "ixon"))
 
   let cooked = unix.tty_mode(raw, "cooked")?
   for name in ["brkint", "ignpar", "istrip", "icrnl", "ixon", "opost", "isig", "icanon"] {
     assert flag_on(table, cooked, name), f"cooked leaves {name} off"
   }
+
   assert cooked.control_chars[char_named(table, "eof").index] == 4
   assert cooked.control_chars[char_named(table, "eol").index] == 0
   assert cooked.crnl
@@ -212,6 +219,7 @@ test test_tty_modes_follow_stty_definitions { |ctx|
       assert flag_on(table, sane, flag.name), f"sane leaves {flag.name} off"
     }
   }
+
   assert sane.control_chars[char_named(table, "intr").index] == 3
   assert sane.control_chars[char_named(table, "quit").index] == 28
   assert sane.control_chars[char_named(table, "erase").index] == 127

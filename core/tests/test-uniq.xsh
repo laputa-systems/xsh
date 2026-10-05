@@ -1,14 +1,28 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/uniq.xsh by its real path inside `root`, capturing both streams.
-proc uniq_run(ctx: TestContext, root: Path, args: List[Str], input = b"", posix = "") [fs, process, error] -> Result[Ran] {
+proc uniq_run(
+  ctx: TestContext,
+  root: Path,
+  args: List[Str],
+  input = b"",
+  posix = "",
+) [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/uniq.xsh".display()].extend(args)
   let plan = if posix == "" {
     process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
   } else {
-    process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C", _POSIX2_VERSION: posix}, input, out, err)
+    process.command_argv(
+      ctx.xsh_bin,
+      argv,
+      root,
+      {XSH_EXECUTION_PHRASE: "", LC_ALL: "C", _POSIX2_VERSION: posix},
+      input,
+      out,
+      err,
+    )
   }
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})

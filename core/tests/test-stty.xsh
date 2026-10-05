@@ -2,11 +2,22 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 
 # Runs core/stty.xsh against a pseudo-terminal: `--file` names the replica,
 # so the applet's descriptor is a real terminal while its streams are files.
-proc stty_run(ctx: TestContext, pty: UnixPty, args: List[Str], vars: Record = {LC_ALL: "C", COLUMNS: "80"}) [fs, process, error] -> Result[Ran] {
+proc stty_run(
+  ctx: TestContext,
+  pty: UnixPty,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C", COLUMNS: "80"},
+) [fs, process, error] -> Result[Ran] {
   stty_plain(ctx, ["--file", pty.name].extend(args), vars)
 }
 
-proc stty_plain(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C", COLUMNS: "80"}, input = b"", sink: Path? = null) [fs, process, error] -> Result[Ran] {
+proc stty_plain(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C", COLUMNS: "80"},
+  input = b"",
+  sink: Path? = null,
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "stty")?
   let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -135,7 +146,10 @@ test test_stty_combination_settings_follow_the_gnu_definitions { |ctx|
 
   assert stty_run(ctx, pty, ["cooked"])?.status == 0
   let cooked = show(ctx, pty, ["-a"])?
-  assert has(cooked, "icanon") and has(cooked, "isig") and has(cooked, "opost") and has(cooked, "brkint") and has(cooked, "istrip"), cooked
+  assert has(cooked, "icanon") and has(cooked, "isig") and has(cooked, "opost") and has(cooked, "brkint") and has(
+    cooked,
+    "istrip",
+  ), cooked
   assert stty_run(ctx, pty, ["-cooked"])?.status == 0
   assert "-icanon" in show(ctx, pty, ["-a"])?, "-cooked is raw"
   assert stty_run(ctx, pty, ["-raw"])?.status == 0
@@ -159,7 +173,10 @@ test test_stty_combination_settings_follow_the_gnu_definitions { |ctx|
 
   assert stty_run(ctx, pty, ["dec"])?.status == 0
   let dec = show(ctx, pty, ["-a"])?
-  assert "intr = ^C;" in dec and "erase = ^?;" in dec and "kill = ^U;" in dec and has(dec, "-ixany") and has(dec, "echoctl"), dec
+  assert "intr = ^C;" in dec and "erase = ^?;" in dec and "kill = ^U;" in dec and has(dec, "-ixany") and has(
+    dec,
+    "echoctl",
+  ), dec
 
   assert stty_run(ctx, pty, ["-echoe", "-echoctl", "-echoke", "crt"])?.status == 0
   let crt = show(ctx, pty, ["-a"])?
@@ -232,7 +249,22 @@ test test_stty_rejects_speeds_the_host_does_not_have { |ctx|
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
 
-  for speed in ["995", "abc", "999999999", "9599..", "9600..", "9600.5.", "9600.50.", "9600.0.", "++9600", "0x2580", "96E2", "9600,0", "9600.0 ", "-1"] {
+  for speed in [
+    "995",
+    "abc",
+    "999999999",
+    "9599..",
+    "9600..",
+    "9600.5.",
+    "9600.50.",
+    "9600.0.",
+    "++9600",
+    "0x2580",
+    "96E2",
+    "9600,0",
+    "9600.0 ",
+    "-1",
+  ] {
     let result = stty_run(ctx, pty, ["ispeed", speed])?
     assert result.status == 1, speed
     assert result.stderr.starts_with(f"stty: invalid ispeed '{speed}'\nTry 'stty --help' for more information.\n"), result.stderr
@@ -407,7 +439,17 @@ test test_stty_output_styles_exclude_modes_and_each_other { |ctx|
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
 
-  for words in [["--save", "nl0"], ["--all", "nl0"], ["--all", "size"], ["--save", "speed"], ["-a", "-echo"], ["echo", "-a"], ["-ax"], ["-g", "-x"], ["-gicanon"]] {
+  for words in [
+    ["--save", "nl0"],
+    ["--all", "nl0"],
+    ["--all", "size"],
+    ["--save", "speed"],
+    ["-a", "-echo"],
+    ["echo", "-a"],
+    ["-ax"],
+    ["-g", "-x"],
+    ["-gicanon"],
+  ] {
     let result = stty_run(ctx, pty, words)?
     assert result.status == 1, words.join(" ")
     assert result.stderr == "stty: when specifying an output style, modes may not be set\n", f"{words.join(" ")}: {result.stderr}"
@@ -511,7 +553,7 @@ test test_stty_reports_a_full_device { |ctx|
   let pty = with_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
-  let result = stty_plain(ctx, ["--file", pty.name], sink: p"/dev/full")?
+  let result = stty_plain(ctx, ["--file", pty.name], sink: /dev/full)?
   assert result.status == 1
   assert result.stderr == "stty: write error: No space left on device\n", result.stderr
 }

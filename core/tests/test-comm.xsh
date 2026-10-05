@@ -35,7 +35,7 @@ test test_comm_output_delimiter_total_and_zero { |ctx|
   assert comm_run(ctx, root, ["--output-delimiter=", "a", "b"])?.stdout == b"a\n\0b\n\0\0z\n", "an empty delimiter is NUL"
   assert comm_run(ctx, root, ["--total", "a", "b"])?.stdout == b"a\n\tb\n\t\tz\n1\t1\t1\ttotal\n"
   assert comm_run(ctx, root, ["--total", "-123", "a", "b"])?.stdout == b"1\t1\t1\ttotal\n"
-  assert comm_run(ctx, root, ["-z", "--total", "an", "bn"])?.stdout == b"a\0\tb\0\t\tz\x001\t1\t1\ttotal\0"
+  assert comm_run(ctx, root, ["-z", "--total", "an", "bn"])?.stdout == b"a\0\tb\0\t\tz\01\t1\t1\ttotal\0"
 
   let clash = comm_run(ctx, root, ["--output-delimiter=x", "--output-delimiter=y", "a", "b"])?
   assert clash.status == 1

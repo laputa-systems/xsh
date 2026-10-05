@@ -98,7 +98,9 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
   let value = ls_in(ctx, work, ["--format=nope"])?
   assert value.status == 1
   assert value.out == b""
-  assert value.err.starts_with("ls: invalid argument 'nope' for '--format'\nValid arguments are:\n  - 'verbose', 'long'\n"), value.err
+  assert value.err.starts_with(
+    "ls: invalid argument 'nope' for '--format'\nValid arguments are:\n  - 'verbose', 'long'\n",
+  ), value.err
 
   let width = ls_in(ctx, work, ["-w", "1a"])?
   assert width.status == 2
@@ -261,7 +263,7 @@ test test_ls_symlink_dereference_options { |ctx|
 test test_ls_recursive_stops_at_directory_cycles { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/loop".mkdir()
-  fp"{work}/loop/sub".symlink(to: p"../loop")
+  fp"{work}/loop/sub".symlink(to: ../loop)
 
   let result = ls_in(ctx, work, ["-RL", "loop"])?
   assert result.status == 2
@@ -341,10 +343,20 @@ test test_ls_color_uses_gnu_default_and_ls_colors_sequences { |ctx|
   assert ls_in(ctx, work, ["--color=never"])?.text == "d\ndangling\nplain\nrun\n"
   assert ls_in(ctx, work, ["--color=auto"])?.text == "d\ndangling\nplain\nrun\n", "stdout is not a terminal"
 
-  let custom = ls_in(ctx, work, ["--color=always", "plain", "run"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "*.xyz=1:ex=4;31"})?
+  let custom = ls_in(
+    ctx,
+    work,
+    ["--color=always", "plain", "run"],
+    {LC_ALL: "C", TZ: "UTC", LS_COLORS: "*.xyz=1:ex=4;31"},
+  )?
   assert custom.text == "plain\n\u{1b}[0m\u{1b}[4;31mrun\u{1b}[0m\n", custom.text
 
-  let orphan = ls_in(ctx, work, ["--color=always", "dangling"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ln=target:or=40:mi=34"})?
+  let orphan = ls_in(
+    ctx,
+    work,
+    ["--color=always", "dangling"],
+    {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ln=target:or=40:mi=34"},
+  )?
   assert orphan.text == "\u{1b}[0m\u{1b}[40mdangling\u{1b}[0m\n", orphan.text
 
   let broken = ls_in(ctx, work, ["--color=always", "plain"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "di=1;35:stray"})?
@@ -362,10 +374,20 @@ test test_ls_color_suffix_case_rules { |ctx|
     fp"{work}/{name}".write("")
   }
 
-  let same = ls_in(ctx, work, ["--color=always", "-U1", "a.jpg", "B.JPG", "c.JpG"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "*.jpg=01;35"})?
+  let same = ls_in(
+    ctx,
+    work,
+    ["--color=always", "-U1", "a.jpg", "B.JPG", "c.JpG"],
+    {LC_ALL: "C", TZ: "UTC", LS_COLORS: "*.jpg=01;35"},
+  )?
   assert same.text == "\u{1b}[0m\u{1b}[01;35ma.jpg\u{1b}[0m\n\u{1b}[01;35mB.JPG\u{1b}[0m\n\u{1b}[01;35mc.JpG\u{1b}[0m\n", same.text
 
-  let split = ls_in(ctx, work, ["--color=always", "-U1", "a.jpg", "B.JPG", "c.JpG"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "*.jpg=01;35:*.JPG=01;35;46"})?
+  let split = ls_in(
+    ctx,
+    work,
+    ["--color=always", "-U1", "a.jpg", "B.JPG", "c.JpG"],
+    {LC_ALL: "C", TZ: "UTC", LS_COLORS: "*.jpg=01;35:*.JPG=01;35;46"},
+  )?
   assert split.text == "\u{1b}[0m\u{1b}[01;35ma.jpg\u{1b}[0m\n\u{1b}[01;35;46mB.JPG\u{1b}[0m\nc.JpG\n", split.text
 }
 

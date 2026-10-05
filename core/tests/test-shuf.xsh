@@ -35,7 +35,7 @@ test test_shuf_permutes_head_counts_and_repeats { |ctx|
 
 test test_shuf_random_source_matches_gnu { |ctx|
   let root = test.temp_dir(ctx, name: "shuf")?
-  fp"{root}/bytes".write(b"\xd1\xfd\xb9\x9a\xf5\x81\x71\x42\xf9\x7a\x59\x79\xd4\x9c\x8c\x7d")
+  fp"{root}/bytes".write(b"\xd1\xfd\xb9\x9a\xf5\x81qB\xf9zYy\xd4\x9c\x8c}")
   fp"{root}/seven".write("1\n2\n3\n4\n5\n6\n7\n")
 
   assert shuf_run(ctx, root, ["--random-source=bytes", "-e", "1", "2", "3", "4", "5", "6", "7"])?.stdout == b"7\n1\n2\n5\n3\n4\n6\n"
@@ -45,7 +45,7 @@ test test_shuf_random_source_matches_gnu { |ctx|
   assert shuf_run(ctx, root, ["--random-source=bytes", "-n", "7"], b"1\n2\n3\n4\n5\n6\n7\n")?.stdout == b"6\n5\n1\n3\n2\n7\n4\n"
   assert shuf_run(ctx, root, ["--random-source=bytes", "-i", "1-10"])?.stdout == b"10\n2\n8\n7\n3\n9\n6\n5\n1\n4\n"
 
-  fp"{root}/short".write(b"\xfb\x83\x8f\x21\x9b\x3c\x2d\xc5\x73\xa5\x58\x6c\x54\x2f\x59\xf8")
+  fp"{root}/short".write(b"\xfb\x83\x8f!\x9b<-\xc5s\xa5XlT/Y\xf8")
   let exhausted = shuf_run(ctx, root, ["--random-source=short", "-r", "-i", "1-99"])?
   assert exhausted.status == 1
   assert exhausted.stdout == b"38\n30\n10\n26\n23\n61\n46\n99\n75\n43\n10\n89\n10\n44\n24\n59\n22\n51\n"

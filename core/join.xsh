@@ -516,7 +516,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
-  let layout: Layout = Layout(mode:, sep:, out_sep: if mode == "sep" { sep } else if mode == "line" { b"\n" } else { b" " }, specs: parse_format(items), filler: bytes.from_text(opts.empty), keys: [if key1 < 0 { 0 } else { key1 }, if key2 < 0 { 0 } else { key2 }])
+  let layout: Layout = Layout(
+    mode:,
+    sep:,
+    out_sep: if mode == "sep" {
+      sep
+    } else if mode == "line" {
+      b"\n"
+    } else {
+      b" "
+    },
+    specs: parse_format(items),
+    filler: bytes.from_text(opts.empty),
+    keys: [if key1 < 0 { 0 } else { key1 }, if key2 < 0 { 0 } else { key2 }],
+  )
 
   let eol_value = if opts.zero { 0 } else { 10 }
   let eol = bytes.from_ints([eol_value])?
@@ -575,8 +588,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if has1 or has2 {
       emit(
         join_line(
-          if has1 { rows[0][0] } else { [] },
-          if has2 { rows[1][0] } else { [] },
+          if has1 {
+            rows[0][0]
+          } else {
+            []
+          },
+          if has2 {
+            rows[1][0]
+          } else {
+            []
+          },
           ! has1,
           layout_out,
         ),
@@ -616,7 +637,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       if wanted {
         let row = rows[side][head[side]]
-        emit(join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out), layout_out, eol)
+        emit(
+          join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out),
+          layout_out,
+          eol,
+        )
       }
 
       let idx = next[side]
@@ -683,7 +708,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     while head[side] >= 0 {
       if wanted {
         let row = rows[side][head[side]]
-        emit(join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out), layout_out, eol)
+        emit(
+          join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out),
+          layout_out,
+          eol,
+        )
       }
 
       let idx = next[side]

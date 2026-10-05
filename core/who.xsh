@@ -146,7 +146,17 @@ pure time_string(seconds: Int, tz: Tz, hard: Bool) -> Str {
 # One output line the way GNU print_line lays it out: user, optional message
 # state, line, time, optional idle and pid columns, comment, optional exit
 # text, with trailing blanks removed.
-pure layout(plan: Plan, account: Str, state: Str, line: Str, stamp: Str, idle: Str, pid: Str, comment: Str, exit: Str) -> Str {
+pure layout(
+  plan: Plan,
+  account: Str,
+  state: Str,
+  line: Str,
+  stamp: Str,
+  idle: Str,
+  pid: Str,
+  comment: Str,
+  exit: Str,
+) -> Str {
   let mesg = if plan.mesg { f" {state}" } else { "" }
   let idle_column = if plan.idle and ! plan.short { f" {pad_right(idle, 6)}" } else { "" }
   let pid_column = if plan.short { "" } else { f" {pad_left(pid, 10)}" }
@@ -232,21 +242,23 @@ proc with_boot_record(sessions: List[UnixUtmp], file: Path) [fs, process, time] 
     stamp = time.now() / 1000 - up
   }
 
-  sessions + [{
-    addr: "",
-    exit_status: 0,
-    host: "",
-    id: "~~",
-    kind: "boot_time",
-    line: "~",
-    pid: 0,
-    session: 0,
-    termination: 0,
-    time_sec: stamp,
-    time_usec: 0,
-    type: 2,
-    user: "reboot",
-  }]
+  sessions + [
+    {
+      addr: "",
+      exit_status: 0,
+      host: "",
+      id: "~~",
+      kind: "boot_time",
+      line: "~",
+      pid: 0,
+      session: 0,
+      termination: 0,
+      time_sec: stamp,
+      time_usec: 0,
+      type: 2,
+      user: "reboot",
+    },
+  ]
 }
 
 pure is_user(entry: UnixUtmp) -> Bool {
@@ -266,7 +278,7 @@ pure idle_text(now: Int, last: Int) -> Str {
   f"{two(seconds / 3600)}:{two(seconds % 3600 / 60)}"
 }
 
-proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env] -> Str {
+proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, process, env, time, error] -> Str {
   var state = "?"
   var last = 0
 
@@ -317,7 +329,7 @@ pure chr(code: Int) -> Str {
 }
 
 # The selected line for one record, or null when the plan skips it.
-proc describe(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env] -> Str? {
+proc describe(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, process, env, time, error] -> Str? {
   let stamp = time_string(entry.time_sec, tz, plan.hard_time)
 
   return user_line(plan, entry, tz) when plan.users and is_user(entry)
@@ -362,7 +374,7 @@ proc process_exists(pid: Int) [process] -> Bool {
   }
 }
 
-proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
+proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   let opts: WhoOptions = cli.applet(
     argv,
     {
@@ -403,15 +415,30 @@ proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
 
   let selected = opts.all or opts.boot or opts.dead or opts.login or opts.process or opts.runlevel or opts.time or opts.users
   let exits = opts.all or opts.dead
-  let plan: Plan = Plan(users: opts.all or opts.users or ! selected, boot: opts.all or opts.boot, dead: opts.all or opts.dead, login: opts.all or opts.login, initspawn: opts.all or opts.process, runlevel: opts.all or opts.runlevel, clockchange: opts.all or opts.time, mesg: opts.all or opts.mesg, idle: opts.all or opts.dead or opts.login or opts.runlevel or opts.users, exit: exits, short: (opts.short or ! selected) and ! exits, lookup: opts.lookup, mine: opts.only_hostname_user or opts.files.len() == 2, hard_time: hard_time_locale())
+  let plan: Plan = Plan(
+    users: opts.all or opts.users or ! selected,
+    boot: opts.all or opts.boot,
+    dead: opts.all or opts.dead,
+    login: opts.all or opts.login,
+    initspawn: opts.all or opts.process,
+    runlevel: opts.all or opts.runlevel,
+    clockchange: opts.all or opts.time,
+    mesg: opts.all or opts.mesg,
+    idle: opts.all or opts.dead or opts.login or opts.runlevel or opts.users,
+    exit: exits,
+    short: (opts.short or ! selected) and ! exits,
+    lookup: opts.lookup,
+    mine: opts.only_hostname_user or opts.files.len() == 2,
+    hard_time: hard_time_locale(),
+  )
 
-  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { p"/var/run/utmp" }
+  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { /var/run/utmp }
   let listed = read_sessions(file)
   let sessions = if opts.files.len() == 1 { listed } else { with_boot_record(drop_dead_sessions(listed), file) }
 
   if opts.count {
     let names = [entry.user for entry in sessions if is_user(entry)]
-    gnu.write_text(f"{names |> join(" ")}\n# users={names.len()}\n")
+    gnu.write_text(f"{names.join(" ")}\n# users={names.len()}\n")
     finish()
     return
   }

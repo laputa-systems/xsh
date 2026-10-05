@@ -114,7 +114,7 @@ pure pretty_text(uptime: Int) -> Str {
     parts += [plural(minutes, "minute", "minutes")]
   }
 
-  f"up {parts |> join(", ")}"
+  f"up {parts.join(", ")}"
 }
 
 proc read_sessions(file: Path) [process, env, error] -> Result[List[UnixUtmp], Error] {
@@ -144,9 +144,7 @@ proc boot_from_file(file: Path, now: Int) [fs, process, env, error] -> Boot {
 
       {uptime: if booted == 0 { null } else { now - booted }, users: users, problem: ""}
     }
-    Err(failure) => {
-      {uptime: null, users: 0, problem: gnu.strerror(failure)}
-    }
+    Err(failure) => {uptime: null, users: 0, problem: gnu.strerror(failure)}
   }
 }
 
@@ -155,17 +153,13 @@ proc boot_from_file(file: Path, now: Int) [fs, process, env, error] -> Boot {
 proc boot_from_host() [fs, process, env, error] -> Boot {
   var users = 0
 
-  if let Ok(records) = read_sessions(p"/var/run/utmp") {
+  if let Ok(records) = read_sessions(/var/run/utmp) {
     users = [entry for entry in records if entry.kind == "user_process" and entry.user != ""].len()
   }
 
   match unix.uptime_seconds() {
-    Ok(seconds) => {
-      {uptime: seconds, users: users, problem: ""}
-    }
-    Err(failure) => {
-      {uptime: null, users: users, problem: gnu.strerror(failure)}
-    }
+    Ok(seconds) => {uptime: seconds, users: users, problem: ""}
+    Err(failure) => {uptime: null, users: users, problem: gnu.strerror(failure)}
   }
 }
 
@@ -177,7 +171,7 @@ proc load_text() [process, error] -> Str {
   }
 }
 
-proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
+proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   let opts: UptimeOptions = cli.applet(
     argv,
     {
@@ -227,7 +221,9 @@ proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
   } else {
     let t = civil_from_seconds(now + tz.offset)
     let up = if let seconds = boot.uptime { up_text(seconds) } else { "up ???? days ??:??" }
-    gnu.write_text(f" {t.hour:>2}:{two(t.minute)}:{two(t.second)} {up},  {plural(boot.users, "user", "users")}{load_text()}\n")
+    gnu.write_text(
+      f" {t.hour:>2}:{two(t.minute)}:{two(t.second)} {up},  {plural(boot.users, "user", "users")}{load_text()}\n",
+    )
   }
 
   if let Err(failure) = io.flush_stdout() {

@@ -97,7 +97,13 @@ pure draw(window: Bytes, at: Int, carried: Int, kept: Int, at_most: Int) -> Draw
     let safe = entropy - (entropy + 1) % choices
 
     if state <= safe {
-      return {value: state % choices, pos: pos, state: state / choices, entropy: (entropy - at_most) / choices, ok: true}
+      return {
+        value: state % choices,
+        pos: pos,
+        state: state / choices,
+        entropy: (entropy - at_most) / choices,
+        ok: true,
+      }
     }
 
     state = state % choices
@@ -250,7 +256,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let device_path = if opts.source != null { fp"{opts.source}" } else { p"/dev/urandom" }
+  let device_path = if opts.source != null { fp"{opts.source}" } else { /dev/urandom }
 
   var items: List[Bytes] = []
   var total = 0
@@ -277,7 +283,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     # reservoir of that many lines: each later line draws a slot and replaces
     # its line when the slot is inside the reservoir (and a last draw is spent
     # at the end), then the survivors are permuted as usual.
-    let place = if name == "-" { p"/dev/stdin" } else { fp"{name}" }
+    let place = if name == "-" { /dev/stdin } else { fp"{name}" }
     let regular = if let Ok(found) = fs.stat(place, follow_symlinks: true) { found.kind == "file" } else { false }
 
     if ! opts.repeat and ! regular and head < tio.MAX_COUNT and total >= head {

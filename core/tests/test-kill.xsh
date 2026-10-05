@@ -9,7 +9,15 @@ proc kill_run(ctx: TestContext, args: List[Str], out: Path? = null) [fs, process
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/kill.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", stdout_path, err)
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    stdout_path,
+    err,
+  )
   let status = process.run(plan)?
   let text = if out == null { stdout_path.read_bytes()?.utf8() ?? "" } else { "" }
 
@@ -67,6 +75,7 @@ test test_kill_realtime_signals_by_offset { |ctx|
   if last.name != "RTMAX" {
     test.skip("the host has no real-time signals")
   }
+
   let rtmin = process.signal("RTMIN")?.number
   # A signal the parent shell left ignored would not end the sleeper.
   if process.signal_action("RTMIN+7")? != "default" {
@@ -88,6 +97,7 @@ test test_kill_signal_zero_only_probes { |ctx|
     assert result.status == 0, spelling.join(" ")
     assert result.stderr == ""
   }
+
   assert kill_run(ctx, ["-0", "0"])?.status == 0, "the caller's own process group exists"
 
   let missing = kill_run(ctx, ["-0", "999999999"])?
@@ -135,7 +145,15 @@ test test_kill_without_a_process_id_is_a_usage_error { |ctx|
 
 test test_kill_rejects_invalid_signals_before_sending { |ctx|
   let child = spawn run sleep 30 ?
-  for args in [["-s", "IAMNOTASIGNAL"], ["-s", "IaMnOtAsIgNaL"], ["-s", "65"], ["-s", " 9"], ["-s", "+9"], ["-s", "0x9"], ["-s", ""]] {
+  for args in [
+    ["-s", "IAMNOTASIGNAL"],
+    ["-s", "IaMnOtAsIgNaL"],
+    ["-s", "65"],
+    ["-s", " 9"],
+    ["-s", "+9"],
+    ["-s", "0x9"],
+    ["-s", ""],
+  ] {
     let result = kill_run(ctx, args.extend([f"{child.pid}"]))?
     assert result.status == 1, args.join(" ")
     assert result.stderr.ends_with(": invalid signal\n"), result.stderr
@@ -176,6 +194,7 @@ test test_kill_list_prints_one_name_per_line_from_exit { |ctx|
   for expected in ["HUP", "INT", "KILL", "TERM", "CHLD", "RTMIN", "RTMAX"] {
     assert expected in names, expected
   }
+
   assert names == [entry.name for entry in process.signals()]
   assert kill_run(ctx, ["--list"])?.stdout == result.stdout
 }
@@ -235,7 +254,7 @@ test test_kill_list_names_every_number_up_to_the_last_named_signal { |ctx|
 
 test test_kill_list_write_errors_are_reported { |ctx|
   for args in [["-l"], ["-l", "TERM"], ["--list", "9"], ["--table"]] {
-    let result = kill_run(ctx, args, out: p"/dev/full")?
+    let result = kill_run(ctx, args, out: /dev/full)?
     assert result.status == 1, args.join(" ")
     assert result.stderr == "kill: write error: No space left on device\n", result.stderr
   }

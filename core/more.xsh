@@ -207,7 +207,7 @@ proc prompt(opts: MoreOptions, source: Source, next_name: Str?, eof: Bool, upto:
   f"{ESC}[7m{text}{ESC}[0m"
 }
 
-proc show_notice(text: Str) [process, env, io, error] {
+proc show_notice(text: Str) [process, env, error, io] {
   gnu.write_text(f"\r{ESC}[7m{text} (press RETURN){ESC}[0m")
   flush_output()
   let _ = wait_for_line()
@@ -229,10 +229,27 @@ proc wait_for_line() [io] -> Str? {
 }
 
 # One source on an interactive terminal. Returns whether the user quit.
-proc page(opts: MoreOptions, source: Source, next_name: Str?, geometry: Geometry, show_header: Bool, last: Bool) [process, env, io, error] -> Outcome {
+proc page(
+  opts: MoreOptions,
+  source: Source,
+  next_name: Str?,
+  geometry: Geometry,
+  show_header: Bool,
+  last: Bool,
+) [process, env, error, io] -> Outcome {
   let from_line = count_option(opts.from_line, "--from-line")
-  let lines_per_screen = if let given = opts.lines { count_option(given, "--lines") } else { count_option(opts.number, "--number") }
-  let capacity_full = if lines_per_screen > 0 { lines_per_screen } else if geometry.rows > 1 { geometry.rows - 1 } else { 1 }
+  let lines_per_screen = if let given = opts.lines {
+    count_option(given, "--lines")
+  } else {
+    count_option(opts.number, "--number")
+  }
+  let capacity_full = if lines_per_screen > 0 {
+    lines_per_screen
+  } else if geometry.rows > 1 {
+    geometry.rows - 1
+  } else {
+    1
+  }
   var top = if from_line > 0 { from_line - 1 } else { 0 }
   var pattern = opts.pattern ?? ""
 
@@ -390,9 +407,7 @@ proc load(name: Str) [fs, process, env, error, io] -> Source? {
   }
 
   match file.read_bytes() {
-    Ok(data) => {
-      {label: name, lines: data.lines(), size: data.len()}
-    }
+    Ok(data) => {label: name, lines: data.lines(), size: data.len()}
     Err(failure) => {
       gnu.cannot("open", name, failure)
       null
@@ -400,7 +415,7 @@ proc load(name: Str) [fs, process, env, error, io] -> Source? {
   }
 }
 
-proc main(...argv: List[Str]) [process, env, error, io, fs] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: MoreOptions = cli.applet(
     argv,
     {

@@ -77,11 +77,23 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
   return 1 when lead < 128
   return 2 when lead >= 194 and lead <= 223 and continuation(data, at + 1)
   return 3 when lead == 224 and within(data, at + 1, 160, 191) and continuation(data, at + 2)
-  return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(data, at + 2)
+  return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(
+    data,
+    at + 2,
+  )
   return 3 when lead == 237 and within(data, at + 1, 128, 159) and continuation(data, at + 2)
-  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(data, at + 3)
-  return 4 when lead >= 241 and lead <= 243 and continuation(data, at + 1) and continuation(data, at + 2) and continuation(data, at + 3)
-  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(data, at + 3)
+  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
+  return 4 when lead >= 241 and lead <= 243 and continuation(data, at + 1) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
+  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
 
   0
 }
@@ -128,10 +140,12 @@ pure column_width(text: Str) -> Int {
 # The longest line's display width: tabs advance to the next multiple of 8,
 # controls have no width, and `\r` and `\f` end a line like `\n`.
 pure longest_line(text: Str) -> Int {
-  let flat = text.replace("\r", with: "\n").replace("\x0c", with: "\n")
+  let flat = text.replace("\r", with: "\n").replace("\u{c}", with: "\n")
   var best = 0
 
-  if ! rx"[\t\x00-\x08\x0b\x0e-\x1f\x7f-\x9f]".matches(flat) and ! rx"[\x{300}-\x{36f}\x{483}-\x{489}\x{591}-\x{5bd}\x{200b}-\x{200f}\x{1100}-\x{115f}\x{2e80}-\x{ffff}\x{1f300}-\x{1f9ff}\x{20000}-\x{3fffd}]".matches(flat) {
+  if ! rx"[\t\x00-\x08\x0b\x0e-\x1f\x7f-\x9f]".matches(flat) and ! rx"[\x{300}-\x{36f}\x{483}-\x{489}\x{591}-\x{5bd}\x{200b}-\x{200f}\x{1100}-\x{115f}\x{2e80}-\x{ffff}\x{1f300}-\x{1f9ff}\x{20000}-\x{3fffd}]".matches(
+    flat,
+  ) {
     for line in flat.split("\n") {
       let size = line.count_chars()
       best = if size > best { size } else { best }
@@ -400,9 +414,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       index += 1
 
       if name == "" {
-        inputs += [{name: "", path: p"", stdin: false, issue: f"{gnu.quote_maybe(list)}:{index}: invalid zero-length file name"}]
+        inputs += [
+          {name: "", path: p"", stdin: false, issue: f"{gnu.quote_maybe(list)}:{index}: invalid zero-length file name"},
+        ]
       } else if name == "-" and from_stdin {
-        inputs += [{name: "", path: p"", stdin: false, issue: "when reading file names from standard input, no file name of '-' allowed"}]
+        inputs += [
+          {
+            name: "",
+            path: p"",
+            stdin: false,
+            issue: "when reading file names from standard input, no file name of '-' allowed",
+          },
+        ]
       } else {
         inputs += [{name: name, path: fp"{name}", stdin: name == "-", issue: ""}]
       }
@@ -478,7 +501,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     total = add_counts(total, counts)
 
     if mode != "only" {
-      let title = if input.stdin and implicit { "" } else if input.name.find("\n") != null { gnu.quote_bytes(bytes.from_text(input.name), always: false) } else { input.name }
+      let title = if input.stdin and implicit {
+        ""
+      } else if input.name.find("\n") != null {
+        gnu.quote_bytes(bytes.from_text(input.name), always: false)
+      } else {
+        input.name
+      }
       out += line_for(counts, shown, width, title)
     }
 

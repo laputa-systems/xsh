@@ -34,7 +34,11 @@ pure is_space(value: Int) -> Bool {
 # The whitespace separated tokens of the input, as bytes.
 pure tokenize(data: Bytes) -> List[Bytes] {
   if let Ok(text) = data.utf8() {
-    return [bytes.from_text(word) for word in text.replace("\t", with: " ").replace("\n", with: " ").split(" ") if word != ""]
+    return [
+      bytes.from_text(word)
+      for word in text.replace("\t", with: " ").replace("\n", with: " ").split(" ")
+      if word != ""
+    ]
   }
 
   var start = -1
@@ -197,7 +201,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let total = labels.len()
 
   # Successors in GNU's order: the most recently added edge first.
-  var top: List[List[Int]] = [[succ[node][succ[node].len() - 1 - index] for index in range(succ[node].len())] for node in range(total)]
+  var top: List[List[Int]] = [
+    [succ[node][succ[node].len() - 1 - index] for index in range(succ[node].len())]
+    for node in range(total)
+  ]
   var count = preds
   var done: List[Bool] = [false for _ in range(total)]
   var link: List[Int] = [-1 for _ in range(total)]

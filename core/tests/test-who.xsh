@@ -17,22 +17,33 @@ proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
 }
 
 # One 384-byte glibc `struct utmp` record in native byte order.
-proc utmp_record(kind: Int, pid: Int, line: Str, id: Str, account: Str, host: Str, termination = 0, code = 0) [error] -> Result[Bytes, Error] {
-  bytes.concat([
-    bytes.pack_le(kind, 2)?,
-    bytes.zero(2)?,
-    bytes.pack_le(pid, 4)?,
-    padded(line, 32)?,
-    padded(id, 4)?,
-    padded(account, 32)?,
-    padded(host, 256)?,
-    bytes.pack_le(termination, 2)?,
-    bytes.pack_le(code, 2)?,
-    bytes.zero(4)?,
-    bytes.pack_le(STAMP, 4)?,
-    bytes.zero(4)?,
-    bytes.zero(36)?,
-  ])
+proc utmp_record(
+  kind: Int,
+  pid: Int,
+  line: Str,
+  id: Str,
+  account: Str,
+  host: Str,
+  termination = 0,
+  code = 0,
+) [error] -> Result[Bytes, Error] {
+  bytes.concat(
+    [
+      bytes.pack_le(kind, 2)?,
+      bytes.zero(2)?,
+      bytes.pack_le(pid, 4)?,
+      padded(line, 32)?,
+      padded(id, 4)?,
+      padded(account, 32)?,
+      padded(host, 256)?,
+      bytes.pack_le(termination, 2)?,
+      bytes.pack_le(code, 2)?,
+      bytes.zero(4)?,
+      bytes.pack_le(STAMP, 4)?,
+      bytes.zero(4)?,
+      bytes.zero(36)?,
+    ],
+  )
 }
 
 proc run_level(previous: Int, current: Int) [error] -> Result[Bytes] {
@@ -42,19 +53,28 @@ proc run_level(previous: Int, current: Int) [error] -> Result[Bytes] {
 proc fixture(ctx: TestContext) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "who-utmp")?
   let file = fp"{root}/utmp"
-  file.write(bytes.concat([
-    utmp_record(BOOT, 0, "~", "~~", "reboot", "")?,
-    run_level(78, 53)?,
-    utmp_record(NEW_TIME, 0, "{", "", "date", "")?,
-    utmp_record(INIT_PROCESS, 1234, "tty9", "si", "", "")?,
-    utmp_record(LOGIN_PROCESS, 2345, "tty1", "1", "LOGIN", "")?,
-    utmp_record(USER_PROCESS, 3456, "ttyNotThere", "ts/9", "alice", "example.org")?,
-    utmp_record(DEAD_PROCESS, 4567, "pts/98", "ts/8", "", "", termination: 1, code: 2)?,
-  ]))
+  file.write(
+    bytes.concat(
+      [
+        utmp_record(BOOT, 0, "~", "~~", "reboot", "")?,
+        run_level(78, 53)?,
+        utmp_record(NEW_TIME, 0, "{", "", "date", "")?,
+        utmp_record(INIT_PROCESS, 1234, "tty9", "si", "", "")?,
+        utmp_record(LOGIN_PROCESS, 2345, "tty1", "1", "LOGIN", "")?,
+        utmp_record(USER_PROCESS, 3456, "ttyNotThere", "ts/9", "alice", "example.org")?,
+        utmp_record(DEAD_PROCESS, 4567, "pts/98", "ts/8", "", "", termination: 1, code: 2)?,
+      ],
+    ),
+  )
   Ok(file)
 }
 
-proc who_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C", TZ: "UTC"}, sink: Path? = null) [fs, process, error] -> Result[Ran] {
+proc who_run(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C", TZ: "UTC"},
+  sink: Path? = null,
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "who")?
   let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -65,7 +85,11 @@ proc who_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C", TZ:
   Ok({status: status.exit_code()?, stdout: if sink == null { out.read_text()? } else { "" }, stderr: err.read_text()?})
 }
 
-proc who_file(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C", TZ: "UTC"}) [fs, process, error] -> Result[Ran] {
+proc who_file(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C", TZ: "UTC"},
+) [fs, process, error] -> Result[Ran] {
   who_run(ctx, args.extend([fixture(ctx)?.display()]), vars)
 }
 
@@ -127,12 +151,47 @@ test test_who_count_lists_names_and_a_total { |ctx|
 
 test test_who_headings_follow_the_selected_columns { |ctx|
   let cases = [
-    {args: ["-H"], out: "NAME     LINE         TIME         COMMENT\nalice    ttyNotThere  Nov 14 22:13 (example.org)\n"},
-    {args: ["-H", "-T"], out: "NAME       LINE         TIME         COMMENT\nalice    ? ttyNotThere  Nov 14 22:13 (example.org)\n"},
-    {args: ["-H", "-u"], out: "NAME     LINE         TIME         IDLE          PID COMMENT\nalice    ttyNotThere  Nov 14 22:13   ?          3456 (example.org)\n"},
-    {args: ["-H", "-p"], out: "NAME     LINE         TIME                PID COMMENT\n         tty9         Nov 14 22:13       1234 id=si\n"},
-    {args: ["-H", "-d"], out: "NAME     LINE         TIME         IDLE          PID COMMENT  EXIT\n         pts/98       Nov 14 22:13              4567 id=ts/8  term=1 exit=2\n"},
-    {args: ["-q", "-H"], out: "alice\n# users=1\n"},
+    {
+      args: [
+        "-H",
+      ],
+      out: "NAME     LINE         TIME         COMMENT\nalice    ttyNotThere  Nov 14 22:13 (example.org)\n",
+    },
+    {
+      args: [
+        "-H",
+        "-T",
+      ],
+      out: "NAME       LINE         TIME         COMMENT\nalice    ? ttyNotThere  Nov 14 22:13 (example.org)\n",
+    },
+    {
+      args: [
+        "-H",
+        "-u",
+      ],
+      out: "NAME     LINE         TIME         IDLE          PID COMMENT\nalice    ttyNotThere  Nov 14 22:13   ?          3456 (example.org)\n",
+    },
+    {
+      args: [
+        "-H",
+        "-p",
+      ],
+      out: "NAME     LINE         TIME                PID COMMENT\n         tty9         Nov 14 22:13       1234 id=si\n",
+    },
+    {
+      args: [
+        "-H",
+        "-d",
+      ],
+      out: "NAME     LINE         TIME         IDLE          PID COMMENT  EXIT\n         pts/98       Nov 14 22:13              4567 id=ts/8  term=1 exit=2\n",
+    },
+    {
+      args: [
+        "-q",
+        "-H",
+      ],
+      out: "alice\n# users=1\n",
+    },
   ]
 
   for case in cases {
@@ -162,10 +221,14 @@ test test_who_formats_time_from_the_locale_and_tz { |ctx|
 test test_who_host_display_is_kept_after_the_host { |ctx|
   let root = test.temp_dir(ctx, name: "who-display")?
   let file = fp"{root}/utmp"
-  file.write(bytes.concat([
-    utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "box:0")?,
-    utmp_record(USER_PROCESS, 2, "tty2", "2", "eve", ":1")?,
-  ]))
+  file.write(
+    bytes.concat(
+      [
+        utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "box:0")?,
+        utmp_record(USER_PROCESS, 2, "tty2", "2", "eve", ":1")?,
+      ],
+    ),
+  )
   assert who_run(ctx, [file.display()])?.stdout == "bob      tty1         Nov 14 22:13 (box:0)\neve      tty2         Nov 14 22:13 (:1)\n"
 }
 
@@ -186,8 +249,8 @@ test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
 test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let root = test.temp_dir(ctx, name: "who-tty")?
-  let writable = p"/tmp/xsh-who-writable"
-  let closed = p"/tmp/xsh-who-closed"
+  let writable = /tmp/xsh-who-writable
+  let closed = /tmp/xsh-who-closed
   defer writable.remove()
   defer closed.remove()
   writable.write("")
@@ -199,10 +262,14 @@ test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   fs.set_times(closed, atime_ns: now_ns - 200000 * 1000000000)
 
   let file = fp"{root}/utmp"
-  file.write(bytes.concat([
-    utmp_record(USER_PROCESS, 1, writable.display(), "1", "bob", "")?,
-    utmp_record(USER_PROCESS, 2, closed.display(), "2", "eve", "")?,
-  ]))
+  file.write(
+    bytes.concat(
+      [
+        utmp_record(USER_PROCESS, 1, writable.display(), "1", "bob", "")?,
+        utmp_record(USER_PROCESS, 2, closed.display(), "2", "eve", "")?,
+      ],
+    ),
+  )
 
   let result = who_run(ctx, ["-T", "-u", file.display()])?
   let lines = result.stdout.lines()
@@ -269,7 +336,7 @@ test test_who_reports_a_full_device { |ctx|
   }
 
   for flags in [[], ["-q"], ["--heading"]] {
-    let result = who_run(ctx, flags.extend([fixture(ctx)?.display()]), sink: p"/dev/full")?
+    let result = who_run(ctx, flags.extend([fixture(ctx)?.display()]), sink: /dev/full)?
     assert result.status == 1
     assert result.stderr == "who: write error: No space left on device\n", result.stderr
   }

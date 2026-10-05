@@ -4,7 +4,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str, raw: Bytes}
 # output, so it prints without paging; the paging path needs a terminal on
 # both and is covered by the uutils pty tests (a script cannot read a pty's
 # master side).
-proc more_run(ctx: TestContext, args: List[Str], input = b"", files: List[List[Str]] = []) [fs, process, error] -> Result[Ran] {
+proc more_run(
+  ctx: TestContext,
+  args: List[Str],
+  input = b"",
+  files: List[List[Str]] = [],
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "more")?
 
   for pair in files {
@@ -56,7 +61,7 @@ test test_more_plain_strips_underline_and_bold_overstrikes { |ctx|
   let marked = b"_\x08h_\x08i x\x08x\x08xy\n"
   assert more_run(ctx, ["-u"], marked)?.stdout == "hi xy\n"
   assert more_run(ctx, ["--plain"], marked)?.stdout == "hi xy\n"
-  assert more_run(ctx, [], marked)?.stdout == "_\x08h_\x08i x\x08x\x08xy\n", "without -u the overstrikes are kept"
+  assert more_run(ctx, [], marked)?.stdout == "_\u{8}h_\u{8}i x\u{8}x\u{8}xy\n", "without -u the overstrikes are kept"
 }
 
 test test_more_keeps_non_utf8_bytes { |ctx|
@@ -99,7 +104,20 @@ test test_more_rejects_bad_numbers_before_reading_anything { |ctx|
 }
 
 test test_more_accepts_every_documented_switch { |ctx|
-  for flag in ["-c", "--clean-print", "-p", "--print-over", "-d", "--silent", "-f", "--logical", "-l", "--no-pause", "-e", "--exit-on-eof"] {
+  for flag in [
+    "-c",
+    "--clean-print",
+    "-p",
+    "--print-over",
+    "-d",
+    "--silent",
+    "-f",
+    "--logical",
+    "-l",
+    "--no-pause",
+    "-e",
+    "--exit-on-eof",
+  ] {
     let result = more_run(ctx, [flag], b"data\n")?
     assert result.status == 0, flag
     assert result.stdout == "data\n", flag

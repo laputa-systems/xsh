@@ -339,11 +339,23 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
   return 1 when lead < 128
   return 2 when lead >= 194 and lead <= 223 and continuation(data, at + 1)
   return 3 when lead == 224 and within(data, at + 1, 160, 191) and continuation(data, at + 2)
-  return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(data, at + 2)
+  return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(
+    data,
+    at + 2,
+  )
   return 3 when lead == 237 and within(data, at + 1, 128, 159) and continuation(data, at + 2)
-  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(data, at + 3)
-  return 4 when lead >= 241 and lead <= 243 and continuation(data, at + 1) and continuation(data, at + 2) and continuation(data, at + 3)
-  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(data, at + 3)
+  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
+  return 4 when lead >= 241 and lead <= 243 and continuation(data, at + 1) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
+  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
 
   0
 }
@@ -375,7 +387,11 @@ pure decode_units(data: Bytes, utf8: Bool) -> Units {
       units += [(lead - 224) * 4096 + ((data.byte_at(at + 1) ?? 128) - 128) * 64 + (data.byte_at(at + 2) ?? 128) - 128]
       at += 3
     } else {
-      units += [(lead - 240) * 262144 + ((data.byte_at(at + 1) ?? 128) - 128) * 4096 + ((data.byte_at(at + 2) ?? 128) - 128) * 64 + (data.byte_at(at + 3) ?? 128) - 128]
+      units += [
+        (lead - 240) * 262144 + ((data.byte_at(at + 1) ?? 128) - 128) * 4096 + ((data.byte_at(at + 2) ?? 128) - 128) * 64 + (data.byte_at(
+          at + 3,
+        ) ?? 128) - 128,
+      ]
       at += 4
     }
   }
@@ -715,7 +731,14 @@ pure in_set(class: CharSet, unit: Int) -> Bool {
 
 # The longest match of the program at the start of `units`, trying paths in
 # priority order so the first path to reach the longest end wins.
-pure run_program(code: List[Instr], sets: List[CharSet], units: List[Int], refs: Bool, caps_size: Int, utf8: Bool) -> Matched {
+pure run_program(
+  code: List[Instr],
+  sets: List[CharSet],
+  units: List[Int],
+  refs: Bool,
+  caps_size: Int,
+  utf8: Bool,
+) -> Matched {
   let total = units.len()
   let ops = [item.op for item in code]
   let first = [item.a for item in code]
@@ -823,7 +846,23 @@ type Locale = {utf8: Bool, collate_c: Bool}
 # cannot fail, and so a syntax error anywhere outranks every evaluation error.
 type Outcome = {value: Bytes, error: Str}
 
-const PRECEDENCE: Map[Int] = {"|": 1, "&": 2, "<": 3, "<=": 3, "=": 3, "==": 3, "!=": 3, ">=": 3, ">": 3, "+": 4, "-": 4, "*": 5, "/": 5, "%": 5, ":": 6}
+const PRECEDENCE: Map[Int] = {
+  "|": 1,
+  "&": 2,
+  "<": 3,
+  "<=": 3,
+  "=": 3,
+  "==": 3,
+  "!=": 3,
+  ">=": 3,
+  ">": 3,
+  "+": 4,
+  "-": 4,
+  "*": 5,
+  "/": 5,
+  "%": 5,
+  ":": 6,
+}
 const ARITY: Map[Int] = {length: 1, match: 2, index: 2, substr: 3}
 
 proc locale_variable(category: Str) [env] -> Str {
@@ -847,7 +886,7 @@ proc locale() [env] -> Locale {
 }
 
 pure text_of(value: Bytes) -> Str {
-  value.utf8() ?? "\u{fffd}"
+  value.utf8() ?? "�"
 }
 
 pure value_of(text: Str) -> Bytes {
@@ -884,7 +923,9 @@ pure arithmetic(op: Str, left: Bytes, right: Bytes) -> Outcome {
   } else if op == "-" {
     return ok(whole_text(whole_add(a, whole_negate(b))))
   } else if op == "*" {
-    return ok(whole_text({neg: a.neg != b.neg and ! a.mag.is_empty() and ! b.mag.is_empty(), mag: big_mul(a.mag, b.mag)}))
+    return ok(
+      whole_text({neg: a.neg != b.neg and ! a.mag.is_empty() and ! b.mag.is_empty(), mag: big_mul(a.mag, b.mag)}),
+    )
   }
 
   return failed("division by zero") when b.mag.is_empty()
@@ -909,7 +950,7 @@ pure string_order(left: Bytes, right: Bytes, plain: Bool) -> Int {
     if let [Ok(a), Ok(b)] = [left.utf8(), right.utf8()] {
       let ka = alphanumeric_key(a)
       let kb = alphanumeric_key(b)
-    
+
       return -1 when ka < kb
       return 1 when ka > kb
     }
@@ -1110,7 +1151,7 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
 
           if name == "length" and vals[vtop - 1].error == "" and ! here.utf8 {
             result = {value: bytes.from_text(f"{vals[vtop - 1].value.len()}"), error: ""}
-          } else if name == "length" and vals[vtop - 1].error == "" and (vals[vtop - 1].value.utf8() ?? "\u{fffd}") != "\u{fffd}" {
+          } else if name == "length" and vals[vtop - 1].error == "" and (vals[vtop - 1].value.utf8() ?? "�") != "�" {
             result = {value: bytes.from_text(f"{(vals[vtop - 1].value.utf8() ?? "").count_chars()}"), error: ""}
           } else {
             result = apply_function(name, vals[vtop - have..vtop], here)
@@ -1224,7 +1265,9 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
       let left_text = left.value.utf8() ?? "?"
       let right_text = right.value.utf8() ?? "?"
 
-      if left.error == "" and right.error == "" and (op == "+" or op == "-" or op == "*" or op == "/" or op == "%") and left_text.byte_len() <= 17 and right_text.byte_len() <= 17 and rx"^-?[0-9]+$".matches(left_text) and rx"^-?[0-9]+$".matches(right_text) and (op != "*" or (left_text.byte_len() <= 9 and right_text.byte_len() <= 9)) {
+      if left.error == "" and right.error == "" and (op == "+" or op == "-" or op == "*" or op == "/" or op == "%") and left_text.byte_len() <= 17 and right_text.byte_len() <= 17 and rx"^-?[0-9]+$".matches(
+        left_text,
+      ) and rx"^-?[0-9]+$".matches(right_text) and (op != "*" or (left_text.byte_len() <= 9 and right_text.byte_len() <= 9)) {
         let a = left_text.parse_int() ?? 0
         let b = right_text.parse_int() ?? 0
 

@@ -13,19 +13,21 @@ proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
 
 # One 384-byte glibc `struct utmp` record in native byte order.
 proc utmp_record(kind: Int, line: Str, account: Str, host: Str) [error] -> Result[Bytes, Error] {
-  bytes.concat([
-    bytes.pack_le(kind, 2)?,
-    bytes.zero(2)?,
-    bytes.zero(4)?,
-    padded(line, 32)?,
-    padded("", 4)?,
-    padded(account, 32)?,
-    padded(host, 256)?,
-    bytes.zero(8)?,
-    bytes.pack_le(STAMP, 4)?,
-    bytes.zero(4)?,
-    bytes.zero(36)?,
-  ])
+  bytes.concat(
+    [
+      bytes.pack_le(kind, 2)?,
+      bytes.zero(2)?,
+      bytes.zero(4)?,
+      padded(line, 32)?,
+      padded("", 4)?,
+      padded(account, 32)?,
+      padded(host, 256)?,
+      bytes.zero(8)?,
+      bytes.pack_le(STAMP, 4)?,
+      bytes.zero(4)?,
+      bytes.zero(36)?,
+    ],
+  )
 }
 
 # A passwd file and utmp file the applet reads through XSH_PASSWD_FILE and
@@ -47,7 +49,13 @@ blank:x:1003:1003::/home/blank:/bin/sh
   Ok({passwd: passwd, utmp: utmp, home: home})
 }
 
-proc pinky_run(ctx: TestContext, args: List[Str], w: World, sink: Path? = null, locale = "C") [fs, process, error] -> Result[Ran] {
+proc pinky_run(
+  ctx: TestContext,
+  args: List[Str],
+  w: World,
+  sink: Path? = null,
+  locale = "C",
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "pinky-run")?
   let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -60,12 +68,15 @@ proc pinky_run(ctx: TestContext, args: List[Str], w: World, sink: Path? = null, 
 }
 
 proc sessions(ctx: TestContext) [fs, error] -> Result[World] {
-  world(ctx, [
-    utmp_record(USER_PROCESS, "ttyNotThere", "alice", "example.org:0")?,
-    utmp_record(DEAD_PROCESS, "pts/9", "bob", "")?,
-    utmp_record(USER_PROCESS, "pts/8", "bob", "::1")?,
-    utmp_record(USER_PROCESS, "pts/7", "stranger", "")?,
-  ])
+  world(
+    ctx,
+    [
+      utmp_record(USER_PROCESS, "ttyNotThere", "alice", "example.org:0")?,
+      utmp_record(DEAD_PROCESS, "pts/9", "bob", "")?,
+      utmp_record(USER_PROCESS, "pts/8", "bob", "::1")?,
+      utmp_record(USER_PROCESS, "pts/7", "stranger", "")?,
+    ],
+  )
 }
 
 const HEADING = "Login    Name                 TTY      Idle   When         Where\n"
@@ -102,9 +113,9 @@ test test_pinky_names_select_sessions { |ctx|
 test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
   let root = test.temp_dir(ctx, name: "pinky-tty")?
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
-  let open_line = p"/tmp/xsh-pinky-open"
-  let shut_line = p"/tmp/xsh-pinky-shut"
-  let old_line = p"/tmp/xsh-pinky-old"
+  let open_line = /tmp/xsh-pinky-open
+  let shut_line = /tmp/xsh-pinky-shut
+  let old_line = /tmp/xsh-pinky-old
   for line in [open_line, shut_line, old_line] {
     line.write("")
   }
@@ -120,11 +131,14 @@ test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
   fs.set_times(shut_line, atime_ns: now_ns - 3000 * 1000000000)
   fs.set_times(old_line, atime_ns: now_ns - 200000 * 1000000000)
 
-  let w = world(ctx, [
-    utmp_record(USER_PROCESS, open_line.display(), "alice", "")?,
-    utmp_record(USER_PROCESS, shut_line.display(), "bob", "")?,
-    utmp_record(USER_PROCESS, old_line.display(), "blank", "")?,
-  ])?
+  let w = world(
+    ctx,
+    [
+      utmp_record(USER_PROCESS, open_line.display(), "alice", "")?,
+      utmp_record(USER_PROCESS, shut_line.display(), "bob", "")?,
+      utmp_record(USER_PROCESS, old_line.display(), "blank", "")?,
+    ],
+  )?
   let lines = pinky_run(ctx, ["-f", "-w"], w)?.stdout.lines()
   assert lines.len() == 3
   assert lines[0] == "alice     /tmp/xsh-pinky-open        Nov 14 22:13", lines[0]
@@ -248,7 +262,7 @@ test test_pinky_reports_a_full_device { |ctx|
   }
 
   let w = sessions(ctx)?
-  let result = pinky_run(ctx, [], w, sink: p"/dev/full")?
+  let result = pinky_run(ctx, [], w, sink: /dev/full)?
   assert result.status == 1
   assert result.stderr == "pinky: write error: No space left on device\n", result.stderr
 }

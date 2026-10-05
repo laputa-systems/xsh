@@ -296,7 +296,11 @@ pure parse_hex(body: Str, neg: Bool) -> Num {
   return bad("float") when parts.is_empty() or (parts[1] == "" and parts[2] == "")
 
   let exponent = parts[3]
-  let power = if exponent == "" { 0 } else { exponent_value(exponent) ?? (if exponent.starts_with("-") { -99999999 } else { 99999999 }) }
+  let power = if exponent == "" {
+    0
+  } else {
+    exponent_value(exponent) ?? (if exponent.starts_with("-") { -99999999 } else { 99999999 })
+  }
 
   return bad("float") when power > EXP_LIMIT
 
@@ -368,7 +372,11 @@ pure fixed_text(digits: Str, scale: Int, places: Int) -> Str {
 
   return coefficient when places == 0
 
-  let padded = if coefficient.byte_len() < places + 1 { zeros(places + 1 - coefficient.byte_len()) + coefficient } else { coefficient }
+  let padded = if coefficient.byte_len() < places + 1 {
+    zeros(places + 1 - coefficient.byte_len()) + coefficient
+  } else {
+    coefficient
+  }
   let cut = padded.byte_len() - places
 
   f"{padded.byte_slice(0, length: cut)}.{padded.byte_slice(cut)}"
@@ -485,7 +493,18 @@ type Parsed = {message: Str, spec: Spec}
 
 # `shown` is the quoted format for messages.
 pure parse_format(format: Str, shown: Str) -> Parsed {
-  let empty = {prefix: "", suffix: "", left: false, plus: false, space: false, alt: false, zero: false, width: 0, precision: -1, conv: "g"}
+  let empty = {
+    prefix: "",
+    suffix: "",
+    left: false,
+    plus: false,
+    space: false,
+    alt: false,
+    zero: false,
+    width: 0,
+    precision: -1,
+    conv: "g",
+  }
   var prefix = ""
   var at = 0
 
@@ -514,7 +533,9 @@ pure parse_format(format: Str, shown: Str) -> Parsed {
 
   return {message: f"invalid width: '{parts[2]}'", spec: empty} when parts[2].byte_len() > 8 or (parts[2].parse_int() ?? 0) > SIZE_LIMIT
   return {message: f"invalid precision: '{parts[4]}'", spec: empty} when parts[4].byte_len() > 8 or (parts[4].parse_int() ?? 0) > SIZE_LIMIT
-  return {message: f"format {shown} has unknown %{conv} directive", spec: empty} when conv == "" or ! ("aAeEfFgG".find(conv) != null)
+  return {message: f"format {shown} has unknown %{conv} directive", spec: empty} when conv == "" or ! ("aAeEfFgG".find(
+    conv,
+  ) != null)
   return {message: f"format {shown}: the %{conv} conversion is not supported", spec: empty} when conv == "a" or conv == "A"
 
   var suffix = ""
@@ -533,7 +554,10 @@ pure parse_format(format: Str, shown: Str) -> Parsed {
 
     suffix += tail.byte_slice(cursor, length: found - cursor)
 
-    return {message: f"format {shown} has too many % directives", spec: empty} when tail.byte_slice(found + 1, length: 1) != "%"
+    return {message: f"format {shown} has too many % directives", spec: empty} when tail.byte_slice(
+      found + 1,
+      length: 1,
+    ) != "%"
 
     suffix += "%"
     cursor = found + 2
@@ -570,7 +594,9 @@ pure protect_numbers(argv: List[Str]) -> List[Str] {
 
     if item.starts_with("--") {
       let name = item.byte_slice(2)
-      takes = name.find("=") == null and name != "" and ("format".starts_with(name) or "separator".starts_with(name) or "terminator".starts_with(name))
+      takes = name.find("=") == null and name != "" and ("format".starts_with(name) or "separator".starts_with(name) or "terminator".starts_with(
+        name,
+      ))
     } else {
       for index in range(1, item.byte_len()) {
         let letter = item.byte_slice(index, length: 1)
@@ -596,21 +622,34 @@ proc number_argument(text: Str) [process, env] -> Num {
   let value = parse_number(text)
 
   if value.kind == "bad" {
-    gnu.usage_error(f"invalid {if value.why == "nan" { "'not-a-number'" } else { "floating point" }} argument: {gnu.quote(text)}")
+    gnu.usage_error(
+      f"invalid {if value.why == "nan" { "'not-a-number'" } else { "floating point" }} argument: {gnu.quote(text)}",
+    )
   }
 
   value
 }
 
 pure value_of(number: Num, scale: Int) -> Signed {
-  {neg: number.neg, digits: if number.scale < scale { number.digits + zeros(scale - number.scale) } else { number.digits }}
+  {
+    neg: number.neg,
+    digits: if number.scale < scale { number.digits + zeros(scale - number.scale) } else { number.digits },
+  }
 }
 
 # A line for the default fixed-point format at a scale equal to the precision.
 pure plain_line(value: Signed, places: Int, width: Int) -> Str {
   let sign = if value.neg { "-" } else { "" }
-  let padded = if places > 0 and value.digits.byte_len() < places + 1 { zeros(places + 1 - value.digits.byte_len()) + value.digits } else { value.digits }
-  let body = if places == 0 { padded } else { f"{padded.byte_slice(0, length: padded.byte_len() - places)}.{padded.byte_slice(padded.byte_len() - places)}" }
+  let padded = if places > 0 and value.digits.byte_len() < places + 1 {
+    zeros(places + 1 - value.digits.byte_len()) + value.digits
+  } else {
+    value.digits
+  }
+  let body = if places == 0 {
+    padded
+  } else {
+    f"{padded.byte_slice(0, length: padded.byte_len() - places)}.{padded.byte_slice(padded.byte_len() - places)}"
+  }
   let size = sign.byte_len() + body.byte_len()
 
   return f"{sign}{body}" when size >= width
@@ -666,7 +705,18 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let last = number_argument(words[-1])
-  var spec = {prefix: "", suffix: "", left: false, plus: false, space: false, alt: false, zero: true, width: 0, precision: -1, conv: "g"}
+  var spec = {
+    prefix: "",
+    suffix: "",
+    left: false,
+    plus: false,
+    space: false,
+    alt: false,
+    zero: true,
+    width: 0,
+    precision: -1,
+    conv: "g",
+  }
   var places = -1
 
   if let format = opts.format {

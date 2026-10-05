@@ -198,7 +198,7 @@ proc read_accounts() [fs, env, error] -> List[auth.PasswdEntry] {
 proc utmp_path() [env] -> Path {
   let named = env_text("XSH_UTMP_FILE") ?? ""
 
-  if named == "" { p"/var/run/utmp" } else { fp"{named}" }
+  if named == "" { /var/run/utmp } else { fp"{named}" }
 }
 
 # User sessions only. A missing or unreadable file lists nobody, as glibc does,
@@ -242,7 +242,13 @@ pure heading(columns: Columns) -> Str {
   text
 }
 
-proc entry_line(columns: Columns, accounts: List[auth.PasswdEntry], entry: UnixUtmp, tz: Tz, now: Int) [fs, error, process, env] -> Str {
+proc entry_line(
+  columns: Columns,
+  accounts: List[auth.PasswdEntry],
+  entry: UnixUtmp,
+  tz: Tz,
+  now: Int,
+) [fs, process, env, error] -> Str {
   let device = if entry.line.starts_with("/") { fp"{entry.line}" } else { fp"/dev/{entry.line}" }
   var mesg = "?"
   var last = 0
@@ -293,8 +299,14 @@ proc entry_line(columns: Columns, accounts: List[auth.PasswdEntry], entry: UnixU
   text
 }
 
-proc short_format(opts: PinkyOptions) [fs, process, env, error, io, time] {
-  let columns: Columns = Columns(name: ! (opts.omit_name or opts.omit_name_host or opts.omit_name_host_idle), idle: ! opts.omit_name_host_idle, where: ! (opts.omit_name_host or opts.omit_name_host_idle), hard_time: hard_time_locale(), lookup: opts.lookup)
+proc short_format(opts: PinkyOptions) [fs, process, env, time, error, io] {
+  let columns: Columns = Columns(
+    name: ! (opts.omit_name or opts.omit_name_host or opts.omit_name_host_idle),
+    idle: ! opts.omit_name_host_idle,
+    where: ! (opts.omit_name_host or opts.omit_name_host_idle),
+    hard_time: hard_time_locale(),
+    lookup: opts.lookup,
+  )
 
   if ! opts.omit_heading {
     gnu.write_text(f"{heading(columns)}\n")
@@ -346,7 +358,7 @@ proc long_entry(opts: PinkyOptions, accounts: List[auth.PasswdEntry], login: Str
   gnu.write_text("\n")
 }
 
-proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
+proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   let opts: PinkyOptions = cli.applet(
     argv,
     {

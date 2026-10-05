@@ -287,7 +287,6 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   {quotient: trim_limbs(quotient), remainder: rest}
 }
 
-
 type Whole = {neg: Bool, mag: List[Int]}
 
 # `-?digits`, normalized so that zero is never negative.
@@ -304,7 +303,13 @@ pure whole_text(value: Whole) -> Str {
 
 # Whether digits (and a sign) fit a signed 128-bit integer.
 pure fits_i128(value: Whole) -> Bool {
-  let limit = big_from(if value.neg { "170141183460469231731687303715884105728" } else { "170141183460469231731687303715884105727" })
+  let limit = big_from(
+    if value.neg {
+      "170141183460469231731687303715884105728"
+    } else {
+      "170141183460469231731687303715884105727"
+    },
+  )
 
   big_cmp(value.mag, limit) <= 0
 }
@@ -484,7 +489,9 @@ proc locale_separators() [env] -> Separators {
   let language = name.lower()
 
   return {decimal: ",", grouping: "\u{202f}"} when language.starts_with("fr")
-  return {decimal: ",", grouping: "."} when language.starts_with("de") or language.starts_with("es") or language.starts_with("it") or language.starts_with("nl") or language.starts_with("pt")
+  return {decimal: ",", grouping: "."} when language.starts_with("de") or language.starts_with("es") or language.starts_with(
+    "it",
+  ) or language.starts_with("nl") or language.starts_with("pt")
   return {decimal: ".", grouping: ","} when language.starts_with("en")
 
   {decimal: ".", grouping: ""}
@@ -637,7 +644,9 @@ proc detailed_error(s: Str, unit: Str, separator: Str, decimal: Str) [env] -> St
     let next = s[valid.byte_len()..valid.byte_len() + 1]
 
     return f"invalid suffix in input: {gnu.quote(s)}" when next == "+" or next == "-"
-    return f"rejecting suffix in input: '{valid}{s.byte_slice(valid.byte_len())}' (consider using --from)" when next != "" and suffix_index(next) >= 0
+    return f"rejecting suffix in input: '{valid}{s.byte_slice(valid.byte_len())}' (consider using --from)" when next != "" and suffix_index(
+      next,
+    ) >= 0
 
     return f"invalid suffix in input: {gnu.quote(s)}"
   }
@@ -690,7 +699,9 @@ proc parse_suffix(s: Str, unit: Str, separator: Str, explicit: Bool, decimal: St
   let last = if body == "" { "" } else { body[body.count_chars() - 1..body.count_chars()] }
   let suffix = if last == "" { -1 } else { suffix_index(last) }
 
-  return {num: none, suffix: -1, with_i: with_i, err: f"invalid number: {gnu.quote(s)}"} when suffix < 0 and (last == "" or ! is_digit(last) or with_i)
+  return {num: none, suffix: -1, with_i: with_i, err: f"invalid number: {gnu.quote(s)}"} when suffix < 0 and (last == "" or ! is_digit(
+    last,
+  ) or with_i)
 
   let number_part = if suffix >= 0 { body[..body.count_chars() - 1] } else { body }
 
@@ -734,7 +745,10 @@ proc remove_suffix(value: Float, suffix: Int, with_i: Bool, unit: Str) [env] -> 
   } else if ! with_i and unit == "iec-i" {
     return {value: value, err: f"missing 'i' suffix in input: '{float_display(value)}{letter}' (e.g Ki/Mi/Gi)"}
   } else if unit == "none" {
-    return {value: value, err: f"rejecting suffix in input: '{float_display(value)}{letter}{if with_i { "i" } else { "" }}' (consider using --from)"}
+    return {
+      value: value,
+      err: f"rejecting suffix in input: '{float_display(value)}{letter}{if with_i { "i" } else { "" }}' (consider using --from)",
+    }
   }
 
   {value: value, err: "This suffix is unsupported for specified unit"}
@@ -797,7 +811,11 @@ proc consider_suffix(n: Float, unit: Str, method: Str, precision: Int) -> Suffix
   return {value: n, suffix: "", err: "Number is too big and unsupported"} when index == 10 and size >= bases[10] * 1000.0
 
   let effective = if iec and precision > 3 { 3 } else { precision }
-  let scaled = if precision > 0 { round_with_precision(n / bases[index], method, effective) } else { div_round(n, bases[index], method) }
+  let scaled = if precision > 0 {
+    round_with_precision(n / bases[index], method, effective)
+  } else {
+    div_round(n, bases[index], method)
+  }
   let letters = suffix_letters()
   let tail = if unit == "iec-i" { "i" } else { "" }
 
@@ -814,7 +832,16 @@ proc consider_suffix(n: Float, unit: Str, method: Str, precision: Int) -> Suffix
 
 type Rendered = {text: Str, err: Str}
 
-proc to_unit_text(num: Num, to: Str, to_unit: Int, method: Str, precision: Int, separator: Str, specified: Bool, decimal: Str) [env] -> Rendered {
+proc to_unit_text(
+  num: Num,
+  to: Str,
+  to_unit: Int,
+  method: Str,
+  precision: Int,
+  separator: Str,
+  specified: Bool,
+  decimal: Str,
+) [env] -> Rendered {
   # A whole number that divides evenly prints exactly, whatever its size.
   if to == "none" and num.exact {
     let unit = big_from(f"{to_unit}")
@@ -830,7 +857,10 @@ proc to_unit_text(num: Num, to: Str, to_unit: Int, method: Str, precision: Int, 
       }
 
       if big_cmp(big_mul(magnitude, power), big_from("10000000000000000000")) >= 0 {
-        return {text: "", err: f"value/precision too large to be printed: '{scientific(float_text(whole_text(scaled)))}/{precision}' (consider using --to)"}
+        return {
+          text: "",
+          err: f"value/precision too large to be printed: '{scientific(float_text(whole_text(scaled)))}/{precision}' (consider using --to)",
+        }
       }
 
       let digits = whole_text(scaled)
@@ -935,7 +965,10 @@ pure parse_format(text: Str) -> FormatParse {
   }
 
   if at >= total {
-    return {format: format, err: if prefix == text { f"format {quoted} has no % directive" } else { f"format {quoted} ends in %" }}
+    return {
+      format: format,
+      err: if prefix == text { f"format {quoted} has no % directive" } else { f"format {quoted} ends in %" },
+    }
   }
 
   var grouping = false
@@ -984,7 +1017,11 @@ pure parse_format(text: Str) -> FormatParse {
   if at < total and text[at..at + 1] == "." {
     at += 1
 
-    return {format: format, err: f"invalid precision in format {quoted}"} when at < total and text[at..at + 1] in [" ", "+", "-"]
+    return {format: format, err: f"invalid precision in format {quoted}"} when at < total and text[at..at + 1] in [
+      " ",
+      "+",
+      "-",
+    ]
 
     var digits = ""
 
@@ -1024,7 +1061,17 @@ pure parse_format(text: Str) -> FormatParse {
     }
   }
 
-  {format: {grouping: grouping, padding: width, precision: precision, prefix: prefix, suffix: suffix, zero_padding: zero}, err: ""}
+  {
+    format: {
+      grouping: grouping,
+      padding: width,
+      precision: precision,
+      prefix: prefix,
+      suffix: suffix,
+      zero_padding: zero,
+    },
+    err: "",
+  }
 }
 
 # Everything the conversion needs, from the options.
@@ -1082,7 +1129,11 @@ pure last_is_alphabetic(s: Str) -> Bool {
 }
 
 proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Rendered {
-  let stripped = if settings.suffix != null and source.ends_with(settings.suffix) { source.byte_slice(0, length: source.byte_len() - settings.suffix.byte_len()) } else { source }
+  let stripped = if settings.suffix != null and source.ends_with(settings.suffix) {
+    source.byte_slice(0, length: source.byte_len() - settings.suffix.byte_len())
+  } else {
+    source
+  }
   let decimal = settings.separators.decimal
   var specified = true
   var precision = 0
@@ -1095,12 +1146,27 @@ proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Ren
     specified = false
   }
 
-  let units = {from: settings.from, from_unit: settings.from_unit, separator: settings.separator, explicit: settings.explicit_separator, decimal: decimal}
+  let units = {
+    from: settings.from,
+    from_unit: settings.from_unit,
+    separator: settings.separator,
+    explicit: settings.explicit_separator,
+    decimal: decimal,
+  }
   let parsed = transform_from(stripped, units)
 
   return {text: "", err: parsed.err} when parsed.err != ""
 
-  let rendered = to_unit_text(parsed.num, settings.to, settings.to_unit, settings.round, precision, settings.separator, specified, decimal)
+  let rendered = to_unit_text(
+    parsed.num,
+    settings.to,
+    settings.to_unit,
+    settings.round,
+    precision,
+    settings.separator,
+    specified,
+    decimal,
+  )
 
   return rendered when rendered.err != ""
 
@@ -1114,7 +1180,11 @@ proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Ren
   if padding == 0 {
     padded = with_suffix
   } else if padding > 0 and settings.format.zero_padding {
-    let scaled = if user_suffix != "" and with_suffix.ends_with(user_suffix) { with_suffix.byte_slice(0, length: with_suffix.byte_len() - user_suffix.byte_len()) } else { with_suffix }
+    let scaled = if user_suffix != "" and with_suffix.ends_with(user_suffix) {
+      with_suffix.byte_slice(0, length: with_suffix.byte_len() - user_suffix.byte_len())
+    } else {
+      with_suffix
+    }
     let tail_suffix = if user_suffix != "" and with_suffix.ends_with(user_suffix) { user_suffix } else { "" }
     let pieces = rx"(?s)^(.*[0-9])(.*)$".captures(scaled)
     let number = if pieces.is_empty() { scaled } else { pieces[1] }
@@ -1163,7 +1233,9 @@ pure split_next_field(s: Str) -> Split {
 # With an explicit blank unit separator a suffix may be a field of its own:
 # the separator and the suffix field, or null.
 pure mergeable_suffix(rest: Str, settings: Settings) -> Split? {
-  return null when ! settings.explicit_separator or settings.separator == "" or ! blank_regex("^[BL]+$").matches(settings.separator)
+  return null when ! settings.explicit_separator or settings.separator == "" or ! blank_regex("^[BL]+$").matches(
+    settings.separator,
+  )
   return null when ! rest.starts_with(settings.separator)
 
   let split = split_next_field(rest)
@@ -1417,7 +1489,9 @@ pure choose(value: Str, names: List[Str]) -> Str {
 }
 
 proc argument_error(value: Str, option: Str, names: List[Str]) [process, env] -> Unit {
-  gnu.error(f"{if choose(value, names) == "?" { "ambiguous" } else { "invalid" }} argument {gnu.quote(value)} for {gnu.quote(option)}")
+  gnu.error(
+    f"{if choose(value, names) == "?" { "ambiguous" } else { "invalid" }} argument {gnu.quote(value)} for {gnu.quote(option)}",
+  )
   eprint "Valid arguments are:"
 
   for name in names {

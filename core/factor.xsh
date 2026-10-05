@@ -227,7 +227,6 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   {quotient: trim_limbs(quotient), remainder: rest}
 }
 
-
 pure big_from_int(value: Int) -> List[Int] {
   return [] when value == 0
   return [value] when value < BASE
@@ -803,7 +802,11 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
     }
   }
 
-  {primes: primes, rest: rest, proven: rest.len() <= 1 and big_to_int(rest) < 4194304 and ! rest.is_empty() and big_to_int(rest) > 1}
+  {
+    primes: primes,
+    rest: rest,
+    proven: rest.len() <= 1 and big_to_int(rest) < 4194304 and ! rest.is_empty() and big_to_int(rest) > 1,
+  }
 }
 
 # One nontrivial factor of an odd composite with no factor below 2048, as
@@ -961,11 +964,23 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
   return 1 when lead < 128
   return 2 when lead >= 194 and lead <= 223 and continuation(data, at + 1)
   return 3 when lead == 224 and within(data, at + 1, 160, 191) and continuation(data, at + 2)
-  return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(data, at + 2)
+  return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(
+    data,
+    at + 2,
+  )
   return 3 when lead == 237 and within(data, at + 1, 128, 159) and continuation(data, at + 2)
-  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(data, at + 3)
-  return 4 when lead >= 241 and lead <= 243 and continuation(data, at + 1) and continuation(data, at + 2) and continuation(data, at + 3)
-  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(data, at + 3)
+  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
+  return 4 when lead >= 241 and lead <= 243 and continuation(data, at + 1) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
+  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(
+    data,
+    at + 3,
+  )
 
   0
 }

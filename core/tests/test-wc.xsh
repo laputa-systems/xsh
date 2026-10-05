@@ -2,7 +2,13 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 
 # Runs core/wc.xsh by its real path inside `dir`, with `input` as standard
 # input, capturing both streams to files.
-proc wc_in(ctx: TestContext, dir: Path, args: List[Str], input = b"", vars: Record = {LC_ALL: "C"}) [fs, process, error] -> Result[Ran] {
+proc wc_in(
+  ctx: TestContext,
+  dir: Path,
+  args: List[Str],
+  input = b"",
+  vars: Record = {LC_ALL: "C"},
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "wc-run")?
   let stdin = test.temp_file(ctx, name: "wc-stdin", contents: input)?
   let out = fp"{root}/stdout"
@@ -46,7 +52,7 @@ test test_wc_characters_and_invalid_bytes { |ctx|
 }
 
 test test_wc_words_follow_unicode_white_space_unless_posix { |ctx|
-  let text = bytes.from_text("word\u{00A0}word")
+  let text = bytes.from_text("word\u{a0}word")
   assert wc_text(ctx, ["-w"], text)? == "2\n"
   assert wc_text(ctx, ["-w"], bytes.from_text("foo 💐 bar\n"))? == "3\n"
   assert wc_text(ctx, ["-w"], b"\x01\n")? == "1\n", "control characters are word characters"
@@ -60,7 +66,7 @@ test test_wc_max_line_length_is_display_width { |ctx|
   assert wc_text(ctx, ["-L"], b"a\tb\n")? == "9\n", "a tab advances to the next multiple of 8"
   assert wc_text(ctx, ["-L"], b"abcdefgh\tb")? == "17\n"
   assert wc_text(ctx, ["-L"], bytes.from_text("日本語\n"))? == "6\n", "wide characters take two columns"
-  assert wc_text(ctx, ["-L"], bytes.from_text("e\u{0301}x"))? == "2\n", "combining marks take none"
+  assert wc_text(ctx, ["-L"], bytes.from_text("éx"))? == "2\n", "combining marks take none"
   assert wc_text(ctx, ["-L"], b"abc\rabcdef\x0cx")? == "6\n", "carriage returns and form feeds end a line"
 }
 

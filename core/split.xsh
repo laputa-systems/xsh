@@ -444,25 +444,103 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: SplitOptions = cli.applet(
     rewritten.argv,
     {
-      gnu: {status: 1},
-      suffix_length: {form: "-a --suffix-length N", default: ""},
-      additional: {form: "--additional-suffix SUFFIX", default: ""},
-      bytes: {form: "-b --bytes SIZE", default: ""},
-      line_bytes: {form: "-C --line-bytes SIZE", default: ""},
-      short_numeric: {form: "-d", default: false, conflicts: ["numeric", "short_hex", "hex"]},
-      numeric: {form: "--numeric-suffixes[=FROM]", default: "-", optional_default: "", conflicts: ["short_numeric", "short_hex", "hex"]},
-      short_hex: {form: "-x", default: false, conflicts: ["numeric", "short_numeric", "hex"]},
-      hex: {form: "--hex-suffixes[=FROM]", default: "-", optional_default: "", conflicts: ["numeric", "short_numeric", "short_hex"]},
-      elide: {form: "-e --elide-empty-files", default: false},
-      filter: {form: "--filter COMMAND"},
-      lines: {form: "-l --lines NUMBER", default: ""},
-      number: {form: "-n --number CHUNKS", default: ""},
-      separator: {form: "-t --separator SEP", repeated: true},
-      unbuffered: {form: "-u --unbuffered", default: false},
-      verbose: {form: "--verbose", default: false},
-      help: {form: "--help", default: false, stop: true},
-      version: {form: "--version", default: false, stop: true},
-      files: {form: "...FILE"},
+      gnu: {
+        status: 1,
+      },
+      suffix_length: {
+        form: "-a --suffix-length N",
+        default: "",
+      },
+      additional: {
+        form: "--additional-suffix SUFFIX",
+        default: "",
+      },
+      bytes: {
+        form: "-b --bytes SIZE",
+        default: "",
+      },
+      line_bytes: {
+        form: "-C --line-bytes SIZE",
+        default: "",
+      },
+      short_numeric: {
+        form: "-d",
+        default: false,
+        conflicts: [
+          "numeric",
+          "short_hex",
+          "hex",
+        ],
+      },
+      numeric: {
+        form: "--numeric-suffixes[=FROM]",
+        default: "-",
+        optional_default: "",
+        conflicts: [
+          "short_numeric",
+          "short_hex",
+          "hex",
+        ],
+      },
+      short_hex: {
+        form: "-x",
+        default: false,
+        conflicts: [
+          "numeric",
+          "short_numeric",
+          "hex",
+        ],
+      },
+      hex: {
+        form: "--hex-suffixes[=FROM]",
+        default: "-",
+        optional_default: "",
+        conflicts: [
+          "numeric",
+          "short_numeric",
+          "short_hex",
+        ],
+      },
+      elide: {
+        form: "-e --elide-empty-files",
+        default: false,
+      },
+      filter: {
+        form: "--filter COMMAND",
+      },
+      lines: {
+        form: "-l --lines NUMBER",
+        default: "",
+      },
+      number: {
+        form: "-n --number CHUNKS",
+        default: "",
+      },
+      separator: {
+        form: "-t --separator SEP",
+        repeated: true,
+      },
+      unbuffered: {
+        form: "-u --unbuffered",
+        default: false,
+      },
+      verbose: {
+        form: "--verbose",
+        default: false,
+      },
+      help: {
+        form: "--help",
+        default: false,
+        stop: true,
+      },
+      version: {
+        form: "--version",
+        default: false,
+        stop: true,
+      },
+      files: {
+        form: "...FILE",
+      },
     },
   )?
 

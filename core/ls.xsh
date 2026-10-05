@@ -230,7 +230,18 @@ const OPTS: List[Opt] = [
   {short: "", long: "version", arg: 0, id: "version"},
 ]
 
-const QUOTING_NAMES = ["literal", "shell", "shell-always", "shell-escape", "shell-escape-always", "c", "c-maybe", "escape", "locale", "clocale"]
+const QUOTING_NAMES = [
+  "literal",
+  "shell",
+  "shell-always",
+  "shell-escape",
+  "shell-escape-always",
+  "c",
+  "c-maybe",
+  "escape",
+  "locale",
+  "clocale",
+]
 const WHEN_NAMES = ["always", "yes", "force", "never", "no", "none", "auto", "tty", "if-tty"]
 const WHEN_VALUES = ["always", "always", "always", "never", "never", "never", "auto", "auto", "auto"]
 const FORMAT_NAMES = ["verbose", "long", "commas", "horizontal", "across", "vertical", "single-column"]
@@ -383,7 +394,11 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "across" => {...c, format_set: true, format: "across"}
     "commas" => {...c, format_set: true, format: "commas"}
     "long" => {...c, format_set: true, format: "long"}
-    "single" => {...c, format_set: true, format: if c.format == "long" and c.format_set { "long" } else { "single-column" }}
+    "single" => {
+      ...c,
+      format_set: true,
+      format: if c.format == "long" and c.format_set { "long" } else { "single-column" },
+    }
     "color" => {...c, color: if when_option(v, "--color", tty) { "always" } else { "never" }}
     "directory" => {...c, directory: true}
     "dired" => {...c, format_set: true, format: "long", hyperlink: "never", dired: true}
@@ -429,7 +444,14 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "tabsize" => {...c, tabsize: line_option(arg, "tab size")}
     "width" => {...c, width: line_option(arg, "line width")}
     "context" => {...c, context: true}
-    "zero" => {...c, zero: true, format: if c.format == "long" and c.format_set { "long" } else { "single-column" }, quoting: "literal", hide_control: false, color: "never"}
+    "zero" => {
+      ...c,
+      zero: true,
+      format: if c.format == "long" and c.format_set { "long" } else { "single-column" },
+      quoting: "literal",
+      hide_control: false,
+      color: "never",
+    }
     else => c
   }
 }
@@ -654,7 +676,16 @@ proc load_tz() [env] -> Tz {
   {name: "UTC", offset: 0}
 }
 
-type Civil = {year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int, weekday: Int, yearday: Int}
+type Civil = {
+  year: Int,
+  month: Int,
+  day: Int,
+  hour: Int,
+  minute: Int,
+  second: Int,
+  weekday: Int,
+  yearday: Int,
+}
 
 pure floor_div(a: Int, b: Int) -> Int {
   let q = a / b
@@ -691,7 +722,20 @@ pure civil_from_seconds(seconds: Int) -> Civil {
   }
 }
 
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+]
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 pure pad_number(value: Int, width: Int, fill: Str) -> Str {
@@ -931,7 +975,15 @@ pure decode_units(raw: Bytes, utf8: Bool) -> Units {
     var width = 1
 
     if byte >= 128 and utf8 {
-      let need = if byte >= 194 and byte <= 223 { 2 } else if byte >= 224 and byte <= 239 { 3 } else if byte >= 240 and byte <= 244 { 4 } else { 0 }
+      let need = if byte >= 194 and byte <= 223 {
+        2
+      } else if byte >= 224 and byte <= 239 {
+        3
+      } else if byte >= 240 and byte <= 244 {
+        4
+      } else {
+        0
+      }
 
       if need > 0 and at + need <= total and raw[at..at + need].utf8() is Ok(_) {
         size = need
@@ -1136,11 +1188,11 @@ pure quote_raw(raw: Bytes, qs: QuoteStyle) -> Bytes {
 
   if text != "" and SAFE_NAME.matches(text) and (qs.extra == "" or [c for c in qs.extra if text.find(c) != null].is_empty()) {
     return match style {
-      "shell-always" | "shell-escape-always" => bytes.concat([b"'", raw, b"'"])
-      "c" => bytes.concat([b"\"", raw, b"\""])
-      "locale" => bytes.from_text(f"{if qs.curly { "‘" } else { "'" }}{text}{if qs.curly { "’" } else { "'" }}")
-      "clocale" => bytes.from_text(f"{if qs.curly { "‘" } else { "\"" }}{text}{if qs.curly { "’" } else { "\"" }}")
-      else => raw
+      "shell-always" | "shell-escape-always" => bytes.concat([b"'", raw, b"'"]),
+      "c" => bytes.concat([b"\"", raw, b"\""]),
+      "locale" => bytes.from_text(f"{if qs.curly { "‘" } else { "'" }}{text}{if qs.curly { "’" } else { "'" }}"),
+      "clocale" => bytes.from_text(f"{if qs.curly { "‘" } else { "\"" }}{text}{if qs.curly { "’" } else { "\"" }}"),
+      else => raw,
     }
   }
 
@@ -1153,12 +1205,18 @@ pure quote_raw(raw: Bytes, qs: QuoteStyle) -> Bytes {
     "shell-escape-always" => shell_quote(raw, units, true, true, qs.extra)
     "escape" => bytes.from_text(backslash_quote(units, "", "", false, qs.extra, qs.space) ?? "")
     "c" => bytes.from_text(backslash_quote(units, "\"", "\"", false, qs.extra, false) ?? "")
-    "c-maybe" => match backslash_quote(units, "\"", "\"", true, qs.extra, false) {
-      null => bytes.from_text(backslash_quote(units, "\"", "\"", false, qs.extra, false) ?? "")
-      else => raw
+    "c-maybe" => {
+      match backslash_quote(units, "\"", "\"", true, qs.extra, false) {
+        null => bytes.from_text(backslash_quote(units, "\"", "\"", false, qs.extra, false) ?? "")
+        else => raw
+      }
     }
-    "locale" => bytes.from_text(backslash_quote(units, if qs.curly { "‘" } else { "'" }, if qs.curly { "’" } else { "'" }, false, qs.extra, false) ?? "")
-    "clocale" => bytes.from_text(backslash_quote(units, if qs.curly { "‘" } else { "\"" }, if qs.curly { "’" } else { "\"" }, false, qs.extra, false) ?? "")
+    "locale" => bytes.from_text(
+      backslash_quote(units, if qs.curly { "‘" } else { "'" }, if qs.curly { "’" } else { "'" }, false, qs.extra, false) ?? "",
+    )
+    "clocale" => bytes.from_text(
+      backslash_quote(units, if qs.curly { "‘" } else { "\"" }, if qs.curly { "’" } else { "\"" }, false, qs.extra, false) ?? "",
+    )
     else => raw
   }
 }
@@ -1176,7 +1234,32 @@ pure hide_controls(raw: Bytes, utf8: Bool) -> Bytes {
   bytes.concat(pieces)
 }
 
-const INDICATOR_CODES = ["lc", "rc", "ec", "rs", "no", "fi", "di", "ln", "pi", "so", "bd", "cd", "mi", "or", "ex", "do", "su", "sg", "st", "ow", "tw", "ca", "mh", "cl"]
+const INDICATOR_CODES = [
+  "lc",
+  "rc",
+  "ec",
+  "rs",
+  "no",
+  "fi",
+  "di",
+  "ln",
+  "pi",
+  "so",
+  "bd",
+  "cd",
+  "mi",
+  "or",
+  "ex",
+  "do",
+  "su",
+  "sg",
+  "st",
+  "ow",
+  "tw",
+  "ca",
+  "mh",
+  "cl",
+]
 const DEFAULT_COLORS: Map[Str] = {
   lc: "\u{1b}[",
   rc: "m",
@@ -1224,15 +1307,15 @@ pure unescape_color(value: Str) -> Str {
       at += 1
 
       match next {
-        "a" => out = f"{out}\u{7}"
-        "b" => out = f"{out}\u{8}"
-        "e" => out = f"{out}\u{1b}"
-        "f" => out = f"{out}\u{c}"
+        "a" => out = f"{out}"
+        "b" => out = f"{out}"
+        "e" => out = f"{out}"
+        "f" => out = f"{out}"
         "n" => out = f"{out}\n"
         "r" => out = f"{out}\r"
         "t" => out = f"{out}\t"
-        "v" => out = f"{out}\u{b}"
-        "?" => out = f"{out}\u{7f}"
+        "v" => out = f"{out}"
+        "?" => out = f"{out}"
         "_" => out = f"{out} "
         "x" | "X" => {
           var number = 0
@@ -1486,8 +1569,8 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
 
       if ctx.deref == "cmdline_dir" {
         let need_lstat = match result {
-          Ok(found) => found.kind != "dir"
-          Err(problem) => gnu.errno(problem) == 2
+          Ok(found) => found.kind != "dir",
+          Err(problem) => gnu.errno(problem) == 2,
         }
 
         if need_lstat {
@@ -1534,7 +1617,22 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   }
 
   let shown = quote_name(ctx, name, ctx.qs)
-  let file: File = File(raw: name, name: lossy(name), path: target, ok:, st:, kind:, arg:, q: shown.q, qw: shown.w, quoted: shown.quoted, link:, linkok:, linkmode:, linkkind:)
+  let file: File = File(
+    raw: name,
+    name: lossy(name),
+    path: target,
+    ok:,
+    st:,
+    kind:,
+    arg:,
+    q: shown.q,
+    qw: shown.w,
+    quoted: shown.quoted,
+    link:,
+    linkok:,
+    linkmode:,
+    linkkind:,
+  )
 
   {file: file, status: if failed { 1 } else { 0 }}
 }
@@ -2038,7 +2136,19 @@ pure max_of(a: Int, b: Int) -> Int {
 # Column widths for a set of files that are printed together, and the owner
 # and group names they need (looked up once per distinct id).
 proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
-  var w: Widths = {inode: 0, blocks: 0, owner: 0, group: 0, context: 0, nlink: 0, size: 0, major: 0, minor: 0, users: {}, groups: {}}
+  var w: Widths = {
+    inode: 0,
+    blocks: 0,
+    owner: 0,
+    group: 0,
+    context: 0,
+    nlink: 0,
+    size: 0,
+    major: 0,
+    minor: 0,
+    users: {},
+    groups: {},
+  }
   let long = ctx.format == "long"
   let cfg = ctx.cfg
   var users = w.users
@@ -2122,9 +2232,27 @@ pure mode_string(f: File) -> Str {
   return f"{letter}?????????" when ! f.ok
 
   let mode = f.st.mode
-  let user_x = if mode_has(mode, 2048) { if mode_has(mode, 64) { "s" } else { "S" } } else if mode_has(mode, 64) { "x" } else { "-" }
-  let group_x = if mode_has(mode, 1024) { if mode_has(mode, 8) { "s" } else { "S" } } else if mode_has(mode, 8) { "x" } else { "-" }
-  let other_x = if mode_has(mode, 512) { if mode_has(mode, 1) { "t" } else { "T" } } else if mode_has(mode, 1) { "x" } else { "-" }
+  let user_x = if mode_has(mode, 2048) {
+    if mode_has(mode, 64) { "s" } else { "S" }
+  } else if mode_has(mode, 64) {
+    "x"
+  } else {
+    "-"
+  }
+  let group_x = if mode_has(mode, 1024) {
+    if mode_has(mode, 8) { "s" } else { "S" }
+  } else if mode_has(mode, 8) {
+    "x"
+  } else {
+    "-"
+  }
+  let other_x = if mode_has(mode, 512) {
+    if mode_has(mode, 1) { "t" } else { "T" }
+  } else if mode_has(mode, 1) {
+    "x"
+  } else {
+    "-"
+  }
   let r1 = if mode_has(mode, 256) { "r" } else { "-" }
   let w1 = if mode_has(mode, 128) { "w" } else { "-" }
   let r2 = if mode_has(mode, 32) { "r" } else { "-" }
@@ -2177,7 +2305,7 @@ pure hyperlink_start(ctx: Ctx, full: Bytes) -> Bytes {
   let absolute = if full.byte_at(0) == 47 { full } else { join_raw(bytes.from_text(ctx.cwd), full) }
   let clean = raw_path(absolute).normalize().bytes()
 
-  bytes.from_text(f"\u{1b}]8;;file://{ctx.host}{url_escape(clean)}\u{1b}\\")
+  bytes.from_text(f"]8;;file://{ctx.host}{url_escape(clean)}\\")
 }
 
 const HYPERLINK_END = b"\x1b]8;;\x1b\\"
@@ -2231,12 +2359,22 @@ pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: I
     after = HYPERLINK_END
   }
 
-  {pre: before, name: shown.q, post: bytes.concat([after, bytes.from_text(post)]), used: used, w: shown.w + (if pad { 1 } else { 0 })}
+  {
+    pre: before,
+    name: shown.q,
+    post: bytes.concat([after, bytes.from_text(post)]),
+    used: used,
+    w: shown.w + (if pad { 1 } else { 0 }),
+  }
 }
 
 pure norm_text(ctx: Ctx, used: Bool) -> Str {
   if ctx.color and is_colored(ctx.colors, "no") {
-    with_first(ctx.colors, used, f"{ind_get(ctx.colors, "lc") ?? ""}{ind_get(ctx.colors, "no") ?? ""}{ind_get(ctx.colors, "rc") ?? ""}")
+    with_first(
+      ctx.colors,
+      used,
+      f"{ind_get(ctx.colors, "lc") ?? ""}{ind_get(ctx.colors, "no") ?? ""}{ind_get(ctx.colors, "rc") ?? ""}",
+    )
   } else {
     ""
   }
@@ -2278,7 +2416,18 @@ pure file_piece(ctx: Ctx, f: File, wd: Widths, pad: Bool, used0: Bool, col: Int)
   let frills = frills_text(ctx, f, wd)
   let np = name_piece(ctx, f, false, pad, used1, col + frills.byte_len())
 
-  {bytes: bytes.concat([bytes.from_text(f"{lead}{frills}"), np.pre, np.name, np.post, bytes.from_text(indicator_for(ctx, f))]), used: np.used}
+  {
+    bytes: bytes.concat(
+      [
+        bytes.from_text(f"{lead}{frills}"),
+        np.pre,
+        np.name,
+        np.post,
+        bytes.from_text(indicator_for(ctx, f)),
+      ],
+    ),
+    used: np.used,
+  }
 }
 
 # GNU indent(): spaces, or a tab where a tab stop is crossed.
@@ -2527,7 +2676,7 @@ type Dirent = {raw: Bytes, kind: Str}
 # A directory entry's raw name: the lossy text unless it holds an undecodable
 # byte, in which case the path's own bytes.
 pure entry_raw(name: Str, entry_path: Path) -> Bytes {
-  if name.find("\u{fffd}") == null { bytes.from_text(name) } else { base_raw(entry_path.bytes()) }
+  if name.find("�") == null { bytes.from_text(name) } else { base_raw(entry_path.bytes()) }
 }
 
 type Pending = {raw: Bytes, arg: Bool, marker: Bool}
@@ -2594,7 +2743,10 @@ pure file_ignored(ctx: Ctx, name: Str) -> Bool {
   let mode = ctx.cfg.ignore_mode
   let hidden = name.starts_with(".") and (mode == "default" or name == "." or name == "..")
 
-  (mode != "all" and hidden) or (mode == "default" and glob_matches(ctx.hide_globs, name)) or glob_matches(ctx.ignore_globs, name)
+  (mode != "all" and hidden) or (mode == "default" and glob_matches(ctx.hide_globs, name)) or glob_matches(
+    ctx.ignore_globs,
+    name,
+  )
 }
 
 proc take_entry(ctx: Ctx, dir: Bytes, raw: Bytes, kind: Str) [fs, process, env] -> Gobbled {
@@ -2609,7 +2761,7 @@ proc flush(out: List[Bytes]) [process, env, io] -> Unit {
   }
 }
 
-proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> Int {
+proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> Int {
   let cfg = ctx.cfg
   let indent = if cfg.dired { "  " } else { "" }
   var status = 0
@@ -2760,7 +2912,11 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
     listing = sort_files(ctx, listing)
 
     if cfg.recursive {
-      let subs = [Pending(raw: join_raw(dir.raw, f.raw), arg: false, marker: false) for f in listing if f.kind == "dir" and f.name != "." and f.name != ".."]
+      let subs = [
+        Pending(raw: join_raw(dir.raw, f.raw), arg: false, marker: false)
+        for f in listing
+        if f.kind == "dir" and f.name != "." and f.name != ".."
+      ]
       pending = subs + [Pending(raw: b"", arg: false, marker: true)] + pending
     }
 
@@ -2903,9 +3059,9 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
 
   let style = cfg.quoting ?? (if tty and gnu.prog() == "ls" { "shell-escape" } else { "literal" })
   let extra = match cfg.indicator {
-    "classify" => "*=>@|"
-    "file-type" => "=>@|"
-    else => ""
+    "classify" => "*=>@|",
+    "file-type" => "=>@|",
+    else => "",
   }
   let curly = utf8
   let qs: QuoteStyle = QuoteStyle(name: style, utf8:, curly:, extra:, space: style == "escape")
@@ -2920,7 +3076,13 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     let default_size = if env.get("POSIXLY_CORRECT") is Ok(_) { 512 } else { 1024 }
     let ls_spec = env_text("LS_BLOCK_SIZE")
     let block_env = env_text("BLOCK_SIZE")
-    let spec: Str? = if ls_spec != null { ls_spec } else if block_env != null { block_env } else { env_text("BLOCKSIZE") }
+    let spec: Str? = if ls_spec != null {
+      ls_spec
+    } else if block_env != null {
+      block_env
+    } else {
+      env_text("BLOCKSIZE")
+    }
     block_size = default_size
     human = ""
     file_human = ""
@@ -2968,7 +3130,10 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   let long = cfg.format == "long"
   let deref = cfg.deref ?? (if cfg.directory or cfg.indicator == "classify" or long { "never" } else { "cmdline_dir" })
   let sort = cfg.sort ?? (if cfg.time_given and ! long { "time" } else { "name" })
-  let check_symlink = color and (is_colored(colors, "or") or (is_colored(colors, "ex") and colors.referent) or (is_colored(colors, "mi") and long))
+  let check_symlink = color and (is_colored(colors, "or") or (is_colored(colors, "ex") and colors.referent) or (is_colored(
+    colors,
+    "mi",
+  ) and long))
   let link_stat = cfg.indicator == "classify" or cfg.indicator == "file-type" or check_symlink
   let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or color or cfg.indicator != "none" or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always"
   let hyper = cfg.hyperlink == "always"
@@ -2978,7 +3143,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
 
   if hyper {
     host = system.hostname() ?? ""
-    cwd = (fs.cwd() ?? p"/").display()
+    cwd = (fs.cwd() ?? /).display()
   }
 
   let formats = if long { time_formats(cfg) } else { ["%b %e  %Y", "%b %e %H:%M"] }
@@ -3019,7 +3184,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
+proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   let prog = gnu.prog()
   let tty = stdout_is_tty()
   var quoting: Str? = null
@@ -3044,7 +3209,51 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     quoting = "escape"
   }
 
-  let start: Cfg = Cfg(format_set: false, format: if prog == "dir" { "columns" } else if prog == "vdir" { "long" } else if tty { "columns" } else { "single-column" }, ignore_mode: "default", sort: null, reverse: false, time: "mtime", time_given: false, recursive: false, directory: false, inode: false, size: false, owner: true, group: true, author: false, numeric: false, context: false, deref: null, indicator: "none", quoting:, hide_control: prog == "ls" and tty, color: null, hyperlink: "never", dired: false, zero: false, width: null, tabsize: null, human: "", block_size: null, file_human: "", file_block_size: null, kibibytes: false, ignores: [], hides: [], dirs_first: false, time_style: null)
+  let start: Cfg = Cfg(
+    format_set: false,
+    format: if prog == "dir" {
+      "columns"
+    } else if prog == "vdir" {
+      "long"
+    } else if tty {
+      "columns"
+    } else {
+      "single-column"
+    },
+    ignore_mode: "default",
+    sort: null,
+    reverse: false,
+    time: "mtime",
+    time_given: false,
+    recursive: false,
+    directory: false,
+    inode: false,
+    size: false,
+    owner: true,
+    group: true,
+    author: false,
+    numeric: false,
+    context: false,
+    deref: null,
+    indicator: "none",
+    quoting:,
+    hide_control: prog == "ls" and tty,
+    color: null,
+    hyperlink: "never",
+    dired: false,
+    zero: false,
+    width: null,
+    tabsize: null,
+    human: "",
+    block_size: null,
+    file_human: "",
+    file_block_size: null,
+    kibibytes: false,
+    ignores: [],
+    hides: [],
+    dirs_first: false,
+    time_style: null,
+  )
 
   let parsed = parse_args(argv, start, tty)
   let ctx = build_ctx(parsed.cfg, tty)

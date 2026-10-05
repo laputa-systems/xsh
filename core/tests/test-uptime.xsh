@@ -10,19 +10,21 @@ proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
 
 # One 384-byte glibc `struct utmp` record in native byte order.
 proc utmp_record(kind: Int, line: Str, account: Str, stamp: Int) [error] -> Result[Bytes, Error] {
-  bytes.concat([
-    bytes.pack_le(kind, 2)?,
-    bytes.zero(2)?,
-    bytes.zero(4)?,
-    padded(line, 32)?,
-    padded("", 4)?,
-    padded(account, 32)?,
-    padded("", 256)?,
-    bytes.zero(8)?,
-    bytes.pack_le(stamp, 4)?,
-    bytes.zero(4)?,
-    bytes.zero(36)?,
-  ])
+  bytes.concat(
+    [
+      bytes.pack_le(kind, 2)?,
+      bytes.zero(2)?,
+      bytes.zero(4)?,
+      padded(line, 32)?,
+      padded("", 4)?,
+      padded(account, 32)?,
+      padded("", 256)?,
+      bytes.zero(8)?,
+      bytes.pack_le(stamp, 4)?,
+      bytes.zero(4)?,
+      bytes.zero(36)?,
+    ],
+  )
 }
 
 proc uptime_run(ctx: TestContext, args: List[Str], sink: Path? = null) [fs, process, error] -> Result[Ran] {
@@ -54,11 +56,14 @@ test test_uptime_line_has_time_uptime_users_and_load { |ctx|
 
 test test_uptime_with_a_boot_record_counts_days_and_users { |ctx|
   let now = time.now() / 1000
-  let file = utmp_file(ctx, [
-    utmp_record(BOOT, "~", "reboot", now - 3 * 86400 - 5 * 3600 - 7 * 60 - 30)?,
-    utmp_record(USER_PROCESS, "tty1", "alice", now)?,
-    utmp_record(USER_PROCESS, "tty2", "bob", now)?,
-  ])?
+  let file = utmp_file(
+    ctx,
+    [
+      utmp_record(BOOT, "~", "reboot", now - 3 * 86400 - 5 * 3600 - 7 * 60 - 30)?,
+      utmp_record(USER_PROCESS, "tty1", "alice", now)?,
+      utmp_record(USER_PROCESS, "tty2", "bob", now)?,
+    ],
+  )?
   let result = uptime_run(ctx, [file.display()])?
   assert result.status == 0
   assert result.stderr == ""
@@ -70,10 +75,13 @@ test test_uptime_with_a_boot_record_counts_days_and_users { |ctx|
 
 test test_uptime_singular_day_and_user { |ctx|
   let now = time.now() / 1000
-  let file = utmp_file(ctx, [
-    utmp_record(BOOT, "~", "reboot", now - 86400 - 60)?,
-    utmp_record(USER_PROCESS, "tty1", "alice", now)?,
-  ])?
+  let file = utmp_file(
+    ctx,
+    [
+      utmp_record(BOOT, "~", "reboot", now - 86400 - 60)?,
+      utmp_record(USER_PROCESS, "tty1", "alice", now)?,
+    ],
+  )?
   let result = uptime_run(ctx, [file.display()])?
   assert " up 1 day  0:01,  1 user,  load average" in result.stdout, result.stdout
 }
@@ -159,7 +167,7 @@ test test_uptime_reports_a_full_device { |ctx|
     test.skip("/dev/full is not available")
   }
 
-  let result = uptime_run(ctx, [], sink: p"/dev/full")?
+  let result = uptime_run(ctx, [], sink: /dev/full)?
   assert result.status == 1
   assert result.stderr == "uptime: write error: No space left on device\n", result.stderr
 }

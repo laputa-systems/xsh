@@ -184,19 +184,126 @@ const CIBAUD_MASK = 269418496
 
 const OVERFLOW_TEXT = "Value too large for defined data type"
 
-const CONTROL_FLAGS = ["parenb", "parodd", "cmspar", "cs5", "cs6", "cs7", "cs8", "hupcl", "cstopb", "cread", "clocal", "crtscts"]
+const CONTROL_FLAGS = [
+  "parenb",
+  "parodd",
+  "cmspar",
+  "cs5",
+  "cs6",
+  "cs7",
+  "cs8",
+  "hupcl",
+  "cstopb",
+  "cread",
+  "clocal",
+  "crtscts",
+]
 
-const INPUT_FLAGS = ["ignbrk", "brkint", "ignpar", "parmrk", "inpck", "istrip", "inlcr", "igncr", "icrnl", "ixon", "ixoff", "iuclc", "ixany", "imaxbel", "iutf8"]
+const INPUT_FLAGS = [
+  "ignbrk",
+  "brkint",
+  "ignpar",
+  "parmrk",
+  "inpck",
+  "istrip",
+  "inlcr",
+  "igncr",
+  "icrnl",
+  "ixon",
+  "ixoff",
+  "iuclc",
+  "ixany",
+  "imaxbel",
+  "iutf8",
+]
 
-const OUTPUT_FLAGS = ["opost", "olcuc", "ocrnl", "onlcr", "onocr", "onlret", "ofill", "ofdel", "nl0", "nl1", "cr0", "cr1", "cr2", "cr3", "tab0", "tab1", "tab2", "tab3", "bs0", "bs1", "vt0", "vt1", "ff0", "ff1"]
+const OUTPUT_FLAGS = [
+  "opost",
+  "olcuc",
+  "ocrnl",
+  "onlcr",
+  "onocr",
+  "onlret",
+  "ofill",
+  "ofdel",
+  "nl0",
+  "nl1",
+  "cr0",
+  "cr1",
+  "cr2",
+  "cr3",
+  "tab0",
+  "tab1",
+  "tab2",
+  "tab3",
+  "bs0",
+  "bs1",
+  "vt0",
+  "vt1",
+  "ff0",
+  "ff1",
+]
 
-const LOCAL_FLAGS = ["isig", "icanon", "iexten", "echo", "echoe", "echok", "echonl", "noflsh", "xcase", "tostop", "echoprt", "echoctl", "echoke", "flusho", "extproc"]
+const LOCAL_FLAGS = [
+  "isig",
+  "icanon",
+  "iexten",
+  "echo",
+  "echoe",
+  "echok",
+  "echonl",
+  "noflsh",
+  "xcase",
+  "tostop",
+  "echoprt",
+  "echoctl",
+  "echoke",
+  "flusho",
+  "extproc",
+]
 
-const CHAR_NAMES = ["intr", "quit", "erase", "kill", "eof", "eol", "eol2", "swtch", "start", "stop", "susp", "rprnt", "werase", "lnext", "discard"]
+const CHAR_NAMES = [
+  "intr",
+  "quit",
+  "erase",
+  "kill",
+  "eof",
+  "eol",
+  "eol2",
+  "swtch",
+  "start",
+  "stop",
+  "susp",
+  "rprnt",
+  "werase",
+  "lnext",
+  "discard",
+]
 
 # Flags `sane` clears: shown by plain `stty` when they are set. The flags
 # `sane` sets are the table's `sane` entries and show as `-name` when clear.
-const SANE_CLEARED = ["ignbrk", "inlcr", "igncr", "echonl", "noflsh", "ixoff", "iutf8", "iuclc", "ixany", "xcase", "olcuc", "ocrnl", "ofill", "onocr", "onlret", "tostop", "ofdel", "echoprt", "extproc", "flusho"]
+const SANE_CLEARED = [
+  "ignbrk",
+  "inlcr",
+  "igncr",
+  "echonl",
+  "noflsh",
+  "ixoff",
+  "iutf8",
+  "iuclc",
+  "ixany",
+  "xcase",
+  "olcuc",
+  "ocrnl",
+  "ofill",
+  "onocr",
+  "onlret",
+  "tostop",
+  "ofdel",
+  "echoprt",
+  "extproc",
+  "flusho",
+]
 
 # The flag a second spelling names.
 pure alias_of(word: Str) -> Str {
@@ -210,7 +317,21 @@ pure alias_of(word: Str) -> Str {
   word
 }
 
-const COMBOS_NEGATABLE = ["LCASE", "lcase", "cbreak", "cooked", "decctlq", "evenp", "litout", "nl", "oddp", "parity", "pass8", "raw", "tabs"]
+const COMBOS_NEGATABLE = [
+  "LCASE",
+  "lcase",
+  "cbreak",
+  "cooked",
+  "decctlq",
+  "evenp",
+  "litout",
+  "nl",
+  "oddp",
+  "parity",
+  "pass8",
+  "raw",
+  "tabs",
+]
 
 const COMBOS_PLAIN = ["crt", "dec", "ek", "sane"]
 
@@ -261,7 +382,9 @@ pure parse_c_integer(text: Str) -> Integer {
 
   var base = 10
 
-  if at + 2 < total + 0 and text.byte_at(at) == 48 and (text.byte_at(at + 1) == 120 or text.byte_at(at + 1) == 88) and hex_digit(text.byte_at(at + 2) ?? 0) >= 0 {
+  if at + 2 < total + 0 and text.byte_at(at) == 48 and (text.byte_at(at + 1) == 120 or text.byte_at(at + 1) == 88) and hex_digit(
+    text.byte_at(at + 2) ?? 0,
+  ) >= 0 {
     base = 16
     at += 2
   } else if at < total and text.byte_at(at) == 48 {
@@ -360,7 +483,6 @@ pure baud_value(text: Str, speeds: List[Int]) -> Int {
   return -1 when value < 0 or value > 4294967295
 
   if let [_, fraction] = parts {
-
     return -1 when fraction == "" or ! rx"^[0-9]+$".matches(fraction)
 
     let first = fraction.byte_at(0) ?? 48
@@ -544,7 +666,12 @@ pure apply_combo(table: UnixTtyTable, attrs: UnixTtyAttrs, name: Str, reversed: 
 
   if name == "nl" {
     if reversed {
-      return set_flags(table, set_flags(table, attrs, ["icrnl", "onlcr"], true), ["inlcr", "igncr", "ocrnl", "onlret"], false)
+      return set_flags(
+        table,
+        set_flags(table, attrs, ["icrnl", "onlcr"], true),
+        ["inlcr", "igncr", "ocrnl", "onlret"],
+        false,
+      )
     }
 
     return set_flags(table, attrs, ["icrnl", "onlcr"], false)
@@ -617,7 +744,16 @@ pure apply_saved(attrs: UnixTtyAttrs, state: List[Int], speeds: List[Int]) -> Un
   let input_code = cflag.bit_and(CIBAUD_MASK) / CIBAUD_SHIFT
   let input = if input_code == 0 { output } else { speed_of_code(input_code, speeds) }
 
-  {...attrs, iflag: state[0], oflag: state[1], cflag: cflag, lflag: state[3], control_chars: chars, ispeed: input, ospeed: output}
+  {
+    ...attrs,
+    iflag: state[0],
+    oflag: state[1],
+    cflag: cflag,
+    lflag: state[3],
+    control_chars: chars,
+    ispeed: input,
+    ospeed: output,
+  }
 }
 
 # A saved state: 4 + NCCS colon-separated hexadecimal fields (`sscanf` `%lx`:
@@ -875,9 +1011,7 @@ proc open_device(file: Str?) [process, env] -> Device {
   }
 
   match unix.open_fd(fp"{named}", nonblock: true) {
-    Ok(fd) => {
-      {fd: fd, name: named, opened: true}
-    }
+    Ok(fd) => {fd: fd, name: named, opened: true}
     Err(failure) => {
       gnu.error(f"{gnu.quote_maybe(named)}: {gnu.strerror(failure)}")
       exit 1
@@ -976,14 +1110,18 @@ proc display_settings(table: UnixTtyTable, attrs: UnixTtyAttrs, device: Device, 
 # The saved form of the state, with the input-speed bits dropped when both
 # speeds agree.
 pure save_text(attrs: UnixTtyAttrs) -> Str {
-  let cflag = if attrs.ispeed == attrs.ospeed or attrs.ispeed == 0 { attrs.cflag.clear_bits(CIBAUD_MASK) } else { attrs.cflag }
+  let cflag = if attrs.ispeed == attrs.ospeed or attrs.ispeed == 0 {
+    attrs.cflag.clear_bits(CIBAUD_MASK)
+  } else {
+    attrs.cflag
+  }
   var fields = [hex(attrs.iflag), hex(attrs.oflag), hex(cflag), hex(attrs.lflag)]
 
   for index in range(NCCS) {
     fields += [hex(if index < attrs.control_chars.len() { attrs.control_chars[index] } else { 0 })]
   }
 
-  fields |> join(":")
+  fields.join(":")
 }
 
 # Write the state, then read it back: like GNU, a terminal that quietly kept
@@ -1000,7 +1138,9 @@ proc apply_attrs(device: Device, wanted: UnixTtyAttrs, moment: Str) [process, en
   let expected_input = if input == 0 { wanted.ospeed } else { input }
   let same_speeds = actual.ispeed == expected_input and actual.ospeed == wanted.ospeed
   let speed_bits = CBAUD_MASK + CIBAUD_MASK
-  let same_state = actual.iflag == wanted.iflag and actual.oflag == wanted.oflag and actual.lflag == wanted.lflag and actual.line == wanted.line and actual.cflag.clear_bits(speed_bits) == wanted.cflag.clear_bits(speed_bits) and actual.control_chars == wanted.control_chars
+  let same_state = actual.iflag == wanted.iflag and actual.oflag == wanted.oflag and actual.lflag == wanted.lflag and actual.line == wanted.line and actual.cflag.clear_bits(
+    speed_bits,
+  ) == wanted.cflag.clear_bits(speed_bits) and actual.control_chars == wanted.control_chars
 
   if ! (same_state and same_speeds) {
     gnu.error(f"{gnu.quote_maybe(device.name)}: unable to perform all requested operations")
@@ -1156,4 +1296,3 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     gnu.write_failed(failure)
   }
 }
-

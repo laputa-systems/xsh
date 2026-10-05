@@ -288,9 +288,38 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.usage_error("printing all duplicated lines and repeat counts is meaningless")
   }
 
-  let key: Key = Key(fields: if opts.skip_fields == null { 0 } else { size_or_die(opts.skip_fields, "invalid number of fields to skip") }, skip: if opts.skip_chars == null { 0 } else { size_or_die(opts.skip_chars, "invalid number of bytes to skip") }, width: if opts.check_chars == null { -1 } else { size_or_die(opts.check_chars, "invalid number of bytes to compare") }, fold: opts.ignore_case, utf8: utf8_locale())
+  let key: Key = Key(
+    fields: if opts.skip_fields == null {
+      0
+    } else {
+      size_or_die(opts.skip_fields, "invalid number of fields to skip")
+    },
+    skip: if opts.skip_chars == null {
+      0
+    } else {
+      size_or_die(opts.skip_chars, "invalid number of bytes to skip")
+    },
+    width: if opts.check_chars == null {
+      -1
+    } else {
+      size_or_die(opts.check_chars, "invalid number of bytes to compare")
+    },
+    fold: opts.ignore_case,
+    utf8: utf8_locale(),
+  )
 
-  let select: Selection = Selection(unique: ! opts.repeated and ! dups, first: ! opts.unique, later: dups, delimit: if grouping { group_method } else { dup_method }, group: grouping, counts: opts.count)
+  let select: Selection = Selection(
+    unique: ! opts.repeated and ! dups,
+    first: ! opts.unique,
+    later: dups,
+    delimit: if grouping {
+      group_method
+    } else {
+      dup_method
+    },
+    group: grouping,
+    counts: opts.count,
+  )
 
   let input_name = opts.files.get(0) ?? "-"
   let output_name = opts.files.get(1) ?? "-"

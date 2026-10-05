@@ -42,7 +42,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
   let ending = if opts.null { "\0" } else { "\n" }
 
-  if opts.names.len() == 0 {
+  if opts.names.is_empty() {
     for item in env.list()? {
       gnu.write_text(f"{item.name}={item.value}{ending}")
     }

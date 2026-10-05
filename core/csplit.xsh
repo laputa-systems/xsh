@@ -229,7 +229,12 @@ proc parse_format(text: Str) [process, env] -> Format {
       exit 1
     }
 
-    if (flags.find("#") != null and conv in ["d", "i", "u"]) or ((flags.find("+") != null or flags.find(" ") != null) and conv in ["u", "o", "x", "X"]) {
+    if (flags.find("#") != null and conv in ["d", "i", "u"]) or ((flags.find("+") != null or flags.find(" ") != null) and conv in [
+      "u",
+      "o",
+      "x",
+      "X",
+    ]) {
       gnu.error(f"invalid flags in conversion specification: %{flags}{conv}")
       exit 1
     }
@@ -430,7 +435,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
             let at = if total == 0 { 0 } else { spans[total - 1] }
 
             pieces += [{from: at, to: at}]
-            walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+            walk = {
+              cur: total,
+              held: 0,
+              pieces: pieces,
+              failure: f"{gnu.quote(item.text)}: line number out of range{again}",
+            }
           } else {
             walk = {cur: total, held: 0, pieces: pieces, failure: DISAPPEARED}
           }
@@ -444,10 +454,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
         if stop == begin and walk.held > 0 and begin + walk.held >= total {
           pieces += [{from: from, to: from}]
-          walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+          walk = {
+            cur: total,
+            held: 0,
+            pieces: pieces,
+            failure: f"{gnu.quote(item.text)}: line number out of range{again}",
+          }
         } else if stop > total or (stop == total and ! opts.suppress) {
           pieces += [{from: from, to: if total == 0 { 0 } else { spans[total - 1] }}]
-          walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+          walk = {
+            cur: total,
+            held: 0,
+            pieces: pieces,
+            failure: f"{gnu.quote(item.text)}: line number out of range{again}",
+          }
         } else {
           let upto = if stop == 0 { 0 } else { spans[stop - 1] }
           var next = stop

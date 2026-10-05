@@ -3,7 +3,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # Runs core/numfmt.xsh by its real path (so the invoked name is `numfmt` and
 # `lib.gnu` resolves beside it) with `input` as standard input, capturing both
 # streams to files.
-proc numfmt_run(ctx: TestContext, args: List[Str], input = "", vars = {LC_ALL: "C"}) [fs, process, error] -> Result[Ran] {
+proc numfmt_run(
+  ctx: TestContext,
+  args: List[Str],
+  input = "",
+  vars = {LC_ALL: "C"},
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "numfmt")?
   let stdin = test.temp_file(ctx, name: "numfmt-stdin", contents: bytes.from_text(input))?
   let out = fp"{root}/stdout"
@@ -90,7 +95,7 @@ test test_numfmt_fields_and_delimiters { |ctx|
   assert numfmt_text(ctx, ["--field", "2", "1\u{3000}2"])? == "1 2\n", "a multibyte blank separator is normalized to a space"
   assert numfmt_text(ctx, ["--header=2", "--from=si"], "a\nb\n1K\n2K")? == "a\nb\n1000\n2000"
   assert numfmt_text(ctx, ["--header", "--from=si"], "head\n1K")? == "head\n1000"
-  assert numfmt_text(ctx, ["-z", "--to=si"], "1000\u{0}2000\u{0}")? == "1.0k\u{0}2.0k\u{0}"
+  assert numfmt_text(ctx, ["-z", "--to=si"], "1000\02000\0")? == "1.0k\02.0k\0"
 }
 
 test test_numfmt_format { |ctx|
