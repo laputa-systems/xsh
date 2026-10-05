@@ -31,8 +31,13 @@ pub(crate) fn lookup(name: &str, span: Span) -> Result<Value, RuntimeError> {
 }
 
 /// Resolve account memberships before entering a restricted filesystem or
-/// changing process credentials. This includes the account's primary group.
-pub(crate) fn groups(name: &str, span: Span) -> Result<Value, RuntimeError> {
+/// changing process credentials. The requested primary group replaces the
+/// account default; the default is not granted unless NSS lists membership.
+pub(crate) fn groups(name: &str, primary_gid: Option<i64>, span: Span) -> Result<Value, RuntimeError> {
+    let requested = primary_gid.map(|gid| {
+        u32::try_from(gid).ok().filter(|gid| *gid != u32::MAX)
+            .ok_or_else(|| RuntimeError::new("user-groups", "primary_gid must be between 0 and 4294967294").with_span(span))
+    }).transpose()?;
     let account = lookup(name, span)?;
     let Value::Record(fields) = account else {
         unreachable!("user lookup returns an account record");
@@ -40,6 +45,7 @@ pub(crate) fn groups(name: &str, span: Span) -> Result<Value, RuntimeError> {
     let Some(Value::Int(primary)) = fields.get("gid") else {
         unreachable!("account record includes a numeric primary gid");
     };
+    let primary = requested.unwrap_or(*primary as u32);
     let name = CString::new(name).map_err(|_| {
         RuntimeError::new("user-name", "user name cannot contain NUL").with_span(span)
     })?;
@@ -49,13 +55,13 @@ pub(crate) fn groups(name: &str, span: Span) -> Result<Value, RuntimeError> {
         // Darwin uses signed 32-bit group IDs here; gid_t has the same width,
         // so the pointer cast preserves all ID bits on every supported host.
         let result = unsafe {
-            libc::getgrouplist(name.as_ptr(), *primary as _, groups.as_mut_ptr().cast(), &mut count)
+            libc::getgrouplist(name.as_ptr(), primary as _, groups.as_mut_ptr().cast(), &mut count)
         };
         if result >= 0 {
             let count = usize::try_from(count).ok().filter(|count| *count <= groups.len())
                 .ok_or_else(|| RuntimeError::new("user-groups", "invalid group count from host").with_span(span))?;
             groups.truncate(count);
-            groups.push(*primary as libc::gid_t);
+            groups.push(primary as libc::gid_t);
             groups.sort_unstable();
             groups.dedup();
             return Ok(Value::List(groups.into_iter().map(|id| Value::Int(i64::from(id))).collect()));

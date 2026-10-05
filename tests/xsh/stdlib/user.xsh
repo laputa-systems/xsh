@@ -46,3 +46,19 @@ test test_user_groups_resolves_account_memberships_without_changing_credentials 
   test.error_kind(user.groups("definitely-missing-xsh-user"), "user-not-found")
   test.error_kind(user.groups("invalid\0name"), "user-name")
 }
+
+test test_user_groups_primary_gid_override_does_not_grant_account_default {
+  let account = user.current()?
+  let default_groups = user.groups(account.name)?
+  assert user.groups(account.name, primary_gid: null)? == default_groups
+  let selected_gid = if account.gid == 0 { 1 } else { 0 }
+  let selected_groups = user.groups(account.name, primary_gid: selected_gid)?
+  assert selected_gid in selected_groups
+  if let Ok(primary_group) = group.by_gid(account.gid) {
+    if account.name not in primary_group.members {
+      assert account.gid not in selected_groups
+    }
+  }
+  test.error_kind(user.groups("definitely-missing-xsh-user", primary_gid: -1), "user-groups")
+  test.error_kind(user.groups(account.name, primary_gid: 4294967295), "user-groups")
+}

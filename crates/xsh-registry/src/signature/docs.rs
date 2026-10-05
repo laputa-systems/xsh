@@ -1481,7 +1481,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("user", "groups") => Some((
             "Looks up all Unix group IDs for a named user through the host account database.",
-            "Includes the account primary GID and supplementary memberships, sorted and deduplicated. Uses the host NSS group lookup; it does not report the current process group set or mutate credentials. Missing accounts, invalid names and lookup failures remain errors.",
+            "Includes supplementary memberships and the selected primary GID, sorted and deduplicated. primary_gid defaults to null, selecting the account primary GID; an explicit ID must be in 0..4294967294 and is validated before account lookup. With an override, the account primary GID is included only when NSS independently lists membership. Uses the host NSS group lookup; it does not report the current process group set or mutate credentials. Missing accounts, invalid names and lookup failures remain errors.",
             &["user", "identity", "lookup"],
         )),
         ("user", "current") => Some((

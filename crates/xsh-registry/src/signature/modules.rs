@@ -4172,8 +4172,9 @@ fn user_module() -> ModuleSig {
     module_sig(vec![
         (
             "groups",
-            sig(vec![param("name", Type::Str)], result(Type::List(Box::new(Type::Int))),
-                false, RuntimeOp::UserGroups),
+            sig(vec![param("name", Type::Str),
+                default_param("primary_gid", Type::Optional(Box::new(Type::Int)))],
+                result(Type::List(Box::new(Type::Int))), false, RuntimeOp::UserGroups),
         ),
         (
             "current",
