@@ -2372,6 +2372,34 @@ pub(super) fn lowered_record_field_mut(
     selected.ok_or_else(|| RuntimeError::new("missing-field", field.to_string()).with_span(span))
 }
 
+/// The item `distance` from the end of a list: 1 is the last. A list with
+/// fewer items fails as any index outside it does.
+pub(super) fn lowered_index_from_end_value(
+    base: LoweredValue,
+    distance: usize,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let out_of_range = || RuntimeError::new("index-out-of-range", "list index").with_span(span);
+    match base {
+        LoweredValue::List(values) => values
+            .len()
+            .checked_sub(distance)
+            .and_then(|index| values.get(index))
+            .cloned()
+            .ok_or_else(out_of_range),
+        LoweredValue::SharedList(values) => values
+            .len()
+            .checked_sub(distance)
+            .and_then(|index| values.get(index))
+            .cloned()
+            .ok_or_else(out_of_range),
+        _ => Err(
+            RuntimeError::new("type-error", "an index from the end requires a list")
+                .with_span(span),
+        ),
+    }
+}
+
 pub(super) fn lowered_index_value(
     base: LoweredValue,
     index: LoweredValue,

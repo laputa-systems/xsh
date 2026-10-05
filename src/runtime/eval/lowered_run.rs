@@ -66,7 +66,8 @@ use super::lower::{
 use super::lowered_ops::{
     append_lowered_list_element, append_lowered_map_literal, checked_int_binary,
     compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value, lowered_bytes_arg,
-    lowered_bytes_parts, lowered_bytes_value, lowered_contains_value, lowered_index_value,
+    lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
+    lowered_index_from_end_value, lowered_index_value,
     lowered_map_key_value, lowered_map_literal_key, lowered_method_value,
     lowered_nonnegative_count, lowered_path_method_value, lowered_return_value,
     lowered_slice_value, lowered_sort_key_orderable, lowered_str_byte_at_value,

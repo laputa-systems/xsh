@@ -1475,6 +1475,22 @@ enum StmtFlow {
     Continue,
 }
 
+/// How far from the end of a list an index written as a negative literal
+/// reads: 1 is the last item. It is never zero, which would name the item
+/// one past the end.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct EndDistance(std::num::NonZeroU32);
+
+impl EndDistance {
+    fn new(distance: u32) -> Option<Self> {
+        std::num::NonZeroU32::new(distance).map(Self)
+    }
+
+    fn get(self) -> usize {
+        self.0.get() as usize
+    }
+}
+
 #[derive(Clone, Debug)]
 enum BuildExprRow {
     Null,
@@ -1609,6 +1625,13 @@ enum BuildExprRow {
     Index {
         base: BuildExprId,
         index: BuildExprId,
+        span: Span,
+    },
+    /// `base[-distance]` over a list, where the checker saw the negative
+    /// literal.
+    IndexFromEnd {
+        base: BuildExprId,
+        distance: EndDistance,
         span: Span,
     },
     Slice {

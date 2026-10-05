@@ -205,6 +205,11 @@ pub struct CheckOutput {
     /// expression, with the signature the call was checked against. Lowering
     /// reads the signature here instead of working out what the callee is.
     pub typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
+    /// List index expressions whose index is a negative integer literal,
+    /// with the distance from the end it names: `items[-2]` is 2. Only these
+    /// count from the end; lowering reads this instead of looking at the
+    /// index expression again.
+    pub from_end_indexes: BTreeMap<Span, u32>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
@@ -719,6 +724,7 @@ pub struct Checker {
     message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     optional_binding_spans: BTreeSet<Span>,
+    from_end_indexes: BTreeMap<Span, u32>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
@@ -875,6 +881,7 @@ impl Checker {
                 message_payload_constructors: checker.message_payload_constructors,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
+                from_end_indexes: checker.from_end_indexes,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: options.embedded_bodies,
             }
@@ -1050,6 +1057,7 @@ impl Checker {
                 message_payload_constructors: checker.message_payload_constructors,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
+                from_end_indexes: checker.from_end_indexes,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: false,
             }
@@ -1127,6 +1135,7 @@ impl Checker {
             message_payload_constructors: BTreeMap::new(),
             error_constructors: BTreeMap::new(),
             optional_binding_spans: BTreeSet::new(),
+            from_end_indexes: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
             function_return_types: BTreeMap::new(),

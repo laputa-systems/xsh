@@ -3249,6 +3249,23 @@ impl Checker {
                     None,
                 );
                 self.expect_type(&Type::Int, &index_ty, index_span);
+                // Only an index written as a negative literal counts from the
+                // end. The fact is rewritten on every check of this index.
+                self.from_end_indexes.remove(&span);
+                if let Some(distance) = negative_literal_distance(arena, index) {
+                    self.from_end_indexes.insert(span, distance);
+                    if let Some(len) = list_literal_len(arena, base)
+                        && len < distance as usize
+                    {
+                        self.error(
+                            index_span,
+                            &format!(
+                                "index -{distance} is out of range for a list of {len} item(s)"
+                            ),
+                            DiagnosticCode::CheckIndexOutOfRange,
+                        );
+                    }
+                }
                 *item
             }
             receiver @ (Type::ErasedRecord | Type::Record(_) | Type::Module(_)) => {
@@ -3650,4 +3667,37 @@ mod arena_tests {
         assert_arena_matches_raised("let x = {a: 1}.get(\"a\")");
         assert_arena_matches_raised("let x = maybe_undefined?.foo()");
     }
+}
+
+/// The distance from the end that an index written as a negative integer
+/// literal names: 1 for `-1`. `-0` is the first item, not a distance.
+fn negative_literal_distance(arena: &ArenaProgram, index: ExprId) -> Option<u32> {
+    let ArenaExprKind::Unary {
+        op: UnaryOp::Neg,
+        expr,
+    } = arena.arena.expr(index).kind
+    else {
+        return None;
+    };
+    let ArenaExprKind::Int(literal) = arena.arena.expr(expr).kind else {
+        return None;
+    };
+    let distance = u32::try_from(arena.arena.int_literal(literal).value()?).ok()?;
+    (distance != 0).then_some(distance)
+}
+
+/// The number of items of a list literal with no splice, whose length is
+/// known as written.
+fn list_literal_len(arena: &ArenaProgram, base: ExprId) -> Option<usize> {
+    let ArenaExprKind::List(items) = arena.arena.expr(base).kind else {
+        return None;
+    };
+    let mut len = 0;
+    for element in arena.arena.list_elements(items) {
+        if element.splice_span.is_some() {
+            return None;
+        }
+        len += 1;
+    }
+    Some(len)
 }

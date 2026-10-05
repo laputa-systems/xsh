@@ -149,6 +149,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprPipeline,
     ExprField,
     ExprIndex,
+    ExprIndexFromEnd,
     ExprSlice,
     ExprMethod,
     ExprStrByteLen,
@@ -4848,6 +4849,27 @@ impl FullCodec for i64 {
     }
 }
 
+impl FullCodec for crate::runtime::eval::EndDistance {
+    fn encode(
+        &self,
+        _builder: &mut FullBuilder,
+        output: &mut Vec<u32>,
+    ) -> Result<(), IrBuildError> {
+        output.push(self.get() as u32);
+        Ok(())
+    }
+
+    // A distance of zero would read one past the end of every list, so a
+    // program that carries one was not produced by lowering.
+    fn decode(
+        _decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        Self::new(input.raw()?)
+            .ok_or_else(|| IrVerifyError::new("an index from the end counts from one"))
+    }
+}
+
 impl FullCodec for u64 {
     fn encode(
         &self,
@@ -8015,6 +8037,11 @@ impl_node_codec! {
             index: BuildExprId,
             span: Span,
         } => BuildExprRow::Index { base, index, span },
+        BuildExprRow::IndexFromEnd { base, distance, span } => ExprIndexFromEnd {
+            base: BuildExprId,
+            distance: crate::runtime::eval::EndDistance,
+            span: Span,
+        } => BuildExprRow::IndexFromEnd { base, distance, span },
         BuildExprRow::Slice {
             base,
             start,
@@ -10608,6 +10635,38 @@ pure selected() -> Str {
         let mut bad_location = program;
         bad_location.store.locations[0].start = u32::MAX;
         assert!(FullVerifier::verify(&bad_location).is_err());
+    }
+
+    /// An index from the end carries the distance the checker read from the
+    /// literal. Lowering never writes zero, which would read one past the
+    /// end, so a program that holds one is rejected before it runs.
+    #[test]
+    fn an_index_from_the_end_counts_from_one() {
+        run_with_large_stack(|| {
+            let source = "pure last(items: List[Int]) -> Int {\n  items[-2]\n}\n";
+            let program = fixture("index-from-end.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            assert!(!program.store.tags.contains(&FullTag::ExprIndex));
+            let row = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprIndexFromEnd)
+                .expect("the negative literal lowers to an index from the end");
+            let payload = program.store.data[row]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
+            assert_eq!(program.store.extra[payload.start + 1], 2);
+            let mut zero = program;
+            zero.store.extra[payload.start + 1] = 0;
+            assert!(
+                FullVerifier::verify(&zero)
+                    .unwrap_err()
+                    .message
+                    .contains("counts from one")
+            );
+        });
     }
 
     #[test]

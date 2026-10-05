@@ -17,7 +17,8 @@ use super::{
     lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
     lowered_count_key, lowered_duration_arg, lowered_encode_json, lowered_env_record_arg,
-    lowered_error_message, lowered_freeze_large_slot_list, lowered_index_value,
+    lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
+    lowered_index_value,
     lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec, lowered_int_arg,
     lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
     lowered_parse_command_values, lowered_path_arg, lowered_path_from_value, lowered_path_like_arg,
@@ -6475,6 +6476,21 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 ControlFlow::Continue(lowered_index_value(base, index, span)?)
+            }
+            FullTag::ExprIndexFromEnd => {
+                let base = indexed_raw(&mut payload, call_span)?;
+                let distance = indexed_decode::<crate::runtime::eval::EndDistance>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let base = match self.eval_indexed_expr(execution, base, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(lowered_index_from_end_value(
+                    base,
+                    distance.get(),
+                    span,
+                )?)
             }
             FullTag::ExprSlice => {
                 let base = indexed_raw(&mut payload, call_span)?;

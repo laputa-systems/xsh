@@ -7738,6 +7738,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else {
                     self.lower_expr(base, slots, current_function, item_slot)?
                 };
+                // The checker decided that this index counts from the end;
+                // its literal is not evaluated.
+                if let Some(distance) = self
+                    .bodies
+                    .from_end_indexes
+                    .get(&id)
+                    .copied()
+                    .and_then(super::EndDistance::new)
+                {
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::IndexFromEnd {
+                            base: lowered_base,
+                            distance,
+                            span
+                        }
+                    ));
+                }
                 let lowered_index = self.lower_expr(index, slots, current_function, item_slot)?;
                 let lowered_index = if uint_key {
                     self.require_uint_key(lowered_index, self.program.arena.expr(index).span)

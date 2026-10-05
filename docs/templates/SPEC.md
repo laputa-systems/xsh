@@ -1214,7 +1214,21 @@ spread before it is an error (`parse.map-comprehension-entries`).
 ### 6.6 Indexing and slicing
 
 `list[i]` requires `0 <= i < len` and otherwise fails with
-`index-out-of-range`. `map[key]` and `record["field"]` fail when the key or
+`index-out-of-range`. An index written as a negative integer literal counts
+from the end: `list[-1]` is the last item, and `list[-n]` requires
+`n <= len`. Only the literal does. An index computed at run time that turns
+out negative still fails with `index-out-of-range`, so an off-by-one never
+reads the last item silently, and `-0` is `0`. The rule belongs to reading an
+item of a `List`: `Str` and `Bytes` have no single-element indexing, a value
+of type `Any` is indexed as written, and an assignment target (`list[-1] = x`)
+does not count from the end. A negative literal that reaches past the start
+of a list literal is `check.index-out-of-range`:
+
+```xsh
+{{.spec.index_out_of_range.source}}
+```
+
+`lint.prefer-negative-index` rewrites `list[list.len() - 1]`. `map[key]` and `record["field"]` fail when the key or
 field is missing; use `.get(...)` for a `Result`.
 
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same

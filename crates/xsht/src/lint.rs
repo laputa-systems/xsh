@@ -89,6 +89,8 @@ mod lint_prefer_test_expect;
 mod lint_path_kind;
 #[path = "lint_prefer_is_empty.rs"]
 mod lint_prefer_is_empty;
+#[path = "lint_prefer_negative_index.rs"]
+mod lint_prefer_negative_index;
 
 #[path = "lint_fs_method.rs"]
 mod lint_fs_method;
@@ -10915,6 +10917,13 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(emptiness);
+        let end_index = lint_prefer_negative_index::length_minus_literal_index(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            expr,
+        );
+        self.diagnostics.extend(end_index);
     }
 
     fn lint_redundant_named_bool(

@@ -112,6 +112,9 @@ pub struct CompactBodyFacts {
     /// Calls through a value of a callable type, keyed by call, with the
     /// signature each was checked against.
     pub typed_callable_calls: FxHashMap<ExprId, std::sync::Arc<crate::sema::types::TypedCallable>>,
+    /// List index expressions that count from the end, with the distance
+    /// their negative literal index names.
+    pub from_end_indexes: FxHashMap<ExprId, u32>,
 }
 
 impl CompactBodyFacts {
@@ -176,6 +179,11 @@ impl CompactBodyFacts {
                 && checked.optional_binding_spans.contains(&span)
             {
                 facts.optional_binding_conditions.insert(id);
+            }
+            if matches!(expression.kind, ArenaExprKind::Index { .. })
+                && let Some(distance) = checked.from_end_indexes.get(&span)
+            {
+                facts.from_end_indexes.insert(id, *distance);
             }
         }
         if !checked.inferred_variant_patterns.is_empty() {

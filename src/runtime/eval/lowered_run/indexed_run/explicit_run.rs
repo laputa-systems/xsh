@@ -165,6 +165,11 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
+    IndexFromEnd {
+        distance: usize,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     ModuleArguments {
         op: super::RuntimeOp,
         cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
@@ -412,6 +417,7 @@ fn with_initializer_handler(
             FrameContinuation::Field { next, .. }
             | FrameContinuation::IndexBase { next, .. }
             | FrameContinuation::IndexValue { next, .. }
+            | FrameContinuation::IndexFromEnd { next, .. }
             | FrameContinuation::ModuleArguments { next, .. }
             | FrameContinuation::ComparisonLeft { next, .. }
             | FrameContinuation::ComparisonRight { next, .. }
@@ -3135,6 +3141,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
+            FullTag::ExprIndexFromEnd => {
+                let base = indexed_raw(&mut payload, span)?;
+                let distance: crate::runtime::eval::EndDistance =
+                    indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(
+                    index,
+                    base,
+                    value_span,
+                    FrameContinuation::IndexFromEnd {
+                        distance: distance.get(),
+                        span: value_span,
+                        next: Box::new(next),
+                    },
+                );
+            }
             FullTag::ExprModuleCall => {
                 let (op, cli_plan, args, value_span) =
                     decode_module_call(&self.calls[index].execution, &mut payload, span)?;
@@ -3239,6 +3262,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                     FrameContinuation::IndexValue { base, span, next },
                 ),
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::IndexFromEnd {
+                distance,
+                span,
+                next,
+            } => match value {
+                FrameValue::Value(base) => {
+                    let value = super::lowered_index_from_end_value(base, distance, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
             FrameContinuation::IndexValue { base, span, next } => match value {

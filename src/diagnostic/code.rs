@@ -328,6 +328,7 @@ diagnostic_codes! {
         CheckIfValueElse = "check.if-value-else", error, "Reject a value-producing `if` without an `else` branch";
         CheckIgnoredResult = "check.ignored-result", error, fixable, "Discard a value a statement would otherwise drop silently with `let _ =`";
         CheckIndexType = "check.index-type", error, "Reject indexing a value that is not a `List` or record";
+        CheckIndexOutOfRange = "check.index-out-of-range", error, "Reject a negative literal index that reaches past the start of a list literal";
         CheckInferParam = "check.infer-param", error, "Reject a parameter default that does not establish a concrete type without an annotation";
         CheckInferReturn = "check.infer-return", error, "Reject a function whose return shape is underdetermined or inferred inconsistently across paths";
         CheckInferredVariant = "check.inferred-variant", error, "Reject a leading-dot variant whose expected type names no single enum or error family with that variant";
@@ -643,6 +644,7 @@ diagnostic_codes! {
         LintPreferTestExpect = "lint.prefer-test-expect", warning, "State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script`";
         LintExplicitMissingOk = "lint.explicit-missing-ok", warning, "Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in)";
         LintPreferIsEmpty = "lint.prefer-is-empty", warning, "Use `is_empty()` instead of comparing a length with zero";
+        LintPreferNegativeIndex = "lint.prefer-negative-index", warning, "Use `list[-N]` instead of `list[list.len() - N]`";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";
