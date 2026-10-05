@@ -247,6 +247,7 @@ enum ArenaTypeExprKind {
         err: Option<TypeExprId>,
     },
     Optional(TypeExprId),
+    Union(Vec<TypeExprId>),
 }
 
 fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
@@ -284,6 +285,9 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         },
         ArenaTypeExprTag::Optional => {
             ArenaTypeExprKind::Optional(TypeExprId::from_index(data.lhs as usize))
+        }
+        ArenaTypeExprTag::Union => {
+            ArenaTypeExprKind::Union(arena.union_type_members(id).collect())
         }
     }
 }
@@ -3619,6 +3623,16 @@ impl<'a> Writer<'a> {
                         output.push_str(", ");
                     }
                     self.write_type(*argument, output);
+                }
+                output.push(']');
+            }
+            ArenaTypeExprKind::Union(members) => {
+                output.push_str("Union[");
+                for (index, member) in members.iter().enumerate() {
+                    if index != 0 {
+                        output.push_str(", ");
+                    }
+                    self.write_type(*member, output);
                 }
                 output.push(']');
             }

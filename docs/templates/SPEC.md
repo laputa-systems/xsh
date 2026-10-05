@@ -95,7 +95,7 @@ Builtin type and constructor names:
 ```text
 Any Bool Bytes Command Digest Duration Err Error Float Int List Map Module Null
 Ok Path ProcessError ProcessHandle Proc Pure Record Regex Result Status Str
-Stream UInt Unit
+Stream UInt Union Unit
 ```
 
 ### 2.4 Identifiers and reserved names
@@ -398,6 +398,7 @@ literal configuration data (`lint.prefer-const`).
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
+| `Union[A, B, ...]` | a value of one of the listed member types (4.12) |
 | `Result[T, E]` | `Ok(T)` or `Err(E)`; `Result[T]` is `Result[T, Error]` |
 | `Error`, error families | structured errors |
 | `Status`, `ProcessError`, `ProcessHandle`, `Command` | process values |
@@ -781,6 +782,73 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
 Handles are values that alias one live host resource; see 11.8 for ownership.
 
+### 4.12 Union types
+
+`Union[A, B, ...]` is the type of a value that is one of the listed member
+types, for a boundary whose values are a small closed set of types rather
+than `Any`. It is a type, not a runtime wrapper: a `Union[Str, Path]` that
+holds a `Path` is that `Path` value.
+
+```xsh
+{{.spec.union_types.source}}
+```
+
+A union is kept exactly as written. The checker never flattens, reorders,
+deduplicates, or widens one, so each shape that would need such a rewrite is
+`check.union-type` instead:
+
+- fewer than two members;
+- a member that fits another member, which covers a repeated member, `Int`
+  with `UInt`, an error family with `Error`, and a record with a schema it
+  satisfies;
+- `Any` (it already accepts every value), `Null` or `T?` (write
+  `Union[A, B]?`), another union, including one reached through an alias (list
+  its members), or a `Stream` (a type test cannot inspect a stream's items).
+
+```xsh
+{{.spec.union_members.source}}
+```
+
+A value fits a union only when it fits a member (5.2). A union gives its value
+no expected type: the value is typed on its own and then must fit a member, so
+a string literal in a `Union[Str, Path]` slot is a `Str`. Inference never
+produces a union; branches of different types stay the error they are without
+an annotation, and an annotated union accepts them.
+
+Without narrowing, a union value may only:
+
+- flow where that union, a union listing a fitting member for each of its
+  members, `Any`, or the optional form of one of those is expected;
+- be compared with `==` or `!=` against a value that fits the union, and
+  tested with `in`/`not in` against a `List` of it;
+- be a command word or an `@` splice element when every member is an argv
+  type (11.4), which converts the member the value is;
+- be validated by `.require(T)`, tested with `is`, or matched by type
+  patterns.
+
+Every operation that reads the value as one type is `check.union-narrow`: a
+method call, a field, an index or slice, iteration, an ordering comparison,
+interpolation, and a command word when some member is not an argv type. A
+union where a single member is expected (an arithmetic operand, a typed
+binding, parameter, or return) is `check.type-mismatch`. Narrow first (5.4):
+
+```xsh
+{{.spec.union_narrow.source}}
+```
+
+At run time a value belongs to the first member, in the order written, that
+accepts it. `value is Union[A, B]` on an `Any`, `.require(Union[A, B])`, and a
+union slot inside a schema given to `.require` all ask members in that order.
+The order matters only where a member converts: a Str-backed enum listed
+after `Str` never converts a string, because `Str` accepts it first. The
+checker uses the same order to say which member a statically typed value
+fits.
+
+`xsht lint` reports a `List[Any]` binding whose every write is a list literal
+of a few concrete scalar or collection types and names its union
+(`lint.list-any-union`). It offers no fix: the union changes the binding's
+type, so uses that expect `List[Any]` have to change with it.
+
 ## 5. Typing
 
 ### 5.1 Inference and annotations
@@ -806,6 +874,12 @@ is expected. Incompatible contributions are errors; inference never widens to
 - `List`, `Map`, and `Stream` are invariant in their parameters: `List[Str]` is
   not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`.
 - `null` and `T` both fit `T?`.
+- A value fits `Union[A, B, ...]` when it fits a member. A union fits another
+  union when each of its members fits one of the other's, whatever the order.
+  A union never fits one of its own members; narrow it first (5.4).
+  Invariance is unchanged: `List[Str]` is not `List[Union[Str, Path]]`. A list
+  literal or comprehension written where the union list is expected has that
+  element type.
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
@@ -884,6 +958,9 @@ continuation, loop body, or match arm where a condition proved it.
   or `while let y = x` over `x: T?`, binds `y` as `T` and narrows `x` the same
   way.
 - `x is Pattern` narrows a stable binding to the pattern's type.
+- `x is T` on a `Union` narrows to `T` where the test passes and to the
+  remaining members where it fails: the one member left, or the smaller union.
+  `x is (T | U)` narrows to those members.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
@@ -1170,7 +1247,12 @@ names with the same types; `as` binds tighter than `|`. A guard `if cond` runs
 after the pattern matches, and a false guard moves to the next arm. Guarded
 arms never count toward exhaustiveness. List patterns check the length before
 touching elements and apply only to `List` values. Type patterns apply only to
-`Any` and erased `Record`; for a known shape use `.require(T)?`.
+`Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. On a
+union the tested type must be one of its members (`check.pattern-type`), and
+unguarded type patterns that cover every member make the `match` exhaustive.
+A statement `match` that misses a member warns
+(`check.non-exhaustive-match`); a value `match` names the missing members in
+its `check.match-value-exhaustive` error.
 
 ```xsh
 {{.spec.type_patterns.source}}
@@ -1927,6 +2009,7 @@ Every argv item is a byte string without NUL. Conversions:
 | `Int`, `UInt` | decimal |
 | `Bool` | `true` / `false` |
 | `List[T]` | only via `@` or a standalone interpolation, one item per element |
+| `Union[...]` of the scalar types above | as the member the value is |
 
 `Null`, `Bytes`, records, maps, `Result`, `Status`, errors, handles, callables,
 and `Unit` are rejected at check time where the type is known and at runtime
@@ -2267,8 +2350,8 @@ that fit decode as `Int` and other finite numbers as `Float`.
 
 JSON-compatible values are `Null`, `Bool`, representable `Int`, finite
 `Float`, `Str`, lists, `Str`-keyed maps and records of compatible values,
-optional values (absent as `null`), and Str-backed enums (as their wire
-strings). Everything else needs explicit conversion: `Path` (`.display()`),
+optional values (absent as `null`), unions of compatible members, and
+Str-backed enums (as their wire strings). Everything else needs explicit conversion: `Path` (`.display()`),
 `Bytes` (`.base64()`), `Digest` (`.hex()`), `Duration`, `Status`, `Result`,
 errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.

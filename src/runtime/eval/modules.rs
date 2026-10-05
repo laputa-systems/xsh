@@ -310,6 +310,12 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         Type::Optional(inner) => {
             matches!(value, Value::Null) || test_value_matches_type(value, inner)
         }
+        Type::Union(members) => {
+            crate::sema::types::first_accepting_union_member(members, |member| {
+                test_value_matches_type(value, member)
+            })
+            .is_some()
+        }
     }
 }
 

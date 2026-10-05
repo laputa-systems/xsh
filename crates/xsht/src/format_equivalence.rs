@@ -684,6 +684,12 @@ impl CanonicalWriter<'_> {
                     self.ty(argument);
                 }
             }
+            ArenaTypeExprKind::Union(members) => {
+                self.put("union;");
+                for member in members {
+                    self.ty(member);
+                }
+            }
             ArenaTypeExprKind::Named(name) => self.debug(&name),
             ArenaTypeExprKind::Qualified { namespace, name } => self.debug(&(namespace, name)),
             ArenaTypeExprKind::List(inner) => {

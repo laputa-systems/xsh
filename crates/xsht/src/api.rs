@@ -853,6 +853,14 @@ fn render_type(ty: &Type) -> String {
         Type::Unit => "Unit".to_string(),
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),
+        Type::Union(members) => format!(
+            "Union[{}]",
+            members
+                .iter()
+                .map(render_type)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 

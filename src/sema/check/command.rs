@@ -98,6 +98,9 @@ impl Checker {
     }
 
     pub(super) fn field_type_for_value(&mut self, base_ty: Type, name: &str, span: Span) -> Type {
+        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+            return Type::Unknown;
+        }
         match base_ty {
             Type::Record(fields) => fields
                 .get(&Name::intern(name))
@@ -132,6 +135,9 @@ impl Checker {
     }
 
     pub(super) fn index_type_for_value(&mut self, base_ty: Type, span: Span) -> Type {
+        if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
+            return Type::Unknown;
+        }
         match base_ty {
             Type::List(item) => *item,
             Type::Any => Type::Any,
@@ -433,6 +439,11 @@ impl Checker {
         failure: &str,
         code: DiagnosticCode,
     ) {
+        // A union converts only when every member does, and then it never
+        // reaches here; otherwise the member decides, so it is narrowed first.
+        if self.reject_unnarrowed_union(ty, "this conversion", span) {
+            return;
+        }
         let mut diagnostic = Diagnostic::error(format!("value of type `{ty}` {failure}"))
             .with_code(code)
             .with_label(Label::primary(span, format!("this value is `{ty}`")));

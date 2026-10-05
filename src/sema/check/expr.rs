@@ -851,6 +851,7 @@ impl Checker {
                     std::iter::once(pattern),
                     &self.type_defs,
                     &self.tag_variants,
+                    &self.pattern_test_types,
                 );
                 // A pattern that cannot fail on its own still has a failure
                 // case over an optional subject: `null`. That is optional
@@ -1709,7 +1710,7 @@ impl Checker {
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
-                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else {
+                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
                             self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
@@ -2141,7 +2142,7 @@ impl Checker {
             &value_ty,
             unguarded.iter().map(|(pattern, _)| *pattern),
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);
@@ -2438,6 +2439,9 @@ impl Checker {
                             );
                         }
                     }
+                    return Type::Bool;
+                }
+                if self.reject_unnarrowed_union(&left_ty, "an ordering comparison", left_span) {
                     return Type::Bool;
                 }
                 if !ordered(&left_ty) && !left_ty.is_recovery() {
@@ -2740,6 +2744,9 @@ impl Checker {
             return Type::Unknown;
         }
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+            return Type::Unknown;
+        }
         match base_ty {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
@@ -2863,6 +2870,9 @@ impl Checker {
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+            return Type::Unknown;
+        }
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
@@ -3000,6 +3010,9 @@ impl Checker {
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         let index_span = arena.arena.expr(index).span;
+        if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
+            return Type::Unknown;
+        }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
             Type::Map(key, item) => {
@@ -3079,6 +3092,9 @@ impl Checker {
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if self.reject_unnarrowed_union(&base_ty, "slicing", span) {
+            return Type::Unknown;
+        }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {
             let ty = self.check_expr_with_schema_arena(

@@ -63,6 +63,71 @@ pub enum Type {
     Unit,
     Tag(Name),
     Optional(Box<Type>),
+    /// A closed set of member types, in the order written. A value fits when
+    /// it fits a member. The members are never simplified, so a resolved
+    /// union has at least two members, none of which fits another, and none
+    /// of which is `Any`, `Null`, optional, a stream, or itself a union
+    /// (`union_member_error`).
+    Union(Vec<Type>),
+}
+
+/// The first member, in the order written, that `accepts` the value at hand.
+/// Every place that asks which member of a union a value is — the checker for
+/// a static type, the runtime for a dynamic value, schema decoding for a
+/// value it may convert — asks through this one function, so they agree when
+/// more than one member could accept.
+pub fn first_accepting_union_member<'a, M>(
+    members: &'a [M],
+    mut accepts: impl FnMut(&'a M) -> bool,
+) -> Option<&'a M> {
+    members.iter().find(|member| accepts(member))
+}
+
+/// Why `members` do not form a union type, or `None` when they do. A union is
+/// kept exactly as written: nothing is flattened, deduplicated, or absorbed,
+/// so each shape a simplifier would rewrite is rejected here instead.
+pub fn union_member_error(members: &[Type]) -> Option<String> {
+    if members.len() < 2 {
+        return Some("a union lists at least two member types".to_string());
+    }
+    for member in members {
+        let reason = match member {
+            Type::Any => "`Any` already accepts every value; use `Any` alone",
+            Type::Null | Type::Optional(_) => {
+                "a member cannot be `Null` or optional; write `Union[...]?` around the non-null members"
+            }
+            Type::Union(_) => "a member cannot be another union; list its members here",
+            Type::Stream(_) => {
+                "a member cannot be a stream: a type test cannot inspect the items of a stream"
+            }
+            _ => continue,
+        };
+        return Some(reason.to_string());
+    }
+    for (index, left) in members.iter().enumerate() {
+        if left.is_recovery() {
+            continue;
+        }
+        for right in &members[index + 1..] {
+            if right.is_recovery() {
+                continue;
+            }
+            if left == right {
+                return Some(format!("`{left}` is listed twice"));
+            }
+            if left.matches_expected(right) {
+                return Some(format!(
+                    "every `{left}` already fits the member `{right}`; list one of them"
+                ));
+            }
+            if right.matches_expected(left) {
+                return Some(format!(
+                    "every `{right}` already fits the member `{left}`; list one of them"
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// The exports a module type promises. An open type is a lower bound: the
@@ -216,6 +281,7 @@ impl Type {
                 key.has_unsigned_constraint() || value.has_unsigned_constraint()
             }
             Self::Record(fields) => fields.values().any(Self::has_unsigned_constraint),
+            Self::Union(members) => members.iter().any(Self::has_unsigned_constraint),
             _ => false,
         }
     }
@@ -243,6 +309,7 @@ impl Type {
                 ok.can_escape_context_scope() && error.can_escape_context_scope()
             }
             Self::Record(fields) => fields.values().all(Self::can_escape_context_scope),
+            Self::Union(members) => members.iter().all(Self::can_escape_context_scope),
             _ => true,
         }
     }
@@ -297,6 +364,11 @@ impl Type {
                 total = total.saturating_add(exports.len() * size_of::<(Name, ModuleExportType)>());
                 for export in exports.values() {
                     total = total.saturating_add(export.retained_bytes());
+                }
+            }
+            Self::Union(members) => {
+                for member in members {
+                    total = total.saturating_add(member.retained_bytes());
                 }
             }
             _ => {}
@@ -356,6 +428,12 @@ impl Type {
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
             ))),
+            ArenaTypeExprTag::Union => Self::Union(
+                arena
+                    .union_type_members(id)
+                    .map(|member| Self::from_arena(arena, member))
+                    .collect(),
+            ),
         }
     }
 
@@ -439,7 +517,8 @@ impl Type {
             | Self::ErrorVariant { .. }
             | Self::ErrorFacet(_)
             | Self::Tag(_)
-            | Self::Optional(_) => None,
+            | Self::Optional(_)
+            | Self::Union(_) => None,
         }
     }
 
@@ -470,6 +549,7 @@ impl Type {
                     pending.push(error);
                 }
                 Self::Record(fields) => pending.extend(fields.values()),
+                Self::Union(members) => pending.extend(members),
                 Self::Module(exports) => {
                     for export in exports.values() {
                         match export {
@@ -495,6 +575,7 @@ impl Type {
             Self::Map(key, value) => key.contains_any() || value.contains_any(),
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
+            Self::Union(members) => members.iter().any(Self::contains_any),
             Self::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => ty.contains_any(),
                 ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
@@ -577,6 +658,15 @@ impl Type {
         }
         match (self, expected) {
             (Self::Any, _) => false,
+            // A union fits another when each of its members does; it never
+            // fits a single member, which needs a narrowing type test.
+            (Self::Union(actual), Self::Union(_)) => {
+                actual.iter().all(|member| member.matches_expected(expected))
+            }
+            (actual, Self::Union(members)) => {
+                first_accepting_union_member(members, |member| actual.matches_expected(member))
+                    .is_some()
+            }
             (Self::List(actual), Self::List(expected))
             | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_invariant(expected),
             (Self::Map(ak, actual), Self::Map(ek, expected)) => {
@@ -684,10 +774,40 @@ impl Type {
     }
 
     pub fn can_be_argv_item(&self) -> bool {
-        matches!(
-            self,
-            Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
-        )
+        match self {
+            // Argv conversion reads the runtime value, so a union converts
+            // when each member does.
+            Self::Union(members) => members.iter().all(Self::can_be_argv_item),
+            _ => matches!(
+                self,
+                Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
+            ),
+        }
+    }
+
+    /// The members of a union, in the order written.
+    pub fn union_members(&self) -> Option<&[Type]> {
+        match self {
+            Self::Union(members) => Some(members),
+            _ => None,
+        }
+    }
+
+    /// What is left of a union once a type test for `tested` has failed: the
+    /// members `tested` does not cover, as the one member or a smaller union.
+    /// `None` when `self` is not a union or the test covers every member.
+    pub fn union_without(&self, tested: &Type) -> Option<Type> {
+        let members = self.union_members()?;
+        let mut rest = members
+            .iter()
+            .filter(|member| !member.matches_expected(tested))
+            .cloned()
+            .collect::<Vec<_>>();
+        match rest.len() {
+            0 => None,
+            1 => rest.pop(),
+            _ => Some(Self::Union(rest)),
+        }
     }
 
     pub fn can_word_convert_to(&self) -> bool {
@@ -729,6 +849,9 @@ impl Type {
                 .values()
                 .all(|ty| ty.is_json_compatible_with(wire_enum)),
             Self::Tag(name) => wire_enum(*name),
+            Self::Union(members) => members
+                .iter()
+                .all(|member| member.is_json_compatible_with(wire_enum)),
             _ => false,
         }
     }
@@ -790,6 +913,14 @@ impl Type {
             Self::FsRoot => Some("FsRoot".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
+            Self::Union(members) => Some(format!(
+                "Union[{}]",
+                members
+                    .iter()
+                    .map(Self::annotation_source)
+                    .collect::<Option<Vec<_>>>()?
+                    .join(", ")
+            )),
         }
     }
 }
@@ -842,6 +973,16 @@ impl fmt::Display for Type {
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => write!(f, "{name}"),
             Self::Optional(inner) => write!(f, "{inner}?"),
+            Self::Union(members) => {
+                write!(f, "Union[")?;
+                for (index, member) in members.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{member}")?;
+                }
+                write!(f, "]")
+            }
         }
     }
 }
@@ -968,6 +1109,88 @@ mod tests {
             contract.unmet_by(&actual),
             ["unexpected export `status`: the exact contract does not list it"]
         );
+    }
+
+    // A member fits its union and a union fits a wider one, in any order;
+    // nothing takes a union back to a member, and containers stay invariant.
+    #[test]
+    fn union_accepts_members_and_wider_unions_but_never_a_member() {
+        let words = Type::Union(vec![Type::Str, Type::Path]);
+        let reordered = Type::Union(vec![Type::Path, Type::Str]);
+        let wide = Type::Union(vec![Type::Str, Type::Path, Type::Int]);
+        let list = |item: &Type| Type::List(Box::new(item.clone()));
+
+        assert!(Type::Str.matches_expected(&words));
+        assert!(Type::Path.matches_expected(&words));
+        assert!(!Type::Int.matches_expected(&words));
+        assert!(!Type::Null.matches_expected(&words));
+        assert!(!Type::Any.matches_expected(&words));
+        assert!(Type::Any.any_flows_to_concrete(&words));
+
+        assert!(words.matches_expected(&wide));
+        assert!(words.matches_expected(&reordered));
+        assert!(!wide.matches_expected(&words));
+        assert!(!words.matches_expected(&Type::Str));
+        assert!(words.matches_expected(&Type::Any));
+        assert!(words.matches_expected(&Type::Optional(Box::new(words.clone()))));
+        assert!(Type::Null.matches_expected(&Type::Optional(Box::new(words.clone()))));
+
+        assert!(!list(&Type::Str).matches_expected(&list(&words)));
+        assert!(!list(&words).matches_expected(&list(&wide)));
+        assert!(list(&words).matches_expected(&list(&reordered)));
+
+        assert_eq!(words.union_without(&Type::Str), Some(Type::Path));
+        assert_eq!(
+            wide.union_without(&Type::Int),
+            Some(Type::Union(vec![Type::Str, Type::Path]))
+        );
+        assert_eq!(words.union_without(&reordered), None);
+        assert_eq!(Type::Str.union_without(&Type::Str), None);
+        assert_eq!(words.to_string(), "Union[Str, Path]");
+        assert_eq!(
+            list(&words).annotation_source().as_deref(),
+            Some("List[Union[Str, Path]]")
+        );
+        assert!(words.can_be_argv_item());
+        assert!(!Type::Union(vec![Type::Int, Type::Float]).can_be_argv_item());
+    }
+
+    // Every shape a simplifier would rewrite is an error, and the order the
+    // members are written in is the order they are asked in.
+    #[test]
+    fn union_members_are_validated_and_asked_in_written_order() {
+        let optional = Type::Optional(Box::new(Type::Int));
+        let nested = Type::Union(vec![Type::Str, Type::Path]);
+        let stream = Type::Stream(Box::new(Type::Int));
+        for members in [
+            vec![Type::Str],
+            vec![Type::Str, Type::Str],
+            vec![Type::Int, Type::UInt],
+            vec![Type::Str, Type::Any],
+            vec![Type::Str, Type::Null],
+            vec![Type::Str, optional],
+            vec![nested, Type::Int],
+            vec![Type::Str, stream],
+            vec![Type::Error, Type::ProcessError],
+        ] {
+            assert!(super::union_member_error(&members).is_some(), "{members:?}");
+        }
+        assert_eq!(super::union_member_error(&[Type::Str, Type::Path]), None);
+        assert_eq!(
+            super::union_member_error(&[Type::Int, Type::Float, Type::Str]),
+            None
+        );
+        // A recovery member already has its own diagnostic.
+        assert_eq!(super::union_member_error(&[Type::Invalid, Type::Invalid]), None);
+
+        let members = [Type::Int, Type::Str, Type::Path];
+        let mut asked = Vec::new();
+        let chosen = super::first_accepting_union_member(&members, |member| {
+            asked.push(member.clone());
+            matches!(member, Type::Str | Type::Path)
+        });
+        assert_eq!(chosen, Some(&Type::Str));
+        assert_eq!(asked, [Type::Int, Type::Str]);
     }
 
     fn proc(effects: Option<Vec<Effect>>) -> ModuleExportType {

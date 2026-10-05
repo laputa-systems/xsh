@@ -1196,7 +1196,7 @@ impl Checker {
                     || standard_record_type(&parameter.as_str()).is_some()
                     || matches!(
                         parameter.as_str().as_str(),
-                        "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown"
+                        "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown" | "Union"
                     )
                 {
                     self.error(

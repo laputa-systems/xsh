@@ -33,6 +33,8 @@ mod lint_write_lines;
 mod lint_read_lines;
 #[path = "lint_size_literal.rs"]
 mod lint_size_literal;
+#[path = "lint_list_any_union.rs"]
+mod lint_list_any_union;
 
 #[path = "lint_prefer_match_else.rs"]
 mod lint_prefer_match_else;
@@ -469,6 +471,7 @@ pub struct Linter<'a> {
     regex_recovery_context: bool,
     assertion_capture_depth: usize,
     duration_conversion_module_unshadowed: bool,
+    list_any_bindings: lint_list_any_union::ListAnyBindings,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -495,7 +498,11 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Named => {
             ArenaTypeExprKind::Named(Name::from_symbol(Symbol::from_raw(data.lhs)))
         }
-        ArenaTypeExprTag::Applied | ArenaTypeExprTag::Qualified => ArenaTypeExprKind::Qualified,
+        // The rules that read type expressions treat a union as they treat
+        // any type they cannot see into.
+        ArenaTypeExprTag::Applied | ArenaTypeExprTag::Qualified | ArenaTypeExprTag::Union => {
+            ArenaTypeExprKind::Qualified
+        }
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
@@ -634,6 +641,7 @@ impl<'a> Linter<'a> {
             assigned_names: FxHashSet::default(),
             regex_recovery_context: false,
             assertion_capture_depth: 0,
+            list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
         };
         linter.define(
             "args",
@@ -679,6 +687,8 @@ impl<'a> Linter<'a> {
             .extend(lint_prefer_match_else::lint_wildcard_catch_all_arms(
                 program, source,
             ));
+        let list_any_bindings = std::mem::take(&mut linter.list_any_bindings);
+        linter.diagnostics.extend(list_any_bindings.finish());
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));
@@ -1409,6 +1419,7 @@ impl<'a> Linter<'a> {
                     _ => None,
                 };
                 self.define_binding_target(target, stmt.span, true);
+                self.declare_list_any_binding(target, ty, &initializer);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
                     && let Some(binding) = self
                         .scopes
@@ -1444,6 +1455,7 @@ impl<'a> Linter<'a> {
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
+                self.declare_list_any_binding(target, ty, &initializer);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
                     && let Some(binding) = self
                         .scopes
@@ -1456,6 +1468,21 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Assign { target, op, value } => {
                 if op == AssignOp::Set {
                     self.lint_list_compound_assignment(target, value, stmt.span);
+                }
+                if let Some(definition) = lint_list_any_union::assigned_root(self.arena, target)
+                    .and_then(|root| self.binding_definition(root))
+                {
+                    let mut bindings = std::mem::take(&mut self.list_any_bindings);
+                    bindings.assign(
+                        self.arena,
+                        definition,
+                        target,
+                        op,
+                        &value,
+                        &self.expr_types,
+                        &|name| self.binding_definition(name),
+                    );
+                    self.list_any_bindings = bindings;
                 }
                 self.lint_assign_target(target);
                 self.lint_expr_or_run(&value);
@@ -5002,6 +5029,37 @@ impl<'a> Linter<'a> {
             ArenaPatternKind::Wildcard
             | ArenaPatternKind::Literal(_)
             | ArenaPatternKind::Facet(_) => {}
+        }
+    }
+
+    /// The span the innermost scope records for the binding `name` names.
+    fn binding_definition(&self, name: Name) -> Option<Span> {
+        let name = name.as_str();
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name.as_str()))
+            .map(|binding| binding.span)
+    }
+
+    /// Tells `lint.list-any-union` about a name the traversal just defined.
+    fn declare_list_any_binding(
+        &mut self,
+        target: BindingTargetId,
+        ty: Option<TypeExprId>,
+        initializer: &ArenaExprOrRun,
+    ) {
+        let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else {
+            return;
+        };
+        if let Some(definition) = self.binding_definition(name) {
+            self.list_any_bindings.declare(
+                self.arena,
+                definition,
+                ty,
+                initializer,
+                &self.expr_types,
+            );
         }
     }
 

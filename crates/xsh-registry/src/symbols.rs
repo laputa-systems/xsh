@@ -91,6 +91,11 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
                 collect_type_symbols(ty, output);
             }
         }
+        Type::Union(members) => {
+            for member in members {
+                collect_type_symbols(member, output);
+            }
+        }
         Type::Map(key, value) => {
             collect_type_symbols(key, output);
             collect_type_symbols(value, output);
@@ -253,6 +258,11 @@ mod tests {
                 for (name, ty) in fields {
                     assert!(symbols.contains(name));
                     assert_type_symbols_are_present(symbols, ty);
+                }
+            }
+            Type::Union(members) => {
+                for member in members {
+                    assert_type_symbols_are_present(symbols, member);
                 }
             }
             Type::Map(key, value) => {

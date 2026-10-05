@@ -248,6 +248,17 @@ impl Checker {
                 (Type::Module(expected), Type::Module(actual)) => expected.unmet_by(actual),
                 _ => Vec::new(),
             };
+            let unnarrowed_member = !matches!(expected, Type::Union(_))
+                && matches!(actual, Type::Union(members)
+                    if members.iter().any(|member| member.matches_expected(expected)));
+            // Collections are invariant, so a list of one member is not a
+            // list of the union even though each element would fit.
+            let member_collection = match (expected, actual) {
+                (Type::List(expected), Type::List(actual)) => {
+                    matches!(**expected, Type::Union(_)) && actual.matches_expected(expected)
+                }
+                _ => false,
+            };
             let (expected, actual) = self.mismatch_labels(expected, actual);
             let mut diagnostic = Diagnostic::error("type mismatch")
                 .with_code(DiagnosticCode::CheckTypeMismatch)
@@ -255,11 +266,43 @@ impl Checker {
                     span,
                     format!("expected {expected}, found {actual}"),
                 ));
+            if unnarrowed_member {
+                diagnostic = diagnostic.with_note(format!(
+                    "a union value is a {expected} only after `value is {expected}` or a `name is {expected}` match arm proves it"
+                ));
+            }
+            if member_collection {
+                diagnostic = diagnostic.with_note(
+                    "a List is invariant in its element type; build the list with the union element type, for example `[item for item in items]` where the union list is expected",
+                );
+            }
             for reason in unmet_exports {
                 diagnostic = diagnostic.with_note(reason);
             }
             self.diagnostics.push(diagnostic);
         }
+    }
+
+    /// Reports `check.union-narrow` and returns true when `ty` is a union. A
+    /// union value supports only what needs no knowledge of its member, so
+    /// every operation that reads the value calls this with the receiver or
+    /// operand type before it looks for a concrete one.
+    pub(super) fn reject_unnarrowed_union(&mut self, ty: &Type, use_site: &str, span: Span) -> bool {
+        let Type::Union(members) = ty else {
+            return false;
+        };
+        let first = members[0]
+            .annotation_source()
+            .unwrap_or_else(|| "Member".to_string());
+        self.diagnostics.push(
+            Diagnostic::error(format!("{ty} must be narrowed to one member before {use_site}"))
+                .with_code(DiagnosticCode::CheckUnionNarrow)
+                .with_label(Label::primary(span, format!("this value is {ty}")))
+                .with_note(format!(
+                    "test it (`if value is {first} {{ ... }}`) or match it with one `name is Member` arm per member"
+                )),
+        );
+        true
     }
 
     /// Rejects an `Any` value used by an operation that interprets it: an
@@ -478,6 +521,20 @@ impl Checker {
             ArenaTypeExprTag::Optional => Type::Optional(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
+            ArenaTypeExprTag::Union => {
+                let members = program
+                    .arena
+                    .union_type_members(type_id)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|member| self.type_from_arena(program, member))
+                    .collect::<Vec<_>>();
+                if let Some(reason) = crate::sema::types::union_member_error(&members) {
+                    self.error(span, &reason, DiagnosticCode::CheckUnionType);
+                    return Type::Invalid;
+                }
+                Type::Union(members)
+            }
         }
     }
 

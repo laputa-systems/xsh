@@ -128,6 +128,31 @@ impl Checker {
         }
     }
 
+    /// The types a pattern made only of type tests checks for, one per
+    /// alternative, or `None` when an alternative is anything else. Such a
+    /// pattern matches exactly the values of those types, whether or not a
+    /// test also binds a name, so it decides both branches for its subject.
+    pub(super) fn pattern_test_member_types(
+        &self,
+        arena: &ArenaProgram,
+        pattern: PatternId,
+    ) -> Option<Vec<Type>> {
+        match arena.arena.pattern(pattern).kind {
+            ArenaPatternKind::Group(child) => self.pattern_test_member_types(arena, child),
+            ArenaPatternKind::Alternation(children) => {
+                let mut types = Vec::new();
+                for child in arena.arena.pattern_ids(children) {
+                    types.extend(self.pattern_test_member_types(arena, child)?);
+                }
+                Some(types)
+            }
+            ArenaPatternKind::TestName { .. } | ArenaPatternKind::Type { .. } => {
+                Some(vec![self.pattern_test_types.get(&pattern).cloned()?])
+            }
+            _ => None,
+        }
+    }
+
     fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
         if self.current_scope().contains_key(&name) {
             self.error(
@@ -190,6 +215,25 @@ impl Checker {
 
     fn check_type_pattern_applicability(&mut self, tested: &Type, value_ty: &Type, span: Span) {
         if type_pattern_input_is_dynamic(value_ty) {
+            return;
+        }
+        // A union is tested for listed members only, one or several at a
+        // time: the test then tells the checker exactly which members remain
+        // when it fails.
+        if let Type::Union(members) = value_ty {
+            let listed =
+                |tested: &Type| members.iter().any(|member| member.matches_invariant(tested));
+            let names_members = match tested {
+                Type::Union(tested) => tested.iter().all(listed),
+                tested => listed(tested),
+            };
+            if !tested.is_recovery() && !names_members {
+                self.error(
+                    span,
+                    &format!("`{tested}` is not a member of {value_ty}"),
+                    DiagnosticCode::CheckPatternType,
+                );
+            }
             return;
         }
         let family = match tested {
@@ -754,7 +798,7 @@ impl Checker {
                 value_ty,
                 patterns.iter().copied(),
                 &self.type_defs,
-                &self.tag_variants,
+                &self.tag_variants, &self.pattern_test_types,
             ) {
                 self.diagnostics.push(
                     Diagnostic::new(
@@ -778,7 +822,7 @@ impl Checker {
                 value_ty,
                 patterns.into_iter(),
                 &self.type_defs,
-                &self.tag_variants,
+                &self.tag_variants, &self.pattern_test_types,
             )
         {
             self.error(
@@ -787,6 +831,42 @@ impl Checker {
                 DiagnosticCode::CheckNonExhaustiveMatch,
             );
         }
+    }
+
+    /// The comma-separated members of a union subject that no unguarded arm
+    /// tests for, or `None` when the subject is not a union or is covered.
+    pub(super) fn missing_union_members_arena(
+        &self,
+        arena: &ArenaProgram,
+        value_ty: &Type,
+        arm_patterns: &[(PatternId, Span)],
+    ) -> Option<String> {
+        let members = value_ty.union_members()?;
+        if super::stmt::patterns_are_exhaustive_arena(
+            arena,
+            value_ty,
+            arm_patterns.iter().map(|(pattern, _)| *pattern),
+            &self.type_defs,
+            &self.tag_variants,
+            &self.pattern_test_types,
+        ) {
+            return None;
+        }
+        let mut tested = Vec::new();
+        for (pattern, _) in arm_patterns {
+            super::stmt::collect_tested_types_arena(
+                arena,
+                *pattern,
+                &self.pattern_test_types,
+                &mut tested,
+            );
+        }
+        let missing = members
+            .iter()
+            .filter(|member| !tested.iter().any(|tested| member.matches_expected(tested)))
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        (!missing.is_empty()).then(|| missing.join(", "))
     }
 
     /// A statement `match` over an enum that misses variants is a warning.
@@ -800,6 +880,20 @@ impl Checker {
         arm_patterns: Vec<(PatternId, Span)>,
         span: Span,
     ) {
+        if let Some(missing) = self.missing_union_members_arena(arena, value_ty, &arm_patterns) {
+            self.diagnostics.push(
+                Diagnostic::new(
+                    crate::diagnostic::Severity::Warning,
+                    format!("non-exhaustive match: missing member(s) `{missing}`"),
+                )
+                .with_code(DiagnosticCode::CheckNonExhaustiveMatch)
+                .with_label(crate::diagnostic::Label::secondary(
+                    span,
+                    format!("not every member of {value_ty} is handled"),
+                )),
+            );
+            return;
+        }
         let Some(missing_list) = self.missing_tag_variants_arena(arena, value_ty, &arm_patterns)
         else {
             return;
@@ -838,7 +932,7 @@ impl Checker {
             value_ty,
             arm_patterns.iter().map(|(pattern, _)| *pattern),
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) {
             return None;
         }
@@ -873,11 +967,19 @@ impl Checker {
         arm_patterns: &[(PatternId, Span)],
         span: Span,
     ) {
-        let message = match self.missing_tag_variants_arena(arena, value_ty, arm_patterns) {
-            Some(missing) => {
-                format!("value-producing match must be exhaustive: missing variant(s) `{missing}`")
+        let message = if let Some(missing) =
+            self.missing_union_members_arena(arena, value_ty, arm_patterns)
+        {
+            format!("value-producing match must be exhaustive: missing member(s) `{missing}`")
+        } else {
+            match self.missing_tag_variants_arena(arena, value_ty, arm_patterns) {
+                Some(missing) => {
+                    format!(
+                        "value-producing match must be exhaustive: missing variant(s) `{missing}`"
+                    )
+                }
+                None => "value-producing match must be exhaustive".to_string(),
             }
-            None => "value-producing match must be exhaustive".to_string(),
         };
         self.error(span, &message, DiagnosticCode::CheckMatchValueExhaustive);
     }

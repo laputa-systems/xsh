@@ -1991,13 +1991,20 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     opt(seq([t(T::Comma), r("type_expr")])),
                     t(T::RBracket),
                 ]),
+                seq([
+                    w("Union"),
+                    t(T::LBracket),
+                    r("type_expr"),
+                    star(seq([t(T::Comma), r("type_expr")])),
+                    t(T::RBracket),
+                ]),
             ]),
         ),
         rule(
             Types,
             "named_type",
             seq([
-                not(["List", "Map", "Stream", "Module", "Result"]
+                not(["List", "Map", "Stream", "Module", "Result", "Union"]
                     .map(|word| vec![word_term(word, false)])),
                 ident(),
                 opt(seq([t(T::Dot), ident()])),

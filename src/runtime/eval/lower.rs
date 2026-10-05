@@ -1233,7 +1233,9 @@ fn lowered_arena_type_inner(
         ArenaTypeExprTag::Stream => Some(LoweredType::Stream),
         ArenaTypeExprTag::Module => Some(LoweredType::Module),
         ArenaTypeExprTag::Result => Some(LoweredType::Result),
-        ArenaTypeExprTag::Optional => Some(LoweredType::Any),
+        // A union has no single runtime representation; its members keep
+        // their own.
+        ArenaTypeExprTag::Optional | ArenaTypeExprTag::Union => Some(LoweredType::Any),
     }
 }
 
@@ -2224,6 +2226,7 @@ fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
         ArenaTypeExprTag::Module => 5,
         ArenaTypeExprTag::Result => 6,
         ArenaTypeExprTag::Optional => 7,
+        ArenaTypeExprTag::Union => 9,
     }
 }
 
@@ -14356,6 +14359,12 @@ fn compact_runtime_type_inner(
             declarations,
             depth,
         ))),
+        ArenaTypeExprTag::Union => Type::Union(
+            arena
+                .union_type_members(ty)
+                .map(|member| compact_runtime_type_inner(arena, member, declarations, depth))
+                .collect(),
+        ),
     }
 }
 
@@ -14479,6 +14488,14 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
             "{}?",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
+        ArenaTypeExprTag::Union => format!(
+            "Union[{}]",
+            arena
+                .union_type_members(ty)
+                .map(|member| compact_type_expr_name_string(arena, member))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -14561,6 +14578,9 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Tag(_) => Some(LoweredType::Tag),
         Type::Result(_, _) => Some(LoweredType::Result),
         Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
+        // A union value is stored as whichever member it is, so its slot
+        // has no single storage kind.
+        Type::Union(_) => Some(LoweredType::Any),
         _ => None,
     }
 }
@@ -14570,6 +14590,11 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         Type::Any | Type::Unknown => lowered_method_name(&name.as_str()),
         Type::Invalid => true,
         Type::Optional(inner) => lowered_method_supported_for_type(inner, name, arg_count),
+        // A slot keeps its declared union type inside the branch where the
+        // checker narrowed it, so the call is one the narrowed member has.
+        Type::Union(members) => members
+            .iter()
+            .any(|member| lowered_method_supported_for_type(member, name, arg_count)),
         Type::Result(ok, _) => {
             name == "context" && (arg_count == 1 || arg_count == 2)
                 || lowered_method_supported_for_type(ok, name, arg_count)

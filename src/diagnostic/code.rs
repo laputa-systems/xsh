@@ -473,6 +473,8 @@ diagnostic_codes! {
         CheckYieldDelegation = "check.yield-delegation", error, "Reject `yield @` of a value that is not a `List` or `Stream`";
         CheckYieldStream = "check.yield-stream", error, "Reject `yield` of a stream value; use `yield @stream`";
         CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
+        CheckUnionType = "check.union-type", error, "Reject a `Union[...]` whose members are fewer than two, repeat or contain one another, or are `Any`, `Null`, optional, a stream, or another union";
+        CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";
@@ -616,6 +618,7 @@ diagnostic_codes! {
         LintUnusedLocal = "lint.unused-local", warning, "Flag a local variable that is never read";
         LintUnusedType = "lint.unused-type", warning, "Flag a type declaration that is never referenced";
         LintRedundantUseAlias = "lint.redundant-use-alias", warning, "Drop a `use` alias that repeats the last path segment, as in `use a.b as b`";
+        LintListAnyUnion = "lint.list-any-union", warning, "Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

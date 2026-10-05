@@ -1169,7 +1169,9 @@ impl RecordConstructors {
                     );
                 }
             }
-            ArenaTypeExprTag::Module => {}
+            // A union gives its value no expectation: the value is typed on
+            // its own and then has to fit a member.
+            ArenaTypeExprTag::Module | ArenaTypeExprTag::Union => {}
         }
         Ok(result)
     }
@@ -1497,6 +1499,18 @@ impl RecordConstructors {
             ArenaTypeExprTag::Optional => Type::Optional(Box::new(
                 self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
             )),
+            ArenaTypeExprTag::Union => {
+                let members = arena
+                    .union_type_members(ty)
+                    .map(|member| {
+                        self.resolve_instance_annotation(arena, member, namespace, bindings, active)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if let Some(reason) = crate::sema::types::union_member_error(&members) {
+                    return Err(SchemaTypeError::new(DiagnosticCode::CheckUnionType, reason));
+                }
+                Type::Union(members)
+            }
             ArenaTypeExprTag::Result => Type::Result(
                 Box::new(
                     self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
@@ -3817,6 +3831,13 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         Type::Optional(inner) => {
             let mut classes = value_classes(inner)?;
             classes.push(ValueClass::Null);
+            return Some(classes);
+        }
+        Type::Union(members) => {
+            let mut classes = Vec::new();
+            for member in members {
+                classes.extend(value_classes(member)?);
+            }
             return Some(classes);
         }
         Type::Tag(name) if name.as_str().starts_with("type parameter ") => return None,

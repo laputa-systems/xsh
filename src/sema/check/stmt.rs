@@ -187,6 +187,7 @@ fn match_is_exhaustive_arena(
     arms: &[crate::syntax::arena::ArenaMatchArm],
     type_defs: &FxHashMap<Name, TypeDefBody>,
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
+    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
 ) -> bool {
     patterns_are_exhaustive_arena(
         arena,
@@ -196,7 +197,33 @@ fn match_is_exhaustive_arena(
             .map(|arm| arm.pattern),
         type_defs,
         tag_variants,
+        pattern_types,
     )
+}
+
+/// The types the type tests of a pattern check for, over every alternative.
+/// `pattern_types` holds the checked type of each type-test pattern.
+pub(super) fn collect_tested_types_arena(
+    arena: &ArenaProgram,
+    pattern: crate::syntax::arena::PatternId,
+    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
+    tested: &mut Vec<Type>,
+) {
+    use crate::syntax::arena::ArenaPatternKind;
+    match arena.arena.pattern(pattern).kind {
+        ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
+            collect_tested_types_arena(arena, child, pattern_types, tested)
+        }
+        ArenaPatternKind::Alternation(items) => {
+            for item in arena.arena.pattern_ids(items) {
+                collect_tested_types_arena(arena, item, pattern_types, tested);
+            }
+        }
+        ArenaPatternKind::TestName { .. } | ArenaPatternKind::Type { .. } => {
+            tested.extend(pattern_types.get(&pattern).cloned());
+        }
+        _ => {}
+    }
 }
 
 pub(super) fn patterns_are_exhaustive_arena(
@@ -205,6 +232,7 @@ pub(super) fn patterns_are_exhaustive_arena(
     patterns: impl Iterator<Item = crate::syntax::arena::PatternId>,
     type_defs: &FxHashMap<Name, TypeDefBody>,
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
+    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
 ) -> bool {
     use crate::syntax::arena::ArenaPatternKind;
     fn irrefutable(
@@ -280,7 +308,11 @@ pub(super) fn patterns_are_exhaustive_arena(
     let mut booleans = [false; 2];
     let mut empty_list = false;
     let mut nonempty_list = false;
+    let mut tested = Vec::new();
     for pattern in patterns {
+        if matches!(value_ty, Type::Union(_)) {
+            collect_tested_types_arena(arena, pattern, pattern_types, &mut tested);
+        }
         if covered(
             arena,
             pattern,
@@ -305,6 +337,10 @@ pub(super) fn patterns_are_exhaustive_arena(
     match value_ty {
         Type::List(_) => empty_list && nonempty_list,
         Type::Bool => booleans.iter().all(|value| *value),
+        // A union is covered when each member has a type test that accepts it.
+        Type::Union(members) => members
+            .iter()
+            .all(|member| tested.iter().any(|tested| member.matches_expected(tested))),
         Type::Result(_, _) => constructors.contains(&Name::intern("Ok")) && constructors.contains(&Name::intern("Err")),
         Type::Tag(name) => match type_defs.get(name).or_else(|| type_defs.values().find(|body|
             matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *name)))) {
@@ -628,6 +664,9 @@ impl Checker {
         } else if ty.is_result() {
             diagnostic =
                 diagnostic.with_note("unwrap the Result with `?` or `??`, then compare its value");
+        } else if matches!(ty, Type::Union(_)) {
+            diagnostic = diagnostic
+                .with_note("narrow the union with `value is Member` before using it as a condition");
         }
         self.diagnostics.push(diagnostic);
     }
@@ -1121,6 +1160,26 @@ impl Checker {
                     return ConditionNarrowings {
                         when_true: vec![binding.proof.fact(name, path, (**present).clone())],
                         when_false: Vec::new(),
+                // A type test splits a union's members: the ones it accepts
+                // remain when it passes, the others when it fails.
+                if let Type::Union(members) = &subject_ty {
+                    let Some(tested) = self.pattern_test_member_types(arena, pattern) else {
+                        return ConditionNarrowings::default();
+                    };
+                    let (accepted, rest): (Vec<_>, Vec<_>) = members.iter().cloned().partition(
+                        |member| tested.iter().any(|tested| member.matches_expected(tested)),
+                    );
+                    let fact = |mut side: Vec<Type>| {
+                        let ty = match side.len() {
+                            0 => return Vec::new(),
+                            1 => side.pop().expect("one member"),
+                            _ => Type::Union(side),
+                        };
+                        vec![binding.proof.fact(name, path.clone(), ty)]
+                    };
+                    return ConditionNarrowings {
+                        when_true: fact(accepted),
+                        when_false: fact(rest),
                     };
                 }
                 let ty = self.pattern_test_narrowed_type(arena, pattern);
@@ -1407,6 +1466,10 @@ impl Checker {
             .unwrap_or_else(|| match iter_ty {
                 Type::Any => Type::Any,
                 Type::Unknown => Type::Unknown,
+                ref union @ Type::Union(_) => {
+                    self.reject_unnarrowed_union(union, "iteration", arena.arena.expr(iter).span);
+                    Type::Unknown
+                }
                 _ => {
                     self.error(
                         arena.arena.expr(iter).span,
@@ -3082,7 +3145,7 @@ impl Checker {
                     .get(&arena.arena.expr(value).span)
                     .cloned()
                     .unwrap_or(Type::Unknown);
-                match_is_exhaustive_arena(arena, &ty, arms, &self.type_defs, &self.tag_variants)
+                match_is_exhaustive_arena(arena, &ty, arms, &self.type_defs, &self.tag_variants, &self.pattern_test_types)
                     && arms
                         .iter()
                         .all(|arm| self.block_definitely_exits_arena(arena, arm.block))
@@ -3292,7 +3355,7 @@ impl Checker {
                         .filter(|arm| arm.guard.is_none())
                         .map(|arm| arm.pattern),
                     &self.type_defs,
-                    &self.tag_variants,
+                    &self.tag_variants, &self.pattern_test_types,
                 ) && arms
                     .iter()
                     .all(|arm| self.return_inference_block_returns(arena, arm.block))
@@ -3645,7 +3708,7 @@ impl Checker {
             &value_ty,
             arm_list,
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) && arm_list
             .iter()
             .all(|arm| block_always_returns_arena(arena, arm.block));
@@ -3711,7 +3774,7 @@ impl Checker {
             &value_ty,
             arm_list,
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             let unguarded = arm_list

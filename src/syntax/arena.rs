@@ -474,6 +474,7 @@ pub enum ArenaTypeExprTag {
     Module,
     Result,
     Optional,
+    Union,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -2345,6 +2346,26 @@ impl<'a> ArenaProgramBuilder<'a> {
             ArenaTypeExprData::new(
                 base.index() as u32,
                 u32::try_from(start).expect("AST arena exceeded u32 type argument offsets"),
+            ),
+            span,
+        )
+    }
+
+    /// `Union[A, B, ...]`: the members are stored in the order written.
+    pub fn push_union_type_expr(&mut self, members: &[TypeExprId], span: Span) -> TypeExprId {
+        let start = self.lowerer.arena.extra.len();
+        self.lowerer.arena.extra.push(
+            u32::try_from(members.len()).expect("AST arena exceeded u32 union member counts"),
+        );
+        self.lowerer
+            .arena
+            .extra
+            .extend(members.iter().map(|id| id.index() as u32));
+        self.push_type_expr_row(
+            ArenaTypeExprTag::Union,
+            ArenaTypeExprData::new(
+                0,
+                u32::try_from(start).expect("AST arena exceeded u32 union member offsets"),
             ),
             span,
         )
@@ -4625,6 +4646,18 @@ impl AstArena {
     }
 
     pub fn applied_type_arguments(
+        &self,
+        id: TypeExprId,
+    ) -> impl ExactSizeIterator<Item = TypeExprId> + '_ {
+        let start = self.type_expr_data[id.index()].rhs as usize;
+        let len = self.extra[start] as usize;
+        self.extra[start + 1..start + 1 + len]
+            .iter()
+            .map(|raw| TypeExprId::from_index(*raw as usize))
+    }
+
+    /// The members of a `Union[...]` type expression, in the order written.
+    pub fn union_type_members(
         &self,
         id: TypeExprId,
     ) -> impl ExactSizeIterator<Item = TypeExprId> + '_ {

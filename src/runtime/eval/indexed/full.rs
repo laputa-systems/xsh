@@ -2875,6 +2875,7 @@ fn executable_type(ty: &Type) -> Type {
         ),
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
+        Type::Union(members) => Type::Union(members.iter().map(executable_type).collect()),
         Type::Result(ok, error) => Type::Result(
             Box::new(executable_type(ok)),
             Box::new(executable_type(error)),
@@ -2959,7 +2960,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Map(_, _) => LoweredType::Map,
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
-        Type::Null | Type::Optional(_) => LoweredType::Any,
+        Type::Null | Type::Optional(_) | Type::Union(_) => LoweredType::Any,
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
@@ -11068,6 +11069,9 @@ proc configured() [] -> Int {
                     PreparedSchema::List(schema)
                     | PreparedSchema::Map(_, schema)
                     | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    PreparedSchema::Union(_, members) => members
+                        .iter_mut()
+                        .any(|schema| change_mapping(Arc::make_mut(schema))),
                     PreparedSchema::Validate(_) => false,
                 }
             }
@@ -11140,6 +11144,116 @@ proc configured() [] -> Int {
                     .expect("wire enum function exists");
                 assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
             }
+        });
+    }
+
+    // A union reaches the verified program as a type-pool row and, where a
+    // member converts wire strings, as a prepared schema that tries the
+    // member schemas in the order written. Corrupting either is rejected.
+    #[test]
+    fn union_types_and_schemas_reject_corruption_in_a_lowered_program() {
+        use super::super::super::require::PreparedSchema;
+        run_with_large_stack(|| {
+            let source = r#"enum UnionMode: Str { Fast = "fast", Slow = "slow" }
+type UnionTask = {tool: Str, args: List[Union[Str, Path]], level: Union[Int, UnionMode]}
+
+pure union_task(source: Str) -> Result[Str] {
+  let task = json.decode(source)?.require(UnionTask)?
+  let level = match task.level {
+    count is Int => f"{count}",
+    _ is UnionMode => "mode",
+  }
+  return Ok(f"{task.tool} {level} {task.args.len()}")
+}
+"#;
+            let program = Arc::new(fixture("union-types.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            for (raw, expected) in [
+                ("{\"tool\":\"make\",\"args\":[\"all\"],\"level\":3}", "make 3 1"),
+                ("{\"tool\":\"make\",\"args\":[],\"level\":\"fast\"}", "make mode 0"),
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "union_task")),
+                        LoweredFunctionKind::Pure,
+                        &[Value::Str(Arc::from(raw))],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("union function exists");
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
+            }
+
+            let mut one_member = (*program).clone();
+            assert!(one_member.store.semantic.truncate_first_union_for_test());
+            assert!(
+                FullVerifier::verify(&one_member)
+                    .unwrap_err()
+                    .message
+                    .contains("fewer than two members")
+            );
+
+            fn union_schema(schema: &mut PreparedSchema) -> Option<&mut PreparedSchema> {
+                match schema {
+                    PreparedSchema::Union(..) => Some(schema),
+                    PreparedSchema::Record(fields) => fields
+                        .iter_mut()
+                        .find_map(|(_, schema)| union_schema(Arc::make_mut(schema))),
+                    _ => None,
+                }
+            }
+            let record = program
+                .store
+                .prepared_schemas
+                .iter()
+                .position(|schema| matches!(schema.as_ref(), PreparedSchema::Record(_)))
+                .expect("the record schema with a converting union slot");
+
+            // The member schemas no longer line up with the members.
+            let mut reordered = (*program).clone();
+            let Some(PreparedSchema::Union(_, members)) =
+                union_schema(Arc::make_mut(&mut reordered.store.prepared_schemas[record]))
+            else {
+                panic!("the level slot is a converting union");
+            };
+            members.reverse();
+            assert!(
+                FullVerifier::verify(&reordered)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            // The schema claims a member order the checked type does not have.
+            let mut retyped = (*program).clone();
+            let Some(PreparedSchema::Union(ty, members)) =
+                union_schema(Arc::make_mut(&mut retyped.store.prepared_schemas[record]))
+            else {
+                panic!("the level slot is a converting union");
+            };
+            let Type::Union(listed) = ty else {
+                panic!("a union schema carries its union type");
+            };
+            listed.reverse();
+            members.reverse();
+            assert!(
+                FullVerifier::verify(&retyped)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            let mut dropped = (*program).clone();
+            let Some(PreparedSchema::Union(_, members)) =
+                union_schema(Arc::make_mut(&mut dropped.store.prepared_schemas[record]))
+            else {
+                panic!("the level slot is a converting union");
+            };
+            members.pop();
+            assert!(FullVerifier::verify(&dropped).is_err());
         });
     }
 

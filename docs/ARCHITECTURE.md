@@ -230,7 +230,10 @@ annotated ones, and `xsht test` in the project.
    argument binding, narrowing, inference, effects, constants) is made once, by
    the checker. Two routes that must agree (full and compact checking, the
    recursive and frame evaluators) share one implementation or are pinned by a
-   parity test.
+   parity test. Which member of a `Union[...]` a value belongs to is one such
+   decision: the checker, the runtime type test, and schema decoding all ask
+   `sema::types::first_accepting_union_member`, and `union_member_error` is
+   the one definition of a well-formed union for both type resolvers.
 3. **Lowering consumes checker facts.** Lowering never checks a body again,
    selects an overload, or binds arguments. A call without a checked plan lowers
    only its positional arguments.

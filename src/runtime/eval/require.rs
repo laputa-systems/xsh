@@ -12,6 +12,11 @@ pub(super) enum PreparedSchema {
     Map(Type, Arc<PreparedSchema>),
     Optional(Arc<PreparedSchema>),
     WireEnum(Arc<WireEnumMapping>),
+    /// A union with a member that converts wire strings. Decoding tries the
+    /// member schemas in the order the union lists them and publishes the
+    /// first that accepts. A union no member of which converts is a plain
+    /// `Validate`, which asks the same question without rebuilding the value.
+    Union(Type, Vec<Arc<PreparedSchema>>),
 }
 
 impl PreparedSchema {
@@ -26,6 +31,17 @@ impl PreparedSchema {
             Type::List(item) => Self::List(Self::compile(item, enums)),
             Type::Map(key, item) => Self::Map((**key).clone(), Self::compile(item, enums)),
             Type::Optional(item) => Self::Optional(Self::compile(item, enums)),
+            Type::Union(members) => {
+                let schemas = members
+                    .iter()
+                    .map(|member| Self::compile(member, enums))
+                    .collect::<Vec<_>>();
+                if schemas.iter().any(|schema| schema.converts_wire()) {
+                    Self::Union(ty.clone(), schemas)
+                } else {
+                    Self::Validate(ty.clone())
+                }
+            }
             Type::Tag(name) if enums.mappings.contains_key(name) => {
                 Self::WireEnum(enums.mappings[name].clone())
             }
@@ -40,6 +56,7 @@ impl PreparedSchema {
             Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) => {
                 schema.converts_wire()
             }
+            Self::Union(_, members) => members.iter().any(|schema| schema.converts_wire()),
             Self::Validate(_) => false,
         }
     }
@@ -58,6 +75,7 @@ impl PreparedSchema {
             Self::Record(fields) => fields.iter().all(|(_, schema)| schema.valid()),
             Self::Map(key, schema) => key.is_map_key() && schema.valid(),
             Self::List(schema) | Self::Optional(schema) => schema.valid(),
+            Self::Union(_, members) => members.iter().all(|schema| schema.valid()),
             Self::Validate(_) => true,
         }
     }
@@ -74,6 +92,9 @@ impl PreparedSchema {
             Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) => {
                 schema.visit_wire_mappings(visit)
             }
+            Self::Union(_, members) => members
+                .iter()
+                .all(|schema| schema.visit_wire_mappings(visit)),
             Self::Validate(_) => true,
         }
     }
@@ -81,6 +102,17 @@ impl PreparedSchema {
     pub(super) fn matches_type(&self, ty: &Type) -> bool {
         match (self, ty) {
             (Self::Validate(expected), actual) => expected == actual,
+            // The member schemas are tried in the order the type lists its
+            // members, so each has to be the schema of the member beside it.
+            (Self::Union(expected, schemas), actual) => {
+                expected == actual
+                    && matches!(expected, Type::Union(members)
+                        if members.len() == schemas.len()
+                            && schemas
+                                .iter()
+                                .zip(members)
+                                .all(|(schema, member)| schema.matches_type(member)))
+            }
             (Self::WireEnum(mapping), Type::Tag(name)) => mapping.type_name == *name,
             (Self::Record(schemas), Type::Record(fields)) => {
                 schemas.len() == fields.len()
@@ -165,6 +197,16 @@ impl PreparedSchema {
                 } else {
                     schema.decode(evaluator, value, path, span)
                 }
+            }
+            Self::Union(ty, members) => {
+                let mut decoded = None;
+                crate::sema::types::first_accepting_union_member(members, |schema| {
+                    decoded = schema.decode(evaluator, value.clone(), path, span).ok();
+                    decoded.is_some()
+                });
+                decoded.ok_or_else(|| {
+                    failure(format!("expected {ty}, found {}", value.type_name()))
+                })
             }
             Self::Record(fields) => {
                 let mut value = value;

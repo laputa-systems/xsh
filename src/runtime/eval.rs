@@ -7160,6 +7160,12 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::Optional(inner) => {
             matches!(value, Value::Null) || value_matches_static_type(value, inner)
         }
+        Type::Union(members) => {
+            crate::sema::types::first_accepting_union_member(members, |member| {
+                value_matches_static_type(value, member)
+            })
+            .is_some()
+        }
     }
 }
 
@@ -7286,6 +7292,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {
             matches!(value, LoweredValue::Null) || lowered_value_matches_static_type(value, inner)
+        }
+        Type::Union(members) => {
+            crate::sema::types::first_accepting_union_member(members, |member| {
+                lowered_value_matches_static_type(value, member)
+            })
+            .is_some()
         }
     }
 }
