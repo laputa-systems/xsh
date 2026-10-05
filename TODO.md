@@ -395,7 +395,8 @@ sites that go on to read the record.
   `xsht fmt --check` and `xsht desugar` on about 80 nested calls, a spread
   wider than a few thousand fields, unbounded user recursion, and a million
   nested f-strings (over two minutes in the lexer). `xshi` has no thread
-  with a sized stack. A debug `xsh` or `xsht` now runs on a 64 MiB thread.
+  with a sized stack. A debug `xsh` or `xsht` now runs on a 64 MiB thread,
+  and `cargo dev` works again on x86_64 Alpine.
   `lower_named_spread_call` clones the whole program and its bodies for
   each call. `xsht fmt` rewrites `assert (run.text ... ?) == x` without the
   parentheses.

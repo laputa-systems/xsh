@@ -7,128 +7,161 @@ owns how the work moves, and starts with where it stands.
 
 ## Handoff
 
-The campaign paused on 2026-10-05 with no lane running. About two fifths of
+The campaign paused on 2026-10-05 after its third wave. About two thirds of
 the backlog is merged. Everything needed to resume is in two repositories and
-this file; nothing lives only on the machine the first waves ran on.
+this file.
 
 ### Where the work is
 
-- **`master`** has every merged item, including the commits that were held
-  back for migrations (the `abort` removal and the two check errors).
-  `xsht check`, `xsht lint`, and `xsht fmt --check` are clean on it.
-- **`campaign-utils`** is rebased onto `master`: its fifty commits, a commit
-  that makes the typed fs primitives build on macOS, and a commit that
-  brings its applets and collectors to the current language. Its history was
-  rewritten, so it needs a forced push before another machine can use it.
-- **Laputa `master`** is migrated through every lint the campaign added,
-  one commit per rule, and checks clean (`TODO.md`, "Laputa").
-- `campaign-harden` is fully merged. Lane worktrees and the local branches
-  `worktree-agent-*`, `cmd-*`, and `err-*` are leftovers of the first
-  machine and hold nothing that is not on `master`.
+- **`master`** has every merged item. `xsht check`, `xsht lint`, and
+  `xsht fmt --check` are clean on it, and `make docs-check` passes. The
+  third wave's commits are local until they are pushed.
+- **Laputa `master`** is migrated through every lint the campaign has
+  merged, one commit per rule, and checks clean (`TODO.md`, "Laputa"). Those
+  commits are local too.
+- **`campaign-utils`** was not touched by the third wave. It is rebased onto
+  the `master` of 2026-10-04 and needs a rebase onto today's, a forced push,
+  and the Linux run described below.
+- One commit is held: `af7cf21b` on the `ERR` lane's branch makes three
+  opt-in lints defaults (`TODO.md`, `ERR-6`).
+- Lane worktrees are under `.claude/worktrees/` with branches named
+  `worktree-agent-*`. They hold nothing that is not on `master` except the
+  held commit and whatever a lane had in progress when it last reported.
 
 ### Setting up
 
 1. Check out `xsh` and `laputa` side by side: tests and migrations read
    Laputa at `../laputa`, or at `XSH_LAPUTA_CORPUS`.
-2. Build with `cargo build --release -p xsh --bins -p xsht --bin xsht`; the
-   toolchain is pinned in `rust-toolchain.toml`.
-3. Run the gates once, before changing anything, so the machine has its own
+2. Build with `cargo build --release -p xsh -p xsht --bin xsh --bin xsht`;
+   the toolchain is pinned in `rust-toolchain.toml`. `-p xsh --bins` also
+   builds the statistics tools and test helpers, each with its own link.
+3. On a musl host, put `LD_PRELOAD=/usr/lib/libjemalloc.so.2` on every
+   `cargo` command that builds, and on none that runs tests (`TODO.md`,
+   `ITER-8`): build a test target with `--no-run` first.
+4. Run the gates once, before changing anything, so the machine has its own
    baseline (`docs/TESTING.md` has every command):
    `target/release/xsht check`, `lint`, `fmt --check`, and `test`;
    `cargo test --release -p xsht --no-fail-fast`;
    `cargo test --release --test integration --no-fail-fast -- --skip runtime::coverage:: --skip runtime::examples::`;
    `cargo test -p xsh --lib`; `cargo test -p xsh-registry`;
-   `make docs-check`.
-4. Record the timing lines `xsht check` and `xsht lint` print, here and in
-   Laputa. No baseline was ever taken on a quiet machine; on a ten-core M1
-   Pro `xsht check` takes about 3 s here and 7 s on Laputa, and `xsht lint`
-   about 10 s here.
+   `make docs-check`. With the preload the sequence takes eight minutes on a
+   32-thread x86_64 machine.
 5. The lane agent is `.claude/agents/xsh-campaign.md`. On macOS, if
    `make docs` rewrites a doc you did not touch, a snippet depends on GNU
-   tools: put GNU coreutils first on `PATH`. All Linux work goes through the
-   `Dockerfile.test` container (`cargo dev test linux`).
+   tools: put GNU coreutils first on `PATH`. The supported Linux target is
+   the `Dockerfile.test` container (`cargo dev test linux`); the third wave
+   ran on an x86_64 Alpine host instead, which is evidence about the code
+   and not about that target.
+
+### Timing lines
+
+On the x86_64 Alpine host, with nothing else running, before and after the
+third wave:
+
+| | before | after |
+|---|---|---|
+| `xsht check` here | 1.81 s (check 9.6 s of thread time) | 1.84 s (9.5 s) |
+| `xsht lint` here | 8.33 s (check 22.3 s, lint 7.7 s) | 8.05 s (check 25.3 s, lint 3.5 s) |
+| `xsht check` in Laputa | 3.89 s (check 80 s, under load) | 2.84 s (57 s) |
+| `xsht lint` in Laputa | not taken | 11.07 s (check 37 s, lint 5.7 s) |
 
 ### What is known to fail on `master`
 
-On macOS, with nothing else running. Each is recorded in `TODO.md`,
-`LINT-8`.
+On the x86_64 Alpine host. Everything else in the gate sequence passes.
 
-- Native suite: 2 of about 2,245,
-  `tests/xsh/pattern-conditionals.xsh::test_pattern_conditional_lint_retains_comments_guards_and_error_bindings`
-  and
-  `tests/xsh/pattern-tests.xsh::test_pattern_predicate_lint_preserves_comments_and_bindings`.
-- `xsht` integration target: 3 lint tests,
-  `lint::fs_root_receiver_cli_fix_checks_an_isolated_fixture_and_converges`,
-  `lint::linter_list_compound_assignment_reaches_every_argument_that_leaves_the_local_alone`,
-  and `lint::linter_reports_dead_code_after_all_returning_match`; and
-  `lint_performance::repository_lint_is_clean_within_wall_budget`, which
-  passes alone and fails when the rest of the target runs beside it.
-- The root integration target, the `xsh` unit tests, the registry tests,
-  and `make docs-check` passed in the last full run; eight stale fixtures
-  were fixed after it and rerun one by one, not as a whole.
+- `tests/xsh/stdlib/fs.xsh::test_fs_tree_metadata_install_and_locking` and
+  `runtime::linux::linux_real_read_only_surfaces_work_in_container`: mount
+  listing fails where Docker's mounts refuse `statvfs` (`TODO.md`,
+  `PATH-18`, which needs a decision).
+- `lint_performance::repository_lint_is_clean_within_wall_budget` fails when
+  the rest of the `xsht` integration target runs beside it and passes alone
+  (`TODO.md`, `ITER-5`).
+- In Laputa, `xsht test` has nine failures, none from this wave (`TODO.md`,
+  "Laputa").
 
 ### What `campaign-utils` still needs
 
-- A Linux run. After the rebase it was built and tested only on macOS:
-  `xsht check`, `lint`, and `fmt --check` are clean, and the native suite is
-  2,444 passed and 11 failed. Two of the failures are the ones above; nine
-  are tests of Linux behavior with no macOS skip (`tests/xsh/stdlib/fs_prims.xsh`,
-  six tests; `core/tests/test-cat.xsh`, `test-tee.xsh`, and
-  `test-hostname.xsh`, one each). Run them, and the uutils and GNU suites
-  the branch tracks, in the container.
+- A rebase onto today's `master`, which has moved by about ninety commits
+  and by every lint migration of the third wave.
+- A Linux run. After its last rebase it was built and tested only on macOS:
+  `xsht check`, `lint`, and `fmt --check` were clean, and the native suite
+  was 2,444 passed and 11 failed. Nine of those are tests of Linux behavior
+  with no macOS skip (`tests/xsh/stdlib/fs_prims.xsh`, six tests;
+  `core/tests/test-cat.xsh`, `test-tee.xsh`, and `test-hostname.xsh`, one
+  each). Run them, and the uutils and GNU suites the branch tracks, in the
+  container.
 - A decision on the macOS stand-ins: `fs.mknod` fails there with `ENOTSUP`,
   and `statvfs` reports `nodev` and `noexec` as false.
 - A look at the files where the rebase met the lint migrations
   (`core/lib/system_report_live.xsh`, `core/lib/system_report_collect.xsh`,
   `core/head.xsh`, `tail.xsh`, `tee.xsh`, `cat.xsh`, `rev.xsh`, `uname.xsh`).
-  Conflicted hunks took the branch's side and were migrated again by
-  autofix; one list literal that git merged wrongly without reporting a
-  conflict was repaired by hand, and the checker would have caught another.
 
 ### How a merge is done
 
 The wave loop below says when; this is how, in the order that worked.
 
 1. Cherry-pick the lane's commits. A conflict where both sides only add
-   lines (a `mod` line in `crates/xsht/src/lint.rs`, a registry row) keeps
-   both. A conflict in a generated file takes either side; the file is
-   regenerated in step 4. A conflict in XSH source between a lint migration
-   and a real edit takes the edit; step 3 migrates it again.
-2. `cargo check --workspace --all-targets`, then the release build. Compile
-   errors here are usually one lane's code meeting another lane's change to
-   a shared type.
+   lines (a `mod` line or an options field in `crates/xsht/src/lint.rs`, a
+   row in `src/diagnostic/code.rs`, a `SugarForm` variant) keeps both;
+   check each kept hunk for a closing line the two sides shared, because
+   keeping both drops it between them. A conflict in a generated file takes
+   either side; the file is regenerated in step 4. A conflict in XSH source
+   between a lint migration and a real edit takes the edit; step 3 migrates
+   it again. A conflict inside code that one side restructured goes back to
+   the lane that merges second, to rebase.
+2. `cargo check --workspace --all-targets`, then the release build. Stop on
+   a failure: every later step would run the previous binary.
 3. `xsht check`, then `xsht lint --only RULE --fix` for each new rule, then
-   `xsht fmt` on the files `xsht fmt --check` names. Fix what has no
-   autofix by hand.
+   `xsht fmt` on the files `xsht fmt --check` names. A fix can expose a
+   finding of an older rule; apply that rule too. Fix what has no autofix
+   by hand. Read the diff of the test files: a lint rewrites the old shape
+   that a test of the new feature compares against, and the spellings that
+   documentation snippets exist to show.
 4. `make docs`, and
    `target/release/xsht api summary --format jsonl > tests/fixtures/modules/standard-api-surface.jsonl`.
-5. Commit, run the gates, and send failures back to the lane.
+5. Commit, run the gates, and send failures back to the lane with the
+   command and its output.
 6. Apply the same rules in Laputa, one commit per rule. Then recompute the
    `sha256` of every local source its `PKGBUILD.xsh` files declare under
    `packages/*/files/`, regenerate
-   `tests/pm/fixtures/plans/basic-aarch64.json` from the output of
-   `tests/pm/pm_plan.xsh::test_build_plan_json_round_trip_and_detects_corruption`,
-   and run `xsht check` and `xsht test` there.
+   `tests/pm/fixtures/plans/basic-aarch64.json` (`TODO.md`, "Laputa"), and
+   run `xsht check` and `xsht test` there. Its test suite is a gate of its
+   own.
 
 ### Next
 
-All with closed designs: `PROP-5` to `PROP-7`, then `PROP-8` and `PROP-9`;
-`ERR-8`; `PATH-7` to `PATH-10`; `SCOPE-6` and `SCOPE-12`; `MATCH-2`,
-`MATCH-3`, `MATCH-5`, `MATCH-6`; `TYPE-2`, `TYPE-3`; `CMD-5`, `CMD-6`;
-`LINT-2` to `LINT-8`. `ITER` (iteration speed) has no design yet and is
-worth doing before another wide wave: start with `ITER-1`.
+Most of what is left waits on a decision: `TODO.md` "Decisions" lists the
+open points, and the ones the third wave met carry the proposal of the lane
+that met them. Closed
+and ready: `PROP-9` (second step), `PATH-10` (second step), `TYPE-6`,
+`MOD-9`, `CMD-16`, `CMD-18`, and the defect lists `PROP-12`, `PATH-19`,
+`MATCH-12`, `TYPE-9`, `LINT-9`, `LINT-10`. `ITER` has measurements for one
+machine (`ITER-8`) and no design.
 
-### What the first waves taught
+### What the waves taught
 
-- The gate cycle is the bottleneck: fifteen minutes alone, 25 to 40 with
-  lanes building. Five or six lanes kept the merge queue short; eight did
-  not.
+- The gate cycle was the bottleneck at 25 to 40 minutes; at eight minutes
+  it is not, and a lane's work can be merged and gated as it reports. Seven
+  lanes at once kept up.
 - Lanes that touch syntax conflict with each other. Merge those one at a
   time, and hold the branch still while one of them rebases.
 - A lane cannot see another lane's change to a shared type until the merge,
   so it runs `cargo check --workspace --all-targets` before it reports.
-- Applying each autofix to Laputa is a gate in its own right: it found a fix
-  that built its replacement from the wrong file's text.
+- A lane runs only the tests it wrote, so the gates find what its change
+  did to everything else. The same four things failed again and again:
+  a new form missing from the grammar productions in one of the positions
+  the parser accepts it; a new `.xsh` test file or snippet with lint or
+  format findings; a stricter check that rejects a program living in a test
+  string; and a registry or symbol table that a new builtin name was added
+  to in one place and not another. A brief that names them saves a cycle.
+- A lane's context runs out after three or four slices. Give the next items
+  to a fresh lane with the merged commits as its model.
+- An independent review of a checker and lowering slice, given the code and
+  not the lane's report, found six real defects in typed callables before
+  the merge.
+- Applying each autofix to Laputa, and then running Laputa's tests, is a
+  gate in its own right: it found a fix that built its replacement from the
+  wrong file's text, and a merged write call that lost setuid bits.
 - A rule that turns a warning into an error ships in two commits, and the
   second waits for both corpora to be migrated.
 - Git can merge a reformatted multi-line literal with a one-line edit inside
