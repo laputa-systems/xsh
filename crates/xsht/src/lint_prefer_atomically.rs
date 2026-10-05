@@ -213,11 +213,16 @@ fn deferred_removal(arena: &AstArena, stmt: StmtId) -> Option<Name> {
 fn renamed_path(arena: &AstArena, expr: ExprId) -> Option<Rename> {
     let (path, arguments) = path_operation(arena, expr, "rename")?;
     let temporary = local(arena, path)?;
+    // The destination is the function's second operand, or the method's
+    // argument, which is labeled `to:`.
+    let destination = |argument: &ArenaCallArgKind| match argument {
+        ArenaCallArgKind::Positional(dest) => Some(*dest),
+        ArenaCallArgKind::Named { name, value, .. } if *name == "to" => Some(*value),
+        _ => None,
+    };
     let (dest, overwrite) = match &arguments[..] {
-        [ArenaCallArgKind::Positional(dest)] => (*dest, false),
-        [ArenaCallArgKind::Positional(dest), flag] if is_true_flag(arena, flag, "overwrite") => {
-            (*dest, true)
-        }
+        [dest] => (destination(dest)?, false),
+        [dest, flag] if is_true_flag(arena, flag, "overwrite") => (destination(dest)?, true),
         _ => return None,
     };
     Some(Rename {
@@ -662,7 +667,7 @@ mod tests {
 
     #[test]
     fn method_spellings_and_a_run_are_rewritten() {
-        let source = "proc save(tag: Str, saved: Path) [fs, process, error] {\n  let partial = fp\"{saved}.partial\"\n  partial.remove(missing_ok: true)?\n  defer partial.remove(missing_ok: true)\n  run docker save --output $partial $tag\n  partial.rename(saved, overwrite: true)?\n}\n";
+        let source = "proc save(tag: Str, saved: Path) [fs, process, error] {\n  let partial = fp\"{saved}.partial\"\n  partial.remove(missing_ok: true)?\n  defer partial.remove(missing_ok: true)\n  run docker save --output $partial $tag\n  partial.rename(to: saved, overwrite: true)?\n}\n";
         let diagnostics = published_files(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert_eq!(

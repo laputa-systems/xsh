@@ -148,7 +148,7 @@ if value != null { f(second: if true { value = null; 2 } else { 2 }, ...value) }
 }
 
 test test_named_argument_spreads_support_modules_methods_and_rest {
-  assert "abc".replace(...{from: "b", to: "X"}) == "aXc"
+  assert "abc".replace(...{from: "b", with: "X"}) == "aXc"
   assert shlex.join(...{argv: ["a", "b"]}) == "a b"
   assert spread_rest(...{first: 1}, 2, 3) == [1, 2, 3]
   let tail = [2, 3]
@@ -174,9 +174,9 @@ test test_named_argument_spreads_project_before_later_mutation {
 test test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure { |ctx|
   let ordered = test.run_script(
     ctx,
-    r"""type ReplaceOptions = {from: Str, to: Str}
+    r"""type ReplaceOptions = {from: Str, with: Str}
 proc receiver() -> Str { print receiver; return "abc" }
-proc options() -> ReplaceOptions { print options; return ReplaceOptions(from: "b", to: "X") }
+proc options() -> ReplaceOptions { print options; return ReplaceOptions(from: "b", with: "X") }
 print ${receiver().replace(...options())}
 """,
   )?

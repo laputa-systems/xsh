@@ -96,7 +96,7 @@ test test_value_pipeline_holes_preserve_optional_argument_laziness { |ctx|
 proc input() [] -> Str { print "input"; "a" }
 proc receiver() [] -> Str? { print "receiver"; null }
 proc other() [] -> Str { print "other"; "b" }
-let selected = input() |> receiver()?.replace(_, other())
+let selected = input() |> receiver()?.replace(_, with: other())
 print (selected ?? "missing")
 """,
     [],
@@ -143,7 +143,7 @@ error Stop = Stopped(message: Str)
 proc input() [] -> Result[Str, Stop] { print "input"; Err(Stop.Stopped(message: "stop")) }
 proc receiver() [] -> Str { print "receiver"; "a" }
 proc other() [] -> Str { print "other"; "b" }
-let selected = input()? |> receiver().replace(_, other())
+let selected = input()? |> receiver().replace(_, with: other())
 print $selected
 """,
     [],

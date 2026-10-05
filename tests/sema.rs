@@ -850,7 +850,7 @@ let words = "one two".words()
 let split = "a,b".split(",")
 let fields = "a::b".fields(delimiter: ":")
 let joined = fields.join(separator: "|")
-let replaced = joined.replace("|", ",")
+let replaced = joined.replace("|", with: ",")
 let reversed = replaced.reverse()
 let wrapped = "alpha beta".wrap(8)
 let slug = "alpha beta".translate(" ", "-")
@@ -1044,7 +1044,7 @@ let _fifo = fs.mkfifo(fp"{p}/control", 0o600) ?
 let _synced_file = fs.fsync(file) ?
 let _synced_all = fs.sync() ?
 let _link = fs.symlink(file, fp"{p}/link") ?
-let _hard = file.hardlink(fp"{p}/hard") ?
+let _hard = file.hardlink(at: fp"{p}/hard") ?
 let target = fp"{p}/link".readlink() ?
 let _unlinked = fp"{p}/hard".unlink() ?
 let _rmdir = fp"{p}/empty".remove_dir() ?
@@ -1160,11 +1160,11 @@ let parent = file.parent
 let renamed = file.with_ext("log")
 let stripped = renamed.strip_prefix(p) ?
 let path_meta = file.metadata()?
-let _path_copy = file.copy(fp"{p}/copy2")?
-let _path_rename = fp"{p}/copy2".rename(fp"{p}/renamed2", overwrite: true)?
+let _path_copy = file.copy(to: fp"{p}/copy2")?
+let _path_rename = fp"{p}/copy2".rename(to: fp"{p}/renamed2", overwrite: true)?
 let _path_touch = fp"{p}/stamp2".touch()?
 let _path_truncate = fp"{p}/renamed2".truncate(0)?
-let _path_hard = file.hardlink(fp"{p}/hard2")?
+let _path_hard = file.hardlink(at: fp"{p}/hard2")?
 let path_target = fp"{p}/link".readlink()?
 let _path_unlink = fp"{p}/hard2".unlink()?
 let _path_rmdir = fp"{p}/empty2".remove_dir()?
@@ -1587,7 +1587,7 @@ let first: Str = matches[0].text
 let capture_re: Regex = regex.compile("^([^=]+)=(.*)$")?
 let captures: List[Str] = capture_re.captures("key=value")
 let rewrite_re: Regex = regex.compile("\\s+")?
-let rewritten: Str = rewrite_re.replace("a  b", " ")
+let rewritten: Str = rewrite_re.replace("a  b", with: " ")
 let compiled: Regex = regex.compile("WARN|ERR")?
 let compiled_pattern: Str = compiled.pattern
 let compiled_ok: Bool = compiled.matches("WARN build")
@@ -1596,7 +1596,7 @@ let compiled_first: Str = compiled_matches[0].text
 let compiled_pair: Regex = regex.compile("^([^=]+)=(.*)$")?
 let compiled_captures: List[Str] = compiled_pair.captures("key=value")
 let compiled_space: Regex = regex.compile("\\s+")?
-let compiled_rewritten: Str = compiled_space.replace("a  b", " ")
+let compiled_rewritten: Str = compiled_space.replace("a  b", with: " ")
 "#,
     );
 

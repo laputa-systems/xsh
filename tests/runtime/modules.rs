@@ -1277,9 +1277,9 @@ archive.compress(payload, auto_lzma)?
 let gz_probe = fp\"{{out}}/gzip.probe\"
 let bz2_probe = fp\"{{out}}/bzip2.probe\"
 let xz_probe = fp\"{{out}}/xz.probe\"
-auto_gz.copy(gz_probe)?
-auto_bz2.copy(bz2_probe)?
-auto_xz.copy(xz_probe)?
+auto_gz.copy(to: gz_probe)?
+auto_bz2.copy(to: bz2_probe)?
+auto_xz.copy(to: xz_probe)?
 let gz_data = archive.decompress_bytes(gz)?.utf8()?.trim()
 archive.decompress(bz2, fp\"{{out}}/a.bz2.out\")?
 archive.decompress(xz, fp\"{{out}}/a.xz.out\")?
@@ -1299,7 +1299,7 @@ match archive.compress(payload, fp\"{{out}}/bad.gz\", format: \"auto\", level: 1
   }}
 }}
 let unknown = fp\"{{out}}/unknown.bin\"
-payload.copy(unknown)?
+payload.copy(to: unknown)?
 match archive.decompress(unknown, fp\"{{out}}/unknown.out\") {{
   Err(e) => {{
     test.error_kind(e, \"archive-compression\")?

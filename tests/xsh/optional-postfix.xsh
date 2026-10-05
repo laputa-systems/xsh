@@ -49,8 +49,8 @@ proc present() [io] -> Str? { print "present"; return "x" }
 proc argument() [io] -> Str { print "argument"; return "x" }
 proc bound(value: Int) [io] -> Int { print $value; return value }
 proc values() [io] -> List[Int]? { print "list"; return [1, 2, 3] }
-print (absent()?.replace(from: argument(), to: argument()) ?? "absent")
-print (present()?.replace(from: argument(), to: argument()) ?? "absent")
+print (absent()?.replace(from: argument(), with: argument()) ?? "absent")
+print (present()?.replace(from: argument(), with: argument()) ?? "absent")
 let empty: List[Int]? = null
 print (empty?[bound(0)] ?? -1)
 let skipped = (empty?[bound(0)..bound(2)] ?? []).len()
@@ -231,7 +231,7 @@ test test_optional_postfix_null_branch_differential_witness { |ctx|
 proc fallback() [io] -> Str { print "fallback"; return "default" }
 proc argument() [io] -> Str { print "argument"; return "x" }
 proc label(name: Str?) [io] -> Str {
-  return if name == null { fallback() } else { name.replace(argument(), "y") }
+  return if name == null { fallback() } else { name.replace(argument(), with: "y") }
 }
 print label(null)
 print label("x")
@@ -247,7 +247,7 @@ print label("x")
 proc fallback() [io] -> Str { print "fallback"; return "default" }
 proc argument() [io] -> Str { print "argument"; return "x" }
 proc label(name: Str?) [io] -> Str {
-  return name?.replace(argument(), "y") ?? fallback()
+  return name?.replace(argument(), with: "y") ?? fallback()
 }
 print label(null)
 print label("x")

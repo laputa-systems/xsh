@@ -178,7 +178,7 @@ test test_read_lines_lint_fix_keeps_values_and_failures { |ctx|
 proc describe(source: Path) [fs, error] -> Str {
   match count(source) {
     Ok(total) => f"{total}",
-    Err(error) => error.message.replace("ROOT", ""),
+    Err(error) => error.message.replace("ROOT", with: ""),
   }
 }
 
