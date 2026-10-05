@@ -21,11 +21,10 @@ Closed. Each is written on its item below.
 
 | Item | Decision |
 |---|---|
-| `PROP-8`, `PROP-9`, `MATCH-8` | One propagation rule: a failure leaves a function only through a form visible at the site. See `PROP`. |
+| `PROP-9` | One propagation rule: a failure leaves a function only through a form visible at the site. See `PROP`. |
 | `PATH-11` | The defaults flip only after a lint has made today's defaults explicit at every call that relies on them. |
-| `PATH-12` | The type is named `RelPath`. |
 | `ERR-4` | `Err(.Variant(...))` requires a declared family-typed return. There is no rule that guesses a family. |
-| `TYPE-5`, `TYPE-6`, `PATH-12` | Instances of the one checker mechanism for validated types (`docs/ARCHITECTURE.md`, "Adding a validated type"); `.require(T)` is the conversion. |
+| `TYPE-5`, `TYPE-6` | Instances of the one checker mechanism for validated types (`docs/ARCHITECTURE.md`, "Adding a validated type"); `.require(T)` is the conversion. |
 | `TYPE-6` | `nominal type`. Identity only; field privacy is not part of it. |
 | `SCOPE-9` | Last, and narrow: use after a consuming operation in straight-line code of one scope. |
 
@@ -47,6 +46,14 @@ Still open; the item is not assigned until it is closed here:
 | `MATCH-5` | The lint has no behavior-preserving fix and `xsht lint` fails on any diagnostic: add a note severity that does not fail the gate (proposed), make the rule opt-in, or leave it on and fail Laputa's lint. |
 | `TYPE-3` | The set literal. `{a, b}` with bare names is already a record literal. A: braces are a set only where `Set[T]` is expected or an element is not a bare name, and the empty set is `set.empty()` (proposed). B: no literal, `set.of(a, b)`. |
 | `CMD-5` | Whether defaults may be computed (the item's example is, SPEC 3.2 requires constants; proposed: allow, evaluated after parsing and shown unevaluated in help); whether a module may declare `cli` entries; whether a bare `cli main(...)` may sit beside subcommand entries (proposed: no); how a path word is spelled (proposed: snake to kebab, as options). |
+| `CMD-6` | What `test.expect` returns: the output record, which makes a call that needs nothing more `let _ = test.expect(...)?` at 87 sites, or `Result[Unit]`, which the 384 sites that read the record cannot use. |
+| `ERR-6` | Exported message-only variants: delete the payloads by hand in both corpora (proposed), or let a variant without a payload accept `message:`, which changes SPEC 4.10. |
+| `PATH-11` | Confirm that only `remove` changes: `mkdir` already defaults to `parents: true`. |
+| `PATH-13` | `is_dir()`, `is_file()`, and `is_symlink()` fail on a missing path, as the kind comparison they replace did; returning `false` is friendlier and leaves 49 sites to migrate by hand. |
+| `PATH-20` | Whether `strip_prefix` returns `Result[RelPath]`, failing on an empty prefix and on a remainder that climbs out (proposed); whether `FsRoot` parameters become `RelPath`. |
+| `MATCH-13` | Whether a statement that starts `name as T` reads as a conversion, as `name is ...` does (proposed: yes; no command in either corpus starts with `as`); whether `Path as Str` is added. |
+| `SCOPE-13` | Whether an item failure or an early `return` cancels the `par-map` items already running. |
+| `TYPE-9` | Whether a function returning `Result[T, Family]` fits a callable type that returns `Result[T]`. It does not today; allowing it would be sound. |
 | literal braces | No accepted design (see "Open, without an accepted design"). |
 
 ## `PROP`: propagation and failure flow
@@ -110,25 +117,23 @@ signatures.
   Decided: the inferred form requires a declared family-typed return, and
   there is no guessing rule. Laputa gains family-typed returns where `ERR-5`
   narrows a signature; other sites keep the qualified spelling.
-- `ERR-6` The inferred-variant and positional-constructor lints are opt-in
-  (`[lint] prefer-inferred-variants`, `prefer-positional-constructors`)
-  because the repository lint gate requires zero diagnostics; enable them by
-  default after migrating the corpus (347 + 32 sites here, 13 + 7 in Laputa),
-  then delete the settings.
-  Runs as a migration once `ERR-3` and `ERR-4` have merged.
-- `ERR-8` `lint.prefer-implicit-message` is opt-in
-  (`[lint] prefer-implicit-messages`) because exported families get a note
-  and no fix: 184 message-only variants here (14 exported), 79 in Laputa (43
-  exported). Migrate both corpora, enable it by default, and delete the
-  setting.
-- `ERR-9` Qualified imported-enum arm heads (`k.File => ...`) do not count
-  toward exhaustiveness. The `record.require` migration fix is offered only
-  for a call in the root program, so a module reached only through its
-  importer keeps the site until it is linted directly.
+- `ERR-6` The inferred-variant, positional-constructor, and
+  implicit-message lints are applied to both corpora but still opt-in. The
+  commit that makes them defaults and deletes their settings is held
+  (`af7cf21b` on the `ERR` lane's branch) for two reasons. Exported
+  `Variant(message: Str)` declarations have no fix, because an importer's
+  `ns.Family.Variant(message: x)` would stop checking: 12 sites here
+  (`core/lib/auth.xsh`, `core/lib/system_report.xsh`, `dev/docs.xsh`,
+  `dev/tour_html.xsh`) and 43 in Laputa. And 13 documentation snippets
+  under `docs/snippets/` show the qualified and named spellings on purpose;
+  the lints rewrote them once and two API tests failed, so they need an
+  exclusion before the rules are defaults.
 - `ERR-10` A public signature must spell its `Result` error type, and an
   ambiguous positional error-constructor argument is rejected; both are
-  check errors now. A module loaded with `module.load` is not held to the
-  first rule at run time.
+  check errors. A module loaded with `module.load` is held to the first rule
+  too: Laputa's test-written `PKGBUILD.xsh` and service files failed it
+  until their strings were updated. Diagnostics print an imported enum's
+  type as a file path (`/…/kinds.xsh.Kind`).
 
 ## `PATH`: paths and the filesystem API
 
@@ -161,18 +166,6 @@ be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
   What remains: apply it in both corpora, flip the default, add a
   `remove`/`missing_ok: true` row to `lint.redundant-default`, and delete
   the opt-in lint and its setting.
-- `PATH-12` **A confined relative-path type for root-relative operations.** Add
-  `RelPath` (name open) for native-byte paths proven not to be absolute and
-  not to escape their logical root. `file.strip_prefix(root)?` can return it
-  directly, and `FsRoot`/archive/rootfs APIs should prefer it over arbitrary
-  `Path`: `proc install(root: FsRoot, rel: RelPath) ...`. Expected-type path
-  literals may construct one when statically valid. Keep the guarantee lexical
-  and exact; it does not by itself solve symlink traversal, which remains the
-  responsibility of the rooted filesystem capability. This targets the
-  repeated strip-prefix-then-operate pattern throughout Laputa package
-  manifests, root composition, image construction, and archive handling.
-  `MATCH-8` defines the conversion boundary it validates at. An instance of
-  the validated-type mechanism of `TYPE-4`; needs it.
 - `PATH-17` Finish the byte sinks that need the Linux container or a
   decision: `linux.mount` source, `linux.modinfo`, and `applet.su_session`
   (which of its three text parameters takes a `Path`) still take text.
@@ -192,6 +185,14 @@ be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
   variable, keeps a value that is not UTF-8, and fails on a directory that
   contains `:`. Each site needs a look. `x?.kind` after a call parses as a
   null-safe field, not as `?` and then a field.
+- `PATH-20` `RelPath` is merged as a validated type over `Path`; no
+  signature takes it yet. `strip_prefix` still returns `Path`, because an
+  empty prefix returns an absolute path whole and a `..` after the prefix
+  survives. `FsRoot` parameters stay `Path`: changing them breaks the 646
+  call sites here that pass a computed `Path` (`lint.prefer-rel-path`,
+  opt-in, no fix, lists them). `Map[RelPath, V]` is rejected with
+  `check.map-key-type`. The verifier cannot see a dropped parameter test,
+  because a parameter row stores the storage kind.
 
 Rejected this round: `/` as path join (keep `fp"..."`).
 
@@ -279,15 +280,6 @@ conversion.
 - `MATCH-5` **Optionals instead of `""` sentinels.** Lint `?? ""` (~475 Laputa sites)
   whose binding is later compared with `""`, and suggest optional binding:
   collapsing "unset" into "empty" makes the two indistinguishable.
-- `MATCH-8` **`text as Int`** parsing (also `as UInt`, `as Path`, ...), propagating a
-  failed parse (~284 `.parse_int()` sites).
-- `MATCH-9` **String patterns in f-string syntax**: `if let f"{key}={value}" = line`,
-  `match line { f"#define {name} {body}" => ... }`. Stay as close to Python
-  as possible: the hole grammar is Python's format-field grammar read in
-  reverse (as the `parse` package does), so typed holes such as `{n:d}`
-  follow Python's spec letters. Holes match leftmost-shortest, the last takes
-  the rest; a non-match is just a non-matching arm. Targets ~40 split-then-index
-  sites, ~33 regex captures, and many `starts_with` + slice pairs.
 - `MATCH-12` `Ok(...)` and `.Variant(...)` are rejected where
   `Result[T, E]?` is expected. An `if let` that lists every variant of an
   enum is `check.irrefutable-pattern-condition`, while one over an error
@@ -295,6 +287,12 @@ conversion.
   test that is known to reach it. The two older tests in
   `tests/xsh/lint-fix-selection.xsh` still say "warning" for
   `check.non-exhaustive-match`.
+- `MATCH-13` `value as T` and f-string patterns are merged. A statement
+  that starts `name as T` is still a command, so a conversion there is
+  written `(name as T)`. A hole of an f-string pattern may match empty text,
+  unlike Python's `parse`. `lint.prefer-text-pattern` is opt-in and has no
+  fix: 53 sites here, 15 in Laputa. `xsh` reports an `if let` pattern error
+  twice where `xsht check` reports it once.
 
 ## `TYPE`: type-level hardening
 
@@ -315,8 +313,8 @@ invalid value is noticed. `TYPE-7` depends on the others and goes last.
   preserves the bound, produce the base scalar (or require explicit
   revalidation) rather than grow a range-analysis language. Exact range syntax
   and inclusive-bound spelling are still open.
-  `MATCH-8` defines the conversion boundary it validates at. An instance of
-  the validated-type mechanism of `TYPE-4`; needs it.
+  An instance of the validated-type mechanism that `NonEmpty` and `RelPath`
+  use; `.require(T)` is its conversion and `value as T` can become one.
 - `TYPE-6` **Nominal record construction as an opt-in alternative to structural
   schemas.** Add a form (spelling open: `nominal type` or `opaque type`)
   whose values cannot be forged merely by having the same fields:
@@ -328,7 +326,12 @@ invalid value is noticed. `TYPE-7` depends on the others and goes last.
   that as an additional module-visibility rule rather than an accidental side
   effect. The goal is to encode invariants and domain identity where structural
   records are too permissive, without making every record nominal.
-  Decided: `nominal type`, identity only.
+  Decided: `nominal type`, identity only, built as an instance of the
+  validated-type mechanism: a record literal never satisfies it, and the
+  constructor and `.require(Package)` produce it. Not started. Found while
+  planning it: `is Package` cannot be true only for the nominal value on
+  `Any` without a runtime brand, and a `Validation` needs a name payload,
+  which changes the type-pool row.
 - `TYPE-7` **Make `Any` opaque by default; dynamic traversal becomes an explicit
   escape hatch.** Today `Any` may be navigated with fields, indexes, method
   calls, and iteration, propagating `Any` and deferring shape errors to
@@ -384,18 +387,18 @@ sites that go on to read the record.
   the host and overwrites `target/release` with Linux binaries.
 - `CMD-8` Cargo's `unused_dependencies` lint flags `mimalloc` in xsht and xshi.
   This is a false positive: the binaries use it, the libraries do not.
-- `CMD-15` Nothing populates the checker fact `terminating_call_spans`
-  since `abort` was removed; its plumbing through the checker output, lint
-  options, and flow analysis (about 30 sites) can go. Lint flow no longer
-  folds `guard true` and `guard false`.
-  `lower_named_spread_call` clones the whole program and its bodies for
-  each call.
 - `CMD-16` Measure retained frontend memory for guarded statements, which
   now take several arena rows where they took one
   (`xsh-frontend-stats`).
-- `CMD-17` `abort` is removed. Its diagnostic offers `exit N`, but
-  `xsht lint --fix` does not apply that fix, so old code needs a manual
-  rewrite.
+- `CMD-18` Nesting deeper than 128 levels is `parse.nesting-depth`; the
+  deepest in either corpus is 56. Still a crash or a hang, not a diagnostic:
+  `xsht fmt --check` and `xsht desugar` on about 80 nested calls, a spread
+  wider than a few thousand fields, unbounded user recursion, and a million
+  nested f-strings (over two minutes in the lexer). `xshi` has no thread
+  with a sized stack. A debug `xsh` or `xsht` now runs on a 64 MiB thread.
+  `lower_named_spread_call` clones the whole program and its bodies for
+  each call. `xsht fmt` rewrites `assert (run.text ... ?) == x` without the
+  parentheses.
 
 ## `LINT`: lint accuracy and migrations
 
@@ -419,18 +422,33 @@ table costs files times the whole workspace.
 
 ## Laputa
 
-Laputa (`../laputa`) is migrated through every campaign lint and through
-`lint.prefer-inferred-private-effects`, `lint.prefer-item-shorthand`, and
-`lint.prefer-tempdir-scope`, one commit per rule, with its `xsht check` clean.
-Sites without an autofix remain, among them `lint.prefer-tempdir` 17,
+Laputa (`../laputa`) is migrated through every lint the campaign has merged,
+one commit per rule, with its `xsht check` clean; the commits are local and
+not pushed. Sites without an autofix remain, among them
+`lint.prefer-implicit-message` 43 (exported families, `ERR-6`),
+`lint.prefer-tempdir` 17, `lint.prefer-atomically-replace` 14,
 `lint.prefer-size-literal` 9, `lint.prefer-tempdir-scope` 8,
 `lint.prefer-match-else` 7, and `lint.prefer-write-lines` 5; its older lint
 findings were never part of the campaign.
 
+Its test suite is the gate the lints cannot be: `xsht test` there found that
+`write(data, mode:)` lost setuid and setgid bits, and that test-written
+`PKGBUILD.xsh` and service strings still used an unspelled `Result` and
+`abort`. On an x86_64 Alpine host it is 317 passed and 9 failed. Seven are
+`packages/linux/tests/main.xsh` tests that need to write
+`/var/cache/laputa/linux-kbuild`. Two fail the same way on the toolchain and
+the Laputa tree from before this wave:
+`tests/pm/pm_execute.xsh::test_execute_hashes_each_payload_once_and_reuse_hashes_nothing`
+and
+`tests/pm/pm_execute.xsh::test_execute_parallel_builds_log_per_package_and_failures_name_their_log`,
+whose failure message no longer carries the proof's own error text.
+
 A lint migration that rewrites a checksummed local source must update the
 `sha256` its `PKGBUILD.xsh` declares (`packages/flex`, `packages/bison`,
-`packages/ca-certificates` so far) and regenerate
-`tests/pm/fixtures/plans/basic-aarch64.json`, which records proof hashes.
+`packages/ca-certificates` so far; the others declare `SKIP`) and regenerate
+`tests/pm/fixtures/plans/basic-aarch64.json`, which records proof hashes:
+run the round-trip test with `--keep-temp` and copy its
+`plan-json-out-*/basic-aarch64.json`.
 `pm/execute.xsh` carries a comment that `?` once escaped a `par-map` worker;
 it does not reproduce (`tests/xsh/par-map-worker-propagation.xsh`), so the
 comment can go.
