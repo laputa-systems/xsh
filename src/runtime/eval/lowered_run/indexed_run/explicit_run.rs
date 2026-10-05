@@ -613,10 +613,11 @@ impl std::ops::DerefMut for FrameSlots<'_> {
 /// How many function calls may be open at once.
 ///
 /// Call frames live on the heap, so recursion that never ends would
-/// otherwise run until memory does. The limit is far above the depth of
-/// recursion over data and low enough that reaching it takes about a second
-/// in an unoptimized build.
-const MAX_CALL_DEPTH: usize = 10_000;
+/// otherwise run until memory does. The limit is above the depth the
+/// small-stack tests recurse to (20,000 calls), so deep recursion over data
+/// keeps working, and no higher because a call costs time in proportion to
+/// the calls already open: reaching it takes about twelve seconds.
+const MAX_CALL_DEPTH: usize = 50_000;
 
 /// How many of the open calls a `stack-overflow` error names before the call
 /// that was refused.

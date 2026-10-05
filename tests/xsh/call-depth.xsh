@@ -1,4 +1,4 @@
-# At most 10000 function calls are open at once: recursion that never ends is
+# At most 50000 function calls are open at once: recursion that never ends is
 # the runtime error `stack-overflow`, which names the innermost open calls.
 
 test test_recursion_that_never_ends_is_a_stack_overflow_error { |ctx|
@@ -15,7 +15,7 @@ proc odd(n: Int) -> Bool {
 print f"{even(0)}"
 """,
     status: 3,
-    stderr: ["stack-overflow", "more than 10000 calls are open"],
+    stderr: ["stack-overflow", "more than 50000 calls are open"],
   )?
   assert output.stdout == ""
   assert "the innermost are odd -> even -> odd -> even -> odd -> even" in output.stderr, output.stderr
