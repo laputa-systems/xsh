@@ -127,7 +127,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   var current = []
 
   for item in input |> enumerate() {
-    current = current.push(item.value)
+    current += [item.value]
 
     if current.len() == lines_per_file or item.index + 1 == input.len() {
       fp"{prefix}{suffix(chunk)}".write(f"""{current.join("\n")}

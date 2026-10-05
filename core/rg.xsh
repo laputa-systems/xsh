@@ -252,7 +252,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
         continue when entry.kind != "file"
         continue when ! hidden and entry.path.name().starts_with(".")
         continue when ! selected_by_glob(globs, entry.path)
-        files = files.push(entry.path)
+        files += [entry.path]
       }
     } else if meta.kind == "file" {
       files += [target]

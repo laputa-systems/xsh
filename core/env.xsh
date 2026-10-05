@@ -34,7 +34,7 @@ proc main(...raw: List[Str]) [process, env, error] {
     var rest_index = 1
 
     while rest_index < raw.len() {
-      argv = argv.push(raw[rest_index])
+      argv += [raw[rest_index]]
       rest_index += 1
     }
   } else if argv.len() >= 2 and argv[0] == "-S" {
@@ -42,7 +42,7 @@ proc main(...raw: List[Str]) [process, env, error] {
     var rest_index = 2
 
     while rest_index < raw.len() {
-      argv = argv.push(raw[rest_index])
+      argv += [raw[rest_index]]
       rest_index += 1
     }
   }
@@ -77,7 +77,7 @@ proc main(...raw: List[Str]) [process, env, error] {
   var command_argv = []
 
   while index < argv.len() {
-    command_argv = command_argv.push(argv[index])
+    command_argv += [argv[index]]
     index += 1
   }
 

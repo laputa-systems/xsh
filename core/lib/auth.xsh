@@ -65,7 +65,7 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
     let gid = fields[3].parse_int() ?? -1
     continue when uid < 0 or gid < 0
 
-    entries = entries.push({
+    entries += [{
       name: fields[0],
       password: fields[1],
       uid: uid,
@@ -73,7 +73,7 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
       gecos: fields[4],
       home: fp"{fields[5]}",
       shell: fields[6],
-    })
+    }]
   }
 
   entries
@@ -87,11 +87,11 @@ export pure parse_shadow(text: Str) -> List[ShadowRecord] {
     let fields = split_fields(line)
 
     if fields.len() < 2 {
-      records = records.push({raw: true, username: "", password: "", rest: [], line: line})
+      records += [{raw: true, username: "", password: "", rest: [], line: line}]
       continue
     }
 
-    records = records.push({raw: false, username: fields[0], password: fields[1], rest: fields |> drop(2), line: ""})
+    records += [{raw: false, username: fields[0], password: fields[1], rest: fields |> drop(2), line: ""}]
   }
 
   records
@@ -103,11 +103,11 @@ export pure render_shadow(records: List[ShadowRecord]) -> Str {
 
   for item in records {
     if item.raw {
-      lines = lines.push(item.line)
+      lines += [item.line]
     } else if item.rest.len() == 0 {
-      lines = lines.push(f"{item.username}:{item.password}")
+      lines += [f"{item.username}:{item.password}"]
     } else {
-      lines = lines.push(f"{item.username}:{item.password}:{item.rest.join(":")}")
+      lines += [f"{item.username}:{item.password}:{item.rest.join(":")}"]
     }
   }
 
@@ -323,13 +323,13 @@ export pure upsert_shadow(
 
   for item in records {
     if ! item.raw and item.username == username {
-      out = out.push({
+      out += [{
         raw: false,
         username: username,
         password: password,
         rest: shadow_rest_with_defaults(item.rest, last_change),
         line: "",
-      })
+      }]
 
       found = true
     } else {
@@ -338,9 +338,9 @@ export pure upsert_shadow(
   }
 
   if ! found {
-    out = out.push(
+    out += [
       {raw: false, username: username, password: password, rest: [last_change, "0", "99999", "7", "", "", ""], line: ""},
-    )
+    ]
   }
 
   out

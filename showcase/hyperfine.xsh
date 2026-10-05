@@ -139,7 +139,7 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
       failures += 1
     }
 
-    times_ns = times_ns.push(floor0(result.wall_ns - baseline.wall_ns))
+    times_ns += [floor0(result.wall_ns - baseline.wall_ns)]
     user_total += floor0(result.user_ns - baseline.user_ns)
     system_total += floor0(result.system_ns - baseline.system_ns)
   }
@@ -208,7 +208,7 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
   for result in results {
     var times_s = [t / 1000.0 for t in result.times_ms]
 
-    entries = entries.push({
+    entries += [{
       command: result.name,
       mean: result.mean_ms / 1000.0,
       stddev: result.stddev_ms / 1000.0,
@@ -218,7 +218,7 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
       min: result.min_ms / 1000.0,
       max: result.max_ms / 1000.0,
       times: times_s,
-    })
+    }]
   }
 
   let encoded = json.encode({results: entries}, pretty: true)?

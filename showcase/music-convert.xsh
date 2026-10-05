@@ -117,7 +117,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     }
 
     if opts.dry_run {
-      results = results.push({source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: true})
+      results += [{source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: true}]
       continue
     }
 
@@ -142,9 +142,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
 
     let status = process.run(cmd)?
 
-    results = results.push(
-      {source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: status.exited_with(0)},
-    )
+    results += [{source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: status.exited_with(0)}]
   }
 
   print ""

@@ -26,7 +26,7 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
 
   var visited = []
   for entry in fs.files(root) {
-    visited = visited.push(entry.name)
+    visited += [entry.name]
     break when visited.len() >= 2
   }
 

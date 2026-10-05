@@ -1374,7 +1374,7 @@ proc main(...argv: List[Str]) [fs, error] {
           # never double-count. `blobs` only ever holds non-zero embedded stats.
           let label = language_label(language)
 
-          out = out.push({
+          out += [{
             key: label,
             files: 1,
             blanks: scan.stats.blanks,
@@ -1383,7 +1383,7 @@ proc main(...argv: List[Str]) [fs, error] {
             total_blanks: scan.deep.blanks,
             total_code: scan.deep.code,
             total_comments: scan.deep.comments,
-          })
+          }]
 
           let has_child_blobs = language is (LangHtml | LangMarkdown | LangMdx | LangRust | LangSvg | LangXml)
 
@@ -1392,7 +1392,7 @@ proc main(...argv: List[Str]) [fs, error] {
               let blob = { let lookup_receiver_7 = scan.stats.blobs; let lookup_index_7 = child; let lookup_fallback_7 = zero_stats(); lookup_receiver_7.get(lookup_index_7) ?? lookup_fallback_7 }.require(Stats) ?? zero_stats()
               let cs = blob_deep(blob)
 
-              out = out.push({
+              out += [{
                 key: f"{label}\t{child}",
                 files: 1,
                 blanks: cs.blanks,
@@ -1401,7 +1401,7 @@ proc main(...argv: List[Str]) [fs, error] {
                 total_blanks: 0,
                 total_code: 0,
                 total_comments: 0,
-              })
+              }]
             }
           }
         }
@@ -1449,16 +1449,14 @@ proc main(...argv: List[Str]) [fs, error] {
         continue when cagg.files == 0
         let clines = cagg.blanks + cagg.code + cagg.comments
 
-        child_rows = child_rows.push(
-          fmt_row(
+        child_rows += [fmt_row(
             f"|- {clabel}",
             f"{cagg.files}",
             f"{clines}",
             f"{cagg.code}",
             f"{cagg.comments}",
             f"{cagg.blanks}",
-          ),
-        )
+          )]
       }
 
       let lines = totals.blanks + totals.code + totals.comments

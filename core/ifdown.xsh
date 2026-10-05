@@ -410,7 +410,7 @@ stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Interface
     return
   }
 
-  for line in state_path.read_text()?.lines() {
+  for line in state_path.read_lines()? {
     let fields = line.words()
 
     if fields.len() >= 1 {

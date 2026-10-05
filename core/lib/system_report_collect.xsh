@@ -303,12 +303,12 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
       )
     }
 
-    descriptors = descriptors.push({
+    descriptors += [{
       offset: offset,
       length: length,
       descriptor_type: descriptor_type,
       raw: data[offset..offset + length],
-    })
+    }]
     offset += length
   }
 
@@ -861,15 +861,13 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
 
   if listing.state != "complete" {
     let state = source_observation_state(listing.state, false)
-    issues = issues.push(
-      source_issue(
+    issues += [source_issue(
         "pci",
         "functions",
         state,
         listing.errno,
         listing.error_kind,
-      ),
-    )
+      )]
   }
 
   for device_path in listing.children {
@@ -877,15 +875,13 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let address_result = parse_pci_address(address_text)
     let valid_address = address_result is Ok(_)
     if ! valid_address {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}",
           report.Malformed,
           null,
           "invalid_pci_address",
-        ),
-      )
+        )]
       continue
     }
 
@@ -898,51 +894,47 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let revision = read_numeric_attribute(root, fp"{device_path}/revision", true)
 
     if vendor.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.vendor_id", vendor.state, vendor.errno, vendor.error_kind),
-      )
+      ]
     }
 
     if device.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.device_id", device.state, device.errno, device.error_kind),
-      )
+      ]
     }
 
     if subsystem_vendor.state != report.Observed {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.subsystem_vendor_id",
           subsystem_vendor.state,
           subsystem_vendor.errno,
           subsystem_vendor.error_kind,
-        ),
-      )
+        )]
     }
 
     if subsystem_device.state != report.Observed {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.subsystem_device_id",
           subsystem_device.state,
           subsystem_device.errno,
           subsystem_device.error_kind,
-        ),
-      )
+        )]
     }
 
     if class.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.class_code", class.state, class.errno, class.error_kind),
-      )
+      ]
     }
 
     if revision.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.revision", revision.state, revision.errno, revision.error_kind),
-      )
+      ]
     }
 
     let driver = optional_link_name(root, fp"{device_path}/driver")
@@ -951,19 +943,17 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     if parent_source.state == "observed" and parent_source.target != null {
       parent_target = pci_parent_address(parent_source.target, address_text)
     } else if parent_source.state == "observed" {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.parent_function_index", report.Malformed, null, "invalid_parent_target"),
-      )
+      ]
     } else {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.parent_function_index",
           source_observation_state(parent_source.state, false),
           parent_source.errno,
           parent_source.error_kind,
-        ),
-      )
+        )]
     }
 
     let numa = read_numeric_attribute(root, fp"{device_path}/numa_node", false, allow_unknown_numa: true)
@@ -973,75 +963,63 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let maximum_link_speed = read_source_text(root, fp"{device_path}/max_link_speed", max_bytes: 4096)
     let maximum_link_width = read_numeric_attribute(root, fp"{device_path}/max_link_width", false)
     if numa.state != report.Observed and numa.state != report.Absent and numa.state != report.Disappeared {
-      issues = issues.push(
-        source_issue("pci", f"functions.{address_text}.numa_node", numa.state, numa.errno, numa.error_kind),
-      )
+      issues += [source_issue("pci", f"functions.{address_text}.numa_node", numa.state, numa.errno, numa.error_kind)]
     }
 
     if driver.observation.state != report.Observed and driver.observation.state != report.Absent {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.driver", driver.observation.state, driver.errno, driver.error_kind),
-      )
+      ]
     }
 
     if iommu_group.observation.state != report.Observed and iommu_group.observation.state != report.Absent {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.iommu_group",
           iommu_group.observation.state,
           iommu_group.errno,
           iommu_group.error_kind,
-        ),
-      )
+        )]
     }
 
     if current_link_speed.observation.state != report.Observed and current_link_speed.observation.state != report.Absent {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.current_link_speed",
           current_link_speed.observation.state,
           current_link_speed.errno,
           current_link_speed.error_kind,
-        ),
-      )
+        )]
     }
 
     if current_link_width.state != report.Observed and current_link_width.state != report.Disappeared {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.current_link_width",
           current_link_width.state,
           current_link_width.errno,
           current_link_width.error_kind,
-        ),
-      )
+        )]
     }
 
     if maximum_link_speed.observation.state != report.Observed and maximum_link_speed.observation.state != report.Absent {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.maximum_link_speed",
           maximum_link_speed.observation.state,
           maximum_link_speed.errno,
           maximum_link_speed.error_kind,
-        ),
-      )
+        )]
     }
 
     if maximum_link_width.state != report.Observed and maximum_link_width.state != report.Disappeared {
-      issues = issues.push(
-        source_issue(
+      issues += [source_issue(
           "pci",
           f"functions.{address_text}.maximum_link_width",
           maximum_link_width.state,
           maximum_link_width.errno,
           maximum_link_width.error_kind,
-        ),
-      )
+        )]
     }
 
     var numa_node: Int? = null
@@ -1049,8 +1027,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       numa_node = numa.value
     }
 
-    functions = functions.push(
-      {
+    functions += [{
         address: address_text,
         domain: address.domain,
         bus: address.bus,
@@ -1078,8 +1055,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           null
         },
         maximum_link_width: maximum_link_width.value,
-      },
-    )
+      }]
     parent_addresses += [parent_target]
   }
 
@@ -1104,10 +1080,10 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       }
     }
 
-    linked_functions = linked_functions.push({
+    linked_functions += [{
       ...functions[function_index],
       parent_function_index: parent_index,
-    })
+    }]
     function_index += 1
   }
 

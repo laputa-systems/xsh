@@ -302,7 +302,7 @@ pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {
     }
   }
 
-  output = output.push(f"# truncated: kept top {max_rows} individual llvm-lines rows from {rows} rows")
+  output += [f"# truncated: kept top {max_rows} individual llvm-lines rows from {rows} rows"]
 
   f"""{output.join("\n")}
 """

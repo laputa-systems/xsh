@@ -60,7 +60,7 @@ pure one_prefixed_line(output: Str, prefix: Str) -> Result[Str] {
   for line in output.lines() {
     let trimmed = line.trim()
     if trimmed.starts_with(prefix) {
-      values = values.push(trimmed.byte_slice(prefix.byte_len()).trim())
+      values += [trimmed.byte_slice(prefix.byte_len()).trim()]
     }
   }
 

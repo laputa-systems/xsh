@@ -82,7 +82,7 @@ proc run_external_login(options: GettyOptions, username: Str) [process, error] -
 
   if options.host != "" {
     argv += ["-h"]
-    argv = argv.push(options.host)
+    argv += [options.host]
   }
 
   if username != "" {

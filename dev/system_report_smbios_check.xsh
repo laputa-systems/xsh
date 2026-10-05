@@ -290,9 +290,7 @@ pure smbios_reference_fields(
   for spec in specs {
     continue when spec.offset + spec.width > formatted_length
     continue when spec.name == "extended_size_raw" and bytes.unpack_le(data, 2, offset + 12)? != 32767
-    fields = fields.push(
-      {name: spec.name, value: bytes.unpack_le(data, spec.width, offset + spec.offset)?, unit: spec.unit},
-    )
+    fields += [{name: spec.name, value: bytes.unpack_le(data, spec.width, offset + spec.offset)?, unit: spec.unit}]
   }
 
   fields
@@ -342,9 +340,9 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       if string_end > string_start {
         let raw = data[string_start..string_end]
         if let Ok(value) = raw.utf8() {
-          strings = strings.push({state: "observed", value: value, raw_bytes_base64: null})
+          strings += [{state: "observed", value: value, raw_bytes_base64: null}]
         } else {
-          strings = strings.push({state: "malformed", value: null, raw_bytes_base64: raw.base64()})
+          strings += [{state: "malformed", value: null, raw_bytes_base64: raw.base64()}]
         }
       }
 
@@ -353,17 +351,17 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
 
     for field in fields {
       if field.unit == "string_index" and field.value > strings.len() {
-        invalid_indices = invalid_indices.push(f"{record_type}:{handle}.{field.name}")
+        invalid_indices += [f"{record_type}:{handle}.{field.name}"]
       }
     }
 
-    records = records.push({
+    records += [{
       record_type: record_type,
       handle: handle,
       formatted_length: length,
       fields: fields,
       strings: strings,
-    })
+    }]
     cursor = terminator + 2
     if record_type == 127 {
       saw_end = true
@@ -396,7 +394,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   }
 
   for invalid in reference.invalid_indices {
-    unstable_fields = unstable_fields.push(f"{invalid}.string_index")
+    unstable_fields += [f"{invalid}.string_index"]
   }
 
   var reference_by_key: Map[Int] = {}
@@ -433,7 +431,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
       matched_count += 1
       let actual = section.records[candidate_by_key.get(key)?]
       if actual.formatted_length != item.formatted_length {
-        field_mismatches = field_mismatches.push(f"{key}.formatted_length")
+        field_mismatches += [f"{key}.formatted_length"]
       }
 
       var actual_fields: Map[Int] = {}
@@ -448,24 +446,24 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
 
       for field in item.fields {
         if field.name not in actual_fields {
-          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+          field_mismatches += [f"{key}.field.{field.name}"]
         } else if actual.fields[actual_fields.get(field.name)?] != field {
-          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+          field_mismatches += [f"{key}.field.{field.name}"]
         }
       }
 
       for field in actual.fields {
         if ! (item.fields |> any .name == field.name) {
-          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+          field_mismatches += [f"{key}.field.{field.name}"]
         }
       }
 
       if actual.strings.len() != item.strings.len() {
-        field_mismatches = field_mismatches.push(f"{key}.strings")
+        field_mismatches += [f"{key}.strings"]
       } else {
         for string_index in range(item.strings.len()) {
           if actual.strings[string_index] != item.strings[string_index] {
-            field_mismatches = field_mismatches.push(f"{key}.string.{string_index + 1}")
+            field_mismatches += [f"{key}.string.{string_index + 1}"]
           }
         }
       }
@@ -837,9 +835,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
       }
 
       if record_type >= 0 {
-        records = records.push(
-          dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?,
-        )
+        records += [dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?]
       }
 
       if records.len() >= 4096 {
@@ -908,7 +904,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         continue
       }
 
-      formatted_octets = formatted_octets.extend(dmidecode_hex_row(trimmed)?)
+      formatted_octets += dmidecode_hex_row(trimmed)?
       if formatted_octets.len() > length {
         return Err(smbios_check_failure("dmidecode formatted data exceeds its declared length"))
       }
@@ -922,13 +918,13 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         continue
       }
 
-      pending_string = pending_string.extend(dmidecode_hex_row(trimmed)?)
+      pending_string += dmidecode_hex_row(trimmed)?
       if pending_string.len() > 1048576 {
         return Err(smbios_check_failure("dmidecode string exceeds its bound"))
       }
 
       if pending_string[pending_string.len() - 1] == 0 {
-        strings = strings.push(bytes.from_ints(pending_string |> take(pending_string.len() - 1))?)
+        strings += [bytes.from_ints(pending_string |> take(pending_string.len() - 1))?]
         pending_string = []
         expect_display = true
       }
@@ -940,9 +936,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
   }
 
   if record_type >= 0 {
-    records = records.push(
-      dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?,
-    )
+    records += [dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?]
   }
 
   if records.len() == 0 {
@@ -995,7 +989,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     matched_count += 1
     let actual = decoded[decoded_by_key.get(key)?]
     if actual.formatted.len() != item.formatted_length {
-      field_mismatches = field_mismatches.push(f"{key}.formatted_length")
+      field_mismatches += [f"{key}.formatted_length"]
       continue
     }
 
@@ -1003,18 +997,18 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     for field in item.fields {
       let matches = actual_fields |> where .name == field.name
       if matches.len() != 1 or matches[0] != field {
-        field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+        field_mismatches += [f"{key}.field.{field.name}"]
       }
     }
 
     for field in actual_fields {
       if ! (item.fields |> any .name == field.name) {
-        field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+        field_mismatches += [f"{key}.field.{field.name}"]
       }
     }
 
     if actual.strings.len() != item.strings.len() {
-      field_mismatches = field_mismatches.push(f"{key}.strings")
+      field_mismatches += [f"{key}.strings"]
     } else {
       for string_index in range(item.strings.len()) {
         let raw = actual.strings[string_index]
@@ -1024,7 +1018,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
           {state: "malformed", value: null, raw_bytes_base64: raw.base64()}
         }
         if observed != item.strings[string_index] {
-          field_mismatches = field_mismatches.push(f"{key}.string.{string_index + 1}")
+          field_mismatches += [f"{key}.string.{string_index + 1}"]
         }
       }
     }

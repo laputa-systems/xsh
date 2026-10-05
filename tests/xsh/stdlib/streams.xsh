@@ -2843,7 +2843,7 @@ VendorCounter:widgets
   var viewed: List[StreamLabelRow] = []
   for line in source.lines() {
     let fields = line.split(":")
-    viewed = viewed.push({name: fields[0].trim(), unit: fields[1]})
+    viewed += [{name: fields[0].trim(), unit: fields[1]}]
   }
 
   let owned: List[StreamLabelRow] = [{name: "MemFree", unit: "bytes"}, {name: "VendorCounter", unit: "widgets"}]

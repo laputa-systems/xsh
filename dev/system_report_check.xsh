@@ -2599,9 +2599,9 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int]] {
       return Err(check_failure("lscpu JSON has a negative or duplicate CPU ID"))
     }
 
-    seen = seen.push(cpu_item.cpu)
+    seen += [cpu_item.cpu]
     if cpu_item.online {
-      online = online.push(cpu_item.cpu)
+      online += [cpu_item.cpu]
     }
   }
 
@@ -2671,7 +2671,7 @@ pure topology_group_signatures(groups: Map[List[Int]]) -> List[Str] {
   for {value: group_members, ..} in groups {
     let members = group_members |> sort-by .
     var parts = [f"{member}" for member in members]
-    signatures = signatures.push(parts.join(","))
+    signatures += [parts.join(",")]
   }
 
   signatures |> sort-by .
@@ -2691,13 +2691,13 @@ pure topology_group_difference(reference: List[Str], candidate: List[Str]) -> Li
 
   for item in reference {
     if item not in candidate_set {
-      mismatches = mismatches.push(f"missing:{item}")
+      mismatches += [f"missing:{item}"]
     }
   }
 
   for item in candidate {
     if item not in reference_set {
-      mismatches = mismatches.push(f"unexpected:{item}")
+      mismatches += [f"unexpected:{item}"]
     }
   }
 
@@ -2767,42 +2767,42 @@ export pure compare_lscpu_topology(
   for item in before {
     let key = f"{item.cpu}"
     if key not in candidate_by_id {
-      missing_ids = missing_ids.push(item.cpu)
+      missing_ids += [item.cpu]
       continue
     }
 
     matched_count += 1
     let actual = candidate[candidate_by_id.get(key)?]
     if ! actual.present or actual.online != item.online {
-      field_missing = field_missing.push(f"{item.cpu}.presence_or_online")
+      field_missing += [f"{item.cpu}.presence_or_online"]
     }
 
     if actual.package_id == null or (actual.package_id ?? -1) < 0 {
-      field_missing = field_missing.push(f"{item.cpu}.package_id")
+      field_missing += [f"{item.cpu}.package_id"]
     }
 
     if actual.core_id == null or (actual.core_id ?? -1) < 0 {
-      field_missing = field_missing.push(f"{item.cpu}.core_id")
+      field_missing += [f"{item.cpu}.core_id"]
     }
 
     if item.node != null and actual.numa_node == null {
-      field_missing = field_missing.push(f"{item.cpu}.numa_node")
+      field_missing += [f"{item.cpu}.numa_node"]
     } else if item.node != null and actual.numa_node != item.node {
-      node_mismatches = node_mismatches.push(f"{item.cpu}.numa_node")
+      node_mismatches += [f"{item.cpu}.numa_node"]
     }
 
     if item.socket != null and item.core != null {
       let core_key = f"{item.socket ?? -1}/{item.core ?? -1}"
       let expected_siblings = reference_cores.get(core_key) ?? [] |> sort-by .
       if actual.thread_siblings != expected_siblings {
-        sibling_mismatches = sibling_mismatches.push(f"{item.cpu}.thread_siblings")
+        sibling_mismatches += [f"{item.cpu}.thread_siblings"]
       }
     }
   }
 
   for item in candidate {
     if f"{item.id}" not in reference_by_id {
-      unexpected_ids = unexpected_ids.push(item.id)
+      unexpected_ids += [item.id]
     }
   }
 
@@ -2956,35 +2956,35 @@ export pure compare_cpu_cache_sharing(
     matched_count += 1
     let actual = candidate_by_key.get(key)?
     if actual.level != source.level {
-      field_mismatches = field_mismatches.push(f"{key}.level")
+      field_mismatches += [f"{key}.level"]
     }
 
     if actual.kind != source.kind {
-      field_mismatches = field_mismatches.push(f"{key}.kind")
+      field_mismatches += [f"{key}.kind"]
     }
 
     if actual.shared_cpus != source.shared_cpus {
-      field_mismatches = field_mismatches.push(f"{key}.shared_cpus")
+      field_mismatches += [f"{key}.shared_cpus"]
     }
 
     if actual.size_bytes != source.size_bytes {
-      field_mismatches = field_mismatches.push(f"{key}.size_bytes")
+      field_mismatches += [f"{key}.size_bytes"]
     }
 
     if actual.line_size_bytes != source.line_size_bytes {
-      field_mismatches = field_mismatches.push(f"{key}.line_size_bytes")
+      field_mismatches += [f"{key}.line_size_bytes"]
     }
 
     if actual.sets != source.sets {
-      field_mismatches = field_mismatches.push(f"{key}.sets")
+      field_mismatches += [f"{key}.sets"]
     }
 
     if actual.owner_cpu_id != source.owner_cpu_id {
-      field_mismatches = field_mismatches.push(f"{key}.owner_cpu_id")
+      field_mismatches += [f"{key}.owner_cpu_id"]
     }
 
     if actual.sysfs_index != source.sysfs_index {
-      field_mismatches = field_mismatches.push(f"{key}.sysfs_index")
+      field_mismatches += [f"{key}.sysfs_index"]
     }
   }
 
@@ -3012,9 +3012,9 @@ export pure compare_cpu_cache_sharing(
 
       seen_id = set.add(seen_id, id_key)
       if id_key not in candidate_key_by_id {
-        relationship_mismatches = relationship_mismatches.push(f"{cpu_item.id}.unknown_cache_id")
+        relationship_mismatches += [f"{cpu_item.id}.unknown_cache_id"]
       } else {
-        keys = keys.push(candidate_key_by_id.get(id_key)?)
+        keys += [candidate_key_by_id.get(id_key)?]
       }
     }
 
@@ -3025,13 +3025,13 @@ export pure compare_cpu_cache_sharing(
     let expected = expected_by_cpu.get(cpu_key) ?? [] |> sort-by .
     let actual = actual_by_cpu.get(cpu_key) ?? [] |> sort-by .
     if expected != actual {
-      relationship_mismatches = relationship_mismatches.push(f"{cpu_key}.cache_ids")
+      relationship_mismatches += [f"{cpu_key}.cache_ids"]
     }
   }
 
   for cpu_key in actual_by_cpu.keys() {
     if cpu_key not in expected_by_cpu and (actual_by_cpu.get(cpu_key) ?? []).len() > 0 {
-      relationship_mismatches = relationship_mismatches.push(f"{cpu_key}.cache_ids")
+      relationship_mismatches += [f"{cpu_key}.cache_ids"]
     }
   }
 
@@ -3149,7 +3149,7 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
         return Err(check_failure("cache reference omits its owner CPU"))
       }
 
-      rows = rows.push({
+      rows += [{
         owner_cpu_id: cpu_id,
         sysfs_index: index,
         kernel_id: reference_cache_optional_number(root, fp"{entry}/id")?,
@@ -3159,7 +3159,7 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
         line_size_bytes: reference_cache_optional_number(root, fp"{entry}/coherency_line_size")?,
         sets: reference_cache_optional_number(root, fp"{entry}/number_of_sets")?,
         shared_cpus: shared_cpus,
-      })
+      }]
     }
   }
 
@@ -3284,26 +3284,26 @@ export pure compare_cpufreq_policies(
   var matched_count = 0
   for item in before {
     if item.name not in candidate_by_name {
-      missing_names = missing_names.push(item.name)
+      missing_names += [item.name]
       continue
     }
 
     matched_count += 1
     let actual = candidate[candidate_by_name.get(item.name)?]
     if actual.related_cpus != item.related_cpus {
-      policy_mismatches = policy_mismatches.push(f"{item.name}.related_cpus")
+      policy_mismatches += [f"{item.name}.related_cpus"]
     }
 
     if actual.affected_cpus != item.affected_cpus {
-      policy_mismatches = policy_mismatches.push(f"{item.name}.affected_cpus")
+      policy_mismatches += [f"{item.name}.affected_cpus"]
     }
 
     if actual.driver != item.driver {
-      policy_mismatches = policy_mismatches.push(f"{item.name}.driver")
+      policy_mismatches += [f"{item.name}.driver"]
     }
 
     if actual.governor != item.governor {
-      policy_mismatches = policy_mismatches.push(f"{item.name}.governor")
+      policy_mismatches += [f"{item.name}.governor"]
     }
 
     let later = after[after_by_name.get(item.name)?]
@@ -3338,9 +3338,9 @@ export pure compare_cpufreq_policies(
       },
     ] {
       if field.before != field.after {
-        unstable_bounds = unstable_bounds.push(f"{item.name}.{field.name}")
+        unstable_bounds += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before {
-        bound_mismatches = bound_mismatches.push(f"{item.name}.{field.name}")
+        bound_mismatches += [f"{item.name}.{field.name}"]
       }
     }
 
@@ -3382,9 +3382,9 @@ export pure compare_cpufreq_policies(
       }
 
       if ! gauge.before.complete or ! gauge.after.complete or gauge.before.value != gauge.after.value or (gauge.candidate != null and gauge.candidate != gauge.before.value) or candidate_incomplete {
-        unstable_gauges = unstable_gauges.push(f"{item.name}.{gauge.name}")
+        unstable_gauges += [f"{item.name}.{gauge.name}"]
       } else if gauge.candidate != gauge.before.value {
-        gauge_mismatches = gauge_mismatches.push(f"{item.name}.{gauge.name}")
+        gauge_mismatches += [f"{item.name}.{gauge.name}"]
       }
     }
 
@@ -3393,45 +3393,45 @@ export pure compare_cpufreq_policies(
     }
 
     if item.energy_performance_preference != later.energy_performance_preference {
-      unstable_controls = unstable_controls.push(f"{item.name}.energy_performance_preference")
+      unstable_controls += [f"{item.name}.energy_performance_preference"]
     } else if actual.energy_performance_preference != item.energy_performance_preference {
-      control_mismatches = control_mismatches.push(f"{item.name}.energy_performance_preference")
+      control_mismatches += [f"{item.name}.energy_performance_preference"]
     }
 
     if item.available_energy_performance_preferences != later.available_energy_performance_preferences {
-      unstable_controls = unstable_controls.push(f"{item.name}.available_energy_performance_preferences")
+      unstable_controls += [f"{item.name}.available_energy_performance_preferences"]
     } else if actual.available_energy_performance_preferences != item.available_energy_performance_preferences {
-      control_mismatches = control_mismatches.push(f"{item.name}.available_energy_performance_preferences")
+      control_mismatches += [f"{item.name}.available_energy_performance_preferences"]
     }
 
     if item.boost_supported != later.boost_supported {
-      unstable_controls = unstable_controls.push(f"{item.name}.boost_supported")
+      unstable_controls += [f"{item.name}.boost_supported"]
     } else if actual.boost_supported != item.boost_supported {
-      control_mismatches = control_mismatches.push(f"{item.name}.boost_supported")
+      control_mismatches += [f"{item.name}.boost_supported"]
     }
 
     if item.boost_allowed != later.boost_allowed {
-      unstable_controls = unstable_controls.push(f"{item.name}.boost_allowed")
+      unstable_controls += [f"{item.name}.boost_allowed"]
     } else if actual.boost_allowed != item.boost_allowed {
-      control_mismatches = control_mismatches.push(f"{item.name}.boost_allowed")
+      control_mismatches += [f"{item.name}.boost_allowed"]
     }
 
     if item.boost_active != later.boost_active {
-      unstable_controls = unstable_controls.push(f"{item.name}.boost_active")
+      unstable_controls += [f"{item.name}.boost_active"]
     } else if actual.boost_active != item.boost_active {
-      control_mismatches = control_mismatches.push(f"{item.name}.boost_active")
+      control_mismatches += [f"{item.name}.boost_active"]
     }
 
     if item.boost_scope != later.boost_scope {
-      unstable_controls = unstable_controls.push(f"{item.name}.boost_scope")
+      unstable_controls += [f"{item.name}.boost_scope"]
     } else if actual.boost_scope != item.boost_scope {
-      control_mismatches = control_mismatches.push(f"{item.name}.boost_scope")
+      control_mismatches += [f"{item.name}.boost_scope"]
     }
   }
 
   for item in candidate {
     if item.name not in before_by_name {
-      unexpected_names = unexpected_names.push(item.name)
+      unexpected_names += [item.name]
     }
   }
 
@@ -3547,12 +3547,12 @@ export pure compare_usb_topology(
   var matched_count = 0
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
       continue
     }
 
     if item.name not in candidate_by_name {
-      missing_names = missing_names.push(item.name)
+      missing_names += [item.name]
       continue
     }
 
@@ -3593,9 +3593,9 @@ export pure compare_usb_topology(
       }
 
       if field.before != field.after or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
 
@@ -3621,22 +3621,22 @@ export pure compare_usb_topology(
       }
 
       if field.before != field.after or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
 
     if item.is_root_hub != later.is_root_hub {
-      unstable_fields = unstable_fields.push(f"{item.name}.is_root_hub")
+      unstable_fields += [f"{item.name}.is_root_hub"]
     } else if actual.is_root_hub != item.is_root_hub {
-      field_mismatches = field_mismatches.push(f"{item.name}.is_root_hub")
+      field_mismatches += [f"{item.name}.is_root_hub"]
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
     }
   }
 
@@ -3713,7 +3713,7 @@ export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List
       return Err(check_failure(f"USB device {name} bus number disagrees with its sysfs name"))
     }
 
-    devices = devices.push({
+    devices += [{
       name: name,
       parent_name: identity.parent_name,
       port_path: identity.port_path,
@@ -3721,7 +3721,7 @@ export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List
       device_number: reference_usb_number(root, fp"{device_path}/devnum")?,
       speed_mbps: reference_usb_text(root, fp"{device_path}/speed")?,
       is_root_hub: identity.is_root_hub,
-    })
+    }]
   }
 
   devices |> sort-by .name
@@ -3786,12 +3786,12 @@ export pure compare_usb_ids(
     }
 
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
       continue
     }
 
     if item.name not in candidate_by_name {
-      missing_names = missing_names.push(item.name)
+      missing_names += [item.name]
       continue
     }
 
@@ -3838,9 +3838,9 @@ export pure compare_usb_ids(
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
 
@@ -3875,11 +3875,11 @@ export pure compare_usb_ids(
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else {
         let expected_state = if field.before.value == null { "absent" } else { "observed" }
         if field.candidate.state != expected_state or field.candidate.value != field.before.value {
-          field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+          field_mismatches += [f"{item.name}.{field.name}"]
         }
       }
     }
@@ -3887,7 +3887,7 @@ export pure compare_usb_ids(
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
     }
   }
 
@@ -3981,7 +3981,7 @@ export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbI
       let _ = usb_reference_hex(version.value, 4)?
     }
 
-    devices = devices.push({
+    devices += [{
       name: name,
       vendor_id: reference_usb_hex_attribute(root, fp"{device_path}/idVendor", 4)?,
       product_id: reference_usb_hex_attribute(root, fp"{device_path}/idProduct", 4)?,
@@ -3991,7 +3991,7 @@ export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbI
       protocol: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceProtocol", 2)?,
       manufacturer: reference_usb_attribute(root, fp"{device_path}/manufacturer")?,
       product: reference_usb_attribute(root, fp"{device_path}/product")?,
-    })
+    }]
   }
 
   devices |> sort-by .name
@@ -4057,14 +4057,14 @@ export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[Us
     }
 
     names += [name]
-    devices = devices.push({
+    devices += [{
       name: name,
       power_control: reference_usb_attribute(root, fp"{device_path}/power/control")?,
       autosuspend_delay_ms: reference_usb_power_number(root, fp"{device_path}/power/autosuspend_delay_ms", true)?,
       runtime_status: reference_usb_attribute(root, fp"{device_path}/power/runtime_status")?,
       configuration_count: reference_usb_power_number(root, fp"{device_path}/bNumConfigurations", false)?,
       active_configuration: reference_usb_power_number(root, fp"{device_path}/bConfigurationValue", true)?,
-    })
+    }]
   }
 
   devices |> sort-by .name
@@ -4289,7 +4289,7 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
 
       let active = reference_usb_power_number(root, fp"{interface_path}/bAlternateSetting", false)?
       var owned = [setting for setting in descriptor_settings if setting.interface_number == identity.number]
-      rows = rows.push({
+      rows += [{
         device_name: device_name,
         name: name,
         number: identity.number,
@@ -4301,7 +4301,7 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
         active_endpoint_count: reference_usb_hex_attribute(root, fp"{interface_path}/bNumEndpoints", 2)?,
         settings: owned,
         descriptors_complete: descriptors_complete,
-      })
+      }]
     }
   }
 
@@ -4408,15 +4408,15 @@ export pure compare_usb_interfaces(
   let eligible = before.len() > 0 or after.len() > 0
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
       continue
     }
 
     if item.name not in candidate_by_name {
       if section.status.enumeration_succeeded {
-        missing_names = missing_names.push(item.name)
+        missing_names += [item.name]
       } else {
-        unstable_fields = unstable_fields.push(f"{item.name}.presence")
+        unstable_fields += [f"{item.name}.presence"]
       }
 
       continue
@@ -4429,27 +4429,27 @@ export pure compare_usb_interfaces(
       issues,
       f"devices.{item.device_name}.interfaces.{item.name}.driver",
     ) {
-      unstable_fields = unstable_fields.push(f"{item.name}.driver")
+      unstable_fields += [f"{item.name}.driver"]
     } else if actual.driver != item.driver.value {
-      field_mismatches = field_mismatches.push(f"{item.name}.driver")
+      field_mismatches += [f"{item.name}.driver"]
     }
 
     if ! item.active_alternate.complete or ! later.active_alternate.complete or item.active_alternate.value != later.active_alternate.value or usb_interface_has_issue(
       issues,
       f"devices.{item.device_name}.interfaces.{item.name}.active_alternate",
     ) {
-      unstable_fields = unstable_fields.push(f"{item.name}.active_alternate")
+      unstable_fields += [f"{item.name}.active_alternate"]
     } else if actual.active_alternate != item.active_alternate.value {
-      field_mismatches = field_mismatches.push(f"{item.name}.active_alternate")
+      field_mismatches += [f"{item.name}.active_alternate"]
     }
 
     if ! item.descriptors_complete or ! later.descriptors_complete or item.settings != later.settings or usb_interface_has_issue(
       issues,
       f"devices.{item.device_name}.descriptors",
     ) {
-      unstable_fields = unstable_fields.push(f"{item.name}.alternate_settings")
+      unstable_fields += [f"{item.name}.alternate_settings"]
     } else if ! usb_interface_settings_match(item.settings, actual.alternate_settings, item.number) {
-      field_mismatches = field_mismatches.push(f"{item.name}.alternate_settings")
+      field_mismatches += [f"{item.name}.alternate_settings"]
     }
 
     let identity = parse_usb_interface_name(item.name)?
@@ -4509,16 +4509,16 @@ export pure compare_usb_interfaces(
     ] {
       continue when field.before.value == null and field.after.value == null
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or ! item.descriptors_complete or ! later.descriptors_complete or item.settings != later.settings or item.active_alternate.value != later.active_alternate.value {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
     }
   }
 
@@ -4624,7 +4624,7 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
     }
 
     seen += [name]
-    supplies = supplies.push({
+    supplies += [{
       name: name,
       kind: reference_power_text(root, fp"{supply_path}/type")?,
       status: reference_power_text(root, fp"{supply_path}/status")?,
@@ -4637,7 +4637,7 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
       voltage_now_uv: reference_power_number(root, fp"{supply_path}/voltage_now", false, false)?,
       current_now_ua: reference_power_number(root, fp"{supply_path}/current_now", true, false)?,
       cycle_count: reference_power_number(root, fp"{supply_path}/cycle_count", false, false)?,
-    })
+    }]
   }
 
   supplies |> sort-by .name
@@ -4688,7 +4688,7 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
       complete = false
     }
 
-    entries = entries.push({name: name, class_target: class_target, storage_path: storage})
+    entries += [{name: name, class_target: class_target, storage_path: storage}]
     for attribute in [
       {
         name: "type",
@@ -4735,7 +4735,7 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
         changing: true,
       },
     ] {
-      paths = paths.push({path: f"{storage}/{attribute.name}", changing: attribute.changing})
+      paths += [{path: f"{storage}/{attribute.name}", changing: attribute.changing}]
     }
 
     if paths.len() > 11264 {
@@ -4794,8 +4794,8 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: item.path,
       state: raw.state,
       truncated: raw.truncated,
@@ -4803,7 +4803,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = power_supply_bundle_layout(source)?
@@ -4815,7 +4815,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if item.changing {
-        changing_sources = changing_sources.push(item.path)
+        changing_sources += [item.path]
       } else {
         stable_static = false
       }
@@ -4982,15 +4982,15 @@ export pure compare_power_supplies(
   var matched_count = 0
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
       continue
     }
 
     if item.name not in candidate_by_name {
       if supply_enumeration_complete {
-        missing_names = missing_names.push(item.name)
+        missing_names += [item.name]
       } else {
-        unstable_fields = unstable_fields.push(f"{item.name}.presence")
+        unstable_fields += [f"{item.name}.presence"]
       }
 
       continue
@@ -5026,9 +5026,9 @@ export pure compare_power_supplies(
         issues,
         f"supplies.{item.name}.{field.source}",
       ) {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
 
@@ -5094,22 +5094,22 @@ export pure compare_power_supplies(
         issues,
         f"supplies.{item.name}.{field.source}",
       ) {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
     }
   }
 
   for item in section.supplies {
     if item.name not in before_by_name and item.name not in after_by_name {
-      unexpected_names = unexpected_names.push(item.name)
+      unexpected_names += [item.name]
     }
   }
 
@@ -5191,7 +5191,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
     }
 
     zone_paths += [entry]
-    zone_names = zone_names.push(entry.name())
+    zone_names += [entry.name()]
     names += [name]
   }
 
@@ -5212,7 +5212,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
         }
 
         indices += [constraint_index]
-        constraints = constraints.push({
+        constraints += [{
           index: constraint_index,
           name: reference_power_text(root, fp"{zone_path}/constraint_{constraint_index}_name")?,
           power_limit_uw: reference_power_number(root, attribute, false, false)?,
@@ -5222,11 +5222,11 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
             false,
             false,
           )?,
-        })
+        }]
       }
     }
 
-    zones = zones.push({
+    zones += [{
       entry_name: entry_name,
       name: names[index],
       parent: reference_powercap_parent(root, zone_path, zone_names)?,
@@ -5234,7 +5234,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
       maximum_energy_range_uj: reference_power_number(root, fp"{zone_path}/max_energy_range_uj", false, false)?,
       constraints: constraints |> sort-by .index,
       constraints_complete: attributes.state == "complete",
-    })
+    }]
   }
 
   zones |> sort-by .entry_name
@@ -5301,9 +5301,9 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
     }
 
     let storage = powercap_bundle_storage_path(entry.name(), target)?
-    zones = zones.push({entry_name: entry.name(), class_target: target, storage_path: storage})
+    zones += [{entry_name: entry.name(), class_target: target, storage_path: storage}]
     let prefix = entry.display()
-    source_paths = source_paths.extend([f"{prefix}/name", f"{prefix}/energy_uj", f"{prefix}/max_energy_range_uj"])
+    source_paths += [f"{prefix}/name", f"{prefix}/energy_uj", f"{prefix}/max_energy_range_uj"]
     let attributes = root.children(entry, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
@@ -5320,13 +5320,11 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
       }
 
       indices += [index]
-      source_paths = source_paths.extend(
-        [
+      source_paths += [
           f"{prefix}/constraint_{index}_power_limit_uw",
           f"{prefix}/constraint_{index}_name",
           f"{prefix}/constraint_{index}_time_window_us",
-        ],
-      )
+        ]
     }
 
     if source_paths.len() > 4096 {
@@ -5386,8 +5384,8 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    observations = observations.push({
+    saved_bytes += [raw.data]
+    observations += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -5395,7 +5393,7 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = powercap_bundle_layout(source)?
@@ -5557,7 +5555,7 @@ export pure compare_powercap(
   for zone in before {
     let name = zone.entry_name
     if name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"{name}.presence")
+      unstable_fields += [f"{name}.presence"]
       continue
     }
 
@@ -5565,7 +5563,7 @@ export pure compare_powercap(
       if enumeration_complete {
         missing_names += [name]
       } else {
-        unstable_fields = unstable_fields.push(f"{name}.presence")
+        unstable_fields += [f"{name}.presence"]
       }
 
       continue
@@ -5592,9 +5590,9 @@ export pure compare_powercap(
         issues,
         f"cap_zones.{name}.{field.name}",
       ) {
-        unstable_fields = unstable_fields.push(f"{name}.{field.name}")
+        unstable_fields += [f"{name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{name}.{field.name}")
+        field_mismatches += [f"{name}.{field.name}"]
       }
     }
 
@@ -5604,9 +5602,9 @@ export pure compare_powercap(
       issues,
       f"cap_zones.{name}.max_energy_range_uj",
     ) {
-      unstable_fields = unstable_fields.push(f"{name}.maximum_energy_range_uj")
+      unstable_fields += [f"{name}.maximum_energy_range_uj"]
     } else if actual.maximum_energy_range_uj != range_before.value {
-      field_mismatches = field_mismatches.push(f"{name}.maximum_energy_range_uj")
+      field_mismatches += [f"{name}.maximum_energy_range_uj"]
     }
 
     let energy_before = zone.energy_uj
@@ -5615,31 +5613,31 @@ export pure compare_powercap(
       issues,
       f"cap_zones.{name}.energy_uj",
     ) {
-      unstable_fields = unstable_fields.push(f"{name}.energy_uj")
+      unstable_fields += [f"{name}.energy_uj"]
     } else if energy_before.value == null and energy_after.value == null {
       if actual.energy_uj != null {
-        field_mismatches = field_mismatches.push(f"{name}.energy_uj")
+        field_mismatches += [f"{name}.energy_uj"]
       }
     } else if energy_before.value == null or energy_after.value == null or range_before.value != range_after.value {
-      unstable_fields = unstable_fields.push(f"{name}.energy_uj")
+      unstable_fields += [f"{name}.energy_uj"]
     } else {
       let first = energy_before.value
       let last = energy_after.value
       let observed = actual.energy_uj
       if first > last or ! range_before.complete or range_before.value == null {
-        unstable_fields = unstable_fields.push(f"{name}.energy_uj")
+        unstable_fields += [f"{name}.energy_uj"]
       } else if observed == null {
-        field_mismatches = field_mismatches.push(f"{name}.energy_uj")
+        field_mismatches += [f"{name}.energy_uj"]
       } else {
         let candidate_energy = observed
         if candidate_energy < first or candidate_energy > last {
-          field_mismatches = field_mismatches.push(f"{name}.energy_uj")
+          field_mismatches += [f"{name}.energy_uj"]
         }
       }
     }
 
     if ! zone.constraints_complete or ! later.constraints_complete or powercap_constraint_issue(issues, name) {
-      unstable_fields = unstable_fields.push(f"{name}.constraints")
+      unstable_fields += [f"{name}.constraints"]
       continue
     }
 
@@ -5677,21 +5675,21 @@ export pure compare_powercap(
       let key = f"{constraint.index}"
       let prefix = f"{name}.constraint_{constraint.index}"
       if key not in after_by_index {
-        unstable_fields = unstable_fields.push(f"{prefix}.presence")
+        unstable_fields += [f"{prefix}.presence"]
         continue
       }
 
       if key not in candidate_by_index {
-        field_mismatches = field_mismatches.push(f"{prefix}.presence")
+        field_mismatches += [f"{prefix}.presence"]
         continue
       }
 
       let following = later.constraints[after_by_index.get(key)?]
       let candidate = actual.constraints[candidate_by_index.get(key)?]
       if ! constraint.name.complete or ! following.name.complete or constraint.name.value != following.name.value {
-        unstable_fields = unstable_fields.push(f"{prefix}.name")
+        unstable_fields += [f"{prefix}.name"]
       } else if candidate.name != constraint.name.value {
-        field_mismatches = field_mismatches.push(f"{prefix}.name")
+        field_mismatches += [f"{prefix}.name"]
       }
 
       for field in [
@@ -5709,36 +5707,36 @@ export pure compare_powercap(
         },
       ] {
         if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value {
-          unstable_fields = unstable_fields.push(f"{prefix}.{field.name}")
+          unstable_fields += [f"{prefix}.{field.name}"]
         } else if field.candidate != field.before.value {
-          field_mismatches = field_mismatches.push(f"{prefix}.{field.name}")
+          field_mismatches += [f"{prefix}.{field.name}"]
         }
       }
     }
 
     for constraint in later.constraints {
       if f"{constraint.index}" not in before_by_index {
-        unstable_fields = unstable_fields.push(f"{name}.constraint_{constraint.index}.presence")
+        unstable_fields += [f"{name}.constraint_{constraint.index}.presence"]
       }
     }
 
     for constraint in actual.constraints {
       let key = f"{constraint.index}"
       if key not in before_by_index and key not in after_by_index {
-        field_mismatches = field_mismatches.push(f"{name}.constraint_{constraint.index}.presence")
+        field_mismatches += [f"{name}.constraint_{constraint.index}.presence"]
       }
     }
   }
 
   for zone in after {
     if zone.entry_name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"{zone.entry_name}.presence")
+      unstable_fields += [f"{zone.entry_name}.presence"]
     }
   }
 
   for zone in section.cap_zones {
     if zone.entry_name not in before_by_name and zone.entry_name not in after_by_name {
-      unexpected_names = unexpected_names.push(zone.entry_name)
+      unexpected_names += [zone.entry_name]
     }
   }
 
@@ -5826,14 +5824,14 @@ export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List
 
       let name = device_class_reference_name(root, entry, source.class_name)?
       let parent = device_class_reference_parent(root, entry)?
-      records = records.push({
+      records += [{
         class: source.class_name,
         entry_name: entry.name(),
         name: name.value,
         name_complete: name.complete,
         parent_target: parent.target,
         parent_complete: parent.complete,
-      })
+      }]
     }
   }
 
@@ -5970,7 +5968,7 @@ export pure compare_device_classes(
   for item in before {
     let key = f"{item.class}:{item.entry_name}"
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
       continue
     }
 
@@ -5978,7 +5976,7 @@ export pure compare_device_classes(
       if enumeration_complete {
         missing_names += [key]
       } else {
-        unstable_fields = unstable_fields.push(f"{key}.presence")
+        unstable_fields += [f"{key}.presence"]
       }
 
       continue
@@ -5992,16 +5990,16 @@ export pure compare_device_classes(
       issues,
       f"{item.class}.{item.entry_name}.{if item.class == "sound" { "id" } else { "name" }}",
     ) {
-      unstable_fields = unstable_fields.push(f"{key}.name")
+      unstable_fields += [f"{key}.name"]
     } else if display_name != item.name {
-      field_mismatches = field_mismatches.push(f"{key}.name")
+      field_mismatches += [f"{key}.name"]
     }
 
     if ! item.parent_complete or ! later.parent_complete or item.parent_target != later.parent_target or device_class_has_issue(
       issues,
       f"{item.class}.{item.entry_name}.parent",
     ) {
-      unstable_fields = unstable_fields.push(f"{key}.parent")
+      unstable_fields += [f"{key}.parent"]
     } else {
       let parents = device_class_parent_ids(item.parent_target)
       var pci_address: Str? = null
@@ -6009,7 +6007,7 @@ export pure compare_device_classes(
       if actual.parent_pci_function_index != null {
         let index = actual.parent_pci_function_index ?? -1
         if index < 0 or index >= pci.functions.len() {
-          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
+          field_mismatches += [f"{key}.pci_parent"]
           pci_index_valid = false
         } else {
           pci_address = pci.functions[index].address
@@ -6018,9 +6016,9 @@ export pure compare_device_classes(
 
       if pci_index_valid and pci_address != parents.pci {
         if actual.parent_pci_function_index == null and parents.pci != null and ! pci_enumerated {
-          unstable_fields = unstable_fields.push(f"{key}.pci_parent")
+          unstable_fields += [f"{key}.pci_parent"]
         } else {
-          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
+          field_mismatches += [f"{key}.pci_parent"]
         }
       }
 
@@ -6029,7 +6027,7 @@ export pure compare_device_classes(
       if actual.parent_usb_device_index != null {
         let index = actual.parent_usb_device_index ?? -1
         if index < 0 or index >= usb.devices.len() {
-          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
+          field_mismatches += [f"{key}.usb_parent"]
           usb_index_valid = false
         } else {
           usb_name = usb.devices[index].sysfs_name
@@ -6038,9 +6036,9 @@ export pure compare_device_classes(
 
       if usb_index_valid and usb_name != parents.usb {
         if actual.parent_usb_device_index == null and parents.usb != null and ! usb_enumerated {
-          unstable_fields = unstable_fields.push(f"{key}.usb_parent")
+          unstable_fields += [f"{key}.usb_parent"]
         } else {
-          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
+          field_mismatches += [f"{key}.usb_parent"]
         }
       }
     }
@@ -6049,7 +6047,7 @@ export pure compare_device_classes(
   for item in after {
     let key = f"{item.class}:{item.entry_name}"
     if key not in before_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
     }
   }
 
@@ -6194,7 +6192,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
       continue unless name.ends_with("_input")
       let channel = name.split("") |> take(name.count_chars() - 6).join("")
       let shape = hwmon_channel_shape(channel)
-      channels = channels.push({
+      channels += [{
         chip_entry_name: chip_path.name(),
         chip: chip_name,
         channel: channel,
@@ -6208,7 +6206,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
         alarm: reference_hwmon_number(root, fp"{chip_path}/{channel}_alarm", true, true)?,
         parent_target: parent.target,
         parent_complete: parent.complete,
-      })
+      }]
     }
   }
 
@@ -6308,19 +6306,19 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
       complete = false
     }
 
-    chips = chips.push({
+    chips += [{
       name: name,
       class_target: class_target,
       storage_path: storage,
       device_target: device_target,
-    })
-    source_paths = source_paths.push(f"{storage}/name")
+    }]
+    source_paths += [f"{storage}/name"]
     for attribute in attributes.children {
       let attribute_name = attribute.name()
       continue unless attribute_name.ends_with("_input")
       let channel = attribute_name.split("") |> take(attribute_name.count_chars() - 6).join("")
       for attribute_suffix in ["input", "label", "min", "max", "crit", "alarm"] {
-        source_paths = source_paths.push(f"{storage}/{channel}_{attribute_suffix}")
+        source_paths += [f"{storage}/{channel}_{attribute_suffix}"]
       }
     }
 
@@ -6383,8 +6381,8 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -6392,7 +6390,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = hwmon_bundle_layout(source)?
@@ -6593,7 +6591,7 @@ export pure compare_hwmon(
   for channel in before {
     let key = f"{channel.chip_entry_name}:{channel.channel}"
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
       continue
     }
 
@@ -6601,7 +6599,7 @@ export pure compare_hwmon(
       if enumeration_complete {
         missing_names += [key]
       } else {
-        unstable_fields = unstable_fields.push(f"{key}.presence")
+        unstable_fields += [f"{key}.presence"]
       }
 
       continue
@@ -6614,24 +6612,24 @@ export pure compare_hwmon(
       issues,
       f"hwmon.{channel.chip_entry_name}.name",
     ) {
-      unstable_fields = unstable_fields.push(f"{key}.chip")
+      unstable_fields += [f"{key}.chip"]
     } else if actual.chip != (channel.chip.value ?? channel.chip_entry_name) {
-      field_mismatches = field_mismatches.push(f"{key}.chip")
+      field_mismatches += [f"{key}.chip"]
     }
 
     if actual.kind != channel.kind {
-      field_mismatches = field_mismatches.push(f"{key}.kind")
+      field_mismatches += [f"{key}.kind"]
     }
 
     if actual.unit != channel.unit {
-      field_mismatches = field_mismatches.push(f"{key}.unit")
+      field_mismatches += [f"{key}.unit"]
     }
 
     if ! channel.parent_complete or ! following.parent_complete or channel.parent_target != following.parent_target or hwmon_has_issue(
       issues,
       f"hwmon.{channel.chip_entry_name}.parent",
     ) {
-      unstable_fields = unstable_fields.push(f"{key}.parent")
+      unstable_fields += [f"{key}.parent"]
     } else {
       let parents = device_class_parent_ids(channel.parent_target)
       var pci_address: Str? = null
@@ -6639,7 +6637,7 @@ export pure compare_hwmon(
       if actual.parent_pci_function_index != null {
         let index = actual.parent_pci_function_index ?? -1
         if index < 0 or index >= pci.functions.len() {
-          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
+          field_mismatches += [f"{key}.pci_parent"]
           pci_index_valid = false
         } else {
           pci_address = pci.functions[index].address
@@ -6648,9 +6646,9 @@ export pure compare_hwmon(
 
       if pci_index_valid and pci_address != parents.pci {
         if actual.parent_pci_function_index == null and parents.pci != null and ! pci_enumerated {
-          unstable_fields = unstable_fields.push(f"{key}.pci_parent")
+          unstable_fields += [f"{key}.pci_parent"]
         } else {
-          field_mismatches = field_mismatches.push(f"{key}.pci_parent")
+          field_mismatches += [f"{key}.pci_parent"]
         }
       }
 
@@ -6659,7 +6657,7 @@ export pure compare_hwmon(
       if actual.parent_usb_device_index != null {
         let index = actual.parent_usb_device_index ?? -1
         if index < 0 or index >= usb.devices.len() {
-          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
+          field_mismatches += [f"{key}.usb_parent"]
           usb_index_valid = false
         } else {
           usb_name = usb.devices[index].sysfs_name
@@ -6668,9 +6666,9 @@ export pure compare_hwmon(
 
       if usb_index_valid and usb_name != parents.usb {
         if actual.parent_usb_device_index == null and parents.usb != null and ! usb_enumerated {
-          unstable_fields = unstable_fields.push(f"{key}.usb_parent")
+          unstable_fields += [f"{key}.usb_parent"]
         } else {
-          field_mismatches = field_mismatches.push(f"{key}.usb_parent")
+          field_mismatches += [f"{key}.usb_parent"]
         }
       }
     }
@@ -6680,9 +6678,9 @@ export pure compare_hwmon(
       issues,
       f"hwmon.{channel.chip_entry_name}.{channel.channel}_label",
     ) {
-      unstable_fields = unstable_fields.push(f"{key}.label")
+      unstable_fields += [f"{key}.label"]
     } else if label != channel.label.value {
-      field_mismatches = field_mismatches.push(f"{key}.label")
+      field_mismatches += [f"{key}.label"]
     }
 
     for field in [
@@ -6719,12 +6717,12 @@ export pure compare_hwmon(
         issues,
         f"hwmon.{channel.chip_entry_name}.{channel.channel}_{field.suffix}",
       ) {
-        unstable_fields = unstable_fields.push(f"{key}.{field.name}")
+        unstable_fields += [f"{key}.{field.name}"]
       } else if field.candidate != field.before.value {
         if field.name == "value" {
-          unstable_fields = unstable_fields.push(f"{key}.{field.name}")
+          unstable_fields += [f"{key}.{field.name}"]
         } else {
-          field_mismatches = field_mismatches.push(f"{key}.{field.name}")
+          field_mismatches += [f"{key}.{field.name}"]
         }
       }
     }
@@ -6734,16 +6732,16 @@ export pure compare_hwmon(
       issues,
       f"hwmon.{channel.chip_entry_name}.{channel.channel}_alarm",
     ) {
-      unstable_fields = unstable_fields.push(f"{key}.alarm")
+      unstable_fields += [f"{key}.alarm"]
     } else if alarm != channel.alarm.value {
-      field_mismatches = field_mismatches.push(f"{key}.alarm")
+      field_mismatches += [f"{key}.alarm"]
     }
   }
 
   for channel in after {
     let key = f"{channel.chip_entry_name}:{channel.channel}"
     if key not in before_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
     }
   }
 
@@ -6825,12 +6823,12 @@ export pure compare_usb_power(
 
   for item in before {
     if item.name not in after_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
       continue
     }
 
     if item.name not in candidate_by_name {
-      missing_names = missing_names.push(item.name)
+      missing_names += [item.name]
       continue
     }
 
@@ -6859,9 +6857,9 @@ export pure compare_usb_power(
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
 
@@ -6893,16 +6891,16 @@ export pure compare_usb_power(
       }
 
       if ! field.before.complete or ! field.after.complete or field.before.value != field.after.value or candidate_incomplete {
-        unstable_fields = unstable_fields.push(f"{item.name}.{field.name}")
+        unstable_fields += [f"{item.name}.{field.name}"]
       } else if field.candidate != field.before.value {
-        field_mismatches = field_mismatches.push(f"{item.name}.{field.name}")
+        field_mismatches += [f"{item.name}.{field.name}"]
       }
     }
   }
 
   for item in after {
     if item.name not in before_by_name {
-      unstable_fields = unstable_fields.push(f"{item.name}.presence")
+      unstable_fields += [f"{item.name}.presence"]
     }
   }
 
@@ -7013,7 +7011,7 @@ export pure compare_cpuidle(
   for expected in before.states {
     let key = f"{expected.cpu_id}:{expected.state_index}"
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
       continue
     }
 
@@ -7026,15 +7024,15 @@ export pure compare_cpuidle(
     let actual = states[candidate_by_key.get(key)?]
     let later = after.states[after_by_key.get(key)?]
     if expected.name != later.name {
-      unstable_fields = unstable_fields.push(f"{key}.name")
+      unstable_fields += [f"{key}.name"]
     } else if actual.name != expected.name {
-      field_mismatches = field_mismatches.push(f"{key}.name")
+      field_mismatches += [f"{key}.name"]
     }
 
     if expected.description != later.description {
-      unstable_fields = unstable_fields.push(f"{key}.description")
+      unstable_fields += [f"{key}.description"]
     } else if actual.description != expected.description {
-      field_mismatches = field_mismatches.push(f"{key}.description")
+      field_mismatches += [f"{key}.description"]
     }
 
     for field in [
@@ -7058,9 +7056,9 @@ export pure compare_cpuidle(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"{key}.{field.name}")
+        unstable_fields += [f"{key}.{field.name}"]
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"{key}.{field.name}")
+        field_mismatches += [f"{key}.{field.name}"]
       }
     }
 
@@ -7082,13 +7080,13 @@ export pure compare_cpuidle(
       let upper = counter.after ?? -1
       let observed = counter.candidate ?? -1
       if counter.before == null != (counter.after == null) or upper < lower {
-        unstable_fields = unstable_fields.push(f"{key}.{counter.name}")
+        unstable_fields += [f"{key}.{counter.name}"]
       } else if counter.before == null {
         if counter.candidate != null {
-          counter_mismatches = counter_mismatches.push(f"{key}.{counter.name}")
+          counter_mismatches += [f"{key}.{counter.name}"]
         }
       } else if observed < lower or observed > upper {
-        counter_mismatches = counter_mismatches.push(f"{key}.{counter.name}")
+        counter_mismatches += [f"{key}.{counter.name}"]
       }
     }
   }
@@ -7096,7 +7094,7 @@ export pure compare_cpuidle(
   for state in after.states {
     let key = f"{state.cpu_id}:{state.state_index}"
     if key not in before_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
     }
   }
 
@@ -7201,7 +7199,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
         return Err(check_failure("CPUIdle reference state has an invalid disable control"))
       }
 
-      states = states.push({
+      states += [{
         cpu_id: cpu_id,
         state_index: index,
         name: state_name,
@@ -7211,7 +7209,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
         residency_us: reference_cpuidle_number(root, fp"{state_path}/residency")?,
         usage_count: reference_cpuidle_number(root, fp"{state_path}/usage")?,
         time_us: reference_cpuidle_number(root, fp"{state_path}/time")?,
-      })
+      }]
     }
   }
 
@@ -7348,8 +7346,7 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
     let affected = reference_cpufreq_text(root, fp"{policy_path}/affected_cpus", true)?
     let governor = reference_cpufreq_text(root, fp"{policy_path}/scaling_governor", false)?
     let available_epp = reference_cpufreq_text(root, fp"{policy_path}/energy_performance_available_preferences", false)?
-    policies = policies.push(
-      {
+    policies += [{
         name: name,
         related_cpus: reference_cpufreq_members(related ?? "")?,
         affected_cpus: reference_cpufreq_members(affected ?? "")?,
@@ -7376,8 +7373,7 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
         boost_allowed: boost.allowed,
         boost_active: null,
         boost_scope: boost.scope,
-      },
-    )
+      }]
   }
 
   policies |> sort-by .name
@@ -7457,13 +7453,13 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       bundle.write(relative, raw.data)?
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
+    saved_bytes += [raw.data]
     var sha256_hex: Str? = null
     if raw.data != null {
       sha256_hex = hash.sha256(raw.data).hex()
     }
 
-    observations = observations.push({
+    observations += [{
       name: name,
       state: raw.state,
       truncated: raw.truncated,
@@ -7471,7 +7467,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   var stable = true
@@ -7650,7 +7646,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
       "energy_performance_available_preferences",
       "scaling_available_frequencies",
     ] {
-      source_paths = source_paths.push(f"{prefix}/{attribute}")
+      source_paths += [f"{prefix}/{attribute}"]
     }
   }
 
@@ -7709,8 +7705,8 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -7718,7 +7714,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = cpufreq_bundle_layout(source)?
@@ -7889,11 +7885,11 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
       }
 
       found_node = true
-      node_links = node_links.push({cpu_id: cpu_id, name: name, target: target})
+      node_links += [{cpu_id: cpu_id, name: name, target: target}]
     }
 
     for attribute in ["physical_package_id", "die_id", "core_id", "thread_siblings_list"] {
-      source_paths = source_paths.push(f"{cpu_path}/topology/{attribute}")
+      source_paths += [f"{cpu_path}/topology/{attribute}"]
     }
   }
 
@@ -7954,7 +7950,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
       }
     }
 
-    rows = rows.push({
+    rows += [{
       id: cpu_id,
       online: cpu_id in sets.online,
       package_id: package ?? -1,
@@ -7962,7 +7958,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
       core_id: core ?? -1,
       siblings: siblings,
       node_id: node_id,
-    })
+    }]
   }
 
   rows
@@ -7999,38 +7995,38 @@ export pure compare_cpu_topology_raw(
 
     seen = set.add(seen, key)
     if key not in by_id {
-      missing_ids = missing_ids.push(item.id)
+      missing_ids += [item.id]
       continue
     }
 
     matched_count += 1
     let actual = candidate[by_id.get(key)?]
     if ! actual.present {
-      field_mismatches = field_mismatches.push(f"{item.id}.present")
+      field_mismatches += [f"{item.id}.present"]
     }
 
     if actual.online != item.online {
-      field_mismatches = field_mismatches.push(f"{item.id}.online")
+      field_mismatches += [f"{item.id}.online"]
     }
 
     if actual.package_id != item.package_id {
-      field_mismatches = field_mismatches.push(f"{item.id}.package_id")
+      field_mismatches += [f"{item.id}.package_id"]
     }
 
     if actual.die_id != item.die_id {
-      field_mismatches = field_mismatches.push(f"{item.id}.die_id")
+      field_mismatches += [f"{item.id}.die_id"]
     }
 
     if actual.core_id != item.core_id {
-      field_mismatches = field_mismatches.push(f"{item.id}.core_id")
+      field_mismatches += [f"{item.id}.core_id"]
     }
 
     if actual.thread_siblings != item.siblings {
-      field_mismatches = field_mismatches.push(f"{item.id}.siblings")
+      field_mismatches += [f"{item.id}.siblings"]
     }
 
     if actual.numa_node != item.node_id {
-      field_mismatches = field_mismatches.push(f"{item.id}.node_id")
+      field_mismatches += [f"{item.id}.node_id"]
     }
   }
 
@@ -8093,8 +8089,8 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -8102,7 +8098,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = cpu_topology_bundle_layout(source)?
@@ -8257,7 +8253,7 @@ proc memory_bundle_reference(bundle: FsRoot) [fs, error] -> Result[MemoryBundleR
     let relative = f"sys/kernel/mm/transparent_hugepage/{name}"
     let raw = bundle.read_result(fp"{relative}", max_bytes: 4096)?
     continue when raw.state == "absent"
-    thp = thp.push({name: name, value: parse_thp_reference(memory_bundle_text(bundle, relative, 4096)?)?})
+    thp += [{name: name, value: parse_thp_reference(memory_bundle_text(bundle, relative, 4096)?)?}]
   }
 
   {meminfo: meminfo, thp: thp}
@@ -8306,8 +8302,8 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
       byte_count = data.len()
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    observations = observations.push({
+    saved_bytes += [raw.data]
+    observations += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -8315,7 +8311,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   var stable = true
@@ -8567,11 +8563,11 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
 
     let kib = source_unit == "kB"
     let source_value = meminfo_reference_number(fields[0], if kib { 8796093022207 } else { 9007199254740991 })?
-    counters = counters.push({
+    counters += [{
       name: name,
       value: if kib { source_value * 1024 } else { source_value },
       unit: if kib { "bytes" } else if source_unit == "" { "count" } else { source_unit },
-    })
+    }]
     seen = set.add(seen, name)
   }
 
@@ -8656,7 +8652,7 @@ export pure compare_meminfo(
   var scalar_mismatches: List[Str] = []
   for first in before {
     if first.name not in candidate_by_name {
-      missing_names = missing_names.push(first.name)
+      missing_names += [first.name]
       continue
     }
 
@@ -8664,7 +8660,7 @@ export pure compare_meminfo(
     let last = after[after_by_name.get(first.name) ?? -1]
     let candidate = candidates[candidate_by_name.get(first.name) ?? -1]
     if candidate.unit != first.unit {
-      mismatched_names = mismatched_names.push(first.name)
+      mismatched_names += [first.name]
       continue
     }
 
@@ -8675,21 +8671,21 @@ export pure compare_meminfo(
 
     stable_count += 1
     if candidate.value != first.value {
-      mismatched_names = mismatched_names.push(first.name)
+      mismatched_names += [first.name]
     }
 
     let scalar_field = meminfo_host_field(first.name)
     if scalar_field != null {
       let scalar = json.get(data, ["memory", "host", scalar_field], null).require(Int?)?
       if scalar != first.value {
-        scalar_mismatches = scalar_mismatches.push(first.name)
+        scalar_mismatches += [first.name]
       }
     }
   }
 
   for candidate in candidates {
     if candidate.name not in before_by_name {
-      unexpected_names = unexpected_names.push(candidate.name)
+      unexpected_names += [candidate.name]
     }
   }
 
@@ -8801,13 +8797,13 @@ export pure compare_thp(
   var matched_count = 0
   for item in before {
     if item.name not in candidate_by_name {
-      missing_names = missing_names.push(item.name)
+      missing_names += [item.name]
       continue
     }
 
     matched_count += 1
     if (candidate_by_name.get(item.name) ?? "") != item.value {
-      mismatched_names = mismatched_names.push(item.name)
+      mismatched_names += [item.name]
     }
   }
 
@@ -8883,14 +8879,14 @@ export pure compare_vulnerabilities(
   var matched_count = 0
   for item in before {
     if item.name not in candidate_by_name {
-      missing_names = missing_names.push(item.name)
+      missing_names += [item.name]
       continue
     }
 
     matched_count += 1
     let candidate = candidate_by_name.get(item.name) ?? {state: "", value: null, raw_bytes_base64: null}
     if candidate.state != "observed" or candidate.value != item.description or candidate.raw_bytes_base64 != null {
-      mismatched_names = mismatched_names.push(item.name)
+      mismatched_names += [item.name]
     }
   }
 
@@ -8952,7 +8948,7 @@ export proc capture_vulnerabilities_bundle(
         }
       }
 
-      sources = sources.push({
+      sources += [{
         name: name,
         state: raw.state,
         truncated: raw.truncated,
@@ -8960,12 +8956,12 @@ export proc capture_vulnerabilities_bundle(
         error_kind: raw.error_kind,
         byte_count: raw.data?.len() ?? 0,
         sha256_hex: digest,
-      })
+      }]
       if raw.state != "observed" or raw.truncated or raw.errno != null or raw.error_kind != null or raw.data == null {
         scoreable = false
       } else if scoreable {
         if let Ok(value) = raw.data.utf8() {
-          reference = reference.push({name: name, description: value.trim()})
+          reference += [{name: name, description: value.trim()}]
         } else {
           scoreable = false
         }
@@ -8977,7 +8973,7 @@ export proc capture_vulnerabilities_bundle(
   var second_names: List[Str] = []
   if second.state == "complete" {
     for child in second.children {
-      second_names = second_names.push(child.name())
+      second_names += [child.name()]
     }
   }
 
@@ -9041,7 +9037,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
       return Err(check_failure("vulnerability capture contains an invalid source observation"))
     }
 
-    expected_names = expected_names.push(item.name)
+    expected_names += [item.name]
     let relative = fp"sys/devices/system/cpu/vulnerabilities/{item.name}"
     let raw = bundle.read_result(relative, max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != item.byte_count or hash.sha256(
@@ -9057,7 +9053,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     }
 
     if let Ok(value) = raw.data.utf8() {
-      reference = reference.push({name: item.name, description: value.trim()})
+      reference += [{name: item.name, description: value.trim()}]
     } else {
       return Err(check_failure(f"vulnerability capture {item.name} is not UTF-8"))
     }
@@ -9189,9 +9185,9 @@ export pure compare_huge_pages(
     ]
     for field in fields {
       if field.before != field.after {
-        changed_fields = changed_fields.push(f"{key}.{field.name}")
+        changed_fields += [f"{key}.{field.name}"]
       } else if field.candidate != field.before {
-        mismatched_fields = mismatched_fields.push(f"{key}.{field.name}")
+        mismatched_fields += [f"{key}.{field.name}"]
       }
     }
   }
@@ -9315,14 +9311,14 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
       return Err(check_failure("PSI reference has an invalid average or missing field"))
     }
 
-    rows = rows.push({
+    rows += [{
       resource: resource,
       kind: kind,
       avg10: avg10,
       avg60: avg60,
       avg300: avg300,
       total_us: psi_reference_total(total_text)?,
-    })
+    }]
   }
 
   rows
@@ -9407,7 +9403,7 @@ export pure compare_psi(
     let candidate = candidates[candidate_by_key.get(key) ?? -1]
     let total = candidate.total_us ?? -1
     if total < first.total_us or total > last.total_us {
-      mismatched_fields = mismatched_fields.push(f"{key}.total_us")
+      mismatched_fields += [f"{key}.total_us"]
     }
 
     for field in [
@@ -9431,11 +9427,11 @@ export pure compare_psi(
       },
     ] {
       if field.candidate == null or ! psi_reference_average(field.candidate) {
-        mismatched_fields = mismatched_fields.push(f"{key}.{field.name}")
+        mismatched_fields += [f"{key}.{field.name}"]
       } else if field.before != field.after {
-        changing_averages = changing_averages.push(f"{key}.{field.name}")
+        changing_averages += [f"{key}.{field.name}"]
       } else if field.candidate != field.before {
-        mismatched_fields = mismatched_fields.push(f"{key}.{field.name}")
+        mismatched_fields += [f"{key}.{field.name}"]
       }
     }
   }
@@ -9476,7 +9472,7 @@ proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiRef
       return Err(check_failure(f"pressure capture {resource} source is not UTF-8"))
     }
 
-    rows = rows.extend(parse_psi_reference(source_text, resource)?)
+    rows += parse_psi_reference(source_text, resource)?
   }
 
   return Err(check_failure("pressure capture has no observed rows")) when rows.len() == 0
@@ -9519,7 +9515,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
       sha256_hex = hash.sha256(data).hex()
     }
 
-    sources = sources.push({
+    sources += [{
       path: relative.display(),
       state: raw.state,
       truncated: raw.truncated,
@@ -9527,7 +9523,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   var reference: List[PsiReferenceRow]? = null
@@ -9671,7 +9667,7 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice]] {
     }
 
     seen = set.add(seen, columns[0])
-    devices = devices.push({name: columns[0], kind: columns[1], size_bytes: size, used_bytes: used, priority: priority})
+    devices += [{name: columns[0], kind: columns[1], size_bytes: size, used_bytes: used, priority: priority}]
   }
 
   devices
@@ -9713,13 +9709,13 @@ export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenc
     }
 
     seen = set.add(seen, name)
-    devices = devices.push({
+    devices += [{
       name: name,
       kind: columns[1],
       size_bytes: size_kib * 1024,
       used_bytes: used_kib * 1024,
       priority: priority,
-    })
+    }]
   }
 
   devices
@@ -10088,7 +10084,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       iommu_group = fields.get("IOMMUGroup")?
     }
 
-    references = references.push({
+    references += [{
       address: bdf.address,
       domain: bdf.domain,
       bus: bdf.bus,
@@ -10104,7 +10100,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       driver: driver,
       numa_node: numa_node,
       iommu_group: iommu_group,
-    })
+    }]
     if references.len() > 65536 {
       return Err(check_failure("lspci reference contains too many functions"))
     }
@@ -10152,7 +10148,7 @@ export pure compare_lspci_identity(
 
     references = set.add(references, item.address)
     if item.address not in candidates {
-      missing_addresses = missing_addresses.push(item.address)
+      missing_addresses += [item.address]
       continue
     }
 
@@ -10163,62 +10159,62 @@ export pure compare_lspci_identity(
     }
 
     if function.domain != item.domain {
-      field_mismatches = field_mismatches.push(f"{item.address}.domain")
+      field_mismatches += [f"{item.address}.domain"]
     }
 
     if function.bus != item.bus {
-      field_mismatches = field_mismatches.push(f"{item.address}.bus")
+      field_mismatches += [f"{item.address}.bus"]
     }
 
     if function.device != item.device {
-      field_mismatches = field_mismatches.push(f"{item.address}.device")
+      field_mismatches += [f"{item.address}.device"]
     }
 
     if function.function != item.function {
-      field_mismatches = field_mismatches.push(f"{item.address}.function")
+      field_mismatches += [f"{item.address}.function"]
     }
 
     if function.vendor_id != item.vendor_id {
-      field_mismatches = field_mismatches.push(f"{item.address}.vendor_id")
+      field_mismatches += [f"{item.address}.vendor_id"]
     }
 
     if function.device_id != item.device_id {
-      field_mismatches = field_mismatches.push(f"{item.address}.device_id")
+      field_mismatches += [f"{item.address}.device_id"]
     }
 
     let candidate_class = function.class_code ?? -1
     if function.class_code == null or candidate_class - candidate_class.bit_and(255) != item.class_code - item.class_code.bit_and(
       255,
     ) {
-      field_mismatches = field_mismatches.push(f"{item.address}.class_code")
+      field_mismatches += [f"{item.address}.class_code"]
     }
 
     if item.prog_if != null and candidate_class.bit_and(255) != (item.prog_if ?? -1) {
-      field_mismatches = field_mismatches.push(f"{item.address}.prog_if")
+      field_mismatches += [f"{item.address}.prog_if"]
     }
 
     if item.revision != null and function.revision != item.revision {
-      field_mismatches = field_mismatches.push(f"{item.address}.revision")
+      field_mismatches += [f"{item.address}.revision"]
     }
 
     if item.subsystem_vendor_id != null and function.subsystem_vendor_id != item.subsystem_vendor_id {
-      field_mismatches = field_mismatches.push(f"{item.address}.subsystem_vendor_id")
+      field_mismatches += [f"{item.address}.subsystem_vendor_id"]
     }
 
     if item.subsystem_device_id != null and function.subsystem_device_id != item.subsystem_device_id {
-      field_mismatches = field_mismatches.push(f"{item.address}.subsystem_device_id")
+      field_mismatches += [f"{item.address}.subsystem_device_id"]
     }
 
     if function.driver != item.driver {
-      field_mismatches = field_mismatches.push(f"{item.address}.driver")
+      field_mismatches += [f"{item.address}.driver"]
     }
 
     if item.numa_node != null and function.numa_node != item.numa_node {
-      field_mismatches = field_mismatches.push(f"{item.address}.numa_node")
+      field_mismatches += [f"{item.address}.numa_node"]
     }
 
     if item.iommu_group != null and function.iommu_group != item.iommu_group {
-      field_mismatches = field_mismatches.push(f"{item.address}.iommu_group")
+      field_mismatches += [f"{item.address}.iommu_group"]
     }
   }
 
@@ -10293,7 +10289,7 @@ export pure compare_pci_links(
     }
 
     if address not in after_by_address {
-      unstable_fields = unstable_fields.push(f"{address}.presence")
+      unstable_fields += [f"{address}.presence"]
       continue
     }
 
@@ -10324,9 +10320,9 @@ export pure compare_pci_links(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"{address}.{field.name}")
+        unstable_fields += [f"{address}.{field.name}"]
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"{address}.{field.name}")
+        field_mismatches += [f"{address}.{field.name}"]
       }
     }
 
@@ -10345,9 +10341,9 @@ export pure compare_pci_links(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"{address}.{field.name}")
+        unstable_fields += [f"{address}.{field.name}"]
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"{address}.{field.name}")
+        field_mismatches += [f"{address}.{field.name}"]
       }
     }
   }
@@ -10358,7 +10354,7 @@ export pure compare_pci_links(
     }
 
     if item.address not in before_by_address {
-      unstable_fields = unstable_fields.push(f"{item.address}.presence")
+      unstable_fields += [f"{item.address}.presence"]
     }
   }
 
@@ -10436,7 +10432,7 @@ export pure compare_pci_bindings(
   for item in before {
     let address = item.address
     if address not in after_by_address {
-      unstable_fields = unstable_fields.push(f"{address}.presence")
+      unstable_fields += [f"{address}.presence"]
       continue
     }
 
@@ -10463,42 +10459,42 @@ export pure compare_pci_bindings(
       },
     ] {
       if field.before != field.after {
-        unstable_fields = unstable_fields.push(f"{address}.{field.name}")
+        unstable_fields += [f"{address}.{field.name}"]
       } else if field.candidate != field.before {
-        field_mismatches = field_mismatches.push(f"{address}.{field.name}")
+        field_mismatches += [f"{address}.{field.name}"]
       }
     }
 
     if item.numa_node != later.numa_node {
-      unstable_fields = unstable_fields.push(f"{address}.numa_node")
+      unstable_fields += [f"{address}.numa_node"]
     } else if actual.numa_node != item.numa_node {
-      field_mismatches = field_mismatches.push(f"{address}.numa_node")
+      field_mismatches += [f"{address}.numa_node"]
     }
 
     var actual_parent: Str? = null
     let parent_index = actual.parent_function_index
     if parent_index != null {
       if parent_index < 0 or parent_index >= candidate.len() {
-        field_mismatches = field_mismatches.push(f"{address}.parent_function_index")
+        field_mismatches += [f"{address}.parent_function_index"]
       } else {
         actual_parent = candidate[parent_index].address
         if actual_parent == null or actual_parent == "" {
-          field_mismatches = field_mismatches.push(f"{address}.parent_function_index")
+          field_mismatches += [f"{address}.parent_function_index"]
         }
       }
     }
 
     if item.parent_address != later.parent_address {
-      unstable_fields = unstable_fields.push(f"{address}.parent_function_index")
+      unstable_fields += [f"{address}.parent_function_index"]
     } else if actual_parent != item.parent_address and ! (field_mismatches
       |> any . == f"{address}.parent_function_index") {
-      field_mismatches = field_mismatches.push(f"{address}.parent_function_index")
+      field_mismatches += [f"{address}.parent_function_index"]
     }
   }
 
   for item in after {
     if item.address not in before_by_address {
-      unstable_fields = unstable_fields.push(f"{item.address}.presence")
+      unstable_fields += [f"{item.address}.presence"]
     }
   }
 
@@ -10575,27 +10571,27 @@ export pure compare_thermal_zones(
   for zone in before {
     let zone_key = f"{zone.id}"
     if zone_key not in after_by_id {
-      unstable_fields = unstable_fields.push(f"zone.{zone.id}.presence")
+      unstable_fields += [f"zone.{zone.id}.presence"]
       continue
     }
 
     if zone_key not in candidate_by_id {
-      field_mismatches = field_mismatches.push(f"zone.{zone.id}.presence")
+      field_mismatches += [f"zone.{zone.id}.presence"]
       continue
     }
 
     let later = after[after_by_id.get(zone_key)?]
     let actual = section.thermal_zones[candidate_by_id.get(zone_key)?]
     if zone.kind != later.kind {
-      unstable_fields = unstable_fields.push(f"zone.{zone.id}.kind")
+      unstable_fields += [f"zone.{zone.id}.kind"]
     } else if zone.kind != actual.kind {
-      field_mismatches = field_mismatches.push(f"zone.{zone.id}.kind")
+      field_mismatches += [f"zone.{zone.id}.kind"]
     }
 
     if zone.temperature_millidegrees != later.temperature_millidegrees {
-      unstable_fields = unstable_fields.push(f"zone.{zone.id}.temperature_millidegrees")
+      unstable_fields += [f"zone.{zone.id}.temperature_millidegrees"]
     } else if zone.temperature_millidegrees != actual.temperature_millidegrees {
-      field_mismatches = field_mismatches.push(f"zone.{zone.id}.temperature_millidegrees")
+      field_mismatches += [f"zone.{zone.id}.temperature_millidegrees"]
     }
 
     var before_trips: Map[Int] = {}
@@ -10639,39 +10635,39 @@ export pure compare_thermal_zones(
       let key = f"{trip.index}"
       let field = f"zone.{zone.id}.trip.{trip.index}"
       if key not in after_trips {
-        unstable_fields = unstable_fields.push(f"{field}.presence")
+        unstable_fields += [f"{field}.presence"]
         continue
       }
 
       if key not in candidate_trips {
-        field_mismatches = field_mismatches.push(f"{field}.presence")
+        field_mismatches += [f"{field}.presence"]
         continue
       }
 
       let later_trip = later.trips[after_trips.get(key)?]
       let actual_trip = actual.trips[candidate_trips.get(key)?]
       if trip.kind != later_trip.kind {
-        unstable_fields = unstable_fields.push(f"{field}.kind")
+        unstable_fields += [f"{field}.kind"]
       } else if trip.kind != actual_trip.kind {
-        field_mismatches = field_mismatches.push(f"{field}.kind")
+        field_mismatches += [f"{field}.kind"]
       }
 
       if trip.temperature_millidegrees != later_trip.temperature_millidegrees {
-        unstable_fields = unstable_fields.push(f"{field}.temperature_millidegrees")
+        unstable_fields += [f"{field}.temperature_millidegrees"]
       } else if trip.temperature_millidegrees != actual_trip.temperature_millidegrees {
-        field_mismatches = field_mismatches.push(f"{field}.temperature_millidegrees")
+        field_mismatches += [f"{field}.temperature_millidegrees"]
       }
 
       if trip.hysteresis_millidegrees != later_trip.hysteresis_millidegrees {
-        unstable_fields = unstable_fields.push(f"{field}.hysteresis_millidegrees")
+        unstable_fields += [f"{field}.hysteresis_millidegrees"]
       } else if trip.hysteresis_millidegrees != actual_trip.hysteresis_millidegrees {
-        field_mismatches = field_mismatches.push(f"{field}.hysteresis_millidegrees")
+        field_mismatches += [f"{field}.hysteresis_millidegrees"]
       }
     }
 
     for trip in later.trips {
       if f"{trip.index}" not in before_trips {
-        unstable_fields = unstable_fields.push(f"zone.{zone.id}.trip.{trip.index}.presence")
+        unstable_fields += [f"zone.{zone.id}.trip.{trip.index}.presence"]
       }
     }
 
@@ -10679,7 +10675,7 @@ export pure compare_thermal_zones(
       if trip.index != null {
         let known_index = trip.index ?? -1
         if f"{known_index}" not in before_trips and f"{known_index}" not in after_trips {
-          field_mismatches = field_mismatches.push(f"zone.{zone.id}.trip.{known_index}.presence")
+          field_mismatches += [f"zone.{zone.id}.trip.{known_index}.presence"]
         }
       }
     }
@@ -10687,13 +10683,13 @@ export pure compare_thermal_zones(
 
   for zone in after {
     if f"{zone.id}" not in before_by_id {
-      unstable_fields = unstable_fields.push(f"zone.{zone.id}.presence")
+      unstable_fields += [f"zone.{zone.id}.presence"]
     }
   }
 
   for zone in section.thermal_zones {
     if f"{zone.id}" not in before_by_id and f"{zone.id}" not in after_by_id {
-      field_mismatches = field_mismatches.push(f"zone.{zone.id}.presence")
+      field_mismatches += [f"zone.{zone.id}.presence"]
     }
   }
 
@@ -10819,12 +10815,12 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
       }
       for trip_index in trip_indices |> sort-by .
     ]
-    zones = zones.push({
+    zones += [{
       id: id,
       kind: reference_thermal_text(root, fp"{zone_path}/type")?,
       temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/temp")?,
       trips: trips,
-    })
+    }]
   }
 
   zones |> sort-by .id
@@ -10848,7 +10844,7 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
     continue unless zone_path.name().starts_with("thermal_zone")
     let zone = zone_path.display()
     zone_paths += [zone]
-    source_paths = source_paths.extend([f"{zone}/type", f"{zone}/temp"])
+    source_paths += [f"{zone}/type", f"{zone}/temp"]
     let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
@@ -10859,7 +10855,7 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
       let name = attribute.name()
       continue unless thermal_bundle_trip_source(name)
       let stem = name.split("") |> take(name.count_chars() - 5).join("")
-      source_paths = source_paths.extend([f"{zone}/{name}", f"{zone}/{stem}_type", f"{zone}/{stem}_hyst"])
+      source_paths += [f"{zone}/{name}", f"{zone}/{stem}_type", f"{zone}/{stem}_hyst"]
     }
 
     if source_paths.len() > 4096 {
@@ -10913,8 +10909,8 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    observations = observations.push({
+    saved_bytes += [raw.data]
+    observations += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -10922,7 +10918,7 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = thermal_bundle_layout(source)?
@@ -11104,13 +11100,13 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
       }
     }
 
-    rows = rows.push({
+    rows += [{
       address: address,
       driver: reference_pci_link_name(root, fp"{device_path}/driver", driver_present)?,
       parent_address: pci_binding_parent_from_target(entry, address)?,
       numa_node: reference_pci_numa_node(root, fp"{device_path}/numa_node")?,
       iommu_group: reference_pci_link_name(root, fp"{device_path}/iommu_group", iommu_present)?,
-    })
+    }]
   }
 
   rows |> sort-by .address
@@ -11161,13 +11157,13 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
     return Err(check_failure("PCI link reference repeats a BDF")) when address in seen
 
     seen = set.add(seen, address)
-    rows = rows.push({
+    rows += [{
       address: address,
       current_speed: reference_pci_link_text(root, fp"{device_path}/current_link_speed")?,
       current_width: reference_pci_link_width(root, fp"{device_path}/current_link_width")?,
       maximum_speed: reference_pci_link_text(root, fp"{device_path}/max_link_speed")?,
       maximum_width: reference_pci_link_width(root, fp"{device_path}/max_link_width")?,
-    })
+    }]
   }
 
   rows |> sort-by .address
@@ -11191,7 +11187,7 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
     let bdf = pci_reference_bdf(address)?
     let prefix = f"sys/bus/pci/devices/{address}"
     let class_code = pci_raw_hex(root, fp"{prefix}/class", 6)?
-    rows = rows.push({
+    rows += [{
       address: address,
       domain: bdf.domain,
       bus: bdf.bus,
@@ -11207,7 +11203,7 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
       driver: binding.driver,
       numa_node: binding.numa_node,
       iommu_group: binding.iommu_group,
-    })
+    }]
   }
 
   rows
@@ -11228,7 +11224,7 @@ pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
 
   var storage: List[Str] = ["sys"]
   for index in range(3, components.len()) {
-    storage = storage.push(components[index])
+    storage += [components[index]]
   }
 
   storage.join("/")
@@ -11268,13 +11264,13 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
       }
     }
 
-    functions = functions.push({
+    functions += [{
       address: address,
       class_target: class_target,
       storage_path: storage,
       driver_target: driver_target,
       iommu_target: iommu_target,
-    })
+    }]
     let prefix = entry.display()
     for name in [
       "vendor",
@@ -11289,7 +11285,7 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
       "max_link_speed",
       "max_link_width",
     ] {
-      source_paths = source_paths.push(f"{prefix}/{name}")
+      source_paths += [f"{prefix}/{name}"]
     }
   }
 
@@ -11354,8 +11350,8 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -11363,7 +11359,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = pci_bundle_layout(source)?
@@ -11571,12 +11567,12 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
       }
     }
 
-    entries = entries.push({
+    entries += [{
       name: name,
       class_target: class_target,
       storage_path: storage,
       driver_target: driver_target,
-    })
+    }]
     let prefix = entry.display()
     if interface {
       for attribute in [
@@ -11587,7 +11583,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         "bInterfaceProtocol",
         "bNumEndpoints",
       ] {
-        source_paths = source_paths.push(f"{prefix}/{attribute}")
+        source_paths += [f"{prefix}/{attribute}"]
       }
     } else {
       for attribute in [
@@ -11610,7 +11606,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
         "power/autosuspend_delay_ms",
         "power/runtime_status",
       ] {
-        source_paths = source_paths.push(f"{prefix}/{attribute}")
+        source_paths += [f"{prefix}/{attribute}"]
       }
     }
   }
@@ -11681,8 +11677,8 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -11690,7 +11686,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = usb_bundle_layout(source)?
@@ -11882,7 +11878,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
       operstate = f"operstate_{state_index}"
     }
 
-    links = links.push({
+    links += [{
       ifindex: ifindex,
       name: name,
       mtu: mtu,
@@ -11892,7 +11888,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
       master_name: master_name,
       lower_name: lower_name,
       lower_index: lower_index,
-    })
+    }]
   }
 
   links
@@ -11946,30 +11942,30 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
 
     reference_ids = set.add(reference_ids, id_key)
     if id_key not in candidate_by_id {
-      missing_ids = missing_ids.push(link.ifindex)
+      missing_ids += [link.ifindex]
       continue
     }
 
     matched_count += 1
     let observed = candidate[candidate_by_id.get(id_key) ?? 0]
     if observed.name.state != "observed" or observed.name.value != link.name {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.name")
+      field_mismatches += [f"{link.ifindex}.name"]
     }
 
     if observed.mtu != link.mtu {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.mtu")
+      field_mismatches += [f"{link.ifindex}.mtu"]
     }
 
     if observed.admin_up != link.admin_up {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.admin_up")
+      field_mismatches += [f"{link.ifindex}.admin_up"]
     }
 
     if observed.operational_state != link.operstate {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.operational_state")
+      field_mismatches += [f"{link.ifindex}.operational_state"]
     }
 
     if observed.kind != link.kind {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.kind")
+      field_mismatches += [f"{link.ifindex}.kind"]
     }
 
     var expected_master: Int? = null
@@ -11983,7 +11979,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     if observed.master_ifindex != expected_master {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.master_ifindex")
+      field_mismatches += [f"{link.ifindex}.master_ifindex"]
     }
 
     var expected_lower = link.lower_index
@@ -11997,7 +11993,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     if observed.lower_ifindex != expected_lower {
-      field_mismatches = field_mismatches.push(f"{link.ifindex}.lower_ifindex")
+      field_mismatches += [f"{link.ifindex}.lower_ifindex"]
     }
   }
 
@@ -12156,7 +12152,7 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
     let flags = network_raw_number(root, fp"{entry}/flags", true, 4294967295)?
     let rx_bytes = network_raw_number(root, fp"{entry}/statistics/rx_bytes", false, 9007199254740991)?
     let tx_bytes = network_raw_number(root, fp"{entry}/statistics/tx_bytes", false, 9007199254740991)?
-    links = links.push({
+    links += [{
       ifindex: index,
       name: name,
       hardware_type: hardware_type.value,
@@ -12164,7 +12160,7 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
       rx_bytes: rx_bytes.value,
       tx_bytes: tx_bytes.value,
       complete: hardware_type.complete and flags.complete and rx_bytes.complete and tx_bytes.complete,
-    })
+    }]
   }
 
   links |> sort-by .ifindex
@@ -12218,15 +12214,15 @@ export pure compare_network_link_raw(
   for item in before {
     let key = f"{item.ifindex}"
     if key not in after_by_index or item.name != after[after_by_index.get(key)?].name {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
       continue
     }
 
     if key not in candidate_by_index {
       if enumerated {
-        field_mismatches = field_mismatches.push(f"{key}.presence")
+        field_mismatches += [f"{key}.presence"]
       } else {
-        unstable_fields = unstable_fields.push(f"{key}.presence")
+        unstable_fields += [f"{key}.presence"]
       }
 
       continue
@@ -12236,28 +12232,28 @@ export pure compare_network_link_raw(
     let later = after[after_by_index.get(key)?]
     let observed = section.links[candidate_by_index.get(key)?]
     if observed.name.state != "observed" or observed.name.value != item.name {
-      field_mismatches = field_mismatches.push(f"{key}.name")
+      field_mismatches += [f"{key}.name"]
     }
 
     if ! item.complete or ! later.complete {
-      unstable_fields = unstable_fields.push(f"{key}.source")
+      unstable_fields += [f"{key}.source"]
       continue
     }
 
     if item.hardware_type != later.hardware_type {
-      unstable_fields = unstable_fields.push(f"{key}.hardware_type")
+      unstable_fields += [f"{key}.hardware_type"]
     } else if item.hardware_type != observed.hardware_type {
-      field_mismatches = field_mismatches.push(f"{key}.hardware_type")
+      field_mismatches += [f"{key}.hardware_type"]
     }
 
     if item.flags != later.flags {
-      unstable_fields = unstable_fields.push(f"{key}.flags")
+      unstable_fields += [f"{key}.flags"]
     } else {
       let candidate_bits = network_link_candidate_bits(observed.flags)
       if candidate_bits == null or (observed.flags |> sort-by .) != network_link_raw_flags(candidate_bits) or network_link_sysfs_comparable_flags(
         candidate_bits,
       ) != network_link_sysfs_comparable_flags(item.flags ?? 0) {
-        field_mismatches = field_mismatches.push(f"{key}.flags")
+        field_mismatches += [f"{key}.flags"]
       }
     }
 
@@ -12299,14 +12295,14 @@ export pure compare_network_link_raw(
 
   for item in after {
     if f"{item.ifindex}" not in before_by_index {
-      unstable_fields = unstable_fields.push(f"{item.ifindex}.presence")
+      unstable_fields += [f"{item.ifindex}.presence"]
     }
   }
 
   for item in section.links {
     let key = f"{item.ifindex}"
     if key not in before_by_index and key not in after_by_index {
-      field_mismatches = field_mismatches.push(f"{key}.presence")
+      field_mismatches += [f"{key}.presence"]
     }
   }
 
@@ -12405,7 +12401,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
       }
 
       identities = set.add(identities, key)
-      addresses = addresses.push({
+      addresses += [{
         ifindex: ifindex,
         family: family,
         address: local,
@@ -12414,7 +12410,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
         broadcast: broadcast,
         valid_lifetime_seconds: valid_lifetime,
         preferred_lifetime_seconds: preferred_lifetime,
-      })
+      }]
     }
   }
 
@@ -12427,14 +12423,14 @@ export pure ip_address_reference_stable(before: List[IpAddressReference], after:
   for address in before {
     let broadcast = address.broadcast ?? ""
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    before_static = before_static.push(f"{key}|{address.scope}|{broadcast}")
+    before_static += [f"{key}|{address.scope}|{broadcast}"]
   }
 
   var after_static: List[Str] = []
   for address in after {
     let broadcast = address.broadcast ?? ""
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    after_static = after_static.push(f"{key}|{address.scope}|{broadcast}")
+    after_static += [f"{key}|{address.scope}|{broadcast}"]
   }
 
   (before_static |> sort-by .) == (after_static |> sort-by .)
@@ -12495,15 +12491,15 @@ export pure compare_ip_addresses(
     matched_count += 1
     let observed = candidate_by_key.get(key)?
     if observed.scope != address.scope {
-      field_mismatches = field_mismatches.push(f"{key}.scope")
+      field_mismatches += [f"{key}.scope"]
     }
 
     if address.broadcast == null {
       if observed.broadcast.state != "absent" or observed.broadcast.value != null {
-        field_mismatches = field_mismatches.push(f"{key}.broadcast")
+        field_mismatches += [f"{key}.broadcast"]
       }
     } else if observed.broadcast.state != "observed" or observed.broadcast.value != address.broadcast {
-      field_mismatches = field_mismatches.push(f"{key}.broadcast")
+      field_mismatches += [f"{key}.broadcast"]
     }
   }
 
@@ -12573,12 +12569,12 @@ export pure compare_ip_address_lifetimes(
 
     seen_before = set.add(seen_before, key)
     if key not in after_by_key {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
       continue
     }
 
     if key not in observed_by_key {
-      field_mismatches = field_mismatches.push(f"{key}.presence")
+      field_mismatches += [f"{key}.presence"]
       continue
     }
 
@@ -12610,7 +12606,7 @@ export pure compare_ip_address_lifetimes(
   for address in after {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
     if key not in seen_before {
-      unstable_fields = unstable_fields.push(f"{key}.presence")
+      unstable_fields += [f"{key}.presence"]
     }
   }
 
@@ -13382,7 +13378,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
     for hop_row in hop_rows {
       for field in hop_row.keys() {
         if field not in ["dev", "gateway", "weight", "flags"] {
-          unscored_fields = unscored_fields.push(f"nexthops.{field}")
+          unscored_fields += [f"nexthops.{field}"]
         }
       }
 
@@ -13398,7 +13394,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
         return Err(check_failure("ip route reference has an invalid next hop"))
       }
 
-      nexthops = nexthops.push({output_name: hop_name, gateway: hop_gateway, weight: weight, flags: hop_flags})
+      nexthops += [{output_name: hop_name, gateway: hop_gateway, weight: weight, flags: hop_flags}]
     }
 
     if metric != null and ((metric ?? -1) < 0 or (metric ?? -1) > 4294967295) {
@@ -13551,12 +13547,12 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
         fully_represented = false
       }
 
-      nexthops = nexthops.push({
+      nexthops += [{
         output_name: names_by_index.get(f"{hop_index}")?,
         gateway: hop.gateway.value,
         weight: hop.hops + 1,
         flags: hop.flags.bit_and(127),
-      })
+      }]
     }
 
     if hop_missing {
@@ -13754,7 +13750,7 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
 
     let children = json.get(node, ["children"], []).require(List[Record])?
     for child in children {
-      pending = pending.push({node: child, parent_name: name})
+      pending += [{node: child, parent_name: name}]
     }
   }
 
@@ -14006,7 +14002,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     }
 
     seen = set.add(seen, name)
-    devices = devices.push({
+    devices += [{
       name: name,
       kind: kind,
       scheduler: scheduler?.trim(),
@@ -14015,7 +14011,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
       discard_max_bytes: discard_max,
       model: model?.trim(),
       revision_hint: revision?.trim(),
-    })
+    }]
   }
 
   devices
@@ -14203,7 +14199,7 @@ pure parse_block_queue_stat(output: Str) -> Result[List[BlockQueueCounter]] {
       return Err(check_failure("block stat reference counter exceeds the exact JSON integer range"))
     }
 
-    counters = counters.push({name: names[index], value: value, unit: units[index]})
+    counters += [{name: names[index], value: value, unit: units[index]}]
   }
 
   counters
@@ -14245,11 +14241,11 @@ export proc read_block_queue_sources(
       firmware_primary
     }
     let stat = bounded_block_reference_text(root, fp"sys/class/block/{name}/stat")?
-    sources = sources.push({
+    sources += [{
       name: name,
       firmware: firmware,
       counters: if stat == null { [] } else { parse_block_queue_stat(stat)? },
-    })
+    }]
   }
 
   sources
@@ -14367,14 +14363,14 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
         }
 
         if relation.kind == "holders" {
-          holders = holders.push({name: child_name, target: target})
+          holders += [{name: child_name, target: target}]
         } else {
-          slaves = slaves.push({name: child_name, target: target})
+          slaves += [{name: child_name, target: target}]
         }
       }
     }
 
-    entries = entries.push({
+    entries += [{
       name: name,
       class_target: class_target,
       storage_path: storage,
@@ -14382,7 +14378,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       slaves_state: slaves_listing.state,
       holders: holders |> sort-by .name,
       slaves: slaves |> sort-by .name,
-    })
+    }]
     for attribute in [
       "dev",
       "size",
@@ -14401,7 +14397,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       "device/rev",
       "stat",
     ] {
-      source_paths = source_paths.push(f"{storage}/{attribute}")
+      source_paths += [f"{storage}/{attribute}"]
     }
 
     if source_paths.len() > 8192 {
@@ -14628,7 +14624,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       }
     }
 
-    devices = devices.push({
+    devices += [{
       name: name,
       major: numbers[0],
       minor: numbers[1],
@@ -14646,8 +14642,8 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       slaves: entry.slaves
         |> map .name
         |> sort-by .,
-    })
-    queue = queue.push({
+    }]
+    queue += [{
       name: name,
       kind: if partition { "part" } else { kind },
       scheduler: block_raw_scheduler(bounded_block_reference_text(root, fp"{source_path}/queue/scheduler")?)?,
@@ -14665,7 +14661,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       )?,
       model: bounded_block_reference_text(root, fp"{source_path}/device/model")?,
       revision_hint: null,
-    })
+    }]
   }
 
   {
@@ -14732,35 +14728,35 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     matched_count += 1
     let expected = reference.devices[reference_by_name.get(name)?]
     if device.major != expected.major or device.minor != expected.minor {
-      field_mismatches = field_mismatches.push(f"{name}.major_minor")
+      field_mismatches += [f"{name}.major_minor"]
     }
 
     if device.size_bytes != expected.size_bytes {
-      field_mismatches = field_mismatches.push(f"{name}.size_bytes")
+      field_mismatches += [f"{name}.size_bytes"]
     }
 
     if device.kind != expected.kind {
-      field_mismatches = field_mismatches.push(f"{name}.kind")
+      field_mismatches += [f"{name}.kind"]
     }
 
     if device.logical_sector_bytes != expected.logical_sector_bytes {
-      field_mismatches = field_mismatches.push(f"{name}.logical_sector_bytes")
+      field_mismatches += [f"{name}.logical_sector_bytes"]
     }
 
     if device.physical_sector_bytes != expected.physical_sector_bytes {
-      field_mismatches = field_mismatches.push(f"{name}.physical_sector_bytes")
+      field_mismatches += [f"{name}.physical_sector_bytes"]
     }
 
     if device.removable != expected.removable {
-      field_mismatches = field_mismatches.push(f"{name}.removable")
+      field_mismatches += [f"{name}.removable"]
     }
 
     if device.rotational != expected.rotational {
-      field_mismatches = field_mismatches.push(f"{name}.rotational")
+      field_mismatches += [f"{name}.rotational"]
     }
 
     if device.read_only != expected.read_only {
-      field_mismatches = field_mismatches.push(f"{name}.read_only")
+      field_mismatches += [f"{name}.read_only"]
     }
 
     var holders: List[Str] = []
@@ -14769,7 +14765,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
         return Err(check_failure("candidate block holder index is invalid"))
       }
 
-      holders = holders.push(candidates[peer_index].name ?? "")
+      holders += [candidates[peer_index].name ?? ""]
     }
 
     var slaves: List[Str] = []
@@ -14778,21 +14774,21 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
         return Err(check_failure("candidate block slave index is invalid"))
       }
 
-      slaves = slaves.push(candidates[peer_index].name ?? "")
+      slaves += [candidates[peer_index].name ?? ""]
     }
 
     if (holders |> sort-by .) != expected.holders {
-      field_mismatches = field_mismatches.push(f"{name}.holders")
+      field_mismatches += [f"{name}.holders"]
     }
 
     if (slaves |> sort-by .) != expected.slaves {
-      field_mismatches = field_mismatches.push(f"{name}.slaves")
+      field_mismatches += [f"{name}.slaves"]
     }
   }
 
   for expected in reference.devices {
     if expected.name not in candidate_by_name {
-      missing_names = missing_names.push(expected.name)
+      missing_names += [expected.name]
     }
   }
 
@@ -14956,8 +14952,8 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -14965,7 +14961,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = block_bundle_layout(source)?
@@ -15466,7 +15462,7 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
       return Err(check_failure("mountinfo reference has an invalid mount value"))
     }
 
-    mounts = mounts.push({
+    mounts += [{
       mount_id: mount_id,
       parent_id: parent_id,
       major: device[0],
@@ -15479,7 +15475,7 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
       super_options: super_options,
       optional_fields: safe_optional_fields,
       propagation: propagation,
-    })
+    }]
   }
 
   mounts
@@ -15640,7 +15636,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
     }
 
     seen = set.add(seen, identity)
-    mounts = mounts.push({
+    mounts += [{
       mount_id: mount_id,
       parent_id: parent_id,
       major: numbers[0],
@@ -15653,7 +15649,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
       super_options: fs_options.split(","),
       optional_fields: null,
       propagation: propagation,
-    })
+    }]
   }
 
   mounts
@@ -15716,7 +15712,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
 
     candidate_seen = set.add(candidate_seen, key)
     if key not in reference_by_id {
-      unexpected_ids = unexpected_ids.push(mount.mount_id)
+      unexpected_ids += [mount.mount_id]
       continue
     }
 
@@ -15764,7 +15760,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     }
 
     if parent_bad or identity_bad or path_bad or filesystem_bad or source_bad or option_bad or propagation_bad {
-      field_mismatches = field_mismatches.push(mount.mount_id)
+      field_mismatches += [mount.mount_id]
     }
   }
 
@@ -15855,7 +15851,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
     }
 
     if safe {
-      eligible = eligible.push(mount.mount_id)
+      eligible += [mount.mount_id]
     }
   }
 
@@ -15983,13 +15979,13 @@ export pure compare_mount_usage(
     if matches {
       matched_count += 1
     } else {
-      mismatched_ids = mismatched_ids.push(candidate.mount_id)
+      mismatched_ids += [candidate.mount_id]
     }
   }
 
   for mount in mounts {
     if f"{mount.mount_id}" not in seen {
-      mismatched_ids = mismatched_ids.push(mount.mount_id)
+      mismatched_ids += [mount.mount_id]
     }
   }
 
@@ -16041,7 +16037,7 @@ export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModu
     let size = reference_module_number(words[1])?
     let users: Int? = if words[2] == "-" { null } else { reference_module_number(words[2])? }
     seen = set.add(seen, words[0])
-    modules = modules.push({name: words[0], size_bytes: size, users: users, state: words[4]})
+    modules += [{name: words[0], size_bytes: size, users: users, state: words[4]}]
   }
 
   modules
@@ -16084,7 +16080,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
       }
 
       raw_seen = set.add(raw_seen, words[0])
-      modules = modules.push({name: words[0], size_bytes: size, users: users, state: words[4]})
+      modules += [{name: words[0], size_bytes: size, users: users, state: words[4]}]
     }
   }
 
@@ -16166,7 +16162,7 @@ export pure compare_kernel_modules(
 
     candidate_seen = set.add(candidate_seen, module_item.name)
     if module_item.name not in reference_by_name {
-      unexpected_names = unexpected_names.push(module_item.name)
+      unexpected_names += [module_item.name]
       continue
     }
 
@@ -16188,7 +16184,7 @@ export pure compare_kernel_modules(
     }
 
     if size_bad or users_bad or state_bad {
-      field_mismatches = field_mismatches.push(module_item.name)
+      field_mismatches += [module_item.name]
     }
   }
 
@@ -16486,7 +16482,7 @@ export pure compare_kernel_parameters(
     for value in sysctls
   ]
   for value in parameters {
-    candidates = candidates.push({source: "module", name: value.name, value: value.value})
+    candidates += [{source: "module", name: value.name, value: value.value}]
   }
 
   var seen = set.empty()
@@ -16538,13 +16534,13 @@ proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[Lis
     let relative = source.path.strip_prefix(/)?
     let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state == "absent" and ! raw.truncated and raw.data == null {
-      reference = reference.push({
+      reference += [{
         name: source.name,
         source: source.source,
         state: "absent",
         value: null,
         raw_bytes_base64: null,
-      })
+      }]
       continue
     }
 
@@ -16554,21 +16550,21 @@ proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[Lis
 
     let data = raw.data
     if let Ok(value) = data.utf8() {
-      reference = reference.push({
+      reference += [{
         name: source.name,
         source: source.source,
         state: "observed",
         value: value.trim(),
         raw_bytes_base64: null,
-      })
+      }]
     } else {
-      reference = reference.push({
+      reference += [{
         name: source.name,
         source: source.source,
         state: "malformed",
         value: null,
         raw_bytes_base64: data.base64(),
-      })
+      }]
     }
   }
 
@@ -16620,7 +16616,7 @@ export proc capture_kernel_parameters_bundle(
       sha256_hex = hash.sha256(data).hex()
     }
 
-    observations = observations.push({
+    observations += [{
       path: relative.display(),
       state: raw.state,
       truncated: raw.truncated,
@@ -16628,8 +16624,8 @@ export proc capture_kernel_parameters_bundle(
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
-    saved_bytes = saved_bytes.push(raw.data)
+    }]
+    saved_bytes += [raw.data]
   }
 
   var stable = true
@@ -16911,7 +16907,7 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
       byte_count = data.len()
     }
 
-    observations = observations.push({
+    observations += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -16919,8 +16915,8 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
-    saved_bytes = saved_bytes.push(raw.data)
+    }]
+    saved_bytes += [raw.data]
   }
 
   var stable = true
@@ -17093,7 +17089,7 @@ export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Byte
       }
     }
 
-    values = values.push(f"0x{token}".parse_int()?)
+    values += [f"0x{token}".parse_int()?]
   }
 
   bytes.from_ints(values)?
@@ -17115,7 +17111,7 @@ pure parse_reference_device_tree_strings(raw: Bytes) -> Result[List[Str]] {
         Err(_) => return Err(check_failure("device-tree reference contains invalid UTF-8"))
       }
 
-      values = values.push(decoded?)
+      values += [decoded?]
       start = index + 1
     }
 
@@ -17250,8 +17246,8 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
       sha256_hex = hash.sha256(data).hex()
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -17259,7 +17255,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   var stable = true
@@ -17335,7 +17331,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
       return Err(check_failure(f"device-tree {relative} bytes differ from metadata"))
     }
 
-    raw_values = raw_values.push(raw.data)
+    raw_values += [raw.data]
   }
 
   let reference = parse_reference_device_tree(raw_values[0], raw_values[1])?
@@ -17442,8 +17438,8 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
       sha256_hex = hash.sha256(data).hex()
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: relative,
       state: raw.state,
       truncated: raw.truncated,
@@ -17451,7 +17447,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   var stable = true
@@ -17616,9 +17612,9 @@ export pure compare_dmi_identity(
       issues,
       field.name,
     ) {
-      unstable_fields = unstable_fields.push(field.name)
+      unstable_fields += [field.name]
     } else if field.candidate != field.before.value {
-      field_mismatches = field_mismatches.push(field.name)
+      field_mismatches += [field.name]
     }
   }
 
@@ -17644,13 +17640,13 @@ export pure compare_dmi_identity(
       issues,
       field.name,
     ) {
-      unstable_fields = unstable_fields.push(field.name)
+      unstable_fields += [field.name]
     } else if field.before.value == null {
       if field.candidate.state != "absent" or field.candidate.value != null {
-        field_mismatches = field_mismatches.push(field.name)
+        field_mismatches += [field.name]
       }
     } else if field.candidate.state != "observed" or field.candidate.value != field.before.value {
-      field_mismatches = field_mismatches.push(field.name)
+      field_mismatches += [field.name]
     }
   }
 
@@ -18224,7 +18220,7 @@ export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Resul
   var source = location.source_path
   var level = 0
   while level < 64 {
-    ancestors = ancestors.push({visible_path: visible, source_path: source, hierarchy_level: level})
+    ancestors += [{visible_path: visible, source_path: source, hierarchy_level: level}]
     if visible == location.mount_root {
       guard source == location.mount_source_path else {
         return Err(check_failure("cgroup2 reference mount ancestry is inconsistent"))
@@ -18333,11 +18329,11 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
     }
 
     seen = set.add(seen, name)
-    counters = counters.push({
+    counters += [{
       resource: f"cpu.stat.{name}",
       value: cgroup2_reference_number(fields[1])?,
       unit: if name.starts_with("nr_") { "count" } else { "microseconds" },
-    })
+    }]
   }
 
   counters
@@ -18377,11 +18373,11 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
       }
 
       seen_fields = set.add(seen_fields, pair[0])
-      counters = counters.push({
+      counters += [{
         resource: f"io.stat.{device}.{pair[0]}",
         value: cgroup2_reference_number(pair[1])?,
         unit: if pair[0].ends_with("bytes") { "bytes" } else { "requests" },
-      })
+      }]
     }
   }
 
@@ -18488,7 +18484,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
   var ancestors: List[Str] = []
   var resources: List[Cgroup2ResourceReference] = []
   for path_item in paths {
-    ancestors = ancestors.push(path_item.visible_path)
+    ancestors += [path_item.visible_path]
     for family in [
       {
         resource: "memory.max",
@@ -18521,8 +18517,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
 
       let maximum = parse_cgroup2_limit(maximum_raw)?
       let current = cgroup2_reference_number(current_raw.trim())?
-      resources = resources.push(
-        cgroup2_reference_resource(
+      resources += [cgroup2_reference_resource(
           path_item.visible_path,
           path_item.hierarchy_level,
           family.controller,
@@ -18534,15 +18529,13 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
           null,
           null,
           [],
-        ),
-      )
+        )]
     }
 
     let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
     if quota_raw != null {
       let quota = parse_cpu_scope_quota(quota_raw)?
-      resources = resources.push(
-        cgroup2_reference_resource(
+      resources += [cgroup2_reference_resource(
           path_item.visible_path,
           path_item.hierarchy_level,
           "cpu",
@@ -18554,15 +18547,13 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
           quota.quota,
           quota.period,
           [],
-        ),
-      )
+        )]
     }
 
     let cpu_stat_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.stat", 16384, false)?
     if cpu_stat_raw != null {
       for counter in parse_cgroup2_cpu_stat(cpu_stat_raw)? {
-        resources = resources.push(
-          cgroup2_reference_resource(
+        resources += [cgroup2_reference_resource(
             path_item.visible_path,
             path_item.hierarchy_level,
             "cpu",
@@ -18574,15 +18565,13 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
             null,
             null,
             [],
-          ),
-        )
+          )]
       }
     }
 
     let cpuset_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpuset.cpus.effective", 65536, false)?
     if cpuset_raw != null {
-      resources = resources.push(
-        cgroup2_reference_resource(
+      resources += [cgroup2_reference_resource(
           path_item.visible_path,
           path_item.hierarchy_level,
           "cpuset",
@@ -18594,15 +18583,13 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
           null,
           null,
           parse_reference_cpu_list(cpuset_raw, true)?,
-        ),
-      )
+        )]
     }
 
     let io_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/io.stat", 262144, false)?
     if io_raw != null {
       for counter in parse_cgroup2_io_stat(io_raw)? {
-        resources = resources.push(
-          cgroup2_reference_resource(
+        resources += [cgroup2_reference_resource(
             path_item.visible_path,
             path_item.hierarchy_level,
             "io",
@@ -18614,8 +18601,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
             null,
             null,
             [],
-          ),
-        )
+          )]
       }
     }
   }
@@ -18708,7 +18694,7 @@ proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayo
       },
     ] {
       let relative = if source == "." { attribute.name } else { f"{source}/{attribute.name}" }
-      paths = paths.push({path: relative, max_bytes: attribute.max_bytes, changing: attribute.changing})
+      paths += [{path: relative, max_bytes: attribute.max_bytes, changing: attribute.changing}]
     }
   }
 
@@ -18757,8 +18743,8 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       complete = false
     }
 
-    saved_bytes = saved_bytes.push(raw.data)
-    sources = sources.push({
+    saved_bytes += [raw.data]
+    sources += [{
       path: item.path,
       state: raw.state,
       truncated: raw.truncated,
@@ -18766,7 +18752,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       error_kind: raw.error_kind,
       byte_count: byte_count,
       sha256_hex: sha256_hex,
-    })
+    }]
   }
 
   let later_layout = cgroup2_bundle_layout(source)?
@@ -18778,7 +18764,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if item.changing {
-        changing_sources = changing_sources.push(item.path)
+        changing_sources += [item.path]
       } else {
         stable_static = false
       }
@@ -19021,9 +19007,9 @@ export proc read_cpu_scope_cgroup_reference(root: FsRoot) [fs, time, error] -> R
     let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
     let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw, true)? }
     let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw)? }
-    ancestors = ancestors.push(
+    ancestors += [
       {path: path_item.visible_path, hierarchy_level: path_item.hierarchy_level, effective_cpus: cpus, quota: quota},
-    )
+    ]
   }
 
   {ancestors: ancestors, started: started, ended: time.now()}
@@ -19207,14 +19193,14 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    processes = processes.push({
+    processes += [{
       pid: first.pid,
       start_ticks: first.start_ticks,
       parent_pid: first.parent_pid,
       uid: uid,
       command: first.command,
       state: first.state,
-    })
+    }]
   }
 
   {processes: processes |> sort-by .pid, skipped_count: skipped_count}
@@ -19301,14 +19287,14 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    processes = processes.push({
+    processes += [{
       pid: pid,
       start_ticks: first.start_ticks,
       thread_count: first.thread_count,
       resident_bytes: memory.resident_bytes,
       virtual_bytes: memory.virtual_bytes,
       cgroup: cgroup,
-    })
+    }]
   }
 
   {processes: processes |> sort-by .pid, skipped_count: skipped_count}
@@ -19358,30 +19344,30 @@ export proc capture_process_bundle(
           part not in "0123456789"
         })
       guard let pid = process_reference_number(pid_text) else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "pid", "malformed")]
         continue
       }
 
       if pid <= 0 or pid_text != f"{pid}" {
-        skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "pid", "malformed")]
         continue
       }
 
       if source.readlink_result(process_path)?.state == "observed" {
-        skipped = skipped.push(process_bundle_skip(pid_text, "pid", "symlink"))
+        skipped += [process_bundle_skip(pid_text, "pid", "symlink")]
         continue
       }
 
       let first = source.read_result(fp"{process_path}/stat", max_bytes: 16384)?
       if first.state != "observed" or first.truncated or first.data == null {
-        skipped = skipped.push({
+        skipped += [{
           name: pid_text,
           source: "stat",
           state: first.state,
           truncated: first.truncated,
           errno: first.errno,
           error_kind: first.error_kind,
-        })
+        }]
         continue
       }
 
@@ -19403,89 +19389,89 @@ export proc capture_process_bundle(
       ] {
         let raw = source.read_result(fp"{process_path}/{field.name}", max_bytes: field.max_bytes)?
         if raw.state != "observed" or raw.truncated or raw.data == null {
-          skipped = skipped.push({
+          skipped += [{
             name: pid_text,
             source: field.name,
             state: raw.state,
             truncated: raw.truncated,
             errno: raw.errno,
             error_kind: raw.error_kind,
-          })
+          }]
           complete = false
           break
         }
 
-        raw_fields = raw_fields.push({name: field.name, max_bytes: field.max_bytes, data: raw.data})
+        raw_fields += [{name: field.name, max_bytes: field.max_bytes, data: raw.data}]
       }
 
       continue unless complete
       let last = source.read_result(fp"{process_path}/stat", max_bytes: 16384)?
       if last.state != "observed" or last.truncated or last.data == null {
-        skipped = skipped.push({
+        skipped += [{
           name: pid_text,
           source: "stat",
           state: last.state,
           truncated: last.truncated,
           errno: last.errno,
           error_kind: last.error_kind,
-        })
+        }]
         continue
       }
 
       guard let first_text = first.data.utf8() else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "stat", "malformed")]
         continue
       }
 
       guard let last_text = last.data.utf8() else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "stat", "malformed")]
         continue
       }
 
       guard let first_identity = parse_proc_stat_identity_reference(first_text) else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "stat", "malformed")]
         continue
       }
 
       guard let last_identity = parse_proc_stat_identity_reference(last_text) else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "stat", "malformed")]
         continue
       }
 
       guard let first_thread = parse_proc_stat_thread_reference(first_text) else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "stat", "malformed")]
         continue
       }
 
       guard let last_thread = parse_proc_stat_thread_reference(last_text) else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "stat", "malformed")]
         continue
       }
 
       if first_identity.pid != pid or last_identity.pid != pid or first_identity.start_ticks != last_identity.start_ticks or first_identity.parent_pid != last_identity.parent_pid or first_identity.command != last_identity.command or first_thread.thread_count != last_thread.thread_count {
-        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "raced"))
+        skipped += [process_bundle_skip(pid_text, "stat", "raced")]
         continue
       }
 
       guard let status_text = raw_fields[2].data.utf8() else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "status", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "status", "malformed")]
         continue
       }
 
       guard let statm_text = raw_fields[1].data.utf8() else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "statm", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "statm", "malformed")]
         continue
       }
 
       guard let cgroup_text = raw_fields[3].data.utf8() else { |_|
-        skipped = skipped.push(process_bundle_skip(pid_text, "cgroup", "malformed"))
+        skipped += [process_bundle_skip(pid_text, "cgroup", "malformed")]
         continue
       }
 
       match parse_proc_status_uid_reference(status_text) {
         Ok(_) => {}
         Err(_) => {
-          skipped = skipped.push(process_bundle_skip(pid_text, "status", "malformed"))
+          skipped += [process_bundle_skip(pid_text, "status", "malformed")]
           continue
         }
       }
@@ -19493,7 +19479,7 @@ export proc capture_process_bundle(
       match parse_proc_statm_reference(statm_text, page_size_bytes) {
         Ok(_) => {}
         Err(_) => {
-          skipped = skipped.push(process_bundle_skip(pid_text, "statm", "malformed"))
+          skipped += [process_bundle_skip(pid_text, "statm", "malformed")]
           continue
         }
       }
@@ -19501,7 +19487,7 @@ export proc capture_process_bundle(
       match parse_proc_cgroup_reference(cgroup_text) {
         Ok(_) => {}
         Err(_) => {
-          skipped = skipped.push(process_bundle_skip(pid_text, "cgroup", "malformed"))
+          skipped += [process_bundle_skip(pid_text, "cgroup", "malformed")]
           continue
         }
       }
@@ -19520,12 +19506,12 @@ export proc capture_process_bundle(
       for field in raw_fields {
         let relative = f"proc/{pid}/{field.name}"
         bundle.write(fp"{relative}", field.data)?
-        sources = sources.push({
+        sources += [{
           path: relative,
           max_bytes: field.max_bytes,
           byte_count: field.data.len(),
           sha256_hex: hash.sha256(field.data).hex(),
-        })
+        }]
       }
 
       pids += [pid]
@@ -19768,19 +19754,19 @@ export pure compare_process_identity(
 
     stable_count += 1
     if key not in candidate_by_pid {
-      missing_pids = missing_pids.push(first.pid)
+      missing_pids += [first.pid]
       continue
     }
 
     let candidate = candidates[candidate_by_pid.get(key) ?? -1]
     if candidate.start_ticks != first.start_ticks {
-      missing_pids = missing_pids.push(first.pid)
+      missing_pids += [first.pid]
       continue
     }
 
     matched_count += 1
     if candidate.parent_pid != first.parent_pid or candidate.uid != first.uid or candidate.command.state != "observed" or candidate.command.value != first.command {
-      mismatched_pids = mismatched_pids.push(first.pid)
+      mismatched_pids += [first.pid]
     }
   }
 
@@ -19858,7 +19844,7 @@ export pure compare_process_resources(
 
     stable_count += 1
     if key not in candidate_by_pid or candidates[candidate_by_pid.get(key) ?? -1].start_ticks != first.start_ticks {
-      missing_pids = missing_pids.push(first.pid)
+      missing_pids += [first.pid]
       continue
     }
 
@@ -19868,38 +19854,38 @@ export pure compare_process_resources(
     if first.thread_count == last.thread_count {
       scored_fields += 1
       if candidate.thread_count != first.thread_count {
-        mismatched_fields = mismatched_fields.push(f"{first.pid}.thread_count")
+        mismatched_fields += [f"{first.pid}.thread_count"]
       }
     } else {
-      unscored_fields = unscored_fields.push(f"{first.pid}.thread_count")
+      unscored_fields += [f"{first.pid}.thread_count"]
     }
 
     if first.resident_bytes == last.resident_bytes {
       scored_fields += 1
       if candidate.resident_bytes != first.resident_bytes {
-        mismatched_fields = mismatched_fields.push(f"{first.pid}.resident_bytes")
+        mismatched_fields += [f"{first.pid}.resident_bytes"]
       }
     } else {
-      unscored_fields = unscored_fields.push(f"{first.pid}.resident_bytes")
+      unscored_fields += [f"{first.pid}.resident_bytes"]
     }
 
     if first.virtual_bytes == last.virtual_bytes {
       scored_fields += 1
       if candidate.virtual_bytes != first.virtual_bytes {
-        mismatched_fields = mismatched_fields.push(f"{first.pid}.virtual_bytes")
+        mismatched_fields += [f"{first.pid}.virtual_bytes"]
       }
     } else {
-      unscored_fields = unscored_fields.push(f"{first.pid}.virtual_bytes")
+      unscored_fields += [f"{first.pid}.virtual_bytes"]
     }
 
     if first.cgroup == last.cgroup {
       scored_fields += 1
       let expected_state = if first.cgroup == null { "unsupported" } else { "observed" }
       if candidate.cgroup.state != expected_state or candidate.cgroup.value != first.cgroup {
-        mismatched_fields = mismatched_fields.push(f"{first.pid}.cgroup")
+        mismatched_fields += [f"{first.pid}.cgroup"]
       }
     } else {
-      unscored_fields = unscored_fields.push(f"{first.pid}.cgroup")
+      unscored_fields += [f"{first.pid}.cgroup"]
     }
   }
 
@@ -19954,15 +19940,15 @@ export pure compare_namespace_scope(
       return Err(check_failure("namespace reference has an empty or duplicate identity"))
     }
 
-    seen = seen.push(reference.field)
+    seen += [reference.field]
     let state = json.get(data, ["scope", reference.field, "state"], null).require(Str?)?
     let value = json.get(data, ["scope", reference.field, "value"], null).require(Str?)?
     if state != "observed" or value == null {
-      missing_fields = missing_fields.push(reference.field)
+      missing_fields += [reference.field]
     } else if value == reference.target {
       matched_count += 1
     } else {
-      mismatched_fields = mismatched_fields.push(reference.field)
+      mismatched_fields += [reference.field]
     }
   }
 
@@ -20279,7 +20265,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
       return Err(check_failure(f"duplicate assertion id '{assertion.id}'"))
     }
 
-    seen = seen.push(assertion.id)
+    seen += [assertion.id]
   }
 
   if ! has_mandatory {
@@ -20328,7 +20314,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
       return Err(check_failure(f"duplicate executable fixture case '{fixture_case.scenario}'"))
     }
 
-    covered_scenarios = covered_scenarios.push(fixture_case.scenario)
+    covered_scenarios += [fixture_case.scenario]
     if fixture_case.tests.len() == 0 {
       return Err(check_failure(f"fixture case '{fixture_case.scenario}' has no tests"))
     }
@@ -20555,13 +20541,13 @@ pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
       parentheses += 1
       current += [character]
     } else if character == ")" and braces == 0 and brackets == 0 and parentheses == 0 and angles == 0 {
-      arguments = arguments.push(current.join("").trim())
+      arguments += [current.join("").trim()]
       return arguments
     } else if character == ")" {
       parentheses -= 1
       current += [character]
     } else if character == "," and braces == 0 and brackets == 0 and parentheses == 0 and angles == 0 {
-      arguments = arguments.push(current.join("").trim())
+      arguments += [current.join("").trim()]
       current = []
     } else {
       current += [character]
@@ -20742,7 +20728,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
       "adjtimex",
     ] {
       if traced_syscall(line, name) {
-        violations = violations.push(f"system mutation syscall {name}")
+        violations += [f"system mutation syscall {name}"]
       }
     }
 
@@ -21051,7 +21037,7 @@ pure replay_host_read_keys(trace: Str) -> List[Str] {
         }
         let source_path = normalized_traced_call_path(line, name, path_index)
         if replay_live_source_path(source_path) {
-          keys = keys.push(f"{name}:{source_path.join("/")}")
+          keys += [f"{name}:{source_path.join("/")}"]
         }
       }
     }
@@ -21697,9 +21683,9 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   var reference_argv: List[List[Str]] = []
   let before_started = time.now()
   for spec in specs {
-    reference_argv = reference_argv.push(["readlink", f"/proc/self/ns/{spec.kernel}"])
+    reference_argv += [["readlink", f"/proc/self/ns/{spec.kernel}"]]
     let observed = read_namespace_reference(scratch, spec.kernel, f"{spec.kernel}-before")?
-    before = before.push({field: spec.field, target: observed.target})
+    before += [{field: spec.field, target: observed.target}]
   }
 
   let before_ended = time.now()
@@ -21884,7 +21870,7 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
       return Err(check_failure(f"THP {name} raw reference is not UTF-8"))
     }
 
-    policies = policies.push({name: name, value: parse_thp_reference(output)?})
+    policies += [{name: name, value: parse_thp_reference(output)?}]
   }
 
   {policies: policies, started: started, ended: time.now()}
@@ -22052,7 +22038,7 @@ export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[H
 
   for source_path in global.children {
     if source_path.name().starts_with("hugepages-") {
-      pools = pools.push(read_huge_page_pool_reference(root, source_path, null)?)
+      pools += [read_huge_page_pool_reference(root, source_path, null)?]
     }
   }
 
@@ -22072,7 +22058,7 @@ export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[H
 
     for source_path in listing.children {
       if source_path.name().starts_with("hugepages-") {
-        pools = pools.push(read_huge_page_pool_reference(root, source_path, node_id)?)
+        pools += [read_huge_page_pool_reference(root, source_path, node_id)?]
       }
     }
   }
@@ -22187,7 +22173,7 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
       return Err(check_failure(f"PSI {resource} raw reference is not UTF-8"))
     }
 
-    rows = rows.extend(parse_psi_reference(output, resource)?)
+    rows += parse_psi_reference(output, resource)?
   }
 
   {rows: rows, available_resources: available_resources, started: started, ended: time.now()}
@@ -22328,7 +22314,7 @@ proc read_vulnerability_reference(
       return Err(check_failure(f"vulnerability {name} raw reference is not UTF-8"))
     }
 
-    descriptions = descriptions.push({name: name, description: output.trim()})
+    descriptions += [{name: name, description: output.trim()}]
   }
 
   {descriptions: descriptions, started: started, ended: time.now()}
@@ -24030,7 +24016,7 @@ proc read_mount_usage_references(
       return Err(check_failure(f"findmnt capacity reference failed for mount ID {id}"))
     }
 
-    observations = observations.push(parse_findmnt_usage_json(scratch.read_text(fp"{output_name}")?, id)?)
+    observations += [parse_findmnt_usage_json(scratch.read_text(fp"{output_name}")?, id)?]
   }
 
   observations
@@ -24434,9 +24420,7 @@ proc read_kernel_parameter_reference(
   for item in kernel_parameter_sources() |> enumerate() {
     let source = item.value
     if ! source.path.exists()? {
-      values = values.push(
-        {name: source.name, source: source.source, state: "absent", value: null, raw_bytes_base64: null},
-      )
+      values += [{name: source.name, source: source.source, state: "absent", value: null, raw_bytes_base64: null}]
       continue
     }
 
@@ -24464,13 +24448,13 @@ proc read_kernel_parameter_reference(
 
     let data = read.data
     if let Ok(text) = data.utf8() {
-      values = values.push(
+      values += [
         {name: source.name, source: source.source, state: "observed", value: text.trim(), raw_bytes_base64: null},
-      )
+      ]
     } else {
-      values = values.push(
+      values += [
         {name: source.name, source: source.source, state: "malformed", value: null, raw_bytes_base64: data.base64()},
-      )
+      ]
     }
   }
 

@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
           _ => return Err(reject_unsupported("tar", f"--{token.name}"))
         }
       }
-      "operand" => operands = operands.push(fp"{token.name}")
+      "operand" => operands += [fp"{token.name}"]
       _ => {}
     }
   }

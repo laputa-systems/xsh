@@ -55,7 +55,7 @@ pure stack_key(stack: List[Str], leaf_first: Bool) -> Result[Str] {
   var i = stack.len() - 1
 
   while i >= 0 {
-    out = out.push(stack[i])
+    out += [stack[i]]
     i -= 1
   }
 

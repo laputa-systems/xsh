@@ -84,7 +84,7 @@ proc collect_objects(dir: Path) [fs, error] -> Result[List[Str]] {
   for entry in fs.children(dir)?
     |> where .kind == "file" and .executable
     |> sort-by .path {
-    objects = objects.push(entry.path.display())
+    objects += [entry.path.display()]
   }
 
   objects
@@ -164,7 +164,7 @@ proc main() [fs, process, env, error, io] {
   run $llvm_profdata merge -sparse -o $profdata @profraws ?
   var objects = []
   for dir in [release_dir, fp"{release_dir}/deps", debug_dir, fp"{debug_dir}/deps"] {
-    objects = objects.extend(collect_objects(dir)?)
+    objects += collect_objects(dir)?
   }
 
   objects = objects |> sort

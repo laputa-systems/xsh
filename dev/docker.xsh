@@ -87,11 +87,10 @@ export pure internal_argv(
   }
 
   if stress_repeat.trim() != "" {
-    argv = argv.extend(["-e", f"XSH_OS_STRESS_REPEAT={stress_repeat}"])
+    argv += ["-e", f"XSH_OS_STRESS_REPEAT={stress_repeat}"]
   }
 
-  argv = argv.extend(
-    [
+  argv += [
       "-v",
       f"{ctx.root}:/work",
       "-v",
@@ -125,8 +124,7 @@ export pure internal_argv(
       "--",
       "internal",
       operation,
-    ],
-  )
+    ]
   argv.extend(extra)
 }
 

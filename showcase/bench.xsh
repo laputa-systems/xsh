@@ -48,7 +48,7 @@ proc main(...cmd: List[Str]) [time, error] {
       return
     }
 
-    times = times.push(result.duration_ms)
+    times += [result.duration_ms]
   }
 
   let n = times.len()

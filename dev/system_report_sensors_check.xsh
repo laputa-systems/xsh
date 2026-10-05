@@ -59,7 +59,7 @@ export pure parse_sensors_json(output: Str) -> Result[List[SensorsJsonReading]] 
         }
 
         let value = sensors_json_number(json.get(subfeatures, [name])?)?
-        readings = readings.push({chip_key: chip_key, chip: chip, subfeature: name, value: value})
+        readings += [{chip_key: chip_key, chip: chip, subfeature: name, value: value}]
       }
     }
   }
