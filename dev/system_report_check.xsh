@@ -12441,7 +12441,7 @@ pure ip_address_key(ifindex: Int, family: Str, address: Str, prefix_length: Int)
 export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference], Error] {
   let rows = json.decode(output)?.require(List[Record])?
   var addresses: List[IpAddressReference] = []
-  var interfaces = set.empty()
+  var interfaces: Set[Str] = set.empty()
   var identities: Set[Str] = set.empty()
   if rows.len() > 65536 {
     return Err(check_failure("ip address reference contains too many interfaces"))
@@ -12455,7 +12455,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
       return Err(check_failure("ip address reference has an invalid or duplicate interface identity"))
     }
 
-    interfaces = set.add(interfaces, id_key)
+    interfaces = interfaces.add(id_key)
     let rows_for_link = json.get(row, ["addr_info"])?.require(List[Record])?
     for address_row in rows_for_link {
       if addresses.len() >= 65536 {
@@ -12870,7 +12870,7 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
   }
 
   var rules: List[IpRuleReference] = []
-  var keys = set.empty()
+  var keys: Set[Str] = set.empty()
   for row in rows {
     var unscored_fields = [
       field
@@ -12948,7 +12948,7 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
       return Err(check_failure("ip rule reference has duplicate static selectors"))
     }
 
-    keys = set.add(keys, key)
+    keys = keys.add(key)
     rules += [rule]
   }
 
@@ -13411,7 +13411,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
   }
 
   var routes: List[IpRouteReference] = []
-  var keys = set.empty()
+  var keys: Set[Str] = set.empty()
   for row in rows {
     var unscored_fields = [
       field
@@ -13523,7 +13523,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
       return Err(check_failure("ip route reference has duplicate static identities"))
     }
 
-    keys = set.add(keys, key)
+    keys = keys.add(key)
     routes += [route]
   }
 
@@ -14633,9 +14633,9 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
     return Err(check_failure("block raw source enumeration is incomplete"))
   }
 
-  var listed = set.empty()
+  var listed: Set[Str] = set.empty()
   for entry in layout.entries {
-    listed = set.add(listed, entry.name)
+    listed = listed.add(entry.name)
   }
 
   var devices: List[BlockRawDevice] = []

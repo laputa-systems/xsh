@@ -155,7 +155,7 @@ print \${ratios.len()} \${wrong.len()} \${none.len()} \${built.len()} \${joined.
 }
 
 test test_sets_cross_json_as_sorted_arrays {
-  let inventory = Inventory(name: "core", tags: {"b", "a"})
+  let inventory = Inventory("core", {"b", "a"})
   let text = json.encode(inventory)?
   assert text == r"""{"name":"core","tags":["a","b"]}"""
   let decoded = json.decode(text)?.require(Inventory)?

@@ -88,7 +88,7 @@ test test_nominal_value_is_read_as_its_record {
   }
   assert matched == "matched"
 
-  let shipment = Shipment(pkg: built, count: 2)
+  let shipment = Shipment(built, 2)
   assert label(shipment.pkg) == "a-1"
 }
 

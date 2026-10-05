@@ -67,11 +67,11 @@ export pure preload_value(library: Path, inherited: Str) -> Str {
 ## Turns a `cargo test` argv into the argv that builds the same test
 ## executables without running them.
 export pure test_build_argv(argv: List[Str]) -> List[Str] {
-  var build = []
-
-  for word in argv {
-    break when word == "--"
-    build += [word]
+  let build = collect {
+    for word in argv {
+      break when word == "--"
+      yield word
+    }
   }
 
   [@build, "--no-run"]

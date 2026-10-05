@@ -505,7 +505,7 @@ type StrictStage = proc(name: Str) [error] -> Result[Str, StageError]
 type Locate = pure(name: Str) -> Result[Path]
 
 proc strict_stage(name: Str) [error] -> Result[Str, StageError] {
-  return Err(StageError.Missing(name)) when name == ""
+  fail .Missing(name) when name == ""
   Ok(f"stage {name}")
 }
 
