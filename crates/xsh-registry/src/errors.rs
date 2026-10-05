@@ -284,8 +284,11 @@ mod tests {
                     .any(|variant| variant.facets.contains(facet))
             });
             let by_host = *facet == ErrorFacet::HostIo || facet.host_io_kinds().next().is_some();
+            // A failed module contract check raises a plain `Error`, not a
+            // family variant, so its facets name that check as their source.
+            let by_contract_check = facet.contract_check_source().is_some();
             assert!(
-                by_variant || by_host,
+                by_variant || by_host || by_contract_check,
                 "{} has no built-in source",
                 facet.name()
             );
