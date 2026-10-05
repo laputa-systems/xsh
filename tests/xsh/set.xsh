@@ -274,3 +274,43 @@ show(["b", "a", "b"])
   assert after.stdout == before.stdout
   assert after.stdout == "2\n"
 }
+
+# A binding whose name is also a method and a word of a message is still
+# rewritten, and a legacy call that no fix covers is noted without failing
+# the run.
+test test_lint_notes_a_legacy_set_call_it_cannot_rewrite { |ctx|
+  let source = """proc show(row: Map[Int], words: List[Str]) [io] {
+  var keys = set.empty()
+  for word in words {
+    if word in row.keys() {
+      print "keys known"
+    }
+
+    keys = set.add(keys, word)
+  }
+
+  let more = set.add(set.from(words), "z")
+  print \${keys.len()} \${more.len()}
+}
+
+show({a: 1}, ["b", "a", "b"])
+"""
+  let before = test.expect(ctx, source, status: 0)?
+  let candidate = test.temp_file(ctx, name: "legacy.xsh", contents: bytes.from_text(source))?
+  run.capture --text "xsht" lint --fix $candidate
+  let left = run.capture --text "xsht" lint $candidate
+  let report = left.stdout + left.stderr
+  assert count(report, "warn[") == 0, report
+  assert count(report, "note[lint.legacy-set-call]") == 2, report
+  assert "on a `Set[Str]` this is the method `.add(item)`" in report, report
+  assert "this is a `Map[Str, Bool]`, not a `Set[Str]`" in report, report
+
+  let rewritten = candidate.read_text()?
+  assert "  var keys: Set[Str] = set.empty()\n" in rewritten, rewritten
+  assert "    if word in row.keys() {\n" in rewritten, rewritten
+  assert "    keys = keys.add(word)\n" in rewritten, rewritten
+  assert "  let more = set.add(set.from(words), \"z\")\n" in rewritten, rewritten
+  let after = test.expect(ctx, rewritten, status: 0)?
+  assert after.stdout == before.stdout
+  assert after.stdout == "keys known\n2 3\n"
+}

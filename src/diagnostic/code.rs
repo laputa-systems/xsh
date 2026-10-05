@@ -667,6 +667,7 @@ diagnostic_codes! {
         LintPreferSet = "lint.prefer-set", warning, "Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in)";
         LintPreferCollect = "lint.prefer-collect", warning, "Build a list that is declared empty and then only appended to with `collect { ... }`";
         LintPreferWaitUntil = "lint.prefer-wait-until", note, "Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit";
+        LintLegacySetCall = "lint.legacy-set-call", note, "Note a `set.empty`, `set.from`, `set.add`, or `set.remove` call in its `Map[Str, Bool]` form that `lint.prefer-set` has no fix for; a `Set[T]` has `.add` and `.remove`";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

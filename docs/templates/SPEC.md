@@ -606,7 +606,8 @@ Each of these is rejected where it is written:
 `xsht lint` rewrites a local `Map[K, Bool]` that only ever stores `true` and
 is read only through `in`, `not in`, `len()`, `is_empty()`, and `keys()` to a
 `Set[K]` (`lint.prefer-set`), and on request notes every other
-`Map[K, Bool]`, where a stored `false` may mean something.
+`Map[K, Bool]`, where a stored `false` may mean something. A `set` module
+call left in its `Map[Str, Bool]` form is noted (`lint.legacy-set-call`).
 
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits

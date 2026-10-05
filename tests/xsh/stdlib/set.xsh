@@ -1,12 +1,13 @@
 test test_set_module {
-  let empty = set.empty()
+  let empty: Set[Str] = set.empty()
   assert "alpha" not in empty
-  let items = set.from(["alpha", "beta", "alpha"])
+  let items: Set[Str] = set.from(["alpha", "beta", "alpha"])
   assert "alpha" in items
   assert "beta" in items
-  assert items.keys().len() == 2
-  let added = set.add(items, "gamma")
+  assert items.len() == 2
+  let added = items.add("gamma")
   assert "gamma" in added
-  let removed = set.remove(added, "alpha")
+  let removed = added.remove("alpha")
   assert "alpha" not in removed
+  assert removed.to_list() == ["beta", "gamma"]
 }

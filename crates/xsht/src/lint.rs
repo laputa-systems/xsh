@@ -12707,7 +12707,12 @@ impl LintExprVisitor<'_, '_> {
             .visit_expr(self.linter.arena, expr);
         self.linter
             .set_like_bindings
-            .visit_expr(self.linter.arena, self.linter.source, expr);
+            .visit_expr(
+                self.linter.arena,
+                self.linter.source,
+                expr,
+                &self.linter.expr_types,
+            );
         if let Some(diagnostic) = lint_redundant_propagation::redundant_condition_propagation(
             self.linter.arena,
             self.linter.source,

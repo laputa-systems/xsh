@@ -12,6 +12,10 @@
 //!
 //! The declaration and every use change together or not at all, so the fix
 //! is one replacement of the text from the declaration to the last use.
+//!
+//! A call of a `set` module function that still yields or takes the
+//! `Map[Str, Bool]` form, and that no fix rewrites, is noted on its own: the
+//! reader is told which `Set[T]` spelling replaces it.
 
 use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
@@ -42,6 +46,9 @@ pub(super) struct SetLikeBindings {
     annotations: Vec<Span>,
     /// Identifier expressions already accounted for as a use of a candidate.
     accepted: Vec<ExprId>,
+    /// Calls of the `set` module in its `Map[Str, Bool]` form, and the
+    /// function each names.
+    legacy_calls: Vec<(Span, Name)>,
 }
 
 struct Candidate {
@@ -54,6 +61,8 @@ struct Candidate {
     /// The counted occurrences of the name.
     uses: usize,
     edits: Vec<(Span, String)>,
+    /// The `set` module calls the edits rewrite.
+    rewritten_calls: Vec<Span>,
     /// A use a set could not stand in for, or one this rule does not read.
     fixable: bool,
 }
@@ -101,6 +110,89 @@ fn bool_map_annotation(arena: &AstArena, source: &str, ty: TypeExprId) -> Option
         Some(key) => Some(source.get(arena.type_expr_span(key).range())?.to_owned()),
         None => Some("Str".to_owned()),
     }
+}
+
+/// The `set` module function a call names when the call has the legacy
+/// `Map[Str, Bool]` form: `set.add` and `set.remove` always, `set.empty` and
+/// `set.from` where the checker gave them that type.
+fn legacy_set_call(
+    arena: &AstArena,
+    expr: ExprId,
+    expr_types: &BTreeMap<Span, Type>,
+) -> Option<Name> {
+    let (module, function, arguments) = method_call(arena, expr)?;
+    if !ident(arena, module).is_some_and(|module| module == "set") {
+        return None;
+    }
+    let arity = if function == "empty" {
+        0
+    } else if function == "from" {
+        1
+    } else if function == "add" || function == "remove" {
+        2
+    } else {
+        return None;
+    };
+    (arguments.len() == arity
+        && matches!(
+            expr_types.get(&arena.expr(expr).span),
+            Some(Type::Map(key, value)) if **key == Type::Str && **value == Type::Bool
+        ))
+    .then_some(function)
+}
+
+/// The occurrences of `name` in `region` that could be a use of a binding.
+/// A name after a `.` is a field or a method, and one in a comment or in a
+/// string without an interpolation is text; neither is counted. A region
+/// that does not read as tokens has every occurrence counted.
+fn binding_occurrences(region: &str, region_span: Span, name: &str) -> usize {
+    use xsh::frontend::syntax::token::TokenTag;
+    let lexed =
+        xsh::frontend::syntax::lexer::Lexer::new(region_span.source_id, region).lex_compact();
+    let mut text_ranges = Vec::new();
+    if lexed.diagnostics.is_empty() {
+        for index in 0..lexed.token_table.len() {
+            let literal = match lexed.token_table.tag_at(index) {
+                Some(TokenTag::Comment) => false,
+                Some(
+                    TokenTag::String
+                    | TokenTag::PathString
+                    | TokenTag::FmtString
+                    | TokenTag::PathFmtString,
+                ) => true,
+                _ => continue,
+            };
+            let Some(token) = lexed
+                .token_table
+                .span_at(index, region_span.source_id, region)
+            else {
+                continue;
+            };
+            if literal
+                && region
+                    .get(token.range())
+                    .is_none_or(|text| text.contains(['$', '{']))
+            {
+                continue;
+            }
+            text_ranges.push(token.range());
+        }
+    }
+    let word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-';
+    region
+        .match_indices(name)
+        .filter(|(start, _)| {
+            let end = start + name.len();
+            let before = &region.as_bytes()[..*start];
+            let member = before.ends_with(b".") && !before.ends_with(b"..");
+            !before.last().copied().is_some_and(word)
+                && !region[end..].bytes().next().is_some_and(word)
+                && !member
+                && !text_ranges
+                    .iter()
+                    .any(|range| range.start <= *start && end <= range.end)
+        })
+        .count()
 }
 
 impl SetLikeBindings {
@@ -240,6 +332,7 @@ impl SetLikeBindings {
             element,
             uses: 1,
             edits,
+            rewritten_calls: if legacy { vec![initializer_span] } else { Vec::new() },
             fixable: !duplicate,
         });
     }
@@ -264,6 +357,7 @@ impl SetLikeBindings {
         let text = |expr: ExprId| source.get(arena.expr(expr).span.range()).map(str::to_owned);
         // The edit, and the identifier inside the value that it accounts for.
         let mut accepted = None;
+        let mut rewritten_call = None;
         let edit = match arena.assign_target(target).kind {
             // `seen[key] = true`
             ArenaAssignTargetKind::Index { base, index }
@@ -288,6 +382,7 @@ impl SetLikeBindings {
                             && ident(arena, arguments[0]) == Some(root) =>
                     {
                         accepted = Some(arguments[0]);
+                        rewritten_call = Some(value_span);
                         text(arguments[1])
                             .map(|key| (value_span, format!("{name}.{function}({key})")))
                     }
@@ -328,6 +423,7 @@ impl SetLikeBindings {
             {
                 // The target, and the receiver or argument inside the value.
                 candidate.uses += 1 + usize::from(accepted.is_some());
+                candidate.rewritten_calls.extend(rewritten_call);
                 if !span.is_empty() {
                     candidate.edits.push((span, replacement));
                 }
@@ -337,7 +433,16 @@ impl SetLikeBindings {
     }
 
     /// An expression the traversal is about to descend into.
-    pub(super) fn visit_expr(&mut self, arena: &AstArena, source: &str, expr: ExprId) {
+    pub(super) fn visit_expr(
+        &mut self,
+        arena: &AstArena,
+        source: &str,
+        expr: ExprId,
+        expr_types: &BTreeMap<Span, Type>,
+    ) {
+        if let Some(function) = legacy_set_call(arena, expr, expr_types) {
+            self.legacy_calls.push((arena.expr(expr).span, function));
+        }
         match arena.expr(expr).kind {
             // `key in seen` and `key not in seen`
             ArenaExprKind::Binary {
@@ -400,6 +505,7 @@ impl SetLikeBindings {
     pub(super) fn finish(self, source: &str, advice: bool) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let mut fixed = Vec::new();
+        let mut rewritten_calls = Vec::new();
         for candidate in self.candidates {
             let Some(fix) = candidate.fix(source) else {
                 if advice && !self.annotations.contains(&candidate.label) {
@@ -408,6 +514,7 @@ impl SetLikeBindings {
                 continue;
             };
             fixed.push(candidate.label);
+            rewritten_calls.extend(candidate.rewritten_calls);
             diagnostics.push(
                 Diagnostic::warning(format!(
                     "`{}` is a map used as a set; its values are only ever `true`",
@@ -435,9 +542,39 @@ impl SetLikeBindings {
                 }
             }
         }
+        for (span, function) in self.legacy_calls {
+            if !rewritten_calls.contains(&span) {
+                diagnostics.push(legacy_call(span, function));
+            }
+        }
         diagnostics.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
         diagnostics
     }
+}
+
+/// A `set` module call in its `Map[Str, Bool]` form that no fix rewrites:
+/// the binding it belongs to is not provably a set, or it is not written as
+/// a local binding and its updates.
+fn legacy_call(span: Span, function: Name) -> Diagnostic {
+    let (label, note) = if function == "add" || function == "remove" {
+        (
+            format!("on a `Set[Str]` this is the method `.{function}(item)`"),
+            format!(
+                "`set.{function}` takes and returns a `Map[Str, Bool]`; declare the value a `Set[Str]` and call `.{function}` on it"
+            ),
+        )
+    } else {
+        (
+            "this is a `Map[Str, Bool]`, not a `Set[Str]`".to_owned(),
+            format!(
+                "`set.{function}` builds a `Set[T]` only where one is expected; annotate the binding, parameter, or field it is written for as `Set[Str]`"
+            ),
+        )
+    };
+    Diagnostic::note(format!("`set.{function}` is used in its legacy map form"))
+        .with_code(DiagnosticCode::LintLegacySetCall)
+        .with_label(Label::secondary(span, label))
+        .with_note(note)
 }
 
 fn advise(span: Span, element: &str) -> Diagnostic {
@@ -462,16 +599,7 @@ impl Candidate {
         // Every occurrence of the name in the region is a use counted above.
         let region = source.get(self.region.range())?;
         let name = self.name.to_string();
-        let word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-';
-        let occurrences = region
-            .match_indices(&name)
-            .filter(|(start, _)| {
-                let end = start + name.len();
-                !region[..*start].bytes().next_back().is_some_and(word)
-                    && !region[end..].bytes().next().is_some_and(word)
-            })
-            .count();
-        if occurrences != self.uses {
+        if binding_occurrences(region, self.region, &name) != self.uses {
             return None;
         }
         let mut edits = self.edits.clone();
@@ -523,7 +651,12 @@ mod tests {
         )
         .diagnostics
         .into_iter()
-        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSet))
+        .filter(|diagnostic| {
+            matches!(
+                diagnostic.code,
+                Some(DiagnosticCode::LintPreferSet | DiagnosticCode::LintLegacySetCall)
+            )
+        })
         .collect()
     }
 
@@ -580,6 +713,51 @@ mod tests {
         // Two in the signature and one for each of the four bindings.
         assert_eq!(advice.len(), 6, "{advice:?}");
         assert!(advice.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+    }
+
+    /// The name as a method, in a comment, and in a string without an
+    /// interpolation is not a use of the binding. A string that interpolates
+    /// may use it, so the name there still withholds the fix.
+    #[test]
+    fn a_name_that_is_also_text_or_a_method_does_not_withhold_the_fix() {
+        let interpolated = "pure shown(name: Str) -> Str {\n  var keys = set.empty()\n  keys = set.add(keys, name)\n  f\"{keys.len()} keys\"\n}\n";
+        let notes = lint(interpolated, false);
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(notes.iter().all(|note| note.fix_hints.is_empty()));
+
+        let source = "pure fresh(row: Map[Int], names: List[Str]) -> Result[Str] {\n  var keys = set.empty()\n  for name in names {\n    # keys already seen are an error\n    if name in keys or name not in row.keys() {\n      return Err(error.failure(\"repeated keys\"))\n    }\n\n    keys = set.add(keys, name)\n  }\n\n  Ok(\"no repeated keys\")\n}\n";
+        let diagnostics = lint(source, false);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        let fixed = fix_all(source);
+        assert_eq!(
+            fixed,
+            "pure fresh(row: Map[Int], names: List[Str]) -> Result[Str] {\n  var keys: Set[Str] = set.empty()\n  for name in names {\n    # keys already seen are an error\n    if name in keys or name not in row.keys() {\n      return Err(error.failure(\"repeated keys\"))\n    }\n\n    keys = keys.add(name)\n  }\n\n  Ok(\"no repeated keys\")\n}\n"
+        );
+        assert!(lint(&fixed, true).is_empty());
+    }
+
+    /// A legacy call that no fix rewrites is noted with the spelling that
+    /// replaces it, whether or not advice is asked for.
+    #[test]
+    fn a_legacy_set_call_without_a_fix_is_noted() {
+        let source = "pure grown(words: List[Str], known: Map[Bool]) -> Map[Bool] {\n  let items = set.from(words)\n  let added = set.add(items, \"extra\")\n  let typed: Set[Str] = set.from(words)\n  if typed.is_empty() {\n    return set.remove(known, \"extra\")\n  }\n\n  added\n}\n";
+        let notes = lint(source, false);
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(notes.iter().all(|note| {
+            note.severity == xsh::diagnostic::Severity::Note && note.fix_hints.is_empty()
+        }));
+        let messages = notes
+            .iter()
+            .map(|note| note.message.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages,
+            [
+                "`set.from` is used in its legacy map form",
+                "`set.add` is used in its legacy map form",
+                "`set.remove` is used in its legacy map form",
+            ]
+        );
     }
 
     #[test]
