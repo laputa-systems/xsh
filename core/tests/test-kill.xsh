@@ -280,3 +280,16 @@ test test_kill_help_and_version_go_to_stdout { |ctx|
   assert version.status == 0
   assert version.stdout.starts_with("kill ")
 }
+
+test test_kill_realtime_aliases_list_and_probe_the_same_signal { |ctx|
+  let number = process.signal("RTMIN+1")?.number
+  let listed = kill_run(ctx, ["-l", "SIGRTMIN+1", f"{number}"])?
+  assert listed.status == 0
+  assert listed.stdout == f"{number}\nRTMIN+1\n"
+  let sleeper = spawn run sleep 30 ?
+  let probe = kill_run(ctx, ["-s", "0", f"{sleeper.pid}"])?
+  assert probe.status == 0
+  let status = kill_sleeper(ctx, ["-s", "SIGRTMIN+1", "PID"])?
+  assert status.signal_number()? == number
+  sleeper.cancel()
+}

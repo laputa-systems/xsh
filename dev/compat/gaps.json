@@ -46,6 +46,12 @@
       "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
       "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
       "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+    ],
+    "stdbuf": [
+      "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command."
+    ],
+    "timeout": [
+      "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor."
     ]
   }
 }
