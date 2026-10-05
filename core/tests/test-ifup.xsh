@@ -29,8 +29,7 @@ proc ifupdown_ok(
 }
 
 proc write_interfaces(path_value: Path, hook_log: Path) [fs, error] {
-  fs.write(
-    path_value,
+  path_value.write(
     f"""auto lo eth0
 iface lo inet loopback
 
@@ -76,8 +75,7 @@ test test_ifup_dhcp_runs_discovery { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
 
-  fs.write(
-    interfaces,
+  interfaces.write(
     """auto eth0
 iface eth0 inet dhcp
 """,
@@ -118,8 +116,7 @@ test test_ifup_logical_selection { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
 
-  fs.write(
-    interfaces,
+  interfaces.write(
     """iface office inet static
     address 10.0.1.42
     netmask 255.255.255.0
@@ -138,17 +135,15 @@ test test_ifup_source_glob { |ctx|
   let sourced = fp"{root}/interfaces.d"
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
-  fs.mkdir(sourced)
+  sourced.mkdir()
 
-  fs.write(
-    interfaces,
+  interfaces.write(
     f"""source {sourced}/*
 auto eth0
 """,
   )
 
-  fs.write(
-    fp"{sourced}/eth0",
+  fp"{sourced}/eth0".write(
     """iface eth0 inet static
     address 10.0.1.42
     netmask 255.255.255.0

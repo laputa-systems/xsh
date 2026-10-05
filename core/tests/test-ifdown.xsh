@@ -29,8 +29,7 @@ proc ifupdown_ok(
 }
 
 proc write_interfaces(path_value: Path, hook_log: Path) [fs, error] {
-  fs.write(
-    path_value,
+  path_value.write(
     f"""auto lo eth0
 iface lo inet loopback
 
@@ -97,14 +96,13 @@ test test_ifdown_dhcp_sends_release { |ctx|
   let linux_log = fp"{root}/linux.jsonl"
 
   # Write a DHCP stanza and pre-seed the state file so ifdown finds it.
-  fs.write(
-    interfaces,
+  interfaces.write(
     """auto eth0
 iface eth0 inet dhcp
 """,
   )
 
-  fs.write(state, "eth0=eth0")
+  state.write("eth0=eth0")
 
   # The fake has no real DHCP, so the RELEASE send will log but not actually
   # reach a server.  This is fine — we just verify the primitive was called.
@@ -123,8 +121,7 @@ test test_ifdown_skips_unconfigured_interface { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
 
-  fs.write(
-    interfaces,
+  interfaces.write(
     """auto eth0
 iface eth0 inet static
     address 10.0.1.42
@@ -144,15 +141,14 @@ test test_ifdown_logical_selection { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
 
-  fs.write(
-    interfaces,
+  interfaces.write(
     """iface office inet static
     address 10.0.1.42
     netmask 255.255.255.0
 """,
   )
 
-  fs.write(state, "eth0=office")
+  state.write("eth0=office")
 
   ifupdown_ok(ctx, "ifdown", ["eth0=office"], interfaces, state, linux_log)
 

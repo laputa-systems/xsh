@@ -3,5 +3,5 @@ const secret = "not a real key\n"
 
 # begin example
 key.write(secret, mode: 0o600)
-fs.write(fp"{key}.pub", "public\n", mode: 0o644)
+fp"{key}.pub".write("public\n", mode: 0o644)
 # end example

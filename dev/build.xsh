@@ -15,9 +15,9 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
 
   let sysroot_text: Str = run.text rustc --print sysroot ?
   let sysroot = fp"{sysroot_text.trim()}/lib/rustlib/{ctx.target.triple}/lib"
-  fs.remove(fp"{sysroot}/libgcc_s.so", missing_ok: true)
-  fs.remove(fp"{sysroot}/libgcc_s.so.1", missing_ok: true)
-  fs.remove(fp"{sysroot}/libc.so", missing_ok: true)
+  fp"{sysroot}/libgcc_s.so".remove(missing_ok: true)
+  fp"{sysroot}/libgcc_s.so.1".remove(missing_ok: true)
+  fp"{sysroot}/libc.so".remove(missing_ok: true)
   fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so")
   fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so.1")
   fs.symlink(libc, fp"{sysroot}/libc.so")

@@ -257,7 +257,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   json_path.parent().mkdir()
   text_path.parent().mkdir()
   json.write(json_path, report)
-  fs.write(text_path, report_text)
+  text_path.write(report_text)
   io.write_stdout(report_text)
   print f"coverage JSON: {relative_display(root, json_path)?}"
   print f"coverage text: {relative_display(root, text_path)?}"

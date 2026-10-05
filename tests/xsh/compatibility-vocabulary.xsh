@@ -26,10 +26,10 @@ test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |c
   assert "é🍃".byte_len() == 6
   assert "é🍃".count_chars() == 2
   let root = test.temp_dir(ctx, name: "canonical-children")?
-  fs.mkdir(fp"{root}/nested")
-  fs.write(fp"{root}/z.txt", "z")
-  fs.write(fp"{root}/a.txt", "a")
-  fs.write(fp"{root}/nested/child.txt", "child")
+  fp"{root}/nested".mkdir()
+  fp"{root}/z.txt".write("z")
+  fp"{root}/a.txt".write("a")
+  fp"{root}/nested/child.txt".write("child")
   assert (fs.children(root)? |> map .name) == ["a.txt", "nested", "z.txt"]
   let absent = test.temp_path(ctx, name: "canonical-missing")
   assert fs.children(absent) is Err(_)
@@ -37,7 +37,7 @@ test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |c
 
 test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks { |ctx|
   let root = test.temp_dir(ctx, name: "vocabulary-migration")?
-  fs.write(fp"{root}/entry", "data")
+  fp"{root}/entry".write("data")
   let source = f"""# café ARGV fs.ls run.builtin count_bytes
 let input = ARGV
 let byte_count = "é🍃".count_bytes() # keep bytes

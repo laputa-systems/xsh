@@ -50,11 +50,11 @@ test test_string_literal_reaches_standard_path_parameters_as_a_path { |ctx|
   let file = fp"{root}/file.txt"
   file.write("x")
   cd $root {
-    assert fs.exists("file.txt")?
-    assert ! fs.exists("absent.txt")?
+    assert p"file.txt".exists()?
+    assert ! p"absent.txt".exists()?
     p"file.txt".copy("copy.txt")
     assert p"copy.txt".read_text()? == "x"
-    fs.write("written.txt", "text stays text")
+    p"written.txt".write("text stays text")
     assert p"written.txt".read_text()? == "text stays text"
   }
   assert p"a/b".strip_prefix("a")? == p"b"

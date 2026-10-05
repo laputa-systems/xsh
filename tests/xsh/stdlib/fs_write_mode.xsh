@@ -6,11 +6,11 @@ test test_write_with_a_mode_creates_the_file_with_exactly_those_bits { |ctx|
   for mode in [0o600, 0o640, 0o755, 0o777, 0o000] {
     let by_method = fp"{root}/method-{mode}"
     by_method.write("text\n", mode:)
-    assert fs.metadata(by_method)?.mode % 4096 == mode
+    assert by_method.metadata()?.mode % 4096 == mode
 
     let by_module = fp"{root}/module-{mode}"
-    fs.write(by_module, b"bytes\n", mode:)
-    assert fs.metadata(by_module)?.mode % 4096 == mode
+    by_module.write(b"bytes\n", mode:)
+    assert by_module.metadata()?.mode % 4096 == mode
   }
 
   assert fp"{root}/method-{0o640}".read_text()? == "text\n"
@@ -19,9 +19,9 @@ test test_write_with_a_mode_creates_the_file_with_exactly_those_bits { |ctx|
   # The mode may be positional, and each data type has it.
   let positional = fp"{root}/positional"
   positional.write(b"one", 0o604)
-  assert fs.metadata(positional)?.mode % 4096 == 0o604
-  fs.write(positional, "two", 0o640)
-  assert fs.metadata(positional)?.mode % 4096 == 0o640
+  assert positional.metadata()?.mode % 4096 == 0o604
+  positional.write("two", 0o640)
+  assert positional.metadata()?.mode % 4096 == 0o640
   assert positional.read_text()? == "two"
 }
 
@@ -32,19 +32,19 @@ test test_write_with_a_mode_sets_the_bits_of_an_existing_file { |ctx|
 
   file.write("short\n", mode: 0o600)
   assert file.read_text()? == "short\n"
-  assert fs.metadata(file)?.mode % 4096 == 0o600
+  assert file.metadata()?.mode % 4096 == 0o600
 
   # It is the write and the chmod it replaces.
   let pair = fp"{root}/pair"
   pair.write("short\n")
   assert pair.exists()?
   pair.chmod(0o600)
-  assert fs.metadata(pair)?.mode % 4096 == fs.metadata(file)?.mode % 4096
+  assert pair.metadata()?.mode % 4096 == file.metadata()?.mode % 4096
   assert pair.read_bytes()? == file.read_bytes()?
 
   # A write without a mode still leaves an existing file's bits alone.
   file.write("again\n")
-  assert fs.metadata(file)?.mode % 4096 == 0o600
+  assert file.metadata()?.mode % 4096 == 0o600
 }
 
 test test_write_with_a_mode_out_of_range_writes_nothing { |ctx|
@@ -52,7 +52,7 @@ test test_write_with_a_mode_out_of_range_writes_nothing { |ctx|
   let absent = fp"{root}/absent"
   for mode in [-1, 0o10000] {
     test.error_kind(absent.write("text", mode:), "fs-chmod")
-    test.error_kind(fs.write(absent, "text", mode:), "fs-chmod")
+    test.error_kind(absent.write("text", mode:), "fs-chmod")
   }
 
   assert ! absent.exists()?

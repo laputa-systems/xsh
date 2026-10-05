@@ -1,5 +1,4 @@
-fs.write(
-  p"output.txt",
+p"output.txt".write(
   """done
 """,
 )

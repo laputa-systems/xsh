@@ -3,7 +3,7 @@ test test_linux_fake_covers_module_surface { |ctx|
   let log = fp"{root}/linux.jsonl"
   let seed = fp"{root}/seed"
   let random = fp"{root}/random"
-  fs.write(seed, "seed")
+  seed.write("seed")
 
   test.linux_fake(ctx, {log: log})
   linux.write_device(/dev/urandom, seed)
@@ -188,7 +188,7 @@ test test_linux_fake_disk_usage_and_sysctl_records { |ctx|
 test test_linux_fake_file_attrs_decode_seed_flags { |ctx|
   let root = test.temp_dir(ctx, name: "linux-file-attrs")?
   let seed = fp"{root}/seed"
-  fs.write(seed, "seed")
+  seed.write("seed")
   test.linux_fake(ctx, {file_attrs_flags: 250111, file_version: 7})
   let attrs = linux.file_attrs(seed)?
   let version = linux.file_version(seed)?
@@ -265,7 +265,7 @@ test test_linux_fake_log_appends_in_place { |ctx|
   # newline. The baseline appends to the open file, so those bytes have to
   # survive; a read-concatenate-rewrite log would lose or replace them.
   let seeded = bytes.from_ints([255, 254, 10])?
-  fs.write(log, seeded)
+  log.write(seeded)
 
   test.linux_fake(ctx, {log: log})
   let _ = linux.meminfo()?
@@ -290,18 +290,18 @@ test test_linux_fake_log_appends_in_place { |ctx|
 
   # A directory destination raises the native logging error.
   let blocked = fp"{root}/a-directory"
-  fs.mkdir(blocked)
+  blocked.mkdir()
   test.linux_fake(ctx, {log: blocked})
   let failed = test.run_script(ctx, "let _ = linux.meminfo()?")?
   assert ! failed.success
   assert "linux-fake-log" in failed.stderr
-  assert blocked.metadata()?.kind == "dir"
+  assert blocked.is_dir()?
 }
 
 test test_linux_text_log_failure_kind { |ctx|
   let root = test.temp_dir(ctx, name: "linux-text-log")?
   let blocked = fp"{root}/file"
-  fs.write(blocked, "not a directory")
+  blocked.write("not a directory")
   let blocked_log = fp"{blocked}/linux.jsonl"
   test.linux_fake(ctx, {log: blocked_log})
   let meminfo_failed = test.run_script(ctx, "let _ = linux.meminfo()?")?
@@ -387,12 +387,10 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   }
 
   let root = test.temp_dir(ctx, name: "linux-modules")?
-  fs.write(
-    fp"{root}/demo-name.ko",
+  fp"{root}/demo-name.ko".write(
     "description=Demo module\0license=MIT\0version=2\0depends=dep,missing\0parm=debug:Enable debug (bool)\0parm=mode:Mode (charp)\0",
   )
-  fs.write(
-    fp"{root}/dep.ko",
+  fp"{root}/dep.ko".write(
     "description=dep module\0license=GPL\0version=1\0",
   )
 

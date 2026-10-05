@@ -5,9 +5,9 @@ proc render(output: Path) {
 # begin example
 proc publish(output: Path) {
   let partial = fp"{output}.partial"
-  errdefer fs.remove(partial, missing_ok: true)
+  errdefer partial.remove(missing_ok: true)
   render(partial)
-  fs.rename(partial, output)
+  partial.rename(output)
 }
 
 # end example

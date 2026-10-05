@@ -2,11 +2,10 @@ test test_archive_tar_cpio_and_compression { |ctx|
   let root = test.temp_dir(ctx, name: "archive")?
   let src = fp"{root}/src"
   let out = fp"{root}/out"
-  fs.mkdir(fp"{src}/dir")
-  fs.mkdir(out)
+  fp"{src}/dir".mkdir()
+  out.mkdir()
 
-  fs.write(
-    fp"{src}/dir/a.txt",
+  fp"{src}/dir/a.txt".write(
     """ alpha
 """,
   )

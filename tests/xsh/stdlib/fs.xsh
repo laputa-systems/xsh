@@ -14,7 +14,7 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-stage")?
   var index = 0
   while index < 50 {
-    fs.write(fp"{root}/f{index}.txt", "x")
+    fp"{root}/f{index}.txt".write("x")
     index = index + 1
   }
 
@@ -36,7 +36,7 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
 
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
-  fs.write(fp"{root}/file.txt", "data")
+  fp"{root}/file.txt".write("data")
   let output = test.run_script(
     ctx,
     f"""
@@ -68,11 +68,10 @@ test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata { |ctx|
 
 test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
   let root = test.temp_dir(ctx, name: "fs-files-dynamic-flags")?
-  fs.write(fp"{root}/normal.txt", "data")
-  fs.write(fp"{root}/ignored.txt", "ignored")
-  fs.write(fp"{root}/.hidden.txt", "hidden")
-  fs.write(
-    fp"{root}/.gitignore",
+  fp"{root}/normal.txt".write("data")
+  fp"{root}/ignored.txt".write("ignored")
+  fp"{root}/.hidden.txt".write("hidden")
+  fp"{root}/.gitignore".write(
     """ignored.txt
 """,
   )
@@ -109,56 +108,56 @@ print ${{entry.size}}
 test test_fs_remove_deletes_trees_without_following_symlinks { |ctx|
   let root = test.temp_dir(ctx, name: "fs-remove-tree")?
   let outside = fp"{root}/outside"
-  fs.mkdir(outside)
-  fs.write(fp"{outside}/kept.txt", "kept")
+  outside.mkdir()
+  fp"{outside}/kept.txt".write("kept")
   let tree = fp"{root}/tree"
-  fs.mkdir(fp"{tree}/nested/deeper")
-  fs.write(fp"{tree}/nested/deeper/file.txt", "gone")
+  fp"{tree}/nested/deeper".mkdir()
+  fp"{tree}/nested/deeper/file.txt".write("gone")
   fs.symlink(outside, fp"{tree}/nested/link")
 
-  fs.remove(tree)
-  assert ! fs.exists(tree)?
-  assert fs.read_text(fp"{outside}/kept.txt")? == "kept"
+  tree.remove()
+  assert ! tree.exists()?
+  assert fp"{outside}/kept.txt".read_text()? == "kept"
 
   let path_tree = fp"{root}/path-tree"
-  fs.mkdir(fp"{path_tree}/child")
-  fs.write(fp"{path_tree}/child/file.txt", "gone")
+  fp"{path_tree}/child".mkdir()
+  fp"{path_tree}/child/file.txt".write("gone")
   path_tree.remove()
-  assert ! fs.exists(path_tree)?
+  assert ! path_tree.exists()?
 }
 
 test test_fs_write_atomic_keeps_plain_write_modes { |ctx|
   let root = test.temp_dir(ctx, name: "fs-atomic-mode")?
   let plain = fp"{root}/plain.txt"
   let atomic = fp"{root}/atomic.txt"
-  fs.write(plain, "plain")
-  fs.write_atomic(atomic, "atomic")
+  plain.write("plain")
+  atomic.write_atomic("atomic")
   # A new file gets the mode a plain write gives under the same umask, not
   # the temporary file's private 0600.
-  assert fs.metadata(atomic)?.mode % 512 == fs.metadata(plain)?.mode % 512
+  assert atomic.metadata()?.mode % 512 == plain.metadata()?.mode % 512
 
   # Replacing a file keeps its mode, as a plain write over it does.
-  fs.chmod(atomic, 0o751)
-  fs.write_atomic(atomic, "replaced")
-  assert fs.read_text(atomic)? == "replaced"
-  assert fs.metadata(atomic)?.mode % 512 == 0o751
+  atomic.chmod(0o751)
+  atomic.write_atomic("replaced")
+  assert atomic.read_text()? == "replaced"
+  assert atomic.metadata()?.mode % 512 == 0o751
 }
 
 test test_fs_tree_metadata_install_and_locking { |ctx|
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"{root}/src"
   let nested = fp"{src}/nested"
-  fs.mkdir(nested)
+  nested.mkdir()
   let file = fp"{nested}/data.txt"
-  fs.write(file, "hello")
-  fs.write(fp"{nested}/bytes.bin", b"bytes")
-  fs.write_atomic(fp"{nested}/atomic.txt", "atomic")
-  fs.write_atomic(fp"{nested}/atomic.bin", b"atomic-bytes")
-  fs.chmod(file, 0o755)
-  assert fs.read_text(file)? == "hello"
-  assert fs.exists(file)?
-  assert fs.executable(file)?
-  let file_meta = fs.metadata(file)?
+  file.write("hello")
+  fp"{nested}/bytes.bin".write(b"bytes")
+  fp"{nested}/atomic.txt".write_atomic("atomic")
+  fp"{nested}/atomic.bin".write_atomic(b"atomic-bytes")
+  file.chmod(0o755)
+  assert file.read_text()? == "hello"
+  assert file.exists()?
+  assert file.executable()?
+  let file_meta = file.metadata()?
   assert file_meta.name == "data.txt"
   assert file_meta.executable
   assert file_meta.owner_executable
@@ -205,45 +204,45 @@ print \$entry.size
   assert fs.files(src)? |> any .name == "data.txt"
   assert fs.dirs(src)? |> any .name == "nested"
   let cache = fp"{root}/remote-cache"
-  fs.mkdir(fp"{cache}/packages")
+  fp"{cache}/packages".mkdir()
   let tarball = fp"{cache}/packages/pkg.tar"
-  fs.write(tarball, "package")
-  fs.mkdir(fp"{root}/old-build")
-  fs.write(fp"{root}/old-file", "stale")
+  tarball.write("package")
+  fp"{root}/old-build".mkdir()
+  fp"{root}/old-file".write("stale")
 
   for entry in fs.children(root)? {
     if entry.name != "remote-cache" and entry.name != "src" {
-      fs.remove(entry.path, missing_ok: true)
+      entry.path.remove(missing_ok: true)
     }
   }
 
-  assert fs.exists(cache)?
   assert cache.exists()?
-  assert fs.exists(tarball)?
+  assert cache.exists()?
+  assert tarball.exists()?
   let copied = fp"{root}/copied.txt"
-  fs.copy(file, copied)
-  assert fs.read_text(copied)? == "hello"
+  file.copy(copied)
+  assert copied.read_text()? == "hello"
   let renamed = fp"{root}/renamed.txt"
-  fs.rename(copied, renamed)
-  assert ! fs.exists(copied)?
-  assert fs.read_text(renamed)? == "hello"
+  copied.rename(renamed)
+  assert ! copied.exists()?
+  assert renamed.read_text()? == "hello"
   let tree = fp"{root}/tree-copy"
   let tree_result = fs.copy_tree(src, tree)?
   assert tree_result.files >= 4
   assert fp"{tree}/nested/data.txt".read_text()? == "hello"
   let install_dest = fp"{root}/install/bin/data.txt"
   fs.install(file, install_dest, 0o600)
-  assert fs.metadata(install_dest)?.mode % 512 == 0o600
+  assert install_dest.metadata()?.mode % 512 == 0o600
   let current_user = user.current()?
   let current_group = group.current()?
   fs.install_as(file, fp"{root}/install-as/data.txt", 0o600, current_user, current_group)
-  fs.chmod(install_dest, 0o644)
+  install_dest.chmod(0o644)
   fs.chown(install_dest, current_user)
   fs.chgrp(install_dest, current_group)
-  assert fs.metadata(install_dest)?.mode % 512 == 0o644
+  assert install_dest.metadata()?.mode % 512 == 0o644
   let fifo = fp"{root}/fifo"
   fs.mkfifo(fifo, 0o600)
-  assert fs.exists(fifo)?
+  assert fifo.exists()?
   fs.fsync(file)
   fs.sync()
   let link = fp"{root}/link"
@@ -257,8 +256,8 @@ print \$entry.size
   let manifest_result = fs.remove_manifest(root, [p"renamed.txt", p"missing.txt"], missing_ok: true, prune_dirs: false)?
   assert manifest_result.removed == 1
   assert manifest_result.missing == 1
-  fs.remove(fp"{root}/missing-again", missing_ok: true)
-  fs.remove(tree, missing_ok: false)
+  fp"{root}/missing-again".remove(missing_ok: true)
+  tree.remove(missing_ok: false)
   let temp_file = fs.tempfile()?
   assert temp_file.root.exists(temp_file.path)?
   temp_file.root.write(temp_file.path, "temp")
@@ -685,8 +684,8 @@ test test_filesystem_path_and_install_apis { |ctx|
   let moved = fp"{root}/moved.txt"
   let hard = fp"{root}/hard.txt"
   let empty = fp"{root}/empty"
-  fs.copy(note, copy)
-  let refused = fs.copy(note, copy)
+  note.copy(copy)
+  let refused = note.copy(copy)
   copy.rename(moved)
   moved.truncate(4)
   let moved_text = moved.read_text()?
@@ -755,7 +754,7 @@ test test_filesystem_package_policy_apis { |ctx|
   assert installed_meta.mode % 512 == 0o755
   assert removed.removed == 1
   assert removed.pruned_dirs == 2
-  assert ! fs.exists(installed)?
+  assert ! installed.exists()?
   test.error_kind(fs.remove_manifest(fp"{root}/image", [../escape], missing_ok: true), "fs-remove-manifest")
   test.error_kind(fs.copy_tree(src, fp"{root}/copy"), "fs-copy-tree")
 }
@@ -780,10 +779,10 @@ test test_fs_walk_and_files_iteration_failures_are_catchable { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-denied")?
   let locked = fp"{root}/a/locked"
   locked.mkdir()
-  fs.write(fp"{locked}/inside.txt", "x")
-  fs.write(fp"{root}/b.txt", "x")
-  fs.chmod(locked, 0o000)
-  defer fs.chmod(locked, 0o755)?
+  fp"{locked}/inside.txt".write("x")
+  fp"{root}/b.txt".write("x")
+  locked.chmod(0o000)
+  defer locked.chmod(0o755)?
 
   let walked: Result[Int] = try {
     var count = 0
@@ -808,7 +807,7 @@ test test_host_filesystem_errors_implement_error_facets [fs, error] { |ctx|
   let missing = test.temp_path(ctx, name: "missing-facet")
   let root = test.temp_dir(ctx, name: "facet-root")?
   let file = fp"{root}/plain.txt"
-  fs.write(file, "text")
+  file.write("text")
   let read = missing.read_text()
   assert read is Err(is NotFound)
   if let Err(error) = read {
@@ -818,7 +817,7 @@ test test_host_filesystem_errors_implement_error_facets [fs, error] { |ctx|
   }
 
   assert missing.read_bytes() is Err(is NotFound)
-  assert fs.read_text(missing) is Err(is NotFound)
+  assert missing.read_text() is Err(is NotFound)
   assert fs.files(missing) is Err(is NotFound)
   let below_file = fp"{file}/child".read_text()
   assert below_file is Err(is HostIo)

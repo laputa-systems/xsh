@@ -27,7 +27,7 @@ proc edit_config(file: Path, key: Str, value: Str) {
   }
 
   let backup = fp"{file}.bak"
-  fs.copy(file, backup, overwrite: true)
+  file.copy(backup, overwrite: true)
   file.write_atomic(after)
   print diff.unified(backup, file)?.text.trim()
 }

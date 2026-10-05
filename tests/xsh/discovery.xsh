@@ -3,10 +3,10 @@
 proc project(ctx: TestContext) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "discovery")?
   fp"{root}/xsht-config.ini".write_atomic("exclude = stdlib/**/*.xsh\n  generated/*.xsh\n")
-  fs.mkdir(fp"{root}/stdlib")
-  fs.mkdir(fp"{root}/generated")
-  fs.mkdir(fp"{root}/tests/stdlib")
-  fs.mkdir(fp"{root}/tests/generated")
+  fp"{root}/stdlib".mkdir()
+  fp"{root}/generated".mkdir()
+  fp"{root}/tests/stdlib".mkdir()
+  fp"{root}/tests/generated".mkdir()
   for file in [
     "main.xsh",
     "stdlib/excluded.xsh",

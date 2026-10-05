@@ -3,7 +3,7 @@ defer scratch.close()?
 let dir = scratch.host_path()?
 
 let release = fp"{dir}/app-1.4"
-fs.mkdir(fp"{release}/bin")
+fp"{release}/bin".mkdir()
 fp"{release}/bin/app".write("#!/bin/xsh\nprint \"app 1.4\"\n")
 fp"{release}/README".write("app 1.4\n")
 

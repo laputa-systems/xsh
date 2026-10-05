@@ -159,7 +159,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
       let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
       expected_files += [artifact.name, f"{artifact.name}.sha256"]
       if artifact.exists()? {
-        fs.chmod(artifact, 0o755)
+        artifact.chmod(0o755)
       }
 
       if ! artifact.exists()? or ! artifact.executable()? or artifact.metadata()?.size == 0 {

@@ -1,6 +1,6 @@
 test test_hash_digests_checksums_and_digest_methods { |ctx|
   let data_path = test.temp_path(ctx, name: "hash-data.txt")
-  fs.write(data_path, "abc")
+  data_path.write("abc")
   let digest = hash.sha256(b"abc")
   assert digest.base64() == "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0="
   assert hash.sha256(data_path)?.hex() == digest.hex()
@@ -27,7 +27,7 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
 # `path:`, and the algorithm-named checksum binds wherever it is written.
 test test_hash_verify_file_argument_order { |ctx|
   let data_path = test.temp_path(ctx, name: "hash-order.txt")
-  fs.write(data_path, "abc")
+  data_path.write("abc")
   let sha = hash.sha256(data_path)?.hex()
   let md = hash.md5(data_path)?.hex()
   hash.verify_file(data_path, sha256: sha)
@@ -52,7 +52,7 @@ pure verify_message(result: Result[Unit]) -> Str {
 # covered, plus the algorithm selection the specialized call form carries.
 test test_hash_verify_file_policy { |ctx|
   let data_path = test.temp_path(ctx, name: "hash-verify.txt")
-  fs.write(data_path, "abc")
+  data_path.write("abc")
   let digest = hash.sha256(data_path)?
 
   # The digest verifies, and comparison is ASCII case-insensitive.
@@ -91,14 +91,14 @@ test test_hash_verify_file_policy { |ctx|
   # The smallest input: an empty file has the algorithm's canonical digest and
   # verifies like any other.
   let empty = test.temp_path(ctx, name: "hash-verify-empty.txt")
-  fs.write(empty, "")
+  empty.write("")
   assert hash.sha256(empty)?.hex() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   assert verify_message(hash.verify_file(empty, sha256: hash.sha256(empty)?.hex())) == ""
 
   # One byte, and a file spanning several digest blocks: the same call reads
   # the whole input, and the digest it compares is the one the reader produced.
   let one_byte = test.temp_path(ctx, name: "hash-verify-byte.bin")
-  fs.write(one_byte, "x")
+  one_byte.write("x")
   assert verify_message(hash.verify_file(one_byte, sha256: hash.sha256(one_byte)?.hex())) == ""
 
   let large = test.temp_path(ctx, name: "hash-verify-large.bin")
@@ -111,7 +111,7 @@ test test_hash_verify_file_policy { |ctx|
 
   filler = filler + filler + filler + filler + "end"
 
-  fs.write(large, filler)
+  large.write(filler)
   let large_bytes = bytes.from_text(filler)
   assert hash.md5(large)?.hex() == hash.md5(large_bytes).hex()
   assert hash.sha1(large)?.hex() == hash.sha1(large_bytes).hex()
@@ -128,7 +128,7 @@ test test_hash_verify_file_policy { |ctx|
   var index = 0
   while index < 32 {
     let batch_path = test.temp_path(ctx, name: f"hash-verify-batch-{index}.txt")
-    fs.write(batch_path, f"batch {index}")
+    batch_path.write(f"batch {index}")
     let batch_digest = hash.sha256(batch_path)?.hex()
     assert verify_message(hash.verify_file(batch_path, sha256: batch_digest)) == ""
     if index > 0 {

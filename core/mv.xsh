@@ -66,7 +66,7 @@ proc main(...argv: List[Str]) [fs, error] {
   var target_is_dir = false
 
   if ! no_target_directory and dest.exists()? {
-    target_is_dir = dest.metadata()?.kind == "dir"
+    target_is_dir = dest.is_dir()?
   }
 
   if sources.len() > 1 and ! target_is_dir {

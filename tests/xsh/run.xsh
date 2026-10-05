@@ -1199,16 +1199,16 @@ test test_filesystem_errors_name_their_paths { |ctx|
   let blocker = fp"{ctx.temp_root}/blocker"
   blocker.write("x")
   let missing = fp"{blocker}/xsh-missing-dir"
-  if let Err(error) = fs.metadata(missing) {
+  if let Err(error) = missing.metadata() {
     assert missing.display() in error.message, error.message
   } else {
     test.fail("expected a filesystem failure")
   }
 
   for failure in [
-    fs.mkdir(fp"{missing}/child"),
-    fs.write(fp"{missing}/file.txt", "x"),
-    fs.copy(fp"{missing}/a", fp"{missing}/b"),
+    fp"{missing}/child".mkdir(),
+    fp"{missing}/file.txt".write("x"),
+    fp"{missing}/a".copy(fp"{missing}/b"),
   ] {
     if let Err(error) = failure {
       assert missing.display() in error.message, error.message

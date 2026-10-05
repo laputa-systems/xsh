@@ -176,7 +176,7 @@ test test_temp { |ctx|
   let two = test.temp_path(ctx)
   assert one != two
   let file = test.temp_file(ctx, name: "data", contents: b"ok")?
-  let data = fs.read_text(file)?
+  let data = file.read_text()?
   assert data == "ok"
 }
 

@@ -552,7 +552,7 @@ proc write_resolv_conf(servers: List[Str]) [fs, error] {
 """
   }
 
-  fs.write(/etc/resolv.conf, body)
+  p"/etc/resolv.conf".write(body)
 }
 
 proc configure_dhcp(physical: Str) [fs, process, time, error] {

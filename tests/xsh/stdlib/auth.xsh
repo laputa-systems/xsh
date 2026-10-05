@@ -35,11 +35,10 @@ raw-line
 test test_applet_auth_helpers_and_sessions { |ctx|
   let root = test.temp_dir(ctx, name: "applet-auth")?
   let home = fp"{root}/home"
-  fs.mkdir(home)
+  home.mkdir()
   let shell = fp"{root}/session-shell"
 
-  fs.write(
-    shell,
+  shell.write(
     """#!/bin/sh
 exit 17
 """,
@@ -82,10 +81,10 @@ test test_applet_mdev_scans_empty_roots { |ctx|
   let sys = fp"{root}/sys"
   let sys_dev = fp"{sys}/dev"
   let conf = fp"{root}/mdev.conf"
-  fs.mkdir(dev)
-  fs.mkdir(sys)
-  fs.mkdir(sys_dev)
-  fs.write(conf, "")
+  dev.mkdir()
+  sys.mkdir()
+  sys_dev.mkdir()
+  conf.write("")
 
   env XSH_MDEV_DEV_ROOT=$dev XSH_MDEV_SYSFS=$sys XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 {
     let status = applet.mdev(["--scan"])?

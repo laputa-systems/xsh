@@ -193,7 +193,7 @@ proc main(...argv: List[Str]) [fs, error] {
   for item in paths |> drop(1) {
     let target = fp"{item}"
 
-    if recursive and target.metadata()?.kind == "dir" {
+    if recursive and target.is_dir()? {
       # Descending path = children before parents. A non-root `chmod -R` that
       # clears a directory's execute bit would otherwise lock itself out of
       # resolving paths to that directory's children; chmod them first.

@@ -3,20 +3,17 @@ test test_user_lookup_and_mutation_contracts { |ctx|
   let shadow_file = test.temp_path(ctx, name: "shadow")
   let group_file = test.temp_path(ctx, name: "group")
 
-  fs.write(
-    passwd_file,
+  passwd_file.write(
     """root:x:0:0:root:/root:/bin/sh
 """,
   )
 
-  fs.write(
-    shadow_file,
+  shadow_file.write(
     """root:*:0:0:99999:7:::
 """,
   )
 
-  fs.write(
-    group_file,
+  group_file.write(
     """root:x:0:
 """,
   )

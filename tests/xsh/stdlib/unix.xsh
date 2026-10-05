@@ -83,7 +83,7 @@ print (unix.tty()?)""",
 
   # A log that cannot be written raises the fake's own logging error.
   let blocked = fp"{root}/file"
-  fs.write(blocked, "not a directory")
+  blocked.write("not a directory")
   test.unix_fake(ctx, {log: fp"{blocked}/unix.jsonl"})
   let failed = test.run_script(ctx, "unix.set_hostname(\"xsh\")?")?
   assert ! failed.success

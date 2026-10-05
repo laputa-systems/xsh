@@ -226,11 +226,10 @@ test test_env_conversions_read_the_scoped_overlay {
 test test_env_functions_and_path_list { |ctx|
   let root = test.temp_dir(ctx, name: "env")?
   let tool_dir = fp"{root}/bin"
-  fs.mkdir(tool_dir)
+  tool_dir.mkdir()
   let tool = fp"{tool_dir}/xsh-env-helper"
 
-  fs.write(
-    tool,
+  tool.write(
     """#!/bin/sh
 printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
 """,

@@ -38,7 +38,7 @@ test test_path_methods { |ctx|
   assert file.exists()?
   assert ! file.executable()?
   assert file.du()? >= 0
-  assert file.metadata()?.kind == "file"
+  assert file.is_file()?
   file.chmod(0o600)
   file.truncate(2)
   assert file.read_text()? == "by"

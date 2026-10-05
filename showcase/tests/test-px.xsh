@@ -5,8 +5,8 @@ pure sleeper_bin(ctx: TestContext) -> Path {
 proc marker_executable(ctx: TestContext, marker: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"{root}/{marker}"
-  fs.copy(sleeper_bin(ctx).resolve()?, executable)
-  fs.chmod(executable, 0o755)
+  sleeper_bin(ctx).resolve()?.copy(executable)
+  executable.chmod(0o755)
   executable
 }
 

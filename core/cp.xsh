@@ -86,7 +86,7 @@ proc main(...argv: List[Str]) [fs, error] {
   var target_is_dir = false
 
   if ! no_target_directory and dest.exists()? {
-    target_is_dir = dest.metadata()?.kind == "dir"
+    target_is_dir = dest.is_dir()?
   }
 
   if sources.len() > 1 and ! target_is_dir {
@@ -110,7 +110,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
       let _ = fs.copy_tree(source, target, parents: true, overwrite: ! no_clobber)?
     } else {
-      fs.copy(source, target, overwrite: ! no_clobber)
+      source.copy(target, overwrite: ! no_clobber)
     }
   }
 }

@@ -815,7 +815,7 @@ test test_predicate_stage_blocks_bind_local_lets {
 
 test test_implicit_standard_read_helpers_and_pipe_shorthand { |ctx|
   let file = test.temp_file(ctx, name: "pipe-shorthand-input", contents: b"ok\nwarn one\nwarn two\n")?
-  let file_text = fs.read_text(file)?
+  let file_text = file.read_text()?
   let piped = file.read_bytes()?.utf8()?
 
   let warnings = piped
@@ -838,7 +838,7 @@ test test_core_commands_and_byte_pipeline { |ctx|
   let output = fp"{root}/out.txt"
 
   cd root {
-    fs.write(p"inside.txt", "cwd")
+    p"inside.txt".write("cwd")
   }
 
   assert fp"{root}/inside.txt".read_text()? == "cwd"

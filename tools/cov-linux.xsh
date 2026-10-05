@@ -45,7 +45,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
   let candidates = [fp"{sysroot}/lib/rustlib/{host}/bin/{tool}", fp"{sysroot}/bin/{tool}"]
 
   for candidate in candidates {
-    return candidate when candidate.exists()? and fs.executable(candidate)?
+    return candidate when candidate.exists()? and candidate.executable()?
   }
 
   for entry in fs.walk(sysroot)? {
@@ -56,7 +56,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
 }
 
 proc remove_dir(target: Path) [fs, error] {
-  fs.remove(target, missing_ok: true)
+  target.remove(missing_ok: true)
 }
 
 proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
@@ -173,8 +173,7 @@ proc main() [fs, process, env, error, io] {
     fail f"coverage: no instrumented objects found under {release_dir} or {debug_dir}"
   }
 
-  fs.write(
-    objects_file,
+  objects_file.write(
     f"""{objects.join("\n")}
 """,
   )

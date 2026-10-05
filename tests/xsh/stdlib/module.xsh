@@ -8,8 +8,7 @@ test test_module_load { |ctx|
   let root = test.temp_dir(ctx, name: "module")?
   let plugin_path = fp"{root}/plugin.xsh"
 
-  fs.write(
-    plugin_path,
+  plugin_path.write(
     """
 ##! Test plugin module contract.
 
@@ -489,8 +488,7 @@ match loaded.require(BadPackage) {{
 test test_module_load_rejects_undocumented_export { |ctx|
   let root = test.temp_dir(ctx, name: "undocumented-module")?
   let plugin_path = fp"{root}/undocumented.xsh"
-  fs.write(
-    plugin_path,
+  plugin_path.write(
     """export let name = "undocumented"
 """,
   )
@@ -524,7 +522,7 @@ export let name = "bad"
     },
   ] {
     let module_path = fp"{root}/{fixture.name}.xsh"
-    fs.write(module_path, fixture.source)
+    module_path.write(fixture.source)
     let output = test.run_script(
       ctx,
       f"""let _ = module.load(p"{module_path}")?
@@ -537,8 +535,7 @@ export let name = "bad"
   }
 
   let hook = fp"{root}/signal-hook.xsh"
-  fs.write(
-    hook,
+  hook.write(
     """on SIGINT [] {
 }
 """,
@@ -1305,8 +1302,7 @@ type Invalid = module {
 test test_module_load_reports_module_path_and_parse_cause { |ctx|
   let root = test.temp_dir(ctx, name: "unparsable-module")?
   let broken = fp"{root}/broken.xsh"
-  fs.write(
-    broken,
+  broken.write(
     """## Broken export.
 export pure answer() -> Int {
   1 +

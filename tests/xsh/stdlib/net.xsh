@@ -358,7 +358,7 @@ test test_net_transport_http_contracts { |ctx|
   let upload_source = fp"{root}/upload.txt"
   let download_dest = fp"{root}/download.txt"
   let missing_ca = fp"{root}/missing-ca.pem"
-  fs.write(upload_source, "upload-body")
+  upload_source.write("upload-body")
 
   let pool = net.pool("fixture", 4, 1s)?
   let first = net.request({method: "GET", url: f"{url}/hello", pool: "fixture"})?
@@ -442,9 +442,9 @@ test test_net_transport_error_contracts { |ctx|
   let existing = fp"{root}/existing.txt"
   let limited = fp"{root}/limited.txt"
   let in_place = fp"{root}/in-place.txt"
-  fs.write(existing, "previous")
-  fs.write(limited, "limited before")
-  fs.write(in_place, "old")
+  existing.write("previous")
+  limited.write("limited before")
+  in_place.write("old")
 
   let redirect_limit = net.request({method: "GET", url: f"{url}/redirect", redirects: 0})
   let missing_location = net.request({method: "GET", url: f"{url}/redirect-missing", redirects: 1})
@@ -676,7 +676,7 @@ test test_net_transport_batch_download_error_contract { |ctx|
   let root = test.temp_dir(ctx, name: "net-batch-errors")?
   let redirected = fp"{root}/redirected.txt"
   let limited = fp"{root}/limited.txt"
-  fs.write(limited, "previous")
+  limited.write("previous")
   let download_items = [
     {
       url: f"{url}/redirect",

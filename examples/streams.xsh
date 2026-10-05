@@ -4,20 +4,17 @@ tempdir root {
   let docs = fp"{root}/docs"
   docs.mkdir()
 
-  fs.write(
-    fp"{src}/main.xsh",
+  fp"{src}/main.xsh".write(
     """print "hi"
 """,
   )
 
-  fs.write(
-    fp"{src}/lib.xsh",
+  fp"{src}/lib.xsh".write(
     """pure id(value: Str) -> Str { value }
 """,
   )
 
-  fs.write(
-    fp"{docs}/README.md",
+  fp"{docs}/README.md".write(
     """structured reports
 """,
   )

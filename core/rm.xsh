@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, error] {
       target.remove()
     }
 
-    if target.metadata()?.kind == "dir" {
+    if target.is_dir()? {
       guard recursive else {
         return Err(AppletError.Usage(f"rm: '{target}' is a directory"))
       }

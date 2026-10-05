@@ -703,7 +703,7 @@ proc scan_pures_in_file(
   corpus_error_variants: List[Str],
   corpus_pure_functions: List[Str],
 ) [fs, error] -> Result[List[PureScan]] {
-  let text = fs.read_text(script_path)?
+  let text = script_path.read_text()?
   let path_text = script_path.strip_prefix(display_root)?.display()
   let namespace = module_namespace(path_text)
 
@@ -802,7 +802,7 @@ proc scan_procs_in_file(
   corpus_error_variants: List[Str],
   corpus_lowerable_functions: List[Str],
 ) [fs, error] -> Result[List[ProcScan]] {
-  let text = fs.read_text(script_path)?
+  let text = script_path.read_text()?
   let path_text = script_path.strip_prefix(display_root)?.display()
   let namespace = module_namespace(path_text)
 
@@ -1171,7 +1171,7 @@ pure default_corpus_roots(root: Path) -> List[Path] {
 proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[CorpusReport] {
   let display_root = root.parent()
   let records_path = fp"{root}/src/sema/records.rs"
-  let standard_records = standard_record_names(fs.read_text(records_path)?)
+  let standard_records = standard_record_names(records_path.read_text()?)
   var roots = []
   var files = []
   var corpus_record_types = standard_records
@@ -1187,7 +1187,7 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
       |> where .kind == "file" and .path.ext() == "xsh"
       |> sort-by .path {
       files += [entry.path]
-      let text = fs.read_text(entry.path)?
+      let text = entry.path.read_text()?
       let path_text = entry.path.strip_prefix(display_root)?.display()
       let namespace = module_namespace(path_text)
 
@@ -1222,7 +1222,7 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
 proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[ProcReport] {
   let display_root = root.parent()
   let records_path = fp"{root}/src/sema/records.rs"
-  let standard_records = standard_record_names(fs.read_text(records_path)?)
+  let standard_records = standard_record_names(records_path.read_text()?)
   var roots = []
   var files = []
   var corpus_record_types = standard_records
@@ -1238,7 +1238,7 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
       |> where .kind == "file" and .path.ext() == "xsh"
       |> sort-by .path {
       files += [entry.path]
-      let text = fs.read_text(entry.path)?
+      let text = entry.path.read_text()?
       let path_text = entry.path.strip_prefix(display_root)?.display()
       let namespace = module_namespace(path_text)
 
@@ -1282,7 +1282,7 @@ proc scan_script_statements_in_file(
   corpus_error_variants: List[Str],
   corpus_pure_functions: List[Str],
 ) [fs, error] -> Result[List[ScriptScan]] {
-  let text = fs.read_text(script_path)?
+  let text = script_path.read_text()?
   let path_text = script_path.strip_prefix(display_root)?.display()
   var scans = []
   var pending_text = ""
@@ -1426,7 +1426,7 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
       |> where .kind == "file" and .path.ext() == "xsh"
       |> sort-by .path {
       files += [entry.path]
-      let text = fs.read_text(entry.path)?
+      let text = entry.path.read_text()?
       let path_text = entry.path.strip_prefix(display_root)?.display()
       let namespace = module_namespace(path_text)
       corpus_error_variants = extend_unique(corpus_error_variants, error_variant_names(text))
@@ -1594,10 +1594,10 @@ let arena_path = fp"{root}/src/syntax/arena.rs"
 let node_path = fp"{root}/src/syntax/node.rs"
 let eval_path = fp"{root}/src/runtime/eval.rs"
 let indexed_path = fp"{root}/src/runtime/eval/indexed/full.rs"
-let arena_source = fs.read_text(arena_path)?
-let node_source = fs.read_text(node_path)?
-let eval_source = fs.read_text(eval_path)?
-let indexed_source = fs.read_text(indexed_path)?
+let arena_source = arena_path.read_text()?
+let node_source = node_path.read_text()?
+let eval_source = eval_path.read_text()?
+let indexed_source = indexed_path.read_text()?
 let stmt_variants = enum_variants(arena_source, "ArenaStmtKind")
 let expr_variants = enum_variants(arena_source, "ArenaExprKind")
 let type_variants = enum_variants(arena_source, "ArenaTypeExprTag")

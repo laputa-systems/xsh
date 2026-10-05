@@ -339,7 +339,7 @@ proc read_input(input: Str) [fs, error, io] -> Result[InputText] {
   return Ok({text: io.stdin_text()?, artifact: ""}) when input == "-"
 
   let input_path = fp"{input}"
-  Ok({text: fs.read_text(input_path)?, artifact: input_path.display()})
+  Ok({text: input_path.read_text()?, artifact: input_path.display()})
 }
 
 proc print_text(rows: List[Offender], limit: Int, artifact: Str) [io] {
