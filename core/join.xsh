@@ -76,8 +76,6 @@ type Input = {name: Str, texts: List[Bytes], fields: List[List[Bytes]], keys: Li
 # unpairable line has been seen (the default check starts then).
 type Flags = {warned: List[Bool], unpairable: Bool}
 
-type Pulled = {idx: Int, flags: Flags}
-
 pure is_blank(value: Int) -> Bool {
   value == 32 or value == 9 or value == 10
 }
@@ -252,28 +250,20 @@ pure join_line(left: List[Bytes], right: List[Bytes], blank1: Bool, layout: Layo
   parts
 }
 
-# Take line IDX of file SIDE (or -1 past the end) and check its order against
-# the line before it. A violation is a warning, or fatal with --check-order.
-proc pull(inputs: List[Input], flags: Flags, side: Int, idx: Int, start: Int, checking: Str) [process, env, io] -> Pulled {
-  return {idx: -1, flags: flags} when idx >= inputs[side].texts.len()
+# Report a line that sorts before its predecessor: a warning (once per file),
+# or fatal with --check-order.
+proc disorder(flags: Flags, side: Int, text: Bytes, name: Str, number: Int, checking: Str) [process, env] -> Flags {
+  gnu.error(f"{name}:{number}: is not sorted: {text.utf8() ?? "(not valid UTF-8)"}")
 
-  let watch = checking == "always" or (checking == "default" and flags.unpairable)
-
-  if watch and idx > start and ! flags.warned[side] and order(inputs[side].keys[idx - 1], inputs[side].keys[idx]) > 0 {
-    let shown = inputs[side].texts[idx].utf8() ?? "(not valid UTF-8)"
-    gnu.error(f"{inputs[side].name}:{idx + 1}: is not sorted: {shown}")
-
-    if checking == "always" {
-      exit 1
-    }
-
-    var warned = flags.warned
-    warned[side] = true
-
-    return {idx: idx, flags: {...flags, warned: warned}}
+  if checking == "always" {
+    exit 1
   }
 
-  {idx: idx, flags: flags}
+  var warned = flags.warned
+
+  warned[side] = true
+
+  {...flags, warned: warned}
 }
 
 proc emit(parts: List[Bytes], layout: Layout, eol: Bytes) [process, env, io] -> Unit {
@@ -537,20 +527,25 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let checking = if opts.check_order { "always" } else if opts.nocheck_order { "never" } else { "default" }
+  let counts = [inputs[0].texts.len(), inputs[1].texts.len()]
+  let ks = [inputs[0].keys, inputs[1].keys]
+  let ts = [inputs[0].texts, inputs[1].texts]
+  let rows = [inputs[0].fields, inputs[1].fields]
+  let names = [inputs[0].name, inputs[1].name]
   var flags: Flags = {warned: [false, false], unpairable: false}
   var next: List[Int] = [0, 0]
   var head: List[Int] = [-1, -1]
   var start: List[Int] = [0, 0]
 
   if opts.header {
-    let has1 = inputs[0].texts.len() > 0
-    let has2 = inputs[1].texts.len() > 0
+    let has1 = counts[0] > 0
+    let has2 = counts[1] > 0
 
     if has1 or has2 {
       emit(
         join_line(
-          if has1 { inputs[0].fields[0] } else { [] },
-          if has2 { inputs[1].fields[0] } else { [] },
+          if has1 { rows[0][0] } else { [] },
+          if has2 { rows[1][0] } else { [] },
           ! has1,
           layout_out,
         ),
@@ -563,38 +558,51 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     next = start
   }
 
+  # Taking the next line of a file checks it against the one before it; the
+  # check starts once an unpairable line has been seen, or always with
+  # --check-order.
   for side in [0, 1] {
-    let got = pull(inputs, flags, side, next[side], start[side], checking)
+    let idx = next[side]
 
-    flags = got.flags
-    head[side] = got.idx
+    if idx < counts[side] {
+      let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-    if got.idx >= 0 {
-      next[side] = got.idx + 1
+      if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+        flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
+      }
+
+      head[side] = idx
+      next[side] = idx + 1
     }
   }
 
   while head[0] >= 0 and head[1] >= 0 {
-    let step = order(inputs[0].keys[head[0]], inputs[1].keys[head[1]])
+    let step = order(ks[0][head[0]], ks[1][head[1]])
 
     if step != 0 {
       let side = if step < 0 { 0 } else { 1 }
       let wanted = if side == 0 { print1 } else { print2 }
 
       if wanted {
-        let row = inputs[side].fields[head[side]]
+        let row = rows[side][head[side]]
         emit(join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out), layout_out, eol)
       }
 
       flags = {...flags, unpairable: true}
 
-      let got = pull(inputs, flags, side, next[side], start[side], checking)
+      let idx = next[side]
 
-      flags = got.flags
-      head[side] = got.idx
+      if idx < counts[side] {
+        let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-      if got.idx >= 0 {
-        next[side] = got.idx + 1
+        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+          flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
+        }
+
+        head[side] = idx
+        next[side] = idx + 1
+      } else {
+        head[side] = -1
       }
 
       continue
@@ -604,19 +612,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var ahead: List[Int] = [-1, -1]
 
     for side in [0, 1] {
-      loop {
-        let got = pull(inputs, flags, side, next[side], start[side], checking)
+      var more = true
 
-        flags = got.flags
-        break when got.idx < 0
+      while more and next[side] < counts[side] {
+        let idx = next[side]
+        let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-        next[side] = got.idx + 1
+        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+          flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
+        }
 
-        if order(inputs[side].keys[got.idx], inputs[side].keys[head[side]]) == 0 {
-          groups[side] += [got.idx]
+        next[side] = idx + 1
+
+        if order(ks[side][idx], ks[side][head[side]]) == 0 {
+          groups[side] += [idx]
         } else {
-          ahead[side] = got.idx
-          break
+          ahead[side] = idx
+          more = false
         }
       }
     }
@@ -624,7 +636,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if pairable {
       for one in groups[0] {
         for two in groups[1] {
-          emit(join_line(inputs[0].fields[one], inputs[1].fields[two], false, layout_out), layout_out, eol)
+          emit(join_line(rows[0][one], rows[1][two], false, layout_out), layout_out, eol)
         }
       }
     }
@@ -641,17 +653,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     while head[side] >= 0 {
       if wanted {
-        let row = inputs[side].fields[head[side]]
+        let row = rows[side][head[side]]
         emit(join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out), layout_out, eol)
       }
 
-      let got = pull(inputs, flags, side, next[side], start[side], checking)
+      let idx = next[side]
 
-      flags = got.flags
-      head[side] = got.idx
+      if idx < counts[side] {
+        let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-      if got.idx >= 0 {
-        next[side] = got.idx + 1
+        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+          flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
+        }
+
+        head[side] = idx
+        next[side] = idx + 1
+      } else {
+        head[side] = -1
       }
     }
   }
