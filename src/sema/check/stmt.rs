@@ -810,6 +810,53 @@ impl Checker {
             .push(diagnostic.with_code(DiagnosticCode::CheckIgnoredResult));
     }
 
+    /// Drops the recorded `let _ = VALUE` bindings in the tail positions of
+    /// `block`: its last statement, and the last statement of every branch
+    /// when that statement is an `if` or a `match`. Those are the statements
+    /// whose value the block's own value would become.
+    fn forget_discardable_tail_bindings(&mut self, arena: &ArenaProgram, block: BlockId) {
+        let Some(tail) = arena
+            .arena
+            .stmt_ids(arena.arena.block(block).statements)
+            .last()
+            .map(|tail| arena.arena.core_stmt_id(tail))
+        else {
+            return;
+        };
+        let stmt = arena.arena.stmt(tail);
+        match stmt.kind {
+            ArenaStmtKind::If {
+                branches,
+                else_block,
+            } => {
+                let blocks: Vec<BlockId> = arena
+                    .arena
+                    .if_branches(branches)
+                    .iter()
+                    .map(|branch| branch.block)
+                    .chain(else_block)
+                    .collect();
+                for block in blocks {
+                    self.forget_discardable_tail_bindings(arena, block);
+                }
+            }
+            ArenaStmtKind::Match { arms, .. } => {
+                let blocks: Vec<BlockId> = arena
+                    .arena
+                    .match_arms(arms)
+                    .iter()
+                    .map(|arm| arm.block)
+                    .collect();
+                for block in blocks {
+                    self.forget_discardable_tail_bindings(arena, block);
+                }
+            }
+            _ => {
+                self.discardable_bindings.remove(&stmt.span);
+            }
+        }
+    }
+
     /// Records an untyped `let _ = VALUE` whose value a statement may drop
     /// by itself. Tail checks remove the entry where the bare value would
     /// become its block's value.
@@ -2351,6 +2398,13 @@ impl Checker {
                 self.check_value_block_arena(arena, source, def.body, &return_ty);
             }
             self.result_unit_function_tail = enclosing_tail;
+            // This body was checked against the return type its own tail
+            // gave it. A bare call in place of a tail `let _ =` would be a
+            // different tail and so a different return type; the inference
+            // pass dropped those bindings, and this pass recorded them again.
+            if def.return_ty_defaulted && !def.test_declaration {
+                self.forget_discardable_tail_bindings(arena, def.body);
+            }
         }
         if !pure
             && self.current_exported

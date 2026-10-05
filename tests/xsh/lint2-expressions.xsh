@@ -209,3 +209,39 @@ test test_fmt_enum_comments_stay_with_their_variants { |ctx|
   let text = file.read_text()?
   assert declaration in text, text
 }
+
+# The tail of a function whose return type is inferred is the function's
+# value: the bare call there would return what the binding drops, so the
+# helper would stop being a `Unit` procedure, and writing `return` after the
+# bare call draws `lint.redundant-bare-return`. The rule does not report what
+# its own fix cannot do. A helper that declares its return is still reported.
+test test_redundant_discard_leaves_the_tail_of_an_inferred_return_body { |ctx|
+  let source = r"""proc assert_invalid_net_input(ctx: TestContext, source: Str, kind: Str) [error] {
+  let _ = test.expect(ctx, source, status: 3, stderr: [kind])?
+}
+
+test test_invalid_input { |ctx|
+  assert_invalid_net_input(ctx, "exit 3", "kind")
+}
+"""
+  let root = test_root_project(ctx, source)?
+  let file = fp"{root}/tests/legacy.xsh"
+  assert_checked(file)
+  assert findings(file, "lint.redundant-discard")? == 0
+  assert fixed(file, "lint.redundant-discard")? == source
+
+  # Each branch of a tail `if` is a tail too.
+  let branching = source.replace(
+    "  let _ = test.expect(ctx, source, status: 3, stderr: [kind])?\n",
+    with: "  if kind == \"\" {\n    let _ = test.expect(ctx, source, status: 3)?\n  } else {\n    let _ = test.expect(ctx, source, status: 3, stderr: [kind])?\n  }\n",
+  )
+  file.write(branching)
+  assert_checked(file)
+  assert findings(file, "lint.redundant-discard")? == 0
+
+  let declared = source.replace("[error] {", with: "[error] -> Result[Unit] {")
+  file.write(declared)
+  assert findings(file, "lint.redundant-discard")? == 1
+  assert fixed(file, "lint.redundant-discard")? == declared.replace("  let _ = test", with: "  test")
+  assert_checked(file)
+}
