@@ -10,7 +10,7 @@ export pure answer() -> Int {
 }
 """
 
-const entry_script = """use shared.answers as answers
+const entry_script = """use shared.answers
 
 print answers.answer()
 """
@@ -66,7 +66,7 @@ test module_load_resolves_imports_through_the_entry_project_roots { |ctx|
   let root = project(ctx, "loaded-module-roots", "module_path = lib\n")?
   fp"{root}/plugins".mkdir()?
   fp"{root}/plugins/plugin.xsh".write("""##! A plugin importing through the project root.
-use shared.answers as answers
+use shared.answers
 
 ## The answer resolved through the project root.
 export let value: Int = answers.answer()

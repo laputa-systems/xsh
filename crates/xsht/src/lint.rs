@@ -13,6 +13,8 @@ mod context_scope;
 
 #[path = "lint_prefer_repeat.rs"]
 mod prefer_repeat;
+#[path = "lint_redundant_use_alias.rs"]
+mod redundant_use_alias;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -567,6 +569,11 @@ impl<'a> Linter<'a> {
                 .diagnostics
                 .extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
+        linter
+            .diagnostics
+            .extend(redundant_use_alias::lint_redundant_use_aliases(
+                program, source,
+            ));
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));

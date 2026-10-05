@@ -295,7 +295,8 @@ traceback.
 ### 3.3 Modules
 
 `use name` imports a module and binds exactly one namespace, `name`;
-`use name as alias` binds `alias`. Standard modules are always available
+`use name as alias` binds `alias`. A dotted `use a.b` binds its last segment,
+`b`, so `use a.b as b` repeats itself (`lint.redundant-use-alias`). Standard modules are always available
 without `use` and cannot be aliased; they are namespaces, not values, so a
 member must be called rather than used as a value (`check.module-member`).
 User modules resolve relative to the

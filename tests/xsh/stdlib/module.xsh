@@ -1261,3 +1261,44 @@ test plain_run_child_finds_configured_roots { |ctx|
     } ?
   }
 }
+
+# `use a.b` binds `b`; the lint drops an alias that only repeats it, and the
+# program means the same afterwards.
+test test_redundant_use_alias_is_reported_and_fixed { |ctx|
+  let root = test.temp_dir(ctx, name: "redundant-use-alias")?
+  fp"{root}/checks".mkdir()?
+  fp"{root}/checks/disk.xsh".write("""##! Disk checks.
+
+## The usage threshold.
+export pure threshold() -> Int {
+  90
+}
+""")?
+  let script = fp"{root}/main.xsh"
+  script.write(r"""use checks.disk as disk
+use checks.disk as usage
+
+print ${disk.threshold()} ${usage.threshold()}
+""")?
+
+  let before = run.capture --text "xsh" $script ?
+  assert before.status.exited_with(0), before.stderr
+
+  let reported = run.capture --text "xsht" lint --only lint.redundant-use-alias $script ?
+  assert "lint.redundant-use-alias" in reported.stderr, reported.stderr
+  assert "`as disk` repeats the name this `use` already binds" in reported.stderr, reported.stderr
+  assert "as usage" not in reported.stderr, reported.stderr
+
+  let fixed = run.capture --text "xsht" lint --fix --only lint.redundant-use-alias $script ?
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert script.read_text()? == r"""use checks.disk
+use checks.disk as usage
+
+print ${disk.threshold()} ${usage.threshold()}
+"""
+
+  let after = run.capture --text "xsh" $script ?
+  assert after.status.exited_with(0), after.stderr
+  assert after.stdout == before.stdout
+  assert after.stdout == "90 90\n", after.stdout
+}

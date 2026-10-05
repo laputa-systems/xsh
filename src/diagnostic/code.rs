@@ -603,6 +603,7 @@ diagnostic_codes! {
         LintUnusedCallable = "lint.unused-callable", warning, "Flag an unexported callable not reachable from a bundle entry point";
         LintUnusedLocal = "lint.unused-local", warning, "Flag a local variable that is never read";
         LintUnusedType = "lint.unused-type", warning, "Flag a type declaration that is never referenced";
+        LintRedundantUseAlias = "lint.redundant-use-alias", warning, "Drop a `use` alias that repeats the last path segment, as in `use a.b as b`";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";
