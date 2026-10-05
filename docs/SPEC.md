@@ -3166,7 +3166,9 @@ diagnostics are those of the `cause:` argument. `lint.prefer-fail` also rewrites
 begins with the word `fail` followed, after a space on the same line, by its
 message or variant, in the position where a command named `fail` would
 otherwise be read (10.1); `fail = 1`, `fail(1)`, and `test.fail("...")` are an
-assignment and two calls. A proc named `fail` is called with parentheses.
+assignment and two calls, and `fail as Int` and `fail is Int` are a conversion
+and a test of a binding named `fail`. A proc named `fail` is called with
+parentheses.
 `because` is a word only after the first operand of a `fail` statement.
 
 `guard let target = expr else { ... }` binds `target` (with an optional type
@@ -3522,7 +3524,7 @@ guard (8.6): `exit 1 unless ready`.
 begins with the word `exit` followed, on the same line, by its status, in the
 position where a command named `exit` would otherwise be read (10.1);
 `exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
-call of a binding named `exit`.
+call of a binding named `exit`, and `exit as Int` is a conversion of one.
 
 The function `abort(status)` that `exit` replaced is gone, and a call of it is
 `check.removed-abort`. Where the call is a statement the diagnostic carries

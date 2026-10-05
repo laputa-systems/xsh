@@ -46,16 +46,21 @@ cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.ve
   test.expect(ctx, source, status: 0, stdout: ["Int, default: 5", "Duration, default: 20ms"], args: ["--help"])?
 }
 
-test test_default_parameters_cli_rejects_runtime_defaults_without_execution { |ctx|
+# A computed default of a `cli main` option runs after the arguments are
+# parsed, and only when the option was not given. Help shows its source text
+# and runs nothing.
+test test_default_parameters_cli_computes_a_default_only_when_the_option_is_omitted { |ctx|
   let source = r"""proc runtime_default() [io] -> Int { print DEFAULT_EXECUTED; 4 }
 cli main(jobs = runtime_default()) [io] { print BODY_EXECUTED }
 """
-  for arguments in [[], ["--help"], ["--jobs=9"]] {
-    let rejected = test.run_script(ctx, source, arguments)?
-    assert ! rejected.success, rejected.stderr
-    assert rejected.stdout == ""
-    assert "check.infer-param" not in rejected.stderr, rejected.stderr
-  }
+  let omitted = test.expect(ctx, source, status: 0, args: [])?
+  assert omitted.stdout == "DEFAULT_EXECUTED\nBODY_EXECUTED\n"
+
+  let given = test.expect(ctx, source, status: 0, args: ["--jobs=9"])?
+  assert given.stdout == "BODY_EXECUTED\n"
+
+  let help = test.expect(ctx, source, status: 0, stdout: ["default: runtime_default()"], args: ["--help"])?
+  assert "EXECUTED" not in help.stdout, help.stdout
 }
 
 test test_default_parameters_static_alias_keeps_effectful_defaults_once_and_named_slots { |ctx|

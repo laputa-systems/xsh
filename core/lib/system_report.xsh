@@ -3449,15 +3449,16 @@ export pure sanitize_mount_options(options: List[Str]) -> List[Str] {
 
 ## Retains only numeric propagation identities from the kernel's optional mount fields.
 export pure sanitize_mount_optional_fields(fields: List[Str]) -> List[Str] {
-  var sanitized = []
-  for field in fields {
-    let parts = field.split(":")
-    if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and mount_decimal_text(
-      parts[1],
-    )) {
-      sanitized += [field]
-    } else {
-      sanitized += ["redacted"]
+  let sanitized = collect {
+    for field in fields {
+      let parts = field.split(":")
+      if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and mount_decimal_text(
+        parts[1],
+      )) {
+        yield field
+      } else {
+        yield "redacted"
+      }
     }
   }
 

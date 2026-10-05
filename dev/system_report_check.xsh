@@ -2611,15 +2611,16 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int], Error] 
 export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu], Error] {
   let data = json.decode(output)?.require(LscpuTopology)?
   var seen: Set[Str] = set.empty()
-  var rows: List[LscpuTopologyCpu] = []
-  for item in data.cpus {
-    let key = f"{item.cpu}"
-    if item.cpu < 0 or key in seen or (item.socket != null and (item.socket ?? -1) < 0) or (item.core != null and (item.core ?? -1) < 0) or (item.node != null and (item.node ?? -1) < 0) {
-      return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
-    }
+  let rows: List[LscpuTopologyCpu] = collect {
+    for item in data.cpus {
+      let key = f"{item.cpu}"
+      if item.cpu < 0 or key in seen or (item.socket != null and (item.socket ?? -1) < 0) or (item.core != null and (item.core ?? -1) < 0) or (item.node != null and (item.node ?? -1) < 0) {
+        return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
+      }
 
-    seen = seen.add(key)
-    rows += [item]
+      seen = seen.add(key)
+      yield item
+    }
   }
 
   return Err(check_failure("lscpu topology has no CPU rows")) when rows.is_empty()
@@ -3264,7 +3265,6 @@ export pure compare_cpufreq_policies(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var policy_mismatches: List[Str] = []
   var bound_mismatches: List[Str] = []
   var unstable_bounds: List[Str] = []
@@ -3422,9 +3422,9 @@ export pure compare_cpufreq_policies(
     }
   }
 
-  for item in candidate {
-    if item.name not in before_by_name {
-      unexpected_names += [item.name]
+  let unexpected_names: List[Str] = collect {
+    for item in candidate {
+      yield item.name when item.name not in before_by_name
     }
   }
 
@@ -3763,7 +3763,6 @@ export pure compare_usb_ids(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
@@ -3885,10 +3884,10 @@ export pure compare_usb_ids(
     }
   }
 
-  for item in section.devices {
-    let name = item.sysfs_name ?? ""
-    if name not in before_by_name and name not in after_by_name {
-      unexpected_names += [name]
+  let unexpected_names: List[Str] = collect {
+    for item in section.devices {
+      let name = item.sysfs_name ?? ""
+      yield name when name not in before_by_name and name not in after_by_name
     }
   }
 
@@ -4394,7 +4393,6 @@ export pure compare_usb_interfaces(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
@@ -4515,10 +4513,10 @@ export pure compare_usb_interfaces(
     }
   }
 
-  for item in candidate_interfaces {
-    let name = item.name ?? ""
-    if name not in before_by_name and name not in after_by_name {
-      unexpected_names += [name]
+  let unexpected_names: List[Str] = collect {
+    for item in candidate_interfaces {
+      let name = item.name ?? ""
+      yield name when name not in before_by_name and name not in after_by_name
     }
   }
 
@@ -4809,16 +4807,17 @@ export proc capture_power_supply_bundle(
 
   let later_layout = power_supply_bundle_layout(source)?
   var stable_static = layout == later_layout
-  var changing_sources: List[Str] = []
-  for index in range(layout.paths.len()) {
-    let item = layout.paths[index]
-    let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
-    let first = sources[index]
-    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
-      if item.changing {
-        changing_sources += [item.path]
-      } else {
-        stable_static = false
+  let changing_sources: List[Str] = collect {
+    for index in range(layout.paths.len()) {
+      let item = layout.paths[index]
+      let raw = source.read_result(fp"{item.path}", max_bytes: 4096)?
+      let first = sources[index]
+      if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+        if item.changing {
+          yield item.path
+        } else {
+          stable_static = false
+        }
       }
     }
   }
@@ -4976,7 +4975,6 @@ export pure compare_power_supplies(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   let supply_enumeration_complete = ! power_supply_has_issue(issues, "supplies") and section.status.state != "not_requested"
@@ -5108,9 +5106,9 @@ export pure compare_power_supplies(
     }
   }
 
-  for item in section.supplies {
-    if item.name not in before_by_name and item.name not in after_by_name {
-      unexpected_names += [item.name]
+  let unexpected_names: List[Str] = collect {
+    for item in section.supplies {
+      yield item.name when item.name not in before_by_name and item.name not in after_by_name
     }
   }
 
@@ -5558,7 +5556,6 @@ export pure compare_powercap(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   let enumeration_complete = ! power_supply_has_issue(issues, "cap_zones") and section.status.state != "not_requested"
@@ -5745,9 +5742,11 @@ export pure compare_powercap(
     }
   }
 
-  for zone in section.cap_zones {
-    if zone.entry_name not in before_by_name and zone.entry_name not in after_by_name {
-      unexpected_names += [zone.entry_name]
+  let unexpected_names: List[Str] = collect {
+    for zone in section.cap_zones {
+      if zone.entry_name not in before_by_name and zone.entry_name not in after_by_name {
+        yield zone.entry_name
+      }
     }
   }
 
@@ -5972,7 +5971,6 @@ export pure compare_device_classes(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
@@ -6063,10 +6061,10 @@ export pure compare_device_classes(
     }
   }
 
-  for item in section.devices {
-    let key = f"{item.class}:{item.entry_name.value ?? ""}"
-    if key not in before_by_key and key not in after_by_key {
-      unexpected_names += [key]
+  let unexpected_names: List[Str] = collect {
+    for item in section.devices {
+      let key = f"{item.class}:{item.entry_name.value ?? ""}"
+      yield key when key not in before_by_key and key not in after_by_key
     }
   }
 
@@ -6412,16 +6410,17 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
   let later_layout = hwmon_bundle_layout(source)?
   var stable_static = layout == later_layout
-  var changing_gauges: List[Str] = []
-  for index in range(layout.source_paths.len()) {
-    let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    let first = sources[index]
-    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
-      if hwmon_bundle_gauge(relative) {
-        changing_gauges += [relative]
-      } else {
-        stable_static = false
+  let changing_gauges: List[Str] = collect {
+    for index in range(layout.source_paths.len()) {
+      let relative = layout.source_paths[index]
+      let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+      let first = sources[index]
+      if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+        if hwmon_bundle_gauge(relative) {
+          yield relative
+        } else {
+          stable_static = false
+        }
       }
     }
   }
@@ -6598,7 +6597,6 @@ export pure compare_hwmon(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
@@ -6762,10 +6760,10 @@ export pure compare_hwmon(
     }
   }
 
-  for channel in section.channels {
-    let key = f"{channel.chip_entry_name ?? ""}:{channel.channel}"
-    if key not in before_by_key and key not in after_by_key {
-      unexpected_names += [key]
+  let unexpected_names: List[Str] = collect {
+    for channel in section.channels {
+      let key = f"{channel.chip_entry_name ?? ""}:{channel.channel}"
+      yield key when key not in before_by_key and key not in after_by_key
     }
   }
 
@@ -6827,7 +6825,6 @@ export pure compare_usb_power(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
@@ -6921,10 +6918,10 @@ export pure compare_usb_power(
     }
   }
 
-  for item in section.devices {
-    let name = item.sysfs_name ?? ""
-    if name not in before_by_name and name not in after_by_name {
-      unexpected_names += [name]
+  let unexpected_names: List[Str] = collect {
+    for item in section.devices {
+      let name = item.sysfs_name ?? ""
+      yield name when name not in before_by_name and name not in after_by_name
     }
   }
 
@@ -7755,16 +7752,17 @@ export proc capture_cpufreq_bundle(
 
   let later_layout = cpufreq_bundle_layout(source)?
   var stable_static = layout == later_layout
-  var changing_gauges: List[Str] = []
-  for index in range(layout.source_paths.len()) {
-    let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
-    let first = sources[index]
-    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
-      if cpufreq_bundle_is_gauge(relative) {
-        changing_gauges += [relative]
-      } else {
-        stable_static = false
+  let changing_gauges: List[Str] = collect {
+    for index in range(layout.source_paths.len()) {
+      let relative = layout.source_paths[index]
+      let raw = source.read_result(fp"{relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+      let first = sources[index]
+      if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+        if cpufreq_bundle_is_gauge(relative) {
+          yield relative
+        } else {
+          stable_static = false
+        }
       }
     }
   }
@@ -9329,53 +9327,52 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
     return Err(check_failure("PSI reference has an invalid resource or empty source"))
   }
 
-  var rows: List[PsiReferenceRow] = []
   var kinds: Set[Str] = set.empty()
-  for line in output.lines() {
-    let columns = line.replace("\t", with: " ").split(" ") |> where .trim() != ""
-    if columns.len() != 5 or columns[0] not in ["some", "full"] or columns[0] in kinds {
-      return Err(check_failure("PSI reference has an invalid or duplicate row"))
-    }
-
-    let kind = columns[0]
-    kinds = kinds.add(kind)
-    var avg10: Str? = null
-    var avg60: Str? = null
-    var avg300: Str? = null
-    var total_text: Str? = null
-    var fields: Set[Str] = set.empty()
-    for column in columns |> drop(1) {
-      let pair = column.split("=", maxsplit: 1)
-      if pair.len() != 2 or pair[0] in fields {
-        return Err(check_failure("PSI reference has an invalid or duplicate field"))
+  let rows: List[PsiReferenceRow] = collect {
+    for line in output.lines() {
+      let columns = line.replace("\t", with: " ").split(" ") |> where .trim() != ""
+      if columns.len() != 5 or columns[0] not in ["some", "full"] or columns[0] in kinds {
+        return Err(check_failure("PSI reference has an invalid or duplicate row"))
       }
 
-      fields = fields.add(pair[0])
-      match pair[0] {
-        "avg10" => avg10 = pair[1]
-        "avg60" => avg60 = pair[1]
-        "avg300" => avg300 = pair[1]
-        "total" => total_text = pair[1]
-        else => return Err(check_failure("PSI reference has an unknown field"))
+      let kind = columns[0]
+      kinds = kinds.add(kind)
+      var avg10: Str? = null
+      var avg60: Str? = null
+      var avg300: Str? = null
+      var total_text: Str? = null
+      var fields: Set[Str] = set.empty()
+      for column in columns |> drop(1) {
+        let pair = column.split("=", maxsplit: 1)
+        if pair.len() != 2 or pair[0] in fields {
+          return Err(check_failure("PSI reference has an invalid or duplicate field"))
+        }
+
+        fields = fields.add(pair[0])
+        match pair[0] {
+          "avg10" => avg10 = pair[1]
+          "avg60" => avg60 = pair[1]
+          "avg300" => avg300 = pair[1]
+          "total" => total_text = pair[1]
+          else => return Err(check_failure("PSI reference has an unknown field"))
+        }
       }
-    }
 
-    if avg10 == null or avg60 == null or avg300 == null or total_text == null or ! psi_reference_average(avg10) or ! psi_reference_average(
-      avg60,
-    ) or ! psi_reference_average(avg300) {
-      return Err(check_failure("PSI reference has an invalid average or missing field"))
-    }
+      if avg10 == null or avg60 == null or avg300 == null or total_text == null or ! psi_reference_average(avg10) or ! psi_reference_average(
+        avg60,
+      ) or ! psi_reference_average(avg300) {
+        return Err(check_failure("PSI reference has an invalid average or missing field"))
+      }
 
-    rows += [
-      {
+      yield {
         resource: resource,
         kind: kind,
         avg10: avg10,
         avg60: avg60,
         avg300: avg300,
         total_us: psi_reference_total(total_text)?,
-      },
-    ]
+      }
+    }
   }
 
   rows
@@ -9558,26 +9555,25 @@ export proc capture_pressure_bundle(
   }
 
   bundle.mkdir(p"proc/pressure", mode: 0o700, parents: true)
-  var sources: List[PressureSourceObservation] = []
   var complete = true
-  for resource in ["cpu", "memory", "io"] {
-    let relative = fp"proc/pressure/{resource}"
-    let raw = source.read_result(relative, max_bytes: 16384)?
-    if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
-      complete = false
-    }
+  let sources: List[PressureSourceObservation] = collect {
+    for resource in ["cpu", "memory", "io"] {
+      let relative = fp"proc/pressure/{resource}"
+      let raw = source.read_result(relative, max_bytes: 16384)?
+      if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
+        complete = false
+      }
 
-    var byte_count = 0
-    var sha256_hex: Str? = null
-    if raw.data != null {
-      let data = raw.data
-      bundle.write(relative, data)
-      byte_count = data.len()
-      sha256_hex = hash.sha256(data).hex()
-    }
+      var byte_count = 0
+      var sha256_hex: Str? = null
+      if raw.data != null {
+        let data = raw.data
+        bundle.write(relative, data)
+        byte_count = data.len()
+        sha256_hex = hash.sha256(data).hex()
+      }
 
-    sources += [
-      {
+      yield {
         path: relative.display(),
         state: raw.state,
         truncated: raw.truncated,
@@ -9585,8 +9581,8 @@ export proc capture_pressure_bundle(
         error_kind: raw.error_kind,
         byte_count: byte_count,
         sha256_hex: sha256_hex,
-      },
-    ]
+      }
+    }
   }
 
   var reference: List[PsiReferenceRow]? = null
@@ -10351,7 +10347,6 @@ export pure compare_pci_links(
   }
 
   var missing_addresses: List[Str] = []
-  var unexpected_addresses: List[Str] = []
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
@@ -10432,10 +10427,12 @@ export pure compare_pci_links(
     }
   }
 
-  for item in candidate {
-    let address = item.address ?? ""
-    if address != "" and address not in before_by_address and address not in after_by_address {
-      unexpected_addresses += [address]
+  let unexpected_addresses: List[Str] = collect {
+    for item in candidate {
+      let address = item.address ?? ""
+      if address != "" and address not in before_by_address and address not in after_by_address {
+        yield address
+      }
     }
   }
 
@@ -11922,57 +11919,56 @@ pure ip_link_operstate(value: Str) -> Result[Str] {
 ## Parses the ifindex-scoped static facts from iproute2 link JSON.
 export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference], Error] {
   let rows = json.decode(output)?.require(List[Record])?
-  var links: List[IpLinkReference] = []
   var ids: Set[Str] = set.empty()
   var names: Set[Str] = set.empty()
   if rows.len() > 65536 {
     return Err(check_failure("ip link reference contains too many interfaces"))
   }
 
-  for row in rows {
-    let ifindex = json.get(row, ["ifindex"])?.require(Int)?
-    let name = json.get(row, ["ifname"])?.require(Str)?
-    let mtu = json.get(row, ["mtu"])?.require(Int)?
-    let flags = json.get(row, ["flags"])?.require(List[Str])?
-    let state = json.get(row, ["operstate"], null).require(Str?)?
-    let state_index = json.get(row, ["operstate_index"], null).require(Int?)?
-    let kind = json.get(row, ["linkinfo", "info_kind"], null).require(Str?)?
-    let master_name = json.get(row, ["master"], null).require(Str?)?
-    let lower_name = json.get(row, ["link"], null).require(Str?)?
-    let lower_index = json.get(row, ["link_index"], null).require(Int?)?
-    if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or mtu < 0 or mtu > 9007199254740991 or (state != null and state_index != null) or kind == "" or master_name == "" or lower_name == "" or (lower_name != null and lower_index != null) or (lower_index != null and ((lower_index ?? -1) <= 0 or (lower_index ?? -1) > 9007199254740991)) {
-      return Err(check_failure("ip link reference has an invalid identity or state"))
-    }
-
-    let id_key = f"{ifindex}"
-    if id_key in ids or name in names {
-      return Err(check_failure("ip link reference has a duplicate interface identity"))
-    }
-
-    ids = ids.add(id_key)
-    names = names.add(name)
-    var flag_seen: Set[Str] = set.empty()
-    for flag in flags {
-      if flag == "" or flag in flag_seen {
-        return Err(check_failure("ip link reference has an invalid flag list"))
+  let links: List[IpLinkReference] = collect {
+    for row in rows {
+      let ifindex = json.get(row, ["ifindex"])?.require(Int)?
+      let name = json.get(row, ["ifname"])?.require(Str)?
+      let mtu = json.get(row, ["mtu"])?.require(Int)?
+      let flags = json.get(row, ["flags"])?.require(List[Str])?
+      let state = json.get(row, ["operstate"], null).require(Str?)?
+      let state_index = json.get(row, ["operstate_index"], null).require(Int?)?
+      let kind = json.get(row, ["linkinfo", "info_kind"], null).require(Str?)?
+      let master_name = json.get(row, ["master"], null).require(Str?)?
+      let lower_name = json.get(row, ["link"], null).require(Str?)?
+      let lower_index = json.get(row, ["link_index"], null).require(Int?)?
+      if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or mtu < 0 or mtu > 9007199254740991 or (state != null and state_index != null) or kind == "" or master_name == "" or lower_name == "" or (lower_name != null and lower_index != null) or (lower_index != null and ((lower_index ?? -1) <= 0 or (lower_index ?? -1) > 9007199254740991)) {
+        return Err(check_failure("ip link reference has an invalid identity or state"))
       }
 
-      flag_seen = flag_seen.add(flag)
-    }
-
-    var operstate: Str? = null
-    if state != null {
-      operstate = ip_link_operstate(state)?
-    } else if state_index != null {
-      if state_index < 0 or state_index > 255 {
-        return Err(check_failure("ip link reference has an invalid operational state index"))
+      let id_key = f"{ifindex}"
+      if id_key in ids or name in names {
+        return Err(check_failure("ip link reference has a duplicate interface identity"))
       }
 
-      operstate = f"operstate_{state_index}"
-    }
+      ids = ids.add(id_key)
+      names = names.add(name)
+      var flag_seen: Set[Str] = set.empty()
+      for flag in flags {
+        if flag == "" or flag in flag_seen {
+          return Err(check_failure("ip link reference has an invalid flag list"))
+        }
 
-    links += [
-      {
+        flag_seen = flag_seen.add(flag)
+      }
+
+      var operstate: Str? = null
+      if state != null {
+        operstate = ip_link_operstate(state)?
+      } else if state_index != null {
+        if state_index < 0 or state_index > 255 {
+          return Err(check_failure("ip link reference has an invalid operational state index"))
+        }
+
+        operstate = f"operstate_{state_index}"
+      }
+
+      yield {
         ifindex: ifindex,
         name: name,
         mtu: mtu,
@@ -11982,8 +11978,8 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference], Err
         master_name: master_name,
         lower_name: lower_name,
         lower_index: lower_index,
-      },
-    ]
+      }
+    }
   }
 
   links
@@ -12869,87 +12865,88 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     return Err(check_failure("ip rule reference contains too many rules"))
   }
 
-  var rules: List[IpRuleReference] = []
   var keys: Set[Str] = set.empty()
-  for row in rows {
-    var unscored_fields = [
-      field
-      for field in row.keys()
-      if field not in [
-        "priority",
-        "src",
-        "srclen",
-        "dst",
-        "dstlen",
-        "fwmark",
-        "fwmask",
-        "table",
-        "iif",
-        "oif",
-        "action",
-        "goto",
-        "nop",
+  let rules: List[IpRuleReference] = collect {
+    for row in rows {
+      var unscored_fields = [
+        field
+        for field in row.keys()
+        if field not in [
+          "priority",
+          "src",
+          "srclen",
+          "dst",
+          "dstlen",
+          "fwmark",
+          "fwmask",
+          "table",
+          "iif",
+          "oif",
+          "action",
+          "goto",
+          "nop",
+        ]
       ]
-    ]
-    let priority = json.get(row, ["priority"])?.require(Int)?
-    let source = json.get(row, ["src"], null).require(Str?)?
-    let source_length = json.get(row, ["srclen"], null).require(Int?)?
-    let destination = json.get(row, ["dst"], null).require(Str?)?
-    let destination_length = json.get(row, ["dstlen"], null).require(Int?)?
-    let mark = ip_rule_hex(json.get(row, ["fwmark"], null).require()?)?
-    let mask = ip_rule_hex(json.get(row, ["fwmask"], null).require()?)?
-    let table_name = json.get(row, ["table"], "0").require(Str)?
-    let input_name = json.get(row, ["iif"], null).require(Str?)?
-    let output_name = json.get(row, ["oif"], null).require(Str?)?
-    let action_name = json.get(row, ["action"], null).require(Str?)?
-    let goto_target = json.get(row, ["goto"], null).require(Int?)?
-    let action = if action_name != null {
-      ip_rule_action(action_name)?
-    } else if "masquerade" in row.keys() or "nat_gateway" in row.keys() {
-      "action_10"
-    } else if goto_target != null {
-      "goto"
-    } else if "nop" in row.keys() {
-      "nop"
-    } else {
-      "to_table"
-    }
-    let source_address = ip_rule_prefix(source, source_length, family)?
-    let destination_address = ip_rule_prefix(destination, destination_length, family)?
-    let maximum = if family == "ipv4" { 32 } else { 128 }
-    let source_prefix_length = source_length ?? (if source_address == null { 0 } else { maximum })
-    let destination_prefix_length = destination_length ?? (if destination_address == null { 0 } else { maximum })
-    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or (goto_target != null and (goto_target < 0 or goto_target > 4294967295 or action != "goto")) {
-      return Err(check_failure("ip rule reference has an invalid selector"))
-    }
-
-    let rule = IpRuleReference(
-      family:,
-      priority:,
-      source: source_address,
-      source_prefix_length:,
-      destination: destination_address,
-      destination_prefix_length:,
-      fwmark: mark,
-      fwmask: if mask == 4294967295 {
-        null
+      let priority = json.get(row, ["priority"])?.require(Int)?
+      let source = json.get(row, ["src"], null).require(Str?)?
+      let source_length = json.get(row, ["srclen"], null).require(Int?)?
+      let destination = json.get(row, ["dst"], null).require(Str?)?
+      let destination_length = json.get(row, ["dstlen"], null).require(Int?)?
+      let mark = ip_rule_hex(json.get(row, ["fwmark"], null).require()?)?
+      let mask = ip_rule_hex(json.get(row, ["fwmask"], null).require()?)?
+      let table_name = json.get(row, ["table"], "0").require(Str)?
+      let input_name = json.get(row, ["iif"], null).require(Str?)?
+      let output_name = json.get(row, ["oif"], null).require(Str?)?
+      let action_name = json.get(row, ["action"], null).require(Str?)?
+      let goto_target = json.get(row, ["goto"], null).require(Int?)?
+      let action = if action_name != null {
+        ip_rule_action(action_name)?
+      } else if "masquerade" in row.keys() or "nat_gateway" in row.keys() {
+        "action_10"
+      } else if goto_target != null {
+        "goto"
+      } else if "nop" in row.keys() {
+        "nop"
       } else {
-        mask
-      },
-      table: ip_rule_table(table_name)?,
-      action:,
-      goto_target:,
-      input_name:,
-      output_name:,
-      unscored_fields: unscored_fields |> sort-by .,
-    )
-    let key = ip_rule_key(rule)?
-    if key in keys {
-      return Err(check_failure("ip rule reference has duplicate static selectors"))
-    }
+        "to_table"
+      }
+      let source_address = ip_rule_prefix(source, source_length, family)?
+      let destination_address = ip_rule_prefix(destination, destination_length, family)?
+      let maximum = if family == "ipv4" { 32 } else { 128 }
+      let source_prefix_length = source_length ?? (if source_address == null { 0 } else { maximum })
+      let destination_prefix_length = destination_length ?? (if destination_address == null { 0 } else { maximum })
+      if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or (goto_target != null and (goto_target < 0 or goto_target > 4294967295 or action != "goto")) {
+        return Err(check_failure("ip rule reference has an invalid selector"))
+      }
 
-    keys = keys.add(key)
-    rules += [rule]
+      let rule = IpRuleReference(
+        family:,
+        priority:,
+        source: source_address,
+        source_prefix_length:,
+        destination: destination_address,
+        destination_prefix_length:,
+        fwmark: mark,
+        fwmask: if mask == 4294967295 {
+          null
+        } else {
+          mask
+        },
+        table: ip_rule_table(table_name)?,
+        action:,
+        goto_target:,
+        input_name:,
+        output_name:,
+        unscored_fields: unscored_fields |> sort-by .,
+      )
+      let key = ip_rule_key(rule)?
+      if key in keys {
+        return Err(check_failure("ip rule reference has duplicate static selectors"))
+      }
+
+      keys = keys.add(key)
+      yield rule
+    }
   }
 
   rules
@@ -12995,128 +12992,129 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   }
 
   var candidate_keys: Set[Str] = set.empty()
-  var candidate_key_list: List[Str] = []
   var comparable_count = 0
   var unscored_family_count = 0
-  for rule_index in range(candidate.len()) {
-    let rule = candidate[rule_index]
-    if rule.family not in ["ipv4", "ipv6"] {
-      unscored_family_count += 1
-      continue
-    }
+  let candidate_key_list: List[Str] = collect {
+    for rule_index in range(candidate.len()) {
+      let rule = candidate[rule_index]
+      if rule.family not in ["ipv4", "ipv6"] {
+        unscored_family_count += 1
+        continue
+      }
 
-    comparable_count += 1
-    if rule.priority == null {
-      fully_represented = false
-    }
-
-    let flags = json.get(raw_candidate[rule_index], ["flags"], null).require(Int?)?
-    if flags == null or flags != 0 {
-      fully_represented = false
-    }
-
-    for attribute in rule.attributes {
-      if attribute.kind < 0 or attribute.kind > 65535 or attribute.kind != attribute.kind.bit_and(16383) or attribute.kind not in [
-        1,
-        2,
-        3,
-        4,
-        6,
-        10,
-        15,
-        16,
-        17,
-      ] or attribute.data.state != "observed" or attribute.data.value == null {
+      comparable_count += 1
+      if rule.priority == null {
         fully_represented = false
-      } else {
-        let _ = attribute.data.value.base64_decode()?
-      }
-    }
-
-    if rule.source.state not in ["observed", "absent"] or rule.destination.state not in ["observed", "absent"] {
-      candidate_field_missing = true
-      continue
-    }
-
-    if (rule.source.state == "observed" and rule.source.value == null) or (rule.destination.state == "observed" and rule.destination.value == null) or (rule.source.state == "absent" and rule.source.value != null) or (rule.destination.state == "absent" and rule.destination.value != null) {
-      candidate_field_missing = true
-      continue
-    }
-
-    let input_index = rule.input_ifindex ?? 0
-    let output_index = rule.output_ifindex ?? 0
-    if (input_index != 0 and f"{input_index}" not in names_by_index) or (output_index != 0 and f"{output_index}" not in names_by_index) {
-      candidate_field_missing = true
-      continue
-    }
-
-    var input_name: Str? = null
-    var output_name: Str? = null
-    if input_index != 0 {
-      input_name = names_by_index.get(f"{input_index}")?
-    }
-
-    if output_index != 0 {
-      output_name = names_by_index.get(f"{output_index}")?
-    }
-
-    if (rule.input_ifindex != null and input_name == null) or (rule.output_ifindex != null and output_name == null) or rule.table == null {
-      candidate_field_missing = true
-      continue
-    }
-
-    var goto_target: Int? = null
-    for attribute in rule.attributes {
-      continue when attribute.kind.bit_and(16383) != 4
-      if goto_target != null {
-        return Err(check_failure("candidate rule has duplicate goto target attributes"))
       }
 
-      if attribute.data.state != "observed" or attribute.data.value == null {
+      let flags = json.get(raw_candidate[rule_index], ["flags"], null).require(Int?)?
+      if flags == null or flags != 0 {
+        fully_represented = false
+      }
+
+      for attribute in rule.attributes {
+        if attribute.kind < 0 or attribute.kind > 65535 or attribute.kind != attribute.kind.bit_and(16383) or attribute.kind not in [
+          1,
+          2,
+          3,
+          4,
+          6,
+          10,
+          15,
+          16,
+          17,
+        ] or attribute.data.state != "observed" or attribute.data.value == null {
+          fully_represented = false
+        } else {
+          let _ = attribute.data.value.base64_decode()?
+        }
+      }
+
+      if rule.source.state not in ["observed", "absent"] or rule.destination.state not in ["observed", "absent"] {
         candidate_field_missing = true
         continue
       }
 
-      let raw = attribute.data.value.base64_decode()?
-      if raw.len() != 4 {
-        return Err(check_failure("candidate rule goto target is not a 32-bit integer"))
+      if (rule.source.state == "observed" and rule.source.value == null) or (rule.destination.state == "observed" and rule.destination.value == null) or (rule.source.state == "absent" and rule.source.value != null) or (rule.destination.state == "absent" and rule.destination.value != null) {
+        candidate_field_missing = true
+        continue
       }
 
-      goto_target = bytes.unpack_le(raw, 4, 0)?
-    }
+      let input_index = rule.input_ifindex ?? 0
+      let output_index = rule.output_ifindex ?? 0
+      if (input_index != 0 and f"{input_index}" not in names_by_index) or (output_index != 0 and f"{output_index}" not in names_by_index) {
+        candidate_field_missing = true
+        continue
+      }
 
-    if rule.action == "goto" and goto_target == null {
-      candidate_field_missing = true
-      continue
-    }
+      var input_name: Str? = null
+      var output_name: Str? = null
+      if input_index != 0 {
+        input_name = names_by_index.get(f"{input_index}")?
+      }
 
-    let normalized = IpRuleReference(
-      family: rule.family,
-      priority: rule.priority ?? 0,
-      source: rule.source.value,
-      source_prefix_length: rule.source_prefix_length,
-      destination: rule.destination.value,
-      destination_prefix_length: rule.destination_prefix_length,
-      fwmark: rule.fwmark,
-      fwmask: if rule.fwmask == 4294967295 {
-        null
-      } else {
-        rule.fwmask
-      },
-      table: rule.table,
-      action: rule.action,
-      goto_target:,
-      input_name:,
-      output_name:,
-      unscored_fields: [],
-    )
-    let key = ip_rule_key(normalized)?
-    if key in candidate_keys {
-      return Err(check_failure("candidate network rules have duplicate static selectors"))
-    }
+      if output_index != 0 {
+        output_name = names_by_index.get(f"{output_index}")?
+      }
 
-    candidate_keys = candidate_keys.add(key)
-    candidate_key_list += [key]
+      if (rule.input_ifindex != null and input_name == null) or (rule.output_ifindex != null and output_name == null) or rule.table == null {
+        candidate_field_missing = true
+        continue
+      }
+
+      var goto_target: Int? = null
+      for attribute in rule.attributes {
+        continue when attribute.kind.bit_and(16383) != 4
+        if goto_target != null {
+          return Err(check_failure("candidate rule has duplicate goto target attributes"))
+        }
+
+        if attribute.data.state != "observed" or attribute.data.value == null {
+          candidate_field_missing = true
+          continue
+        }
+
+        let raw = attribute.data.value.base64_decode()?
+        if raw.len() != 4 {
+          return Err(check_failure("candidate rule goto target is not a 32-bit integer"))
+        }
+
+        goto_target = bytes.unpack_le(raw, 4, 0)?
+      }
+
+      if rule.action == "goto" and goto_target == null {
+        candidate_field_missing = true
+        continue
+      }
+
+      let normalized = IpRuleReference(
+        family: rule.family,
+        priority: rule.priority ?? 0,
+        source: rule.source.value,
+        source_prefix_length: rule.source_prefix_length,
+        destination: rule.destination.value,
+        destination_prefix_length: rule.destination_prefix_length,
+        fwmark: rule.fwmark,
+        fwmask: if rule.fwmask == 4294967295 {
+          null
+        } else {
+          rule.fwmask
+        },
+        table: rule.table,
+        action: rule.action,
+        goto_target:,
+        input_name:,
+        output_name:,
+        unscored_fields: [],
+      )
+      let key = ip_rule_key(normalized)?
+      if key in candidate_keys {
+        return Err(check_failure("candidate network rules have duplicate static selectors"))
+      }
+
+      candidate_keys = candidate_keys.add(key)
+      yield key
+    }
   }
 
   var reference_keys: Set[Str] = set.empty()
@@ -13980,54 +13978,55 @@ export pure compare_block_devices(
   }
 
   var candidate_edges: Set[Str] = set.empty()
-  var candidate_edge_keys: List[Str] = []
-  for child_index in range(candidates.len()) {
-    let child = candidates[child_index]
-    continue when child.name == null or child.name == ""
-    let child_name = child.name
-    var slave_seen: Set[Str] = set.empty()
-    var holder_seen: Set[Str] = set.empty()
-    if child.parent_device_index != null {
-      let parent_index = child.parent_device_index ?? -1
-      if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null {
-        return Err(check_failure("candidate block report has an invalid parent index"))
+  let candidate_edge_keys: List[Str] = collect {
+    for child_index in range(candidates.len()) {
+      let child = candidates[child_index]
+      continue when child.name == null or child.name == ""
+      let child_name = child.name
+      var slave_seen: Set[Str] = set.empty()
+      var holder_seen: Set[Str] = set.empty()
+      if child.parent_device_index != null {
+        let parent_index = child.parent_device_index ?? -1
+        if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null {
+          return Err(check_failure("candidate block report has an invalid parent index"))
+        }
+
+        let parent_name = candidates[parent_index].name ?? ""
+        let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: true})
+        if edge_key not in candidate_edges {
+          candidate_edges = candidate_edges.add(edge_key)
+          yield edge_key
+        }
       }
 
-      let parent_name = candidates[parent_index].name ?? ""
-      let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: true})
-      if edge_key not in candidate_edges {
-        candidate_edges = candidate_edges.add(edge_key)
-        candidate_edge_keys += [edge_key]
-      }
-    }
+      for parent_index in child.slave_indices {
+        let index_key = f"{parent_index}"
+        if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null or index_key in slave_seen {
+          return Err(check_failure("candidate block report has an invalid slave index"))
+        }
 
-    for parent_index in child.slave_indices {
-      let index_key = f"{parent_index}"
-      if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null or index_key in slave_seen {
-        return Err(check_failure("candidate block report has an invalid slave index"))
-      }
-
-      slave_seen = slave_seen.add(index_key)
-      let parent_name = candidates[parent_index].name ?? ""
-      let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: false})
-      if edge_key not in candidate_edges {
-        candidate_edges = candidate_edges.add(edge_key)
-        candidate_edge_keys += [edge_key]
-      }
-    }
-
-    for holder_index in child.holder_indices {
-      let index_key = f"{holder_index}"
-      if holder_index < 0 or holder_index >= candidates.len() or holder_index == child_index or candidates[holder_index].name == null or index_key in holder_seen {
-        return Err(check_failure("candidate block report has an invalid holder index"))
+        slave_seen = slave_seen.add(index_key)
+        let parent_name = candidates[parent_index].name ?? ""
+        let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: false})
+        if edge_key not in candidate_edges {
+          candidate_edges = candidate_edges.add(edge_key)
+          yield edge_key
+        }
       }
 
-      holder_seen = holder_seen.add(index_key)
-      let holder_name = candidates[holder_index].name ?? ""
-      let edge_key = block_edge_key({parent_name: child_name, child_name: holder_name, partition: false})
-      if edge_key not in candidate_edges {
-        candidate_edges = candidate_edges.add(edge_key)
-        candidate_edge_keys += [edge_key]
+      for holder_index in child.holder_indices {
+        let index_key = f"{holder_index}"
+        if holder_index < 0 or holder_index >= candidates.len() or holder_index == child_index or candidates[holder_index].name == null or index_key in holder_seen {
+          return Err(check_failure("candidate block report has an invalid holder index"))
+        }
+
+        holder_seen = holder_seen.add(index_key)
+        let holder_name = candidates[holder_index].name ?? ""
+        let edge_key = block_edge_key({parent_name: child_name, child_name: holder_name, partition: false})
+        if edge_key not in candidate_edges {
+          candidate_edges = candidate_edges.add(edge_key)
+          yield edge_key
+        }
       }
     }
   }
@@ -14095,27 +14094,26 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     return Err(check_failure("lsblk queue reference lacks blockdevices"))
   }
 
-  var devices: List[BlockQueueReference] = []
   var seen: Set[Str] = set.empty()
-  for row in raw.require(List[Record])? {
-    let name = json.get(row, ["kname"])?.require(Str)?
-    let kind = json.get(row, ["type"], null).require(Str?)?
-    let scheduler = json.get(row, ["sched"])?.require(Str?)?
-    let read_ahead = json.get(row, ["ra"])?.require(Int?)?
-    let discard_granularity = json.get(row, ["disc-gran"])?.require(Int?)?
-    let discard_max = json.get(row, ["disc-max"])?.require(Int?)?
-    let model = json.get(row, ["model"])?.require(Str?)?
-    let revision = json.get(row, ["rev"])?.require(Str?)?
-    let safe_read_ahead = read_ahead ?? 0
-    let safe_discard_granularity = discard_granularity ?? 0
-    let safe_discard_max = discard_max ?? 0
-    if name == "" or name in seen or safe_read_ahead < 0 or safe_read_ahead > 9007199254740991 or safe_discard_granularity < 0 or safe_discard_granularity > 9007199254740991 or safe_discard_max < 0 or safe_discard_max > 9007199254740991 {
-      return Err(check_failure("lsblk queue reference has a duplicate identity or unsafe value"))
-    }
+  let devices: List[BlockQueueReference] = collect {
+    for row in raw.require(List[Record])? {
+      let name = json.get(row, ["kname"])?.require(Str)?
+      let kind = json.get(row, ["type"], null).require(Str?)?
+      let scheduler = json.get(row, ["sched"])?.require(Str?)?
+      let read_ahead = json.get(row, ["ra"])?.require(Int?)?
+      let discard_granularity = json.get(row, ["disc-gran"])?.require(Int?)?
+      let discard_max = json.get(row, ["disc-max"])?.require(Int?)?
+      let model = json.get(row, ["model"])?.require(Str?)?
+      let revision = json.get(row, ["rev"])?.require(Str?)?
+      let safe_read_ahead = read_ahead ?? 0
+      let safe_discard_granularity = discard_granularity ?? 0
+      let safe_discard_max = discard_max ?? 0
+      if name == "" or name in seen or safe_read_ahead < 0 or safe_read_ahead > 9007199254740991 or safe_discard_granularity < 0 or safe_discard_granularity > 9007199254740991 or safe_discard_max < 0 or safe_discard_max > 9007199254740991 {
+        return Err(check_failure("lsblk queue reference has a duplicate identity or unsafe value"))
+      }
 
-    seen = seen.add(name)
-    devices += [
-      {
+      seen = seen.add(name)
+      yield {
         name: name,
         kind: kind,
         scheduler: scheduler?.trim(),
@@ -14124,8 +14122,8 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
         discard_max_bytes: discard_max,
         model: model?.trim(),
         revision_hint: revision?.trim(),
-      },
-    ]
+      }
+    }
   }
 
   devices
@@ -14826,7 +14824,6 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
   }
 
   var candidate_by_name: Map[Int] = {}
-  var missing_names: List[Str] = []
   var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var matched_count = 0
@@ -14881,22 +14878,24 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
       field_mismatches += [f"{name}.read_only"]
     }
 
-    var holders: List[Str] = []
-    for peer_index in device.holder_indices {
-      if peer_index < 0 or peer_index >= candidates.len() or candidates[peer_index].name == null or candidates[peer_index].name == device.name {
-        return Err(check_failure("candidate block holder index is invalid"))
-      }
+    let holders: List[Str] = collect {
+      for peer_index in device.holder_indices {
+        if peer_index < 0 or peer_index >= candidates.len() or candidates[peer_index].name == null or candidates[peer_index].name == device.name {
+          return Err(check_failure("candidate block holder index is invalid"))
+        }
 
-      holders += [candidates[peer_index].name ?? ""]
+        yield candidates[peer_index].name ?? ""
+      }
     }
 
-    var slaves: List[Str] = []
-    for peer_index in device.slave_indices {
-      if peer_index < 0 or peer_index >= candidates.len() or candidates[peer_index].name == null or candidates[peer_index].name == device.name {
-        return Err(check_failure("candidate block slave index is invalid"))
-      }
+    let slaves: List[Str] = collect {
+      for peer_index in device.slave_indices {
+        if peer_index < 0 or peer_index >= candidates.len() or candidates[peer_index].name == null or candidates[peer_index].name == device.name {
+          return Err(check_failure("candidate block slave index is invalid"))
+        }
 
-      slaves += [candidates[peer_index].name ?? ""]
+        yield candidates[peer_index].name ?? ""
+      }
     }
 
     if (holders |> sort-by .) != expected.holders {
@@ -14908,53 +14907,54 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     }
   }
 
-  for expected in reference.devices {
-    if expected.name not in candidate_by_name {
-      missing_names += [expected.name]
+  let missing_names: List[Str] = collect {
+    for expected in reference.devices {
+      yield expected.name when expected.name not in candidate_by_name
     }
   }
 
   var candidate_edges: Set[Str] = set.empty()
-  var candidate_edge_keys: List[Str] = []
-  for child in candidates {
-    let child_name = child.name ?? ""
-    if child.parent_device_index != null {
-      let index = child.parent_device_index ?? -1
-      if index < 0 or index >= candidates.len() or candidates[index].name == null or candidates[index].name == child.name {
-        return Err(check_failure("candidate block partition parent index is invalid"))
+  let candidate_edge_keys: List[Str] = collect {
+    for child in candidates {
+      let child_name = child.name ?? ""
+      if child.parent_device_index != null {
+        let index = child.parent_device_index ?? -1
+        if index < 0 or index >= candidates.len() or candidates[index].name == null or candidates[index].name == child.name {
+          return Err(check_failure("candidate block partition parent index is invalid"))
+        }
+
+        let edge = {parent_name: candidates[index].name ?? "", child_name: child_name, partition: true}
+        let key = block_edge_key(edge)
+        if key not in candidate_edges {
+          candidate_edges = candidate_edges.add(key)
+          yield key
+        }
       }
 
-      let edge = {parent_name: candidates[index].name ?? "", child_name: child_name, partition: true}
-      let key = block_edge_key(edge)
-      if key not in candidate_edges {
-        candidate_edges = candidate_edges.add(key)
-        candidate_edge_keys += [key]
-      }
-    }
+      for parent_index in child.slave_indices {
+        if parent_index < 0 or parent_index >= candidates.len() or candidates[parent_index].name == null or candidates[parent_index].name == child.name {
+          return Err(check_failure("candidate block slave index is invalid"))
+        }
 
-    for parent_index in child.slave_indices {
-      if parent_index < 0 or parent_index >= candidates.len() or candidates[parent_index].name == null or candidates[parent_index].name == child.name {
-        return Err(check_failure("candidate block slave index is invalid"))
-      }
-
-      let edge = {parent_name: candidates[parent_index].name ?? "", child_name: child_name, partition: false}
-      let key = block_edge_key(edge)
-      if key not in candidate_edges {
-        candidate_edges = candidate_edges.add(key)
-        candidate_edge_keys += [key]
-      }
-    }
-
-    for holder_index in child.holder_indices {
-      if holder_index < 0 or holder_index >= candidates.len() or candidates[holder_index].name == null or candidates[holder_index].name == child.name {
-        return Err(check_failure("candidate block holder index is invalid"))
+        let edge = {parent_name: candidates[parent_index].name ?? "", child_name: child_name, partition: false}
+        let key = block_edge_key(edge)
+        if key not in candidate_edges {
+          candidate_edges = candidate_edges.add(key)
+          yield key
+        }
       }
 
-      let edge = {parent_name: child_name, child_name: candidates[holder_index].name ?? "", partition: false}
-      let key = block_edge_key(edge)
-      if key not in candidate_edges {
-        candidate_edges = candidate_edges.add(key)
-        candidate_edge_keys += [key]
+      for holder_index in child.holder_indices {
+        if holder_index < 0 or holder_index >= candidates.len() or candidates[holder_index].name == null or candidates[holder_index].name == child.name {
+          return Err(check_failure("candidate block holder index is invalid"))
+        }
+
+        let edge = {parent_name: child_name, child_name: candidates[holder_index].name ?? "", partition: false}
+        let key = block_edge_key(edge)
+        if key not in candidate_edges {
+          candidate_edges = candidate_edges.add(key)
+          yield key
+        }
       }
     }
   }
@@ -15090,16 +15090,17 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
   let later_layout = block_bundle_layout(source)?
   var stable_static = layout == later_layout
-  var changing_stats: List[Str] = []
-  for index in range(layout.source_paths.len()) {
-    let relative = layout.source_paths[index]
-    let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
-    let first = sources[index]
-    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
-      if relative.ends_with("/stat") {
-        changing_stats += [relative]
-      } else {
-        stable_static = false
+  let changing_stats: List[Str] = collect {
+    for index in range(layout.source_paths.len()) {
+      let relative = layout.source_paths[index]
+      let raw = source.read_result(fp"{relative}", max_bytes: 4096)?
+      let first = sources[index]
+      if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+        if relative.ends_with("/stat") {
+          yield relative
+        } else {
+          stable_static = false
+        }
       }
     }
   }
@@ -15448,15 +15449,16 @@ pure reference_mount_sanitized_options(options: List[Str]) -> List[Str] {
 }
 
 pure reference_mount_sanitized_optional_fields(fields: List[Str]) -> List[Str] {
-  var output: List[Str] = []
-  for field in fields {
-    let parts = field.split(":")
-    if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and reference_mount_decimal(
-      parts[1],
-    )) {
-      output += [field]
-    } else {
-      output += ["redacted"]
+  let output: List[Str] = collect {
+    for field in fields {
+      let parts = field.split(":")
+      if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and reference_mount_decimal(
+        parts[1],
+      )) {
+        yield field
+      } else {
+        yield "redacted"
+      }
     }
   }
 
@@ -15723,52 +15725,51 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference], Erro
   }
 
   let rows = raw.require(List[Record])?
-  var mounts: List[MountReference] = []
   var seen: Set[Str] = set.empty()
-  for row in rows {
-    for field in [
-      "id",
-      "parent",
-      "maj:min",
-      "fsroot",
-      "target",
-      "fstype",
-      "source",
-      "vfs-options",
-      "fs-options",
-      "propagation",
-    ] {
-      guard json.get(row, [field], null) != null else {
-        return Err(check_failure(f"findmnt reference lacks {field}"))
+  let mounts: List[MountReference] = collect {
+    for row in rows {
+      for field in [
+        "id",
+        "parent",
+        "maj:min",
+        "fsroot",
+        "target",
+        "fstype",
+        "source",
+        "vfs-options",
+        "fs-options",
+        "propagation",
+      ] {
+        guard json.get(row, [field], null) != null else {
+          return Err(check_failure(f"findmnt reference lacks {field}"))
+        }
       }
-    }
 
-    let mount_id = json.get(row, ["id"])?.require(Int)?
-    let parent_id = json.get(row, ["parent"])?.require(Int)?
-    let numbers = parse_major_minor_reference(json.get(row, ["maj:min"])?.require()?, "findmnt")?
-    let root = json.get(row, ["fsroot"])?.require(Str)?
-    let target = json.get(row, ["target"])?.require(Str)?
-    let filesystem = json.get(row, ["fstype"])?.require(Str)?
-    let source = json.get(row, ["source"])?.require(Str)?
-    let vfs_options = json.get(row, ["vfs-options"])?.require(Str)?
-    let fs_options = json.get(row, ["fs-options"])?.require(Str)?
-    let propagation = json.get(row, ["propagation"])?.require(Str)?
-    let identity = f"{mount_id}"
-    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or identity in seen or root == "" or ! target.starts_with(
-      "/",
-    ) or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
-      "private",
-      "shared",
-      "slave",
-      "shared,slave",
-      "unbindable",
-    ] {
-      return Err(check_failure("findmnt reference has an invalid or duplicate mount row"))
-    }
+      let mount_id = json.get(row, ["id"])?.require(Int)?
+      let parent_id = json.get(row, ["parent"])?.require(Int)?
+      let numbers = parse_major_minor_reference(json.get(row, ["maj:min"])?.require()?, "findmnt")?
+      let root = json.get(row, ["fsroot"])?.require(Str)?
+      let target = json.get(row, ["target"])?.require(Str)?
+      let filesystem = json.get(row, ["fstype"])?.require(Str)?
+      let source = json.get(row, ["source"])?.require(Str)?
+      let vfs_options = json.get(row, ["vfs-options"])?.require(Str)?
+      let fs_options = json.get(row, ["fs-options"])?.require(Str)?
+      let propagation = json.get(row, ["propagation"])?.require(Str)?
+      let identity = f"{mount_id}"
+      if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or identity in seen or root == "" or ! target.starts_with(
+        "/",
+      ) or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
+        "private",
+        "shared",
+        "slave",
+        "shared,slave",
+        "unbindable",
+      ] {
+        return Err(check_failure("findmnt reference has an invalid or duplicate mount row"))
+      }
 
-    seen = seen.add(identity)
-    mounts += [
-      {
+      seen = seen.add(identity)
+      yield {
         mount_id: mount_id,
         parent_id: parent_id,
         major: numbers[0],
@@ -15781,8 +15782,8 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference], Erro
         super_options: fs_options.split(","),
         optional_fields: null,
         propagation: propagation,
-      },
-    ]
+      }
+    }
   }
 
   mounts
@@ -16071,53 +16072,52 @@ export pure compare_mount_usage(
   }
 
   var seen: Set[Str] = set.empty()
-  var mismatched_ids: List[Int] = []
   var matched_count = 0
   var unstable = false
-  for candidate in candidates {
-    let key = f"{candidate.mount_id}"
-    if key not in expected_ids or key in seen {
-      return Err(check_failure("candidate mount usage has unexpected or duplicate ID"))
-    }
-
-    seen = seen.add(key)
-    var matches = false
-    if candidate.mount_id in eligible {
-      let first = before[before_by_id.get(key) ?? -1]
-      let last = after[after_by_id.get(key) ?? -1]
-      let first_available = first.total_bytes != null
-      let last_available = last.total_bytes != null
-      if first_available != last_available or first.total_bytes != last.total_bytes {
-        unstable = true
+  let mismatched_ids: List[Int] = collect {
+    for candidate in candidates {
+      let key = f"{candidate.mount_id}"
+      if key not in expected_ids or key in seen {
+        return Err(check_failure("candidate mount usage has unexpected or duplicate ID"))
       }
 
-      if first_available and last_available {
-        matches = candidate.usage_state == "observed" and first.total_bytes == last.total_bytes and candidate.usage_total_bytes == first.total_bytes and mount_usage_between(
-          candidate.usage_used_bytes,
-          first.used_bytes ?? -1,
-          last.used_bytes ?? -1,
-        ) and mount_usage_between(
-          candidate.usage_available_bytes,
-          first.available_bytes ?? -1,
-          last.available_bytes ?? -1,
-        )
+      seen = seen.add(key)
+      var matches = false
+      if candidate.mount_id in eligible {
+        let first = before[before_by_id.get(key) ?? -1]
+        let last = after[after_by_id.get(key) ?? -1]
+        let first_available = first.total_bytes != null
+        let last_available = last.total_bytes != null
+        if first_available != last_available or first.total_bytes != last.total_bytes {
+          unstable = true
+        }
+
+        if first_available and last_available {
+          matches = candidate.usage_state == "observed" and first.total_bytes == last.total_bytes and candidate.usage_total_bytes == first.total_bytes and mount_usage_between(
+            candidate.usage_used_bytes,
+            first.used_bytes ?? -1,
+            last.used_bytes ?? -1,
+          ) and mount_usage_between(
+            candidate.usage_available_bytes,
+            first.available_bytes ?? -1,
+            last.available_bytes ?? -1,
+          )
+        } else {
+          matches = candidate.usage_state in ["disappeared", "permission_denied", "read_failure"] and candidate.usage_total_bytes == null and candidate.usage_used_bytes == null and candidate.usage_available_bytes == null
+        }
       } else {
-        matches = candidate.usage_state in ["disappeared", "permission_denied", "read_failure"] and candidate.usage_total_bytes == null and candidate.usage_used_bytes == null and candidate.usage_available_bytes == null
+        matches = candidate.usage_state == "not_requested" and candidate.usage_total_bytes == null and candidate.usage_used_bytes == null and candidate.usage_available_bytes == null
       }
-    } else {
-      matches = candidate.usage_state == "not_requested" and candidate.usage_total_bytes == null and candidate.usage_used_bytes == null and candidate.usage_available_bytes == null
+
+      if matches {
+        matched_count += 1
+      } else {
+        yield candidate.mount_id
+      }
     }
 
-    if matches {
-      matched_count += 1
-    } else {
-      mismatched_ids += [candidate.mount_id]
-    }
-  }
-
-  for mount in mounts {
-    if f"{mount.mount_id}" not in seen {
-      mismatched_ids += [mount.mount_id]
+    for mount in mounts {
+      yield mount.mount_id when f"{mount.mount_id}" not in seen
     }
   }
 
@@ -16197,23 +16197,24 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
     formatted_count += 1
   }
 
-  var modules: List[KernelModuleReference] = []
   var raw_seen: Set[Str] = set.empty()
-  if raw.trim() != "" {
-    for line in raw.trim().split("\n") {
-      let words = module_reference_words(line)
-      if words.len() not in [6, 7] or words[0] == "" or words[4] == "" or words[0] in raw_seen or words[0] not in formatted_by_name {
-        return Err(check_failure("proc module reference has an ambiguous, duplicate, or unmatched row"))
-      }
+  let modules: List[KernelModuleReference] = collect {
+    if raw.trim() != "" {
+      for line in raw.trim().split("\n") {
+        let words = module_reference_words(line)
+        if words.len() not in [6, 7] or words[0] == "" or words[4] == "" or words[0] in raw_seen or words[0] not in formatted_by_name {
+          return Err(check_failure("proc module reference has an ambiguous, duplicate, or unmatched row"))
+        }
 
-      let size = reference_module_number(words[1])?
-      let users = reference_module_number(words[2])?
-      if formatted_by_name.get(words[0])? != [size, users] {
-        return Err(check_failure("lsmod and proc module facts disagree"))
-      }
+        let size = reference_module_number(words[1])?
+        let users = reference_module_number(words[2])?
+        if formatted_by_name.get(words[0])? != [size, users] {
+          return Err(check_failure("lsmod and proc module facts disagree"))
+        }
 
-      raw_seen = raw_seen.add(words[0])
-      modules += [{name: words[0], size_bytes: size, users: users, state: words[4]}]
+        raw_seen = raw_seen.add(words[0])
+        yield {name: words[0], size_bytes: size, users: users, state: words[4]}
+      }
     }
   }
 
@@ -17462,37 +17463,38 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     return Err(check_failure("device-tree capture has no stable complete reference"))
   }
 
-  var raw_values: List[Bytes?] = []
-  for index in range(paths.len()) {
-    let expected = capture.sources[index]
-    let relative = paths[index]
-    if expected.path != relative or expected.truncated {
-      return Err(check_failure("device-tree source identity or completeness differs from metadata"))
-    }
-
-    if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
-        return Err(check_failure(f"device-tree absent source {relative} differs from metadata"))
+  let raw_values: List[Bytes?] = collect {
+    for index in range(paths.len()) {
+      let expected = capture.sources[index]
+      let relative = paths[index]
+      if expected.path != relative or expected.truncated {
+        return Err(check_failure("device-tree source identity or completeness differs from metadata"))
       }
 
-      raw_values += [null]
-      continue
-    }
+      if expected.state == "absent" {
+        if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
+          return Err(check_failure(f"device-tree absent source {relative} differs from metadata"))
+        }
 
-    if expected.state != "observed" or expected.errno != null or expected.error_kind != null or expected.sha256_hex == null {
-      return Err(check_failure(f"device-tree cannot score {relative} source"))
-    }
+        yield null
+        continue
+      }
 
-    let limit = if index == 0 { 4096 } else { 16384 }
-    let raw = bundle.read_result(fp"{relative}", max_bytes: limit)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
-      raw.data,
-    )
-      .hex() != expected.sha256_hex {
-      return Err(check_failure(f"device-tree {relative} bytes differ from metadata"))
-    }
+      if expected.state != "observed" or expected.errno != null or expected.error_kind != null or expected.sha256_hex == null {
+        return Err(check_failure(f"device-tree cannot score {relative} source"))
+      }
 
-    raw_values += [raw.data]
+      let limit = if index == 0 { 4096 } else { 16384 }
+      let raw = bundle.read_result(fp"{relative}", max_bytes: limit)?
+      if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
+        raw.data,
+      )
+        .hex() != expected.sha256_hex {
+        return Err(check_failure(f"device-tree {relative} bytes differ from metadata"))
+      }
+
+      yield raw.data
+    }
   }
 
   let reference = parse_reference_device_tree(raw_values[0], raw_values[1])?
@@ -18948,16 +18950,17 @@ export proc capture_cgroup2_bundle(
 
   let later_layout = cgroup2_bundle_layout(source)?
   var stable_static = layout == later_layout
-  var changing_sources: List[Str] = []
-  for index in range(layout.paths.len()) {
-    let item = layout.paths[index]
-    let raw = source.read_result(fp"{item.path}", max_bytes: item.max_bytes)?
-    let first = sources[index]
-    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
-      if item.changing {
-        changing_sources += [item.path]
-      } else {
-        stable_static = false
+  let changing_sources: List[Str] = collect {
+    for index in range(layout.paths.len()) {
+      let item = layout.paths[index]
+      let raw = source.read_result(fp"{item.path}", max_bytes: item.max_bytes)?
+      let first = sources[index]
+      if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+        if item.changing {
+          yield item.path
+        } else {
+          stable_static = false
+        }
       }
     }
   }
@@ -19193,15 +19196,19 @@ export proc read_cpu_scope_cgroup_reference(
 ) [fs, time, error] -> Result[CpuScopeCgroupObservation, Error] {
   let started = time.now()
   let paths = visible_cgroup2_reference_paths(root)?
-  var ancestors: List[CpuScopeAncestorReference] = []
-  for path_item in paths {
-    let cpuset_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpuset.cpus.effective", 65536, false)?
-    let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
-    let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw, true)? }
-    let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw)? }
-    ancestors += [
-      {path: path_item.visible_path, hierarchy_level: path_item.hierarchy_level, effective_cpus: cpus, quota: quota},
-    ]
+  let ancestors: List[CpuScopeAncestorReference] = collect {
+    for path_item in paths {
+      let cpuset_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpuset.cpus.effective", 65536, false)?
+      let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
+      let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw, true)? }
+      let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw)? }
+      yield {
+        path: path_item.visible_path,
+        hierarchy_level: path_item.hierarchy_level,
+        effective_cpus: cpus,
+        quota: quota,
+      }
+    }
   }
 
   {ancestors: ancestors, started: started, ended: time.now()}
@@ -19323,78 +19330,77 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
     return Err(check_failure("process reference enumeration is incomplete"))
   }
 
-  var processes: List[ProcessIdentityReference] = []
   var skipped_count = 0
-  for process_path in listing.children {
-    let pid_text = process_path.name()
-    continue when pid_text == ""
-    var decimal = true
-    for character in pid_text {
-      if character not in "0123456789" {
-        decimal = false
+  let processes: List[ProcessIdentityReference] = collect {
+    for process_path in listing.children {
+      let pid_text = process_path.name()
+      continue when pid_text == ""
+      var decimal = true
+      for character in pid_text {
+        if character not in "0123456789" {
+          decimal = false
+        }
       }
-    }
 
-    continue unless decimal
-    let parsed_pid = process_reference_number(pid_text)
-    guard let pid = parsed_pid else { |_|
-      skipped_count += 1
-      continue
-    }
+      continue unless decimal
+      let parsed_pid = process_reference_number(pid_text)
+      guard let pid = parsed_pid else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    if pid == 0 {
-      skipped_count += 1
-      continue
-    }
+      if pid == 0 {
+        skipped_count += 1
+        continue
+      }
 
-    let first_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
-    if first_source == null {
-      skipped_count += 1
-      continue
-    }
+      let first_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
+      if first_source == null {
+        skipped_count += 1
+        continue
+      }
 
-    guard let first = parse_proc_stat_identity_reference(first_source) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let first = parse_proc_stat_identity_reference(first_source) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    let status_source = process_reference_text(root, fp"{process_path}/status", 16384)?
-    if status_source == null {
-      skipped_count += 1
-      continue
-    }
+      let status_source = process_reference_text(root, fp"{process_path}/status", 16384)?
+      if status_source == null {
+        skipped_count += 1
+        continue
+      }
 
-    guard let uid = parse_proc_status_uid_reference(status_source) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let uid = parse_proc_status_uid_reference(status_source) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    let last_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
-    if last_source == null {
-      skipped_count += 1
-      continue
-    }
+      let last_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
+      if last_source == null {
+        skipped_count += 1
+        continue
+      }
 
-    guard let last = parse_proc_stat_identity_reference(last_source) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let last = parse_proc_stat_identity_reference(last_source) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    if first.pid != pid or last.pid != pid or first.start_ticks != last.start_ticks or first.parent_pid != last.parent_pid or first.command != last.command {
-      skipped_count += 1
-      continue
-    }
+      if first.pid != pid or last.pid != pid or first.start_ticks != last.start_ticks or first.parent_pid != last.parent_pid or first.command != last.command {
+        skipped_count += 1
+        continue
+      }
 
-    processes += [
-      {
+      yield {
         pid: first.pid,
         start_ticks: first.start_ticks,
         parent_pid: first.parent_pid,
         uid: uid,
         command: first.command,
         state: first.state,
-      },
-    ]
+      }
+    }
   }
 
   {processes: processes |> sort-by .pid, skipped_count: skipped_count}
@@ -19414,83 +19420,82 @@ export proc read_process_resource_snapshot(
     return Err(check_failure("process resource reference enumeration is incomplete"))
   }
 
-  var processes: List[ProcessResourceReference] = []
   var skipped_count = 0
-  for process_path in listing.children {
-    let pid_text = process_path.name()
-    continue when pid_text == ""
-    var decimal = true
-    for character in pid_text {
-      if character not in "0123456789" {
-        decimal = false
+  let processes: List[ProcessResourceReference] = collect {
+    for process_path in listing.children {
+      let pid_text = process_path.name()
+      continue when pid_text == ""
+      var decimal = true
+      for character in pid_text {
+        if character not in "0123456789" {
+          decimal = false
+        }
       }
-    }
 
-    continue unless decimal
-    guard let pid = process_reference_number(pid_text) else { |_|
-      skipped_count += 1
-      continue
-    }
+      continue unless decimal
+      guard let pid = process_reference_number(pid_text) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    if pid == 0 {
-      skipped_count += 1
-      continue
-    }
+      if pid == 0 {
+        skipped_count += 1
+        continue
+      }
 
-    let first_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
-    if first_source == null {
-      skipped_count += 1
-      continue
-    }
+      let first_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
+      if first_source == null {
+        skipped_count += 1
+        continue
+      }
 
-    guard let first = parse_proc_stat_thread_reference(first_source) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let first = parse_proc_stat_thread_reference(first_source) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    let statm_source = process_reference_text(root, fp"{process_path}/statm", 4096)?
-    let cgroup_source = process_reference_text(root, fp"{process_path}/cgroup", 16384)?
-    if statm_source == null or cgroup_source == null {
-      skipped_count += 1
-      continue
-    }
+      let statm_source = process_reference_text(root, fp"{process_path}/statm", 4096)?
+      let cgroup_source = process_reference_text(root, fp"{process_path}/cgroup", 16384)?
+      if statm_source == null or cgroup_source == null {
+        skipped_count += 1
+        continue
+      }
 
-    guard let memory = parse_proc_statm_reference(statm_source, page_size_bytes) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let memory = parse_proc_statm_reference(statm_source, page_size_bytes) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    guard let cgroup = parse_proc_cgroup_reference(cgroup_source) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let cgroup = parse_proc_cgroup_reference(cgroup_source) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    let last_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
-    if last_source == null {
-      skipped_count += 1
-      continue
-    }
+      let last_source = process_reference_text(root, fp"{process_path}/stat", 16384)?
+      if last_source == null {
+        skipped_count += 1
+        continue
+      }
 
-    guard let last = parse_proc_stat_thread_reference(last_source) else { |_|
-      skipped_count += 1
-      continue
-    }
+      guard let last = parse_proc_stat_thread_reference(last_source) else { |_|
+        skipped_count += 1
+        continue
+      }
 
-    if first.pid != pid or last.pid != pid or first.start_ticks != last.start_ticks or first.thread_count != last.thread_count {
-      skipped_count += 1
-      continue
-    }
+      if first.pid != pid or last.pid != pid or first.start_ticks != last.start_ticks or first.thread_count != last.thread_count {
+        skipped_count += 1
+        continue
+      }
 
-    processes += [
-      {
+      yield {
         pid: pid,
         start_ticks: first.start_ticks,
         thread_count: first.thread_count,
         resident_bytes: memory.resident_bytes,
         virtual_bytes: memory.virtual_bytes,
         cgroup: cgroup,
-      },
-    ]
+      }
+    }
   }
 
   {processes: processes |> sort-by .pid, skipped_count: skipped_count}
@@ -24607,45 +24612,48 @@ proc read_kernel_parameter_reference(
 ) [fs, process, time, error] -> Result[KernelParameterObservation] {
   let scratch_path = scratch.host_path()?
   let started = time.now()
-  var values: List[KernelParameterReference] = []
-  for item in kernel_parameter_sources() |> enumerate() {
-    let source = item.value
-    if ! source.path.exists() {
-      values += [{name: source.name, source: source.source, state: "absent", value: null, raw_bytes_base64: null}]
-      continue
-    }
+  let values: List[KernelParameterReference] = collect {
+    for item in kernel_parameter_sources() |> enumerate() {
+      let source = item.value
+      if ! source.path.exists() {
+        yield {name: source.name, source: source.source, state: "absent", value: null, raw_bytes_base64: null}
+        continue
+      }
 
-    let output_name = f"{name}-{item.index}"
-    let binary = if source.source == "sysctl" { sysctl_binary } else { "/bin/cat" }
-    let argv = if source.source == "sysctl" { ["sysctl", "-n", source.name] } else { ["cat", source.path.display()] }
-    let status = process.run(
-      process.command_argv(
-        binary,
-        argv,
-        cwd: /,
-        env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
-        stdout: fp"{scratch_path}/{output_name}",
-        stderr: fp"{scratch_path}/{output_name}-error",
-      ),
-    )?
-    if ! status.exited_with(0) {
-      return Err(check_failure(f"kernel parameter reference failed for {source.name}"))
-    }
+      let output_name = f"{name}-{item.index}"
+      let binary = if source.source == "sysctl" { sysctl_binary } else { "/bin/cat" }
+      let argv = if source.source == "sysctl" { ["sysctl", "-n", source.name] } else { ["cat", source.path.display()] }
+      let status = process.run(
+        process.command_argv(
+          binary,
+          argv,
+          cwd: /,
+          env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
+          stdout: fp"{scratch_path}/{output_name}",
+          stderr: fp"{scratch_path}/{output_name}-error",
+        ),
+      )?
+      if ! status.exited_with(0) {
+        return Err(check_failure(f"kernel parameter reference failed for {source.name}"))
+      }
 
-    let read = scratch.read_result(fp"{output_name}", max_bytes: 4096)?
-    if read.state != "observed" or read.truncated or read.data == null {
-      return Err(check_failure(f"kernel parameter reference is incomplete for {source.name}"))
-    }
+      let read = scratch.read_result(fp"{output_name}", max_bytes: 4096)?
+      if read.state != "observed" or read.truncated or read.data == null {
+        return Err(check_failure(f"kernel parameter reference is incomplete for {source.name}"))
+      }
 
-    let data = read.data
-    if let Ok(text) = data.utf8() {
-      values += [
-        {name: source.name, source: source.source, state: "observed", value: text.trim(), raw_bytes_base64: null},
-      ]
-    } else {
-      values += [
-        {name: source.name, source: source.source, state: "malformed", value: null, raw_bytes_base64: data.base64()},
-      ]
+      let data = read.data
+      if let Ok(text) = data.utf8() {
+        yield {name: source.name, source: source.source, state: "observed", value: text.trim(), raw_bytes_base64: null}
+      } else {
+        yield {
+          name: source.name,
+          source: source.source,
+          state: "malformed",
+          value: null,
+          raw_bytes_base64: data.base64(),
+        }
+      }
     }
   }
 

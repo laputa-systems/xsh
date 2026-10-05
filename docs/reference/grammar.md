@@ -226,14 +226,14 @@ guarded_value = expression_item postfix_guard? | run_form ( "?" postfix_guard? )
 return_statement = "return" ( postfix_guard | guarded_value )? ;
 yield_statement = "yield" ( "@" expression postfix_guard? | guarded_value ) ;
 break_statement = "break" ( postfix_guard | expression postfix_guard? )? ;
-exit_statement = "exit" line(expression) postfix_guard? ;
-fail_statement = "fail" line(expression ( "because" expression )?) postfix_guard? ;
+exit_statement = "exit" !( "as" | "is" ) line(expression) postfix_guard? ;
+fail_statement = "fail" !( "as" | "is" ) line(expression ( "because" expression )?) postfix_guard? ;
 wait_until_statement = "wait" "until" condition_expression "within" head_duration ( "every" head_duration | "backoff" backoff_range )? ;
 continue_statement = "continue" postfix_guard? ;
 defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
-expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "exit" "as" | "fail" "?" | "fail" "as" ) expression "?"? ;
-guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "exit" "as" | "fail" "?" | "fail" "as" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) expression postfix_guard ;
+expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" ) expression "?"? ;
+guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) expression postfix_guard ;
 guard_fail_statement = "guard" !"let" guard_condition "else" "fail" line(expression ( "because" expression )?) ;
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;

@@ -131,27 +131,28 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice], Error] {
     return Err(lsusb_failure("lsusb list output exceeds its bound"))
   }
 
-  var devices = []
   var seen: Set[Str] = set.empty()
-  for line in output.lines() {
-    continue when line.trim() == ""
-    let fields = words(line.trim())
-    if fields.len() < 6 or fields[0] != "Bus" or fields[2] != "Device" or ! fields[3].ends_with(":") or fields[4] != "ID" {
-      return Err(lsusb_failure("lsusb list row has an unsupported shape"))
+  let devices = collect {
+    for line in output.lines() {
+      continue when line.trim() == ""
+      let fields = words(line.trim())
+      if fields.len() < 6 or fields[0] != "Bus" or fields[2] != "Device" or ! fields[3].ends_with(":") or fields[4] != "ID" {
+        return Err(lsusb_failure("lsusb list row has an unsupported shape"))
+      }
+
+      let bus = decimal(fields[1])?
+      let device = decimal(fields[3].byte_slice(0, length: fields[3].byte_len() - 1))?
+      let ids = fields[5].split(":")
+      return Err(lsusb_failure("lsusb list row has invalid IDs")) when ids.len() != 2
+
+      let key = f"{bus}:{device}"
+      if bus <= 0 or device <= 0 or key in seen {
+        return Err(lsusb_failure("lsusb list has duplicate or invalid device identity"))
+      }
+
+      seen = seen.add(key)
+      yield {bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?}
     }
-
-    let bus = decimal(fields[1])?
-    let device = decimal(fields[3].byte_slice(0, length: fields[3].byte_len() - 1))?
-    let ids = fields[5].split(":")
-    return Err(lsusb_failure("lsusb list row has invalid IDs")) when ids.len() != 2
-
-    let key = f"{bus}:{device}"
-    if bus <= 0 or device <= 0 or key in seen {
-      return Err(lsusb_failure("lsusb list has duplicate or invalid device identity"))
-    }
-
-    seen = seen.add(key)
-    devices += [{bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?}]
   }
 
   devices |> sort-by f"{.bus}:{.device}"

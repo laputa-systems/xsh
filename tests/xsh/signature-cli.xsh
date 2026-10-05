@@ -296,7 +296,7 @@ cli main(root: Root, jobs: Int = 4, ...paths: List[Path]) [error] { guard jobs >
   )?
 }
 
-test test_signature_cli_rejects_imported_entries_and_unprepared_defaults { |ctx|
+test test_signature_cli_rejects_imported_entries_and_misplaced_defaults { |ctx|
   let root = test.temp_dir(ctx, name: "imported-entry")?
   fp"{root}/entry.xsh".write("##! Imported entry.\ncli main() [] {}\n")
   fp"{root}/main.xsh".write("use entry\n")
@@ -305,7 +305,6 @@ test test_signature_cli_rejects_imported_entries_and_unprepared_defaults { |ctx|
   assert "[check.cli-entry]" in imported.stderr, imported.stderr
 
   for source in [
-    "let jobs = 4\ncli main(jobs: Int = jobs) [] {}\n",
     "cli main(verbose: Bool = false, root: Path) [] {}\n",
     "type Count = UInt\ncli main(count: Count = -1) [] {}\n",
   ] {

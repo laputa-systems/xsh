@@ -714,7 +714,6 @@ proc scan_pures_in_file(
 
   let error_variants = extend_unique(corpus_error_variants, error_variant_names(text))
   let pure_functions = extend_unique(corpus_pure_functions, qualified_names(namespace, pure_function_names(text)))
-  var scans = []
   var in_pure = false
   var seen_body = false
   var depth = 0
@@ -725,27 +724,27 @@ proc scan_pures_in_file(
   var in_triple_string = false
   let newline = "\n"
 
-  for raw in text.lines() {
-    line_no += 1
-    let line = raw.trim()
-    let was_in_triple_string = in_triple_string
-    let line_scan = code_delimiter_scan(line, in_triple_string)
-    in_triple_string = line_scan.in_triple_string
+  let scans = collect {
+    for raw in text.lines() {
+      line_no += 1
+      let line = raw.trim()
+      let was_in_triple_string = in_triple_string
+      let line_scan = code_delimiter_scan(line, in_triple_string)
+      in_triple_string = line_scan.in_triple_string
 
-    if ! in_pure {
-      continue when was_in_triple_string or "\"\"\"" in line
+      if ! in_pure {
+        continue when was_in_triple_string or "\"\"\"" in line
 
-      if starts_pure(line) {
-        in_pure = true
-        seen_body = "{" in line
-        depth = line_scan.brace_delta
-        start_line = line_no
-        signature = line
-        body = if seen_body { line } else { "" }
+        if starts_pure(line) {
+          in_pure = true
+          seen_body = "{" in line
+          depth = line_scan.brace_delta
+          start_line = line_no
+          signature = line
+          body = if seen_body { line } else { "" }
 
-        if seen_body and depth <= 0 {
-          scans += [
-            pure_scan(
+          if seen_body and depth <= 0 {
+            yield pure_scan(
               path_text,
               start_line,
               signature,
@@ -754,40 +753,47 @@ proc scan_pures_in_file(
               record_types,
               error_variants,
               pure_functions,
-            ),
-          ]
+            )
 
-          in_pure = false
+            in_pure = false
+          }
         }
-      }
 
-      continue
-    }
-
-    if ! seen_body {
-      if line.starts_with("}") {
-        in_pure = false
         continue
       }
 
-      signature = f"{signature} {line}"
-      seen_body = "{" in line
+      if ! seen_body {
+        if line.starts_with("}") {
+          in_pure = false
+          continue
+        }
 
-      if seen_body {
-        body = line
+        signature = f"{signature} {line}"
+        seen_body = "{" in line
+
+        if seen_body {
+          body = line
+        }
+      } else {
+        body = f"{body}{newline}{line}"
       }
-    } else {
-      body = f"{body}{newline}{line}"
-    }
 
-    depth += line_scan.brace_delta
+      depth += line_scan.brace_delta
 
-    if seen_body and depth <= 0 {
-      scans += [
-        pure_scan(path_text, start_line, signature, body, lowered_methods, record_types, error_variants, pure_functions),
-      ]
+      if seen_body and depth <= 0 {
+        yield pure_scan(
+          path_text,
+          start_line,
+          signature,
+          body,
+          lowered_methods,
+          record_types,
+          error_variants,
+          pure_functions,
+        )
 
-      in_pure = false
+        in_pure = false
+      }
     }
   }
 
@@ -1281,7 +1287,6 @@ proc scan_script_statements_in_file(
 ) [fs, error] -> Result[List[ScriptScan]] {
   let text = script_path.read_text()?
   let path_text = script_path.strip_prefix(display_root)?.display()
-  var scans = []
   var pending_text = ""
   var pending_shape = ""
   var pending_line = 0
@@ -1291,62 +1296,111 @@ proc scan_script_statements_in_file(
   var in_triple_string = false
   var line_no = 0
 
-  for raw in text.lines() {
-    line_no += 1
-    let line = raw.trim()
-    let was_in_triple_string = in_triple_string
-    let line_scan = code_delimiter_scan(line, in_triple_string)
-    in_triple_string = line_scan.in_triple_string
+  let scans = collect {
+    for raw in text.lines() {
+      line_no += 1
+      let line = raw.trim()
+      let was_in_triple_string = in_triple_string
+      let line_scan = code_delimiter_scan(line, in_triple_string)
+      in_triple_string = line_scan.in_triple_string
 
-    if skip_depth > 0 {
-      skip_depth += line_scan.brace_delta
-
-      if skip_depth < 0 {
-        skip_depth = 0
-      }
-
-      continue
-    }
-
-    if skip_signature {
-      if "{" in line {
-        skip_depth = line_scan.brace_delta
+      if skip_depth > 0 {
+        skip_depth += line_scan.brace_delta
 
         if skip_depth < 0 {
           skip_depth = 0
         }
 
-        skip_signature = false
+        continue
       }
 
-      continue
+      if skip_signature {
+        if "{" in line {
+          skip_depth = line_scan.brace_delta
+
+          if skip_depth < 0 {
+            skip_depth = 0
+          }
+
+          skip_signature = false
+        }
+
+        continue
+      }
+
+      if pending_text != "" {
+        if pending_depth > 0 {
+          pending_text = append_scan_line(pending_text, line)
+          pending_depth += line_scan.delimiter_delta
+
+          if pending_depth < 0 {
+            pending_depth = 0
+          }
+
+          continue
+        }
+
+        if script_continuation_line(line) {
+          pending_text = append_scan_line(pending_text, line)
+          pending_depth += line_scan.delimiter_delta
+
+          if pending_depth < 0 {
+            pending_depth = 0
+          }
+
+          continue
+        }
+
+        continue when was_in_triple_string or in_triple_string
+
+        let reasons = script_region_reasons(
+          pending_shape,
+          pending_text,
+          lowered_methods,
+          corpus_error_variants,
+          corpus_pure_functions,
+        )
+
+        yield {
+          path: path_text,
+          line: pending_line,
+          shape: pending_shape,
+          lowerable: reasons.is_empty(),
+          reasons: reasons,
+        }
+
+        pending_text = ""
+        pending_shape = ""
+        pending_line = 0
+        pending_depth = 0
+      }
+
+      let shape = script_shape(line)
+
+      if shape != "" {
+        pending_text = line
+        pending_shape = shape
+        pending_line = line_no
+        pending_depth = line_scan.delimiter_delta
+
+        if pending_depth < 0 {
+          pending_depth = 0
+        }
+      } else {
+        if non_executable_signature_start(line) and ! ("{" in line) {
+          skip_signature = true
+          continue
+        }
+
+        skip_depth = line_scan.brace_delta
+
+        if skip_depth < 0 {
+          skip_depth = 0
+        }
+      }
     }
 
     if pending_text != "" {
-      if pending_depth > 0 {
-        pending_text = append_scan_line(pending_text, line)
-        pending_depth += line_scan.delimiter_delta
-
-        if pending_depth < 0 {
-          pending_depth = 0
-        }
-
-        continue
-      }
-
-      if script_continuation_line(line) {
-        pending_text = append_scan_line(pending_text, line)
-        pending_depth += line_scan.delimiter_delta
-
-        if pending_depth < 0 {
-          pending_depth = 0
-        }
-
-        continue
-      }
-
-      continue when was_in_triple_string or in_triple_string
-
       let reasons = script_region_reasons(
         pending_shape,
         pending_text,
@@ -1355,53 +1409,8 @@ proc scan_script_statements_in_file(
         corpus_pure_functions,
       )
 
-      scans += [
-        {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.is_empty(), reasons: reasons},
-      ]
-
-      pending_text = ""
-      pending_shape = ""
-      pending_line = 0
-      pending_depth = 0
+      yield {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.is_empty(), reasons: reasons}
     }
-
-    let shape = script_shape(line)
-
-    if shape != "" {
-      pending_text = line
-      pending_shape = shape
-      pending_line = line_no
-      pending_depth = line_scan.delimiter_delta
-
-      if pending_depth < 0 {
-        pending_depth = 0
-      }
-    } else {
-      if non_executable_signature_start(line) and ! ("{" in line) {
-        skip_signature = true
-        continue
-      }
-
-      skip_depth = line_scan.brace_delta
-
-      if skip_depth < 0 {
-        skip_depth = 0
-      }
-    }
-  }
-
-  if pending_text != "" {
-    let reasons = script_region_reasons(
-      pending_shape,
-      pending_text,
-      lowered_methods,
-      corpus_error_variants,
-      corpus_pure_functions,
-    )
-
-    scans += [
-      {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.is_empty(), reasons: reasons},
-    ]
   }
 
   scans
