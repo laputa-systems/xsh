@@ -104,16 +104,24 @@ test test_io_flush_stderr_preserves_captured_output {
   io.flush_stderr()?
 }
 
-test test_io_flush_stderr_reports_closed_descriptor { |ctx|
-  let output = test.run_script(ctx, """
-unix.close_fd(2)?
+test test_io_flush_stderr_reports_unwritable_descriptor { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{root}/unwritable-stderr.xsh"
+  script.write("""
 io.write_stderr("prompt")?
 match io.flush_stderr() {
   Err(failure) => { assert failure.errno == 9 }
-  Ok(_) => { assert false, "closed stderr accepted" }
+  Ok(_) => { assert false, "unwritable stderr accepted" }
 }
 print "reported EBADF"
-""")?
+""")
+  let output = test.run_script(ctx, r"""
+let xsh = applet.current_exe()?
+let script = e"SCRIPT"?
+let body = "exec 2</dev/null; exec \"$0\" \"$1\""
+let text = run.text sh -c $body $xsh $script ?
+io.write_stdout(text)?
+""", env: {SCRIPT: script})?
   assert output.success, output.stderr
   assert output.stdout == "reported EBADF\n"
 }
@@ -121,7 +129,8 @@ print "reported EBADF"
 test test_io_stdin_read_preserves_input_for_inherited_child { |ctx|
   let output = test.run_script(ctx, """
 assert io.stdin_read(1)? == b"a"
-assert run.bytes cat ? == b"bc"
+let remaining = run.bytes cat ?
+assert remaining == b"bc"
 """, stdin: b"abc")?
   assert output.success, output.stderr
 }
