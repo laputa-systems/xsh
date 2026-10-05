@@ -17,6 +17,8 @@ pub enum ErrorFacet {
     InvalidData,
     HostIo,
     ProcessFailure,
+    MissingExport,
+    MismatchedExport,
 }
 
 impl ErrorFacet {
@@ -31,6 +33,8 @@ impl ErrorFacet {
         Self::InvalidData,
         Self::HostIo,
         Self::ProcessFailure,
+        Self::MissingExport,
+        Self::MismatchedExport,
     ];
 
     /// The source spelling in `is Facet` patterns and `error` declarations.
@@ -46,6 +50,8 @@ impl ErrorFacet {
             Self::InvalidData => "InvalidData",
             Self::HostIo => "HostIo",
             Self::ProcessFailure => "ProcessFailure",
+            Self::MissingExport => "MissingExport",
+            Self::MismatchedExport => "MismatchedExport",
         }
     }
 
@@ -68,6 +74,24 @@ impl ErrorFacet {
             }
             Self::HostIo => "Any other host I/O failure.",
             Self::ProcessFailure => "A process could not be spawned, executed, or completed.",
+            Self::MissingExport => "A module lacks an export its contract requires.",
+            Self::MismatchedExport => {
+                "A module export has another kind or signature than its contract declares."
+            }
+        }
+    }
+
+    /// The module-contract check that raises the facet, for facets no
+    /// built-in family variant or host OS error implements.
+    pub const fn contract_check_source(self) -> Option<&'static str> {
+        match self {
+            Self::MissingExport => {
+                Some("a failed `.require(Contract)` on a module without a required export")
+            }
+            Self::MismatchedExport => Some(
+                "a failed `.require(Contract)` on a module whose export differs from the contract",
+            ),
+            _ => None,
         }
     }
 

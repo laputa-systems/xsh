@@ -51,6 +51,7 @@ use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
+mod module_contract;
 mod modules;
 mod require;
 #[cfg(feature = "native-tests")]

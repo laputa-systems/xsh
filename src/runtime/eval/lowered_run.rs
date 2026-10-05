@@ -27,7 +27,7 @@ use crate::runtime::value::{
     DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
     RunError, RuntimeError, StreamValue, Value, error_constructor, structured_error_constructor,
 };
-use crate::sema::types::{CallableType, ModuleExportType, Type};
+use crate::sema::types::Type;
 use crate::source::Span;
 use crate::symbol::QualifiedName;
 use crate::syntax::arena::ArenaProgram;
@@ -1349,62 +1349,6 @@ fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), R
         .map_err(|error| RuntimeError::host(operation, &error).with_span(span))
 }
 
-/// Whether a captured module-export signature satisfies the contract `expected`:
-/// same arity, matching (bidirectional) param types and rest flags, a defaulted
-/// flag that the contract permits, compatible return type, and the contract's
-/// effects match the function's declared effects exactly.
-fn lowered_signature_matches_contract(sig: &CallableType, expected: &CallableType) -> bool {
-    sig.params.len() == expected.params.len()
-        && sig
-            .params
-            .iter()
-            .zip(&expected.params)
-            .all(|(actual, expected)| {
-                actual.rest == expected.rest && actual.ty.matches_expected(&expected.ty)
-            })
-        && match (&sig.effects, &expected.effects) {
-            (None, None) => true,
-            (Some(actual), Some(expected)) => {
-                actual.iter().all(|effect| expected.contains(effect))
-                    && expected.iter().all(|effect| actual.contains(effect))
-            }
-            _ => false,
-        }
-        && sig.return_ty.matches_expected(&expected.return_ty)
-}
-
-fn lowered_module_matches_contract(
-    evaluator: &Evaluator,
-    module: &BTreeMap<Arc<str>, LoweredValue>,
-    exports: &BTreeMap<Name, ModuleExportType>,
-) -> bool {
-    exports.iter().all(|(name, export)| {
-        let name_text = name.as_str();
-        let Some(value) = module.get::<str>(name_text.as_str()) else {
-            return export.optional();
-        };
-        match export {
-            ModuleExportType::Value { ty, .. } => lowered_value_matches_static_type(value, ty),
-            ModuleExportType::Proc { sig, .. } => match value {
-                LoweredValue::Proc(function) => evaluator
-                    .lookup_module_export_signature(*function)
-                    .is_none_or(|captured| {
-                        !captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
-                    }),
-                _ => false,
-            },
-            ModuleExportType::Pure { sig, .. } => match value {
-                LoweredValue::Pure(function) => evaluator
-                    .lookup_module_export_signature(*function)
-                    .is_none_or(|captured| {
-                        captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
-                    }),
-                _ => false,
-            },
-        }
-    })
-}
-
 /// Builds a `module-load` error naming the module and its first diagnostics,
 /// so a failed `module.load` points at the broken file instead of only the
 /// loading call site.
@@ -1716,19 +1660,6 @@ fn validate_dynamic_module_top_level(
         }
     }
     Ok(())
-}
-
-pub(super) fn lowered_value_satisfies_require(
-    evaluator: &Evaluator,
-    value: &LoweredValue,
-    ty: &Type,
-) -> bool {
-    match (value, ty) {
-        (LoweredValue::Module(module), Type::Module(exports)) => {
-            lowered_module_matches_contract(evaluator, module, exports)
-        }
-        _ => lowered_value_matches_static_type(value, ty),
-    }
 }
 
 fn lowered_result_ok(value: LoweredValue) -> LoweredValue {

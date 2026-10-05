@@ -68,6 +68,122 @@ export proc build(root: Path) [fs, error] -> Result[Path] {
   assert module.load(builder_path)?.require(Builder)?.label("x") == bound.label("x")
 }
 
+type MissingOnly = module {
+  export let name: Str
+  export optional let description: Str
+  export let version: Int
+  export pure render(value: Str) -> Str
+}
+
+type MismatchedOnly = module {
+  export let name: Int
+  export pure label(value: Str, suffix: Str) -> Str
+  export proc build(root: Str) [fs, error] -> Result[Path]
+}
+
+type EffectsAndReturn = module {
+  export proc build(root: Path) [fs, process, error] -> Result[Path]
+  export pure label(value: Str) -> Int
+}
+
+type WrongKinds = module {
+  export proc label(value: Str) -> Str
+  export let build: Str
+  export pure name() -> Str
+}
+
+type MissingAndMismatched = module {
+  export let name: Int
+  export let version: Int
+}
+
+proc contract_fixture(ctx: TestContext) [fs, error] -> Result[Path] {
+  let root = test.temp_dir(ctx, name: "contract-report")?
+  let fixture = fp"{root}/fixture.xsh"
+  fixture.write("""##! Contract report fixture.
+
+## The fixture name.
+export let name: Str = "fixture"
+
+## Labels a value.
+export pure label(value: Str) -> Str {
+  f"label-{value}"
+}
+
+## Returns the root it was given.
+export proc build(root: Path) [fs, error] -> Result[Path] {
+  root.mkdir()?
+  root
+}
+""")?
+  fixture
+}
+
+# A failed contract check names every violation in one error, with the
+# expected and found signatures, and its facets say which categories occurred.
+test test_module_contract_failure_names_missing_exports { |ctx|
+  let fixture = contract_fixture(ctx)?
+  match module.load(fixture)?.require(MissingOnly) {
+    Ok(_) => test.fail("a module without required exports satisfied the contract")?
+    Err(error) => {
+      assert error is MissingExport
+      assert !(error is MismatchedExport)
+      assert "missing export `version`: expected `export let version: Int`" in error.message, error.message
+      assert "missing export `render`: expected `export pure render(value: Str) -> Str`" in error.message, error.message
+      assert "description" not in error.message, error.message
+      assert "`name`" not in error.message, error.message
+      assert "expected Module, found Module" not in error.message, error.message
+    }
+  }
+}
+
+test test_module_contract_failure_names_mismatched_exports { |ctx|
+  let fixture = contract_fixture(ctx)?
+  match module.load(fixture)?.require(MismatchedOnly) {
+    Ok(_) => test.fail("a module with other signatures satisfied the contract")?
+    Err(error) => {
+      assert error is MismatchedExport
+      assert !(error is MissingExport)
+      assert "mismatched export `name`: expected `export let name: Int`, found `export let name: Str` (the value type differs)" in error.message, error.message
+      assert "mismatched export `label`: expected `export pure label(value: Str, suffix: Str) -> Str`, found `export pure label(value: Str) -> Str` (the contract declares 2 parameters, the export takes 1 parameter)" in error.message, error.message
+      assert "mismatched export `build`: expected `export proc build(root: Str) [fs, error] -> Result[Path, Error]`, found `export proc build(root: Path) [fs, error] -> Result[Path, Error]` (parameter 1 has type Path, the contract declares Str)" in error.message, error.message
+    }
+  }
+
+  match module.load(fixture)?.require(EffectsAndReturn) {
+    Ok(_) => test.fail("a module with other effects satisfied the contract")?
+    Err(signature) => {
+      assert signature is MismatchedExport
+      assert "(the effects are [fs, error], the contract declares [fs, process, error])" in signature.message, signature.message
+      assert "(the return type is Str, the contract declares Int)" in signature.message, signature.message
+    }
+  }
+
+  match module.load(fixture)?.require(WrongKinds) {
+    Ok(_) => test.fail("a module with other export kinds satisfied the contract")?
+    Err(kinds) => {
+      assert kinds is MismatchedExport
+      assert "(the contract declares a proc, the module exports a pure function)" in kinds.message, kinds.message
+      assert "(the contract declares a value, the module exports a callable)" in kinds.message, kinds.message
+      assert "(the contract declares a callable, the module exports a value)" in kinds.message, kinds.message
+    }
+  }
+}
+
+test test_module_contract_failure_reports_both_categories { |ctx|
+  let fixture = contract_fixture(ctx)?
+  match module.load(fixture)?.require(MissingAndMismatched) {
+    Ok(_) => test.fail("an unsatisfied contract succeeded")?
+    Err(error) => {
+      assert error is MissingExport
+      assert error is MismatchedExport
+      assert "mismatched export `name`" in error.message, error.message
+      assert "missing export `version`" in error.message, error.message
+      test.error_kind(error, "schema")?
+    }
+  }
+}
+
 type VersionedModule = module {
   export let version: Int
 }

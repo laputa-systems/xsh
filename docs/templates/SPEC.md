@@ -545,6 +545,19 @@ not contract members. Loading the same file again returns the same exports
 while the module and its imports are unchanged on disk, and reloads it once
 they change.
 
+A failed `.require(Contract)` on a module reports every violation in one
+error, not only the first. Its message names each missing required export
+with the signature the contract expects, and each mismatched export with the
+expected signature, the found signature, and what differs (the kind, the value
+type, the parameter count, one parameter, the effects, or the return type).
+The error implements `MissingExport` when a required export is absent and
+`MismatchedExport` when an export has another kind or signature; one failure
+implements both when both occur.
+
+```xsh
+{{.spec.module_contract_failure.source}}
+```
+
 ### 4.10 Errors
 
 `Error` is the common structured error. Programs declare nominal error

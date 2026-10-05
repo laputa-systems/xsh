@@ -344,6 +344,9 @@ fn facet_doc(facet: ErrorFacet) -> ReferenceDoc {
     } else if !host_kinds.is_empty() {
         sources.push(format!("host OS errors of kind {}", host_kinds.join(", ")));
     }
+    if let Some(source) = facet.contract_check_source() {
+        sources.push(source.to_string());
+    }
     let name = facet.name();
     reference_doc_full(
         facet.summary(),
