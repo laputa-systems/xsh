@@ -23,9 +23,9 @@ fn output_text(bytes: &[u8]) -> String {
 fn grep_reaches_boolean_guard_condition_and_failure_body() {
     let file = temp_xsh(
         "boolean_guard",
-        "proc work(value: Str) [] { guard value.contains(\"ready\") else { abort(7) } }\n",
+        "proc work(value: Str) [] { guard value.contains(\"ready\") else { fail(7) } }\n",
     );
-    for pattern in ["RECEIVER.contains(EXPR)", "abort(EXPR)"] {
+    for pattern in ["RECEIVER.contains(EXPR)", "fail(EXPR)"] {
         let output = grep_scripts(pattern, &paths(&file));
         assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
         assert!(output_text(&output.stdout).contains("1 match"));

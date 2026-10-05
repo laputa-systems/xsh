@@ -414,7 +414,6 @@ fn xsht_check_annotate_skips_unsafe_or_unhelpful_types() {
         r#"let {name} = {name: "demo"}
 let data = json.decode("{}")?
 let row = {name: "demo"}
-let unit = abort(0)
 "#,
     )
     .expect("write temp script");
@@ -429,7 +428,6 @@ let unit = abort(0)
         r#"let {name} = {name: "demo"}
 let data = json.decode("{}")?
 let row = {name: "demo"}
-let unit = abort(0)
 "#
     );
 

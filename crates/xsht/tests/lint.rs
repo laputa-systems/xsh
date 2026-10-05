@@ -3180,10 +3180,10 @@ proc work() {
 }
 
 #[test]
-fn linter_reports_dead_code_after_checker_proven_abort() {
+fn linter_reports_dead_code_after_exit() {
     let source = "\
 proc main() {
-  abort(0)
+  exit 0
   print \"unreachable\"
 }
 ";

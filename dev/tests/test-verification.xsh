@@ -91,7 +91,7 @@ use verify
 proc main() [fs, process, error, io] -> Result[Unit] {{
   let ctx: context.Context = {verification_context_source(root)}
   match verify.binary(ctx, "xsh", false) {{
-    Ok(_) => abort(1)
+    Ok(_) => exit 1
     Err(error) => print ${{error.message}}
   }}
 }}
@@ -123,7 +123,7 @@ use verify
 proc main() [fs, process, error, io] -> Result[Unit] {{
   let ctx: context.Context = {verification_context_source(root)}
   match verify.binary(ctx, "xsh", false) {{
-    Ok(_) => abort(1)
+    Ok(_) => exit 1
     Err(error) => print ${{error.message}}
   }}
 }}

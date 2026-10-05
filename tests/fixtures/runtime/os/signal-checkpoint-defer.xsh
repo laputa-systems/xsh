@@ -3,7 +3,7 @@ let helper = fp"{args[1]}"
 
 on USR1 [fs, error] {
   marker.write("hook")?
-  abort(0)
+  exit 0
 }
 
 defer time.sleep(5s)?

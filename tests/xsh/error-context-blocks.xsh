@@ -109,7 +109,7 @@ test test_ctx_does_not_convert_abort_into_an_error { |ctx|
     ctx,
     r"""ctx "abort region" {
   defer { print "cleanup" }
-  abort(17)
+  exit 17
 }
 """,
   )?

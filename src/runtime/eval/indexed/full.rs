@@ -8227,19 +8227,10 @@ impl_node_codec! {
             entries: Vec<LoweredProcessCommandBuilderEntry>,
             span: Span,
         } => BuildExprRow::ProcessCommandBuilder { entries, span },
-        BuildExprRow::Abort {
-            status,
-            force,
-            span,
-        } => ExprAbort {
+        BuildExprRow::Abort { status, span } => ExprAbort {
             status: BuildExprId,
-            force: Option<BuildExprId>,
             span: Span,
-        } => BuildExprRow::Abort {
-            status,
-            force,
-            span,
-        },
+        } => BuildExprRow::Abort { status, span },
         BuildExprRow::Fail { message, span } => ExprFail {
             message: BuildExprId,
             span: Span,
@@ -11744,39 +11735,6 @@ proc local() [env, error] -> Int {
                 )
                 .expect("scope function exists");
             assert_eq!(result.unwrap(), Value::Int(7));
-            assert_eq!(evaluator.env.snapshot_clone(), original_env);
-        });
-    }
-
-    #[test]
-    fn context_scope_force_abort_restores_evaluator_state_on_both_routes() {
-        run_with_large_stack(|| {
-            let source = r#"proc fail() [io, error] -> Int { abort(23, force: true); 9 }
-proc scoped() [io, error] -> Int {
-  let ignored = cd (p"/") {
-    let ignored = env ({XSH_FORCE_SCOPE: "inner"}) { fail() }
-    7
-  }
-  99
-}
-"#;
-            let program = Arc::new(fixture("context-scope-force.xsh", source));
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                .with_env_var(b"XSH_FORCE_SCOPE".to_vec(), b"outer".to_vec())
-                .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
-            let original_cwd = evaluator.cwd.clone();
-            let original_env = evaluator.env.snapshot_clone();
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            let result = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "scoped")),
-                    LoweredFunctionKind::Proc,
-                    &[],
-                    Span::new(program.store.source_id, 0, 0),
-                )
-                .expect("scope function exists");
-            assert!(result.unwrap_err().abort.is_some_and(|signal| signal.force));
-            assert_eq!(evaluator.cwd, original_cwd);
             assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
     }

@@ -82,7 +82,7 @@ test test_boolean_guard_condition_error_keeps_identity_and_skips_failure { |ctx|
     ctx,
     """error GuardError = condition(message: Str)
 pure rejected() -> Result[Bool] { Err(GuardError.condition(message: "condition failed")) }
-guard rejected()? else { abort(7) }
+guard rejected()? else { exit 7 }
 print "unreachable"
 """,
   )?
@@ -96,7 +96,7 @@ test test_boolean_guard_false_status_uses_author_failure { |ctx|
   let output = test.run_script(
     ctx,
     """let status = run false
-guard status else { abort(7) }
+guard status else { exit 7 }
 print "unreachable"
 """,
   )?
@@ -112,17 +112,17 @@ test test_boolean_guard_rejects_fallthrough_and_parameters { |ctx|
       code: "check.guard-fallthrough",
     },
     {
-      source: """guard true else { |failure| abort(1) }
+      source: """guard true else { |failure| exit 1 }
 """,
       code: "check.block-params",
     },
     {
-      source: """guard 1 else { abort(1) }
+      source: """guard 1 else { exit 1 }
 """,
       code: "check.if-condition",
     },
     {
-      source: """guard Ok(true) else { abort(1) }
+      source: """guard Ok(true) else { exit 1 }
 """,
       code: "check.if-condition",
     },

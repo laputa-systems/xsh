@@ -760,7 +760,7 @@ fn signal_hook_usr1_abort_exits_with_requested_status() {
     let source = "\
 on USR1 [] {
   print \"hook\"
-  abort(0)
+  exit 0
 }
 
 run sh -c r\"kill -USR1 $PPID; sleep 1\" ?
@@ -796,7 +796,7 @@ print \"after\"
 fn signal_hook_trace_records_shutdown_path() {
     let source = "\
 on USR1 [] {
-  abort(0)
+  exit 0
 }
 
 run sh -c r\"kill -USR1 $PPID; sleep 1\" ?
@@ -819,7 +819,7 @@ fn signal_hook_repeated_signal_emits_escalation_once() {
 on USR1 [process, time, error] {
   let _hook_sender = process.spawn(process.command_argv(\"sh\", [\"sh\", \"-c\", r\"sleep 0.05; kill -USR1 $PPID\"]))?
   time.sleep(1s)?
-  abort(0)
+  exit 0
 }
 
 let _outer_sender = process.spawn(process.command_argv(\"sh\", [\"sh\", \"-c\", r\"sleep 0.05; kill -USR1 $PPID\"]))?
@@ -841,7 +841,7 @@ fn signal_hook_interrupts_time_sleep_promptly() {
     let source = "\
 on USR1 [] {
   print \"hook\"
-  abort(0)
+  exit 0
 }
 
 let _sender = process.spawn(process.command_argv(\"sh\", [\"sh\", \"-c\", r\"sleep 0.05; kill -USR1 $PPID\"]))?
@@ -871,7 +871,7 @@ let marker = Path({})
 
 on USR1 [fs, error] {{
   defer marker.write("defer")?
-  abort(0)
+  exit 0
 }}
 
 run sh -c r"kill -USR1 $PPID; sleep 1" ?
@@ -888,37 +888,6 @@ run sh -c r"kill -USR1 $PPID; sleep 1" ?
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn signal_hook_force_abort_skips_hook_and_outer_defers() {
-    let hook_marker = temp_path("signal-hook-force-hook-defer");
-    let outer_marker = temp_path("signal-hook-force-outer-defer");
-    let _ = std::fs::remove_file(&hook_marker);
-    let _ = std::fs::remove_file(&outer_marker);
-    let source = format!(
-        r#"
-let hook_marker = Path({})
-let outer_marker = Path({})
-
-on USR1 [fs, error] {{
-  defer hook_marker.write("hook")
-  abort(0, force: true)
-}}
-
-defer outer_marker.write("outer")
-run sh -c r"kill -USR1 $PPID; sleep 1" ?
-"#,
-        xsh_string_literal(hook_marker.to_str().unwrap()),
-        xsh_string_literal(outer_marker.to_str().unwrap())
-    );
-
-    let output = run_temp_script("signal-hook-force-abort", &source);
-
-    assert_eq!(output.status.code(), Some(0));
-    assert!(!hook_marker.exists());
-    assert!(!outer_marker.exists());
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[test]
 fn signal_hook_runs_during_outer_defer_then_cleanup_resumes() {
     let hook_marker = temp_path("signal-hook-outer-defer-hook");
     let cleanup_marker = temp_path("signal-hook-outer-defer-cleanup");
@@ -931,7 +900,7 @@ let cleanup_marker = Path({})
 
 on USR1 [fs, error] {{
   hook_marker.write("hook")?
-  abort(0)
+  exit 0
 }}
 
 defer cleanup_marker.write("cleanup")?
@@ -957,7 +926,7 @@ fn signal_hook_owned_process_work_ignores_primary_signal() {
     let source = "\
 on USR1 [process, error] {
   run sh -c \"printf hook\" ?
-  abort(0)
+  exit 0
 }
 
 run sh -c r\"kill -USR1 $PPID; sleep 1\" ?
@@ -980,7 +949,7 @@ let marker = Path({})
 
 on USR1 --pre-cancel=0ms [time, error] {{
   time.sleep(300ms)?
-  abort(0)
+  exit 0
 }}
 
 let command = process.command_argv("sh", ["sh", "-c", r"trap 'printf forwarded > $1; exit 0' USR1; kill -USR1 $PPID; while :; do sleep 1; done", "sh", marker.display()])
@@ -1001,7 +970,7 @@ let _ = process.run(command)?
 fn signal_hook_abort_status_survives_time_measure_child_cancellation() {
     let source = "\
 on USR1 [] {
-  abort(0)
+  exit 0
 }
 
 let command = process.command_argv(\"sh\", [\"sh\", \"-c\", r\"kill -USR1 $PPID; sleep 1\"])

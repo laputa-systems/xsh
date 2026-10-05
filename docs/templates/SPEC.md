@@ -1557,8 +1557,8 @@ means exactly
 ```
 
 with one rule the `if` does not have: the block must leave the enclosing
-continuation on every path (by `return`, `break`, `continue`, `exit`, or a
-terminating call such as `abort`), or the checker reports `check.guard-fallthrough`. A
+continuation on every path (by `return`, `break`, `continue`, or `exit`), or
+the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
 
@@ -1634,7 +1634,7 @@ run. The original failure stays primary; if there was none, the first cleanup
 failure becomes primary, and later cleanup failures are reported with their
 locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
-the block's defers run (11.8). `abort(status, force: true)` skips cleanup.
+the block's defers run (11.8).
 
 `errdefer action` or `errdefer { ... }` registers cleanup that runs only when
 control leaves the enclosing block with an error:
@@ -1654,7 +1654,7 @@ an error when
   at an enclosing `try` or `retry`;
 - the function returns an `Err` through it, by `return` or as the function's
   tail value;
-- `abort` without `force`, or cancellation, unwinds through it; or
+- `exit`, or cancellation, unwinds through it; or
 - one of its own deferred actions, registered later, fails.
 
 It leaves without an error on normal completion, on `break` and `continue`,
@@ -1666,7 +1666,8 @@ attempt. A stream producer that its consumer stops early leaves without an
 error. A failing `errdefer` action is a cleanup failure like any other: the
 failure that triggered it stays primary, the other actions still run, and the
 cleanup failure is reported with its location. At the top level, the scope is
-the script, and it leaves with an error when the script fails or aborts.
+the script, and it leaves with an error when the script fails or exits with
+`exit`.
 
 `tempdir name at path { ... }` runs its block with a scratch directory at a
 path the program chooses. It is sugar, defined by its expansion:
@@ -1776,12 +1777,6 @@ begins with the word `exit` followed, on the same line, by its status, in the
 position where a command named `exit` would otherwise be read (10.1);
 `exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
 call of a binding named `exit`.
-
-`abort(status: Int, force: Bool = false)` is the older built-in call.
-`abort(status)` means `exit status`, and `lint.prefer-exit` rewrites it.
-`abort(status, force: true)` exits without unwinding: no deferred action
-runs, including the ones still pending when it is called from a deferred
-action or a signal hook, and scoped processes are not cleaned up.
 
 ## 9. Functions
 

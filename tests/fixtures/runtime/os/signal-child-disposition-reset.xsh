@@ -2,7 +2,7 @@ let helper = fp"{args[0]}"
 let marker = fp"{args[1]}"
 
 on USR1 [] {
-  abort(99)
+  exit 99
 }
 
 let status = process.run(process.command_argv(helper, ["os-probe", "self-signal", "USR1", marker.display()]))?

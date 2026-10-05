@@ -68,7 +68,7 @@ fn signal_hook_runs_from_parallel_stream_parent_checkpoint() {
     let source = "\
 on USR1 [] {
   print \"hook\"
-  abort(0)
+  exit 0
 }
 
 let _sender = process.spawn(process.command_argv(\"sh\", [\"sh\", \"-c\", r\"sleep 0.05; kill -USR1 $PPID\"]))?

@@ -43,12 +43,12 @@ test test_desugar_keeps_exit_as_written { |ctx|
   assert "exit 4" in shown.stdout and "abort" not in shown.stdout, shown.stdout
 }
 
-test test_abort_with_a_status_means_exit { |ctx|
-  for statement in ["exit 9", "abort(9)"] {
-    let output = test.run_script(ctx, f"defer {{ print \"deferred\" }}\n{statement}\n")?
-    assert output.status == 9, f"{statement}: {output.stderr}"
-    assert output.stdout == "deferred\n", statement
-  }
+test test_abort_is_gone_and_names_exit { |ctx|
+  let output = test.run_script(ctx, "abort(9)\n")?
+  assert ! output.success
+  assert "err[check.unresolved-call]" in output.stderr, output.stderr
+  assert "`abort` was removed; a deliberate exit is the statement `exit STATUS`" in output.stderr, output.stderr
+  assert "-> exit 9" in output.stderr, output.stderr
 }
 
 test test_exit_is_not_a_reserved_word { |ctx|
@@ -78,19 +78,4 @@ test test_fmt_and_highlight_know_the_exit_statement { |ctx|
   assert file.read_text()? == "let ok = false\n\nif ! ok {\n  exit 2\n}\n"
   let shown = run.capture --text "xsht" highlight $file ?
   assert r"""{"kind":"keyword","text":"exit"}""" in shown.stdout, shown.stdout
-}
-
-test test_lint_rewrites_abort_statements { |ctx|
-  let source = "proc finish(code: Int) {\n  defer { print \"cleanup\" }\n  if code > 0 {\n    abort(code)\n  }\n  abort(0, force: true)\n}\n\nfinish(6)\n"
-  let file = test.temp_file(ctx, name: "aborts.xsh", contents: bytes.from_text(source))?
-  let reported = run.capture --text "xsht" lint --only lint.prefer-exit $file ?
-  assert reported.stderr.split("warn[lint.prefer-exit]").len() == 2, reported.stderr
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-exit $file ?
-  let rewritten = file.read_text()?
-  assert "    exit code\n" in rewritten, fixed.stderr
-  # A forced abort skips cleanup, which `exit` never does.
-  assert "  abort(0, force: true)\n" in rewritten, rewritten
-  let output = test.run_script(ctx, rewritten)?
-  assert output.status == 6, output.stderr
-  assert output.stdout == "cleanup\n"
 }

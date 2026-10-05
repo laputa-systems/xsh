@@ -162,11 +162,6 @@ struct LoweredHashVerifyFileArgs {
     expected: ExprId,
 }
 
-struct LoweredAbortArgs {
-    status: ExprId,
-    force: Option<ExprId>,
-}
-
 struct LoweredProcessCommandArgvArgs {
     target: ExprId,
     argv: ExprId,
@@ -228,31 +223,6 @@ fn script_argument_slots<'p>(
             .zip(params)
             .all(|(public, param)| public.name == param.name))
     .then_some(plan.argument_slots.as_slice())
-}
-
-fn lower_abort_args(args: &[ArenaCallArg]) -> Option<LoweredAbortArgs> {
-    let first = args.first()?;
-    let status = match &first.kind {
-        ArenaCallArgKind::Positional(value) => *value,
-        ArenaCallArgKind::Named { name, value, .. } if *name == "status" => *value,
-        ArenaCallArgKind::Named { .. }
-        | ArenaCallArgKind::Splice { .. }
-        | ArenaCallArgKind::NamedSpread { .. } => return None,
-    };
-    let force = match args.get(1).map(|arg| &arg.kind) {
-        None => None,
-        Some(ArenaCallArgKind::Positional(value)) => Some(*value),
-        Some(ArenaCallArgKind::Named { name, value, .. }) if *name == "force" => Some(*value),
-        Some(
-            ArenaCallArgKind::Named { .. }
-            | ArenaCallArgKind::Splice { .. }
-            | ArenaCallArgKind::NamedSpread { .. },
-        ) => return None,
-    };
-    if args.len() > 2 {
-        return None;
-    }
-    Some(LoweredAbortArgs { status, force })
 }
 
 fn lower_process_command_argv_args(
@@ -10836,31 +10806,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(self.wrap_argument_bindings(value, bindings, span))
             }
             ArenaExprKind::Ident(name) => {
-                if name == "abort" {
-                    let options = lower_abort_args(&args_vec)?;
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Abort {
-                            status: self.lower_expr(
-                                options.status,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?,
-                            force: match options.force {
-                                Some(expr) => Some(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?),
-                                None => None,
-                            },
-                            span,
-                        }
-                    ));
-                }
                 let positional = positional_call_args(&args_vec);
                 if let Some(arity) = self.compact_tag_variant_arity(name) {
                     let positional = positional.as_ref()?;
@@ -12993,7 +12938,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             expr,
             BuildExprRow::Abort {
                 status: self.lower_expr(status, slots, current_function, item_slot)?,
-                force: None,
                 span,
             }
         ))

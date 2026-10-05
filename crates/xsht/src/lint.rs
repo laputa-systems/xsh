@@ -60,8 +60,6 @@ mod lint_optional_binding;
 #[path = "lint_run_argv.rs"]
 mod lint_run_argv;
 
-#[path = "lint_exit.rs"]
-mod lint_exit;
 #[path = "lint_redundant_propagation.rs"]
 mod lint_redundant_propagation;
 
@@ -516,7 +514,6 @@ pub struct Linter<'a> {
     propagation_boundary_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
     size_products: lint_size_literal::SizeProducts,
-    exit_statements: lint_exit::ExitStatements,
     statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
@@ -697,7 +694,6 @@ impl<'a> Linter<'a> {
             propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
             size_products: lint_size_literal::SizeProducts::default(),
-            exit_statements: lint_exit::ExitStatements::default(),
             statically_resolved_call_spans: options.statically_resolved_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             redundant_variant_qualifiers: options.redundant_variant_qualifiers,
@@ -1826,14 +1822,6 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
             ArenaStmtKind::TailBareIdent(name) => self.mark_used(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => {
-                if let Some(diagnostic) = self.exit_statements.visit_statement(
-                    self.arena,
-                    self.source,
-                    &self.terminating_call_spans,
-                    expr,
-                ) {
-                    self.diagnostics.push(diagnostic);
-                }
                 let span = self.arena.expr(expr).span;
                 if self.statement_expression_spans.contains(&span) {
                     let inner = match self.arena.expr(expr).kind {
@@ -12029,13 +12017,6 @@ impl LintExprVisitor<'_, '_> {
                 .size_products
                 .visit(self.linter.arena, self.linter.source, expr)
         {
-            self.linter.diagnostics.push(diagnostic);
-        }
-        if let Some(diagnostic) = self.linter.exit_statements.visit_expr(
-            self.linter.arena,
-            &self.linter.terminating_call_spans,
-            expr,
-        ) {
             self.linter.diagnostics.push(diagnostic);
         }
         if let Some(diagnostic) = lint_run_argv::run_argv_diagnostic(

@@ -3,7 +3,7 @@ error FetchError = Busy(message: Str)
 
 on USR1 [] {
   print "hook"
-  abort(0)
+  exit 0
 }
 
 proc attempt() -> Result[Str, FetchError] {

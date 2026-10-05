@@ -315,7 +315,7 @@ print (value is Err(_))
   let aborted = test.run_script(
     ctx,
     """
-let value: Result[Unit] = try { abort(9) }
+let value: Result[Unit] = try { exit 9 }
 print "unexpected"
 """,
   )?

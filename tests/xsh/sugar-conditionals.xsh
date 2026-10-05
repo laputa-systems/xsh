@@ -18,9 +18,9 @@ test test_sugar_conditions_report_as_if_conditions { |ctx|
 """,
     """pure pick() -> Int { return 1 unless 2; return 3 }
 """,
-    """guard 1 else { abort(1) }
+    """guard 1 else { exit 1 }
 """,
-    """if 1 { abort(1) }
+    """if 1 { exit 1 }
 """,
   ] {
     let reported = first_diagnostic(ctx, source)?

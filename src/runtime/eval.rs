@@ -1826,7 +1826,6 @@ enum BuildExprRow {
     },
     Abort {
         status: BuildExprId,
-        force: Option<BuildExprId>,
         span: Span,
     },
     Fail {

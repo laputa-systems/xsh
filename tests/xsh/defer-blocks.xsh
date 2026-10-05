@@ -263,50 +263,6 @@ outer
 """
 }
 
-test test_defer_block_force_abort_skips_remaining_actions { |ctx|
-  let output = test.run_script(
-    ctx,
-    r"""
-proc exercise() [] {
-  defer { print "skipped" }
-  defer { abort(9, force: true) }
-}
-exercise()
-""",
-  )?
-  assert output.status == 9
-  assert output.stdout == ""
-}
-
-test test_defer_block_force_abort_during_failure_keeps_force_status { |ctx|
-  let output = test.run_script(
-    ctx,
-    r"""
-proc exercise() [error] {
-  defer { print "skipped" }
-  defer { abort(9, force: true) }
-  let _ = "primary".parse_int()?
-}
-exercise()?
-""",
-  )?
-  assert output.status == 9
-  assert output.stdout == ""
-}
-
-test test_defer_block_top_level_force_abort_during_failure { |ctx|
-  let output = test.run_script(
-    ctx,
-    r"""
-defer { print "skipped" }
-defer { abort(9, force: true) }
-let _ = "primary".parse_int()?
-""",
-  )?
-  assert output.status == 9
-  assert output.stdout == ""
-}
-
 test test_defer_blocks_reject_delegated_yield_during_checking { |ctx|
   let output = test.run_script(
     ctx,

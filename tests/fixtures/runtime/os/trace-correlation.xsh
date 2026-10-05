@@ -2,7 +2,7 @@ let helper = fp"{args[0]}"
 
 on USR1 --pre-cancel=0ms [time, error] {
   time.sleep(50ms)?
-  abort(0)
+  exit 0
 }
 
 let command = process.command_argv(

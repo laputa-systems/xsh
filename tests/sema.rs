@@ -509,7 +509,7 @@ let marker = Path("/tmp/xsh-signal")
 
 on SIGINT [fs, error] {
   marker.write("interrupted\n")?
-  abort(130)
+  exit 130
 }
 "#,
     );

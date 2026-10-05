@@ -77,12 +77,12 @@ proc main(...argv: List[Str]) [fs, env, process, error] {
   }
   match outcome {
     Err(ProcessError.UnexpectedExit {status: child_status}) => {
-      guard child_status != null else { abort(99) }
+      guard child_status != null else { exit 99 }
       test.ok(child_status.ok)?
       test.eq(child_status.exit_code()?, 0)?
       print "rejected zero"
     }
-    _ => abort(98)
+    _ => exit 98
   }
   test.eq(fs.cwd()?, original)?
   test.eq(env.get("XSH_ACCEPT_SCOPE")?, "consumer")?
@@ -113,12 +113,12 @@ proc validate(item: Int) [process, error] -> Int {
 let outcome = try { let values = [1, 2] |> map(validate) }
 match outcome {
   Err(ProcessError.UnexpectedExit {status: child_status}) => {
-    guard child_status != null else { abort(99) }
+    guard child_status != null else { exit 99 }
     test.ok(child_status.ok)?
     test.eq(child_status.exit_code()?, 0)?
     print "rejected zero"
   }
-  _ => abort(98)
+  _ => exit 98
 }
 """,
   )?
@@ -204,11 +204,11 @@ let translated: Result[Unit, OuterError] = match original {
   Err(failure) => {
     match failure {
       ProcessError.UnexpectedExit {status: child_status} => {
-        guard child_status != null else { abort(99) }
+        guard child_status != null else { exit 99 }
         test.ok(child_status.ok)?
         test.eq(child_status.exit_code()?, 0)?
       }
-      _ => abort(98)
+      _ => exit 98
     }
     Err(OuterError.Failed(message: "translated"), cause: failure)
   }
@@ -217,7 +217,7 @@ let translated: Result[Unit, OuterError] = match original {
 let transported: Result[Unit, OuterError] = try { ctx "transport" { translated? } }
 match transported {
   Err(failure) => ctx "publish" { Err(failure)? }
-  _ => abort(96)
+  _ => exit 96
 }
 """,
       ["--raw", "--trace-format", "jsonl"],

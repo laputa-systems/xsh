@@ -7748,7 +7748,6 @@ impl Evaluator {
             }
             FullTag::ExprAbort => {
                 let status = indexed_raw(&mut payload, call_span)?;
-                let force = indexed_optional_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let status = match self.eval_indexed_expr(execution, status, slots, span)? {
@@ -7756,29 +7755,15 @@ impl Evaluator {
                     ControlFlow::Continue(value) => {
                         return Err(RuntimeError::new(
                             "type-error",
-                            format!("abort status expected Int, found {}", value.type_name()),
+                            format!("exit status expected Int, found {}", value.type_name()),
                         )
                         .with_span(span));
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let force = match force {
-                    Some(force) => match self.eval_indexed_expr(execution, force, slots, span)? {
-                        ControlFlow::Continue(LoweredValue::Bool(value)) => value,
-                        ControlFlow::Continue(value) => {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!("abort force expected Bool, found {}", value.type_name()),
-                            )
-                            .with_span(span));
-                        }
-                        ControlFlow::Break(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                    },
-                    None => false,
-                };
-                return Err(RuntimeError::abort(status, force).with_span(span));
+                // A script's own exit always unwinds; only a forced harness
+                // cancellation skips cleanup.
+                return Err(RuntimeError::abort(status, false).with_span(span));
             }
             FullTag::ExprFail => {
                 let message = indexed_raw(&mut payload, call_span)?;

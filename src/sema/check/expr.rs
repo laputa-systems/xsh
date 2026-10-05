@@ -3482,8 +3482,6 @@ mod arena_tests {
         assert_arena_matches_raised("let x = Err(\"boom\")");
         assert_arena_matches_raised("let x = Error(kind: \"x\")");
         assert_arena_matches_raised("let x = ProcessError()");
-        assert_arena_matches_raised("let x = abort(1)");
-        assert_arena_matches_raised("let x = abort(1, force: true)");
         assert_arena_matches_raised("let x = env(\"HOME\")");
         assert_arena_matches_raised("let x = Path(\"a/b\")");
         assert_arena_matches_raised("let x = range(1, 10)");

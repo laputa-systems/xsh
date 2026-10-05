@@ -257,7 +257,7 @@ test test_err_typed_cause_abort_operand_keeps_control_transfer { |ctx|
     r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
-proc cause() -> InnerError { abort(17); InnerError.Failed(message: "unreachable") }
+proc cause() -> InnerError { exit 17; InnerError.Failed(message: "unreachable") }
 let translated: Result[Unit] = try { let data: Result[Unit, OuterError] = Err(OuterError.Failed(message: "outer"), cause: cause()) }
 print "wrong after abort"
 """,
@@ -369,7 +369,7 @@ match original_result {
     }
     captured?
   }
-  _ => abort(19)
+  _ => exit 19
 }
 """,
   )?

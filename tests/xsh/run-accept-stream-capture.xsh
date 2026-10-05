@@ -10,12 +10,12 @@ let rejected: Result[Unit, ProcessError] = try {
 }
 match rejected {
   Err(ProcessError.UnexpectedExit {status: child_status}) => {
-    guard child_status != null else { abort(99) }
+    guard child_status != null else { exit 99 }
     test.ok(child_status.ok)?
     test.eq(child_status.exit_code()?, 0)?
     print "captured"
   }
-  _ => abort(98)
+  _ => exit 98
 }
 """,
   )?
@@ -39,7 +39,7 @@ let rejected: Result[Unit, ProcessError] = try {
 }
 match rejected {
   Err(ProcessError.InvalidUtf8) => print "captured decode"
-  _ => abort(98)
+  _ => exit 98
 }
 """,
   )?

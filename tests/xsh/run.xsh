@@ -517,7 +517,7 @@ defer run printf "%s\\n" top ?
 
 proc main() -> Result[Unit] {
   defer run printf "%s\\n" proc ?
-  abort(9)
+  exit 9
   return Ok()
 }
 
@@ -538,30 +538,11 @@ top
 
   assert abort_with_defers.stderr == ""
 
-  let forced = test.run_script(
-    ctx,
-    """
-defer run printf "%s\\n" top ?
-
-proc main() -> Result[Unit] {
-  defer run printf "%s\\n" proc ?
-  abort(11, force: true)
-  return Ok()
-}
-
-main()?
-""",
-  )?
-
-  assert forced.status == 11
-  assert forced.stdout == ""
-  assert forced.stderr == ""
-
   let quiet_validation_failure = test.run_script(
     ctx,
     """
 print "escape"
-abort(17)
+exit 17
 print "unreachable"
 """,
   )?

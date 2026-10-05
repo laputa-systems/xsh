@@ -72,7 +72,7 @@ test test_record_projection_proofs_reject_mutation_shadowing_and_recovery { |ctx
 var pair: Pair = {left: "ready", right: 1}
 let available = pair.left != null
 pair.left = null
-guard available else { abort(1) }
+guard available else { exit 1 }
 let value: Str = pair.left
 """,
     """type Inner = {value: Str?}
@@ -80,17 +80,17 @@ type Outer = {inner: Inner}
 var outer: Outer = {inner: {value: "ready"}}
 let available = outer.inner.value != null
 outer.inner = {value: null}
-guard available else { abort(1) }
+guard available else { exit 1 }
 let value: Str = outer.inner.value
 """,
     """let value: Str? = "outer"
 let available = value != null
-{ let value: Str? = null; guard available else { abort(1) }; let checked: Str = value }
+{ let value: Str? = null; guard available else { exit 1 }; let checked: Str = value }
 """,
     """var value: Str? = "ready"
 let available = value != null
 proc mutate() [] { value = null }
-guard available else { abort(1) }
+guard available else { exit 1 }
 mutate()
 let checked: Str = value
 """,
@@ -104,8 +104,8 @@ stream later() [] -> Stream[Str] { guard available else { return }; yield value 
 """,
     """var value: Str? = "ready"
 let available = value != null
-guard available else { abort(1) }
-defer { guard available else { abort(1) }; let checked: Str = value }
+guard available else { exit 1 }
+defer { guard available else { exit 1 }; let checked: Str = value }
 """,
     """let value: Str? = null
 let available = value != null
@@ -118,7 +118,7 @@ if available or true { let checked: Str = value }
 """,
     """var value: Str? = "ready"
 let available = value != null
-guard available else { abort(1) }
+guard available else { exit 1 }
 [1] |> each { |_| value = null }
 let checked: Str = value
 """,
@@ -168,7 +168,7 @@ let available = value != null
   }
 
   let guard_source = f"""
-    guard {previous} else {{ abort(1) }}
+    guard {previous} else {{ exit 1 }}
     let checked: Str = value
 
     """
@@ -206,7 +206,7 @@ print ${select("ready")} $calls
     r"""var value: Str? = "ready"
 proc fallback() [] -> Str { value = null; "fallback" }
 let available = value != null
-guard available else { abort(1) }
+guard available else { exit 1 }
 let selected = value ?? fallback()
 let checked: Str = value
 print $selected $checked
@@ -262,7 +262,7 @@ test test_record_projection_exiting_mutations_do_not_reach_success { |ctx|
 let available = value != null
 let choose = true
 if choose { value = null }
-guard available else { abort(1) }
+guard available else { exit 1 }
 let checked: Str = value
 """,
   )?

@@ -44,8 +44,8 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
     fp"{tools}/cargo",
     xsh,
     f"""p"{cargo_marker}".write("cargo")?
-abort(23)""",
-  )
+exit 23""",
+  )?
   let inherited_path = env.get_or("PATH", "")?
   let result = test.run_script(
     ctx,
@@ -56,7 +56,7 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match build.build(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -83,8 +83,8 @@ test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
     fp"{tools}/cargo",
     xsh,
     f"""p"{cargo_marker}".write(args.join("|"))?
-abort(23)""",
-  )
+exit 23""",
+  )?
   let result = test.run_script(
     ctx,
     f"""
@@ -94,7 +94,7 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match build.check_lint(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -163,9 +163,9 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
     fp"{tools}/cargo",
     xsh,
     f"""p"{cargo_marker}".write("cargo")?
-abort(23)""",
-  )
-  write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")
+exit 23""",
+  )?
+  write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")?
   let result = test.run_script(
     ctx,
     f"""
@@ -175,7 +175,7 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match internal.linux_ci_test(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -206,7 +206,7 @@ test test_docker_image_and_container_failures_are_staged { |ctx|
     xsh,
     f"""p"{docker_marker}".write(args.join("|"))?
 if "run" in args {{
-  abort(24)
+  exit 24
 }}
 """,
   )
@@ -219,7 +219,7 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match docker.run_internal(ctx, "dist", false, []) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -244,8 +244,8 @@ test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
     fp"{tools}/docker",
     xsh,
     f"""p"{docker_marker}".write(args.join("|"))?
-abort(24)""",
-  )
+exit 24""",
+  )?
   let result = test.run_script(
     ctx,
     f"""
@@ -255,7 +255,7 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match docker.run_internal(ctx, "dist", false, []) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -371,8 +371,8 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
     fp"{tools}/codesign",
     xsh,
     f"""p"{codesign_marker}".write("codesign")?
-abort(25)""",
-  )
+exit 25""",
+  )?
   let result = test.run_script(
     ctx,
     f"""
@@ -382,7 +382,7 @@ use targets as target_policy
 
 let ctx: context.Context = {darwin_context_source(root)}
 match install.darwin(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -434,7 +434,7 @@ let ctx: context.Context = {{
   darwin_deployment_target: "26.0",
 }}
 match install.darwin(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -482,7 +482,7 @@ let ctx: context.Context = {{
   darwin_deployment_target: "26.0",
 }}
 match install.linux_install(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
@@ -516,7 +516,7 @@ let ctx: context.Context = {{
   darwin_deployment_target: "26.0",
 }}
 match install.linux_install(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,

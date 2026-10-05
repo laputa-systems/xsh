@@ -252,7 +252,7 @@ test test_conditional_binding_still_rejects_other_subjects { |ctx|
     name: "guard-plain.xsh",
     contents: bytes.from_text("""let count = 3
 guard let value = count else {
-  abort(2)
+  exit 2
 }
 print \$value
 """),

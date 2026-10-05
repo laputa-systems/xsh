@@ -1353,10 +1353,6 @@ impl Checker {
                 }
                 Type::ProcessError
             }
-            "abort" => {
-                self.check_abort_call_arena(arena, source, args, span);
-                Type::Unit
-            }
             "env" => {
                 self.require_effect(Effect::Env, span, "environment lookup");
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
@@ -1420,6 +1416,15 @@ impl Checker {
             _ => None,
         };
         match (name, argument) {
+            ("abort", Some((text, _))) => {
+                diagnostic = diagnostic
+                    .with_note("`abort` was removed; a deliberate exit is the statement `exit STATUS`")
+                    .with_fix_hint(super::FixHint::replacement(
+                        span,
+                        "use the `exit` statement",
+                        format!("exit {text}"),
+                    ));
+            }
             ("print" | "eprint", Some((text, _))) => {
                 diagnostic = diagnostic
                     .with_note(format!(
@@ -1482,40 +1487,6 @@ impl Checker {
             diagnostic = diagnostic.with_note(format!("did you mean `{module}.{nearby}`?"));
         }
         self.diagnostics.push(diagnostic);
-    }
-
-    pub(super) fn check_abort_call_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        args: &[ArenaCallArg],
-        span: Span,
-    ) {
-        self.terminating_call_spans.insert(span);
-        if args.is_empty() || args.len() > 2 {
-            self.error(
-                span,
-                "abort expects status and optional force",
-                DiagnosticCode::CheckArity,
-            );
-        }
-        if let Some(arg) = args.first() {
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
-            self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
-        if let Some(arg) = args.get(1) {
-            if let ArenaCallArgKind::Named { name, .. } = &arg.kind
-                && *name != "force"
-            {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "unexpected named parameter",
-                    DiagnosticCode::CheckNamedArg,
-                );
-            }
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Bool));
-            self.expect_type(&Type::Bool, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
     }
 
     pub(super) fn check_error_variant_constructor_arena(

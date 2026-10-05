@@ -43,7 +43,7 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
 
   let failed = test.run_script(
     ctx,
-    """abort(7)
+    """exit 7
 """,
   )?
 

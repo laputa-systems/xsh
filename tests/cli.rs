@@ -168,7 +168,7 @@ fn signature_cli_preflight_precedes_imported_and_entry_initializers() {
 #[test]
 fn signature_cli_preserves_entry_exit_status_and_errors() {
     for (body, effects, expected_status) in [
-        ("abort(7)", "error", 7),
+        ("exit 7", "error", 7),
         ("error.fail(\"entry failed\")?", "error", 3),
     ] {
         let script = temp_script(

@@ -10,7 +10,7 @@ on USR1 [fs, time, error] {
 
 on USR2 [] {
   print "wrong-hook"
-  abort(2)
+  exit 2
 }
 
 ready.write("ready")?

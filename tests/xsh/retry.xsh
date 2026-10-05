@@ -384,7 +384,7 @@ test test_retry_filter_does_not_retry_abort { |ctx|
     """
 let result = retry [0ms] on (_) {
   print "attempt"
-  abort(7)
+  exit 7
 }
 print "after"
 """,

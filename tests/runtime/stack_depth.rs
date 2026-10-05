@@ -196,7 +196,7 @@ proc main() -> Result[Unit] {
 
 proc fail() -> Result[Unit] {
   defer run printf "%s\\n" nested ?
-  abort(9)
+  exit 9
   return Ok()
 }
 

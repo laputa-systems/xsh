@@ -94,12 +94,12 @@ proc config(ok: Bool) [error] -> Result[Config] {
   Ok({root: "src", build: {jobs: 3, target: "native"}})
 }
 guard let {root, build: {jobs, target: target_name, ..}, ..} = config(true) else {
-  abort(3)
+  exit 3
 }
 print f"{root} {jobs} {target_name}"
 guard let missing = config(false) else { |failure|
   print f"fallback {failure.message}"
-  abort(4)
+  exit 4
 }
 print "unreachable ${missing.root}"
 """,
@@ -118,7 +118,7 @@ test test_signal_hooks_read_top_level_stream_run_bindings { |ctx|
     r"""let rows = run.stream --text printf "a\nb\n" ?
 on USR1 [] {
   print rows.collect().len()
-  abort(0)
+  exit 0
 }
 run sh -c r"kill -USR1 $PPID; sleep 1" ?
 """,

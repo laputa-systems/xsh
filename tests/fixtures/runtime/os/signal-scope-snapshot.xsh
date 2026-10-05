@@ -4,7 +4,7 @@ var label = "before"
 
 on USR1 [fs, error] {
   marker.write(label)?
-  abort(0)
+  exit 0
 }
 
 label = "after"

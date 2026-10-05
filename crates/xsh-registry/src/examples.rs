@@ -170,7 +170,6 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.print" => {
             include_str!("../../../docs/snippets/api/core-print.xsh")
         }
-        "language.core.abort" => include_str!("../../../docs/snippets/api/core-abort.xsh"),
         "language.core.exit" => include_str!("../../../docs/snippets/api/core-exit.xsh"),
         _ => return None,
     };

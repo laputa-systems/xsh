@@ -273,7 +273,7 @@ use context
 
 cd p"/" {
   match context.require_root() {
-    Ok(_) => abort(1)
+    Ok(_) => exit 1
     Err(error) => print \${error.message}
   }
 }?
