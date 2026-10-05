@@ -971,9 +971,13 @@ fn lint_workspace_root(
             );
             linted.diagnostics.extend(module_grouping.iter().cloned());
         }
-        linted
-            .diagnostics
-            .retain(|diagnostic| lint_code_selected(only, diagnostic.code));
+        let excluded_rules = &module.config.lint_options.excluded_rules;
+        linted.diagnostics.retain(|diagnostic| {
+            lint_code_selected(only, diagnostic.code)
+                && !diagnostic
+                    .code
+                    .is_some_and(|code| excluded_rules.contains(&code))
+        });
         // A fix round is judged against every check diagnostic the file had,
         // selected or not: a rewrite may not add one, and one it leaves in
         // place is not new.
@@ -1645,6 +1649,15 @@ fn lint_config_for_file(
             &tool_config.config.dead_code.exclude,
         ),
         only: None,
+        excluded_rules: tool_config
+            .config
+            .lint_rule_excludes
+            .iter()
+            .filter(|rule| {
+                is_path_excluded(&tool_config.config_dir, Path::new(file), &rule.exclude)
+            })
+            .map(|rule| rule.rule)
+            .collect(),
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -2277,6 +2290,36 @@ mod tests {
 
         assert!(!config.lint_options.dead_code);
         assert!(!config.lint_options.runless);
+    }
+
+    #[test]
+    fn lint_config_excludes_a_named_rule_for_matching_paths_only() {
+        let root = TempDir::new().expect("create config root");
+        let snippet = root.path().join("docs/snippets/api/example.xsh");
+        let script = root.path().join("main.xsh");
+        fs::create_dir_all(snippet.parent().expect("snippet parent")).expect("create snippet");
+        fs::write(
+            root.path().join("xsht-config.ini"),
+            "[lint.prefer-implicit-message]\nexclude = docs/snippets/**/*.xsh\n",
+        )
+        .expect("write config");
+        let excluded_rules = |file: &std::path::Path| {
+            lint_config_for_file(
+                file.to_str().expect("utf-8 path"),
+                false,
+                &crate::xsht::cli::XshConfig::default(),
+                &ConfigCache::default(),
+            )
+            .expect("resolve lint config")
+            .lint_options
+            .excluded_rules
+        };
+
+        assert_eq!(
+            excluded_rules(&snippet),
+            vec![DiagnosticCode::LintPreferImplicitMessage]
+        );
+        assert_eq!(excluded_rules(&script), Vec::new());
     }
 
     #[test]

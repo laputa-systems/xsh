@@ -547,6 +547,10 @@ pub struct LintOptions {
     /// `xsht lint --only`: retain only diagnostics with these codes, which
     /// also restricts the fixes derived from them.
     pub only: Option<Vec<DiagnosticCode>>,
+    /// Rules the project configuration exempts this file from
+    /// (`[lint.RULE] exclude`). Their diagnostics are dropped, and with them
+    /// the fixes derived from them.
+    pub excluded_rules: Vec<DiagnosticCode>,
 }
 
 /// One match arm as the adjacent-arm lint sees it: pattern, guard, body, span.
@@ -599,6 +603,7 @@ impl Default for LintOptions {
             dead_code: true,
             native_test_file: false,
             only: None,
+            excluded_rules: Vec::new(),
         }
     }
 }
@@ -816,6 +821,7 @@ impl<'a> Linter<'a> {
             || only
                 .as_deref()
                 .is_some_and(|only| only.contains(&DiagnosticCode::LintPreferSet));
+        let excluded_rules = options.excluded_rules;
         // Naming a rule in `--only` asks for it as its setting does, so a
         // corpus can count and migrate its sites without a configuration file.
         let named = |code| only.as_deref().is_some_and(|only| only.contains(&code));
@@ -1004,9 +1010,12 @@ impl<'a> Linter<'a> {
             );
             linter.diagnostics.extend(reports);
         }
-        linter
-            .diagnostics
-            .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));
+        linter.diagnostics.retain(|diagnostic| {
+            lint_code_selected(only.as_deref(), diagnostic.code)
+                && !diagnostic
+                    .code
+                    .is_some_and(|code| excluded_rules.contains(&code))
+        });
         minimize_fix_grouping(program, source, &mut linter.diagnostics);
         LintOutput {
             diagnostics: linter.diagnostics,

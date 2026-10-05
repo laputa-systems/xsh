@@ -11,6 +11,11 @@ const unused_local = """proc main() {
 main()?
 """
 
+const named_message_source = r"""error ProofError = Usage(message: Str) | Other(code: Int)
+print ${ProofError.Usage(message: "named").message}
+print ${ProofError.Other(code: 2).message}
+"""
+
 # Writes each `files` entry, a path below the project root and its text, into
 # a fresh directory.
 proc project(ctx: TestContext, files: Map[Str, Str]) [fs, error] -> Result[Path] {
@@ -495,4 +500,41 @@ test test_lint_discovery_obeys_configured_fixture_exclusions { |ctx|
   assert rejected.status.exited_with(2), rejected.stderr
   assert "check.type-mismatch" in diagnostics(rejected.stderr), rejected.stderr
   assert fp"{root}/fixtures/invalid.xsh".read_text()? == invalid_source
+}
+
+# `[lint.RULE] exclude` exempts the matching files from one rule: no report,
+# and so no fix. Other files, and other rules in the same file, are unchanged.
+test test_lint_rule_exclude_exempts_matching_files_from_one_rule { |ctx|
+  let root = project(
+    ctx,
+    {
+      "xsht-config.ini": "[lint.prefer-implicit-message]\nexclude = docs/**/*.xsh\n",
+      "docs/shown.xsh": f"{named_message_source}let unused = 1\n",
+      "main.xsh": named_message_source,
+    },
+  )?
+  let rule = "lint.prefer-implicit-message"
+  let exempt = xsht(root, ["lint", "--only", rule, "docs/shown.xsh"])?
+  assert exempt.status.exited_with(0), exempt.stderr
+  assert rule not in exempt.stderr, exempt.stderr
+  let other_rules = xsht(root, ["lint", "docs/shown.xsh"])?
+  assert other_rules.status.exited_with(1), other_rules.stderr
+  assert rule not in other_rules.stderr, other_rules.stderr
+  let reported = xsht(root, ["lint", "--only", rule, "main.xsh"])?
+  assert reported.status.exited_with(1), reported.stderr
+  assert "`Usage` takes its message positionally" in reported.stderr, reported.stderr
+  let fixing = xsht(root, ["lint", "--fix", "--only", rule, "."])?
+  assert fixing.status.exited_with(0), fixing.stderr
+  assert fp"{root}/docs/shown.xsh".read_text()? == f"{named_message_source}let unused = 1\n"
+  assert """ProofError.Usage("named")""" in fp"{root}/main.xsh".read_text()?
+}
+
+test test_lint_rule_exclude_rejects_a_section_that_names_no_rule { |ctx|
+  let root = project(
+    ctx,
+    {"xsht-config.ini": "[lint.prefer-implicit-messages]\nexclude = docs/**\n", "main.xsh": "print 1\n"},
+  )?
+  let linted = xsht(root, ["lint", "main.xsh"])?
+  assert linted.status.exited_with(2), linted.stderr
+  assert "[lint.prefer-implicit-messages] does not name a lint rule" in linted.stderr, linted.stderr
 }

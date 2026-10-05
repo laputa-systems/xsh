@@ -242,6 +242,14 @@ impl Default for LintConfig {
     }
 }
 
+/// One `[lint.RULE]` section: the rule and the globs, relative to the
+/// configuration file, of the files exempt from it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LintRuleExclude {
+    pub rule: xsh::diagnostic::DiagnosticCode,
+    pub exclude: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CoverageConfig {
     pub exclude: Vec<String>,
@@ -286,6 +294,11 @@ pub struct XshConfig {
     pub check: CheckConfig,
     pub format: FormatConfig,
     pub lint: LintConfig,
+    /// `[lint.RULE] exclude`: for each rule, the files `xsht lint` does not
+    /// report it in. A corpus that shows an older spelling on purpose, such
+    /// as documentation examples, is named here instead of turning the rule
+    /// off for the whole project.
+    pub lint_rule_excludes: Vec<LintRuleExclude>,
     pub dead_code: DeadCodeConfig,
     pub coverage: CoverageConfig,
 }
@@ -300,6 +313,7 @@ impl Default for XshConfig {
             check: CheckConfig::default(),
             format: FormatConfig::default(),
             lint: LintConfig::default(),
+            lint_rule_excludes: Vec::new(),
             dead_code: DeadCodeConfig::default(),
             coverage: CoverageConfig::default(),
         }
@@ -335,6 +349,7 @@ fn parse_config_ini(fields: &xsh::execution::value::RecordMap) -> Result<XshConf
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,
         lint: parse_lint_ini(fields),
+        lint_rule_excludes: parse_lint_rule_excludes_ini(fields)?,
         dead_code: parse_dead_code_ini(fields),
         coverage: parse_coverage_ini(fields),
     })
@@ -378,6 +393,34 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_rel_path: ini_string(lint, "prefer-rel-path").is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
+}
+
+/// Reads every `[lint.RULE]` section. The section name is the rule's
+/// diagnostic code, so a misspelled or removed rule is an error instead of an
+/// exclusion that silently stops applying.
+fn parse_lint_rule_excludes_ini(
+    fields: &xsh::execution::value::RecordMap,
+) -> Result<Vec<LintRuleExclude>, String> {
+    let mut excludes = Vec::new();
+    for (section, value) in fields {
+        let section: &str = section.as_ref();
+        if !section.starts_with("lint.") {
+            continue;
+        }
+        let xsh::execution::value::Value::Record(rule_fields) = value else {
+            return Err(format!("{CONFIG_FILE_NAME} [{section}] must be a section"));
+        };
+        let Some(rule) = xsh::diagnostic::DiagnosticCode::from_name(section) else {
+            return Err(format!(
+                "{CONFIG_FILE_NAME} [{section}] does not name a lint rule"
+            ));
+        };
+        excludes.push(LintRuleExclude {
+            rule,
+            exclude: ini_string_list(rule_fields, "exclude").unwrap_or_default(),
+        });
+    }
+    Ok(excludes)
 }
 
 fn parse_coverage_ini(fields: &xsh::execution::value::RecordMap) -> CoverageConfig {
@@ -478,7 +521,7 @@ fn seg_match(pat: &[u8], seg: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::xsht::cli::files::{
-        XshConfig, collect_configured_xsh_files, collect_xsh_files, load_config_from,
+        CONFIG_FILE_NAME, LintRuleExclude, XshConfig, collect_configured_xsh_files, collect_xsh_files, load_config_from,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -534,6 +577,37 @@ mod tests {
             vec!["evals/**/*.xsh", "fixtures/**/*.xsh"]
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn config_reads_rule_excludes_and_rejects_an_unknown_rule() {
+        let root = temp_root("lint-rule-exclude-config");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join(CONFIG_FILE_NAME);
+        fs::write(
+            &path,
+            "[lint]\nprefer-env-string = false\n\n[lint.prefer-inferred-variant]\nexclude = docs/snippets/**/*.xsh\n  examples/old/*.xsh\n",
+        )
+        .unwrap();
+        let config = load_config_from(&path).unwrap();
+        assert!(!config.lint.prefer_env_string);
+        assert_eq!(
+            config.lint_rule_excludes,
+            vec![LintRuleExclude {
+                rule: xsh::diagnostic::DiagnosticCode::LintPreferInferredVariant,
+                exclude: vec![
+                    "docs/snippets/**/*.xsh".to_string(),
+                    "examples/old/*.xsh".to_string()
+                ],
+            }]
+        );
+
+        fs::write(&path, "[lint.prefer-inferred-variants]\nexclude = docs/**\n").unwrap();
+        assert_eq!(
+            load_config_from(&path).unwrap_err(),
+            "xsht-config.ini [lint.prefer-inferred-variants] does not name a lint rule"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
