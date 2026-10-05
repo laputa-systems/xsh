@@ -116,7 +116,7 @@ pure parse_count(text: Str) -> Int? {
 
   return 0 when digits == ""
   return null when digits.byte_len() > 20 or (digits.byte_len() == 20 and digits > "18446744073709551615")
-  return tio.MAX_COUNT when digits.byte_len() > 18
+  return tio.MAX_COUNT when digits.byte_len() > 19 or (digits.byte_len() == 19 and digits >= "9223372036854775807")
 
   digits.parse_int() ?? 0
 }
@@ -199,13 +199,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let from = if cut > 0 { parse_count(text.byte_slice(0, length: cut)) } else { null }
     let to = if cut >= 0 { parse_count(text.byte_slice(cut + 1)) } else { null }
 
-    if from == null or to == null or (from ?? 0) > (to ?? 0) + 1 {
+    if from == null or to == null or (from ?? 0) - 1 > (to ?? 0) {
       gnu.error(f"invalid input range: {gnu.quote(text)}")
       exit 1
     }
 
     if (from ?? 0) >= tio.MAX_COUNT or (to ?? 0) >= tio.MAX_COUNT {
-      gnu.error("input ranges beyond 2^63 - 2 are not supported")
+      if ! opts.repeat and head == tio.MAX_COUNT {
+        gnu.error("memory exhausted")
+      } else {
+        gnu.error("input ranges beyond 2^63 - 2 are not supported")
+      }
+
       exit 1
     }
 
@@ -269,7 +274,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if total > DRAW_LIMIT {
-    gnu.error("input ranges this large are not supported")
+    if ! opts.repeat and head >= total {
+      gnu.error("memory exhausted")
+    } else {
+      gnu.error("input ranges this large are not supported")
+    }
+
     exit 1
   }
 
