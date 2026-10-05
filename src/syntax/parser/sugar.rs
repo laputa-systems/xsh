@@ -982,8 +982,7 @@ mod tests {
 
     #[test]
     fn the_grammar_recognizes_written_sugar_statements() {
-        let recognizer = Recognizer::new(grammar());
-        for source in [
+        assert_grammar_recognizes(&[
             include_str!("../../../tests/xsh/repeat.xsh"),
             include_str!("../../../docs/snippets/spec/45-repeat.xsh"),
             include_str!("../../../tests/xsh/tempdir.xsh"),
@@ -995,7 +994,22 @@ mod tests {
             include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
             include_str!("../../../tests/xsh/atomically.xsh"),
             include_str!("../../../docs/snippets/spec/61-atomically.xsh"),
-        ] {
+        ]);
+    }
+
+    /// `try run...` is a primary of its own, read by the parser before the
+    /// `try` block.
+    #[test]
+    fn the_grammar_recognizes_written_captured_run_forms() {
+        assert_grammar_recognizes(&[
+            include_str!("../../../tests/xsh/try-run.xsh"),
+            include_str!("../../../docs/snippets/spec/64-try-run.xsh"),
+        ]);
+    }
+
+    fn assert_grammar_recognizes(sources: &[&str]) {
+        let recognizer = Recognizer::new(grammar());
+        for source in sources {
             let tokens = lex_grammar_tokens(source).expect("lexes");
             for part in top_level_parts(&tokens) {
                 if let Err(rejection) = recognizer.recognize(part) {

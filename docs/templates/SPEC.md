@@ -1958,6 +1958,9 @@ when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
 type.
 
+`try` directly before a run form captures that one form: `try run.text cmd`
+is the form's `Result` as a value (11.1).
+
 `retry [delays] { ... }` re-runs a block on failure:
 
 ```xsh
@@ -2433,6 +2436,20 @@ call and never searches `PATH`.
 | `run.capture --bytes cmd ...` | `Result[{status, stdout: Bytes, stderr: Bytes}, ProcessError]` | |
 | `run.stream --text cmd ...` | `Result[Stream[Str], ProcessError]` (stdout lines) | |
 | `run.stream --bytes cmd ...` | `Result[Stream[Bytes], ProcessError]` | |
+
+A run form whose value is a `Result` either keeps it or propagates it, and
+says which. `try` before the form keeps the `Result` as its value:
+
+```xsh
+{{.spec.try_run.source}}
+```
+
+`try run...` has the type and value of the same form written without `try`,
+reads its words to the same end, and takes the place of a `?`: writing both
+is a parse error. It applies to `run.text`, `run.bytes`, `run.capture`, and
+`run.stream`; plain `run` and `run.status` yield a `Status`, so `try` before
+them is `check.try-result`. `lint.explicit-run-capture` writes the `try` on a
+value-position run form that keeps its `Result` without one.
 
 A trailing `?` applies to the whole run form: `run.text git rev-parse HEAD ?`.
 A run form followed by `|>` heads a value pipeline wherever it is written,

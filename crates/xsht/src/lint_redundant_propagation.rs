@@ -180,6 +180,7 @@ pub(super) mod tests {
                 statement_positions: checked.statement_positions,
                 propagating_statements: checked.propagating_statements,
                 redundant_condition_propagations: checked.redundant_condition_propagations,
+                implicitly_captured_runs: checked.implicitly_captured_runs,
                 function_effect_facts: checked.function_effect_facts,
                 function_effect_facts_checked: true,
                 only: Some(vec![rule]),

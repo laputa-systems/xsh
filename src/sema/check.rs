@@ -162,6 +162,9 @@ pub struct CheckOutput {
     /// `expr?` in a control position of a condition where `expr` is a
     /// `Result[Bool]`: the position propagates without the `?`.
     pub redundant_condition_propagations: BTreeSet<Span>,
+    /// Value-position run forms whose `Result` is the value and that are not
+    /// written under `try`, keyed by the run form's span.
+    pub implicitly_captured_runs: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
@@ -696,6 +699,7 @@ pub struct Checker {
     propagating_statements: BTreeSet<Span>,
     propagating_conditions: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
+    implicitly_captured_runs: BTreeSet<Span>,
     /// The next expression checked is in a control position of a condition.
     control_condition: bool,
     /// The expression being checked is in a control position of a condition,
@@ -854,6 +858,7 @@ impl Checker {
                 propagating_statements: checker.propagating_statements,
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
+                implicitly_captured_runs: checker.implicitly_captured_runs,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -1028,6 +1033,7 @@ impl Checker {
                 propagating_statements: checker.propagating_statements,
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
+                implicitly_captured_runs: checker.implicitly_captured_runs,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -1102,6 +1108,7 @@ impl Checker {
             propagating_statements: BTreeSet::new(),
             propagating_conditions: BTreeSet::new(),
             redundant_condition_propagations: BTreeSet::new(),
+            implicitly_captured_runs: BTreeSet::new(),
             control_condition: false,
             in_control_position: false,
             membership_migration_spans: BTreeSet::new(),

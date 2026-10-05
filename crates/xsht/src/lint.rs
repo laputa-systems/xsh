@@ -89,6 +89,8 @@ mod lint_fs_method;
 
 #[path = "lint_prefer_typed_callable.rs"]
 mod lint_prefer_typed_callable;
+#[path = "lint_explicit_run_capture.rs"]
+mod lint_explicit_run_capture;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -410,6 +412,9 @@ pub struct LintOptions {
     /// propagates the `Result[Bool]` without the `?`; empty without checked
     /// facts.
     pub redundant_condition_propagations: BTreeSet<Span>,
+    /// Value-position run forms whose `Result` is the value and that are not
+    /// written under `try`; empty without checked facts.
+    pub implicitly_captured_runs: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
 
@@ -464,6 +469,7 @@ impl Default for LintOptions {
             statement_expression_spans: BTreeSet::default(),
             propagating_statements: BTreeSet::default(),
             redundant_condition_propagations: BTreeSet::default(),
+            implicitly_captured_runs: BTreeSet::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
             statically_resolved_call_spans: BTreeSet::default(),
@@ -536,6 +542,7 @@ pub struct Linter<'a> {
     guarded_statement_depth: usize,
     propagating_statements: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
+    implicitly_captured_runs: BTreeSet<Span>,
     /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
     /// there without changing the function's effect contract.
     propagation_function: Option<bool>,
@@ -730,6 +737,7 @@ impl<'a> Linter<'a> {
             guarded_statement_depth: 0,
             propagating_statements: options.propagating_statements,
             redundant_condition_propagations: options.redundant_condition_propagations,
+            implicitly_captured_runs: options.implicitly_captured_runs,
             propagation_function: None,
             propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
@@ -12653,6 +12661,13 @@ impl LintExprVisitor<'_, '_> {
 
     fn visit_run_form(&mut self, run: RunFormId) {
         let arena = self.linter.arena;
+        if let Some(diagnostic) = lint_explicit_run_capture::explicit_run_capture(
+            arena,
+            &self.linter.implicitly_captured_runs,
+            run,
+        ) {
+            self.linter.diagnostics.push(diagnostic);
+        }
         let run_form = arena.run_form(run).clone();
         for segment in arena.run_segments(run_form.segments).to_vec() {
             let seg_span = arena.span(segment.span);

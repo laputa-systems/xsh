@@ -2106,6 +2106,9 @@ impl<'a> Writer<'a> {
 
     fn write_run(&mut self, run_id: xsh::frontend::syntax::arena::RunFormId, output: &mut String) {
         let run = self.arena.run_form(run_id).clone();
+        if run.captured {
+            output.push_str("try ");
+        }
         let indent = indent_for_expr(output);
         let segments: Vec<xsh::frontend::syntax::arena::ArenaRunSegment> =
             self.arena.run_segments(run.segments).to_vec();

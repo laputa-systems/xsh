@@ -1572,6 +1572,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("match_expression"),
                 seq([kw(Keyword::Loop), block()]),
                 seq([kw(Keyword::Try), block()]),
+                // A captured run form: its `Result` is the value, and it
+                // takes no `?`.
+                seq([
+                    kw(Keyword::Try),
+                    r("run_form"),
+                    not([vec![tag_term(T::Question)]]),
+                    alt([r("run_end"), Item::Peek(vec![vec![tag_term(T::RParen)]])]),
+                ]),
                 r("retry_expression"),
                 // The `?` before a `|>` belongs to the run form.
                 seq([

@@ -820,9 +820,12 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::TempDirScope {
             value_body: true, ..
         } => statement,
-        // A run form that heads a pipeline reads as a value at any lead.
-        ArenaExprKind::Run(_) => {
-            lead != Lead::ArmBody && !matches!(context.slot, Slot::PipelineInput { .. })
+        // A run form that heads a pipeline reads as a value at any lead, and
+        // so does one written under `try`, which begins with that word.
+        ArenaExprKind::Run(run) => {
+            !arena.run_form(*run).captured
+                && lead != Lead::ArmBody
+                && !matches!(context.slot, Slot::PipelineInput { .. })
         }
         ArenaExprKind::Field { base, .. }
             if matches!(arena.expr(*base).kind, ArenaExprKind::Item) =>

@@ -1189,6 +1189,24 @@ impl<'a> Parser<'a> {
             }
             PrimaryForm::Try => {
                 self.bump();
+                // `try run...` is the run form with its `Result` as the value.
+                if self.at_keyword(Keyword::Run) {
+                    let (run_id, _run_span) = self.parse_run_form_arena_only(arena)?;
+                    if arena.run_form_propagates(run_id) || self.at(TokenKindMatch::Question) {
+                        self.diagnostic_here(
+                            "`try` keeps the run form's failure as a value, and `?` would propagate it; write one of them",
+                            DiagnosticCode::ParseExpectedToken,
+                        );
+                        return None;
+                    }
+                    arena.set_run_form_captured(run_id);
+                    let span = self.span(span.start(), self.previous_end());
+                    return Some(ArenaOnlyExpr {
+                        id: arena.push_run_expr_id(run_id, span),
+                        span,
+                        bare_ident: None,
+                    });
+                }
                 let block = self.parse_block_arena_only(arena)?;
                 let span = self.span(span.start(), self.previous_end());
                 Some(ArenaOnlyExpr {

@@ -857,6 +857,11 @@ impl Checker {
                     inner_expected.as_ref(),
                     schema,
                 );
+                // A run form under `?` propagates; it is not captured.
+                if let ArenaExprKind::Run(run_id) = arena.arena.expr(*inner).kind {
+                    let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
+                    self.implicitly_captured_runs.remove(&run_span);
+                }
                 self.check_propagation(&ty, expr.span)
             }
             ArenaExprKind::Require { value, schema } => {
@@ -2062,7 +2067,23 @@ impl Checker {
             );
         }
         self.check_effect_not_excluded(&Effect::Process, run_span, "`run`");
-        self.check_run_arena(arena, source, run_id)
+        let ty = self.check_run_arena(arena, source, run_id);
+        let captured = arena.arena.run_form(run_id).captured;
+        if captured && !ty.is_result() && !matches!(ty, Type::Unknown | Type::Invalid) {
+            self.error(
+                run_span,
+                &format!("`try` captures a run form that can fail, and this one yields `{ty}`"),
+                DiagnosticCode::CheckTryResult,
+            );
+        }
+        // A `Result` that is this form's value is captured, whether or not
+        // `try` says so; an operand of `?` is taken back out below.
+        if ty.is_result() && !captured {
+            self.implicitly_captured_runs.insert(run_span);
+        } else {
+            self.implicitly_captured_runs.remove(&run_span);
+        }
+        ty
     }
 
     fn check_spawn_form_arena(

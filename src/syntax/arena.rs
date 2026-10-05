@@ -1648,6 +1648,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.arena.run_forms[id.index()].propagate = propagate;
     }
 
+    /// Marks a run form as written under `try`.
+    pub fn set_run_form_captured(&mut self, id: RunFormId) {
+        self.lowerer.arena.run_forms[id.index()].captured = true;
+    }
+
+    pub fn run_form_propagates(&self, id: RunFormId) -> bool {
+        self.lowerer.arena.run_forms[id.index()].propagate
+    }
+
     pub fn discard_run_segments(&mut self) {
         let start = self
             .run_segment_input_starts
@@ -6679,6 +6688,8 @@ pub enum ArenaCommand {
 pub struct ArenaRunForm {
     pub segments: ArenaRange,
     pub propagate: bool,
+    /// Written `try run...`: the form's `Result` is its value.
+    pub captured: bool,
     pub span: SpanId,
 }
 
@@ -7721,6 +7732,7 @@ impl ArenaLowerer<'_> {
         self.arena.run_forms.push(ArenaRunForm {
             segments,
             propagate,
+            captured: false,
             span,
         });
         id

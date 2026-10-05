@@ -717,6 +717,8 @@ fn set_checked_lint_facts_for_source(
     options.propagating_statements = source_checked_set(&checked.propagating_statements, source_id);
     options.redundant_condition_propagations =
         source_checked_set(&checked.redundant_condition_propagations, source_id);
+    options.implicitly_captured_runs =
+        source_checked_set(&checked.implicitly_captured_runs, source_id);
     options.membership_migration_spans =
         source_checked_set(&checked.membership_migration_spans, source_id);
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
@@ -1509,6 +1511,7 @@ fn lint_config_for_file(
         statement_expression_spans: Default::default(),
         propagating_statements: Default::default(),
         redundant_condition_propagations: Default::default(),
+        implicitly_captured_runs: Default::default(),
         membership_migration_spans: Default::default(),
         standard_call_spans: Default::default(),
         statically_resolved_call_spans: Default::default(),
@@ -1589,6 +1592,7 @@ fn lint_one_file_with_fixes(
     lint_options.propagating_statements = checked.propagating_statements.clone();
     lint_options.redundant_condition_propagations =
         checked.redundant_condition_propagations.clone();
+    lint_options.implicitly_captured_runs = checked.implicitly_captured_runs.clone();
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
@@ -1860,6 +1864,7 @@ fn apply_cst_fixes(
         options.propagating_statements = checked.propagating_statements.clone();
         options.redundant_condition_propagations =
             checked.redundant_condition_propagations.clone();
+        options.implicitly_captured_runs = checked.implicitly_captured_runs.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();

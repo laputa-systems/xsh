@@ -1142,7 +1142,7 @@ impl CanonicalWriter<'_> {
     fn run(&mut self, id: RunFormId) {
         let run = self.arena.run_form(id);
         self.put("R(");
-        self.debug(&run.propagate);
+        self.debug(&(run.propagate, run.captured));
         for segment in self.arena.run_segments(run.segments) {
             self.debug(&(segment.kind, segment.grouped));
             self.opt_expr(segment.timeout);
