@@ -22,9 +22,12 @@ is the workflow; its "Lane contract" section binds you.
 - Do not rewrite the corpus. Ship the lint and its autofix with focused
   tests; the integrator runs migrations between waves. Never run formatters
   or an unfiltered `xsht lint --fix`.
-- Run only the tests you wrote or changed, by exact name
-  (`target/release/xsht test FILE`, `cargo test ... NAME`), on release
-  binaries built with `-j 3`; use debug `cargo check` for compile checks.
+- Debug builds only; never pass `--release`. Build with
+  `cargo build -j 3 -p xsh --bins -p xsht --bin xsht`, use `cargo check` for
+  compile checks, and run only the tests you wrote or changed, by exact name
+  (`target/debug/xsht test FILE`, debug `cargo test --lib ... NAME`). A Rust
+  integration test that spawns a binary refuses to run in debug: write it
+  and leave running it to the integrator.
   Do not run a whole test target or suite, the corpus tests,
   `make docs-check`, or the Linux container: the integrator runs the gates
   after merging your work and sends failures back. Nothing in the campaign

@@ -60,9 +60,9 @@ commit.
    repository.
 3. **Launch.** Start the wave's lanes together, each with
    `isolation: "worktree"`. Start with four lanes in the first wave and widen
-   to eight once build and test times under load are known: every lane builds
-   Rust, a release rebuild takes about two minutes of all ten cores, and a
-   loaded machine turns timing-sensitive tests into noise.
+   to eight once debug build times under load are known. Lanes build debug
+   only; the release build and the gates are the integrator's, so they run
+   once per merge instead of once per lane.
 4. **Review, merge, then gate**, one lane at a time as they report. Read the
    diff; use `/code-review` for checker, lowering, verifier, and executor
    changes. Rebase the lane onto the campaign branch and fast-forward, one
@@ -116,10 +116,16 @@ commit.
 - **Shared files.** Add to registries at the end of the relevant group and
   nowhere else. Put a new lint in its own file. Do not reorganize, rename, or
   reformat a shared file.
+- **Debug builds only.** A lane never builds with `--release`; release
+  builds, and so every measurement and every Rust test target that spawns a
+  binary, belong to the integrator. Build with
+  `cargo build -j 3 -p xsh --bins -p xsht --bin xsht` and use `cargo check`
+  for compile checks.
 - **Tests a lane runs.** Only the ones it wrote or changed, by exact name:
-  `target/release/xsht test FILE` for its native test files and
-  `cargo test ... NAME` for a Rust test it added. Use debug `cargo check`
-  for compile checks and build with `-j 3`. A lane does not run a test
+  `target/debug/xsht test FILE` for its native test files and debug
+  `cargo test --lib ... NAME` for a unit test it added. A Rust integration
+  test that spawns a binary refuses to run in debug: write it, and leave
+  running it to the integrator. A lane does not run a test
   target or suite as a whole, the corpus tests (lint/format invariance,
   lowering agreement), `make docs-check`, or the Linux container. The
   integrator runs those after the merge, and the lane's report says which
