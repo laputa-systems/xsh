@@ -707,6 +707,17 @@ impl CanonicalWriter<'_> {
                     self.pattern(element);
                 }
             }
+            ArenaPatternKind::Text(range) => {
+                self.put("text;");
+                for part in self.arena.pattern_ids(*range).collect::<Vec<_>>() {
+                    self.pattern(part);
+                }
+            }
+            ArenaPatternKind::TextHole { binding, spec } => {
+                self.put("hole;");
+                self.debug(binding);
+                self.debug(spec);
+            }
         }
         self.put(")");
     }

@@ -13615,10 +13615,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaPatternKind::Constructor { arg: Some(arg), .. } => {
                 self.pattern_capture_names(arg, names)
             }
-            ArenaPatternKind::Tuple(items) => {
+            ArenaPatternKind::Tuple(items) | ArenaPatternKind::Text(items) => {
                 for child in self.program.arena.pattern_ids(items) {
                     self.pattern_capture_names(child, names);
                 }
+            }
+            ArenaPatternKind::TextHole {
+                binding: Some(name),
+                ..
+            } => {
+                names.insert(name);
             }
             ArenaPatternKind::Alternation(items) => {
                 if let Some(child) = self.program.arena.pattern_ids(items).next() {
@@ -13855,6 +13861,45 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, pattern, BuildPatternRow::Wildcard),
                 Vec::new(),
             )),
+            // The segments and hole kinds are the checker's compilation of
+            // the pattern; the syntax supplies only the name each hole binds.
+            ArenaPatternKind::Text(parts) => {
+                let compiled = self.bodies.text_patterns.get(&id)?.clone();
+                let mut holes = Vec::with_capacity(compiled.holes.len());
+                let mut cleanup = Vec::new();
+                for part in self.program.arena.pattern_ids(*parts).collect::<Vec<_>>() {
+                    let ArenaPatternKind::TextHole { binding, .. } =
+                        self.program.arena.pattern(part).kind
+                    else {
+                        continue;
+                    };
+                    let row = match binding {
+                        Some(name) if slots.can_bind_pattern(name) => {
+                            let slot = slots.declare_pattern_binding(name);
+                            cleanup.push((name, slot));
+                            BuildPatternRow::Bind { slot }
+                        }
+                        Some(_) => return None,
+                        None => BuildPatternRow::Wildcard,
+                    };
+                    holes.push(push_build_row!(self, pattern, row));
+                }
+                if holes.len() != compiled.holes.len() {
+                    return None;
+                }
+                Some((
+                    push_build_row!(
+                        self,
+                        pattern,
+                        BuildPatternRow::Text {
+                            holes,
+                            kinds: compiled.holes,
+                            segments: compiled.segments,
+                        }
+                    ),
+                    cleanup,
+                ))
+            }
             ArenaPatternKind::Literal(expr) => self
                 .lower_pattern_literal(*expr)
                 .map(|pattern| (pattern, Vec::new())),

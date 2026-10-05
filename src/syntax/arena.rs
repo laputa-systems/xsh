@@ -1593,6 +1593,20 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.push_pattern_kind(ArenaPatternKind::Tuple(range), span)
     }
 
+    pub fn push_pattern_text(&mut self, parts: &[PatternId], span: Span) -> PatternId {
+        let range = self.push_pattern_id_range(parts);
+        self.push_pattern_kind(ArenaPatternKind::Text(range), span)
+    }
+
+    pub fn push_pattern_text_hole(
+        &mut self,
+        binding: Option<Name>,
+        spec: Option<Name>,
+        span: Span,
+    ) -> PatternId {
+        self.push_pattern_kind(ArenaPatternKind::TextHole { binding, spec }, span)
+    }
+
     pub fn push_pattern_list(
         &mut self,
         elements: &[PatternId],
@@ -6199,6 +6213,16 @@ pub enum ArenaPatternKind {
     },
     Facet(Name),
     Tuple(ArenaRange),
+    /// An f-string pattern, `f"{key}={value}"`: its parts in order, each a
+    /// `Literal` holding the decoded text between two holes or a `TextHole`.
+    /// Two parts of one kind are never adjacent.
+    Text(ArenaRange),
+    /// A hole of a text pattern: `{name}`, `{_}`, or `{name:SPEC}`, with the
+    /// spec as written. Only a text pattern holds one.
+    TextHole {
+        binding: Option<Name>,
+        spec: Option<Name>,
+    },
 }
 
 impl ArenaPatternKind {

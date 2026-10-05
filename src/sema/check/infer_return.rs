@@ -879,9 +879,13 @@ fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name
             ArenaPatternKind::Constructor {
                 arg: Some(pattern), ..
             } => work.push(pattern),
-            ArenaPatternKind::Tuple(patterns) | ArenaPatternKind::Alternation(patterns) => {
-                work.extend(program.arena.pattern_ids(patterns))
-            }
+            ArenaPatternKind::Tuple(patterns)
+            | ArenaPatternKind::Alternation(patterns)
+            | ArenaPatternKind::Text(patterns) => work.extend(program.arena.pattern_ids(patterns)),
+            ArenaPatternKind::TextHole {
+                binding: Some(name),
+                ..
+            } => names.push(name),
             _ => {}
         }
     }

@@ -576,7 +576,18 @@ fn match_pattern(
                     None => aa.is_none() && ba.is_none(),
                 }
         }
+        (
+            ArenaPatternKind::TextHole {
+                binding: a,
+                spec: a_spec,
+            },
+            ArenaPatternKind::TextHole {
+                binding: b,
+                spec: b_spec,
+            },
+        ) => a == b && a_spec == b_spec,
         (ArenaPatternKind::Tuple(a), ArenaPatternKind::Tuple(b))
+        | (ArenaPatternKind::Text(a), ArenaPatternKind::Text(b))
         | (ArenaPatternKind::Alternation(a), ArenaPatternKind::Alternation(b)) => {
             let a: Vec<_> = p.pattern_ids(*a).collect();
             let b: Vec<_> = t.pattern_ids(*b).collect();

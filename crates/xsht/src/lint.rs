@@ -93,6 +93,8 @@ mod lint_prefer_is_empty;
 mod lint_prefer_negative_index;
 #[path = "lint_prefer_as_conversion.rs"]
 mod lint_prefer_as_conversion;
+#[path = "lint_prefer_text_pattern.rs"]
+mod lint_prefer_text_pattern;
 
 #[path = "lint_fs_method.rs"]
 mod lint_fs_method;
@@ -475,6 +477,9 @@ pub struct LintOptions {
     pub explicit_missing_ok: bool,
     /// Opt in to `lint.prefer-non-empty-argv`.
     pub prefer_non_empty_argv: bool,
+    /// Opt in to `lint.prefer-text-pattern`, which has no fix: it notes
+    /// where text is taken apart by position.
+    pub prefer_text_pattern: bool,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -548,6 +553,7 @@ impl Default for LintOptions {
             prefer_typed_callables: false,
             explicit_missing_ok: false,
             prefer_non_empty_argv: false,
+            prefer_text_pattern: false,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -604,6 +610,7 @@ pub struct Linter<'a> {
     prefer_inferred_proc_returns: bool,
     prefer_typed_callables: bool,
     explicit_missing_ok: bool,
+    prefer_text_pattern: bool,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -810,6 +817,10 @@ impl<'a> Linter<'a> {
             explicit_missing_ok: options.explicit_missing_ok
                 || only.as_deref().is_some_and(|only| {
                     only.contains(&DiagnosticCode::LintExplicitMissingOk)
+                }),
+            prefer_text_pattern: options.prefer_text_pattern
+                || only.as_deref().is_some_and(|only| {
+                    only.contains(&DiagnosticCode::LintPreferTextPattern)
                 }),
             prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
             // Naming the rule in `--only` asks for it as the setting does.
@@ -5412,10 +5423,11 @@ impl<'a> Linter<'a> {
                 .all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
             ArenaPatternKind::Alias { .. } => false,
             ArenaPatternKind::Group(child) => self.pattern_test_fix_is_nonbinding(child),
-            ArenaPatternKind::Alternation(items) => self
+            ArenaPatternKind::Alternation(items) | ArenaPatternKind::Text(items) => self
                 .arena
                 .pattern_ids(items)
                 .all(|child| self.pattern_test_fix_is_nonbinding(child)),
+            ArenaPatternKind::TextHole { binding, .. } => binding.is_none(),
         }
     }
 
@@ -5480,9 +5492,14 @@ impl<'a> Linter<'a> {
                     self.lint_pattern(child);
                 }
             }
-            ArenaPatternKind::Tuple(patterns) => {
+            ArenaPatternKind::Tuple(patterns) | ArenaPatternKind::Text(patterns) => {
                 for pat in self.arena.pattern_ids(patterns).collect::<Vec<_>>() {
                     self.lint_pattern(pat);
+                }
+            }
+            ArenaPatternKind::TextHole { binding, .. } => {
+                if let Some(name) = binding {
+                    self.define(name.as_str().as_str(), span, true);
                 }
             }
             ArenaPatternKind::TestName { ty, .. } => self.collect_type_expr_refs(ty),
@@ -5577,6 +5594,9 @@ impl<'a> Linter<'a> {
         prefer_tempdir::lint_scratch_directories(self, &stmts, Some(block));
         prefer_atomically::lint_published_files(self, &stmts, Some(block));
         lint_prefer_for_index::lint_counter_loops(self, &stmts, Some(block));
+        if self.prefer_text_pattern {
+            lint_prefer_text_pattern::lint_positional_text(self, &stmts);
+        }
         prefer_within::lint_repeated_timeouts(self, &stmts);
         self.lint_statement_sequence(&stmts);
     }
@@ -14703,11 +14723,17 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                     self.define_pattern(child);
                 }
             }
-            ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
+            ArenaPatternKind::Alternation(patterns)
+            | ArenaPatternKind::Tuple(patterns)
+            | ArenaPatternKind::Text(patterns) => {
                 for pattern in self.arena().pattern_ids(patterns).collect::<Vec<_>>() {
                     self.define_pattern(pattern);
                 }
             }
+            ArenaPatternKind::TextHole {
+                binding: Some(name),
+                ..
+            } => self.define(name),
             ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.define_pattern(arg),
             ArenaPatternKind::ErrorVariant { fields, .. } => {
                 for field in self.arena().pattern_fields(fields).to_vec() {
@@ -14717,6 +14743,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaPatternKind::Literal(_)
             | ArenaPatternKind::Wildcard
             | ArenaPatternKind::Type { binding: None, .. }
+            | ArenaPatternKind::TextHole { binding: None, .. }
             | ArenaPatternKind::Constructor { arg: None, .. }
             | ArenaPatternKind::Facet(_)
             | ArenaPatternKind::TestName { .. } => {}

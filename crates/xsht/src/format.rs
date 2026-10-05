@@ -1694,6 +1694,18 @@ impl<'a> Writer<'a> {
                     self.write_pattern(*pattern, output);
                 }
             }
+            // A text pattern is one literal: its escapes and holes are
+            // printed as they are written.
+            ArenaPatternKind::Text(_) => output.push_str(&self.source[span.range()]),
+            ArenaPatternKind::TextHole { binding, spec } => {
+                output.push('{');
+                output.push_str(binding.map_or("_".to_owned(), |name| name.to_string()).as_str());
+                if let Some(spec) = spec {
+                    output.push(':');
+                    output.push_str(spec.as_str().as_str());
+                }
+                output.push('}');
+            }
         }
     }
 

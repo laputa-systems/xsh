@@ -72,6 +72,9 @@ mod validated;
 #[path = "check/conversion.rs"]
 mod conversion;
 pub use conversion::Conversion;
+#[path = "check/text_pattern.rs"]
+mod text_pattern;
+pub use text_pattern::{TextHoleKind, TextHoleValue, TextPattern, split_text};
 
 use self::args::{
     call_arg_expr_id_arena, call_arg_span_arena, common_module_overload_expected_arena,
@@ -221,6 +224,9 @@ pub struct CheckOutput {
     /// from the conversion table. Lowering builds the operation from this
     /// and never looks at the operand's type or the target again.
     pub conversions: BTreeMap<Span, Conversion>,
+    /// Each text pattern, compiled: its literal segments and what each hole
+    /// makes of the text it matches. Lowering copies this into the program.
+    pub text_patterns: BTreeMap<Span, TextPattern>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
@@ -737,6 +743,7 @@ pub struct Checker {
     optional_binding_spans: BTreeSet<Span>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
+    text_patterns: BTreeMap<Span, TextPattern>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
@@ -899,6 +906,7 @@ impl Checker {
                 optional_binding_spans: checker.optional_binding_spans,
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
+                text_patterns: checker.text_patterns,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: options.embedded_bodies,
             }
@@ -1076,6 +1084,7 @@ impl Checker {
                 optional_binding_spans: checker.optional_binding_spans,
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
+                text_patterns: checker.text_patterns,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: false,
             }
@@ -1155,6 +1164,7 @@ impl Checker {
             optional_binding_spans: BTreeSet::new(),
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
+            text_patterns: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
             function_return_types: BTreeMap::new(),

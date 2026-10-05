@@ -271,6 +271,7 @@ pub(in crate::runtime::eval) enum FullPatternTag {
     ErrorVariant,
     Facet,
     Tag,
+    Text,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3033,6 +3034,12 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     })
 }
 
+/// The hole kind an encoded index names.
+fn text_hole_kind(index: u32) -> Result<crate::sema::check::TextHoleKind, IrVerifyError> {
+    crate::sema::check::TextHoleKind::from_index(index as usize)
+        .ok_or_else(|| IrVerifyError::new("text pattern hole kind is out of range"))
+}
+
 pub(in crate::runtime::eval) trait FullCodec: Sized {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError>;
 
@@ -3573,7 +3580,10 @@ impl<'a> FullDecoder<'a> {
                             .filter_map(|(_, slot)| *slot),
                     );
                 }
-                FullPatternTag::List | FullPatternTag::TagTest | FullPatternTag::Alternation => {
+                FullPatternTag::List
+                | FullPatternTag::TagTest
+                | FullPatternTag::Alternation
+                | FullPatternTag::Text => {
                     if tag == FullPatternTag::TagTest {
                         Name::decode(self, &mut payload)?;
                         Name::decode(self, &mut payload)?;
@@ -7317,6 +7327,31 @@ impl FullCodec for BuildPatternRow {
                 FullPatternTag::Alternation
             }
             Self::Wildcard => FullPatternTag::Wildcard,
+            // The hole count is the length of the child list; the kinds and
+            // then one more segment than holes follow it.
+            Self::Text {
+                holes,
+                kinds,
+                segments,
+            } => {
+                if kinds.len() != holes.len() || segments.len() != holes.len() + 1 {
+                    return Err(IrBuildError::format(
+                        "full_ir_text_pattern",
+                        None,
+                        0,
+                        builder.store.tags.len(),
+                    ));
+                }
+                holes.encode(builder, &mut payload)?;
+                // A kind is a plain word: it names no slot or table entry.
+                for kind in kinds {
+                    payload.push(*kind as u32);
+                }
+                for segment in segments {
+                    segment.encode(builder, &mut payload)?;
+                }
+                FullPatternTag::Text
+            }
             Self::Bind { slot } => {
                 slot.encode(builder, &mut payload)?;
                 FullPatternTag::Bind
@@ -7424,6 +7459,22 @@ impl FullCodec for BuildPatternRow {
                 patterns: Vec::decode(decoder, &mut payload)?,
             },
             FullPatternTag::Wildcard => Self::Wildcard,
+            FullPatternTag::Text => {
+                let holes = Vec::<BuildPatternId>::decode(decoder, &mut payload)?;
+                let mut kinds = Vec::with_capacity(holes.len());
+                for _ in 0..holes.len() {
+                    kinds.push(text_hole_kind(payload.raw()?)?);
+                }
+                let mut segments = Vec::with_capacity(holes.len() + 1);
+                for _ in 0..=holes.len() {
+                    segments.push(Arc::<str>::decode(decoder, &mut payload)?);
+                }
+                Self::Text {
+                    holes,
+                    kinds,
+                    segments,
+                }
+            }
             FullPatternTag::Bind => Self::Bind {
                 slot: usize::decode(decoder, &mut payload)?,
             },
@@ -7544,6 +7595,38 @@ impl FullCodec for BuildPatternRow {
                 children.finish()?;
             }
             FullPatternTag::Wildcard => {}
+            // What matching assumes of a text pattern: every hole is a
+            // wildcard or a binding with a known kind, and text separates
+            // each two holes, so where a hole ends is never a choice.
+            FullPatternTag::Text => {
+                let mut children = payload;
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+                let mut children = decoder.pattern_list_cursor(&mut children)?;
+                let count = children.raw()? as usize;
+                for _ in 0..count {
+                    let hole = children.raw()? as usize;
+                    if !matches!(
+                        decoder.store.patterns.get(hole),
+                        Some(FullPatternTag::Wildcard | FullPatternTag::Bind)
+                    ) {
+                        return Err(IrVerifyError::new(
+                            "text pattern hole must be a wildcard or binding",
+                        ));
+                    }
+                }
+                children.finish()?;
+                for _ in 0..count {
+                    text_hole_kind(payload.raw()?)?;
+                }
+                for index in 0..=count {
+                    let segment = decoder.store.string(payload.raw()?)?;
+                    if segment.is_empty() && index != 0 && index != count {
+                        return Err(IrVerifyError::new(
+                            "text pattern holes must be separated by text",
+                        ));
+                    }
+                }
+            }
             FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
             FullPatternTag::Type => {
                 Type::verify(decoder, &mut payload)?;
@@ -10804,6 +10887,112 @@ pure selected() -> Str {
                 )
                 .is_err()
             );
+        });
+    }
+
+    /// A text pattern holds one more literal segment than it has holes, with
+    /// text between each two holes, and each hole is a wildcard or a binding
+    /// of a known kind. Matching relies on all of it, so a program that
+    /// breaks any of it is rejected before it runs.
+    #[test]
+    fn a_text_pattern_keeps_its_holes_apart_and_their_kinds_known() {
+        run_with_large_stack(|| {
+            let source = "pure port(line: Str) -> Int {\n  match line {\n    \"none\" => -1,\n    f\"{_}:{port:d}/tcp\" => port,\n    else => 0,\n  }\n}\n";
+            let program = Arc::new(fixture("text-pattern.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let row = program
+                .store
+                .patterns
+                .iter()
+                .position(|tag| *tag == FullPatternTag::Text)
+                .expect("the f-string arm lowers to a text pattern");
+            let payload = program.store.pattern_data[row]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
+            // The child list, then a kind for each of two holes, then three
+            // segments.
+            assert_eq!(payload.len(), 6);
+            assert_eq!(
+                program.store.extra[payload.start + 1],
+                crate::sema::check::TextHoleKind::Text as u32
+            );
+            assert_eq!(
+                program.store.extra[payload.start + 2],
+                crate::sema::check::TextHoleKind::Decimal as u32
+            );
+
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut port = |line: &str| {
+                evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "port")),
+                        LoweredFunctionKind::Pure,
+                        &[Value::Str(line.into())],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("the function exists")
+                    .unwrap()
+            };
+            assert_eq!(port("ssh:22/tcp"), Value::Int(22));
+            assert_eq!(port("a:b:443/tcp"), Value::Int(0));
+            assert_eq!(port(":80/tcp"), Value::Int(80));
+            assert_eq!(port("ssh:22/udp"), Value::Int(0));
+            assert_eq!(port("none"), Value::Int(-1));
+
+            let mut unknown_kind = (*program).clone();
+            unknown_kind.store.extra[payload.start + 2] =
+                crate::sema::check::TextHoleKind::ALL.len() as u32;
+            assert!(
+                FullVerifier::verify(&unknown_kind)
+                    .unwrap_err()
+                    .message
+                    .contains("hole kind is out of range")
+            );
+
+            // The middle segment becomes the empty first one: two holes with
+            // nothing between them.
+            let mut adjacent = (*program).clone();
+            adjacent.store.extra[payload.start + 4] = adjacent.store.extra[payload.start + 3];
+            assert!(
+                FullVerifier::verify(&adjacent)
+                    .unwrap_err()
+                    .message
+                    .contains("separated by text")
+            );
+
+            // A hole that is a literal is not a wildcard or a binding.
+            let literal = program
+                .store
+                .patterns
+                .iter()
+                .position(|tag| *tag == FullPatternTag::Literal)
+                .expect("the first arm is a literal pattern");
+            assert!(literal < row);
+            let mut literal_hole = (*program).clone();
+            let holes = IrBlockId::from_raw(literal_hole.store.extra[payload.start])
+                .expect("the hole list is a block");
+            let holes = literal_hole.store.blocks[holes.index()]
+                .instructions
+                .bounds(literal_hole.store.extra.len())
+                .unwrap();
+            assert_eq!(literal_hole.store.extra[holes.start], 2);
+            literal_hole.store.extra[holes.start + 1] = literal as u32;
+            assert!(
+                FullVerifier::verify(&literal_hole)
+                    .unwrap_err()
+                    .message
+                    .contains("must be a wildcard or binding")
+            );
+
+            // A pattern cut short of its last segment does not decode.
+            let mut truncated = (*program).clone();
+            truncated.store.pattern_data[row] = IrData::from_range(IrRange::new(
+                payload.start as u32,
+                payload.len() as u32 - 1,
+            ));
+            assert!(FullVerifier::verify(&truncated).is_err());
         });
     }
 

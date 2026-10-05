@@ -91,10 +91,19 @@ impl Checker {
                     self.reject_pattern_test_bindings(arena, child, false);
                 }
             }
-            ArenaPatternKind::Tuple(patterns) => {
+            ArenaPatternKind::Tuple(patterns) | ArenaPatternKind::Text(patterns) => {
                 for pattern in arena.arena.pattern_ids(*patterns) {
                     self.reject_pattern_test_bindings(arena, pattern, false);
                 }
+            }
+            ArenaPatternKind::TextHole {
+                binding: Some(_), ..
+            } => {
+                self.error(
+                    span,
+                    "pattern tests cannot bind names; write the hole as `{_}`",
+                    DiagnosticCode::CheckPatternTestBinding,
+                );
             }
             _ => {}
         }
@@ -169,7 +178,7 @@ impl Checker {
         }
     }
 
-    fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
+    pub(super) fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
         if self.current_scope().contains_key(&name) {
             self.error(
                 span,
@@ -666,6 +675,11 @@ impl Checker {
                     self.check_pattern_arena(arena, source, sub_id, &Type::Unknown);
                 }
             }
+            ArenaPatternKind::Text(parts) => {
+                self.check_text_pattern_arena(arena, *parts, value_ty, span)
+            }
+            // A hole is checked with the text pattern that holds it.
+            ArenaPatternKind::TextHole { .. } => {}
             ArenaPatternKind::Constructor { name, arg } => {
                 if let Some(info) = self.tag_variants.get(name).cloned() {
                     if !matches!(value_ty, Type::Any | Type::Unknown)

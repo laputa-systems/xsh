@@ -117,6 +117,8 @@ pub struct CompactBodyFacts {
     pub from_end_indexes: FxHashMap<ExprId, u32>,
     /// The operation each `value as TARGET` expression performs.
     pub conversions: FxHashMap<ExprId, super::Conversion>,
+    /// Each text pattern as the checker compiled it.
+    pub text_patterns: FxHashMap<crate::syntax::arena::PatternId, super::TextPattern>,
 }
 
 impl CompactBodyFacts {
@@ -203,6 +205,18 @@ impl CompactBodyFacts {
                     facts
                         .inferred_variant_patterns
                         .insert(crate::syntax::arena::PatternId::from_index(index), resolved.clone());
+                }
+            }
+        }
+        if !checked.text_patterns.is_empty() {
+            for (index, pattern) in arena.patterns.iter().enumerate() {
+                if matches!(pattern.kind, crate::syntax::arena::ArenaPatternKind::Text(_))
+                    && let Some(compiled) = checked.text_patterns.get(&arena.span(pattern.span))
+                {
+                    facts.text_patterns.insert(
+                        crate::syntax::arena::PatternId::from_index(index),
+                        compiled.clone(),
+                    );
                 }
             }
         }

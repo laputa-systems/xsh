@@ -255,6 +255,7 @@ diagnostic_codes! {
         ParseUnterminatedInterpolation = "parse.unterminated-interpolation", error, "Reject a string interpolation or f-string `{` with no closing delimiter";
         ParseForIndex = "parse.for-index", error, "Reject a destructured index in `for INDEX, ITEM in SOURCE`";
         ParseNestingDepth = "parse.nesting-depth", error, "Reject a construct nested more deeply than the limit every later pass is sized for";
+        ParseTextPatternHole = "parse.text-pattern-hole", error, "Reject a hole of an f-string pattern that is not a name, `_`, or a name with a spec";
     }
     Check {
         CheckAcceptPolicy = "check.accept-policy", error, "Reject an invalid `accept` exit-code list: empty, outside 0..255, or with duplicates";
@@ -484,6 +485,7 @@ diagnostic_codes! {
         CheckCallableMismatch = "check.callable-mismatch", error, "Reject a function whose kind, parameters, return type, or effects do not fit the callable type expected of it, and a call through a callable type that splices its arguments";
         CheckValidatedLiteral = "check.validated-literal", error, "Reject a literal that fails the validation of the type expected of it, such as a list literal that may be empty where a `NonEmpty[T]` is expected";
         CheckConversion = "check.conversion", error, "Reject `value as TYPE` for a pair of types the conversion table does not list";
+        CheckTextPattern = "check.text-pattern", error, "Reject an f-string pattern with an unsupported spec, two adjacent holes, a repeated name, or a subject that is not text";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";
@@ -651,6 +653,7 @@ diagnostic_codes! {
         LintPreferNegativeIndex = "lint.prefer-negative-index", warning, "Use `list[-N]` instead of `list[list.len() - N]`";
         LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", warning, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";
         LintPreferAsConversion = "lint.prefer-as-conversion", warning, "Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names";
+        LintPreferTextPattern = "lint.prefer-text-pattern", warning, "Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in)";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

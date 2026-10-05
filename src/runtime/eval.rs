@@ -2001,6 +2001,14 @@ enum BuildPatternRow {
         fields: Vec<(Name, BuildPatternId)>,
     },
     Wildcard,
+    // A text pattern: `segments` are the literal text around `holes`, one
+    // more than there are holes, and `kinds` says what each hole makes of
+    // the text it takes. Each hole is a wildcard or a binding.
+    Text {
+        holes: Vec<BuildPatternId>,
+        kinds: Vec<crate::sema::check::TextHoleKind>,
+        segments: Vec<Arc<str>>,
+    },
     // `name => …`: always matches, binds the scrutinee to `slot`.
     Bind {
         slot: usize,

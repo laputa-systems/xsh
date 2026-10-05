@@ -1364,7 +1364,8 @@ Group the run form to say which is meant.
 ### 6.8 Conditional and match expressions
 
 `if` and `match` produce values when used in value position. A value `if`
-needs an `else`; a value `match` must be exhaustive without relying on guards.
+needs an `else`; a value `match` must be exhaustive without relying on guards
+or on text patterns (6.10).
 Branches may contain statements followed by a tail value, and all reachable
 branch values must have one type. A branch that returns, breaks, or fails
 contributes no value. An `if` statement none of whose branches ends in a value
@@ -1461,6 +1462,7 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 | `_` | anything; as a whole `match` arm it is written `else` (6.8) |
 | `name` | anything, binding it (or a payload-free variant of that name); a capitalized name that is no known variant is an error (`check.pattern-capitalized-binding`) rather than a binding |
 | literal | an equal value |
+| `f"text {name} {n:d}"` | a `Str` with that literal text, binding each hole (below) |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |
 | `Family.Variant { field, .. }` | an error variant, binding payload fields |
 | `.Variant`, `.Variant(p, ...)`, `.Variant { field, .. }` | the variant of the matched value's enum or error family (5.5); not at the head of a `match` arm |
@@ -1494,6 +1496,58 @@ as for an enum (6.8); a value `match` names the missing members in its
 names: write `outcome is Ok(_)`. Alternatives need grouping
 (`value is (P | Q)`), and negation is `!(value is P)`. Testing a `Result` never
 propagates. A true test narrows a stable binding in the selected branch.
+
+An f-string in pattern position is a text pattern. It matches a `Str` of
+that shape and binds each hole to the text the hole took:
+
+```xsh
+{{.spec.text_patterns.source}}
+```
+
+The literal parts must occur in the text in order, and the whole text is
+matched. A hole is `{name}`, which binds a `Str`; `{_}`, which binds
+nothing; or `{name:LETTER}`, which converts what it took. The hole grammar
+is Python's format field read in reverse, as its `parse` library reads it,
+and a letter keeps the meaning Python gives it:
+
+| Spec | Binds | The text must be |
+|---|---|---|
+| none, `s` | `Str` | anything |
+| `d` | `Int` | decimal digits, with an optional sign |
+| `x`, `o`, `b` | `Int` | hexadecimal, octal, or binary digits, with an optional sign and an optional `0x`, `0o`, or `0b` |
+| `f`, `e`, `g` | `Float` | a finite decimal number, with an optional fraction and exponent |
+
+Each hole takes the shortest text that lets the rest of the pattern match.
+It ends at the first place the literal after it occurs; the literal that
+ends the pattern is matched at the end of the text, so the last hole takes
+the rest. `f"{key}={value}"` splits `a=b=c` into `a` and `b=c`, and
+`f"{stem}.txt"` takes `a.txt` from `a.txt.txt`. A hole may take the empty
+text, which is where this differs from `parse`: `f"{key}={value}"` matches
+`EMPTY=`. A typed hole takes its text the same way and then converts it.
+Text that is not a value of the type, or an integer outside `Int`, makes the
+pattern not match; no other split is tried. A pattern that does not match
+is an arm that is not selected, like any other.
+
+A text pattern is compiled when the program is checked, and three mistakes
+are `check.text-pattern`: a spec that is not one of the letters above,
+which includes every width, fill, alignment, sign, and precision; two holes
+with no text between them, because where the first ends would be a guess;
+and a subject that is not a `Str`. A hole binds and never evaluates, so one
+that is not a name is `parse.text-pattern-hole`; to compare with computed
+text, write `value == f"..."`. A name is bound once
+(`check.pattern-binding`), `{{` and `}}` are literal braces, and escapes are
+those of an f-string. In an `is` test every hole is `{_}`. A text pattern
+never counts toward exhaustiveness, so a `match` over text ends in `else`.
+
+```xsh
+{{.spec.text_pattern_rejected.source}}
+```
+
+Taking text apart by position says less: `parts[1]` after a `split` fails at
+run time where a pattern would not match, and a `starts_with` test followed
+by a slice states the prefix twice. The opt-in `lint.prefer-text-pattern`
+notes both shapes and rewrites neither, because a pattern's last hole keeps
+any further separator where `split` makes another piece.
 
 ### 6.11 Conversion
 

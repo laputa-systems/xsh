@@ -390,6 +390,8 @@ fn pattern_primary(payload: &'static str) -> Item {
         t(TokenTag::Duration),
         t(TokenTag::String),
         t(TokenTag::Bytes),
+        // A text pattern: its holes are read inside the literal.
+        t(TokenTag::FmtString),
         r("list_pattern"),
         r("record_pattern"),
     ])

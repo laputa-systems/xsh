@@ -214,6 +214,8 @@ pub struct LintConfig {
     /// On only when `explicit-missing-ok = true`.
     pub explicit_missing_ok: bool,
     pub prefer_non_empty_argv: bool,
+    /// On only when `prefer-text-pattern = true`.
+    pub prefer_text_pattern: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -232,6 +234,7 @@ impl Default for LintConfig {
             prefer_typed_callables: false,
             explicit_missing_ok: false,
             prefer_non_empty_argv: false,
+            prefer_text_pattern: false,
             runless_except: Vec::new(),
         }
     }
@@ -372,6 +375,8 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         explicit_missing_ok: ini_string(lint, "explicit-missing-ok")
             .is_some_and(|value| value == "true"),
         prefer_non_empty_argv: ini_string(lint, "prefer-non-empty-argv")
+            .is_some_and(|value| value == "true"),
+        prefer_text_pattern: ini_string(lint, "prefer-text-pattern")
             .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
@@ -630,6 +635,17 @@ mod tests {
         fs::write(&path, "[lint]\n").unwrap();
         let lint = load_config_from(&path).unwrap().lint;
         assert!(!lint.prefer_inferred_variants && !lint.prefer_positional_constructors);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn prefer_text_pattern_lint_is_explicit_opt_in() {
+        let root = temp_root("prefer-text-pattern-lint-config");
+        let path = root.join("xsht-config.ini");
+        fs::write(&path, "[lint]\nprefer-text-pattern = true\n").unwrap();
+        assert!(load_config_from(&path).unwrap().lint.prefer_text_pattern);
+        fs::write(&path, "[lint]\n").unwrap();
+        assert!(!load_config_from(&path).unwrap().lint.prefer_text_pattern);
         let _ = fs::remove_dir_all(root);
     }
 

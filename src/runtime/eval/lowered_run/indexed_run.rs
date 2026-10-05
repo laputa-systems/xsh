@@ -2477,6 +2477,62 @@ impl Evaluator {
                 }
             }
             FullPatternTag::Wildcard => true,
+            FullPatternTag::Text => {
+                use crate::sema::check::{TextHoleKind, TextHoleValue, split_text};
+                let (_, mut patterns) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let count = indexed_raw(&mut patterns, span)? as usize;
+                let mut holes = Vec::with_capacity(count);
+                for _ in 0..count {
+                    holes.push(indexed_raw(&mut patterns, span)?);
+                }
+                indexed_finish(patterns, span)?;
+                let mut kinds = Vec::with_capacity(count);
+                for _ in 0..count {
+                    kinds.push(indexed_raw(&mut payload, span)? as usize);
+                }
+                let mut segments = Vec::with_capacity(count + 1);
+                for _ in 0..=count {
+                    segments.push(indexed_string(&mut payload, execution, span)?);
+                }
+                let subject = match value {
+                    LoweredValue::Str(text) => Some(text.as_ref()),
+                    LoweredValue::StrView(view) => Some(view.as_str()),
+                    _ => None,
+                };
+                let texts = subject.and_then(|subject| split_text(&segments, subject));
+                let mut matched = texts.is_some();
+                // Every hole converts before any name is bound, and a hole
+                // whose text is not a value of its kind fails the match.
+                for ((hole, kind), text) in holes.iter().zip(&kinds).zip(texts.iter().flatten()) {
+                    // The verifier checked each kind before the program ran.
+                    let Some(kind) = TextHoleKind::from_index(*kind) else {
+                        matched = false;
+                        break;
+                    };
+                    let converted = match kind.convert(text) {
+                        // Text needs no value unless a name takes it.
+                        Some(TextHoleValue::Text(_)) if !bind => continue,
+                        Some(TextHoleValue::Text(text)) => LoweredValue::Str(Arc::from(text)),
+                        Some(TextHoleValue::Int(number)) => LoweredValue::Int(number),
+                        Some(TextHoleValue::Float(number)) => {
+                            LoweredValue::Float(crate::runtime::value::FloatValue::new(number))
+                        }
+                        None => {
+                            matched = false;
+                            break;
+                        }
+                    };
+                    if !Self::indexed_pattern_match_pass(
+                        execution, *hole, &converted, slots, span, bind,
+                    )? {
+                        matched = false;
+                        break;
+                    }
+                }
+                matched
+            }
             FullPatternTag::Bind => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
                 if bind {

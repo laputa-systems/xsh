@@ -303,6 +303,96 @@ impl<'a> Parser<'a> {
         Some((arena.push_pattern_type(binding, ty_id, span), span))
     }
 
+    /// An f-string in pattern position: literal text and holes. A hole is a
+    /// name or `_`, then optionally `:` and a spec; what a spec means is the
+    /// checker's to say. Text between two holes is one literal part, and an
+    /// empty literal is not stored, so two holes written back to back are
+    /// adjacent parts.
+    fn parse_text_pattern_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+        span: crate::source::Span,
+        raw_literal: bool,
+    ) -> Option<crate::syntax::arena::PatternId> {
+        use super::InterpolationChunk;
+        use crate::diagnostic::{Diagnostic, Label};
+        use crate::source::Span;
+        let source_id = self.source_id;
+        let (chunks, mut diagnostics) = self.quoted_text_chunks(span, true);
+        let mut parts = Vec::new();
+        // The literal text since the last hole, with the span it started at.
+        let mut text: Option<(String, usize, usize)> = None;
+        for chunk in chunks {
+            match chunk {
+                InterpolationChunk::Text { source, offset } => {
+                    let decoded = if raw_literal {
+                        source.to_owned()
+                    } else {
+                        let (decoded, decode_diagnostics) =
+                            super::literals::decode_interpolation_text_for(
+                                source_id, source, span, offset,
+                            );
+                        diagnostics.extend(decode_diagnostics);
+                        decoded
+                    };
+                    let pending = text.get_or_insert_with(|| (String::new(), offset, offset));
+                    pending.0.push_str(&decoded);
+                    pending.2 = offset + source.len();
+                }
+                InterpolationChunk::Expr { source, offset } => {
+                    if let Some((literal, start, end)) = text.take()
+                        && !literal.is_empty()
+                    {
+                        let literal_span = Span::new(source_id, start, end);
+                        let expr = arena.push_str_expr(&std::sync::Arc::from(literal), literal_span);
+                        parts.push(arena.push_pattern_literal(expr, literal_span));
+                    }
+                    let hole_span = Span::new(source_id, offset, offset + source.len());
+                    let (name, spec) = match source.split_once(':') {
+                        Some((name, spec)) => (name.trim(), Some(spec)),
+                        None => (source.trim(), None),
+                    };
+                    let is_name = name.chars().next().is_some_and(|first| {
+                        first == '_' || first.is_ascii_alphabetic()
+                    }) && name
+                        .chars()
+                        .all(|part| part == '_' || part.is_ascii_alphanumeric())
+                        && crate::syntax::token::Keyword::from_ident(name).is_none();
+                    if !is_name || spec.is_some_and(|spec| spec.trim().is_empty()) {
+                        diagnostics.push(
+                            Diagnostic::error("a text pattern hole is a name, optionally with a spec")
+                                .with_code(DiagnosticCode::ParseTextPatternHole)
+                                .with_label(Label::primary(
+                                    hole_span,
+                                    "write `{name}`, `{_}`, or `{name:SPEC}`",
+                                ))
+                                .with_note(
+                                    "a hole binds the text it matches; it does not evaluate an expression",
+                                ),
+                        );
+                        continue;
+                    }
+                    let binding = (name != "_").then(|| crate::symbol::Name::intern(name));
+                    let spec = spec.map(|spec| crate::symbol::Name::intern(spec.trim()));
+                    parts.push(arena.push_pattern_text_hole(binding, spec, hole_span));
+                }
+            }
+        }
+        if let Some((literal, start, end)) = text
+            && !literal.is_empty()
+        {
+            let literal_span = Span::new(source_id, start, end);
+            let expr = arena.push_str_expr(&std::sync::Arc::from(literal), literal_span);
+            parts.push(arena.push_pattern_literal(expr, literal_span));
+        }
+        let failed = !diagnostics.is_empty();
+        self.diagnostics.extend(diagnostics);
+        if failed {
+            return None;
+        }
+        Some(arena.push_pattern_text(&parts, span))
+    }
+
     fn parse_pattern_primary_arena_only(
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
@@ -460,6 +550,16 @@ impl<'a> Parser<'a> {
                 let expr =
                     arena.push_unary_expr(crate::syntax::node::UnaryOp::Neg, magnitude.id, span);
                 Some((arena.push_pattern_literal(expr, span), span, None))
+            }
+            TokenTag::FmtString => {
+                let raw_literal = self
+                    .token_table
+                    .string_flags_at(self.index)
+                    .expect("formatted string token has flags payload")
+                    .raw_literal;
+                self.bump();
+                let pattern = self.parse_text_pattern_arena_only(arena, span, raw_literal)?;
+                Some((pattern, span, None))
             }
             TokenTag::Int
             | TokenTag::Float
