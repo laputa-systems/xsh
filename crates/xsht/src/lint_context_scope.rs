@@ -148,9 +148,9 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
         } else {
             ""
         };
-        // Run spans exclude the propagation token. A statement cd already
+        // The capture propagates as the scope's tail. A statement cd already
         // propagates entry failures; the outer `?` keeps that same destination.
-        let replacement = format!("{prefix}cd ({input}) {{ {run} ? }}?{suffix}");
+        let replacement = format!("{prefix}cd ({input}) {{ {run} }}?{suffix}");
         let mut candidate = linter.source.to_owned();
         candidate.replace_range(edit.range(), &replacement);
         let parsed = Parser::parse_source_arena_only(edit.source_id, &candidate);
@@ -262,7 +262,7 @@ mod tests {
         let mut fixed = source.to_owned();
         fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
         assert!(
-            fixed.contains("var revision = cd (repo) { run.text git rev-parse HEAD ? }?"),
+            fixed.contains("var revision = cd (repo) { run.text git rev-parse HEAD }?"),
             "{fixed}"
         );
         assert!(fixed.contains("revision = revision.trim()"));
@@ -314,7 +314,7 @@ mod tests {
             "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { print before; revision = run.text /bin/pwd ? }; revision }\n",
             "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { # preserve assignment timing\n revision = run.text /bin/pwd ? }; revision }\n",
             "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; let observed = revision; cd $repo { revision = run.text /bin/pwd ? }; revision }\n",
-            "proc inspect(repo: Path) [env, process, error] -> Result[Result[Str]] { var revision: Result[Str] = Ok(\"\"); cd $repo { revision = run.text /bin/pwd }; Ok(revision) }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Result[Str]] { var revision: Result[Str] = Ok(\"\"); cd $repo { revision = try run.text /bin/pwd }; Ok(revision) }\n",
         ] {
             let output = diagnostics(source);
             assert!(

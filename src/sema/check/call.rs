@@ -615,7 +615,6 @@ impl Checker {
                     (*inner, true)
                 }
                 Type::Result(_, _) => {
-                    self.note_run_propagated(arena, base);
                     (self.check_propagation(&base_ty, span), false)
                 }
                 _ => {

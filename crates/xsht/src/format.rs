@@ -2157,14 +2157,14 @@ impl<'a> Writer<'a> {
         let segments: Vec<xsh::frontend::syntax::arena::ArenaRunSegment> =
             self.arena.run_segments(run.segments).to_vec();
         for (index, segment) in segments.iter().enumerate() {
-            let tail = if index + 1 < segments.len() || run.propagate {
+            let tail = if index + 1 < segments.len() || run.propagation_written {
                 2
             } else {
                 0
             };
             self.write_run_segment(segment, index > 0, indent, tail, output);
         }
-        if run.propagate {
+        if run.propagation_written {
             output.push_str(" ?");
         }
     }

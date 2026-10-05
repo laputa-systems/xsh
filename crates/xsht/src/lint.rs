@@ -101,8 +101,6 @@ mod lint_fs_method;
 
 #[path = "lint_prefer_typed_callable.rs"]
 mod lint_prefer_typed_callable;
-#[path = "lint_explicit_run_capture.rs"]
-mod lint_explicit_run_capture;
 #[path = "lint_argument_label.rs"]
 mod lint_argument_label;
 #[path = "lint_prefer_non_empty_argv.rs"]
@@ -519,9 +517,6 @@ pub struct LintOptions {
     /// propagates the `Result[Bool]` without the `?`; empty without checked
     /// facts.
     pub redundant_condition_propagations: BTreeSet<Span>,
-    /// Value-position run forms whose `Result` is the value and that are not
-    /// written under `try`; empty without checked facts.
-    pub implicitly_captured_runs: BTreeSet<Span>,
     /// Spliced `run` targets typed as a list without a validation; empty
     /// without checked facts.
     pub unvalidated_command_vectors: BTreeMap<Span, Type>,
@@ -582,7 +577,6 @@ impl Default for LintOptions {
             statement_expression_spans: BTreeSet::default(),
             propagating_statements: BTreeSet::default(),
             redundant_condition_propagations: BTreeSet::default(),
-            implicitly_captured_runs: BTreeSet::default(),
             unvalidated_command_vectors: BTreeMap::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
@@ -660,7 +654,6 @@ pub struct Linter<'a> {
     guarded_statement_depth: usize,
     propagating_statements: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
-    implicitly_captured_runs: BTreeSet<Span>,
     /// Empty unless `lint.prefer-non-empty-argv` was asked for.
     unvalidated_command_vectors: BTreeMap<Span, Type>,
     /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
@@ -886,7 +879,6 @@ impl<'a> Linter<'a> {
             guarded_statement_depth: 0,
             propagating_statements: options.propagating_statements,
             redundant_condition_propagations: options.redundant_condition_propagations,
-            implicitly_captured_runs: options.implicitly_captured_runs,
             // Naming the rule in `--only` asks for it as the setting does.
             unvalidated_command_vectors: if options.prefer_non_empty_argv
                 || only.as_deref().is_some_and(|only| {
@@ -12663,6 +12655,13 @@ impl LintExprVisitor<'_, '_> {
         ) {
             self.linter.diagnostics.push(diagnostic);
         }
+        if let Some(diagnostic) = lint_redundant_propagation::redundant_capture_try(
+            self.linter.arena,
+            self.linter.source,
+            expr,
+        ) {
+            self.linter.diagnostics.push(diagnostic);
+        }
         if let ArenaExprKind::Unary {
             op: UnaryOp::Not,
             expr: inner,
@@ -13263,14 +13262,14 @@ impl LintExprVisitor<'_, '_> {
 
     fn visit_run_form(&mut self, run: RunFormId) {
         let arena = self.linter.arena;
-        if let Some(diagnostic) = lint_explicit_run_capture::explicit_run_capture(
+        let run_form = arena.run_form(run).clone();
+        if let Some(diagnostic) = lint_redundant_propagation::redundant_capture_propagation(
             arena,
-            &self.linter.implicitly_captured_runs,
+            self.linter.source,
             run,
         ) {
             self.linter.diagnostics.push(diagnostic);
         }
-        let run_form = arena.run_form(run).clone();
         for segment in arena.run_segments(run_form.segments).to_vec() {
             if let Some(diagnostic) = lint_prefer_non_empty_argv::prefer_non_empty_argv(
                 arena,
@@ -13282,7 +13281,7 @@ impl LintExprVisitor<'_, '_> {
             let seg_span = arena.span(segment.span);
             if segment.kind == RunKind::Plain
                 && segment.accept.is_none()
-                && run_form.propagate
+                && run_form.propagation_written
                 && let Some(target) =
                     literal_command_word(arena, self.linter.source, &segment.target)
                 && expects_nonzero_status(&target)

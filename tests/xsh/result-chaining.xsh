@@ -211,7 +211,7 @@ test test_a_guarded_hop_after_an_initializer_run_form_belongs_to_its_last_word {
   )?
 }
 
-test test_a_propagated_run_form_is_not_reported_as_captured { |ctx|
+test test_a_run_form_under_a_guarded_hop_keeps_its_result_for_the_hop { |ctx|
   let source = r"""proc lines(script: Str) -> Result[Int] {
   let words = ["sh", "-c", script]
   var count = 0
@@ -221,23 +221,22 @@ test test_a_propagated_run_form_is_not_reported_as_captured { |ctx|
 
   let listed = [line for line in run.text sh -c $script?.lines()]
   let first = (run.text sh -c $script)?[0..1]
-  let kept = run.text sh -c $script
-  Ok(count + listed.len() + first.byte_len() + (kept ?? "").byte_len())
+  let grouped = (run.text sh -c $script)?
+  let bare = run.text sh -c $script
+  Ok(count + listed.len() + first.byte_len() + grouped.byte_len() + bare.byte_len())
 }
 
 let total = lines("echo ab")?
 print $total
+match lines("echo ab; exit 3") {
+  Ok(total) => print $total
+  Err(problem) => print ${"exited with status 3" in problem.message}
+}
 """
-  let before = test.expect(ctx, source, status: 0)?
+  let ran = test.expect(ctx, source, status: 0)?
+  assert ran.stdout == "10\ntrue\n", ran.stdout
+  # The hop is the propagation, so no `?` here is redundant.
   let candidate = test.temp_file(ctx, name: "lines.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.explicit-run-capture $candidate ?
-  # Only the form that is bound keeps its `Result`.
-  assert first.stderr.split("warn[lint.explicit-run-capture]").len() == 2, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.explicit-run-capture $candidate ?
-  assert fixing.status.exited_with(0), fixing.stderr
-  let fixed = candidate.read_text()?
-  assert "  let kept = try run.text sh -c $script\n" in fixed, fixed
-  assert "  for line in run.text @words?.lines() {\n" in fixed, fixed
-  let after = test.expect(ctx, fixed, status: 0)?
-  assert after.stdout == before.stdout
+  let linted = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
+  assert linted.status.exited_with(0), linted.stderr
 }

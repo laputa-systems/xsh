@@ -172,7 +172,6 @@ pub struct CheckOutput {
     pub redundant_condition_propagations: BTreeSet<Span>,
     /// Value-position run forms whose `Result` is the value and that are not
     /// written under `try`, keyed by the run form's span.
-    pub implicitly_captured_runs: BTreeSet<Span>,
     /// Spliced `run` targets whose type is a list without a validation, by
     /// the splice's span: the command vectors that may be empty.
     pub unvalidated_command_vectors: BTreeMap<Span, Type>,
@@ -726,7 +725,6 @@ pub struct Checker {
     propagating_statements: BTreeSet<Span>,
     propagating_conditions: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
-    implicitly_captured_runs: BTreeSet<Span>,
     unvalidated_command_vectors: BTreeMap<Span, Type>,
     /// The next expression checked is in a control position of a condition.
     control_condition: bool,
@@ -895,7 +893,6 @@ impl Checker {
                 propagating_statements: checker.propagating_statements,
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
-                implicitly_captured_runs: checker.implicitly_captured_runs,
                 unvalidated_command_vectors: checker.unvalidated_command_vectors,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
@@ -1074,7 +1071,6 @@ impl Checker {
                 propagating_statements: checker.propagating_statements,
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
-                implicitly_captured_runs: checker.implicitly_captured_runs,
                 unvalidated_command_vectors: checker.unvalidated_command_vectors,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
@@ -1153,7 +1149,6 @@ impl Checker {
             propagating_statements: BTreeSet::new(),
             propagating_conditions: BTreeSet::new(),
             redundant_condition_propagations: BTreeSet::new(),
-            implicitly_captured_runs: BTreeSet::new(),
             unvalidated_command_vectors: BTreeMap::new(),
             control_condition: false,
             in_control_position: false,

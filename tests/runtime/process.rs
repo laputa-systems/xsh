@@ -1233,7 +1233,7 @@ fn accepted_process_capture_limit_remains_an_error() {
         &format!(
             r#"
 let helper = Path({})
-let result = run.bytes --accept=[0] ${{helper}} completion-output 0 16777217
+let result = try run.bytes --accept=[0] ${{helper}} completion-output 0 16777217
 match result {{
   Err(ProcessError.CaptureLimit {{message: message}}) => print "limited"
   Err(error) => test.fail(error.message)?

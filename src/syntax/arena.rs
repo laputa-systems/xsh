@@ -1727,17 +1727,36 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_run_form_parts(segments, propagate, span)
     }
 
-    pub fn set_run_form_propagate(&mut self, id: RunFormId, propagate: bool) {
-        self.lowerer.arena.run_forms[id.index()].propagate = propagate;
+    /// Records the `?` written after a run form.
+    pub fn set_run_form_propagation_written(&mut self, id: RunFormId) {
+        let form = &mut self.lowerer.arena.run_forms[id.index()];
+        form.propagate = true;
+        form.propagation_written = true;
     }
 
     /// Marks a run form as written under `try`.
     pub fn set_run_form_captured(&mut self, id: RunFormId) {
-        self.lowerer.arena.run_forms[id.index()].captured = true;
+        let form = &mut self.lowerer.arena.run_forms[id.index()];
+        form.captured = true;
+        form.propagate = false;
     }
 
-    pub fn run_form_propagates(&self, id: RunFormId) -> bool {
-        self.lowerer.arena.run_forms[id.index()].propagate
+    pub fn run_form_propagation_written(&self, id: RunFormId) -> bool {
+        self.lowerer.arena.run_forms[id.index()].propagation_written
+    }
+
+    /// `operand` is consumed by a form that needs its `Result`: a postfix
+    /// `?`, `?.`, or `?[`. A run form there yields the `Result`, and the
+    /// consuming form is what propagates.
+    fn keep_run_result(&mut self, operand: ExprId) {
+        if let ArenaExprKind::Run(run) = self.expr_kind(operand) {
+            self.keep_run_form_result(run);
+        }
+    }
+
+    fn keep_run_form_result(&mut self, run: RunFormId) {
+        let form = &mut self.lowerer.arena.run_forms[run.index()];
+        form.propagate = form.propagation_written;
     }
 
     pub fn discard_run_segments(&mut self) {
@@ -3518,6 +3537,7 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_null_safe_field_expr(&mut self, base: ExprId, name: Name, span: Span) -> ExprId {
+        self.keep_run_result(base);
         self.lowerer
             .push_expr_kind(ArenaExprKind::NullSafeField { base, name }, span)
     }
@@ -3552,6 +3572,7 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_guarded_index_expr(&mut self, base: ExprId, index: ExprId, span: Span) -> ExprId {
+        self.keep_run_result(base);
         self.lowerer.push_expr_kind(
             ArenaExprKind::Index {
                 base,
@@ -3569,6 +3590,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         end: Option<ExprId>,
         span: Span,
     ) -> ExprId {
+        self.keep_run_result(base);
         self.lowerer.push_expr_kind(
             ArenaExprKind::Slice {
                 base,
@@ -3671,6 +3693,8 @@ impl<'a> ArenaProgramBuilder<'a> {
         form_span: Span,
         span: Span,
     ) -> ExprId {
+        // A spawned command's outcome is read from its handle.
+        self.keep_run_form_result(run);
         let form_span = self.lowerer.span(form_span);
         self.lowerer.push_expr_kind(
             ArenaExprKind::Spawn(ArenaSpawnForm {
@@ -3731,6 +3755,7 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_try_expr(&mut self, value: ExprId, span: Span) -> ExprId {
+        self.keep_run_result(value);
         self.lowerer.push_expr_kind(ArenaExprKind::Try(value), span)
     }
 
@@ -6825,7 +6850,13 @@ pub enum ArenaCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaRunForm {
     pub segments: ArenaRange,
+    /// The form fails the enclosing function on a failed command instead of
+    /// yielding a `Result`: `?` follows it, or it is a capturing form that
+    /// nothing captures.
     pub propagate: bool,
+    /// `?` is written after the form. A capturing form propagates without
+    /// one, so this is what the formatter prints and a lint removes.
+    pub propagation_written: bool,
     /// Written `try run...`: the form's `Result` is its value.
     pub captured: bool,
     pub span: SpanId,
@@ -7877,9 +7908,18 @@ impl ArenaLowerer<'_> {
     ) -> RunFormId {
         let id = RunFormId::new(self.arena.run_forms.len());
         let span = self.span(span);
+        // A capturing form propagates unless something captures it: `try`,
+        // a postfix `?`, `?.`, or `?[` applied to it, or `spawn`. Each of
+        // those takes the propagation back when it is built.
+        let captures = self
+            .arena
+            .run_segments(segments)
+            .first()
+            .is_some_and(|head| !matches!(head.kind, RunKind::Plain | RunKind::Status));
         self.arena.run_forms.push(ArenaRunForm {
             segments,
-            propagate,
+            propagate: propagate || captures,
+            propagation_written: propagate,
             captured: false,
             span,
         });

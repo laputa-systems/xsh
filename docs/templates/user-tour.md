@@ -194,10 +194,11 @@ The `run` family chooses what you get back:
 |---|---|
 | `run cmd ...` | statement: fails the script on nonzero exit; value: `Status` |
 | `run.status cmd ...` | `Status`, never fails on exit code |
-| `run.text cmd ...` | `Result[Str]`: captured stdout |
-| `run.bytes cmd ...` | `Result[Bytes]` |
-| `run.capture --text cmd ...` | `Result[{status, stdout, stderr}]` |
-| `run.stream --text cmd ...` | `Result[Stream[Str]]`: lines as they arrive |
+| `run.text cmd ...` | `Str`: captured stdout; fails on nonzero exit |
+| `run.bytes cmd ...` | `Bytes`; fails on nonzero exit |
+| `run.capture --text cmd ...` | `{status, stdout, stderr}`; fails only if the command cannot run |
+| `run.stream --text cmd ...` | `Stream[Str]`: lines as they arrive |
+| `try run.text cmd ...` | `Result[Str]`: the failure as a value, for any form above |
 
 Byte pipelines and redirections look the way you expect:
 `run tar -cf - $dir | run zstd -q > $archive`. Environment and working

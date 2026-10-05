@@ -32,7 +32,7 @@ assert inferred == "inferred"
 let payload: Bytes = env ({XSH_CAPTURE_TAIL: "bytes"}) { run.bytes sh -c "printf bytes" ? }?
 assert payload == b"bytes"
 assert fs.cwd()? == original
-let nested: Result[Str, ProcessError] = cd (p".") { run.text sh -c "printf nested" }?
+let nested: Result[Str, ProcessError] = cd (p".") { try run.text sh -c "printf nested" }?
 assert nested? == "nested"
 let capture = env ({XSH_CAPTURE_TAIL: "record"}) {
   run.capture --text sh -c "printf out; printf err >&2" ?

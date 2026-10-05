@@ -907,7 +907,6 @@ impl Checker {
                     inner_expected.as_ref(),
                     schema,
                 );
-                self.note_run_propagated(arena, *inner);
                 self.check_propagation(&ty, expr.span)
             }
             ArenaExprKind::Convert { value, target } => {
@@ -1865,7 +1864,6 @@ impl Checker {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
                     if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
                     {
-                        self.note_run_propagated(arena, iter);
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
@@ -2129,16 +2127,6 @@ impl Checker {
         }
     }
 
-    /// A run form whose failure the enclosing form propagates is not
-    /// captured: the operand of `?`, the receiver of `?.` or `?[`, and the
-    /// subject of a `for` that iterates the text a `Result` holds.
-    pub(super) fn note_run_propagated(&mut self, arena: &ArenaProgram, operand: ExprId) {
-        if let ArenaExprKind::Run(run_id) = arena.arena.expr(operand).kind {
-            let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
-            self.implicitly_captured_runs.remove(&run_span);
-        }
-    }
-
     fn check_run_expr_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -2171,13 +2159,6 @@ impl Checker {
                 &format!("`try` captures a run form that can fail, and this one yields `{ty}`"),
                 DiagnosticCode::CheckTryResult,
             );
-        }
-        // A `Result` that is this form's value is captured, whether or not
-        // `try` says so; an operand of `?` is taken back out below.
-        if ty.is_result() && !captured {
-            self.implicitly_captured_runs.insert(run_span);
-        } else {
-            self.implicitly_captured_runs.remove(&run_span);
         }
         ty
     }
@@ -3175,7 +3156,6 @@ impl Checker {
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
             Type::Result(_, _) => {
-                self.note_run_propagated(arena, base);
                 (self.check_propagation(&base_ty, span), false)
             }
             Type::Any => return Type::Any,
@@ -3344,7 +3324,6 @@ impl Checker {
             return Type::Unknown;
         }
         if guarded && base_ty.is_result() {
-            self.note_run_propagated(arena, base);
         }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
@@ -3446,7 +3425,6 @@ impl Checker {
             return Type::Unknown;
         }
         if guarded && base_ty.is_result() {
-            self.note_run_propagated(arena, base);
         }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {

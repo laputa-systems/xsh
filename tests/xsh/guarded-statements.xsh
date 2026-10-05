@@ -147,11 +147,11 @@ test test_guarded_statements_format_and_desugar_as_written { |ctx|
 print ${stage(/tmp/guarded-statements-missing, false)?}
 """
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
-  let linted = run.capture --text "xsht" lint $candidate ?
+  let linted = run.capture --text "xsht" lint $candidate
   assert linted.status.exited_with(0), linted.stderr
-  let desugared = run.capture --text "xsht" desugar $candidate ?
+  let desugared = run.capture --text "xsht" desugar $candidate
   assert desugared.status.exited_with(0), desugared.stderr
   let expected = r"""proc stage(tmp: Path, verbose: Bool) -> Result[Int] {
   var copied = 0

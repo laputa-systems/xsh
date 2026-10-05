@@ -33,8 +33,8 @@ composition model and replaces its semantics.
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   leaves a function only through a form that is visible at the site: the `?`
-  operator; an `assert`, a `fail`, or a plain `run` whose command fails; a
-  conversion `value as T` that fails; and
+  operator; an `assert`, a `fail`, or a `run` form whose command fails, unless
+  `try` or `run.status` captures it; a conversion `value as T` that fails; and
   a `Result` in a control position, where it cannot be a value, which is a
   statement-position `Result[Unit]` or a `Result[Bool]` condition. Nothing
   else propagates: a `Result` in a binding, an argument, an operand, or a
@@ -1842,7 +1842,10 @@ Two more statements fail without `?` and are written without it: a plain
 (8.7). `run make ?` and `defer root.close()?` behave exactly as the bare
 forms do, with the same error, traceback, and cleanup order, and
 `lint.redundant-propagation` removes the `?` from each. A plain `run` that is
-the value of its body is a `Status`, and there `?` is its propagation.
+the value of its body is a `Status`, and there `?` is its propagation. A
+capturing run form (`run.text`, `run.bytes`, `run.capture`, `run.stream`)
+fails with its command in every position, so a `?` after one is removed the
+same way (11.1).
 
 A `Result` propagates without `?` only in a control position, where it
 cannot be a value. There are two. A statement-position `Result[Unit]` is one
@@ -2362,7 +2365,9 @@ when the body succeeded. The error type is the narrowest common family, or
 type.
 
 `try` directly before a run form captures that one form: `try run.text cmd`
-is the form's `Result` as a value (11.1).
+is the form's `Result` as a value (11.1). A run form inside a `try` block
+fails into the block like any other failure, so `try { run.text cmd }` is a
+`Result[Str]` and not a nested one.
 
 `retry [delays] { ... }` re-runs a block on failure:
 
@@ -2940,32 +2945,47 @@ call and never searches `PATH`.
 |---|---|---|
 | `run cmd ...` | `Status` | asserts success; propagates `ProcessError` |
 | `run.status cmd ...` | `Status`, never fails on exit status | status discarded |
-| `run.text cmd ...` | `Result[Str, ProcessError]` (stdout) | |
-| `run.bytes cmd ...` | `Result[Bytes, ProcessError]` (stdout) | |
-| `run.capture --text cmd ...` | `Result[{status, stdout: Str, stderr: Str}, ProcessError]` | |
-| `run.capture --bytes cmd ...` | `Result[{status, stdout: Bytes, stderr: Bytes}, ProcessError]` | |
-| `run.stream --text cmd ...` | `Result[Stream[Str], ProcessError]` (stdout lines) | |
-| `run.stream --bytes cmd ...` | `Result[Stream[Bytes], ProcessError]` | |
+| `run.text cmd ...` | `Str` (stdout); propagates `ProcessError` | output discarded |
+| `run.bytes cmd ...` | `Bytes` (stdout); propagates `ProcessError` | output discarded |
+| `run.capture --text cmd ...` | `{status, stdout: Str, stderr: Str}`; propagates `ProcessError` | output discarded |
+| `run.capture --bytes cmd ...` | `{status, stdout: Bytes, stderr: Bytes}`; propagates `ProcessError` | output discarded |
+| `run.stream --text cmd ...` | `Stream[Str]` (stdout lines); propagates `ProcessError` | |
+| `run.stream --bytes cmd ...` | `Stream[Bytes]`; propagates `ProcessError` | |
 
-A run form whose value is a `Result` either keeps it or propagates it, and
-says which. `try` before the form keeps the `Result` as its value:
+A capturing form, which is every form but plain `run` and `run.status`,
+fails the enclosing function on a failed command, exactly as the same form
+followed by `?` does: the function must be able to fail (`check.try-context`),
+the propagation needs the `error` effect, and the error is the
+`ProcessError`.
+
+```xsh
+{{.spec.run_propagation.source}}
+```
+
+`try` before the form keeps the failure as a value instead:
 
 ```xsh
 {{.spec.try_run.source}}
 ```
 
-`try run...` has the type and value of the same form written without `try`,
-reads its words to the same end, and takes the place of a `?`: writing both
-is a parse error. It applies to `run.text`, `run.bytes`, `run.capture`, and
-`run.stream`; plain `run` and `run.status` yield a `Status`, so `try` before
-them is `check.try-result`. `lint.explicit-run-capture` writes the `try` on a
-value-position run form that keeps its `Result` without one.
+`try run...` is a `Result` of what the form yields and a `ProcessError`. It
+reads its words to the same end as the form, and writing a `?` after it is a
+parse error. It applies to the capturing forms; plain `run` and `run.status`
+yield a `Status`, so `try` before them is `check.try-result`.
 
-A trailing `?` applies to the whole run form: `run.text git rev-parse HEAD ?`.
+A trailing `?` applies to the whole run form and is still accepted after a
+capturing form, where it says nothing more: `run.text git rev-parse HEAD ?`
+is `run.text git rev-parse HEAD`, and `lint.redundant-propagation` removes
+it. A run form reads its words to the end of its line, a `;`, a `}`, a `|>`,
+a `?`, or the `)` of the parentheses that group it. Before anything else,
+such as the `,` or `)` of a call's arguments, an operator, or a postfix
+guard, the `?` is also what ends the form, and there it stays:
+`render(run.text git describe?, width)`. A postfix `?`, `?.`, or `?[` on a
+grouped form is the form's propagation: `(run.text cmd)?` is
+`(run.text cmd)`.
 A run form followed by `|>` heads a value pipeline wherever it is written,
-including at the start of a statement or initializer, and a `?` before the
-`|>` propagates the run form's failure:
-`let rows = run.stream --text git log ? |> take(5)`.
+including at the start of a statement or initializer:
+`let rows = run.stream --text git log |> take(5)`.
 The target is resolved as follows: a bare word with no `/` is looked up in
 `PATH`; a target containing `/` is a relative or absolute path; a `Path` value
 uses its native bytes; a `Str` value is UTF-8 and may not contain NUL. Failure
@@ -3012,7 +3032,7 @@ killed by `SIGPIPE`. In value position plain `run` and `run.status` yield the
 segment failed under the same rule, and `status.segments` holds each segment.
 A pipeline whose first segment is `run.status` discards the status in
 statement position. `run.text`, `run.bytes`, and
-`run.stream` fail on an unsuccessful exit. `run.capture` returns `Ok(record)`
+`run.stream` fail on an unsuccessful exit. `run.capture` yields its record
 even for a nonzero exit, and fails only on setup, timeout, cancellation,
 capture-limit, and decoding errors.
 

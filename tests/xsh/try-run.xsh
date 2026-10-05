@@ -24,22 +24,80 @@ test test_try_run_is_the_run_form_result_as_a_value {
   assert subject == 2
 }
 
-test test_try_run_means_what_the_bare_form_means { |ctx|
-  let bare = r"""let got = run.text sh -c "echo one; exit 2"
-print f"{got is Err(_)}"
-let ok = run.text sh -c "echo two"
-print ${(ok ?? "none").trim()}
+test test_a_bare_capturing_run_form_fails_its_function { |ctx|
+  let bare = r"""proc describe(code: Int) -> Result[Str] {
+  defer { print "cleanup" }
+  let text = run.text sh -c f"echo out; exit {code}"
+  print "after"
+  Ok(text.trim())
+}
+
+match describe(3) {
+  Ok(text) => print $text
+  Err(problem) => print ${"exited with status 3" in problem.message}
+}
+print ${describe(0)?}
+let kept = try run.text sh -c "exit 4"
+print f"{kept is Err(_)}"
+let status = run sh -c "exit 5"
+print f"{status.success}"
+let record = run.capture --text sh -c "echo captured; exit 6"
+print ${record.stdout.trim()} ${record.status.exited_with(6)}
+let lines = run.stream --text sh -c "echo a; echo b" |> collect()
+print ${lines.len()}
+let top = run.text sh -c "echo top; exit 7"
+print "unreachable"
 """
-  let written = r"""let got = try run.text sh -c "echo one; exit 2"
-print f"{got is Err(_)}"
-let ok = try run.text sh -c "echo two"
-print ${(ok ?? "none").trim()}
+  # The bare form and the form with `?` are one program: the same output,
+  # the same error, and the same failing span.
+  let written = bare.replace("exit {code}\"\n", "exit {code}\" ?\n").replace("exit 7\"\n", "exit 7\" ?\n")
+  assert written.split(" ?\n").len() == 3, written
+  let ran = test.expect(ctx, bare, status: 3, stderr: ["`sh` exited 7", ":21:1-"])?
+  assert ran.stdout == "cleanup\ntrue\nafter\ncleanup\nout\ntrue\nfalse\ncaptured true\n2\n", ran.stdout
+  let propagated = test.expect(ctx, written, status: 3)?
+  assert propagated.stdout == ran.stdout
+  assert propagated.stderr.replace("script.xsh-2", "script.xsh-1") == ran.stderr, propagated.stderr
+}
+
+test test_a_bare_capturing_run_form_needs_a_function_that_can_fail { |ctx|
+  let ran = test.expect(
+    ctx,
+    "proc count() [process] -> Int {\n  let text = run.text sh -c \"echo 1\"\n  text.byte_len()\n}\n\nprint f\"{count()}\"\n",
+    status: 2,
+    stderr: [
+      "err[check.effect-violation]: `?` requires the `error` effect",
+      "err[check.try-context]: `?` requires a Result-returning context",
+      "note: a capturing run form propagates a failed command as `?` does; write `try run...` to keep the failure as a value",
+    ],
+  )?
+  assert ran.stdout == "", ran.stdout
+  # Under `try` the failure is a value, and the function needs neither.
+  let kept = test.expect(
+    ctx,
+    "proc count() [process] -> Int {\n  let text = try run.text sh -c \"echo 1\"\n  (text ?? \"\").byte_len()\n}\n\nprint f\"{count()}\"\n",
+    status: 0,
+  )?
+  assert kept.stdout == "2\n", kept.stdout
+}
+
+test test_a_try_block_captures_the_run_form_it_holds { |ctx|
+  let source = r"""let outcome = try {
+  run.text sh -c "echo one; exit 2"
+}
+match outcome {
+  Ok(text) => print $text
+  Err(problem) => print ${"exited with status 2" in problem.message}
+}
+let nested = try {
+  try run.text sh -c "exit 2"
+}
+match nested {
+  Ok(inner) => print f"{inner is Err(_)}"
+  Err(_) => print "outer"
+}
 """
-  let before = test.run_script(ctx, bare)?
-  let after = test.run_script(ctx, written)?
-  assert before.success and after.success, before.stderr + after.stderr
-  assert before.stdout == "true\ntwo\n", before.stdout
-  assert after.stdout == before.stdout
+  let ran = test.expect(ctx, source, status: 0)?
+  assert ran.stdout == "true\ntrue\n", ran.stdout
 }
 
 test test_try_run_rejects_a_propagating_or_status_form { |ctx|
@@ -58,36 +116,45 @@ test test_try_run_rejects_a_propagating_or_status_form { |ctx|
   let _ = test.expect(ctx, "let status = try run sh -c \"exit 3\"\n", status: 2, stderr: ["err[check.try-result]"])?
 }
 
-test test_explicit_run_capture_fix_writes_try_and_converges { |ctx|
+test test_redundant_propagation_removes_it_from_a_capturing_run_form { |ctx|
   let source = r"""proc first_line(text: Str) -> Str {
   text.lines()[0]
 }
 
-let version = run.text sh -c "echo v1; echo more"
-let missing = run.text sh -c "exit 9"
-let propagated = run.text sh -c "echo v2" ?
-let status = run.status sh -c "exit 1"
-let shown = if let Ok(text) = run.text sh -c "echo v3" { first_line(text) } else { "none" }
-print ${first_line(version ?? "none")} ${missing is Err(_)} ${propagated.trim()} ${status.success} $shown
+pure both(head: Str, tail: Str) -> Str {
+  head + tail
+}
+
+let version = run.text sh -c "echo v1; echo more" ?
+let words = (run.text sh -c "echo a b" ?).split(" ")
+let listed = run.stream --text sh -c "echo x; echo y" ? |> collect()
+let joined = both(run.text sh -c "printf j"?, "!")
+let kept = try run.text sh -c "exit 9"
+let status = run.status sh -c "exit 1" ?
+var label = ""
+label = run.text sh -c "printf set" ? when status.success
+print ${first_line(version)} ${words.len()} ${listed.len()} $joined ${kept is Err(_)} ${status.success} $label
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "capture.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.explicit-run-capture $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
   assert first.status.exited_with(1), first.stderr
-  assert first.stderr.split("warn[lint.explicit-run-capture]").len() == 4, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.explicit-run-capture $candidate ?
+  assert first.stderr.split("`?` on a run form that already fails with its command").len() == 4, first.stderr
+  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
-  assert "let version = try run.text sh -c \"echo v1; echo more\"\n" in fixed, fixed
-  assert "let missing = try run.text sh -c \"exit 9\"\n" in fixed, fixed
-  # A form that propagates, and one that yields a `Status`, are unchanged.
-  assert "let propagated = run.text sh -c \"echo v2\" ?\n" in fixed, fixed
-  assert "let status = run.status sh -c \"exit 1\"\n" in fixed, fixed
-  assert "let shown = if let Ok(text) = try run.text sh -c \"echo v3\" { first_line(text) }" in fixed, fixed
+  assert "let version = run.text sh -c \"echo v1; echo more\"\n" in fixed, fixed
+  assert "let words = (run.text sh -c \"echo a b\").split(\" \")\n" in fixed, fixed
+  assert "let listed = run.stream --text sh -c \"echo x; echo y\" |> collect()\n" in fixed, fixed
+  # A `?` that also ends the run form, a status form's `?`, and one a guard
+  # follows are unchanged.
+  assert "let joined = both(run.text sh -c \"printf j\"?, \"!\")\n" in fixed, fixed
+  assert "let status = run.status sh -c \"exit 1\" ?\n" in fixed, fixed
+  assert "label = run.text sh -c \"printf set\" ? when status.success\n" in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
-  let expanded = run.capture --text "xsht" desugar $candidate ?
-  assert "let version = try run.text sh -c" in expanded.stdout, expanded.stdout
+  let again = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
+  assert again.status.exited_with(0), again.stderr
 }

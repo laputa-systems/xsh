@@ -13,11 +13,11 @@ fn context_scope_capture_tail_types_agree_in_full_and_compact_facts() {
     let source = r#"let text = cd (p".") { run.text sh -c "printf text" ? }?
 let payload = env ({X: "value"}) { run.bytes sh -c "printf bytes" ? }?
 let record = cd (p".") { run.capture --text sh -c "printf record" ? }?
-let nested = cd (p".") { run.text sh -c "printf nested" }?
+let nested = cd (p".") { try run.text sh -c "printf nested" }?
 let discarded: Unit = cd (p".") { run.text sh -c "printf discarded" ? }?
 let predicate = cd (p".") { false }?
 proc nested_tail() [env, process, error] -> Result[Result[Str, ProcessError]] {
-  cd (p".") { run.text sh -c "printf nested" }
+  cd (p".") { try run.text sh -c "printf nested" }
 }
 "#;
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -394,7 +394,7 @@ fn checker_rejects_stage_5_acceptance_cases() {
             "proc bad() -> Result[Unit] { return 1 }\n",
             "check.type-mismatch",
         ),
-        ("run.text echo hi\n", "check.ignored-result"),
+        ("try run.text echo hi\n", "check.ignored-result"),
         (
             "proc bad() [process] -> Unit { run.status false ? }\n",
             "check.try-context",
@@ -2546,7 +2546,7 @@ fn checker_rejects_ergonomic_sugar_pass_errors() {
 
 #[test]
 fn ignored_result_diagnostic_has_source_span() {
-    let source = "run.text echo hi\n";
+    let source = "try run.text echo hi\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);

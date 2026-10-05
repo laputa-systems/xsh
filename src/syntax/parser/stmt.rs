@@ -922,7 +922,7 @@ impl<'a> Parser<'a> {
             }
             let propagate = self.consume(TokenKindMatch::Question).is_some();
             if propagate {
-                arena.set_run_form_propagate(run_id, true);
+                arena.set_run_form_propagation_written(run_id);
             }
             return Some(arena.run_expr_or_run(run_id));
         }

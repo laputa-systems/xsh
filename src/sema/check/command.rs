@@ -785,7 +785,18 @@ impl Checker {
                 let result =
                     run_capture_result_type_arena(arena, run_id).expect("capture run kind");
                 if run.propagate {
-                    self.check_propagation(&result, run_span)
+                    let reported = self.diagnostics.len();
+                    let value = self.check_propagation(&result, run_span);
+                    // The propagation is the form's own, with no `?` to
+                    // point at, so its diagnostics say where it comes from.
+                    if !run.propagation_written {
+                        for diagnostic in &mut self.diagnostics[reported..] {
+                            diagnostic.notes.push(
+                                "a capturing run form propagates a failed command as `?` does; write `try run...` to keep the failure as a value".into(),
+                            );
+                        }
+                    }
+                    value
                 } else {
                     result
                 }

@@ -42,7 +42,7 @@ test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks { |
 let input = ARGV
 let byte_count = "é🍃".count_bytes() # keep bytes
 let children = fs.ls(p"{root}", stat: false, ordered: true)? |> map .name
-let capture = run.builtin.capture --text printf "%s" "external ARGV run.builtin fs.ls count_bytes" ?
+let capture = run.builtin.capture --text printf "%s" "external ARGV run.builtin fs.ls count_bytes"
 let input_count = input.len()
 let child_count = children.len()
 print \$input_count \$byte_count \$child_count

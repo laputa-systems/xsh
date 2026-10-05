@@ -15,7 +15,7 @@ proc record_tail() [env, process, error] -> Result[Str] {
 }
 
 proc nested_tail() [env, process, error] -> Result[Result[Str, ProcessError]] {
-  cd (p".") { run.text sh -c "printf nested" }
+  cd (p".") { try run.text sh -c "printf nested" }
 }
 
 proc failed_tail() [env, process, error] -> Result[Str] {

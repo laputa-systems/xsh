@@ -3,9 +3,11 @@ use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{StatementPosition, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, StmtId,
+    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId,
+    StmtId,
 };
 use xsh::frontend::syntax::node::RunKind;
+use xsh::frontend::syntax::parser::Parser;
 
 /// The checked facts that decide whether a statement's `?` is redundant.
 pub(super) struct PropagationFacts<'a> {
@@ -111,7 +113,7 @@ pub(super) fn redundant_run_propagation(
         return None;
     };
     let run = arena.run_form(run);
-    if !run.propagate
+    if !run.propagation_written
         || arena.run_segments(run.segments).first()?.kind != RunKind::Plain
         || facts.statement_positions.get(&statement.span) != Some(&StatementPosition::Statement)
     {
@@ -185,6 +187,103 @@ pub(super) fn redundant_defer_propagation(
                 ))
                 .with_fix_hint(FixHint::deletion(removal, "remove `?`"))
         })
+}
+
+/// Whether the run form is one that captures or streams its output. Such a
+/// form fails the enclosing function on a failed command unless `try`
+/// captures it, so a `?` after it says nothing.
+fn captures_output(arena: &AstArena, run: RunFormId) -> bool {
+    let form = arena.run_form(run);
+    !form.captured
+        && arena
+            .run_segments(form.segments)
+            .first()
+            .is_some_and(|head| !matches!(head.kind, RunKind::Plain | RunKind::Status))
+}
+
+/// The report for a `?` after a capturing run form, or `None` where the `?`
+/// is also what ends the form.
+///
+/// A run form reads words to the end of its line, a `;`, a `}`, a `|>`, or
+/// the `)` of the parentheses that group it. Before anything else, such as
+/// the `,` or `)` of a call's arguments, an operator, or a postfix guard,
+/// the `?` ends the form and stays. A `)` closes a group only if the source
+/// still parses without the `?`.
+fn redundant_capture_diagnostic(source: &str, removal: Span) -> Option<Diagnostic> {
+    let after = source.get(removal.end()..)?.trim_start_matches([' ', '\t']);
+    let ends_form = after.is_empty()
+        || after.starts_with(['\n', '\r', ';', '}', '#'])
+        || after.starts_with("|>")
+        || (after.starts_with(')') && {
+            let mut candidate = source.to_owned();
+            candidate.replace_range(removal.range(), "");
+            Parser::parse_source_arena_only(removal.source_id, &candidate)
+                .diagnostics
+                .is_empty()
+        });
+    ends_form.then(|| {
+        Diagnostic::warning("`?` on a run form that already fails with its command")
+            .with_code(DiagnosticCode::LintRedundantPropagation)
+            .with_label(Label::secondary(
+                removal,
+                "a capturing run form propagates a failed command without `?`; `try run...` keeps the failure as a value",
+            ))
+            .with_fix_hint(FixHint::deletion(removal, "remove `?`"))
+    })
+}
+
+/// `let text = run.text git describe ?` spells propagation twice: a
+/// capturing run form already fails with its command.
+pub(super) fn redundant_capture_propagation(
+    arena: &AstArena,
+    source: &str,
+    run: RunFormId,
+) -> Option<Diagnostic> {
+    let form = arena.run_form(run);
+    if !form.propagation_written || !captures_output(arena, run) {
+        return None;
+    }
+    let span = arena.span(form.span);
+    let after = source.get(span.end()..)?;
+    let propagation = after.trim_start_matches([' ', '\t']);
+    let blanks = after.len() - propagation.len();
+    if !propagation.starts_with('?') {
+        return None;
+    }
+    redundant_capture_diagnostic(
+        source,
+        Span::new(span.source_id, span.end(), span.end() + blanks + 1),
+    )
+}
+
+/// `(run.text git describe ?).trim()` and `run.stream --text git log ? |>
+/// take(2)` spell it twice the same way, with the `?` as an operator on the
+/// run form. A `?` after a closing parenthesis is left alone: only one
+/// written directly after the form's words is removed.
+pub(super) fn redundant_capture_try(
+    arena: &AstArena,
+    source: &str,
+    expression: ExprId,
+) -> Option<Diagnostic> {
+    let propagation = arena.expr(expression);
+    let ArenaExprKind::Try(operand) = propagation.kind else {
+        return None;
+    };
+    let ArenaExprKind::Run(run) = arena.expr(operand).kind else {
+        return None;
+    };
+    if !captures_output(arena, run) {
+        return None;
+    }
+    let form = arena.span(arena.run_form(run).span);
+    if form.end() > propagation.span.end() {
+        return None;
+    }
+    let removal = Span::new(form.source_id, form.end(), propagation.span.end());
+    if source.get(removal.range())?.trim_matches([' ', '\t']) != "?" {
+        return None;
+    }
+    redundant_capture_diagnostic(source, removal)
 }
 
 /// `if fs.exists(path)? { ... }` spells propagation twice: a `Result[Bool]`
@@ -278,7 +377,6 @@ pub(super) mod tests {
                 statement_positions: checked.statement_positions,
                 propagating_statements: checked.propagating_statements,
                 redundant_condition_propagations: checked.redundant_condition_propagations,
-                implicitly_captured_runs: checked.implicitly_captured_runs,
                 unvalidated_command_vectors: checked.unvalidated_command_vectors,
                 function_effect_facts: checked.function_effect_facts,
                 function_effect_facts_checked: true,
@@ -472,12 +570,43 @@ pub(super) mod tests {
         );
     }
 
-    // A separated `?` after a run form whose value is used belongs to the
-    // whole form and is its propagation.
     #[test]
-    fn a_bound_run_form_keeps_its_propagation() {
+    fn a_capturing_run_form_loses_its_propagation() {
+        let source = "proc work() [process, error] -> Result[Int] {\n  let text = run.text echo hi ?\n  var raw = run.bytes echo hi ?\n  raw = run.bytes echo ho ?\n  let words = (run.text echo a b ?).split(\" \")\n  let lines = run.stream --text echo log ? |> take(2) |> collect()\n  let both = run.text echo a | run cat ?\n  run.text echo discarded ?\n  print $text ${raw.len()} ${words.len()} ${lines.len()} $both\n  return Ok((run.capture --text echo hi ?).stdout.byte_len())\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 8, "{diagnostics:?}");
+        let after = apply(&diagnostics, source);
+        assert_eq!(
+            after,
+            "proc work() [process, error] -> Result[Int] {\n  let text = run.text echo hi\n  var raw = run.bytes echo hi\n  raw = run.bytes echo ho\n  let words = (run.text echo a b).split(\" \")\n  let lines = run.stream --text echo log |> take(2) |> collect()\n  let both = run.text echo a | run cat\n  run.text echo discarded\n  print $text ${raw.len()} ${words.len()} ${lines.len()} $both\n  return Ok((run.capture --text echo hi).stdout.byte_len())\n}\n"
+        );
+        // The fixed program checks, with every type it had, and is clean.
+        assert!(lint(&after).is_empty(), "{after}");
+        let types = |source: &str| {
+            published_types(source)
+                .into_iter()
+                .filter(|(text, _)| !text.contains("run"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(types(source), types(&after));
+    }
+
+    // In a call's or a list's arguments and before an operator, the `?` is
+    // also what ends the run form.
+    #[test]
+    fn a_propagation_that_ends_its_run_form_stays() {
         unflagged(
-            "proc work(dir: Path) [process, env, error] -> Result[Int] {\n  let text = run.text echo hi ?\n  print $text\n  1\n}\n",
+            "pure both(text: Str, tail: Str) -> Str {\n  text + tail\n}\n\nproc work() [process, error] -> Result[Int] {\n  let joined = both(run.text echo a ?, \"!\")\n  let last = both(\"!\", run.text echo a ?)\n  let listed = [run.text echo b ?, \"c\"]\n  assert run.text echo d? == \"d\"\n  print $joined $last ${listed.len()}\n  1\n}\n",
+        );
+    }
+
+    // A captured form has no `?`, a status form's `?` is its only
+    // propagation, a `?` after a closing parenthesis is an operator on the
+    // group, and a guard after the `?` would become arguments without it.
+    #[test]
+    fn a_run_form_that_needs_its_propagation_keeps_it() {
+        unflagged(
+            "proc work(ready: Bool) [process, error] -> Result[Int] {\n  let kept = try run.text echo hi\n  let status = run.status echo hi ?\n  let plain = run echo hi ?\n  let grouped = (run.text echo hi)?\n  var text = \"\"\n  text = run.text echo hi ? when ready\n  return Ok(text.byte_len()) when kept is Ok(_)\n  print $grouped ${status.success} ${plain.success}\n  1\n}\n",
         );
     }
 
@@ -547,12 +676,12 @@ pub(super) mod tests {
     fn a_plain_run_statement_loses_its_propagation() {
         let source = "proc build(target: Str) -> Result[Status] {\n  run make clean ?\n  run make $target | run tee build.log ?\n  if target == \"all\" {\n    run make install ?\n  }\n\n  run.status make check ?\n  let listed = run.text make --version ?\n  print $listed\n  let status = run make $target\n  Ok(status)\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
         let after = apply(&diagnostics, source);
-        // `run.status` discards its status, and a bound form keeps its `?`.
+        // `run.status` discards its status, and fails only by its `?`.
         assert_eq!(
             after,
-            "proc build(target: Str) -> Result[Status] {\n  run make clean\n  run make $target | run tee build.log\n  if target == \"all\" {\n    run make install\n  }\n\n  run.status make check ?\n  let listed = run.text make --version ?\n  print $listed\n  let status = run make $target\n  Ok(status)\n}\n"
+            "proc build(target: Str) -> Result[Status] {\n  run make clean\n  run make $target | run tee build.log\n  if target == \"all\" {\n    run make install\n  }\n\n  run.status make check ?\n  let listed = run.text make --version\n  print $listed\n  let status = run make $target\n  Ok(status)\n}\n"
         );
         assert!(lint(&after).is_empty(), "{after}");
     }

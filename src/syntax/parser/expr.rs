@@ -1302,7 +1302,7 @@ impl<'a> Parser<'a> {
                 // `try run...` is the run form with its `Result` as the value.
                 if self.at_keyword(Keyword::Run) {
                     let (run_id, _run_span) = self.parse_run_form_arena_only(arena)?;
-                    if arena.run_form_propagates(run_id) || self.at(TokenKindMatch::Question) {
+                    if arena.run_form_propagation_written(run_id) || self.at(TokenKindMatch::Question) {
                         self.diagnostic_here(
                             "`try` keeps the run form's failure as a value, and `?` would propagate it; write one of them",
                             DiagnosticCode::ParseExpectedToken,

@@ -42,17 +42,18 @@ print $built
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "build.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
   assert first.stderr.split("`?` on a `run` statement that already fails with its command").len() == 3, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate ?
+  assert first.stderr.split("`?` on a run form that already fails with its command").len() == 2, first.stderr
+  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "  run sh -c \"true\"\n  run sh -c \"echo piped\" | run cat\n" in fixed, fixed
-  # A bound form fails only by its `?`.
-  assert "  let listed = run.text sh -c \"echo listed\" ?\n" in fixed, fixed
+  # A capturing form fails with its command too.
+  assert "  let listed = run.text sh -c \"echo listed\"\n" in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
 }
 
@@ -84,7 +85,7 @@ print ${total(["1", "2"])?}
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "total.xsh", contents: bytes.from_text(source))?
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-propagation $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-propagation $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "    var value = 0\n    value = parse(text)?\n\n    sum += value\n" in fixed, fixed
@@ -144,14 +145,14 @@ print ${work()?}
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "work.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
   assert first.stderr.split("`?` on a deferred action that already fails with its `Result`").len() == 3, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "  defer step(\"first\")\n  errdefer step(\"unused\")\n  defer {\n    step(\"second\")\n  }\n" in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
 }
