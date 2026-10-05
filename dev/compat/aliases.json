@@ -4,6 +4,14 @@
     {
       "name": "[",
       "target": "test"
+    },
+    {
+      "name": "dir",
+      "target": "ls"
+    },
+    {
+      "name": "vdir",
+      "target": "ls"
     }
   ]
 }
