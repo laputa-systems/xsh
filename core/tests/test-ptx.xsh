@@ -63,3 +63,12 @@ test test_ptx_errors { |ctx|
 
   assert ptx_run(ctx, root, [], b"ab\xffcd\n")?.status == 0, "input that is not UTF-8 is still indexed"
 }
+
+test test_ptx_contexts_are_sentences_unless_traditional { |ctx|
+  let root = test.temp_dir(ctx, name: "ptx")?
+  let text = b"a b.  c d\ne f\n"
+  let sentences = "                  a b.\n              a   b.\n                  c d e f\n              c   d e f\n            c d   e f\n          c d e   f\n"
+
+  assert ptx_run(ctx, root, ["-w", "30"], text)?.stdout == bytes.from_text(sentences), "a sentence ends at a period before two spaces and may span lines"
+  assert ptx_run(ctx, root, ["-G", "-w", "30"], b"a b\nc d\n")?.stdout.utf8()?.count_lines() == 4, "-G reads one context per line"
+}

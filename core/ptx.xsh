@@ -285,6 +285,75 @@ pure lossy(data: Bytes) -> Str {
   out
 }
 
+# Contexts of one input: their text (newlines read as spaces, so offsets
+# survive) and the byte offset at which each starts.
+type Pieces = {texts: List[Str], starts: List[Int]}
+
+# GNU's default end of a sentence: punctuation, closing quotes or brackets, and
+# then a line end, a tab or two spaces.
+const SENTENCE_END = "(?m)[.?!][\\]\"')}]*(?:$|\t|  )[ \t\n]*"
+
+# One context per line, as `ptx -r` and `ptx -G` read their input.
+pure line_pieces(text: Str) -> Pieces {
+  var texts: List[Str] = []
+  var starts: List[Int] = []
+  var at = 0
+  let parts = text.split("\n")
+
+  for index in range(parts.len()) {
+    let part = parts[index]
+
+    if index < parts.len() - 1 or part != "" {
+      texts += [if part.ends_with("\r") { part.byte_slice(0, length: part.byte_len() - 1) } else { part }]
+      starts += [at]
+    }
+
+    at += part.byte_len() + 1
+  }
+
+  {texts: texts, starts: starts}
+}
+
+# Contexts ending where `ending` matches, the match included and trailing
+# whitespace dropped.
+pure sentence_pieces(text: Str, ending: Regex) -> Pieces {
+  var texts: List[Str] = []
+  var starts: List[Int] = []
+  var at = 0
+
+  for hit in ending.find(text) {
+    texts += [rx"\s+$".replace(text.byte_slice(at, length: hit.end - at).replace("\n", " "), "")]
+    starts += [at]
+    at = hit.end
+  }
+
+  if at < text.byte_len() {
+    texts += [rx"\s+$".replace(text.byte_slice(at).replace("\n", " "), "")]
+    starts += [at]
+  }
+
+  {texts: texts, starts: starts}
+}
+
+# The line, counted from 1, that holds byte OFFSET, given the offsets of the
+# newlines.
+pure line_at(breaks: List[Int], offset: Int) -> Int {
+  var low = 0
+  var high = breaks.len()
+
+  while low < high {
+    let mid = (low + high) / 2
+
+    if breaks[mid] < offset {
+      low = mid + 1
+    } else {
+      high = mid
+    }
+  }
+
+  low + 1
+}
+
 pure split_lines(text: Str) -> List[Str] {
   var parts = text.split("\n")
 
@@ -470,24 +539,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   var files: List[List[Str]] = []
+  var starts: List[List[Int]] = []
+  var breaks: List[List[Int]] = []
+  var ending: Regex? = sentence
+
+  if ending == null and ! opts.references and ! opts.traditional {
+    if let Ok(found) = regex.compile(SENTENCE_END) {
+      ending = found
+    }
+  }
 
   for name in inputs {
     let text = read_text(name)
+    let pieces = if ending != null { sentence_pieces(text, ending ?? rx"x") } else { line_pieces(text) }
 
-    if sentence != null {
-      var pieces: List[Str] = []
-      var at = 0
-
-      for hit in (sentence ?? rx"x").find(text) {
-        pieces += [text.byte_slice(at, length: hit.start - at)]
-        at = hit.end
-      }
-
-      pieces += [text.byte_slice(at)]
-      files += [[piece.replace("\n", " ") for piece in pieces if piece != ""]]
-    } else {
-      files += [split_lines(text)]
-    }
+    files += [pieces.texts]
+    starts += [pieces.starts]
+    breaks += [[hit.start for hit in rx"\n".find(text)]]
   }
 
   var found: List[Occurrence] = []
@@ -589,7 +657,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var reference = ""
 
     if opts.auto_reference {
-      reference = if name == "-" { f":{item.line + 1}" } else { f"{gnu.quote_maybe(name)}:{item.line + 1}" }
+      let number = line_at(breaks[item.file], starts[item.file][item.line] + item.from)
+
+      reference = if name == "-" { f":{number}" } else { f"{gnu.quote_maybe(name)}:{number}" }
     } else if opts.references {
       let first = context_regex.find(line)
 
