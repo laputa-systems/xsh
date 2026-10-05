@@ -412,13 +412,14 @@ pure visible(code: Int) -> Str {
 
 # Items printed on one line each time they fit: an item moves to a new line
 # when it would pass the screen width. Every section ends its line.
-pure wrap_items(items: List[Str], width: Int) -> Str {
+pure wrap_items(items: List[Str], width: Int, min_extra: Int) -> Str {
   var out = ""
   var column = 0
 
   for item in items {
-    # GNU prints the min/time item with its newline, which counts as width.
-    let length = item.count_chars() + (if item.starts_with("min = ") { 1 } else { 0 })
+    # Plain `stty` prints the min/time item with its newline, which counts as
+    # width; `-a` does not.
+    let length = item.count_chars() + (if item.starts_with("min = ") { min_extra } else { 0 })
 
     if column > 0 {
       if column + 1 + length > width {
@@ -630,8 +631,10 @@ pure apply_saved(attrs: UnixTtyAttrs, state: List[Int], speeds: List[Int]) -> Un
   {...attrs, iflag: state[0], oflag: state[1], cflag: cflag, lflag: state[3], control_chars: chars, ispeed: input, ospeed: output}
 }
 
-# A saved state: 4 + NCCS colon-separated hexadecimal fields, the control
-# characters no larger than 255. Returns the values or null.
+# A saved state: 4 + NCCS colon-separated hexadecimal fields (`sscanf` `%lx`:
+# blanks and `0x` allowed before the digits), the control characters no
+# larger than 255. As with GNU, text after the digits of the last field is
+# ignored. Returns the values or null.
 pure parse_saved(text: Str) -> List[Int]? {
   let parts = text.split(":")
 
@@ -640,16 +643,19 @@ pure parse_saved(text: Str) -> List[Int]? {
   var values: List[Int] = []
 
   for index in range(parts.len()) {
-    let part = parts[index]
+    let last = index == parts.len() - 1
+    let captured = rx"^[ \t\n\r\f\v]*(?:0[xX])?([0-9a-fA-F]+)(.*)$".captures(parts[index])
 
-    return null when ! rx"^[0-9a-fA-F]+$".matches(part)
+    return null when captured.len() == 0
+    return null when ! last and captured[2] != ""
 
+    let digits = captured[1]
     var value = 0
 
-    for position in range(part.byte_len()) {
-      value = value * 16 + hex_digit(part.byte_at(position) ?? 0)
+    for position in range(digits.byte_len()) {
+      value = value * 16 + hex_digit(digits.byte_at(position) ?? 0)
 
-      return null when value > 4294967295 and index < 4
+      return null when value > 4294967295
     }
 
     return null when index >= 4 and value > 255
@@ -965,10 +971,10 @@ proc display_settings(table: UnixTtyTable, attrs: UnixTtyAttrs, device: Device, 
     chars += [f"min = {attrs.control_chars[min_index]}; time = {attrs.control_chars[time_index]};"]
   }
 
-  var text = wrap_items(head, width) + wrap_items(chars, width)
+  var text = wrap_items(head, width, 0) + wrap_items(chars, width, if everything { 0 } else { 1 })
 
   for names in [CONTROL_FLAGS, INPUT_FLAGS, OUTPUT_FLAGS, LOCAL_FLAGS] {
-    text = text + wrap_items(flag_items(table, attrs, names, everything), width)
+    text = text + wrap_items(flag_items(table, attrs, names, everything), width, 0)
   }
 
   gnu.write_text(text)
@@ -1056,6 +1062,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     display_settings(table, attrs, device, parsed.all)
   } else {
     var changed = false
+    var unkept = false
     var speed_set = false
     var input_speed = -1
     var output_speed = -1
@@ -1092,9 +1099,17 @@ proc main(...argv: List[Str]) [process, env, error, io] {
         changed = true
         speed_set = true
       } else if setting.kind == "saved" {
-        attrs = apply_saved(attrs, parse_saved(setting.text) ?? [], table.speeds)
+        let state = parse_saved(setting.text) ?? []
+        attrs = apply_saved(attrs, state, table.speeds)
         changed = true
-        speed_set = true
+
+        # The kernel keeps only its own control characters, so a saved
+        # state that sets later ones cannot be fully applied.
+        for slot in range(KERNEL_CHARS, NCCS) {
+          if state[4 + slot] != 0 {
+            unkept = true
+          }
+        }
       } else if setting.kind == "line" {
         attrs = {...attrs, line: setting.number}
         changed = true
@@ -1136,6 +1151,11 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
     if changed {
       apply_attrs(device, attrs, moment)
+    }
+
+    if unkept {
+      gnu.error(f"{gnu.quote_maybe(device.name)}: unable to perform all requested operations")
+      exit 1
     }
   }
 
