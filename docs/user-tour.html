@@ -1069,7 +1069,7 @@ root has capacity: true</code></pre></figure>
   <span class="hl-keyword">let</span> lock <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>dir<span class="hl-interpolation">}</span><span class="hl-path">/.rotate.lock"</span>
   lock<span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"locked\n"</span><span class="hl-punctuation">)</span>
   <span class="hl-keyword">defer</span> <span class="hl-punctuation">{</span>
-    lock<span class="hl-punctuation">.</span><span class="hl-function">remove</span><span class="hl-punctuation">()</span>
+    lock<span class="hl-punctuation">.</span><span class="hl-function">remove</span><span class="hl-punctuation">(</span><span class="hl-property">missing_ok</span><span class="hl-punctuation">:</span> <span class="hl-constant">false</span><span class="hl-punctuation">)</span>
     <span class="hl-keyword">print</span> <span class="hl-string">"released lock"</span>
   <span class="hl-punctuation">}</span>
 
@@ -1210,7 +1210,7 @@ sshd_config: PermitRootLogin is already no</code></pre></figure>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">proc</span> <span class="hl-function">fetch</span><span class="hl-punctuation">(</span><span class="hl-property">url</span><span class="hl-punctuation">:</span> <span class="hl-type">Str</span><span class="hl-punctuation">,</span> <span class="hl-property">out</span><span class="hl-punctuation">:</span> <span class="hl-type">Path</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
   <span class="hl-keyword">let</span> partial <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>out<span class="hl-interpolation">}</span><span class="hl-path">.partial"</span>
   <span class="hl-keyword">defer</span> <span class="hl-punctuation">{</span>
-    partial<span class="hl-punctuation">.</span><span class="hl-function">remove</span><span class="hl-punctuation">(</span><span class="hl-property">missing_ok</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
+    partial<span class="hl-punctuation">.</span><span class="hl-function">remove</span><span class="hl-punctuation">()</span>
     <span class="hl-keyword">print</span> <span class="hl-string">"removed partial download"</span>
   <span class="hl-punctuation">}</span>
 

@@ -144,7 +144,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-path-method` | Call the `Path` method instead of the `fs` function that takes the path first |
 | `lint.prefer-typed-callable` | Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature |
 | `lint.prefer-test-expect` | State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script` |
-| `lint.explicit-missing-ok` | Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in) |
 | `lint.prefer-is-empty` | Use `is_empty()` instead of comparing a length with zero |
 | `lint.prefer-negative-index` | Use `list[-N]` instead of `list[list.len() - N]` |
 | `lint.prefer-non-empty-argv` | Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot |

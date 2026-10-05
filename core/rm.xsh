@@ -6,7 +6,7 @@ proc remove_tree(root: Path) [fs, error] {
     if entry.kind == "dir" {
       entry.path.remove_dir()
     } else {
-      entry.path.remove(missing_ok: true)
+      entry.path.remove()
     }
   }
 }

@@ -96,7 +96,7 @@ print ${{label}} ${{value}} ${{files |> count()}}
 
 test test_ergonomic_sugar_pass_forms { |ctx|
   let root = test.temp_dir(ctx, name: "ergonomic-sugar")?
-  root.remove(missing_ok: true)
+  root.remove()
   fp"{root}/nested/dir".mkdir()
   let pkg = {name: "demo", version: "1", path: fp"{root}/nested/dir"}
   let {name, version, ..} = pkg
@@ -112,7 +112,7 @@ test test_ergonomic_sugar_pass_forms { |ctx|
   let ok = Ok("set") ?? e"XSH_ERGONOMIC_SUGAR_MISSING"?
   json.write(fp"{root}/meta.json", {name, version, jobs, ok})
   let metadata = json.read(fp"{root}/meta.json")?
-  fp"{root}/missing".remove(missing_ok: true)
+  fp"{root}/missing".remove()
   assert printed_path == fp"{root}/nested/dir".display()
   assert name == "demo"
   assert version == "1"

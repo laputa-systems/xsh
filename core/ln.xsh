@@ -63,7 +63,7 @@ proc main(...argv: List[Str]) [fs, error] {
     let target = dest_for(source, dest, target_is_dir)
 
     if force {
-      target.remove(missing_ok: true)
+      target.remove()
     }
 
     if symbolic {

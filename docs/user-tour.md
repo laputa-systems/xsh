@@ -1135,7 +1135,7 @@ proc rotate(dir: Path) {
   let lock = fp"{dir}/.rotate.lock"
   lock.write("locked\n")
   defer {
-    lock.remove()
+    lock.remove(missing_ok: false)
     print "released lock"
   }
 
@@ -1348,7 +1348,7 @@ and the script exits with status 3:
 proc fetch(url: Str, out: Path) {
   let partial = fp"{out}.partial"
   defer {
-    partial.remove(missing_ok: true)
+    partial.remove()
     print "removed partial download"
   }
 

@@ -75,7 +75,7 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     let output = staged_output(dest)?
-    defer output.pending.remove(missing_ok: true)?
+    defer output.pending.remove()?
     let staged_file = fp"{output.pending}/{dest.name()}"
     archive.compress(src, staged_file)
     staged_file.rename(output.published)
@@ -93,7 +93,7 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     let output = staged_output(dest)?
-    defer output.pending.remove(missing_ok: true)?
+    defer output.pending.remove()?
     let staged_file = fp"{output.pending}/{dest.name()}"
     archive.decompress(src, staged_file)
     staged_file.rename(output.published)
@@ -122,7 +122,7 @@ proc main(...argv: List[Str]) [fs, error] {
       print f"would extract to {opts.out} (dry run)"
     } else {
       let output = staged_output(opts.out)?
-      defer output.pending.remove(missing_ok: true)?
+      defer output.pending.remove()?
 
       if is_zip {
         archive.zip_extract(archive_path, output.pending)

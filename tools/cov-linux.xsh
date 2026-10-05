@@ -56,7 +56,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
 }
 
 proc remove_dir(target: Path) [fs, error] {
-  target.remove(missing_ok: true)
+  target.remove()
 }
 
 proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {

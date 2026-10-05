@@ -63,7 +63,7 @@ test test_path_methods { |ctx|
   let touched = fp"{root}/touched"
   touched.touch()
   touched.touch_from(file)
-  touched.remove(missing_ok: true)
+  touched.remove()
   let relative_text = "relative/path"
   let parsed = fp"{relative_text}"
   assert parsed == "relative/path"

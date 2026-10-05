@@ -578,8 +578,9 @@ with `txt`; an absolute suffix matches only an equal path;
 `p.starts_with(p"/")` holds exactly for absolute paths. Both are lexical and never touch the
 filesystem. Components are read as `strip_prefix` reads them (repeated
 separators, a trailing separator, and a `.` after the first component do not
-count; `..` is compared as written), and `p.starts_with(q)` is true exactly
-when `p.strip_prefix(q)` succeeds. `p.components()` is that same reading as
+count; `..` is compared as written), and `p.strip_prefix(q)` succeeds only
+where `p.starts_with(q)` is true (4.13 says where it still fails).
+`p.components()` is that same reading as
 a `List[Path]`, one path per component with its native bytes: `/usr//lib/`
 gives `/`, `usr`, `lib`, and the empty path gives an empty list. `name()`,
 `ext()`, and `parent()` answer the remaining component questions.
@@ -1147,9 +1148,13 @@ proc stage(root: FsRoot, tree: Path, file: Path) [fs, error] {
   let backup: RelPath = fp"{config.parent()}/backup/{config}"
   install(root, {rel: backup, mode: 0o600}, "debug = false\n")
 
-  # Any other path is validated once, at an explicit boundary.
-  let rel = file.strip_prefix(tree)?.require(RelPath)?
+  # What is left of a path beneath a prefix is a RelPath, or a failure.
+  let rel = file.strip_prefix(tree)?
   install(root, {rel, mode: 0o644}, file.read_text()?)
+
+  # Any other path is validated once, at an explicit boundary.
+  let copy = fp"doc/{file.name()}".require(RelPath)?
+  install(root, {rel: copy, mode: 0o644}, file.read_text()?)
 }
 ```
 
@@ -1178,7 +1183,8 @@ A value gets a validated type in exactly three ways:
   schema given to `.require` is validated with the rest of the value. A type
   test `value is NonEmpty[T]`, or the type pattern `name is NonEmpty[T]`,
   applies to a `List[T]` as well as to dynamic values and narrows where it
-  passes (5.4).
+  passes (5.4). `Path.strip_prefix` is the one standard operation that is
+  such a boundary itself: it returns a `RelPath` or fails (below).
 - **An operation that preserves the property.** For `NonEmpty[T]` these are
   `.push(item)` and `.extend(other)` on a `NonEmpty` receiver, `left + right`
   when either operand is `NonEmpty`, `+=` on a `NonEmpty` variable, and a
@@ -1194,15 +1200,21 @@ comprehension with a filter or more than one `for` clause all see a
 `List[T]`, and those that produce a list produce a `List[T]`. Validate again
 to get the type back. A `RelPath` is likewise read as a `Path` by every
 other path method, by display and interpolation, by a command argument, and
-by a comparison: `.with_ext`, `.strip_prefix`, `.relative_to`, and
-`.components` return plain paths, and an `fp"..."` literal written where no
-`RelPath` is expected is a `Path`.
+by a comparison: `.with_ext`, `.relative_to`, and `.components` return plain
+paths, and an `fp"..."` literal written where no `RelPath` is expected is a
+`Path`.
 
-`p.strip_prefix(root)` returns a `Path`, not a `RelPath`: its result is the
-whole of `p` when `root` is empty, and keeps any `..` that `p` has after the
-prefix (`/a/b/../../etc` without `/a` is `b/../../etc`). When `p` equals
-`root` the result is `.`. Validate the result where a `RelPath` is wanted:
-`p.strip_prefix(root)?.require(RelPath)?`.
+`p.strip_prefix(root)` on any `Path` returns `Result[RelPath]`: what is left
+of `p` beneath `root`, and `.` when `p` equals `root`. It is the operation
+that turns a path found under a directory into one that can be replayed
+under another, so it fails wherever
+the remainder would not be confined: when `p` does not start with `root`,
+when `root` is the empty path (which every path starts with, so an absolute
+`p` would come back whole), and when a `..` after the prefix climbs above it
+(`/a/b/../../etc` without `/a` would be `b/../../etc`). The remainder keeps
+the bytes of `p`, so `a/../b` after a prefix stays as written. A `RelPath`
+fits every `Path` parameter, so a caller that wants a plain path uses the
+result as one.
 
 The operations the property guarantees exist only on the validated type.
 `NonEmpty[T]` has `first()` and `last()`, which return `T` and cannot fail; a
@@ -2596,7 +2608,7 @@ control leaves the enclosing block with an error:
 ```xsh
 proc publish(output: Path) {
   let partial = fp"{output}.partial"
-  errdefer partial.remove(missing_ok: true)
+  errdefer partial.remove()
   render(partial)
   partial.rename(output)
 }
@@ -2654,8 +2666,9 @@ means exactly
 ```
 
 So the path is a `Path` evaluated once and bound to the immutable `name`,
-which is in scope for the body only. Both removals are `fs.remove` with
-`missing_ok: true`: whatever is at the path, a file, a symlink (itself, never
+which is in scope for the body only. Both removals are `fs.remove` (15),
+which the expansion writes with its default `missing_ok: true`: whatever is
+at the path, a file, a symlink (itself, never
 its target), or a directory with everything below it, is removed, and nothing
 being there is not an error. A failure to remove what is there or to create
 the directory propagates before the body runs. The deferred removal runs
@@ -3167,14 +3180,14 @@ standard-module call written in command style:
 ```xsh
 print "building" $target
 fs.mkdir build
-fs.remove dist --missing-ok
-json.write out.json $metadata
+fs.remove dist
+json.write out.json $metadata --pretty
 ```
 
 Command style is available only for effectful standard APIs that return
 `Result[Unit]`, and the statement propagates failure. A defaulted `Bool`
 parameter may be passed as a flag, mapping kebab case to snake case
-(`--missing-ok` means `missing_ok: true`). Everything else uses expression
+(`--pretty` means `pretty: true`). Everything else uses expression
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
 
@@ -4076,6 +4089,14 @@ let nested = package.glob("src/**/*.xsh")? # the same pattern as g"..."
   so operands are still evaluated left to right. `fs` keeps what has no
   single path to be a method of: the working directory and roots, traversal,
   locks, mounts, temporary files, and installs.
+- `p.remove()` leaves the path gone. It removes a file, a symlink (itself,
+  never its target), or a directory with everything below it, and it succeeds
+  when nothing is there: `missing_ok` defaults to `true`, in the method, the
+  function, and the command spelling. `p.remove(missing_ok: false)` makes a
+  missing path an error, for a caller that reads absence as a sign that
+  something else went wrong. `lint.redundant-default` removes a written
+  `missing_ok: true`. `p.remove_dir()` removes one empty directory and fails
+  on a missing path.
 - `Path.is_dir()`, `Path.is_file()`, and `Path.is_symlink()` each return
   `Result[Bool]` and ask what the path itself is:
 

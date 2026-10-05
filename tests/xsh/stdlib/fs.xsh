@@ -211,7 +211,7 @@ print \$entry.size
 
   for entry in fs.children(root)? {
     if entry.name != "remote-cache" and entry.name != "src" {
-      entry.path.remove(missing_ok: true)
+      entry.path.remove()
     }
   }
 
@@ -255,7 +255,7 @@ print \$entry.size
   let manifest_result = fs.remove_manifest(root, [p"renamed.txt", p"missing.txt"], missing_ok: true, prune_dirs: false)?
   assert manifest_result.removed == 1
   assert manifest_result.missing == 1
-  fp"{root}/missing-again".remove(missing_ok: true)
+  fp"{root}/missing-again".remove()
   tree.remove(missing_ok: false)
   let temp_file = fs.tempfile()?
   assert temp_file.root.exists(temp_file.path)?
