@@ -213,11 +213,11 @@ pure make_chunks(layout: Layout, before_cs: List[Str], keyword: Str, after_cs: L
 }
 
 pure tex_field(text: Str) -> Str {
-  text.replace("\\", "\u{1}").replace("$", "\\$").replace("%", "\\%").replace("#", "\\#").replace("&", "\\&").replace("_", "\\_").replace("}", "$\\}$").replace("{", "$\\{$").replace("\u{1}", "\\backslash{}")
+  text.replace("\\", with: "\u{1}").replace("$", with: "\\$").replace("%", with: "\\%").replace("#", with: "\\#").replace("&", with: "\\&").replace("_", with: "\\_").replace("}", with: "$\\}$").replace("{", with: "$\\{$").replace("\u{1}", with: "\\backslash{}")
 }
 
 pure roff_field(text: Str) -> Str {
-  text.replace("\"", "\"\"")
+  text.replace("\"", with: "\"\"")
 }
 
 pure join_fields(first: Str, second: Str) -> Str {
@@ -322,13 +322,13 @@ pure sentence_pieces(text: Str, ending: Regex) -> Pieces {
   var at = 0
 
   for hit in ending.find(text) {
-    texts += [rx"\s+$".replace(text.byte_slice(at, length: hit.end - at).replace("\n", " "), "")]
+    texts += [rx"\s+$".replace(text.byte_slice(at, length: hit.end - at).replace("\n", with: " "), with: "")]
     starts += [at]
     at = hit.end
   }
 
   if at < text.byte_len() {
-    texts += [rx"\s+$".replace(text.byte_slice(at).replace("\n", " "), "")]
+    texts += [rx"\s+$".replace(text.byte_slice(at).replace("\n", with: " "), with: "")]
     starts += [at]
   }
 
@@ -675,7 +675,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
     }
 
-    let lead = if opts.references { before_text.byte_len() - rx"^\s+".replace(trimmed, "").byte_len() } else { 0 }
+    let lead = if opts.references { before_text.byte_len() - rx"^\s+".replace(trimmed, with: "").byte_len() } else { 0 }
     let before_cs = [m.text for m in rx"(?s).".find(before_text.byte_slice(lead))]
     let keyword = line.byte_slice(item.from, length: item.to - item.from)
     let after_cs = [m.text for m in rx"(?s).".find(line.byte_slice(item.to))]

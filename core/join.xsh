@@ -328,7 +328,7 @@ proc parse_format(items: List[Str]) [process, env] -> List[Spec] {
   var specs: List[Spec] = []
 
   for item in items {
-    let words = item.replace(",", " ").replace("\t", " ").split(" ")
+    let words = item.replace(",", with: " ").replace("\t", with: " ").split(" ")
     var seen = false
 
     for word in words {

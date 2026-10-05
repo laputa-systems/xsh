@@ -306,7 +306,7 @@ pure parse_hex(body: Str, neg: Bool) -> Num {
 }
 
 pure parse_number(raw: Str) -> Num {
-  let text = rx"^[ \t\n\v\f\r]*".replace(raw, "")
+  let text = rx"^[ \t\n\v\f\r]*".replace(raw, with: "")
   let neg = text.starts_with("-")
   let body = if neg or text.starts_with("+") { text.byte_slice(1) } else { text }
   let word = body.lower()
@@ -472,7 +472,7 @@ pure format_number(neg: Bool, digits: Str, scale: Int, spec: Spec) -> Str {
 }
 
 pure pad_spaces(count: Int) -> Str {
-  zeros(count).replace("0", " ")
+  zeros(count).replace("0", with: " ")
 }
 
 # A parsed -f format, or the message that rejects it.

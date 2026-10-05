@@ -4,7 +4,7 @@ test test_failed_host_operations_carry_errno { |ctx|
   let source = fp"{root}/source"
   source.write("x")
 
-  let read = fs.read_text(missing)
+  let read = missing.read_text()
   assert read is Err(is NotFound)
   if let Err(failure) = read {
     assert failure.errno == 2
@@ -22,7 +22,7 @@ test test_failed_host_operations_carry_errno { |ctx|
     assert failure.errno == 2
   }
 
-  let refused = fs.copy(source, source)
+  let refused = source.copy(to: source)
   assert refused is Err(_)
   if let Err(failure) = refused {
     assert failure.errno == null
@@ -207,16 +207,16 @@ test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
   let link = fp"{root}/link"
   file.write("x")
   fs.symlink(p"file", link)
-  fs.chmod(file, 0o600)
+  file.chmod(0o600)
 
-  fs.chmod(file, 0o640, follow_symlinks: false)
+  file.chmod(0o640, follow_symlinks: false)
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
 
-  fs.chmod(link, 0o604)
+  link.chmod(0o604)
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o604
 
   if system.uname()?.sysname == "Linux" {
-    let refused = fs.chmod(link, 0o600, follow_symlinks: false)
+    let refused = link.chmod(0o600, follow_symlinks: false)
     assert refused is Err(_)
     if let Err(failure) = refused {
       assert failure.errno != null
@@ -225,7 +225,7 @@ test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
     assert fs.stat(file)?.mode.bit_and(0o7777) == 0o604
   }
 
-  assert fs.chmod(file, 0o10000) is Err(_)
+  assert file.chmod(0o10000) is Err(_)
 }
 
 test test_mknod_creates_nodes_under_the_umask { |ctx|
@@ -402,7 +402,7 @@ test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
   source.write("hello world")
-  fs.chmod(source, 0o640)
+  source.chmod(0o640)
 
   let copied = fs.copy_file(source, dest)?
   assert copied.bytes == 11
@@ -454,15 +454,15 @@ test test_copy_file_refuses_the_same_file_and_non_regular_sources { |ctx|
   assert source.read_text()? == "keep"
 
   assert fs.copy_file(root, fp"{root}/dir-copy") is Err(_)
-  assert ! fs.exists(fp"{root}/dir-copy")?
+  assert ! fp"{root}/dir-copy".exists()?
 
   let missing = fs.copy_file(fp"{root}/missing", fp"{root}/out")
   assert missing is Err(is NotFound)
-  assert ! fs.exists(fp"{root}/out")?
+  assert ! fp"{root}/out".exists()?
 
   assert fs.copy_file(source, fp"{root}/out", sparse: "sometimes") is Err(_)
   assert fs.copy_file(source, fp"{root}/out", reflink: "yes") is Err(_)
-  assert ! fs.exists(fp"{root}/out")?
+  assert ! fp"{root}/out".exists()?
 }
 
 test test_copy_file_preserves_holes_unless_told_not_to { |ctx|
@@ -532,7 +532,7 @@ test test_copy_file_reflink_clones_or_fails_with_an_errno { |ctx|
     assert strict.read_text()? == "reflink me"
   } else if let Err(failure) = always {
     assert failure.errno != null
-    assert ! fs.exists(strict)?
+    assert ! strict.exists()?
     test.skip("the filesystem cannot clone files")
   }
 }

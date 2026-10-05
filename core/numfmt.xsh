@@ -524,15 +524,15 @@ pure float_syntax(text: Str) -> Bool {
 const BLANKS = "\\s\\x{85}\\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}"
 
 pure blank_regex(pattern: Str) -> Regex {
-  regex.compile(pattern.replace("BL", BLANKS)) ?? rx"x"
+  regex.compile(pattern.replace("BL", with: BLANKS)) ?? rx"x"
 }
 
 pure trim_end(text: Str) -> Str {
-  blank_regex("[BL]+$").replace(text, "")
+  blank_regex("[BL]+$").replace(text, with: "")
 }
 
 pure trim_start(text: Str) -> Str {
-  blank_regex("^[BL]+").replace(text, "")
+  blank_regex("^[BL]+").replace(text, with: "")
 }
 
 pure is_digit(char: Str) -> Bool {
@@ -559,7 +559,7 @@ pure find_numeric_beginning(s: Str, decimal: Str) -> Str? {
       seen_decimal = true
       at += decimal.byte_len()
     } else {
-      let number = s.byte_slice(0, length: at).replace(decimal, ".")
+      let number = s.byte_slice(0, length: at).replace(decimal, with: ".")
 
       return null when ! float_syntax(number)
 
@@ -629,7 +629,7 @@ proc detailed_error(s: Str, unit: Str, separator: Str, decimal: Str) [env] -> St
 
   let valid = s.byte_slice(0, length: valid_prefix_len(s, unit, separator, decimal))
 
-  if valid != s and float_syntax(valid.replace(decimal, ".")) {
+  if valid != s and float_syntax(valid.replace(decimal, with: ".")) {
     let next = s[valid.byte_len()..valid.byte_len() + 1]
 
     return f"invalid suffix in input: {gnu.quote(s)}" when next == "+" or next == "-"
@@ -663,7 +663,7 @@ proc parse_number_part(s: Str, input: Str, decimal: Str) [env] -> NumberPart {
 
   return {num: none, err: f"invalid number: {gnu.quote(input)}"} when decimal != "." and s.find(".") != null
 
-  let normalized = if decimal == "." { s } else { s.replace(decimal, ".") }
+  let normalized = if decimal == "." { s } else { s.replace(decimal, with: ".") }
 
   return {num: none, err: f"invalid number: {gnu.quote(input)}"} when ! float_syntax(normalized)
 
@@ -862,7 +862,7 @@ proc to_unit_text(num: Num, to: Str, to_unit: Int, method: Str, precision: Int, 
     text = f"{i2.format(0)}{separator}{tail}"
   }
 
-  {text: if decimal == "." { text } else { text.replace(".", decimal) }, err: ""}
+  {text: if decimal == "." { text } else { text.replace(".", with: decimal) }, err: ""}
 }
 
 pure zeros(count: Int) -> Str {
@@ -1052,7 +1052,7 @@ pure pad_string(text: Str, width: Int, fill: Str, right: Bool) -> Str {
 
   return text when size >= width
 
-  let padding = if fill == "0" { zeros(width - size) } else { zeros(width - size).replace("0", fill) }
+  let padding = if fill == "0" { zeros(width - size) } else { zeros(width - size).replace("0", with: fill) }
 
   if right { padding + text } else { text + padding }
 }
@@ -1486,11 +1486,11 @@ proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
   var lows: List[Int] = []
   var highs: List[Int] = []
 
-  if "-" in opts.field.replace(" ", ",").split(",") {
+  if "-" in opts.field.replace(" ", with: ",").split(",") {
     lows = [1]
     highs = [9223372036854775806]
   } else {
-    for item in opts.field.replace(" ", ",").split(",") {
+    for item in opts.field.replace(" ", with: ",").split(",") {
       let range = parse_range(item)
 
       if range.err != "" {

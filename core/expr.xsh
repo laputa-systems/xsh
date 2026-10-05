@@ -897,7 +897,7 @@ pure arithmetic(op: Str, left: Bytes, right: Bytes) -> Outcome {
 }
 
 pure alphanumeric_key(text: Str) -> Str {
-  rx"[^0-9A-Za-z]".replace(text, "").lower()
+  rx"[^0-9A-Za-z]".replace(text, with: "").lower()
 }
 
 # -1, 0, or 1 for the order of two strings; outside the C locale punctuation

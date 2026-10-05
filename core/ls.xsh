@@ -549,7 +549,7 @@ proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Pa
 # --help and --version end the program; everything else changes the settings.
 proc dispatch(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env, io] -> Cfg {
   if id == "help" {
-    gnu.help(USAGE.replace("{prog}", gnu.prog()))
+    gnu.help(USAGE.replace("{prog}", with: gnu.prog()))
     exit 0
   }
 

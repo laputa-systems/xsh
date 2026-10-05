@@ -38,10 +38,10 @@ export type MountTable = {
 
 ## Decodes the octal escapes mountinfo applies to whitespace and backslashes.
 export pure decode_mount_field(value: Str) -> Str {
-  value.replace("\\040", " ")
-    .replace("\\011", "\t")
-    .replace("\\012", "\n")
-    .replace("\\134", "\\")
+  value.replace("\\040", with: " ")
+    .replace("\\011", with: "\t")
+    .replace("\\012", with: "\n")
+    .replace("\\134", with: "\\")
 }
 
 pure mount_usage_eligible(filesystem: Str) -> Bool {
@@ -124,13 +124,13 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
   }
 
   var current_id = mount_id
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var depth = 0
   while depth < index.rows.len() {
     let key = f"{current_id}"
     return false when key in seen
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     let row_index = index.by_id.get(current_id) ?? -1
     return false when row_index < 0
 

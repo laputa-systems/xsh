@@ -212,9 +212,9 @@ proc identity() [process, error] -> Result[Identity] {
 proc stat_name(name: Str, follow: Bool) [fs, error] -> Result[FsEntry] {
   let target = fp"{name}"
 
-  return fs.metadata(target) when ! follow
+  return target.metadata() when ! follow
 
-  fs.metadata(target.resolve()?)
+  target.resolve()?.metadata()
 }
 
 # Access of the calling process to a file, from its permission bits. `bit` is

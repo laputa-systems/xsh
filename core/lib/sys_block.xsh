@@ -55,7 +55,7 @@ export type BlockInventory = {
 export pure parse_scheduler(value: Str) -> BlockScheduler? {
   return null when value.trim() == "" or value.lines().len() != 1
 
-  let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
+  let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
   var available: List[Str] = []
   var active: Str? = null
   for choice in choices {
@@ -116,9 +116,9 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
   let listing = root.children(p"sys/class/block", max_entries: 4096)?
   var issues: List[src.Issue] = []
   var candidates: List[BlockDevice] = []
-  var listed_names = set.empty()
+  var listed_names: Set[Str] = set.empty()
   for device_path in listing.children {
-    listed_names = set.add(listed_names, device_path.name())
+    listed_names = listed_names.add(device_path.name())
   }
 
   if listing.state != "complete" {

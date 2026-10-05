@@ -106,7 +106,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   }
 
   var ids: List[Int] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for word in value.split(" ") {
     continue when word == ""
     for character in word {
@@ -142,7 +142,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
       return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership exceeds 65536 CPUs"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     ids += [cpu_id]
   }
 
@@ -279,7 +279,7 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
     return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy must contain one line"))
   }
 
-  let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
+  let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
   var available: List[Str] = []
   var selected: Str? = null
   for choice in choices {
@@ -422,7 +422,7 @@ export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
     return {value: null, state: observed.state, error_kind: source.error_kind, errno: source.errno}
   }
 
-  let columns = (observed.value ?? "").replace("\t", " ").split(" ") |> where .trim() != ""
+  let columns = (observed.value ?? "").replace("\t", with: " ").split(" ") |> where .trim() != ""
   if columns.len() != 2 {
     return {value: null, state: report.Malformed, error_kind: "invalid_uptime_columns", errno: null}
   }

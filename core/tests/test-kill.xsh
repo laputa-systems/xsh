@@ -24,7 +24,7 @@ pure last_signal() -> Int {
 # Signals a fresh `sleep 30` through the applet and returns how it ended.
 proc kill_sleeper(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Status] {
   let child = spawn run sleep 30 ?
-  let result = kill_run(ctx, [word.replace("PID", f"{child.pid}") for word in args])?
+  let result = kill_run(ctx, [word.replace("PID", with: f"{child.pid}") for word in args])?
 
   assert result.status == 0, result.stderr
   assert result.stderr == ""

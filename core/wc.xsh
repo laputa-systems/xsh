@@ -127,7 +127,7 @@ pure column_width(text: Str) -> Int {
 # The longest line's display width: tabs advance to the next multiple of 8,
 # controls have no width, and `\r` and `\f` end a line like `\n`.
 pure longest_line(text: Str) -> Int {
-  let flat = text.replace("\r", "\n").replace("\x0c", "\n")
+  let flat = text.replace("\r", with: "\n").replace("\x0c", with: "\n")
   var best = 0
 
   if ! rx"[\t\x00-\x08\x0b\x0e-\x1f\x7f-\x9f]".matches(flat) and ! rx"[\x{300}-\x{36f}\x{483}-\x{489}\x{591}-\x{5bd}\x{200b}-\x{200f}\x{1100}-\x{115f}\x{2e80}-\x{ffff}\x{1f300}-\x{1f9ff}\x{20000}-\x{3fffd}]".matches(flat) {

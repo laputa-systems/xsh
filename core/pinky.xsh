@@ -174,7 +174,7 @@ pure full_name(gecos: Str, login: Str) -> Str {
   let comma = gecos.find(",")
   let field = if comma == null { gecos } else { gecos.byte_slice(0, length: comma) }
 
-  field.replace("&", capitalize(login))
+  field.replace("&", with: capitalize(login))
 }
 
 proc account_named(accounts: List[auth.PasswdEntry], name: Str) -> auth.PasswdEntry? {

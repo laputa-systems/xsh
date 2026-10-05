@@ -283,7 +283,7 @@ test test_gnu_version_and_help_print_to_stdout { |ctx|
   assert version.stdout.lines().len() == 1
 
   let text = probe(ctx, ["version-text", "dir"])?
-  assert text.stdout == version.stdout.replace("ls", "dir")
+  assert text.stdout == version.stdout.replace("ls", with: "dir")
 
   let help = probe(ctx, ["help", "Usage: ls [OPTION]... [FILE]..."])?
   assert help.stdout == "Usage: ls [OPTION]... [FILE]...\n"

@@ -147,7 +147,7 @@ pure modernize(argv: List[Str]) -> Rewritten {
 pure parse_u64(text: Str) -> Int? {
   return null when ! rx"^[0-9]+$".matches(text)
 
-  let digits = rx"^0+".replace(text, "")
+  let digits = rx"^0+".replace(text, with: "")
 
   return 0 when digits == ""
   return null when digits.byte_len() > 20 or (digits.byte_len() == 20 and digits > "18446744073709551615")

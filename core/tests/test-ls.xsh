@@ -217,7 +217,7 @@ test test_ls_quoting_styles { |ctx|
     assert result.text == f"{case[1]}\n", f"{case[0]}: {result.text}"
   }
 
-  fs.remove(fp"{work}/one two")?
+  fp"{work}/one two".remove()?
   fp"{work}/tab\there".write("")
   fp"{work}/it's".write("")
 
