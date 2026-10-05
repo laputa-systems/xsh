@@ -7011,6 +7011,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Bool(value) => {
                 Some(push_build_row!(self, expr, BuildExprRow::Bool(value)))
             }
+            // A literal the checker typed as a Path is a Path constant, the
+            // same value `p"..."` builds.
+            ArenaExprKind::Str(value) if self.bodies.path_literals.contains(&id) => {
+                let path = self.program.arena.string_literal(value);
+                PathValue::from_text(path.as_ref())
+                    .ok()
+                    .map(|value| push_build_row!(self, expr, BuildExprRow::Path(value)))
+            }
             ArenaExprKind::Str(value) => Some(push_build_row!(
                 self,
                 expr,
@@ -8176,6 +8184,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let uint_key = matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key, _)) if **key == Type::UInt);
+        // A quoted label of a map the checker keyed by Path is a Path key.
+        let path_key = matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key, _)) if **key == Type::Path);
         let mut entries = Vec::new();
         for field in self.program.arena.record_fields(fields).to_vec() {
             let key_span = match &field.kind {
@@ -8191,11 +8201,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.program.arena.span(span),
                 ),
                 ArenaRecordFieldKind::Named { name, value, span } => (
-                    Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Str(Arc::from(name.as_str().as_str()))
-                    )),
+                    Some(if path_key {
+                        let path = PathValue::from_text(name.as_str().as_str()).ok()?;
+                        push_build_row!(self, expr, BuildExprRow::Path(path))
+                    } else {
+                        push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::Str(Arc::from(name.as_str().as_str()))
+                        )
+                    }),
                     self.lower_expr(value, slots, current_function, item_slot)?,
                     self.program.arena.span(span),
                 ),
@@ -12797,8 +12812,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn pattern_str_literal(&mut self, pattern: PatternId) -> Option<Option<Arc<str>>> {
         let lowered = match self.program.arena.pattern(pattern).kind {
             ArenaPatternKind::Wildcard => Some(None),
+            // A literal the checker typed as a Path matches a Path subject,
+            // which the text-keyed match cannot compare.
             ArenaPatternKind::Literal(expr) => match self.program.arena.expr(expr).kind {
-                ArenaExprKind::Str(value) => {
+                ArenaExprKind::Str(value) if !self.bodies.path_literals.contains(&expr) => {
                     Some(Some(self.program.arena.string_literal(value).clone()))
                 }
                 _ => None,
@@ -13682,6 +13699,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         BuildPatternRow::Literal(LoweredValue::Duration(DurationValue { millis }))
                     )
                 }),
+            ArenaExprKind::Str(value) if self.bodies.path_literals.contains(&id) => {
+                let path = PathValue::from_text(self.program.arena.string_literal(value)).ok()?;
+                Some(push_build_row!(
+                    self,
+                    pattern,
+                    BuildPatternRow::Literal(LoweredValue::Path(path))
+                ))
+            }
             ArenaExprKind::Str(value) => Some(push_build_row!(
                 self,
                 pattern,

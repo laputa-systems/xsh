@@ -20,6 +20,9 @@ mod lint_implicit_message;
 #[path = "lint_path_text_query.rs"]
 mod lint_path_text_query;
 
+#[path = "lint_path_display_equality.rs"]
+mod lint_path_display_equality;
+
 #[path = "lint_write_lines.rs"]
 mod lint_write_lines;
 
@@ -2953,6 +2956,8 @@ impl<'a> Linter<'a> {
         let expression = self.arena.expr(expr);
         match expression.kind {
             ArenaExprKind::Int(_) => self.expr_types.get(&expression.span) == Some(&Type::UInt),
+            // A string literal is a Path only because a Path was expected.
+            ArenaExprKind::Str(_) => self.expr_types.get(&expression.span) == Some(&Type::Path),
             ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. } => {
@@ -2961,6 +2966,16 @@ impl<'a> Linter<'a> {
                         .expr_types
                         .get(&expression.span)
                         .is_some_and(type_has_contextual_collection_domain)
+                    // A constant's elements carry no checked type of their
+                    // own; in a collection of paths a string literal element
+                    // is a Path only through the collection's declared type.
+                    || (self
+                        .expr_types
+                        .get(&expression.span)
+                        .is_some_and(type_mentions_path)
+                        && expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                            matches!(self.arena.expr(child).kind, ArenaExprKind::Str(_))
+                        }))
                     || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
                         self.expression_depends_on_expected_type(child, removing_annotation)
                     })
@@ -10270,6 +10285,12 @@ impl<'a> Linter<'a> {
     fn lint_path_migrations(&mut self, expr: ExprId) {
         let found = [
             lint_path_text_query::path_text_query(self.arena, self.source, &self.expr_types, expr),
+            lint_path_display_equality::path_display_equality(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ),
             lint_write_lines::write_lines(self.arena, self.source, &self.expr_types, expr),
             lint_read_lines::read_lines(
                 self.arena,
@@ -11031,6 +11052,19 @@ fn type_has_contextual_collection_domain(ty: &Type) -> bool {
         Type::Map(key, value) | Type::Result(key, value) => {
             type_has_contextual_collection_domain(key)
                 || type_has_contextual_collection_domain(value)
+        }
+        _ => false,
+    }
+}
+
+fn type_mentions_path(ty: &Type) -> bool {
+    match ty {
+        Type::Path => true,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            type_mentions_path(inner)
+        }
+        Type::Map(key, value) | Type::Result(key, value) => {
+            type_mentions_path(key) || type_mentions_path(value)
         }
         _ => false,
     }

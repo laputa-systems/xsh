@@ -478,10 +478,29 @@ the explicit lossy conversion where a `Str` is required (a `Str` parameter or
 binding, JSON). Path
 construction never joins, normalizes, expands, globs, or checks the filesystem:
 separators and `..` stay exactly as written. `Path(text)` converts trusted
-text and `Path.parse_bytes(bytes)` converts bytes with a `Result`. A string
-literal is accepted where a `Path` is statically expected (a typed parameter,
-binding, or redirection target); a runtime `Str` always needs explicit
-conversion.
+text and `Path.parse_bytes(bytes)` converts bytes with a `Result`.
+
+A string literal takes the `Path` type wherever the expected type is `Path`,
+and is then the value `p"..."` with the same text is. That covers a typed
+binding, constant, parameter, default, return value, or record field; a
+`Path` parameter of a standard function or method; an operand of `==` or `!=`
+whose other operand is a `Path`; the left operand of `in` over a list or map
+of paths; a literal pattern matched against a `Path`; a key of a `Path`-keyed
+map; and a redirection target. An optional `Path` expects a `Path`.
+
+```xsh
+{{.spec.path_string_literals.source}}
+```
+
+Only a literal converts, because only its bytes are the ones the author
+wrote: a `Str` value, an f-string, and a name bound to text always need
+`Path(text)` or `fp"..."`. A literal stays `Str` where no single type is
+expected: `Any`, an unannotated binding, and a standard function whose
+overloads disagree about the parameter (`hash.sha256` takes `Bytes` or a
+`Path`, so a file is `hash.sha256(p"image.bin")`). `"text" in path` stays
+display-text containment. `env.PATH` requires a spelled path for `append`,
+`prepend`, and `in`. A literal that contains NUL cannot be a `Path` and is
+rejected where one is expected.
 
 Questions about a path's spelling are `Path` methods, so they need no
 `.display()` and lose no bytes. `p.starts_with(prefix)` and

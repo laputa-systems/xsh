@@ -663,7 +663,7 @@ impl Checker {
             .collect::<Vec<_>>();
         let matches = overloads
             .iter()
-            .filter(|method| module_overload_matches_arena(arena, args, &actuals, &method.sig))
+            .filter(|method| module_overload_matches_arena(args, &actuals, &method.sig))
             .collect::<Vec<_>>();
         if let Some(method) = matches.first() {
             if matches.len() > 1 && actuals.iter().all(|ty| !matches!(ty, Type::Unknown)) {

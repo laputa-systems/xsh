@@ -16,10 +16,12 @@ pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
 
-/// Arena-native mirror of [`is_path_like_expr`] for expressions that have not
-/// been raised to the old AST.
-pub(super) fn is_path_like_arena_expr(kind: &ArenaExprKind, ty: &Type) -> bool {
-    matches!(ty, Type::Path | Type::Any | Type::Unknown) || matches!(kind, ArenaExprKind::Str(_))
+/// Whether a checked argument can stand where a `Path` is required: a
+/// `Path`, or a dynamic or recovery type whose own diagnostics apply. A string
+/// literal qualifies only by having taken the `Path` type from its expected
+/// type; a `Str` never does.
+pub(super) fn is_path_like_type(ty: &Type) -> bool {
+    matches!(ty, Type::Path | Type::Any | Type::Unknown)
 }
 
 /// Arena-native span helper for expression-or-run values.
@@ -482,7 +484,9 @@ impl Checker {
                 }
                 Type::Duration
             }
-            ArenaExprKind::Str(_) => Type::Str,
+            ArenaExprKind::Str(value) => {
+                self.check_string_literal(arena, expr.span, *value, expected)
+            }
             ArenaExprKind::Regex(_) => Type::Regex,
             ArenaExprKind::PathStr(_) => Type::Path,
             ArenaExprKind::GlobStr(_) => {
@@ -1214,8 +1218,8 @@ impl Checker {
                     );
                     continue;
                 }
-                ArenaRecordFieldKind::Named { value, span, .. } => (
-                    Type::Str,
+                ArenaRecordFieldKind::Named { name, value, span } => (
+                    self.map_label_key_type(name, expected_key, arena.arena.span(span)),
                     self.check_schema_child_expr_arena(
                         arena,
                         source,
@@ -2362,9 +2366,21 @@ impl Checker {
                     let right_ty = self.check_expr_arena(arena, source, right, None);
                     let left_ty = self.check_expr_arena(arena, source, left, Some(&right_ty));
                     (left_ty, right_ty)
+                } else if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_))
+                    && !matches!(arena.arena.expr(right).kind, ArenaExprKind::Str(_))
+                {
+                    // A literal on the left takes its type from the right
+                    // operand, as one on the right does from the left.
+                    let right_ty = self.check_expr_arena(arena, source, right, None);
+                    let expected = self.path_literal_expectation(arena, left, &right_ty);
+                    let left_ty = self.check_expr_arena(arena, source, left, expected.as_ref());
+                    (left_ty, right_ty)
                 } else {
                     let left_ty = self.check_expr_arena(arena, source, left, None);
-                    let expected = self.is_inferred_variant_expr(arena, right).then_some(&left_ty);
+                    let literal = self.path_literal_expectation(arena, right, &left_ty);
+                    let expected = literal
+                        .as_ref()
+                        .or_else(|| self.is_inferred_variant_expr(arena, right).then_some(&left_ty));
                     let right_ty = self.check_expr_arena(arena, source, right, expected);
                     (left_ty, right_ty)
                 };
@@ -2420,8 +2436,26 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
-                let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_arena(arena, source, right, None);
+                // A literal member takes its type from the keys or items it
+                // is looked up among, so the container is checked first;
+                // evaluation order is unchanged. A Path container keeps a
+                // literal as text: that membership is text containment.
+                let (left_ty, right_ty) =
+                    if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_)) {
+                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        let expected = match &right_ty {
+                            Type::Map(member, _) | Type::List(member) => {
+                                self.path_literal_expectation(arena, left, member)
+                            }
+                            _ => None,
+                        };
+                        let left_ty = self.check_expr_arena(arena, source, left, expected.as_ref());
+                        (left_ty, right_ty)
+                    } else {
+                        let left_ty = self.check_expr_arena(arena, source, left, None);
+                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        (left_ty, right_ty)
+                    };
                 if left_ty == Type::Any && matches!(right_ty, Type::Path | Type::Any) {
                     self.reject_dynamic_use("a membership operand", None, left_span);
                 }

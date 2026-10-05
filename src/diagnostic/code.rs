@@ -525,6 +525,7 @@ diagnostic_codes! {
         LintNeedlessAnnotation = "lint.needless-annotation", warning, "Remove a type annotation that the initializer or checked constraints already fix";
         LintOrganizeTopLevelConsts = "lint.organize-top-level-consts", warning, "Group safe immutable top-level constants after imports and before functions";
         LintPathConstructor = "lint.path-constructor", warning, "Prefer a `p` string literal or path interpolation over `Path(...)`";
+        LintPathDisplayEquality = "lint.path-display-equality", warning, "Compare a Path with a string literal directly instead of through `.display()`";
         LintPathTextQuery = "lint.path-text-query", warning, "Test a Path for a root component instead of testing its display text for a leading `/`";
         LintPatternConditional = "lint.pattern-conditional", warning, "Use `if let` for a two-arm match with a complementary pattern";
         LintPositionalErrorArguments = "lint.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";

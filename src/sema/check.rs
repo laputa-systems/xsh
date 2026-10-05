@@ -52,6 +52,8 @@ mod local_inference;
 #[path = "check/method.rs"]
 mod method;
 pub(crate) use method::nearest_name;
+#[path = "check/path_literal.rs"]
+mod path_literal;
 #[path = "check/pattern.rs"]
 mod pattern;
 #[path = "check/proof.rs"]
@@ -158,6 +160,9 @@ pub struct CheckOutput {
     /// Leading-dot variants keyed by the constructing expression: the call for
     /// `.Name(args)`, the member expression for a bare `.Name`.
     pub inferred_variants: BTreeMap<Span, InferredVariant>,
+    /// String literals that took the `Path` type from their expected type;
+    /// lowering builds a `Path` constant for each.
+    pub path_literals: BTreeSet<Span>,
     /// Qualified variant constructors whose expected type selects the same
     /// variant, keyed by expression, with the qualifier span a leading dot replaces.
     pub redundant_variant_qualifiers: BTreeMap<Span, Span>,
@@ -580,6 +585,7 @@ pub struct Checker {
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
     inferred_variants: BTreeMap<Span, InferredVariant>,
+    path_literals: BTreeSet<Span>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
     message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
@@ -712,6 +718,7 @@ impl Checker {
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
                 inferred_variants: checker.inferred_variants,
+                path_literals: checker.path_literals,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
@@ -855,6 +862,7 @@ impl Checker {
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
                 inferred_variants: checker.inferred_variants,
+                path_literals: checker.path_literals,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
@@ -922,6 +930,7 @@ impl Checker {
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),
             inferred_variants: BTreeMap::new(),
+            path_literals: BTreeSet::new(),
             redundant_variant_qualifiers: BTreeMap::new(),
             record_constructor_fields: BTreeMap::new(),
             message_payload_constructors: BTreeMap::new(),

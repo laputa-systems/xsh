@@ -92,6 +92,8 @@ pub struct CompactBodyFacts {
     pub handler_input_types: FxHashMap<BlockId, Type>,
     /// Leading-dot variants keyed by the constructing call or member expression.
     pub inferred_variants: FxHashMap<ExprId, super::InferredVariant>,
+    /// String literals whose expected type made them a `Path`.
+    pub path_literals: FxHashSet<ExprId>,
     /// The schema field each record constructor argument supplies, keyed by call.
     pub record_constructor_fields: FxHashMap<ExprId, Vec<Name>>,
     /// The argument binding of each error constructor, keyed by call.
@@ -131,6 +133,11 @@ impl CompactBodyFacts {
             }
             if let Some(variant) = checked.inferred_variants.get(&span) {
                 facts.inferred_variants.insert(id, variant.clone());
+            }
+            if matches!(expression.kind, ArenaExprKind::Str(_))
+                && checked.path_literals.contains(&span)
+            {
+                facts.path_literals.insert(id);
             }
             if let Some(fields) = checked.record_constructor_fields.get(&span) {
                 facts.record_constructor_fields.insert(id, fields.clone());

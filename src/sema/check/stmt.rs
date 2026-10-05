@@ -2532,7 +2532,11 @@ impl Checker {
             ArenaAssignTargetKind::Index { base, index } => {
                 let base_ty =
                     self.assignment_target_type_arena(arena, source, *base, root_ty, span);
-                let index_ty = self.check_expr_arena(arena, source, *index, None);
+                let literal_key = match &base_ty {
+                    Type::Map(key_ty, _) => self.path_literal_expectation(arena, *index, key_ty),
+                    _ => None,
+                };
+                let index_ty = self.check_expr_arena(arena, source, *index, literal_key.as_ref());
                 match base_ty {
                     Type::Map(key_ty, item_ty) => {
                         let index_span = arena.arena.expr(*index).span;

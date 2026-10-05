@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use super::expr::is_path_like_arena_expr;
+use super::expr::is_path_like_type;
 use super::{
     ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
@@ -2212,9 +2212,7 @@ impl Checker {
             crate::sema::arguments::bind_hash_verify_file_arguments(args).unwrap_or([0, 1]);
         let (path_arg, checksum_arg) = (&args[path_index], &args[checksum_index]);
         let path_ty = self.check_call_arg_arena(arena, source, &path_arg.kind, Some(&Type::Path));
-        let path_expr_id = call_arg_expr_id_arena(&path_arg.kind);
-        let path_kind = arena.arena.expr(path_expr_id).kind;
-        if !is_path_like_arena_expr(&path_kind, &path_ty) {
+        if !is_path_like_type(&path_ty) {
             self.expect_type(
                 &Type::Path,
                 &path_ty,
@@ -2306,9 +2304,7 @@ impl Checker {
                 self.check_named_arg_arena(arena, &args[1].kind, "value");
                 let path_ty =
                     self.check_call_arg_arena(arena, source, &args[0].kind, Some(&Type::Path));
-                let path_expr_id = call_arg_expr_id_arena(&args[0].kind);
-                let path_kind = arena.arena.expr(path_expr_id).kind;
-                if !is_path_like_arena_expr(&path_kind, &path_ty) {
+                if !is_path_like_type(&path_ty) {
                     self.expect_type(
                         &Type::Path,
                         &path_ty,
@@ -2337,9 +2333,7 @@ impl Checker {
                 self.check_named_arg_arena(arena, &args[1].kind, "values");
                 let path_ty =
                     self.check_call_arg_arena(arena, source, &args[0].kind, Some(&Type::Path));
-                let path_expr_id = call_arg_expr_id_arena(&args[0].kind);
-                let path_kind = arena.arena.expr(path_expr_id).kind;
-                if !is_path_like_arena_expr(&path_kind, &path_ty) {
+                if !is_path_like_type(&path_ty) {
                     self.expect_type(
                         &Type::Path,
                         &path_ty,
