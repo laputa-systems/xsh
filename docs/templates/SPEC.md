@@ -1240,12 +1240,13 @@ value, so `if done { return x }` may end a block.
 
 A `match` with no matching arm fails with `match-no-arm`.
 
-A statement `match` over an enum, ordinary or Str-backed, or over a value
-whose type is one declared error family must be exhaustive as well: its
-unguarded arms cover every variant, or it ends in `else =>`. An arm covers a
-variant when it matches the variant whatever its payload is, so
-`Fault("disk") =>` does not cover `Fault`; `is Facet` covers each error
-variant that implements the facet. A missing variant is
+A statement `match` over an enum, ordinary or Str-backed, over a value whose
+type is one declared error family, or over a union (4.12) must be exhaustive
+as well: its unguarded arms cover every variant or member, or it ends in
+`else =>`. An arm covers a variant when it matches the variant whatever its
+payload is, so `Fault("disk") =>` does not cover `Fault`; `is Facet` covers
+each error variant that implements the facet; a type pattern covers the union
+members it accepts (6.10). A missing variant or member is
 `check.non-exhaustive-match`, so a variant added to a declaration is reported
 at every `match` that has not said what to do with it:
 
@@ -1341,9 +1342,9 @@ touching elements and apply only to `List` values. Type patterns apply only to
 `Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. On a
 union the tested type must be one of its members (`check.pattern-type`), and
 unguarded type patterns that cover every member make the `match` exhaustive.
-A statement `match` that misses a member warns
-(`check.non-exhaustive-match`); a value `match` names the missing members in
-its `check.match-value-exhaustive` error.
+A statement `match` that misses a member is `check.non-exhaustive-match`,
+as for an enum (6.8); a value `match` names the missing members in its
+`check.match-value-exhaustive` error.
 
 ```xsh
 {{.spec.type_patterns.source}}

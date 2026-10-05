@@ -928,11 +928,10 @@ impl Checker {
         }
     }
 
-    /// A statement `match` over an enum or a declared error family must
-    /// handle every variant or end in a catch-all: an unmatched value would
-    /// fail at run time, and a variant added later must not slip past an old
-    /// match unnoticed. A statement `match` over a union that misses a member
-    /// is still a warning.
+    /// A statement `match` over an enum, a declared error family, or a union
+    /// must handle every variant or member, or end in a catch-all: an
+    /// unmatched value would fail at run time, and a case added later must
+    /// not slip past an old match unnoticed.
     /// A value-producing `match` reports the same gap through
     /// `check.match-value-exhaustive` instead, so it calls
     /// `missing_tag_variants_arena` and `missing_error_variants_arena`
@@ -946,15 +945,17 @@ impl Checker {
     ) {
         if let Some(missing) = self.missing_union_members_arena(arena, value_ty, &arm_patterns) {
             self.diagnostics.push(
-                Diagnostic::new(
-                    crate::diagnostic::Severity::Warning,
-                    format!("non-exhaustive match: missing member(s) `{missing}`"),
-                )
+                Diagnostic::error(format!(
+                    "non-exhaustive match: missing member(s) `{missing}`"
+                ))
                 .with_code(DiagnosticCode::CheckNonExhaustiveMatch)
-                .with_label(crate::diagnostic::Label::secondary(
+                .with_label(crate::diagnostic::Label::primary(
                     span,
                     format!("not every member of {value_ty} is handled"),
-                )),
+                ))
+                .with_note(
+                    "handle each missing member, or end the match with `else =>` as the deliberate catch-all",
+                ),
             );
             return;
         }

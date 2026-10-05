@@ -376,7 +376,8 @@ print ${consume("a")?}
   assert "`Float` is not a member of Union[Str, Path, Int]" in stderr, stderr
   assert count(stderr, "err[check.pattern-type]") == 1, stderr
   assert "non-exhaustive match: missing member(s) `Path`" in stderr, stderr
-  assert count(stderr, "warn[check.non-exhaustive-match]") == 1, stderr
+  assert count(stderr, "err[check.non-exhaustive-match]") == 1, stderr
+  assert "warn[" not in stderr, stderr
   assert "value-producing match must be exhaustive: missing member(s) `Path`" in stderr, stderr
   assert count(stderr, "err[check.match-value-exhaustive]") == 1, stderr
 }

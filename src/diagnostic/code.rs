@@ -364,7 +364,7 @@ diagnostic_codes! {
         CheckNamedArg = "check.named-arg", error, "Reject a named argument that is unexpected, repeated, or required in a different form";
         CheckNamedSpread = "check.named-spread", error, "Reject named-argument spreading that cannot be checked against the callable signature";
         CheckNestedDeclaration = "check.nested-declaration", error, "Reject a declaration nested inside a block or function body";
-        CheckNonExhaustiveMatch = "check.non-exhaustive-match", mixed, "Reject or warn about a `match` that misses list lengths or variants";
+        CheckNonExhaustiveMatch = "check.non-exhaustive-match", error, "Reject a statement `match` that misses list lengths, enum or error family variants, or union members";
         CheckNullSafeField = "check.null-safe-field", error, "Reject `?.` on a value that is not an `Optional` or `Result`";
         CheckNullSafeIndex = "check.null-safe-index", error, "Reject guarded indexing on a receiver that is not a checked `Optional` or `Result`";
         CheckOperatorType = "check.operator-type", error, "Reject an operator or compound assignment applied to operand types it does not support";
