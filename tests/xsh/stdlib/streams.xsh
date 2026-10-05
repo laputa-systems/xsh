@@ -2381,6 +2381,21 @@ test test_structured_stream_batch_count_and_argv_limits {
     |> count()) == 0
 }
 
+test test_batch_max_argv_splits_a_long_path_list_before_running_commands {
+  # 300 paths of about 900 bytes are more than some hosts pass to one command.
+  let stem = ["a" for _ in range(900)].join("")
+  let files = [fp"{stem}{index}" for index in range(300)]
+  var passed = 0
+  files
+    |> batch(max_argv: true)
+    |> each { |chunk|
+      run true @chunk
+      passed += chunk.len()
+    }
+
+  assert passed == 300
+}
+
 test test_batch_max_bytes_error_stops_and_closes_live_source { |ctx|
   let output = test.run_xsht_trace(
     ctx,
