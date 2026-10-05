@@ -116,6 +116,9 @@ mod literal_migration_tests;
 #[cfg(test)]
 #[path = "lint_fix_grouping_tests.rs"]
 mod fix_grouping_tests;
+#[cfg(test)]
+#[path = "lint_redundant_default_remove_tests.rs"]
+mod redundant_default_remove_tests;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
@@ -10111,6 +10114,14 @@ impl<'a> Linter<'a> {
                     "mkdir creates parent directories by default"
                 },
             );
+        } else if xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT && self.is_path_remove(callee)
+        {
+            self.lint_redundant_named_bool(
+                args,
+                "missing_ok",
+                true,
+                "`remove` accepts a missing path by default",
+            );
         } else if is_fs_call(self.arena, callee, "touch")
             || is_method_call(self.arena, callee, "touch")
         {
@@ -10163,6 +10174,25 @@ impl<'a> Linter<'a> {
                 true,
                 "`copy_tree` creates parent directories by default",
             );
+        }
+    }
+
+    /// `fs.remove(...)` on the standard module, or `.remove(...)` on a value
+    /// that is statically a `Path`. A map's `remove`, a rooted `remove`, and a
+    /// user function of the same name have no `missing_ok` default to match.
+    fn is_path_remove(&self, callee: ExprId) -> bool {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
+            return false;
+        };
+        if name != "remove" {
+            return false;
+        }
+        let base = self.arena.expr(base);
+        match base.kind {
+            ArenaExprKind::Ident(module) if module == "fs" => {
+                !self.scopes.iter().any(|scope| scope.contains_key("fs"))
+            }
+            _ => self.expr_types.get(&base.span) == Some(&Type::Path),
         }
     }
 

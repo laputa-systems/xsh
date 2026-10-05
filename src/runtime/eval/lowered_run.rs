@@ -4759,8 +4759,12 @@ impl Evaluator {
                 ))
             }
             RuntimeOp::FsRemove if values.len() == 1 || values.len() == 2 => {
-                let missing_ok =
-                    lowered_bool_arg_or(values.get(1).cloned(), false, "fs.remove", span)?;
+                let missing_ok = lowered_bool_arg_or(
+                    values.get(1).cloned(),
+                    xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT,
+                    "fs.remove",
+                    span,
+                )?;
                 let path = lowered_path_arg(values.remove(0), "fs.remove", span)?;
                 lowered_unit_result(fs_module::remove_path(
                     self.host_path(&path),

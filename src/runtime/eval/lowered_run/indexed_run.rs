@@ -7066,9 +7066,12 @@ impl Evaluator {
                 };
                 let missing_ok =
                     match self.eval_indexed_optional_expr(execution, missing_ok, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_bool_arg_or(value, false, operation, span)?
-                        }
+                        ControlFlow::Continue(value) => lowered_bool_arg_or(
+                            value,
+                            xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT,
+                            operation,
+                            span,
+                        )?,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
                 ControlFlow::Continue(lowered_unit_result(crate::modules::fs::remove_path(
@@ -9185,7 +9188,10 @@ impl Evaluator {
                         ))
                     }
                     RuntimeOp::FsRemove => {
-                        let missing_ok = flags.get("missing_ok").copied().unwrap_or(false);
+                        let missing_ok = flags
+                            .get("missing_ok")
+                            .copied()
+                            .unwrap_or(xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT);
                         let path = lowered_path_arg(
                             positionals.first().cloned().ok_or_else(|| {
                                 RuntimeError::new("arity", "fs.remove expected path")
