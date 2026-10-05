@@ -14,7 +14,8 @@ is the workflow; its "Lane contract" section binds you.
   is the checklist for a syntax change.
 - Work one item at a time, in the order assigned. For each: SPEC wording and
   snippets first, then a failing native test, then the implementation, then
-  the migration lint with its autofix and tests, then `make docs`. Commit each
+  the migration lint with its autofix and tests. Edit doc templates and
+  snippets only; the integrator runs `make docs` after the merge. Commit each
   finished item separately on your worktree branch. Never push.
 - An item that still has an open design point is not yours to settle. Stop on
   it and report the options with a recommendation; continue with the next

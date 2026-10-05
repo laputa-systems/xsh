@@ -99,7 +99,9 @@ commit.
   branch; never push, merge, or rebase onto another lane.
 - **SPEC first.** `docs/templates/SPEC.md` and `docs/snippets/spec/` change
   before or with the code, including a `rejected/` snippet for each new check
-  error. Run `make docs`; never edit generated files.
+  error. Check a snippet with the debug `xsht check FILE`. Never edit
+  generated files and do not run `make docs`, which builds release binaries:
+  the integrator regenerates the docs after the merge.
 - **A slice is finished** when it has the grammar productions, parser,
   checker facts, lowering, verifier rule, formatter and grouping support,
   `xsht grep` and annotation support where the surface needs them, native
