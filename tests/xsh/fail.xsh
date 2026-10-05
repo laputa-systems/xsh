@@ -355,3 +355,28 @@ match validate(["a", "", "c"]) {
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
 }
+
+test test_prefer_fail_says_why_a_commented_family_is_left { |ctx|
+  let source = r"""error StageError = Failed(message: Str) # legacy name
+
+proc stage(name: Str) -> Result[Str] {
+  return Err(StageError.Failed("empty name")) when name == ""
+  Ok(name.upper())
+}
+
+print ${stage("ok")?}
+"""
+  let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
+  # The constructor is rewritten and the family is left, with the one report
+  # that no fix answers.
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert fixed.starts_with("error StageError = Failed(message: Str) # legacy name\n"), fixed
+  assert "  fail \"empty name\" when name == \"\"\n" in fixed, fixed
+  let left = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
+  assert left.status.exited_with(1), left.stderr
+  assert "error family `StageError` is never constructed" in left.stderr, left.stderr
+  assert "note: `--fix` leaves this declaration: it has a comment beside it, and a fix never removes a comment. Delete the declaration by hand, with the comment if it describes the family" in left.stderr, left.stderr
+  assert "help:" not in left.stderr, left.stderr
+}

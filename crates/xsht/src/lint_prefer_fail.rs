@@ -233,10 +233,13 @@ impl Candidates {
                             family.declaration,
                             "nothing in this file names it; delete the declaration",
                         ));
-                if let Some(lines) = declaration_lines(source, family.declaration) {
-                    diagnostic = diagnostic
-                        .with_fix_hint(FixHint::deletion(lines, "delete the unused error family"));
-                }
+                diagnostic = match declaration_lines(source, family.declaration) {
+                    Ok(lines) => diagnostic
+                        .with_fix_hint(FixHint::deletion(lines, "delete the unused error family")),
+                    // The report then says what the author has to do, since
+                    // `--fix` leaves the declaration behind.
+                    Err(kept) => diagnostic.with_note(kept.hand_edit()),
+                };
                 diagnostics.push(diagnostic);
                 continue;
             }
@@ -461,18 +464,25 @@ fn dotted_words<'a>(source: &'a str, word: &'a str) -> impl Iterator<Item = usiz
 /// declaration is not part of it and keeps the blank line that follows. A
 /// declaration with a comment inside or beside it has no such lines: an edit
 /// never removes a comment.
-fn declaration_lines(source: &str, declaration: Span) -> Option<Span> {
-    let text = source.get(declaration.range())?.trim_end();
+fn declaration_lines(source: &str, declaration: Span) -> Result<Span, KeptDeclaration> {
+    let text = source
+        .get(declaration.range())
+        .ok_or(KeptDeclaration::SharedLine)?
+        .trim_end();
     let line_start = source[..declaration.start()].rfind('\n').map_or(0, |at| at + 1);
     let text_end = declaration.start() + text.len();
     let line_end = source[text_end..]
         .find('\n')
         .map_or(source.len(), |at| text_end + at + 1);
-    if !source[line_start..declaration.start()].trim().is_empty()
-        || !source[text_end..line_end].trim().is_empty()
-        || text.contains('#')
-    {
-        return None;
+    if text.contains('#') {
+        return Err(KeptDeclaration::CommentInside);
+    }
+    let after = source[text_end..line_end].trim();
+    if after.starts_with('#') {
+        return Err(KeptDeclaration::CommentBeside);
+    }
+    if !source[line_start..declaration.start()].trim().is_empty() || !after.is_empty() {
+        return Err(KeptDeclaration::SharedLine);
     }
     let blank_before = source[..line_start]
         .strip_suffix('\n')
@@ -482,12 +492,41 @@ fn declaration_lines(source: &str, declaration: Span) -> Option<Span> {
     } else {
         line_end
     };
-    Some(Span::new(declaration.source_id, line_start, end))
+    Ok(Span::new(declaration.source_id, line_start, end))
+}
+
+/// Why no edit deletes an unused family's declaration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KeptDeclaration {
+    /// A comment is written between its tokens.
+    CommentInside,
+    /// A comment follows it on its last line.
+    CommentBeside,
+    /// Other code is written on its lines.
+    SharedLine,
+}
+
+impl KeptDeclaration {
+    /// What the author does instead of `--fix`.
+    fn hand_edit(self) -> &'static str {
+        match self {
+            Self::CommentInside => {
+                "`--fix` leaves this declaration: it has a comment inside it, and a fix never removes a comment. Delete the declaration by hand, with the comment if it describes the family"
+            }
+            Self::CommentBeside => {
+                "`--fix` leaves this declaration: it has a comment beside it, and a fix never removes a comment. Delete the declaration by hand, with the comment if it describes the family"
+            }
+            Self::SharedLine => {
+                "`--fix` leaves this declaration: it shares its line with other code. Delete the declaration by hand"
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{LintOptions, Linter};
+    use super::KeptDeclaration;
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
@@ -674,6 +713,20 @@ mod tests {
         let unused = lint(&fixed);
         assert_eq!(unused.len(), 1, "{unused:?}");
         assert!(unused[0].fix_hints.is_empty());
+        // The report says why, and what to do by hand.
+        assert_eq!(unused[0].notes, [KeptDeclaration::CommentBeside.hand_edit()]);
+
+        let inside = "error LoadError {\n  # legacy\n  Failed(message: Str)\n}\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n";
+        let unused = lint(inside);
+        assert_eq!(unused.len(), 1, "{unused:?}");
+        assert!(unused[0].fix_hints.is_empty());
+        assert_eq!(unused[0].notes, [KeptDeclaration::CommentInside.hand_edit()]);
+
+        let shared = "error LoadError = Failed(message: Str); const limit = 3\n\nproc load() -> Result[Int] {\n  fail f\"over {limit}\"\n}\n";
+        let unused = lint(shared);
+        assert_eq!(unused.len(), 1, "{unused:?}");
+        assert!(unused[0].fix_hints.is_empty());
+        assert_eq!(unused[0].notes, [KeptDeclaration::SharedLine.hand_edit()]);
     }
 
     #[test]
