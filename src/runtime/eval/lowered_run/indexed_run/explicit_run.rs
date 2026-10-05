@@ -613,11 +613,14 @@ impl std::ops::DerefMut for FrameSlots<'_> {
 /// How many function calls may be open at once.
 ///
 /// Call frames live on the heap, so recursion that never ends would
-/// otherwise run until memory does. The limit is above the depth the
-/// small-stack tests recurse to (20,000 calls), so deep recursion over data
-/// keeps working, and no higher because a call costs time in proportion to
-/// the calls already open: reaching it takes about twelve seconds.
-const MAX_CALL_DEPTH: usize = 50_000;
+/// otherwise run until memory does. An open call of a small function holds
+/// about 2.4 KiB, so the limit bounds a runaway recursion at roughly a
+/// quarter of a gibibyte, and reaching it takes about a second in an
+/// unoptimized build. It is five times the deepest recursion over data the
+/// small-stack tests make (20,000 calls); raising it costs memory in
+/// proportion and nothing else, because a call's cost does not depend on
+/// how many are open.
+const MAX_CALL_DEPTH: usize = 100_000;
 
 /// How many of the open calls a `stack-overflow` error names before the call
 /// that was refused.
@@ -664,6 +667,29 @@ pub(super) struct ExplicitFrames<'a, 'p> {
     suspended: Option<ProducerSuspension>,
     /// A finished block frame's statement flow.
     block_flow: Option<StmtFlow>,
+    /// An upper bound on the `ctx` boundaries open in `calls`, and zero when
+    /// there are none. Cleanup collects the open contexts each time a frame
+    /// discards work, which every `return` does; without this bound it would
+    /// read the work of every open call to find them, so a call would cost
+    /// time in proportion to the calls already open. Counted where a
+    /// boundary enters a frame, lowered where one is seen to leave, and
+    /// corrected by any collection that finds fewer.
+    open_context_boundaries: usize,
+}
+
+/// How many `ctx` boundaries a frame's work holds.
+fn context_boundaries(work: &[FrameWork]) -> usize {
+    work.iter()
+        .filter(|work| {
+            matches!(
+                work,
+                FrameWork::ExpressionBoundary {
+                    policy: ExpressionBoundaryPolicy::Context(_),
+                    ..
+                }
+            )
+        })
+        .count()
 }
 
 impl Evaluator {
@@ -826,7 +852,9 @@ impl Evaluator {
         };
         let mut work = self.frame_scratch.take_work();
         work.push(first);
+        let open_context_boundaries = context_boundaries(&work);
         let mut frames = ExplicitFrames::new(self, &program);
+        frames.open_context_boundaries = open_context_boundaries;
         frames.calls.push(CallFrame {
             owner: FrameOwner::Block {
                 owns_scope,
@@ -1221,6 +1249,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             pending_error: None,
             suspended: None,
             block_flow: None,
+            open_context_boundaries: 0,
         }
     }
 
@@ -1254,6 +1283,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     /// Runs a producer frame until it yields or finishes.
     pub(super) fn run_producer(&mut self, call: CallFrame<'p>) -> ProducerStep {
+        // A resumed producer brings the boundaries it was suspended inside.
+        self.open_context_boundaries += context_boundaries(&call.work);
         self.calls.push(call);
         while self.result.is_none() && self.suspended.is_none() {
             let index = self
@@ -1818,6 +1849,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span))
             }
             FrameWork::ExpressionBoundary { policy, next } => {
+                if matches!(policy, ExpressionBoundaryPolicy::Context(_)) {
+                    self.open_context_boundaries = self.open_context_boundaries.saturating_sub(1);
+                }
                 if self.calls[index].cancelled {
                     // A cancelled body replays only cleanup. Restore the scope
                     // this boundary opened and skip its continuation: feeding a
@@ -3619,6 +3653,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         message: Some(description),
                         span: Some(span),
                     };
+                    self.open_context_boundaries += 1;
                     self.calls[index].work.push(FrameWork::ExpressionBoundary {
                         policy: ExpressionBoundaryPolicy::Context(context),
                         next: *next,
@@ -6217,20 +6252,34 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     /// Abandoned work unwinds every lexical cleanup action from innermost to outermost.
+    ///
+    /// This runs for every frame that discards work, so it must not read the
+    /// open calls when no `ctx` block is open, and stops reading them once it
+    /// has every boundary that is.
     fn install_cleanup_contexts(&mut self) -> Vec<crate::runtime::value::ErrorContext> {
         let previous = self.evaluator.cleanup_error_contexts.clone();
-        self.evaluator.cleanup_error_contexts.extend(
-            self.calls
-                .iter()
-                .flat_map(|call| call.work.iter())
-                .filter_map(|work| match work {
-                    FrameWork::ExpressionBoundary {
-                        policy: ExpressionBoundaryPolicy::Context(context),
-                        ..
-                    } => Some(context.clone()),
-                    _ => None,
-                }),
-        );
+        if self.open_context_boundaries == 0 {
+            return previous;
+        }
+        let mut found = 0;
+        'calls: for call in &self.calls {
+            for work in &call.work {
+                if let FrameWork::ExpressionBoundary {
+                    policy: ExpressionBoundaryPolicy::Context(context),
+                    ..
+                } = work
+                {
+                    self.evaluator.cleanup_error_contexts.push(context.clone());
+                    found += 1;
+                    if found == self.open_context_boundaries {
+                        break 'calls;
+                    }
+                }
+            }
+        }
+        // The bound is only ever too high: a boundary can leave with a frame
+        // that is dropped whole. A full read is the exact count.
+        self.open_context_boundaries = found;
         previous
     }
 
@@ -6303,6 +6352,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     policy: ExpressionBoundaryPolicy::Context(context),
                     ..
                 } => {
+                    self.open_context_boundaries = self.open_context_boundaries.saturating_sub(1);
                     self.evaluator.cleanup_error_contexts.pop();
                     if let Some(error) = self.pending_error.take() {
                         self.pending_error =
