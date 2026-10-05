@@ -535,6 +535,7 @@ fn copy_file_unnamed(
             .mode(mode)
             .open(&dest)
     };
+    let mut destination_replaced = false;
     let output = match open_destination() {
         Ok(output) => output,
         Err(_) if options.force && options.overwrite && existed => {
@@ -557,7 +558,9 @@ fn copy_file_unnamed(
             }
             std::fs::remove_file(&dest).map_err(host)?;
             existed = false;
-            open_destination().map_err(host)?
+            let output = open_destination().map_err(host)?;
+            destination_replaced = true;
+            output
         }
         Err(error) => return Err(host(error)),
     };
@@ -587,6 +590,7 @@ fn copy_file_unnamed(
         (key("bytes"), Value::Int(bytes as i64)),
         (key("hole_bytes"), Value::Int(hole_bytes as i64)),
         (key("method"), Value::Str(method.into())),
+        (key("destination_replaced"), Value::Bool(destination_replaced)),
     ])))
 }
 

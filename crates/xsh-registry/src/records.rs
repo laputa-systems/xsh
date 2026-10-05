@@ -245,6 +245,7 @@ pub fn fs_copy_file_result_type() -> Type {
         ("bytes", Type::Int),
         ("hole_bytes", Type::Int),
         ("method", Type::Str),
+        ("destination_replaced", Type::Bool),
     ]))
 }
 

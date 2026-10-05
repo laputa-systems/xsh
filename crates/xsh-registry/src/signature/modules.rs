@@ -4357,7 +4357,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "FsCopyFileResult" => (
             "Reports how fs.copy_file moved bytes into the destination.",
-            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination.",
+            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination. destination_replaced is true only when force successfully unlinked and reopened an existing destination; it is false for initial creation and ordinary overwrite, regardless of inode reuse.",
             &["filesystem", "copy", "record"],
         ),
         "FsDataRange" => (

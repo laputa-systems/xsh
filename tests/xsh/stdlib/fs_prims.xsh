@@ -430,6 +430,7 @@ test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |
   source.write("hello world", mode: 0o640)
 
   let copied = fs.copy_file(source, dest)?
+  assert ! copied.destination_replaced
   assert copied.bytes == 11
   assert copied.hole_bytes == 0
   assert copied.method == "copy_file_range" or copied.method == "read_write"
@@ -463,7 +464,8 @@ test test_copy_file_overwrite_truncates_and_exclusive_refuses { |ctx|
 
   assert dest.read_text()? == "a much longer previous content"
 
-  let _ = fs.copy_file(source, dest)?
+  let overwritten = fs.copy_file(source, dest)?
+  assert ! overwritten.destination_replaced
   assert dest.read_text()? == "new"
 }
 
@@ -733,6 +735,7 @@ test test_copy_file_force_replaces_only_an_unopenable_destination { |ctx|
   assert fs.stat(dest)?.ino == old_ino
   source.chmod(0o600)
   let report = fs.copy_file(source, dest, force: true)?
+  assert report.destination_replaced
   assert report.bytes == 6
   assert dest.read_text()? == "copied"
   assert fs.stat(dest)?.ino != old_ino
@@ -751,7 +754,9 @@ test test_copy_file_force_replaces_only_proven_final_symlink_loops { |ctx|
   let missing = fp"{root}/missing"
   assert fs.copy_file(missing, loop_path, force: true) is Err(is NotFound)
   assert loop_path.readlink()? == p"loop"
-  assert fs.copy_file(source, loop_path, force: true)?.bytes == 6
+  let replaced = fs.copy_file(source, loop_path, force: true)?
+  assert replaced.destination_replaced
+  assert replaced.bytes == 6
   assert fs.stat(loop_path)?.kind == "file"
   assert loop_path.read_text()? == "copied"
 
