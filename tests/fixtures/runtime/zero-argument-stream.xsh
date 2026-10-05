@@ -7,8 +7,8 @@
 # not return". The same producer with one parameter worked, which is why the
 # defect survived — every producer in the tree took one.
 #
-# The program lives under `tests/fixtures/` because it is executed by the Rust
-# integration suite, and it is a plain script: no internal names, no switches.
+# The program lives under `tests/fixtures/` because it is executed by
+# `tests/xsh/stream-producers.xsh`, and it is a plain script: no internal names, no switches.
 
 stream items() [] -> Stream[Int] {
   yield 1

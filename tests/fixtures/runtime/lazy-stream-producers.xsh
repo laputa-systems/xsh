@@ -3,7 +3,7 @@
 # `yield`, a consumer that stops early does not reach later rows, and the
 # producer's `defer` runs exactly once on every way a producer can end.
 #
-# The program is driven by the Rust integration suite, which supplies a fresh
+# The program is driven by `tests/xsh/stream-producers.xsh`, which supplies a fresh
 # directory in `XSH_LAZY_STREAM_DIR` and removes it afterwards; the markers each
 # step leaves behind are what the assertions read.
 

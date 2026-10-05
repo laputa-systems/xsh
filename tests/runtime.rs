@@ -19,8 +19,6 @@ mod coverage;
 #[cfg(feature = "tools")]
 #[path = "runtime/examples.rs"]
 mod examples;
-#[path = "runtime/frontend_indexed.rs"]
-mod frontend_indexed;
 // The interactive runtime tests were removed together with the xshi
 // implementation (crates/xshi is now a buildable stub; see its lib.rs).
 #[path = "runtime/linux.rs"]

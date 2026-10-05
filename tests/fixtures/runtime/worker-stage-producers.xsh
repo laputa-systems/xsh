@@ -8,8 +8,8 @@
 #
 # The stage's result is a `List`, so the stage does consume the whole producer;
 # what this fixture pins is that the consumption goes through the producer
-# machinery rather than around it. The program is driven by the Rust
-# integration suite, which supplies a fresh directory in
+# machinery rather than around it. The program is driven by
+# `tests/xsh/stream-producers.xsh`, which supplies a fresh directory in
 # `XSH_WORKER_STAGE_DIR`, asks for the failing case with
 # `XSH_WORKER_STAGE_EXPECT_FAILURE`, and removes the directory afterwards.
 
