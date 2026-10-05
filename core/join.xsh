@@ -350,9 +350,25 @@ proc parse_format(items: List[Str]) [process, env] -> List[Spec] {
   specs
 }
 
+# `-j1 FIELD` and `-j2 FIELD` are the old spellings of `-1 FIELD` and `-2 FIELD`.
+pure modernize(argv: List[Str]) -> List[Str] {
+  var out: List[Str] = []
+  var options = true
+
+  for item in argv {
+    if item == "--" {
+      options = false
+    }
+
+    out += [if options and item == "-j1" { "-1" } else if options and item == "-j2" { "-2" } else { item }]
+  }
+
+  out
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: JoinOptions = cli.applet(
-    argv,
+    modernize(argv),
     {
       gnu: {status: 1},
       unpaired: {form: "-a FILENUM", repeated: true},
