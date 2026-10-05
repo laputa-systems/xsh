@@ -1157,12 +1157,23 @@ impl Checker {
                 }
                 ty => ty,
             };
+            // The condition's own check already judged this pattern against
+            // this subject, in a scope it discarded; this pass is for the
+            // names. What it reports again is dropped, and anything only the
+            // branch scope can reveal is kept.
+            let reported = self.diagnostics.len();
             self.check_pattern_arena(
                 arena,
                 source,
                 arena.arena.match_expr_arms(arms)[0].pattern,
                 &ty,
             );
+            let again = self.diagnostics.split_off(reported);
+            for diagnostic in again {
+                if !self.diagnostics.contains(&diagnostic) {
+                    self.diagnostics.push(diagnostic);
+                }
+            }
         }
     }
 

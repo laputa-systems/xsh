@@ -426,3 +426,27 @@ if let whole = failure { print \${whole.message} }
   assert count(stderr, "err[check.irrefutable-pattern-condition]") == 1, stderr
   assert count(stderr, "err[") == 1, stderr
 }
+
+# A condition's pattern is checked where the condition is typed and again
+# where its names are bound for the branch; an error in it is one error.
+test test_pattern_condition_error_is_reported_once { |ctx|
+  let stderr = check_errors(
+    ctx,
+    """enum Tok { A, B(Int) }
+
+proc show(t: Tok) {
+  if let Missing(n) = t {
+    print \$n
+  }
+
+  while let Missing(m) = t {
+    print \$m
+    break
+  }
+}
+
+show(A)
+""",
+  )?
+  assert count(stderr, "err[check.pattern-type]") == 2, stderr
+}
