@@ -1320,25 +1320,43 @@ fn supplementary_groups(span: Span) -> Result<Vec<Value>, RuntimeError> {
     }
     gids.sort_unstable_by_key(|g| g.as_raw());
     gids.dedup_by_key(|g| g.as_raw());
-    Ok(gids
+    gids
         .into_iter()
         .map(|gid| {
             let raw = gid.as_raw();
-            Value::Record(crate::runtime::value::RecordMap::from([
+            Ok(Value::Record(crate::runtime::value::RecordMap::from([
                 (Arc::from("gid"), Value::Int(raw as i64)),
-                (Arc::from("name"), Value::Str(group_name(raw).into())),
-            ]))
+                (Arc::from("name"), Value::Str(group_name(raw, span)?.into())),
+            ])))
         })
-        .collect())
+        .collect()
 }
 
-fn group_name(gid: libc::gid_t) -> String {
-    let group = unsafe { libc::getgrgid(gid) };
-    if group.is_null() {
-        return gid.to_string();
+// Each lookup owns its storage because identity queries may run concurrently.
+fn group_name(gid: libc::gid_t, span: Span) -> Result<String, RuntimeError> {
+    let mut buffer = vec![0u8; 16_384];
+    loop {
+        let mut group: libc::group = unsafe { std::mem::zeroed() };
+        let mut result = std::ptr::null_mut();
+        let rc = unsafe {
+            libc::getgrgid_r(gid, &mut group, buffer.as_mut_ptr().cast(), buffer.len(), &mut result)
+        };
+        if rc == libc::ERANGE {
+            let size = buffer.len().checked_mul(2)
+                .ok_or_else(|| RuntimeError::new("unix-id", "group lookup buffer is too large").with_span(span))?;
+            buffer.try_reserve_exact(size - buffer.len())
+                .map_err(|error| RuntimeError::new("unix-id", error.to_string()).with_span(span))?;
+            buffer.resize(size, 0);
+            continue;
+        }
+        if rc != 0 {
+            return Err(RuntimeError::host("unix-id", &io::Error::from_raw_os_error(rc)).with_span(span));
+        }
+        if result.is_null() {
+            return Ok(gid.to_string());
+        }
+        return Ok(unsafe { std::ffi::CStr::from_ptr(group.gr_name) }.to_string_lossy().into_owned());
     }
-    let name = unsafe { std::ffi::CStr::from_ptr((*group).gr_name) };
-    name.to_string_lossy().into_owned()
 }
 
 fn raw_fd_arg(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeError> {

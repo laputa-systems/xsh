@@ -35,3 +35,14 @@ test test_user_lookup_and_mutation_contracts { |ctx|
   test.error_kind(user.lookup("definitely-missing-xsh-user"), "user-not-found")
   test.error_kind(user.add("-bad"), "user-name")
 }
+
+test test_user_groups_resolves_account_memberships_without_changing_credentials {
+  let account = user.current()?
+  let before = unix.id()?
+  let memberships = user.groups(account.name)?
+  assert account.gid in memberships
+  assert memberships == (memberships |> sort |> unique-by .)
+  assert unix.id()? == before
+  test.error_kind(user.groups("definitely-missing-xsh-user"), "user-not-found")
+  test.error_kind(user.groups("invalid\0name"), "user-name")
+}

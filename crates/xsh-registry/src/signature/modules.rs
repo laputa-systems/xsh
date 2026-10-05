@@ -2939,6 +2939,16 @@ fn unix_module() -> ModuleSig {
                 result(Type::Unit), false, RuntimeOp::UnixDupFd),
         ),
         (
+            "set_uid",
+            sig(vec![param("uid", Type::Int)], result(Type::Unit), false,
+                RuntimeOp::UnixSetUid),
+        ),
+        (
+            "set_gid",
+            sig(vec![param("gid", Type::Int)], result(Type::Unit), false,
+                RuntimeOp::UnixSetGid),
+        ),
+        (
             "set_groups",
             sig(vec![param("groups", Type::List(Box::new(Type::Int)))],
                 result(Type::Unit), false, RuntimeOp::UnixSetGroups),
@@ -4160,6 +4170,11 @@ fn tui_module() -> ModuleSig {
 
 fn user_module() -> ModuleSig {
     module_sig(vec![
+        (
+            "groups",
+            sig(vec![param("name", Type::Str)], result(Type::List(Box::new(Type::Int))),
+                false, RuntimeOp::UserGroups),
+        ),
         (
             "current",
             sig(

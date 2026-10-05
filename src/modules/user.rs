@@ -30,6 +30,44 @@ pub(crate) fn lookup(name: &str, span: Span) -> Result<Value, RuntimeError> {
     passwd_result(rc, result, passwd, span)
 }
 
+/// Resolve account memberships before entering a restricted filesystem or
+/// changing process credentials. This includes the account's primary group.
+pub(crate) fn groups(name: &str, span: Span) -> Result<Value, RuntimeError> {
+    let account = lookup(name, span)?;
+    let Value::Record(fields) = account else {
+        unreachable!("user lookup returns an account record");
+    };
+    let Some(Value::Int(primary)) = fields.get("gid") else {
+        unreachable!("account record includes a numeric primary gid");
+    };
+    let name = CString::new(name).map_err(|_| {
+        RuntimeError::new("user-name", "user name cannot contain NUL").with_span(span)
+    })?;
+    let mut groups = vec![0 as libc::gid_t; 16];
+    loop {
+        let mut count = groups.len() as libc::c_int;
+        // Darwin uses signed 32-bit group IDs here; gid_t has the same width,
+        // so the pointer cast preserves all ID bits on every supported host.
+        let result = unsafe {
+            libc::getgrouplist(name.as_ptr(), *primary as _, groups.as_mut_ptr().cast(), &mut count)
+        };
+        if result >= 0 {
+            let count = usize::try_from(count).ok().filter(|count| *count <= groups.len())
+                .ok_or_else(|| RuntimeError::new("user-groups", "invalid group count from host").with_span(span))?;
+            groups.truncate(count);
+            groups.push(*primary as libc::gid_t);
+            groups.sort_unstable();
+            groups.dedup();
+            return Ok(Value::List(groups.into_iter().map(|id| Value::Int(i64::from(id))).collect()));
+        }
+        let required = usize::try_from(count).ok().filter(|count| *count > groups.len())
+            .ok_or_else(|| RuntimeError::new("user-groups", "host group lookup failed without a larger required count").with_span(span))?;
+        groups.try_reserve_exact(required - groups.len())
+            .map_err(|error| RuntimeError::new("user-groups", error.to_string()).with_span(span))?;
+        groups.resize(required, 0);
+    }
+}
+
 pub(crate) fn by_uid(uid: u32, span: Span) -> Result<Value, RuntimeError> {
     let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
     let mut result = std::ptr::null_mut();

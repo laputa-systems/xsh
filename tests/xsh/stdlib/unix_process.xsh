@@ -24,13 +24,13 @@ unix.exec(command)?
 
 test test_unix_descriptor_arguments_validate_before_opening { |ctx|
   let root = test.temp_dir(ctx, name: "unix-fd-validation")?
-  let path = fp"{root}/must-not-exist"
-  test.error_kind(unix.redirect_fd(-1, path, write: true), "unix-redirect-fd")
-  test.error_kind(unix.redirect_fd(2147483648, path, write: true), "unix-redirect-fd")
-  test.error_kind(unix.redirect_fd(1, path, append: true), "unix-redirect-fd")
-  test.error_kind(unix.redirect_fd(1, path, write: true, mode: -1), "unix-redirect-fd")
-  test.error_kind(unix.redirect_fd(1, path, write: true, mode: 4096), "unix-redirect-fd")
-  assert ! path.exists()?
+  let unopened = fp"{root}/must-not-exist"
+  test.error_kind(unix.redirect_fd(-1, unopened, write: true), "unix-redirect-fd")
+  test.error_kind(unix.redirect_fd(2147483648, unopened, write: true), "unix-redirect-fd")
+  test.error_kind(unix.redirect_fd(1, unopened, append: true), "unix-redirect-fd")
+  test.error_kind(unix.redirect_fd(1, unopened, write: true, mode: -1), "unix-redirect-fd")
+  test.error_kind(unix.redirect_fd(1, unopened, write: true, mode: 4096), "unix-redirect-fd")
+  assert ! unopened.exists()?
   test.error_kind(unix.dup_fd(-1, 1), "unix-dup-fd")
   test.error_kind(unix.dup_fd(1, 2147483648), "unix-dup-fd")
   assert unix.dup_fd(2147483647, 2147483647) is Err(is HostIo)
@@ -68,6 +68,10 @@ unix.exec(process.command_argv("cat", ["cat"]))?
 
 test test_unix_credentials_validate_all_ids_before_transition {
   let before = unix.id()?
+  test.error_kind(unix.set_uid(-1), "unix-set-uid")
+  test.error_kind(unix.set_uid(4294967295), "unix-set-uid")
+  test.error_kind(unix.set_gid(-1), "unix-set-gid")
+  test.error_kind(unix.set_gid(4294967295), "unix-set-gid")
   test.error_kind(unix.set_groups([-1]), "unix-set-groups")
   test.error_kind(unix.set_groups([4294967295]), "unix-set-groups")
   test.error_kind(unix.set_credentials(uid: -1, gid: before.gid, groups: []), "unix-set-credentials")
@@ -82,18 +86,24 @@ test test_unix_credentials_transition_inside_namespace { |ctx|
     return
   }
   let unshare = match process.which("unshare") {
-    Ok(path) => path
+    Ok(executable) => executable
     Err(_) => {
       test.skip("unshare is unavailable")
       return
     }
   }
-  let probe = run.capture $unshare --mount --pid --fork -- true
-  guard probe.status.ok else {
+  let probe = process.run(process.command_argv(unshare, [unshare.display(), "--mount", "--pid", "--fork", "--", "true"]))?
+  guard probe.ok else {
     test.skip("private mount and PID namespaces are unavailable")
     return
   }
   let script = test.temp_file(ctx, name: "credentials.xsh", contents: bytes.from_text(r"""unix.set_groups([123, 456])?
+let original = unix.id()?
+unix.set_gid(12346)?
+let gid_changed = unix.id()?
+assert gid_changed.gid == 12346 and gid_changed.egid == 12346
+assert gid_changed.uid == original.uid and gid_changed.euid == original.euid
+unix.set_uid(0)?
 let before = unix.id()?
 assert (before.groups |> any { |group| group.gid == 123 })
 assert (before.groups |> any { |group| group.gid == 456 })
@@ -106,7 +116,9 @@ assert ! (after.groups |> any { |group| group.gid == 123 })
 assert ! (after.groups |> any { |group| group.gid == 456 })
 print "credentials-changed"
 """))?
-  let output = run.capture $unshare --mount --pid --fork -- ${ctx.xsh_bin} $script
-  assert output.status.ok, output.stderr
-  assert output.stdout == "credentials-changed\n"
+  let output = test.temp_path(ctx, name: "credentials.stdout")
+  let errors = test.temp_path(ctx, name: "credentials.stderr")
+  let status = process.run(process.command_argv(unshare, [unshare.display(), "--mount", "--pid", "--fork", "--", ctx.xsh_bin.display(), script.display()], stdout: output, stderr: errors))?
+  assert status.ok, errors.read_text()?
+  assert output.read_text()? == "credentials-changed\n"
 }

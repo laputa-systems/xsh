@@ -1399,6 +1399,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "source and target must be in 0..2147483647. Replaces target, shares the open file offset and clears close-on-exec even when source equals target. Invalid or closed descriptors remain host errors.",
             &["unix", "descriptor", "process"],
         )),
+        ("unix", "set_uid" | "set_gid") => Some((
+            "Changes an explicit current process user or primary group ID.",
+            "The ID must be in 0..4294967294; the all-ones unchanged sentinel is rejected. Calls the host setuid or setgid operation and leaves supplementary groups unchanged. Permission failures remain host errors. Callers dropping privileges must set supplementary groups and GID before UID.",
+            &["unix", "credentials", "privileged"],
+        )),
         ("unix", "set_groups") => Some((
             "Replaces the current process supplementary groups with explicit numeric IDs.",
             "Every ID must be in 0..4294967294. An empty list clears supplementary groups. All IDs are validated before changing state; host permission failures remain errors. No account lookup or inherited-group default is applied.",
@@ -1473,6 +1478,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Reads or changes Unix terminal state.",
             "Terminal descriptors and attributes are host resources; mutation must preserve the caller's restoration policy.",
             &["unix", "tty", "terminal"],
+        )),
+        ("user", "groups") => Some((
+            "Looks up all Unix group IDs for a named user through the host account database.",
+            "Includes the account primary GID and supplementary memberships, sorted and deduplicated. Uses the host NSS group lookup; it does not report the current process group set or mutate credentials. Missing accounts, invalid names and lookup failures remain errors.",
+            &["user", "identity", "lookup"],
         )),
         ("user", "current") => Some((
             "Returns the current process user record.",

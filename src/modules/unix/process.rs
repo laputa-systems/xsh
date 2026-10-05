@@ -11,13 +11,16 @@ use std::os::unix::fs::OpenOptionsExt;
 
 pub(crate) fn handles(op: RuntimeOp) -> bool {
     matches!(op, RuntimeOp::UnixRedirectFd | RuntimeOp::UnixDupFd
-        | RuntimeOp::UnixSetGroups | RuntimeOp::UnixSetCredentials)
+        | RuntimeOp::UnixSetGroups | RuntimeOp::UnixSetCredentials
+        | RuntimeOp::UnixSetUid | RuntimeOp::UnixSetGid)
 }
 
 pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError> {
     match op {
         RuntimeOp::UnixRedirectFd => redirect_fd(args),
         RuntimeOp::UnixDupFd => dup_fd(args),
+        RuntimeOp::UnixSetUid => set_identity(args, true),
+        RuntimeOp::UnixSetGid => set_identity(args, false),
         RuntimeOp::UnixSetGroups => set_groups(args),
         RuntimeOp::UnixSetCredentials => set_credentials(args),
         _ => unreachable!("Unix process primitive expected"),
@@ -130,6 +133,18 @@ fn set_credentials(args: &Args<'_>) -> Result<Value, RuntimeError> {
     }
     if unsafe { libc::setuid(uid) } == -1 {
         return Err(host_error(kind, io::Error::last_os_error(), span));
+    }
+    Ok(Value::ok(Value::Unit))
+}
+
+fn set_identity(args: &Args<'_>, user: bool) -> Result<Value, RuntimeError> {
+    let kind = if user { "unix-set-uid" } else { "unix-set-gid" };
+    let id = identity(args.int(0)?, kind, args.span())?;
+    let result = unsafe {
+        if user { libc::setuid(id) } else { libc::setgid(id) }
+    };
+    if result == -1 {
+        return Err(host_error(kind, io::Error::last_os_error(), args.span()));
     }
     Ok(Value::ok(Value::Unit))
 }
