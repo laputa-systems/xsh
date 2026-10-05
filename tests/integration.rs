@@ -1,8 +1,6 @@
 #[macro_use]
 #[path = "release_binary.rs"]
 mod release_binary;
-#[path = "auth_bins.rs"]
-mod auth_bins;
 #[path = "cli.rs"]
 mod cli;
 #[path = "core.rs"]
