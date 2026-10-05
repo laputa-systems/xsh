@@ -51,14 +51,28 @@ struct DiskUsageStream {
 
 impl LiveStream for DiskUsageStream {
     fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
-        let Some(mount) = self.mounts.next() else {
-            return Ok(None);
-        };
-        let path = self
-            .stat_path
-            .as_deref()
-            .unwrap_or_else(|| Path::new(&mount.target));
-        disk_usage_record(&mount, path, span).map(Some)
+        loop {
+            let Some(mount) = self.mounts.next() else {
+                return Ok(None);
+            };
+            // With a path the caller named the one mount in the stream, so a
+            // refusal is its answer; a listing of every mount leaves a
+            // refused mount out.
+            let (path, listing) = match self.stat_path.as_deref() {
+                Some(path) => (path, false),
+                None => (Path::new(&mount.target), true),
+            };
+            let stats = match rfs::statvfs(path) {
+                Ok(stats) => stats,
+                Err(errno) if listing && crate::modules::fs::mount_listing_skips(errno) => {
+                    continue;
+                }
+                Err(errno) => {
+                    return Err(RuntimeError::host("linux-disk-usage", &errno).with_span(span));
+                }
+            };
+            return Ok(Some(disk_usage_record(&mount, &stats)));
+        }
     }
 }
 
@@ -190,26 +204,20 @@ fn mount_for_path<'a>(mounts: &'a [MountEntry], path: &Path) -> Option<&'a Mount
         .max_by_key(|mount| Path::new(&mount.target).components().count())
 }
 
-fn disk_usage_record(
-    mount: &MountEntry,
-    stat_path: &Path,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    let stats = rfs::statvfs(stat_path)
-        .map_err(|error| RuntimeError::host("linux-disk-usage", &error).with_span(span))?;
+fn disk_usage_record(mount: &MountEntry, stats: &rfs::StatVfs) -> Value {
     let block_size = stats.f_bsize as u128;
     let total = blocks_to_i64(stats.f_blocks as u128, block_size);
     let used_blocks = stats.f_blocks.saturating_sub(stats.f_bfree);
     let used = blocks_to_i64(used_blocks as u128, block_size);
     let available = blocks_to_i64(stats.f_bavail as u128, block_size);
-    Ok(Value::Record(crate::runtime::value::RecordMap::from([
+    Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("device"), str_value(mount.source.clone())),
         (Arc::from("mount"), str_value(mount.target.clone())),
         (Arc::from("fstype"), str_value(mount.fstype.clone())),
         (Arc::from("total"), Value::Int(total)),
         (Arc::from("used"), Value::Int(used)),
         (Arc::from("available"), Value::Int(available)),
-    ])))
+    ]))
 }
 
 fn blocks_to_i64(blocks: u128, block_size: u128) -> i64 {

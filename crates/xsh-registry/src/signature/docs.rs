@@ -595,9 +595,14 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Capacity fields are host filesystem observations and may change between calls.",
             &["filesystem", "metadata", "capacity"],
         )),
-        ("fs", "mounts" | "mount_for") => Some((
+        ("fs", "mounts") => Some((
             "Reads mounted-filesystem records for the host.",
-            "Mount information is a host-global snapshot and may be unavailable on unsupported platforms.",
+            "Mount information is a host-global snapshot and may be unavailable on unsupported platforms. A mount that refuses its statistics with a permission error is left out.",
+            &["filesystem", "mount", "host-state"],
+        )),
+        ("fs", "mount_for") => Some((
+            "Reads the mounted-filesystem record of the mount that holds a path.",
+            "Mount information is a host-global snapshot and may be unavailable on unsupported platforms. A mount that refuses its statistics is an error.",
             &["filesystem", "mount", "host-state"],
         )),
         ("fs", "read_text") => Some((

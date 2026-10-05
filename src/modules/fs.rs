@@ -1313,11 +1313,17 @@ struct FsMountStream {
 
 impl LiveStream for FsMountStream {
     fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
-        let Some(source) = self.sources.next() else {
-            return Ok(None);
-        };
-        let mount = mount_record(source, span)?;
-        fs_mount_value(mount, span).map(Some)
+        loop {
+            let Some(source) = self.sources.next() else {
+                return Ok(None);
+            };
+            let stats = match rfs::statvfs(&source.mounted_on) {
+                Ok(stats) => stats,
+                Err(errno) if mount_listing_skips(errno) => continue,
+                Err(errno) => return Err(RuntimeError::host("fs-mount", &errno).with_span(span)),
+            };
+            return fs_mount_value(mount_record(source, &stats), span).map(Some);
+        }
     }
 }
 
@@ -1363,11 +1369,25 @@ pub(crate) fn mount_for(path: &Path, span: Span) -> Result<FsMount, RuntimeError
     if !target.starts_with(&source.mounted_on) {
         return Err(RuntimeError::new("fs-mount", "mount not found").with_span(span));
     }
-    mount_record(source, span)
+    // The caller named this mount, so a refusal is its answer, not a row to
+    // leave out.
+    let stats = statvfs(&source.mounted_on, "fs-mount", span)?;
+    Ok(mount_record(source, &stats))
 }
 
-fn mount_record(source: MountSource, span: Span) -> Result<FsMount, RuntimeError> {
-    let stats = statvfs(&source.mounted_on, "fs-mount", span)?;
+/// Whether a listing of every mount leaves out a mount whose `statvfs` failed
+/// with `errno`.
+///
+/// An unprivileged process is refused on mounts it cannot traverse (a
+/// container runtime's network-namespace files and overlay roots), and one
+/// such mount must not fail the whole listing: `df` leaves it out too. Only a
+/// permission refusal is skipped. Any other failure still fails the listing,
+/// and so does a refusal on a mount the caller named.
+pub(crate) fn mount_listing_skips(errno: rustix::io::Errno) -> bool {
+    errno == rustix::io::Errno::ACCESS || errno == rustix::io::Errno::PERM
+}
+
+fn mount_record(source: MountSource, stats: &StatVfs) -> FsMount {
     let block_size = if stats.f_frsize == 0 {
         stats.f_bsize
     } else {
@@ -1387,7 +1407,7 @@ fn mount_record(source: MountSource, span: Span) -> Result<FsMount, RuntimeError
     let files_free = (stats.f_ffree as u128).min(u64::MAX as u128) as u64;
     let files_used = files.saturating_sub(files_free);
     let files_capacity_percent = df_capacity_percent(files_used, files_free);
-    Ok(FsMount {
+    FsMount {
         filesystem: source.filesystem,
         mounted_on: source.mounted_on,
         fstype: source.fstype,
@@ -1400,7 +1420,7 @@ fn mount_record(source: MountSource, span: Span) -> Result<FsMount, RuntimeError
         files_free,
         files_capacity_percent,
         readonly: stats.f_flag.contains(StatVfsMountFlags::RDONLY),
-    })
+    }
 }
 
 fn statvfs(path: &Path, kind: &str, span: Span) -> Result<StatVfs, RuntimeError> {
@@ -1509,13 +1529,23 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{df_capacity_percent, list_filesystem, mount_for, mounts};
+    use super::{df_capacity_percent, list_filesystem, mount_for, mount_listing_skips, mounts};
     use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
     use std::path::Path;
 
     fn test_span() -> Span {
         Span::new(SourceId::new(0), 0, 0)
+    }
+
+    #[test]
+    fn mount_listing_skips_only_a_permission_refusal() {
+        use rustix::io::Errno;
+        assert!(mount_listing_skips(Errno::ACCESS));
+        assert!(mount_listing_skips(Errno::PERM));
+        for errno in [Errno::NOENT, Errno::IO, Errno::NOTCONN, Errno::STALE] {
+            assert!(!mount_listing_skips(errno), "{errno:?}");
+        }
     }
 
     #[test]

@@ -3484,6 +3484,13 @@ Contracts worth knowing without consulting the reference:
   and free of an escaping `..`; a function that passes a path on to a root
   should declare it `RelPath`. The handle still resolves every path it is
   given, because only resolution sees a symlink.
+- `fs.mounts()` and `linux.disk_usage()` without a path list every mount
+  whose statistics the host gives the process. A mount that refuses them
+  with a permission error (`EACCES`, `EPERM`) is left out, as `df` leaves it
+  out, so an unprivileged listing does not fail on a mount it may not look
+  into; any other failure fails the listing at that row. `fs.mount_for(path)`
+  and `linux.disk_usage(path)` name one mount and fail with the host's error
+  when it is refused.
 - Archive extraction and `patch.apply` reject absolute paths, parent
   traversal, symlink escapes, and overwrites unless asked.
 - `time` has no civil-time formatter; run `date` for locale-aware output.
