@@ -451,7 +451,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let word_override = opts.word ?? ""
 
-  if opts.break_file != null and word_override == "" {
+  if opts.break_file != null and opts.word == null {
     break_chars = read_text(opts.break_file ?? "")
 
     if opts.traditional {
@@ -461,7 +461,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var word_pattern = if word_override != "" {
     patch_backslash(word_override)
-  } else if opts.break_file != null {
+  } else if opts.break_file != null and opts.word == null {
     f"[^{escape_class(break_chars)}]+"
   } else if opts.traditional {
     "[^ \t\n]+"

@@ -299,10 +299,16 @@ proc field_number(text: Str) [process, env] -> Int {
   }
 
   if text.byte_len() > 18 {
-    return tio.MAX_COUNT
+    return tio.MAX_COUNT - 1
   }
 
   (text.parse_int() ?? 1) - 1
+}
+
+# A 0-based field index as the 1-based number in messages; the clamp for a
+# value past the integer range reads as the largest unsigned number.
+pure shown(index: Int) -> Str {
+  if index >= tio.MAX_COUNT - 1 { "18446744073709551615" } else { f"{index + 1}" }
 }
 
 proc file_number(text: Str) [process, env] -> Int {
@@ -407,7 +413,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let value = field_number(text)
 
     if key1 >= 0 and key1 != value {
-      gnu.error(f"incompatible join fields {key1 + 1}, {value + 1}")
+      gnu.error(f"incompatible join fields {shown(key1)}, {shown(value)}")
       exit 1
     }
 
@@ -419,7 +425,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let value = field_number(text)
 
     if key1 >= 0 and key1 != value {
-      gnu.error(f"incompatible join fields {key1 + 1}, {value + 1}")
+      gnu.error(f"incompatible join fields {shown(key1)}, {shown(value)}")
       exit 1
     }
 
@@ -430,7 +436,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let value = field_number(text)
 
     if key2 >= 0 and key2 != value {
-      gnu.error(f"incompatible join fields {key2 + 1}, {value + 1}")
+      gnu.error(f"incompatible join fields {shown(key2)}, {shown(value)}")
       exit 1
     }
 

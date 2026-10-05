@@ -505,7 +505,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var chunks: Chunks = {kind: "", k: 0, n: 0}
 
   if line_text != "" {
-    let parsed = parse_u64(line_text)
+    # A count past the unsigned range reads as the largest count, so one piece.
+    let parsed: Int? = if rx"^[0-9]{19,}$".matches(line_text) { tio.MAX_COUNT } else { parse_u64(line_text) }
 
     if parsed == null or (parsed ?? 0) == 0 {
       gnu.error(f"invalid number of lines: {if parsed == null { gnu.quote(line_text) } else { "0" }}")
