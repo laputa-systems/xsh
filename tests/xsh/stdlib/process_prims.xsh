@@ -50,7 +50,7 @@ test test_realtime_signals_are_named_by_offset {
   assert process.signal("32")?.name == "32"
 }
 
-test test_process_identity_reads { |ctx|
+test test_process_identity_reads {
   let pid = process.current_pid()?
   assert process.parent_pid()? > 0
   assert process.parent_pid()? != pid
@@ -100,7 +100,7 @@ test test_kill_group_reports_a_missing_group_and_a_bad_signal {
   test.error_kind(process.kill_group(1, "NOSUCH"), "invalid-signal")
 }
 
-test test_new_sessions_report_their_leader { |ctx|
+test test_new_sessions_report_their_leader {
   let plan = process.command_argv("sleep", ["sleep", "30"], new_session: true)
   let child = process.spawn(plan)?
   assert process.session_id(child.pid)? == child.pid
@@ -277,7 +277,7 @@ match io.flush_stdout() {
   let pipeline = """{ "$0" "$1"; echo "status=$?" >&2; } | head -c1 >/dev/null"""
   let output = test.run_xsh(
     ctx,
-    """
+    r"""
 let dir = e"WRITER_DIR"?
 let pipeline = e"PIPELINE"?
 let xsh = applet.current_exe()?

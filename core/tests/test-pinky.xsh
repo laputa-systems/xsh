@@ -6,6 +6,8 @@ const DEAD_PROCESS = 8
 # Tue Nov 14 22:13:20 UTC 2023
 const STAMP = 1700000000
 
+const HEADING = "Login    Name                 TTY      Idle   When         Where\n"
+
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
   bytes.concat([raw, bytes.zero(width - raw.len())?])
@@ -79,8 +81,6 @@ proc sessions(ctx: TestContext) [fs, error] -> Result[World] {
   )
 }
 
-const HEADING = "Login    Name                 TTY      Idle   When         Where\n"
-
 test test_pinky_short_format_lists_user_sessions_with_names { |ctx|
   let w = sessions(ctx)?
   let result = pinky_run(ctx, [], w)?
@@ -111,7 +111,6 @@ test test_pinky_names_select_sessions { |ctx|
 }
 
 test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
-  let root = test.temp_dir(ctx, name: "pinky-tty")?
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let open_line = /tmp/xsh-pinky-open
   let shut_line = /tmp/xsh-pinky-shut

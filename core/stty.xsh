@@ -305,18 +305,6 @@ const SANE_CLEARED = [
   "flusho",
 ]
 
-# The flag a second spelling names.
-pure alias_of(word: Str) -> Str {
-  return "hupcl" when word == "hup"
-  return "ixoff" when word == "tandem"
-  return "echoe" when word == "crterase"
-  return "echoprt" when word == "prterase"
-  return "echoctl" when word == "ctlecho"
-  return "echoke" when word == "crtkill"
-
-  word
-}
-
 const COMBOS_NEGATABLE = [
   "LCASE",
   "lcase",
@@ -334,6 +322,18 @@ const COMBOS_NEGATABLE = [
 ]
 
 const COMBOS_PLAIN = ["crt", "dec", "ek", "sane"]
+
+# The flag a second spelling names.
+pure alias_of(word: Str) -> Str {
+  return "hupcl" when word == "hup"
+  return "ixoff" when word == "tandem"
+  return "echoe" when word == "crterase"
+  return "echoprt" when word == "prterase"
+  return "echoctl" when word == "ctlecho"
+  return "echoke" when word == "crtkill"
+
+  word
+}
 
 const PRINTABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{{|}}~"
 
@@ -463,7 +463,6 @@ pure baud_value(text: Str, speeds: List[Int]) -> Int {
   return 38400 when text == "extb"
 
   let trimmed_end = text.trim()
-  let lead = text.byte_slice(0, length: 1)
 
   return -1 when text.ends_with(" ") or text.ends_with("\t")
   return -1 when trimmed_end.starts_with("-") or trimmed_end.starts_with("++") or trimmed_end.lower().find("e") != null

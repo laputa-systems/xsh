@@ -29,7 +29,7 @@ export type PciInventory = {
 }
 
 ## Failures returned by PCI identifier parsing.
-export error SysPciError = InvalidAddress(message: Str) | InvalidId(message: Str)
+export error SysPciError = InvalidAddress | InvalidId
 
 type NumericRead = {
   value: Int?,

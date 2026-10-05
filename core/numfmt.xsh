@@ -100,6 +100,11 @@ type NumfmtOptions = {
 # is the empty list.
 const BASE = 1000000000
 
+const MAX_I128_DIGITS = 39
+
+# The characters Rust's `char::is_whitespace` accepts, for a regex class.
+const BLANKS = "\\s\\x{85}\\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}"
+
 pure trim_limbs(parts: List[Int]) -> List[Int] {
   var end = parts.len()
 
@@ -317,8 +322,6 @@ pure fits_i128(value: Whole) -> Bool {
 # One parsed number: an exact integer (as far as 128 bits go) or a float.
 type Num = {exact: Bool, whole: Whole, value: Float}
 
-const MAX_I128_DIGITS = 39
-
 pure float_text(text: Str) -> Float {
   text.parse_float() ?? 0.0
 }
@@ -530,9 +533,6 @@ pure suffix_index(letter: Str) -> Int {
 pure float_syntax(text: Str) -> Bool {
   rx"^-?([0-9]+\.?[0-9]*|\.[0-9]+)$".matches(text)
 }
-
-# The characters Rust's `char::is_whitespace` accepts, for a regex class.
-const BLANKS = "\\s\\x{85}\\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}"
 
 pure blank_regex(pattern: Str) -> Regex {
   regex.compile(pattern.replace("BL", with: BLANKS)) ?? rx"x"

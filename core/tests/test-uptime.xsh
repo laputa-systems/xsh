@@ -2,6 +2,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 
 const BOOT = 2
 const USER_PROCESS = 7
+const LINE = rx"^\d{1,2}:\d\d:\d\d up (.*),  (\d+) users?,  load average: \d+\.\d\d, \d+\.\d\d, \d+\.\d\d$"
 
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
@@ -44,8 +45,6 @@ proc utmp_file(ctx: TestContext, records: List[Bytes]) [fs, error] -> Result[Pat
   file.write(bytes.concat(records))
   Ok(file)
 }
-
-const LINE = rx"^\d{1,2}:\d\d:\d\d up (.*),  (\d+) users?,  load average: \d+\.\d\d, \d+\.\d\d, \d+\.\d\d$"
 
 test test_uptime_line_has_time_uptime_users_and_load { |ctx|
   let result = uptime_run(ctx, [])?

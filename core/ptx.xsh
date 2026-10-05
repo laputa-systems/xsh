@@ -70,6 +70,10 @@ const ALPHA_CLASS = "[A-Za-z\\x{00C0}-\\x{02AF}\\x{0370}-\\x{1FFF}\\x{2C00}-\\x{
 const SPACES = [" ", "\t", "\n", "\r", "\u{b}", "\u{c}", "\u{85}", "\u{a0}", "\u{2028}", "\u{2029}", "\u{3000}"]
 const REGEX_SPECIAL = "\\.+*?()|[]{}^$#&-~"
 
+# GNU's default end of a sentence: punctuation, closing quotes or brackets, and
+# then a line end, a tab or two spaces.
+const SENTENCE_END = "(?m)[.?!][\\]\"')}]*(?:$|\t|  )[ \t\n]*"
+
 pure is_space(c: Str) -> Bool {
   c in SPACES
 }
@@ -304,10 +308,6 @@ pure lossy(data: Bytes) -> Str {
 # Contexts of one input: their text (newlines read as spaces, so offsets
 # survive) and the byte offset at which each starts.
 type Pieces = {texts: List[Str], starts: List[Int]}
-
-# GNU's default end of a sentence: punctuation, closing quotes or brackets, and
-# then a line end, a tab or two spaces.
-const SENTENCE_END = "(?m)[.?!][\\]\"')}]*(?:$|\t|  )[ \t\n]*"
 
 # One context per line, as `ptx -r` and `ptx -G` read their input.
 pure line_pieces(text: Str) -> Pieces {

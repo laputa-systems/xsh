@@ -14,6 +14,10 @@ type TsortOptions = {help: Bool, version: Bool, files: List[Str]}
 
 const HEX = "0123456789abcdef"
 
+# Past this many unprinted nodes GNU's loop search is quadratic and finishes
+# in no useful time, so a depth-first search is used instead.
+const LARGE_GRAPH = 5000
+
 # Hex of a token, so tokens that are not valid UTF-8 still order bytewise as text.
 pure hex_key(token: Bytes) -> Str {
   var out = ""
@@ -60,10 +64,6 @@ pure tokenize(data: Bytes) -> List[Bytes] {
 
   out
 }
-
-# Past this many unprinted nodes GNU's loop search is quadratic and finishes
-# in no useful time, so a depth-first search is used instead.
-const LARGE_GRAPH = 5000
 
 # A loop among the unprinted nodes, found by depth-first search from each in
 # name order: the nodes on it from where the search met its own path again.
@@ -229,13 +229,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           gnu.error(keys[node])
         }
 
-        var at = 0
+        var closing_edge = 0
 
-        while top[last][at] != first {
-          at += 1
+        while top[last][closing_edge] != first {
+          closing_edge += 1
         }
 
-        top[last] = top[last][..at] + top[last][at + 1..]
+        top[last] = top[last][..closing_edge] + top[last][closing_edge + 1..]
         count[first] -= 1
       } else {
         # GNU's loop search: walk the nodes in name order, chaining each unprinted
@@ -253,10 +253,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
               continue
             }
 
-            var at = 0
+            var edge = 0
 
-            while at < top[node].len() and ! found {
-              if top[node][at] == chain {
+            while edge < top[node].len() and ! found {
+              if top[node][edge] == chain {
                 if link[node] >= 0 {
                   var walk = chain
 
@@ -267,7 +267,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
                     if walk == node {
                       count[chain] -= 1
-                      top[node] = top[node][..at] + top[node][at + 1..]
+                      top[node] = top[node][..edge] + top[node][edge + 1..]
                       break
                     }
 
@@ -291,7 +291,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
                 }
               }
 
-              at += 1
+              edge += 1
             }
           }
         }

@@ -55,6 +55,29 @@ const BASE = 1000000000
 # Largest repeat count of a regular expression interval.
 const DUP_MAX = 32767
 
+const WORD_RANGES = [[48, 57], [65, 90], [95, 95], [97, 122], [128, 1114111]]
+const SPACE_RANGES = [[9, 13], [32, 32]]
+
+const PRECEDENCE: Map[Int] = {
+  "|": 1,
+  "&": 2,
+  "<": 3,
+  "<=": 3,
+  "=": 3,
+  "==": 3,
+  "!=": 3,
+  ">=": 3,
+  ">": 3,
+  "+": 4,
+  "-": 4,
+  "*": 5,
+  "/": 5,
+  "%": 5,
+  ":": 6,
+}
+
+const ARITY: Map[Int] = {length: 1, match: 2, index: 2, substr: 3}
+
 # One regular expression instruction. Jumps are relative to the instruction.
 # CHAR a; ANY; SET a (index into the sets); SPLIT a b (try a first); JMP a;
 # SAVE a; BOL; EOL; BACKREF a; MATCH.
@@ -517,9 +540,6 @@ pure parse_bracket(pat: List[Int], state: Parsed) -> Parsed {
   {...state, at: at + 1, sets: state.sets + [range_set(negated, lows, highs)]}
 }
 
-const WORD_RANGES = [[48, 57], [65, 90], [95, 95], [97, 122], [128, 1114111]]
-const SPACE_RANGES = [[9, 13], [32, 32]]
-
 pure ranges_set(negated: Bool, ranges: List[List[Int]]) -> CharSet {
   {negated: negated, lows: [pair[0] for pair in ranges], highs: [pair[1] for pair in ranges]}
 }
@@ -845,25 +865,6 @@ type Locale = {utf8: Bool, collate_c: Bool}
 # Errors travel with the values so that a branch `|` or `&` never evaluates
 # cannot fail, and so a syntax error anywhere outranks every evaluation error.
 type Outcome = {value: Bytes, error: Str}
-
-const PRECEDENCE: Map[Int] = {
-  "|": 1,
-  "&": 2,
-  "<": 3,
-  "<=": 3,
-  "=": 3,
-  "==": 3,
-  "!=": 3,
-  ">=": 3,
-  ">": 3,
-  "+": 4,
-  "-": 4,
-  "*": 5,
-  "/": 5,
-  "%": 5,
-  ":": 6,
-}
-const ARITY: Map[Int] = {length: 1, match: 2, index: 2, substr: 3}
 
 proc locale_variable(category: Str) [env] -> Str {
   for name in ["LC_ALL", category, "LANG"] {

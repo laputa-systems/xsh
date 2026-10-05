@@ -23,6 +23,8 @@ type FactorOptions = {
 # is the empty list.
 const BASE = 1000000000
 
+const SQUFOF_MULTIPLIERS = [1, 3, 5, 7, 11, 15, 21, 33, 35, 55, 77, 105, 165, 231, 385, 1155]
+
 pure trim_limbs(parts: List[Int]) -> List[Int] {
   var end = parts.len()
 
@@ -657,8 +659,6 @@ pure isqrt_big(value: List[Int]) -> Int {
 
   root
 }
-
-const SQUFOF_MULTIPLIERS = [1, 3, 5, 7, 11, 15, 21, 33, 35, 55, 77, 105, 165, 231, 385, 1155]
 
 # Shanks's square forms factorization of an odd composite below about 2^75:
 # the recurrence stays near sqrt(k n), so it fits an Int. Returns a factor or 0.

@@ -19,7 +19,7 @@ export type UsbEndpoint = report.UsbEndpoint
 export type UsbInterface = report.UsbInterface
 
 ## Failures returned by USB descriptor parsing; `InvalidStream` is framing, `InvalidDescriptor` is structure.
-export error SysUsbError = InvalidStream(message: Str) | InvalidDescriptor(message: Str)
+export error SysUsbError = InvalidStream | InvalidDescriptor
 
 ## Describes one USB device; `parent_device_index` indexes the inventory's `devices`.
 export type UsbDevice = {

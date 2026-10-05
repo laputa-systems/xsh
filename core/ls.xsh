@@ -251,6 +251,96 @@ const TIME_NAMES = ["atime", "access", "use", "ctime", "status", "birth", "creat
 const TIME_VALUES = ["atime", "atime", "atime", "ctime", "ctime", "birth", "birth", "mtime"]
 const INDICATOR_NAMES = ["none", "slash", "file-type", "classify"]
 
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+]
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+const SHELL_SPECIAL = " !\"$&()*;<=>?[\\^`|'"
+const COMPAT_PUNCT = "%+,-./:]_@' "
+
+const INDICATOR_CODES = [
+  "lc",
+  "rc",
+  "ec",
+  "rs",
+  "no",
+  "fi",
+  "di",
+  "ln",
+  "pi",
+  "so",
+  "bd",
+  "cd",
+  "mi",
+  "or",
+  "ex",
+  "do",
+  "su",
+  "sg",
+  "st",
+  "ow",
+  "tw",
+  "ca",
+  "mh",
+  "cl",
+]
+
+const DEFAULT_COLORS: Map[Str] = {
+  lc: "\u{1b}[",
+  rc: "m",
+  rs: "0",
+  di: "01;34",
+  ln: "01;36",
+  pi: "33",
+  so: "01;35",
+  bd: "01;33",
+  cd: "01;33",
+  ex: "01;32",
+  do: "01;35",
+  su: "37;41",
+  sg: "30;43",
+  st: "37;44",
+  ow: "34;42",
+  tw: "30;42",
+  ca: "30;41",
+  cl: "\u{1b}[K",
+}
+
+const ZERO_STAT: FsStat = {
+  atime_ns: 0,
+  birth_ns: null,
+  blksize: 0,
+  blocks_512: 0,
+  ctime_ns: 0,
+  dev: 0,
+  gid: 0,
+  ino: 0,
+  kind: "",
+  mode: 0,
+  mtime_ns: 0,
+  nlink: 0,
+  rdev: 0,
+  size: 0,
+  uid: 0,
+}
+
+const HYPERLINK_END = b"\x1b]8;;\x1b\\"
+
+const TIME_STYLE_NAMES = ["full-iso", "long-iso", "iso", "locale"]
+
 # GNU argmatch: an exact name wins, otherwise a prefix that all candidates with
 # the same value agree on. `values` parallels `names`.
 proc argmatch(text: Str, names: List[Str], values: List[Str], option: Str) [process, env] -> Str {
@@ -295,23 +385,23 @@ proc argmatch(text: Str, names: List[Str], values: List[Str], option: Str) [proc
 # `strtoul` with base 0 over the whole text: decimal, 0x hex, 0 octal. A value
 # too large for Int clamps (GNU treats an overflowing width as unlimited).
 pure parse_c_unsigned(text: Str) -> Int? {
-  var digits = if text.starts_with("+") { text[1..] } else { text }
+  var magnitude = if text.starts_with("+") { text[1..] } else { text }
   var base = 10
 
-  if digits.starts_with("0x") or digits.starts_with("0X") {
+  if magnitude.starts_with("0x") or magnitude.starts_with("0X") {
     base = 16
-    digits = digits[2..]
-  } else if digits.starts_with("0") and digits.byte_len() > 1 {
+    magnitude = magnitude[2..]
+  } else if magnitude.starts_with("0") and magnitude.byte_len() > 1 {
     base = 8
-    digits = digits[1..]
+    magnitude = magnitude[1..]
   }
 
-  return null when digits == ""
+  return null when magnitude == ""
 
   var value = 0
   let limit = 100000000000000000
 
-  for ch in digits {
+  for ch in magnitude {
     let found = "0123456789abcdef".find(ch.lower())
     return null when found == null or found >= base
 
@@ -722,22 +812,6 @@ pure civil_from_seconds(seconds: Int) -> Civil {
   }
 }
 
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-]
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-
 pure pad_number(value: Int, width: Int, fill: Str) -> Str {
   var text = f"{value}"
 
@@ -809,7 +883,7 @@ pure format_time(format: Str, seconds: Int, nanos: Int, tz: Tz) -> Str {
     at += 1
     var text = ""
     var numeric = false
-    var digits = 2
+    var natural_width = 2
     var fill = "0"
     var value = 0
     let hour12 = if t.hour % 12 == 0 { 12 } else { t.hour % 12 }
@@ -818,7 +892,7 @@ pure format_time(format: Str, seconds: Int, nanos: Int, tz: Tz) -> Str {
       "Y" => {
         numeric = true
         value = t.year
-        digits = 1
+        natural_width = 1
       }
       "C" => {
         numeric = true
@@ -870,17 +944,17 @@ pure format_time(format: Str, seconds: Int, nanos: Int, tz: Tz) -> Str {
       "j" => {
         numeric = true
         value = t.yearday
-        digits = 3
+        natural_width = 3
       }
       "u" => {
         numeric = true
         value = if t.weekday == 0 { 7 } else { t.weekday }
-        digits = 1
+        natural_width = 1
       }
       "w" => {
         numeric = true
         value = t.weekday
-        digits = 1
+        natural_width = 1
       }
       "U" => {
         numeric = true
@@ -893,7 +967,7 @@ pure format_time(format: Str, seconds: Int, nanos: Int, tz: Tz) -> Str {
       "s" => {
         numeric = true
         value = seconds
-        digits = 1
+        natural_width = 1
       }
       "N" => text = pad_number(nanos, 9, "0")
       "a" => text = WEEKDAYS[t.weekday].byte_slice(0, length: 3)
@@ -924,7 +998,7 @@ pure format_time(format: Str, seconds: Int, nanos: Int, tz: Tz) -> Str {
 
     if numeric {
       let use_fill = if flag == "-" { "" } else if flag == "_" { " " } else if flag == "0" { "0" } else { fill }
-      let w = if width >= 0 { width } else if flag == "-" { 0 } else { digits }
+      let w = if width >= 0 { width } else if flag == "-" { 0 } else { natural_width }
       text = if use_fill == "" { f"{value}" } else { pad_number(value, w, use_fill) }
     } else if width > 0 {
       text = pad_number(0, 0, "") + text
@@ -1094,9 +1168,6 @@ pure octal_bytes(chunk: Bytes) -> Str {
   out
 }
 
-const SHELL_SPECIAL = " !\"$&()*;<=>?[\\^`|'"
-const COMPAT_PUNCT = "%+,-./:]_@' "
-
 pure ascii_text(chunk: Bytes) -> Str {
   if chunk.len() == 1 { chunk.utf8() ?? "" } else { "" }
 }
@@ -1232,53 +1303,6 @@ pure hide_controls(raw: Bytes, utf8: Bool) -> Bytes {
   }
 
   bytes.concat(pieces)
-}
-
-const INDICATOR_CODES = [
-  "lc",
-  "rc",
-  "ec",
-  "rs",
-  "no",
-  "fi",
-  "di",
-  "ln",
-  "pi",
-  "so",
-  "bd",
-  "cd",
-  "mi",
-  "or",
-  "ex",
-  "do",
-  "su",
-  "sg",
-  "st",
-  "ow",
-  "tw",
-  "ca",
-  "mh",
-  "cl",
-]
-const DEFAULT_COLORS: Map[Str] = {
-  lc: "\u{1b}[",
-  rc: "m",
-  rs: "0",
-  di: "01;34",
-  ln: "01;36",
-  pi: "33",
-  so: "01;35",
-  bd: "01;33",
-  cd: "01;33",
-  ex: "01;32",
-  do: "01;35",
-  su: "37;41",
-  sg: "30;43",
-  st: "37;44",
-  ow: "34;42",
-  tw: "30;42",
-  ca: "30;41",
-  cl: "\u{1b}[K",
 }
 
 type ExtColor = {ext: Str, seq: Str, exact: Bool}
@@ -1424,24 +1448,6 @@ pure ls_color_parse(text: Str) -> Colors {
   ]
 
   {ok: ! failed, ind: ind, exts: marked, referent: referent, unknown: unknown}
-}
-
-const ZERO_STAT: FsStat = {
-  atime_ns: 0,
-  birth_ns: null,
-  blksize: 0,
-  blocks_512: 0,
-  ctime_ns: 0,
-  dev: 0,
-  gid: 0,
-  ino: 0,
-  kind: "",
-  mode: 0,
-  mtime_ns: 0,
-  nlink: 0,
-  rdev: 0,
-  size: 0,
-  uid: 0,
 }
 
 # Everything `ls` knows about one listed name. `raw` is the name as the
@@ -2136,7 +2142,7 @@ pure max_of(a: Int, b: Int) -> Int {
 # Column widths for a set of files that are printed together, and the owner
 # and group names they need (looked up once per distinct id).
 proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
-  var w: Widths = {
+  var w: Widths = Widths(
     inode: 0,
     blocks: 0,
     owner: 0,
@@ -2148,7 +2154,7 @@ proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
     minor: 0,
     users: {},
     groups: {},
-  }
+  )
   let long = ctx.format == "long"
   let cfg = ctx.cfg
   var users = w.users
@@ -2307,8 +2313,6 @@ pure hyperlink_start(ctx: Ctx, full: Bytes) -> Bytes {
 
   bytes.from_text(f"]8;;file://{ctx.host}{url_escape(clean)}\\")
 }
-
-const HYPERLINK_END = b"\x1b]8;;\x1b\\"
 
 type NamePiece = {pre: Bytes, name: Bytes, post: Bytes, used: Bool, w: Int}
 
@@ -2956,8 +2960,6 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
 
   status
 }
-
-const TIME_STYLE_NAMES = ["full-iso", "long-iso", "iso", "locale"]
 
 # A name that equals one of `names` or is a unique prefix of one; null if none.
 pure quiet_match(text: Str, names: List[Str]) -> Str? {

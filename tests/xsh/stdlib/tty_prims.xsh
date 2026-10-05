@@ -28,7 +28,7 @@ pure flag_on(table: UnixTtyTable, attrs: UnixTtyAttrs, name: Str) -> Bool {
   word.bit_and(flag.mask) == flag.value
 }
 
-test test_pty_pairs_are_terminals_with_a_name { |ctx|
+test test_pty_pairs_are_terminals_with_a_name {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
@@ -42,7 +42,7 @@ test test_pty_pairs_are_terminals_with_a_name { |ctx|
   assert ! unix.isatty(99999)
 }
 
-test test_non_terminals_fail_with_enotty { |ctx|
+test test_non_terminals_fail_with_enotty {
   let fd = unix.open_fd(/dev/null)?
   defer unix.close_fd(fd)
   assert ! unix.isatty(fd)
@@ -53,7 +53,7 @@ test test_non_terminals_fail_with_enotty { |ctx|
   assert errno_of(unix.tty_session(fd)) == 25
 }
 
-test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams { |ctx|
+test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
@@ -83,7 +83,7 @@ test test_the_controlling_terminal_is_a_device_or_absent {
   }
 }
 
-test test_window_size_round_trips { |ctx|
+test test_window_size_round_trips {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
@@ -105,7 +105,7 @@ test test_window_size_round_trips { |ctx|
   test.error_kind(unix.set_window_size(70000, 80, fd: pty.replica), "invalid-argument")
 }
 
-test test_terminals_without_a_session_have_no_foreground_group { |ctx|
+test test_terminals_without_a_session_have_no_foreground_group {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
@@ -146,7 +146,7 @@ test test_the_termios_table_names_flags_characters_and_speeds {
   }
 }
 
-test test_tty_attrs_follow_the_table_through_a_round_trip { |ctx|
+test test_tty_attrs_follow_the_table_through_a_round_trip {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
@@ -177,7 +177,7 @@ test test_tty_attrs_follow_the_table_through_a_round_trip { |ctx|
   test.error_kind(unix.set_tty_attrs(attrs, fd: pty.replica, when: "later"), "invalid-argument")
 }
 
-test test_tty_modes_follow_stty_definitions { |ctx|
+test test_tty_modes_follow_stty_definitions {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
