@@ -168,7 +168,7 @@ impl Checker {
             VariantMiss::NoExpectedType => (
                 format!("`.{name}` has no expected enum or error family type to select a variant from"),
                 Some(
-                    "qualify the variant, or give the target a type: an annotation, a parameter, or a declared return type; `.name` reads an item only inside a stream stage block"
+                    "give the target a type (an annotation, a parameter, or a declared return type), or qualify the variant where it is not the operand of `fail`; `.name` reads an item only inside a stream stage block"
                         .to_string(),
                 ),
             ),
@@ -179,7 +179,7 @@ impl Checker {
             VariantMiss::CommonError(ty) => (
                 format!("the expected type `{ty}` names no single error family, so `.{name}` is ambiguous"),
                 Some(
-                    "qualify the variant (`Family.Name(...)`), or declare the family in the type, as in `Result[T, Family]`"
+                    "declare the family in the type, as in `Result[T, Family]`; anywhere but the operand of `fail`, the qualified `Family.Name(...)` also selects it"
                         .to_string(),
                 ),
             ),

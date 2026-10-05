@@ -557,6 +557,11 @@ fn fail_because_word(source: &str, tokens: &[Token], at: usize) -> bool {
         .iter()
         .rposition(|token| matches!(token.tag, TokenTag::Newline | TokenTag::Semicolon))
         .map_or(0, |separator| separator + 1);
+    // A match arm's statement follows `=>` on the line.
+    let first = tokens[first..at]
+        .iter()
+        .rposition(|token| token.tag == TokenTag::FatArrow)
+        .map_or(first, |arrow| first + arrow + 1);
     if at < first + 2
         || text(&tokens[first]) != "fail"
         || !operand_statement_word(source, tokens, first)
@@ -670,7 +675,8 @@ fn statement_start(previous: Option<Token>, source: &str) -> bool {
     match previous {
         None => true,
         Some(previous) => match previous.tag {
-            TokenTag::Newline | TokenTag::Semicolon | TokenTag::LBrace => true,
+            // A match arm's body is a statement.
+            TokenTag::Newline | TokenTag::Semicolon | TokenTag::LBrace | TokenTag::FatArrow => true,
             TokenTag::Keyword => &source[previous.start..previous.end] == "export",
             _ => false,
         },
@@ -972,6 +978,15 @@ mod tests {
         assert_eq!(kind_of(source, "because) because"), Kind::Plain);
         assert_eq!(kind_of(source, "because because.fail"), Kind::Keyword);
         assert_eq!(kind_of(source, "because.fail"), Kind::Plain);
+    }
+
+    #[test]
+    fn a_match_arm_statement_begins_with_its_statement_word() {
+        let source = "match code {\n  0 => exit 3\n  1 => fail \"one\" because problem\n  _ => exit(code)\n}\n";
+        assert_eq!(kind_of(source, "exit 3"), Kind::Keyword);
+        assert_eq!(kind_of(source, "fail \"one\""), Kind::Keyword);
+        assert_eq!(kind_of(source, "because problem"), Kind::Keyword);
+        assert_eq!(kind_of(source, "exit(code)"), Kind::Function);
     }
 
     #[test]

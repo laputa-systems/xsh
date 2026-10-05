@@ -10,10 +10,14 @@
 //! the family therefore leaves it alone. An exported family can be matched in
 //! a file this lint does not see, so it is reported without a fix.
 //!
-//! The migration is two edits. Each constructor becomes `fail MESSAGE` where
-//! it is the whole value of a `return Err(...)`, and `error.failure(MESSAGE)`
-//! anywhere else; once none is left, the declaration is deleted. Callers see
-//! the same `Err` with the same message. What changes is the name an
+//! The migration is one fix for the whole family. Each constructor becomes
+//! `fail MESSAGE` where it is the whole value of a `return Err(...)`, and
+//! `error.failure(MESSAGE)` anywhere else, and the declaration is deleted.
+//! No edit removes a comment: a comment above the declaration stays, since it
+//! is as often a file header as a description, and where a comment stands
+//! inside a constructor call or beside the declaration, each constructor is
+//! reported on its own and the declaration stays for the author.
+//! Callers see the same `Err` with the same message. What changes is the name an
 //! uncaught failure is reported under: `validation` instead of the family and
 //! variant.
 //!
@@ -228,6 +232,38 @@ impl Candidates {
                 if let Some(lines) = declaration_lines(source, family.declaration) {
                     diagnostic = diagnostic
                         .with_fix_hint(FixHint::deletion(lines, "delete the unused error family"));
+                }
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            let rewrites = constructors
+                .iter()
+                .map(|constructor| self.rewrite(arena, source, constructor))
+                .collect::<Option<Vec<_>>>();
+            if let (Some(rewrites), Some(lines)) =
+                (rewrites, declaration_lines(source, family.declaration))
+            {
+                // Every edit belongs to one diagnostic, so the family never
+                // loses its declaration while a constructor still names it.
+                let mut diagnostic = Diagnostic::warning(format!(
+                    "error family `{name}` only carries a message; report its failures with `fail`"
+                ))
+                .with_code(DiagnosticCode::LintPreferFail)
+                .with_label(Label::secondary(
+                    family.declaration,
+                    format!("nothing in this file matches on `{name}`"),
+                ))
+                .with_note(format!(
+                    "an uncaught failure is then reported as `validation` instead of `{qualified}`"
+                ))
+                .with_fix_hint(FixHint::deletion(lines, "delete the error family"));
+                for (constructor, rewrite) in constructors.iter().zip(rewrites) {
+                    diagnostic = diagnostic
+                        .with_label(Label::secondary(
+                            arena.expr(constructor.call).span,
+                            "constructed here",
+                        ))
+                        .with_fix_hint(rewrite);
                 }
                 diagnostics.push(diagnostic);
                 continue;
@@ -449,8 +485,10 @@ fn dotted_words<'a>(source: &'a str, word: &'a str) -> impl Iterator<Item = usiz
 
 /// The lines of a declaration that stands alone on them, with the blank line
 /// after it when one also stands before it (or the file starts with it), so
-/// the deletion leaves the spacing the formatter writes. A declaration with a
-/// comment above it or beside it is left for the author to delete.
+/// the deletion leaves the spacing the formatter writes. A comment above the
+/// declaration is not part of it and keeps the blank line that follows. A
+/// declaration with a comment inside or beside it has no such lines: an edit
+/// never removes a comment.
 fn declaration_lines(source: &str, declaration: Span) -> Option<Span> {
     let text = source.get(declaration.range())?.trim_end();
     let line_start = source[..declaration.start()].rfind('\n').map_or(0, |at| at + 1);
@@ -464,16 +502,10 @@ fn declaration_lines(source: &str, declaration: Span) -> Option<Span> {
     {
         return None;
     }
-    let before = source[..line_start].trim_end_matches(' ');
-    let previous_line = before
+    let blank_before = source[..line_start]
         .strip_suffix('\n')
-        .map(|rest| rest.rsplit('\n').next().unwrap_or(rest).trim());
-    if previous_line.is_some_and(|line| line.starts_with('#')) {
-        return None;
-    }
-    let after = &source[line_end..];
-    let blank_after = after.starts_with('\n');
-    let end = if blank_after && previous_line.is_none_or(str::is_empty) {
+        .is_none_or(|before| before.rsplit('\n').next().unwrap_or(before).trim().is_empty());
+    let end = if source[line_end..].starts_with('\n') && blank_before {
         line_end + 1
     } else {
         line_end
@@ -518,23 +550,37 @@ mod tests {
     }
 
     #[test]
-    fn a_message_only_family_becomes_fail_and_then_goes() {
-        let source = "error LoadError = Failed(message: Str)\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  return Err(LoadError.Failed(\"not ready\")) unless ready\n  if name == \"\" {\n    return Err(LoadError.Failed(message: f\"no {name}\"))\n  }\n  let fallback = Err(LoadError.Failed(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n";
-        let first = lint(source);
-        assert_eq!(first.len(), 3, "{first:?}");
-        let rewritten = apply(&first, source);
-        assert_eq!(
-            rewritten,
-            "error LoadError = Failed(message: Str)\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  if name == \"\" {\n    fail f\"no {name}\"\n  }\n  let fallback = Err(error.failure(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n"
-        );
-        // With no constructor left, the declaration is the one report.
-        let second = lint(&rewritten);
-        assert_eq!(second.len(), 1, "{second:?}");
-        assert!(second[0].message.contains("never constructed"), "{second:?}");
-        let fixed = apply(&second, &rewritten);
+    fn a_message_only_family_becomes_fail_and_goes_in_one_fix() {
+        let source = "use system_report as report\n\nerror LoadError = Failed(message: Str)\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  return Err(LoadError.Failed(\"not ready\")) unless ready\n  if name == \"\" {\n    return Err(LoadError.Failed(message: f\"no {name}\"))\n  }\n  let fallback = Err(LoadError.Failed(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default())
+            .diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail))
+            .collect::<Vec<_>>();
+        // One diagnostic owns the three rewrites and the deletion, so no
+        // part of the migration can be applied without the rest.
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].fix_hints.len(), 4, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "proc load(name: Str, ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  if name == \"\" {\n    fail f\"no {name}\"\n  }\n  let fallback = Err(error.failure(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n"
+            "use system_report as report\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  if name == \"\" {\n    fail f\"no {name}\"\n  }\n  let fallback = Err(error.failure(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n"
+        );
+    }
+
+    #[test]
+    fn a_family_at_the_start_or_beside_another_declaration_leaves_formatted_text() {
+        let first = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
+        assert_eq!(
+            apply(&lint(first), first),
+            "proc load() -> Result[Int] {\n  fail \"no\"\n}\n"
+        );
+        let grouped = "error LoadError = Failed(message: Str)\nerror Kept = Missing(path: Path) | Busy\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nprint ${Kept.Busy().message}\n";
+        let fixed = apply(&lint(grouped), grouped);
+        assert!(
+            fixed.starts_with("error Kept = Missing(path: Path) | Busy\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n"),
+            "{fixed}"
         );
         assert!(lint(&fixed).is_empty());
     }
@@ -568,23 +614,44 @@ mod tests {
     }
 
     #[test]
-    fn a_comment_keeps_the_report_but_not_the_edit_that_would_drop_it() {
-        let source = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed( # why\n    \"no\",\n  ))\n}\n";
+    fn a_comment_inside_a_constructor_keeps_the_family_until_it_is_rewritten() {
+        let source = "error LoadError = Failed(message: Str)\n\nproc load(ready: Bool) -> Result[Int] {\n  return Err(LoadError.Failed(\"not ready\")) unless ready\n  return Err(LoadError.Failed( # why\n    \"no\",\n  ))\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        // The declaration stays while a constructor still names it.
+        assert!(fixed.starts_with("error LoadError = Failed(message: Str)\n"), "{fixed}");
+        assert!(fixed.contains("  fail \"not ready\" unless ready\n"), "{fixed}");
+        assert!(fixed.contains("LoadError.Failed( # why"), "{fixed}");
+
+        // A comment beside the declaration is one no edit may remove.
+        let beside = "error LoadError = Failed(message: Str) # legacy\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
+        let fixed = apply(&lint(beside), beside);
+        assert_eq!(
+            fixed,
+            "error LoadError = Failed(message: Str) # legacy\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n"
+        );
+        let unused = lint(&fixed);
+        assert_eq!(unused.len(), 1, "{unused:?}");
+        assert!(unused[0].fix_hints.is_empty());
+    }
+
+    #[test]
+    fn a_comment_above_the_declaration_stays_where_it_is() {
+        let source = "# Retries a command.\n# Usage: retry COMMAND\nerror RetryError = Failed(message: Str)\n\nproc attempt() -> Result[Int] {\n  return Err(RetryError.Failed(\"no\"))\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert!(diagnostics[0].fix_hints.is_empty());
-
-        let documented = "# Raised by nothing.\nerror LoadError = Failed(message: Str)\n\nprint \"ok\"\n";
-        let diagnostics = lint(documented);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert!(diagnostics[0].fix_hints.is_empty());
+        assert_eq!(
+            apply(&diagnostics, source),
+            "# Retries a command.\n# Usage: retry COMMAND\n\nproc attempt() -> Result[Int] {\n  fail \"no\"\n}\n"
+        );
     }
 
     #[test]
     fn a_cause_becomes_because() {
         let source = "error LoadError = Failed(message: Str)\n\nproc load(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => return Err(LoadError.Failed(\"outer\"), cause: error)\n  }\n}\n\nproc wrap(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => Err(LoadError.Failed(\"tail\"), cause: error)\n  }\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert!(
             fixed.contains("Err(error) => fail \"outer\" because error\n"),
@@ -597,7 +664,8 @@ mod tests {
             fixed.contains("Err(error) => Err(error.failure(\"tail\"), cause: error)\n"),
             "{fixed}"
         );
-        assert_eq!(lint(&fixed).len(), 1);
+        assert!(!fixed.contains("LoadError"), "{fixed}");
+        assert!(lint(&fixed).is_empty());
     }
 
     #[test]

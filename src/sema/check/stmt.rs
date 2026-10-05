@@ -2950,6 +2950,14 @@ impl Checker {
                 DiagnosticCode::CheckStreamReturn,
             );
         }
+        if self.current_return.is_none() {
+            // There is no return type to hold the value to, so the value is
+            // checked on its own and the misplaced `return` is the one report.
+            if let Some(value) = value {
+                self.check_expr_with_schema_arena(arena, source, value, None, None);
+            }
+            return;
+        }
         let expected = self.current_return.clone().unwrap_or(Type::Unit);
         if value.is_none() && expected.is_result_unit() {
             return;

@@ -90,6 +90,8 @@ test test_fail_carries_the_diagnostics_of_its_return { |ctx|
   let top_level = test.run_script(ctx, "fail \"no input\"\n")?
   assert ! top_level.success
   assert "err[check.return-outside-callable]" in top_level.stderr, top_level.stderr
+  # The misplaced statement is the whole report.
+  assert top_level.stderr.split("err[").len() == 2, top_level.stderr
   let bare = test.run_script(ctx, "proc load() -> Result[Int] {\n  fail\n}\n")?
   assert ! bare.success
   assert "unresolved proc command `fail`" in bare.stderr, bare.stderr
@@ -112,17 +114,29 @@ test test_fmt_desugar_and_highlight_know_the_fail_statement { |ctx|
   assert file.read_text()? == "proc load(ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  Ok(1)\n}\n"
   let shown = run.capture --text "xsht" highlight $file ?
   assert r"""{"kind":"keyword","text":"fail"}""" in shown.stdout, shown.stdout
+  let arms = test.temp_file(
+    ctx,
+    name: "arms.xsh",
+    contents: bytes.from_text("match code {\n  0 => exit 3\n  else => fail \"odd\"\n}\n"),
+  )?
+  let painted = run.capture --text "xsht" highlight $arms ?
+  assert r"""{"kind":"keyword","text":"exit"}""" in painted.stdout, painted.stdout
+  assert r"""{"kind":"keyword","text":"fail"}""" in painted.stdout, painted.stdout
   let expanded = run.capture --text "xsht" desugar $file ?
   assert expanded.status.exited_with(0), expanded.stderr
   assert "    return Err(error.failure(\"not ready\"))" in expanded.stdout, expanded.stdout
 }
 
 test test_prefer_fail_fix_keeps_the_messages_and_converges { |ctx|
-  let source = r"""error StageError = Failed(message: Str)
+  let source = r"""# Stages names.
+# Usage: stage NAME
+error StageError = Failed(message: Str)
+
+const prefix = "-"
 
 proc stage(name: Str) -> Result[Str] {
   return Err(StageError.Failed("empty name")) when name == ""
-  if name.starts_with("-") {
+  if name.starts_with(prefix) {
     return Err(StageError.Failed(message: f"{name} is an option"))
   }
 
@@ -141,11 +155,15 @@ for name in ["", "-v", "ok"] {
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
   assert first.status.exited_with(1), first.stderr
-  assert "`StageError.Failed` only carries a message; report it with `fail`" in first.stderr, first.stderr
+  assert "error family `StageError` only carries a message; report its failures with `fail`" in first.stderr, first.stderr
+  # One report owns every edit, so one `--fix` leaves nothing to do by hand.
+  assert first.stderr.split("warn[lint.prefer-fail]").len() == 2, first.stderr
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate ?
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
-  assert fixed.starts_with("proc stage(name: Str) -> Result[Str] {\n  fail \"empty name\" when name == \"\"\n"), fixed
+  assert fixed.starts_with(
+    "# Stages names.\n# Usage: stage NAME\n\nconst prefix = \"-\"\n\nproc stage(name: Str) -> Result[Str] {\n  fail \"empty name\" when name == \"\"\n",
+  ), fixed
   assert "    fail f\"{name} is an option\"\n" in fixed, fixed
   assert "StageError" not in fixed, fixed
   let after = test.run_script(ctx, fixed)?
@@ -241,6 +259,8 @@ test test_fail_variant_needs_a_declared_family_and_a_cause_an_error { |ctx|
   )?
   assert ! undeclared.success
   assert "err[check.inferred-variant]" in undeclared.stderr, undeclared.stderr
+  # The advice is the one a `fail` statement can follow.
+  assert "note: declare the family in the type, as in `Result[T, Family]`" in undeclared.stderr, undeclared.stderr
   let inferred = test.run_script(
     ctx,
     "error FetchError = RemoteFetch | Offline\n\nproc fetch() {\n  fail .Offline()\n}\n",
