@@ -4,34 +4,52 @@ use lib.file_publish as files
 
 type Options = {
   no_target_directory: Bool, no_clobber: Bool, force: Bool, interactive: Bool,
-  target: Str?, verbose: Bool, update: Str?, older: Bool,
+  target: Str?, verbose: Bool, debug: Bool, update: Str?, older: Bool,
   backup: Str?, simple_backup: Bool, suffix: Str?, strip_slashes: Bool,
   help: Bool, version: Bool, operands: List[Str],
 }
 
-proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
+enum MoveOutcome { Moved, Skipped, Failed }
+
+proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[MoveOutcome] {
   let metadata = fs.stat(source)?
   let existing = files.present(target)?
   if existing {
     let dest_meta = fs.stat(target)?
     if metadata.dev == dest_meta.dev and metadata.ino == dest_meta.ino {
       gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
-      return false
+      return Failed
     }
-    if policy == "skip" or opts.update == "none" { return true }
+    if policy == "skip" or opts.update == "none" {
+      if opts.debug { print f"skipped {gnu.quote(target.display())}" }
+      return Skipped
+    }
     if opts.update == "none-fail" {
       gnu.error(f"not replacing {gnu.quote(target.display())}")
-      return false
+      return Failed
     }
-    if opts.update == "older" and metadata.mtime_ns <= dest_meta.mtime_ns { return true }
-    if policy == "interactive" and ! files.confirm(target)? { return true }
+    if opts.update == "older" and metadata.mtime_ns <= dest_meta.mtime_ns {
+      if opts.debug { print f"skipped {gnu.quote(target.display())}" }
+      return Skipped
+    }
+    if policy == "interactive" and ! files.confirm(target)? { return Skipped }
     if metadata.kind == "dir" and dest_meta.kind != "dir" {
       gnu.error(f"cannot overwrite non-directory {gnu.quote(target.display())} with directory {gnu.quote(source.display())}")
-      return false
+      return Failed
     }
     if metadata.kind != "dir" and dest_meta.kind == "dir" {
       gnu.error(f"cannot overwrite directory {gnu.quote(target.display())} with non-directory")
-      return false
+      return Failed
+    }
+  }
+  if metadata.kind == "dir" and files.canonical(target)?.starts_with(source.resolve()?) {
+    gnu.error(f"cannot move {gnu.quote(source.display())} to a subdirectory of itself, {gnu.quote(target.display())}")
+    return Failed
+  }
+  if existing and metadata.kind == "dir" and backup in ["none", "off"] {
+    if (fs.children(target)? |> take(1) |> count()) > 0 {
+      gnu.error(f"cannot overwrite {gnu.quote(target.display())}: Directory not empty")
+      return Failed
     }
   }
   var saved: Path? = null
@@ -40,7 +58,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     if saved != null {
       if files.same_entry(saved, source)? {
         gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not moved")
-        return false
+        return Failed
       }
       target.rename(to: saved, overwrite: true)
     }
@@ -48,13 +66,14 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   let moved = if policy == "skip" { fs.rename_noreplace(source, target) } else { source.rename(to: target, overwrite: true) }
   if let Err(failure) = moved {
     if saved != null { saved.rename(to: target, overwrite: true) }
+    if policy == "skip" and gnu.errno(failure) == 17 { return Skipped }
     return Err(failure)
   }
-  if opts.verbose {
+  if opts.verbose or opts.debug {
     let tail = if saved != null { f" (backup: {gnu.quote(saved.display())})" } else { "" }
     print f"renamed {gnu.quote(source.display())} -> {gnu.quote(target.display())}{tail}"
   }
-  true
+  Moved
 }
 
 proc main(...argv: List[Str]) {
@@ -62,7 +81,6 @@ proc main(...argv: List[Str]) {
     gnu: {status: 1, unsupported: {
       "--exchange": "atomic exchange is not available",
       "--no-copy": "cross-device copy is not available",
-      "--debug": "copy diagnostics are not available",
       "-Z": "security contexts are not available",
     }},
     no_target_directory: {form: "-T --no-target-directory", default: false},
@@ -71,6 +89,7 @@ proc main(...argv: List[Str]) {
     interactive: {form: "-i --interactive", default: false},
     target: {form: "-t --target-directory DIR"},
     verbose: {form: "-v --verbose", default: false},
+    debug: {form: "--debug", default: false},
     older: {form: "-u", default: false},
     update: {form: "--update[=UPDATE]", optional_default: "older"},
     backup: {form: "--backup[=CONTROL]", optional_default: "existing"},
@@ -120,7 +139,9 @@ proc main(...argv: List[Str]) {
       continue
     }
     match move_one(source, target, opts, policy, backup) {
-      Ok(ok) => { if ! ok { failed = true } else { seen += [target] } }
+      Ok(Moved) => seen += [target]
+      Ok(Skipped) => {}
+      Ok(Failed) => failed = true
       Err(failure) => {
         if gnu.errno(failure) == 2 and ! files.present(source)? { gnu.cannot("stat", text, failure) } else { gnu.error(f"cannot move {gnu.quote(text)} to {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
         failed = true

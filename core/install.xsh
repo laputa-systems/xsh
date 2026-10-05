@@ -49,7 +49,7 @@ pure install_mode(spec: Str, directory: Bool) -> Int? {
   mode
 }
 
-proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?, gid: Int?, backup: Str) -> Result[Unit] {
+proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?, gid: Int?, backup: Str) -> Result[Bool] {
   let actual = source.resolve()?
   let metadata = fs.stat(actual)?
   let null_device = metadata.kind == "char" and fs.dev_major(metadata.rdev) == 1 and fs.dev_minor(metadata.rdev) == 3
@@ -62,6 +62,10 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     exit 1
   }
   let existing = files.present(target)?
+  if existing and fs.stat(target)?.kind == "dir" {
+    gnu.error(f"cannot overwrite directory {gnu.quote(target.display())} with non-directory")
+    exit 1
+  }
   if existing and opts.compare {
     let old = fs.stat(target)?
     if old.kind == "file" and old.mode.bit_and(0o7777) == mode and
@@ -69,7 +73,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
       old.mode.bit_and(0o7000) == 0 and (! opts.preserve or old.mtime_ns == metadata.mtime_ns) and
       old.uid == (uid ?? user.current()?.uid) and old.gid == (gid ?? group.current()?.gid) and
       (uid == null or old.uid == uid) and (gid == null or old.gid == gid) and
-      actual.read_bytes()? == target.read_bytes()? { return }
+      actual.read_bytes()? == target.read_bytes()? { return false }
   }
   var saved: Path? = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
@@ -94,6 +98,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     return Err(failure)
   }
   if opts.verbose { print f"{gnu.quote(source.display())} -> {gnu.quote(target.display())}" }
+  true
 }
 
 # Intermediate installation directories use fixed searchable permissions even
@@ -101,8 +106,22 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
 proc make_ancestors(dest: Path) -> Result[Unit] {
   if files.present(dest)? { return }
   make_ancestors(dest.parent())?
-  dest.mkdir()
+  if let Err(failure) = dest.mkdir() {
+    if ! files.directory(dest, true)? { return Err(failure) }
+  }
   dest.chmod(0o755)
+}
+
+proc install_directory(dest: Path, opts: Options, mode: Int, uid: Int?, gid: Int?) -> Result[Unit] {
+  let existed = files.present(dest)?
+  make_ancestors(dest.parent())?
+  dest.mkdir(parents: true)
+  fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true)
+  dest.chmod(mode)
+  if opts.verbose and ! existed {
+    let name = if dest.display().ends_with("/.") or dest.display().ends_with("/./") { dest.normalize().display() } else { dest.display() }
+    print f"install: creating directory {gnu.quote(name)}"
+  }
 }
 
 proc main(...argv: List[Str]) {
@@ -157,14 +176,15 @@ proc main(...argv: List[Str]) {
   if opts.compare and mode.bit_and(0o7000) != 0 { gnu.error("the --compare (-C) option is ignored when you specify a mode with non-permission bits") }
   if opts.directory {
     if opts.target != null or opts.no_target_directory { gnu.usage_error("target directory not allowed when installing a directory") }
+    var failed = false
     for text in opts.operands {
       let dest = fp"{text}"
-      make_ancestors(dest.parent())?
-      dest.mkdir(parents: true)
-      fs.set_owner(dest, uid: uid, gid: gid)
-      dest.chmod(mode)
-      if opts.verbose { print f"install: creating directory {gnu.quote(text)}" }
+      if let Err(failure) = install_directory(dest, opts, mode, uid, gid) {
+        gnu.cannot("create directory", text, failure)
+        failed = true
+      }
     }
+    if failed { exit 1 }
     return
   }
   if opts.target == null and opts.operands.len() == 1 { gnu.missing_operand_after(opts.operands[0]) }
@@ -192,10 +212,13 @@ proc main(...argv: List[Str]) {
       failed = true
       continue
     }
-    if let Err(failure) = install_one(source, target, opts, mode, uid, gid, backup) {
-      if gnu.errno(failure) == 2 and ! files.present(source)? { gnu.cannot("stat", text, failure) } else { gnu.error(f"cannot install {gnu.quote(text)} to {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
-      failed = true
-    } else { seen += [target] }
+    match install_one(source, target, opts, mode, uid, gid, backup) {
+      Ok(created) => { if created { seen += [target] } }
+      Err(failure) => {
+        if gnu.errno(failure) == 2 and ! files.present(source)? { gnu.cannot("stat", text, failure) } else { gnu.error(f"cannot install {gnu.quote(text)} to {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
+        failed = true
+      }
+    }
   }
   if failed { exit 1 }
 }

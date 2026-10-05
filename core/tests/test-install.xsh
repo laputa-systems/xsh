@@ -64,3 +64,14 @@ test test_install_null_device_and_conditional_execute_mode { |ctx|
   assert dest.read_bytes()? == b""
   assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o664
 }
+
+test test_install_directory_continues_after_existing_file { |ctx|
+  let root = test.temp_dir(ctx)?
+  let existing = fp"{root}/existing"
+  existing.write("keep")
+  let later = fp"{root}/later"
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d $existing $later
+  assert status.exited_with(1)
+  assert existing.read_text()? == "keep"
+  assert later.is_dir()?
+}

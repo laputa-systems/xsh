@@ -9,7 +9,7 @@ type Options = {
   help: Bool, version: Bool, paths: List[Str],
 }
 
-proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Unit] {
+proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   var existing = files.present(target)?
   if existing and fs.stat(target)?.kind == "dir" {
     gnu.error(f"{gnu.quote(target.display())}: cannot overwrite directory")
@@ -19,7 +19,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
     exit 1
   }
-  if existing and policy == "interactive" and ! files.confirm(target)? { return }
+  if existing and policy == "interactive" and ! files.confirm(target)? { return false }
   var saved: Path? = null
   if existing and backup != "none" {
     saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")?
@@ -45,6 +45,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     let prefix = if saved != null { f"{gnu.quote(saved.display())} ~ " } else { "" }
     print f"{prefix}{gnu.quote(target.display())} {arrow} {gnu.quote(linked_source.display())}"
   }
+  true
 }
 
 proc main(...argv: List[Str]) {
@@ -102,7 +103,7 @@ proc main(...argv: List[Str]) {
       continue
     }
     match link_one(source, target, opts, policy, backup) {
-      Ok(_) => seen += [target]
+      Ok(created) => { if created { seen += [target] } }
       Err(failure) => {
         let kind = if opts.symbolic { "symbolic link" } else { "hard link" }
         gnu.error(f"failed to create {kind} {gnu.quote(target.display())}: {gnu.strerror(failure)}")
