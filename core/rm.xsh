@@ -28,7 +28,7 @@ pure file_kind(kind: Str, size: Int) -> Str {
 # and the caller reports a broken output stream once after processing operands.
 proc report_removed(name: Str, directory: Bool) [process, env, io, error] -> Result[Unit] {
   let verb = if directory { "removed directory" } else { "removed" }
-  gnu.write_text(f"{verb} {gnu.quote(name)}\n")
+  io.write_stdout(f"{verb} {gnu.quote(name)}\n")?
   io.flush_stdout()
 }
 
