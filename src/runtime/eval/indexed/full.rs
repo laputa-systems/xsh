@@ -6198,6 +6198,38 @@ impl FullCodec for LoweredValue {
     }
 }
 
+/// The checks of a node instruction that depend on its tag and read its
+/// payload from the start, before the fields are verified one by one.
+fn verify_node_metadata(
+    decoder: &FullDecoder<'_>,
+    tag: FullTag,
+    payload: FullCursor<'_>,
+) -> Result<(), IrVerifyError> {
+    if tag == FullTag::ExprModuleCall {
+        let mut metadata = payload;
+        let op = RuntimeOp::decode(decoder, &mut metadata)?;
+        let plan = Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
+        if plan.as_ref().is_some_and(|plan| !plan.matches_operation(op)) {
+            return Err(IrVerifyError::new("prepared CLI plan operation policy does not match its instruction"));
+        }
+    }
+    if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
+    if tag == FullTag::ExprTypedCall { decoder.verify_typed_call_shape(payload)?; }
+    if tag == FullTag::ExprTag {
+        let mut metadata = payload;
+        let type_name = Name::decode(decoder, &mut metadata)?;
+        let name = Arc::<str>::decode(decoder, &mut metadata)?;
+        let fields_id = IrBlockId::from_raw(metadata.raw()?).ok_or_else(|| IrVerifyError::new("tag fields block id is invalid"))?;
+        let fields = decoder.store.blocks.get(fields_id.index()).ok_or_else(|| IrVerifyError::new("tag fields block is out of bounds"))?;
+        let field_count = decoder.store.payload(fields.instructions)?.first().copied().ok_or_else(|| IrVerifyError::new("tag fields length is missing"))?;
+        let wire = Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::decode(decoder, &mut metadata)?;
+        if wire.as_ref().is_some_and(|mapping| mapping.type_name != type_name || field_count != 0 || !mapping.variants.contains_key(&Name::intern(name.as_ref()))) {
+            return Err(IrVerifyError::new("wire enum constructor identity or payload is invalid"));
+        }
+    }
+    Ok(())
+}
+
 macro_rules! impl_node_codec {
     (
         $ty:ty {
@@ -6214,22 +6246,39 @@ macro_rules! impl_node_codec {
                 builder: &mut FullBuilder,
                 output: &mut Vec<u32>,
             ) -> Result<(), IrBuildError> {
-                let (tag, payload) = match self {
+                // A row encodes the rows it refers to, so this function is on
+                // the stack once for every level of nesting in a lowered body.
+                // Each variant encodes its fields in a function of its own:
+                // an unoptimized build gives every temporary of every arm a
+                // separate stack slot, and with the arms inline one level of
+                // nesting cost tens of kilobytes of stack.
+                match self {
                     $(
+                        #[allow(unused_variables)]
                         $pattern => {
-                            #[allow(unused_mut)]
-                            let mut payload = builder.take_payload();
-                            $(
-                                $field.encode(builder, &mut payload)?;
-                            )*
-                            (FullTag::$tag, payload)
+                            #[allow(irrefutable_let_patterns)]
+                            fn encode_variant(
+                                row: &$ty,
+                                builder: &mut FullBuilder,
+                                output: &mut Vec<u32>,
+                            ) -> Result<(), IrBuildError> {
+                                let $pattern = row else {
+                                    unreachable!("the caller matched this variant")
+                                };
+                                #[allow(unused_mut)]
+                                let mut payload = builder.take_payload();
+                                $(
+                                    $field.encode(builder, &mut payload)?;
+                                )*
+                                let instruction = builder.push_instruction(FullTag::$tag, &payload);
+                                builder.recycle_payload(payload);
+                                output.push(instruction?);
+                                Ok(())
+                            }
+                            encode_variant(self, builder, output)
                         }
                     ),*
-                };
-                let instruction = builder.push_instruction(tag, &payload);
-                builder.recycle_payload(payload);
-                output.push(instruction?);
-                Ok(())
+                }
             }
 
             fn decode(
@@ -6246,38 +6295,30 @@ macro_rules! impl_node_codec {
                 input: &mut FullCursor<'_>,
             ) -> Result<(), IrVerifyError> {
                 let (instruction, tag, mut payload) = decoder.instruction(input)?;
-                if tag == FullTag::ExprModuleCall {
-                    let mut metadata = payload;
-                    let op = RuntimeOp::decode(decoder, &mut metadata)?;
-                    let plan = Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
-                    if plan.as_ref().is_some_and(|plan| !plan.matches_operation(op)) {
-                        return Err(IrVerifyError::new("prepared CLI plan operation policy does not match its instruction"));
-                    }
-                }
-                if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
-                if tag == FullTag::ExprTypedCall { decoder.verify_typed_call_shape(payload)?; }
-                if tag == FullTag::ExprTag {
-                    let mut metadata = payload;
-                    let type_name = Name::decode(decoder, &mut metadata)?;
-                    let name = Arc::<str>::decode(decoder, &mut metadata)?;
-                    let fields_id = IrBlockId::from_raw(metadata.raw()?).ok_or_else(|| IrVerifyError::new("tag fields block id is invalid"))?;
-                    let fields = decoder.store.blocks.get(fields_id.index()).ok_or_else(|| IrVerifyError::new("tag fields block is out of bounds"))?;
-                    let field_count = decoder.store.payload(fields.instructions)?.first().copied().ok_or_else(|| IrVerifyError::new("tag fields length is missing"))?;
-                    let wire = Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::decode(decoder, &mut metadata)?;
-                    if wire.as_ref().is_some_and(|mapping| mapping.type_name != type_name || field_count != 0 || !mapping.variants.contains_key(&Name::intern(name.as_ref()))) {
-                        return Err(IrVerifyError::new("wire enum constructor identity or payload is invalid"));
-                    }
-                }
+                verify_node_metadata(decoder, tag, payload)?;
+                // Verification follows the rows an instruction refers to, so
+                // this function is on the stack once for every level of
+                // nesting in a lowered body. Each tag verifies its fields in
+                // a function of its own, which keeps the temporaries of every
+                // other tag out of this frame in an unoptimized build.
                 match tag {
                     $(
                         FullTag::$tag => {
-                            $(
-                                <$field_ty>::verify(decoder, &mut payload)?;
-                            )*
+                            #[allow(unused_variables)]
+                            fn verify_variant(
+                                decoder: &FullDecoder<'_>,
+                                payload: &mut FullCursor<'_>,
+                            ) -> Result<(), IrVerifyError> {
+                                $(
+                                    <$field_ty>::verify(decoder, payload)?;
+                                )*
+                                Ok(())
+                            }
+                            verify_variant(decoder, &mut payload)
                         }
                     ),*
-                    _ => return Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
-                }
+                    _ => Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
+                }?;
                 payload.finish()?;
                 if tag == FullTag::ExprRetry {
                     let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);

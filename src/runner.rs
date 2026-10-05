@@ -1410,4 +1410,52 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
             let _ = fs::remove_dir_all(parent);
         }
     }
+
+    // A call that spreads a record into named arguments binds one slot per
+    // field, each binding nested in the one before, and the lowered program
+    // is built and verified by walking that nesting. The preparing thread is
+    // given a fixed stack here, so the bound holds whatever limit the host
+    // gives a main thread: 250 fields fit in 3 MiB of an unoptimized build,
+    // where the walk once took about 100 KiB of stack for each field.
+    #[test]
+    fn a_wide_named_spread_is_prepared_within_a_fixed_stack() {
+        const FIELDS: usize = 250;
+        let declared = (0..FIELDS)
+            .map(|index| format!("f{index}: Int"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let values = (0..FIELDS)
+            .map(|index| format!("f{index}: {index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let path = temp_script(
+            "wide-named-spread",
+            &format!(
+                "type Wide = {{{declared}}}\n\nproc rebuild(wide: Wide) -> Wide {{\n  Wide(...wide)\n}}\n\nlet wide: Wide = {{{values}}}\nlet again = rebuild(wide)\nprint ${{again.f{}}}\n",
+                FIELDS - 1
+            ),
+        );
+        let options = RunOptions {
+            script: path.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            coverage_trace_dir: None,
+        };
+        let output = std::thread::Builder::new()
+            .stack_size(3 * 1024 * 1024)
+            .spawn(move || run_script(options))
+            .expect("spawn the preparing thread")
+            .join()
+            .expect("the run finishes");
+
+        assert_eq!(
+            output.status,
+            0,
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, format!("{}\n", FIELDS - 1).as_bytes());
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir_all(parent);
+        }
+    }
 }
