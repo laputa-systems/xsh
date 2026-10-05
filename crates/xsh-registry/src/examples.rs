@@ -54,6 +54,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "module.module.load" => include_str!("../../../docs/snippets/api/module-load.xsh"),
         "module.patch.apply" => include_str!("../../../docs/snippets/api/patch-apply.xsh"),
         "method.Path.resolve" => include_str!("../../../docs/snippets/api/path-resolve.xsh"),
+        "method.Path.read_lines" => {
+            include_str!("../../../docs/snippets/api/path-read-lines.xsh")
+        }
         "method.Path.write_lines" => {
             include_str!("../../../docs/snippets/api/path-write-lines.xsh")
         }

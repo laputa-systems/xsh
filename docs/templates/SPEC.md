@@ -2095,6 +2095,12 @@ Contracts worth knowing without consulting the reference:
   Creating, replacing, the file mode, and failures are those of `Path.write`.
   It is not `p.write(lines.join("\n") + "\n")`, which writes one newline for
   an empty list.
+- `Path.read_lines()` is its partner and is exactly `p.read_text()?.lines()`:
+  it reads the whole file, fails as `read_text` fails (including on bytes that
+  are not UTF-8), and returns a `List[Str]` without line terminators. It is
+  eager, so every failure happens at the call; `Path.lines()` is the lazy
+  stream for a file read once, line by line. `read_lines` returns what
+  `write_lines` wrote when no element contains `\n` or ends with `\r`.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process.

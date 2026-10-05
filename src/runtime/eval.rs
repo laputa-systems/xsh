@@ -2921,6 +2921,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "starts_with",
     "ends_with",
     "write_lines",
+    "read_lines",
     "wait",
     "cancel",
     "context",

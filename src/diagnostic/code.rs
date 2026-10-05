@@ -561,6 +561,7 @@ diagnostic_codes! {
         LintPreferNestedRecordUpdate = "lint.prefer-nested-record-update", warning, "Use disjoint static field paths instead of nested record spreads";
         LintPreferOptionalPostfix = "lint.prefer-optional-postfix", warning, "Use a guarded postfix and `??` instead of an explicit null branch";
         LintPreferPositionalConstructor = "lint.prefer-positional-constructor", warning, "Pass leading schema constructor fields positionally when no two of them can hold the same value";
+        LintPreferReadLines = "lint.prefer-read-lines", warning, "Read a file's lines with `Path.read_lines()?` instead of `read_text()?.lines()`";
         LintPreferRecordConstructor = "lint.prefer-record-constructor", warning, "Use the named schema constructor for a record literal of a schema type";
         LintPreferRecordDestructuring = "lint.prefer-record-destructuring", warning, "Bind adjacent fields of one record together with a destructuring `let`";
         LintPreferRegexLiteral = "lint.prefer-regex-literal", warning, "Prepare a static regex pattern with an `rx` literal instead of a call";

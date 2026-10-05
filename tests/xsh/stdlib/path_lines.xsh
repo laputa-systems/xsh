@@ -105,3 +105,110 @@ save(p"ROOT/out.txt", [])?
   assert "an empty list" in remaining.stderr
   assert candidate.read_text()? == fixed
 }
+
+test test_path_read_lines_is_read_text_then_lines { |ctx|
+  let root = test.temp_dir(ctx, name: "path-read-lines")?
+  let file = fp"{root}/lines.txt"
+  for contents in ["", "\n", "one", "one\ntwo\n", "one\r\ntwo\r\n\r\n", "\n\nlast", " padded \n"] {
+    file.write(contents)?
+    let text = file.read_text()?
+    assert file.read_lines()? == text.lines()
+    assert file.read_lines()? == contents.lines()
+  }
+
+  file.write("one\ntwo\n")?
+  assert file.read_lines()? == ["one", "two"]
+
+  # The partner of write_lines.
+  let written = ["first", "", "third", ""]
+  file.write_lines(written)?
+  assert file.read_lines()? == written
+  file.write_lines([])?
+  assert file.read_lines()? == []
+}
+
+test test_path_read_lines_fails_like_read_text { |ctx|
+  let root = test.temp_dir(ctx, name: "path-read-lines-failure")?
+  let missing = fp"{root}/missing.txt"
+  let lines_failure = missing.read_lines()
+  let text_failure = missing.read_text()
+  assert lines_failure is Err(is NotFound)
+  if let Err(lines_error) = lines_failure {
+    if let Err(text_error) = text_failure {
+      assert lines_error.message == text_error.message
+    }
+  }
+
+  # Decoding fails at the call, before any line is produced.
+  let binary = fp"{root}/binary"
+  binary.write(b"ok\n\xff\n")?
+  let decoded = binary.read_lines()
+  assert decoded is Err(_)
+  if let Err(decode_error) = decoded {
+    assert "not valid UTF-8 at byte 3" in decode_error.message, decode_error.message
+  }
+
+  assert root.read_lines() is Err(_)
+}
+
+test test_path_read_lines_is_a_filesystem_effect { |ctx|
+  let checked = test.run_script(
+    ctx,
+    r"""
+pure load(source: Path) -> Result[List[Str]] {
+  source.read_lines()
+}
+""",
+  )?
+  assert ! checked.success
+  assert "pure" in checked.stderr
+}
+
+test test_read_lines_lint_fix_keeps_values_and_failures { |ctx|
+  let root = test.temp_dir(ctx, name: "read-lines-lint")?
+  fp"{root}/list.txt".write("one\r\ntwo\n\nfour")?
+  fp"{root}/binary".write(b"ok\n\xff\n")?
+  let source = r"""proc count(source: Path) [fs, error] -> Result[Int] {
+  let direct = source.read_text()?.lines()
+  let by_module = fs.read_text(source)?.lines()
+  let trimmed = source.read_text()?.trim().lines()
+  direct.len() + by_module.len() * 10 + trimmed.len() * 100
+}
+
+proc describe(source: Path) [fs, error] -> Str {
+  match count(source) {
+    Ok(total) => f"{total}",
+    Err(error) => error.message.replace("ROOT", ""),
+  }
+}
+
+print (describe(p"ROOT/list.txt"))
+print (describe(p"ROOT/missing.txt"))
+print (describe(p"ROOT/binary"))
+""".replace("ROOT", root.display())
+  let candidate = test.temp_file(ctx, name: "read-lines.xsh", contents: bytes.from_text(source))?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-read-lines --fix $candidate ?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
+  let fixed = candidate.read_text()?
+
+  # A read that is trimmed before the split is a different program.
+  assert fixed == source.replace("let direct = source.read_text()?.lines()", "let direct = source.read_lines()?")
+    .replace("let by_module = fs.read_text(source)?.lines()", "let by_module = source.read_lines()?")
+  assert "source.read_text()?.trim().lines()" in fixed
+  let before = test.run_script(ctx, source)?
+  let after = test.run_script(ctx, fixed)?
+  let {success: succeeded, stderr: failure_details, ..} = after
+  assert succeeded, failure_details
+  assert after.stdout == before.stdout
+  let reported = after.stdout.lines()
+  assert reported.len() == 3
+  assert reported[0] == "444"
+  assert "missing.txt" in reported[1]
+  assert "not valid UTF-8 at byte 3" in reported[2]
+
+  let repeated = run.capture --text "xsht" lint --only lint.prefer-read-lines $candidate ?
+  assert repeated.status.exited_with(0)
+  assert "lint.prefer-read-lines" not in repeated.stderr
+}

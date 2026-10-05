@@ -23,6 +23,9 @@ mod lint_path_text_query;
 #[path = "lint_write_lines.rs"]
 mod lint_write_lines;
 
+#[path = "lint_read_lines.rs"]
+mod lint_read_lines;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -598,6 +601,15 @@ impl<'a> Linter<'a> {
         linter.diagnostics.extend(path_text_queries);
         let write_lines = lint_write_lines::lint_write_lines(program, source, &linter.expr_types);
         linter.diagnostics.extend(write_lines);
+        let line_loops: Vec<Span> = linter
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFileLines))
+            .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span))
+            .collect();
+        let read_lines =
+            lint_read_lines::lint_read_lines(program, source, &linter.expr_types, &line_loops);
+        linter.diagnostics.extend(read_lines);
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));

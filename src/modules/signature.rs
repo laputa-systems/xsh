@@ -469,6 +469,7 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
             | RuntimeOp::FsWrite
             | RuntimeOp::FsWriteAtomic
             | RuntimeOp::FsWriteLines
+            | RuntimeOp::FsReadLines
             | RuntimeOp::FsCopy
             | RuntimeOp::FsRename
             | RuntimeOp::FsMkdir

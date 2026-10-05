@@ -183,6 +183,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::FsReadText,
                 ),
                 method(
+                    "read_lines",
+                    Vec::new(),
+                    result(Type::List(Box::new(Type::Str))),
+                    false,
+                    RuntimeOp::FsReadLines,
+                ),
+                method(
                     "lines",
                     Vec::new(),
                     result(Type::Stream(Box::new(Type::Str))),

@@ -148,26 +148,30 @@ fn replacement(
     if source.get(call.range())?.contains('#') {
         return None;
     }
-    let path_text = source.get(path.range())?;
-    // A bare path word such as `./out` would absorb the method call, and a
-    // lower-precedence expression would need parentheses a receiver must not
-    // gain silently.
-    let receiver = match path_kind {
-        ArenaExprKind::Ident(_)
-        | ArenaExprKind::Field { .. }
-        | ArenaExprKind::Call { .. }
-        | ArenaExprKind::Index { .. } => true,
-        ArenaExprKind::PathStr(_) => path_text.starts_with("p\""),
-        ArenaExprKind::PathFmtString(_) => path_text.starts_with("fp\""),
-        _ => false,
-    };
-    if !receiver {
-        return None;
-    }
+    let path_text = path_receiver_text(source, path_kind, path)?;
     let data_text = source.get(data.range())?;
     let lines = data_text[..data_text.rfind(".join(")?].trim();
     let lines = unwrapped(lines)?;
     Some(format!("{path_text}.write_lines({lines})"))
+}
+
+/// The source of a Path expression that can take a method call verbatim.
+///
+/// A bare path word such as `./out` would absorb the call into the path, and
+/// a lower-precedence expression would need parentheses that a rewrite must
+/// not add silently, so both are refused.
+pub(super) fn path_receiver_text(source: &str, kind: ArenaExprKind, span: Span) -> Option<&str> {
+    let text = source.get(span.range())?;
+    match kind {
+        ArenaExprKind::Ident(_)
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::Index { .. } => true,
+        ArenaExprKind::PathStr(_) => text.starts_with("p\""),
+        ArenaExprKind::PathFmtString(_) => text.starts_with("fp\""),
+        _ => false,
+    }
+    .then_some(text)
 }
 
 /// The text without one pair of parentheses that encloses all of it, which a

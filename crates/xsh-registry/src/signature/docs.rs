@@ -1433,6 +1433,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The operation preserves arbitrary file bytes and does not perform UTF-8 validation.",
             &["path", "filesystem", "bytes"],
         )),
+        ("Path", "read_lines") => Some((
+            "Reads a UTF-8 file into a list of its lines.",
+            "Exactly read_text()?.lines(): the whole file is read and decoded at the call, and lines carry no terminators. Use lines for a lazy stream consumed once.",
+            &["path", "filesystem", "utf8", "lines"],
+        )),
         ("Path", "lines") => Some((
             "Streams UTF-8 file lines.",
             "Line production is lazy and invalid UTF-8 remains an error at the text boundary.",

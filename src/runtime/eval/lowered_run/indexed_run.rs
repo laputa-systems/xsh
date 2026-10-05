@@ -36,7 +36,7 @@ use super::{
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type, new_temp_fs_root,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
-    read_host_path_bytes, read_host_path_bytes_vec, run_pipeline_inherit_with_policy,
+    read_host_path_bytes, read_host_path_text, run_pipeline_inherit_with_policy,
     runtime_error_from_value, splice_to_argv, structured_error_constructor,
     value_matches_static_type, value_to_argv_bytes,
 };
@@ -6876,24 +6876,10 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let value = if tag == FullTag::ExprPathReadText {
-                    match read_host_path_bytes_vec(&self.host_path(&path), span) {
-                        Ok(bytes) => match String::from_utf8(bytes) {
-                            Ok(text) => {
-                                LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
-                            }
-                            Err(error) => {
-                                LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                                    RuntimeError::new(
-                                        "invalid-utf8",
-                                        format!(
-                                            "file is not valid UTF-8 at byte {}",
-                                            error.utf8_error().valid_up_to()
-                                        ),
-                                    )
-                                    .with_span(span),
-                                ))))
-                            }
-                        },
+                    match read_host_path_text(&self.host_path(&path), span) {
+                        Ok(text) => {
+                            LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
+                        }
                         Err(error) => {
                             LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
                         }

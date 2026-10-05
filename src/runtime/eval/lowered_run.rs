@@ -778,6 +778,21 @@ fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeE
     })
 }
 
+/// The UTF-8 text of a file: the one read behind `read_text` and `read_lines`,
+/// so the two cannot disagree on which files they accept or how they fail.
+fn read_host_path_text(path: &Path, span: Span) -> Result<String, RuntimeError> {
+    String::from_utf8(read_host_path_bytes_vec(path, span)?).map_err(|error| {
+        RuntimeError::new(
+            "invalid-utf8",
+            format!(
+                "file is not valid UTF-8 at byte {}",
+                error.utf8_error().valid_up_to()
+            ),
+        )
+        .with_span(span)
+    })
+}
+
 fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
     read_host_path_bytes_unnamed(path, span).map_err(|mut error| {
         error.message = format!("{}: {}", path.display(), error.message);
@@ -4580,20 +4595,8 @@ impl Evaluator {
                     "fs.read_text",
                     span,
                 )?;
-                match read_host_path_bytes_vec(&self.host_path(&path), span) {
-                    Ok(bytes) => match String::from_utf8(bytes) {
-                        Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
-                        Err(error) => lowered_result_err_value(
-                            RuntimeError::new(
-                                "invalid-utf8",
-                                format!(
-                                    "file is not valid UTF-8 at byte {}",
-                                    error.utf8_error().valid_up_to()
-                                ),
-                            )
-                            .with_span(span),
-                        ),
-                    },
+                match read_host_path_text(&self.host_path(&path), span) {
+                    Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -11050,6 +11053,22 @@ impl Evaluator {
         {
             let result = self.path_lines_stream(path.clone(), name == "bytes_lines", *span);
             let value = lowered_runtime_value(result, *span)?;
+            return Ok(ControlFlow::Continue(value));
+        }
+        if let LoweredValue::Path(path) = &receiver
+            && name == "read_lines"
+            && values.is_empty()
+        {
+            // `str::lines` is the split behind `Str.lines`, so this is
+            // `read_text()?.lines()` in one call.
+            let value = match read_host_path_text(&self.host_path(path), *span) {
+                Ok(text) => lowered_result_ok(LoweredValue::List(
+                    text.lines()
+                        .map(|line| LoweredValue::Str(line.into()))
+                        .collect(),
+                )),
+                Err(error) => lowered_result_err_value(error),
+            };
             return Ok(ControlFlow::Continue(value));
         }
         if let LoweredValue::Path(path) = &receiver
