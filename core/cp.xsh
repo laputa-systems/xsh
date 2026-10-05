@@ -322,7 +322,6 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         if failure.errno == 2 {
           invalid(f"not writing through dangling symlink {gnu.quote_bytes(target.bytes())}")?
         }
-        if failure.errno == 40 and opts.force { target.remove(); created = true }
       }
     }
   }
@@ -361,7 +360,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         }
       }
     } else {
-      let copied = fs.copy_file(input, target, sparse: opts.sparse, reflink: opts.reflink, overwrite: opts.overwrite != "never" and opts.update not in ["none", "none-fail"], mode: if opts.mode or opts.owner { 0o600 } else if opts.no_mode { 0o666 } else { meta.mode.bit_and(0o777) })
+      let copied = fs.copy_file(input, target, sparse: opts.sparse, reflink: opts.reflink, overwrite: opts.overwrite != "never" and opts.update not in ["none", "none-fail"], mode: if opts.mode or opts.owner { 0o600 } else if opts.no_mode { 0o666 } else { meta.mode.bit_and(0o777) }, force: opts.force)
       if let Err(failure) = copied {
         if failure.errno == 17 and (opts.overwrite == "never" or opts.update == "none") {
           return Ok({copies: copies, failed: false})
@@ -369,11 +368,10 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         if failure.errno == 17 and opts.update == "none-fail" {
           invalid(f"not replacing {gnu.quote_bytes(target.bytes())}")?
         }
-        # Only the native copier can distinguish a failed destination open
-        # from a source permission error before deciding whether to unlink.
         return Err(failure)
       }
       let result = copied?
+      created = created or result.destination_replaced
       if opts.debug {
         let offload = if result.method == "copy_file_range" { "yes" } else if result.bytes == 0 { "unknown" } else { "avoided" }
         let reflink = if result.method == "clone" { "yes" } else { "no" }
