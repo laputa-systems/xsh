@@ -241,3 +241,36 @@ show(["b", "a", "b"])
   assert after.stdout == before.stdout
   assert after.stdout == "2 a,b A,B,z 2\n"
 }
+
+# The fix replaces the text from the declaration to the last use, and a
+# comment between the two is carried along, so the fix still applies.
+test test_lint_fix_keeps_a_comment_between_a_set_and_its_uses { |ctx|
+  let source = """proc show(words: List[Str]) [io] {
+  var seen = set.empty()
+  var count = 0
+  for word in words {
+    # A repeated word is counted once.
+    continue when word in seen
+
+    seen = set.add(seen, word)  # the first sighting
+    count += 1
+  }
+
+  print \$count
+}
+
+show(["b", "a", "b"])
+"""
+  let before = test.expect(ctx, source, status: 0)?
+  let candidate = test.temp_file(ctx, name: "commented.xsh", contents: bytes.from_text(source))?
+  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-set $candidate
+  assert fixed.status.exited_with(0), fixed.stdout + fixed.stderr
+
+  let rewritten = candidate.read_text()?
+  assert "  var seen: Set[Str] = set.empty()\n" in rewritten, rewritten
+  assert "    # A repeated word is counted once.\n" in rewritten, rewritten
+  assert "    seen = seen.add(word)  # the first sighting\n" in rewritten, rewritten
+  let after = test.expect(ctx, rewritten, status: 0)?
+  assert after.stdout == before.stdout
+  assert after.stdout == "2\n"
+}

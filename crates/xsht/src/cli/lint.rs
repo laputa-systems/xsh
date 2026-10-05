@@ -1519,7 +1519,7 @@ fn lint_workspace_node_with_fixes(
                 kind: LintResultKind::FixDiagnostics {
                     status: 1,
                     diagnostics: render_diagnostics_with_keys(lint_diagnostics, sources),
-                    stderr: String::new(),
+                    stderr: unapplied_fixes_reason(&module.path.to_string_lossy()),
                 },
             };
         }
@@ -1780,7 +1780,7 @@ fn lint_one_file_with_fixes(
                         &linted.diagnostics,
                         &checked_program.sources,
                     ),
-                    stderr: String::new(),
+                    stderr: unapplied_fixes_reason(file),
                 },
             };
         }
@@ -1830,6 +1830,18 @@ fn lint_one_file_with_fixes(
             },
         }
     }
+}
+
+/// Why a file's shown fixes were all left unapplied. The one cause besides
+/// a pending signal, which ends the command with its own output, is that each
+/// replaced text holds a comment its replacement would not keep.
+fn unapplied_fixes_reason(file: &str) -> String {
+    if cancellation_output().is_some() {
+        return String::new();
+    }
+    format!(
+        "xsht: no fix was applied to {file}: each fix replaces text holding a comment that it would not keep\n"
+    )
 }
 
 fn validate_fixed_text(
@@ -2196,6 +2208,7 @@ mod tests {
     use crate::xsht::cli::lint::{
         ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig, WorkspaceLoader,
         apply_cst_fixes, collect_fix_spans, discover_lint_files, lint_config_for_file,
+        unapplied_fixes_reason,
         lint_one_file_with_fixes, lint_workspace,
     };
     use crate::xsht::cli::timing::StageTimings;
@@ -2460,6 +2473,44 @@ print ${value}
         .expect("apply fixes");
 
         assert!(result.is_none());
+    }
+
+    /// A replacement that carries the comments of the text it replaces is
+    /// applied; when every fix is declined, the caller is told why.
+    #[test]
+    fn lint_fix_applies_a_replacement_that_keeps_its_comments() {
+        let source = "\
+const value = 1
+# keep this attached to the next statement
+print ${value} # and this
+";
+        let fixed = "\
+const value = 1
+# keep this attached to the next statement
+print $value # and this
+";
+        let config = config();
+        let apply = |replacement: &str| {
+            apply_cst_fixes(
+                "fixture.xsh",
+                source,
+                &[(0, source.len(), replacement.to_string())],
+                &config,
+                &[],
+                false,
+            )
+            .expect("apply fixes")
+            .map(|fixed| fixed.text)
+        };
+        assert_eq!(apply(fixed).as_deref(), Some(fixed));
+        // A reworded, reordered, or dropped comment declines the fix.
+        assert_eq!(apply(&fixed.replace("keep this", "keep it")), None);
+        assert_eq!(apply(&fixed.replace(" # and this", "")), None);
+        assert_eq!(
+            apply("const value = 1\n# and this\nprint $value # keep this attached to the next statement\n"),
+            None
+        );
+        assert!(unapplied_fixes_reason("fixture.xsh").contains("holding a comment"));
     }
 
     #[test]

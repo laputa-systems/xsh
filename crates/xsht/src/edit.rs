@@ -1,7 +1,10 @@
 use crate::xsht::format::Formatter;
 use xsh::diagnostic::{DiagnosticCode, DiagnosticRenderer};
 use xsh::frontend::source::{SourceMap, Span};
+use xsh::frontend::syntax::cst::TriviaKind;
+use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::parser::Parser;
+use xsh::frontend::syntax::token::TokenTag;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SourceEdit {
@@ -49,6 +52,45 @@ pub(crate) fn apply_cst_guarded_migration_edits(
     edits: &[SourceEdit],
 ) -> Result<Option<String>, String> {
     apply_cst_edits(file, text, edits, None)
+}
+
+/// Whether replacing `span` loses none of its comments. A replacement that
+/// spans statements (a declaration through its last use) carries the text
+/// between its changes along, comments included, and is applied; one that
+/// would drop or reword a comment is not.
+fn replacement_keeps_comments(
+    cst: &xsh::frontend::syntax::cst::SyntaxTree,
+    text: &str,
+    span: Span,
+    replacement: &str,
+) -> bool {
+    let comments = cst
+        .trivia_in_span(span)
+        .into_iter()
+        .map(|id| cst.trivia(id))
+        .filter(|trivia| trivia.kind == TriviaKind::Comment)
+        .map(|trivia| text.get(trivia.span.range()))
+        .collect::<Option<Vec<_>>>();
+    let Some(comments) = comments else {
+        return false;
+    };
+    if comments.is_empty() {
+        return true;
+    }
+    // The replacement is a fragment, so it is read as tokens only, and has to
+    // read cleanly for its comments to be known.
+    let lexed = Lexer::new(span.source_id, replacement).lex_compact();
+    if !lexed.diagnostics.is_empty() {
+        return false;
+    }
+    let kept = (0..lexed.token_table.len())
+        .filter(|index| lexed.token_table.tag_at(*index) == Some(TokenTag::Comment))
+        .map(|index| {
+            let token = lexed.token_table.span_at(index, span.source_id, replacement)?;
+            replacement.get(token.range())
+        })
+        .collect::<Option<Vec<_>>>();
+    kept.is_some_and(|kept| kept == comments)
 }
 
 fn apply_cst_edits(
@@ -102,7 +144,7 @@ fn apply_cst_edits(
             continue;
         }
         let span = Span::new(source_id, edit.start, edit.end);
-        if parsed.cst.get().contains_comment(span) {
+        if !replacement_keeps_comments(parsed.cst.get(), text, span, &edit.replacement) {
             continue;
         }
         rewritten.replace_range(edit.start..edit.end, &edit.replacement);

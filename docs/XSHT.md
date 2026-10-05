@@ -83,8 +83,10 @@ reports and fixes; an unknown code is a usage error that suggests the nearest
 selectable code. A scoped fix splices its
 exact edits with no formatting pass (`apply_cst_fixes`), while unrestricted
 `--fix` formats the rewritten file. A fix is declined when a comment lies inside
-its span; the formatter keeps a comment with the match arm it precedes, so a
-later round finds it in the same place and declines again.
+its span and the replacement does not carry the same comments in the same
+order; the formatter keeps a comment with the match arm it precedes, so a
+later round finds it in the same place and declines again. A file whose fixes
+are all declined says so after its findings.
 A file with a check error is not linted, because its checked facts are
 incomplete; a check warning is reported beside the file's lint findings.
 
@@ -124,7 +126,8 @@ A safe fix:
 
 - is a non-overlapping source replacement over an original span, applied
   through the CST (`apply_cst_guarded_edits`);
-- skips spans containing comments unless the rule handles them;
+- skips a span containing comments unless the replacement keeps each of
+  them, as one that runs from a declaration to its last use does;
 - leaves the file parsing, resolving, formatting, and with no new checker
   diagnostics (existing diagnostics may remain);
 - converges: rounds repeat until no fix applies, and the final round's
