@@ -26,3 +26,102 @@ world
   let bytes_input = test.temp_file(ctx, name: "bytes.in", contents: b"\0abc\xff")?
   assert run.bytes "xsh" $bytes_script < ${bytes_input}? == b"\0abc\xff"
 }
+
+test test_io_stdin_lines_preserve_unread_input { |ctx|
+  let output = test.run_script(ctx, """
+print io.stdin_line()?
+print io.stdin_line()?
+io.write_stdout_bytes(io.stdin_bytes()?)?
+""", stdin: b"first\r\nsecond\ntail")?
+  assert output.success, output.stderr
+  assert output.stdout == "first\nsecond\ntail"
+}
+
+test test_io_stdin_read_bounds_bytes_and_eof { |ctx|
+  let output = test.run_script(ctx, """
+assert io.stdin_read(2)? == b"\\0\\xff"
+assert io.stdin_read(max_bytes: 1)? == b"a"
+assert io.stdin_read(8)? == b"bc"
+assert io.stdin_read(1)? == b""
+assert io.stdin_read(8)? == b""
+print "read all bytes"
+""", stdin: b"\0\xffabc")?
+  assert output.success, output.stderr
+  assert output.stdout == "read all bytes\n"
+}
+
+test test_io_stdin_read_rejects_invalid_counts_without_consuming_input { |ctx|
+  let output = test.run_script(ctx, """
+for count in [0, -1, 9223372036854775807] {
+  match io.stdin_read(count) {
+    Err(_) => {}
+    Ok(_) => { assert false, "invalid count succeeded" }
+  }
+}
+assert io.stdin_read(1)? == b"a"
+assert io.stdin_text()? == "bc"
+""", stdin: b"abc")?
+  assert output.success, output.stderr
+}
+
+test test_io_stdin_read_line_and_text_share_one_cursor { |ctx|
+  let output = test.run_script(ctx, """
+assert io.stdin_read(2)? == b"ab"
+assert io.stdin_line()? == "c"
+assert io.stdin_read(1)? == b"d"
+assert io.stdin_text()? == "ef"
+assert io.stdin_line()? == ""
+""", stdin: b"abc\r\ndef")?
+  assert output.success, output.stderr
+}
+
+test test_io_stdin_line_invalid_utf8_preserves_following_line { |ctx|
+  let output = test.run_script(ctx, """
+match io.stdin_line() {
+  Err(_) => {}
+  Ok(_) => { assert false, "invalid UTF-8 accepted" }
+}
+assert io.stdin_line()? == "next"
+""", stdin: b"\xff\nnext\n")?
+  assert output.success, output.stderr
+}
+
+test test_io_write_stderr_without_newline_and_flush { |ctx|
+  let output = test.run_script(ctx, """
+io.write_stderr("Continue? ")?
+io.flush_stderr()?
+assert io.stdin_line()? == "yes"
+io.write_stderr("done")?
+print "accepted"
+""", stdin: b"yes\n")?
+  assert output.success, output.stderr
+  assert output.stdout == "accepted\n"
+  assert output.stderr == "Continue? done"
+}
+
+test test_io_flush_stderr_preserves_captured_output {
+  io.write_stderr("captured")?
+  io.flush_stderr()?
+}
+
+test test_io_flush_stderr_reports_closed_descriptor { |ctx|
+  let output = test.run_script(ctx, """
+unix.close_fd(2)?
+io.write_stderr("prompt")?
+match io.flush_stderr() {
+  Err(failure) => { assert failure.errno == 9 }
+  Ok(_) => { assert false, "closed stderr accepted" }
+}
+print "reported EBADF"
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "reported EBADF\n"
+}
+
+test test_io_stdin_read_preserves_input_for_inherited_child { |ctx|
+  let output = test.run_script(ctx, """
+assert io.stdin_read(1)? == b"a"
+assert run.bytes cat ? == b"bc"
+""", stdin: b"abc")?
+  assert output.success, output.stderr
+}

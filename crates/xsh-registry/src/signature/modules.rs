@@ -569,6 +569,28 @@ fn cli_module() -> ModuleSig {
 fn io_module() -> ModuleSig {
     module_sig(vec![
         (
+            "stdin_read",
+            sig(
+                vec![param("max_bytes", Type::Int)],
+                result(Type::Bytes),
+                false,
+                RuntimeOp::IoStdinRead,
+            ),
+        ),
+        (
+            "write_stderr",
+            sig(
+                vec![param("text", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::IoWriteStderr,
+            ),
+        ),
+        (
+            "flush_stderr",
+            sig(Vec::new(), result(Type::Unit), false, RuntimeOp::IoFlushStderr),
+        ),
+        (
             "stdin_bytes",
             sig(
                 Vec::new(),
