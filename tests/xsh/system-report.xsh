@@ -441,28 +441,28 @@ test test_system_report_usb_descriptors_keep_configuration_and_endpoint_ownershi
 
 test test_system_report_usb_descriptor_parser_rejects_truncated_and_orphan_records {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
-  test.error_kind(collector.parse_usb_alternates(b"\x02\x01"), "SystemReportUsbDescriptorError.Invalid")
+  test.error_kind(collector.parse_usb_alternates(b"\x02\x01"), "validation")
   test.error_kind(
     collector.parse_usb_alternates(b"\t\x02\x08\0\x01\x01\0\x802"),
-    "SystemReportUsbDescriptorError.Invalid",
+    "validation",
   )
   test.error_kind(
     collector.parse_usb_alternates(b"\t\x02\xff\xff\x01\x01\0\x802"),
-    "SystemReportUsbDescriptorError.Invalid",
+    "validation",
   )
-  test.error_kind(collector.parse_usb_alternates(b"\x04\x04\0\0"), "SystemReportUsbDescriptorError.Invalid")
-  test.error_kind(collector.parse_usb_alternates(b"\x07\x05\x81\x02@\0\0"), "SystemReportUsbDescriptorError.Invalid")
+  test.error_kind(collector.parse_usb_alternates(b"\x04\x04\0\0"), "validation")
+  test.error_kind(collector.parse_usb_alternates(b"\x07\x05\x81\x02@\0\0"), "validation")
 }
 
 test test_system_report_usb_descriptor_parser_enforces_configuration_total_length {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   test.error_kind(
     collector.parse_usb_alternates(b"\t\x02\t\0\x01\x01\0\x802\t\x04\0\0\0\xff\0\0\0"),
-    "SystemReportUsbDescriptorError.Invalid",
+    "validation",
   )
   test.error_kind(
     collector.parse_usb_alternates(b"\t\x02\x12\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0"),
-    "SystemReportUsbDescriptorError.Invalid",
+    "validation",
   )
 }
 

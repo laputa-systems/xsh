@@ -196,12 +196,14 @@ Usage:
   xsht grep PATTERN [FILE...]
 
   Uppercase identifiers are expression metavariables; ARGS.. matches zero or more arguments.
+  A pattern that begins with `for` is a loop head; a metavariable there matches any loop binding.
 
   Examples:
     xsht grep 'X.len()' .
     xsht grep 'X.push(ITEM)' src/
     xsht grep 'M.set(K, V)' .
     xsht grep 'for NAME in ITER' .
+    xsht grep 'for INDEX, NAME in ITER' .
 ```
 
 ### `xsht refactor`

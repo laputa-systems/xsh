@@ -223,7 +223,7 @@ expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | 
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition block ;
-for_statement = "for" binding_target "in" condition_expression block ;
+for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
 repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
