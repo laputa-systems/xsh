@@ -670,6 +670,7 @@ diagnostic_codes! {
         LintPreferCollect = "lint.prefer-collect", warning, "Build a list that is declared empty and then only appended to with `collect { ... }`";
         LintPreferWaitUntil = "lint.prefer-wait-until", note, "Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit";
         LintLegacySetCall = "lint.legacy-set-call", note, "Note a `set.empty`, `set.from`, `set.add`, or `set.remove` call in its `Map[Str, Bool]` form that `lint.prefer-set` has no fix for; a `Set[T]` has `.add` and `.remove`";
+        LintRedundantDiscard = "lint.redundant-discard", warning, "Remove `let _ =` from a propagated call whose value the registry marks discardable, such as `test.expect(...)?`";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

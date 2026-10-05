@@ -780,6 +780,7 @@ fn set_checked_lint_facts_for_source(
     options.statement_expression_spans =
         source_checked_set(&checked.statement_expression_spans, source_id);
     options.propagating_statements = source_checked_set(&checked.propagating_statements, source_id);
+    options.discardable_bindings = source_checked_set(&checked.discardable_bindings, source_id);
     options.redundant_condition_propagations =
         source_checked_set(&checked.redundant_condition_propagations, source_id);
     options.unvalidated_command_vectors =
@@ -1633,6 +1634,7 @@ fn lint_config_for_file(
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
         propagating_statements: Default::default(),
+        discardable_bindings: Default::default(),
         redundant_condition_propagations: Default::default(),
         unvalidated_command_vectors: Default::default(),
         membership_migration_spans: Default::default(),
@@ -1722,6 +1724,7 @@ fn lint_one_file_with_fixes(
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
     lint_options.propagating_statements = checked.propagating_statements.clone();
+    lint_options.discardable_bindings = checked.discardable_bindings.clone();
     lint_options.redundant_condition_propagations =
         checked.redundant_condition_propagations.clone();
     lint_options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
@@ -2026,6 +2029,7 @@ fn apply_cst_fixes(
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
         options.propagating_statements = checked.propagating_statements.clone();
+        options.discardable_bindings = checked.discardable_bindings.clone();
         options.redundant_condition_propagations =
             checked.redundant_condition_propagations.clone();
         options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();

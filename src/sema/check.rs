@@ -168,6 +168,10 @@ pub struct CheckOutput {
     /// tail whose body yields `Unit`, and the direct tail of a `Result[Unit]`
     /// function.
     pub propagating_statements: BTreeSet<Span>,
+    /// `let _ = VALUE` statements whose value comes from a call registered as
+    /// discardable, where `VALUE` alone would be a statement that drops it.
+    /// A binding at a tail that is read as its block's value is not here.
+    pub discardable_bindings: BTreeSet<Span>,
     /// Expressions in a control position of a condition whose `Result[Bool]`
     /// propagates its failure and leaves the `Bool`: the condition itself, or
     /// an operand of `!`, `and`, or `or` that is in a control position.
@@ -735,7 +739,12 @@ pub struct Checker {
     pattern_test_types: FxHashMap<crate::syntax::arena::PatternId, Type>,
     assertion_effect_spans: BTreeSet<Span>,
     statement_expression_spans: BTreeSet<Span>,
+    /// Calls whose signature is marked discardable, and each `?` applied to
+    /// one. The ignored-value rule reads the propagated span: the value may
+    /// be dropped in statement position only after its failure has left.
+    discardable_values: BTreeSet<Span>,
     propagating_statements: BTreeSet<Span>,
+    discardable_bindings: BTreeSet<Span>,
     propagating_conditions: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
     unvalidated_command_vectors: BTreeMap<Span, Type>,
@@ -916,6 +925,7 @@ impl Checker {
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
                 propagating_statements: checker.propagating_statements,
+                discardable_bindings: checker.discardable_bindings,
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
                 unvalidated_command_vectors: checker.unvalidated_command_vectors,
@@ -1096,6 +1106,7 @@ impl Checker {
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
                 propagating_statements: checker.propagating_statements,
+                discardable_bindings: checker.discardable_bindings,
                 propagating_conditions: checker.propagating_conditions,
                 redundant_condition_propagations: checker.redundant_condition_propagations,
                 unvalidated_command_vectors: checker.unvalidated_command_vectors,
@@ -1175,7 +1186,9 @@ impl Checker {
             pattern_test_types: FxHashMap::default(),
             assertion_effect_spans: BTreeSet::new(),
             statement_expression_spans: BTreeSet::new(),
+            discardable_values: BTreeSet::new(),
             propagating_statements: BTreeSet::new(),
+            discardable_bindings: BTreeSet::new(),
             propagating_conditions: BTreeSet::new(),
             redundant_condition_propagations: BTreeSet::new(),
             unvalidated_command_vectors: BTreeMap::new(),

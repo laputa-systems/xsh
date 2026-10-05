@@ -1930,6 +1930,9 @@ impl Checker {
                 true,
             )
         };
+        if sig.discardable {
+            self.discardable_values.insert(span);
+        }
         let registered = module_sig.function_overloads(name).and_then(|registered| {
             registered
                 .iter()

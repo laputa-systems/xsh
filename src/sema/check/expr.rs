@@ -1015,6 +1015,12 @@ impl Checker {
                     inner_expected.as_ref(),
                     schema,
                 );
+                if self
+                    .discardable_values
+                    .contains(&arena.arena.expr(*inner).span)
+                {
+                    self.discardable_values.insert(expr.span);
+                }
                 self.check_propagation(&ty, expr.span)
             }
             ArenaExprKind::Convert { value, target } => {

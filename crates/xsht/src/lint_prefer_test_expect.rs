@@ -28,7 +28,7 @@ use super::prefer_tempdir::text_end_of;
 /// its message. The run is reported only when one of them gives the status,
 /// which `test.expect` requires. Later statements are left as they are; when
 /// any of them reads the binding, the rewrite keeps it, and otherwise the
-/// record is discarded.
+/// call stands as a statement, which drops the record.
 ///
 /// A fragment is a literal, a binding, or a field path, so reading it before
 /// the script runs instead of after yields the same value. A comment among
@@ -157,11 +157,21 @@ fn script_run(linter: &super::Linter<'_>, stmts: &[StmtId], index: usize) -> Opt
         ),
         _ => false,
     };
+    // A record nothing reads is dropped by the statement itself, which
+    // `test.expect` is registered to allow. As the last statement of its
+    // block the call could become the block's value, which only the checker
+    // can rule out, so there the record is discarded by a binding and
+    // `lint.redundant-discard` removes the binding where it is safe.
+    let binding = if read_later {
+        format!("let {name} = ")
+    } else if rest.is_empty() {
+        "let _ = ".to_string()
+    } else {
+        String::new()
+    };
     let mut call = format!(
-        "let {} = test.expect({}, {}, status: {status}",
-        if read_later { name } else { "_" },
-        arguments[0],
-        arguments[1],
+        "{binding}test.expect({}, {}, status: {status}",
+        arguments[0], arguments[1],
     );
     for (stream, fragments) in [("stderr", &expectation.stderr), ("stdout", &expectation.stdout)] {
         if !fragments.is_empty() {
@@ -296,7 +306,7 @@ fn may_read(text: &str, name: &str) -> bool {
 /// The formatter breaks a line by its width, which depends on how deep the
 /// statement is nested, so the statement is formatted inside as many blocks
 /// as its indentation says it has around it.
-fn formatted_in_place(source: &str, replaced: Span, statement: &str) -> Option<String> {
+pub(super) fn formatted_in_place(source: &str, replaced: Span, statement: &str) -> Option<String> {
     let line_start = source[..replaced.start()].rfind('\n').map_or(0, |at| at + 1);
     let indent = source.get(line_start..replaced.start())?;
     if !indent.chars().all(|ch| ch == ' ') || indent.len() % 2 != 0 {
@@ -379,7 +389,7 @@ mod tests {
         let source = "test rejects { |ctx|\n  let output = test.run_script(ctx, \"exit 1\")?\n  assert output.status == 1, output.stderr\n  assert \"first\" in output.stderr, output.stderr\n  assert \"second\" in output.stderr\n  assert \"printed\" in output.stdout, output.stdout\n}\n\ntest accepts { |ctx|\n  let source = \"print 1\"\n  let accepted = test.run_script(ctx, source, [\"a\"], stdin: b\"in\")?\n  assert accepted.success, accepted.stderr\n\n  let again = test.run_script(ctx, source)?\n  assert again.success == true\n  assert again.status == 0\n}\n";
         assert_eq!(
             fixed(source, 3),
-            "test rejects { |ctx|\n  let _ = test.expect(ctx, \"exit 1\", status: 1, stderr: [\"first\", \"second\"], stdout: [\"printed\"])?\n}\n\ntest accepts { |ctx|\n  let source = \"print 1\"\n  let _ = test.expect(ctx, source, status: 0, args: [\"a\"], stdin: b\"in\")?\n\n  let _ = test.expect(ctx, source, status: 0)?\n}\n"
+            "test rejects { |ctx|\n  let _ = test.expect(ctx, \"exit 1\", status: 1, stderr: [\"first\", \"second\"], stdout: [\"printed\"])?\n}\n\ntest accepts { |ctx|\n  let source = \"print 1\"\n  test.expect(ctx, source, status: 0, args: [\"a\"], stdin: b\"in\")?\n\n  let _ = test.expect(ctx, source, status: 0)?\n}\n"
         );
     }
 
@@ -401,7 +411,7 @@ mod tests {
         let source = "test rejects { |ctx|\n  let cross = test.run_script(ctx, \"exit 1\")?\n  assert cross.status == 1\n  # cross is done.\n  assert ctx.name != \"\", \"cross runs fail early\"\n  let kept = test.run_script(ctx, \"exit 1\")?\n  assert kept.status == 1\n  assert ctx.name != \"\", f\"{kept.stderr}\"\n}\n";
         assert_eq!(
             fixed(source, 2),
-            "test rejects { |ctx|\n  let _ = test.expect(ctx, \"exit 1\", status: 1)?\n  # cross is done.\n  assert ctx.name != \"\", \"cross runs fail early\"\n  let kept = test.expect(ctx, \"exit 1\", status: 1)?\n  assert ctx.name != \"\", f\"{kept.stderr}\"\n}\n"
+            "test rejects { |ctx|\n  test.expect(ctx, \"exit 1\", status: 1)?\n  # cross is done.\n  assert ctx.name != \"\", \"cross runs fail early\"\n  let kept = test.expect(ctx, \"exit 1\", status: 1)?\n  assert ctx.name != \"\", f\"{kept.stderr}\"\n}\n"
         );
     }
 

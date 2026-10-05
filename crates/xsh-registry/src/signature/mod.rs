@@ -183,6 +183,11 @@ pub struct ModuleFnSig {
     pub semantic_rule: SemanticRule,
     pub op: RuntimeOp,
     pub binding: ImplBinding,
+    /// The call's value may be dropped in statement position once its
+    /// failure is propagated: `f(...)?` is a statement even though the call
+    /// returns a value. The entry returns something most callers do not
+    /// need, and the failure is the part that must not be lost.
+    pub discardable: bool,
 }
 
 impl ModuleFnSig {
@@ -380,6 +385,7 @@ pub fn sig(params: Vec<ParamSig>, return_ty: Type, pure: bool, op: RuntimeOp) ->
         semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Native,
+        discardable: false,
     }
 }
 
@@ -405,6 +411,7 @@ pub fn script_sig(
         semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Script(ScriptImpl { module, function }),
+        discardable: false,
     }
 }
 
@@ -427,6 +434,7 @@ pub fn script_sig_with_arg_check(
         semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Script(ScriptImpl { module, function }),
+        discardable: false,
     }
 }
 
@@ -446,6 +454,7 @@ fn sig_with_arg_check(
         semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Native,
+        discardable: false,
     }
 }
 

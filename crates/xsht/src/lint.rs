@@ -94,6 +94,8 @@ mod lint_write_mode;
 mod lint_prefer_fail;
 #[path = "lint_prefer_test_expect.rs"]
 mod lint_prefer_test_expect;
+#[path = "lint_redundant_discard.rs"]
+mod lint_redundant_discard;
 
 #[path = "lint_path_kind.rs"]
 mod lint_path_kind;
@@ -521,6 +523,8 @@ pub struct LintOptions {
     /// Expression statements whose `Result[Unit]` value propagates instead of
     /// becoming a body's value; empty without checked facts.
     pub propagating_statements: BTreeSet<Span>,
+    /// The checker's `let _ = VALUE` statements whose binding is redundant.
+    pub discardable_bindings: BTreeSet<Span>,
     /// `expr?` in a control position of a condition, where the position
     /// propagates the `Result[Bool]` without the `?`; empty without checked
     /// facts.
@@ -585,6 +589,7 @@ impl Default for LintOptions {
             assertion_effect_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
             propagating_statements: BTreeSet::default(),
+            discardable_bindings: BTreeSet::default(),
             redundant_condition_propagations: BTreeSet::default(),
             unvalidated_command_vectors: BTreeMap::default(),
             membership_migration_spans: BTreeSet::default(),
@@ -665,6 +670,7 @@ pub struct Linter<'a> {
     whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
     propagating_statements: BTreeSet<Span>,
+    discardable_bindings: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
     /// Empty without checked facts.
     unvalidated_command_vectors: BTreeMap<Span, Type>,
@@ -888,6 +894,7 @@ impl<'a> Linter<'a> {
             whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
             propagating_statements: options.propagating_statements,
+            discardable_bindings: options.discardable_bindings,
             redundant_condition_propagations: options.redundant_condition_propagations,
             unvalidated_command_vectors: options.unvalidated_command_vectors,
             propagation_function: None,
@@ -1791,6 +1798,7 @@ impl<'a> Linter<'a> {
     fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
         self.lint_propagation(stmt_id);
+        lint_redundant_discard::lint_redundant_discard(self, stmt_id);
         self.fail_candidates.visit_stmt(self.arena, stmt_id);
         self.set_like_bindings
             .visit_stmt(self.arena, self.source, stmt_id, &self.expr_types);

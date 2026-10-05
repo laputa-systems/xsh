@@ -2022,6 +2022,14 @@ In statement position:
   it as the tail, or discard it with `let _ = ...`. A discarded collection
   update such as `items.push(x)` is reported as the mistake it usually is:
   the call returns the updated copy and leaves `items` unchanged.
+- The propagated value of a call to a standard function registered as
+  *discardable* is discarded: `test.expect(ctx, source, status: 0)?` is a
+  statement. The mark is a fact of the function's signature in the API
+  registry, and `test.expect` is the only function that has it. It covers the
+  success value alone: without `?` the statement is still a dropped
+  `Result[T]`, and the failure propagates as from any other call. Binding the
+  value only to discard it, `let _ = test.expect(...)?`, is
+  `lint.redundant-discard`.
 
 Every callable tail in value position is data. A `Bool` tail returns its value,
 including `false`; a `Result` tail is returned as a value, not unwrapped.
@@ -4340,7 +4348,8 @@ fragments the captured text must contain and default to none. When the status
 differs or a fragment is missing, the call is a failed assertion whose message
 names every mismatch and then gives the script's status, stdout, and stderr in
 full. Otherwise it returns the output record `test.run_script` returns, so
-further assertions can follow.
+further assertions can follow. The record is discardable (8.1): a call that
+needs nothing more is the statement `test.expect(...)?`.
 
 Each test runs under a time limit counted from its start: the runner's
 `xsht test --timeout` value unless the test calls `test.timeout(ctx, limit)`,

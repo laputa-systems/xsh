@@ -259,6 +259,10 @@ pub struct ModuleFnSig {
     /// Host capability inferred while adapting the canonical module or method
     /// signature. The checker and `xsht api` consume the same value.
     pub effect: Option<Effect>,
+    /// The call's value may be dropped in statement position once its
+    /// failure is propagated. Copied from the canonical signature; the
+    /// checker's ignored-value rule is its only consumer.
+    pub discardable: bool,
 }
 
 impl ModuleFnSig {
@@ -342,6 +346,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         op: sig.op,
         binding: sig.binding,
         effect: Effect::from_module_call(module, function),
+        discardable: sig.discardable,
     }
 }
 
@@ -391,6 +396,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             op: sig.sig.op,
             binding: sig.sig.binding,
             effect: method_required_effect(receiver, sig.sig.pure),
+            discardable: sig.sig.discardable,
         },
         receiver_ty: sig.receiver_ty.as_ref().map(convert_type),
     }

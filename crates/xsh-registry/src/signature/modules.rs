@@ -3417,27 +3417,32 @@ fn test_module() -> ModuleSig {
         ),
         (
             "expect",
-            sig(
-                vec![
-                    param("ctx", test_context_type()),
-                    param("source", Type::Str),
-                    param("status", Type::Int),
-                    default_param("stderr", Type::List(Box::new(Type::Str))),
-                    default_param("stdout", Type::List(Box::new(Type::Str))),
-                    // Argv words: text and paths, as their bytes. The checker also
-                    // takes a `List[Str]` or a `List[Path]` here.
-                    default_param(
-                        "args",
-                        Type::List(Box::new(Type::Union(vec![Type::Str, Type::Path]))),
-                    ),
-                    default_param("env", Type::Record(BTreeMap::new())),
-                    default_param("stdin", Type::Bytes),
-                    default_param("name", Type::Str),
-                ],
-                result(test_script_output_type()),
-                false,
-                RuntimeOp::TestExpect,
-            ),
+            // Most callers assert through the arguments and need nothing
+            // from the output record, so the record may be dropped.
+            super::ModuleFnSig {
+                discardable: true,
+                ..sig(
+                    vec![
+                        param("ctx", test_context_type()),
+                        param("source", Type::Str),
+                        param("status", Type::Int),
+                        default_param("stderr", Type::List(Box::new(Type::Str))),
+                        default_param("stdout", Type::List(Box::new(Type::Str))),
+                        // Argv words: text and paths, as their bytes. The checker also
+                        // takes a `List[Str]` or a `List[Path]` here.
+                        default_param(
+                            "args",
+                            Type::List(Box::new(Type::Union(vec![Type::Str, Type::Path]))),
+                        ),
+                        default_param("env", Type::Record(BTreeMap::new())),
+                        default_param("stdin", Type::Bytes),
+                        default_param("name", Type::Str),
+                    ],
+                    result(test_script_output_type()),
+                    false,
+                    RuntimeOp::TestExpect,
+                )
+            },
         ),
     ])
 }

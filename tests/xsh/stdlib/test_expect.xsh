@@ -70,6 +70,47 @@ eprint "beta"
   assert "expected status" not in message, message
 }
 
-test test_expect_discards_its_record_like_any_other_value { |ctx|
-  let _ = test.expect(ctx, "exit 2", status: 2, name: "exits.xsh")?
+test test_expect_is_a_statement_once_propagated { |ctx|
+  test.expect(ctx, "exit 2", status: 2, name: "exits.xsh")?
+  if ctx.name != "" {
+    test.expect(ctx, "exit 0", status: 0)?
+  }
+
+  test.expect(ctx, "exit 3", status: 3)?
+}
+
+test test_expect_statement_propagates_its_failure { |ctx|
+  let attempt = try {
+    test.expect(ctx, "exit 1", status: 0)?
+    "reached"
+  }
+  test.error_kind(attempt, "AssertionError.Failed")
+}
+
+# The mark covers the record, not the failure: without `?` the statement
+# would drop a `Result`. Other functions that return a record keep the rule.
+test test_expect_unpropagated_statement_is_an_ignored_result { |ctx|
+  let unpropagated = test.expect(
+    ctx,
+    r"""
+test inner { |ctx|
+  test.expect(ctx, "exit 0", status: 0)
+  assert ctx.name != ""
+}
+""",
+    status: 2,
+    stderr: ["check.ignored-result", "ignored Result value"],
+  )?
+  assert "let _ =" in unpropagated.stderr, unpropagated.stderr
+  test.expect(
+    ctx,
+    r"""
+test inner { |ctx|
+  test.run_script(ctx, "exit 0")?
+  assert ctx.name != ""
+}
+""",
+    status: 2,
+    stderr: ["check.ignored-result"],
+  )?
 }

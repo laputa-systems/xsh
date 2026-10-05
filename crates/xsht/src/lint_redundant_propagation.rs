@@ -521,6 +521,7 @@ pub(super) mod tests {
                 expr_types: checked.expr_types,
                 statement_positions: checked.statement_positions,
                 propagating_statements: checked.propagating_statements,
+                discardable_bindings: checked.discardable_bindings,
                 redundant_condition_propagations: checked.redundant_condition_propagations,
                 unvalidated_command_vectors: checked.unvalidated_command_vectors,
                 function_effect_facts: checked.function_effect_facts,

@@ -1126,7 +1126,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("test", "expect") => Some((
             "Runs a nested XSH script and requires its exit status and output fragments.",
-            "Runs the script as `test.run_script` does. A status other than `status`, or a `stderr` or `stdout` fragment the captured text does not contain, fails the test with every mismatch and the script's whole output; otherwise the output record is returned for further assertions.",
+            "Runs the script as `test.run_script` does. A status other than `status`, or a `stderr` or `stdout` fragment the captured text does not contain, fails the test with every mismatch and the script's whole output; otherwise the output record is returned for further assertions. The record is discardable: `test.expect(...)?` is a statement.",
             &["test", "native-tests", "process"],
         )),
         ("template", "render") => Some((

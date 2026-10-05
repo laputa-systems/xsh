@@ -754,6 +754,9 @@ impl Checker {
     /// a postfix `when` or `unless`, which a binding cannot take. The edit needs no source
     /// text, so it stays exact for statements of imported modules, which are
     /// checked against the entry script's text.
+    ///
+    /// A call whose signature is marked discardable is the exception: its
+    /// value may be dropped once its failure has been propagated.
     pub(super) fn reject_discarded_value(
         &mut self,
         ty: &Type,
@@ -766,6 +769,7 @@ impl Checker {
             || ty.is_result_unit()
             || ty.matches_expected(&Type::Unit)
             || self.is_inert_expression_discard(value)
+            || self.is_discardable_value(ty, value)
         {
             return;
         }
@@ -804,6 +808,41 @@ impl Checker {
         };
         self.diagnostics
             .push(diagnostic.with_code(DiagnosticCode::CheckIgnoredResult));
+    }
+
+    /// Records an untyped `let _ = VALUE` whose value a statement may drop
+    /// by itself. Tail checks remove the entry where the bare value would
+    /// become its block's value.
+    fn record_discardable_binding(
+        &mut self,
+        arena: &ArenaProgram,
+        target: BindingTargetId,
+        annotation: Option<TypeExprId>,
+        initializer: ArenaExprOrRun,
+        statement: Span,
+    ) {
+        let ArenaExprOrRun::Expr(value) = initializer else {
+            return;
+        };
+        let value = arena.arena.expr(value).span;
+        let discarded = matches!(
+            arena.arena.binding_target(target).kind,
+            ArenaBindingTargetKind::Name(name) if name == "_"
+        );
+        let droppable = self
+            .expr_types
+            .get(&value)
+            .is_some_and(|ty| self.is_discardable_value(ty, value));
+        if discarded && annotation.is_none() && droppable {
+            self.discardable_bindings.insert(statement);
+        }
+    }
+
+    /// Whether a statement may drop this value because the signature of the
+    /// call that produced it says so. A `Result` is never dropped this way:
+    /// the mark covers the success value, not the failure.
+    pub(super) fn is_discardable_value(&self, ty: &Type, value: Span) -> bool {
+        !ty.is_result() && self.discardable_values.contains(&value)
     }
 
     /// XSH has no truthiness, so a condition names the type it found. A
@@ -962,6 +1001,7 @@ impl Checker {
                             }))
                     });
                 }
+                self.record_discardable_binding(arena, target, ty, initializer, stmt.span);
             }
             ArenaStmtKind::Var {
                 target,
@@ -3547,6 +3587,12 @@ impl Checker {
                 self.check_valueless_tail_if_arena(arena, source, tail)
             } else {
                 self.check_stmt_arena(arena, source, tail);
+                // The block's value is this tail's `Unit`; a bare call here
+                // would be the value instead.
+                if !expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit()) {
+                    self.discardable_bindings
+                        .remove(&arena.arena.stmt(tail).span);
+                }
                 Type::Unit
             }
         } else {
@@ -3799,6 +3845,7 @@ impl Checker {
                     self.record_statement_error(&actual, stmt.span);
                     if !actual.is_result()
                         && !self.is_inert_expression_discard(arena.arena.expr(expr_id).span)
+                        && !self.is_discardable_value(&actual, arena.arena.expr(expr_id).span)
                     {
                         self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
                     }
@@ -4023,6 +4070,8 @@ impl Checker {
             }
             _ => {
                 self.check_stmt_arena(arena, source, id);
+                // Reached only where the tail is read as a value.
+                self.discardable_bindings.remove(&stmt.span);
                 Type::Unit
             }
         }
