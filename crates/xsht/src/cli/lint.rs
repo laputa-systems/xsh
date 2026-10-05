@@ -1503,6 +1503,7 @@ fn lint_config_for_file(
         prefer_inferred_variants: tool_config.config.lint.prefer_inferred_variants,
         prefer_positional_constructors: tool_config.config.lint.prefer_positional_constructors,
         prefer_implicit_messages: tool_config.config.lint.prefer_implicit_messages,
+        explicit_missing_ok: tool_config.config.lint.explicit_missing_ok,
         // A project that asks `xsht check --annotate` to write returns does
         // not also want them removed.
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns

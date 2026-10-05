@@ -641,6 +641,7 @@ diagnostic_codes! {
         LintPreferPathMethod = "lint.prefer-path-method", warning, "Call the `Path` method instead of the `fs` function that takes the path first";
         LintPreferTypedCallable = "lint.prefer-typed-callable", warning, "Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature";
         LintPreferTestExpect = "lint.prefer-test-expect", warning, "State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script`";
+        LintExplicitMissingOk = "lint.explicit-missing-ok", warning, "Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in)";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

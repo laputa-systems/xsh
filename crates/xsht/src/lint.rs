@@ -95,6 +95,8 @@ mod lint_fs_method;
 mod lint_prefer_typed_callable;
 #[path = "lint_explicit_run_capture.rs"]
 mod lint_explicit_run_capture;
+#[path = "lint_explicit_missing_ok.rs"]
+mod lint_explicit_missing_ok;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -386,6 +388,9 @@ pub struct LintOptions {
     pub prefer_inferred_proc_returns: bool,
     /// Opt in to `lint.prefer-typed-callable`.
     pub prefer_typed_callables: bool,
+    /// Opt in to `lint.explicit-missing-ok`, which a corpus turns on once,
+    /// before the default of `remove` changes.
+    pub explicit_missing_ok: bool,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -455,6 +460,7 @@ impl Default for LintOptions {
             prefer_implicit_messages: false,
             prefer_inferred_proc_returns: false,
             prefer_typed_callables: false,
+            explicit_missing_ok: false,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -510,6 +516,7 @@ pub struct Linter<'a> {
     prefer_positional_constructors: bool,
     prefer_inferred_proc_returns: bool,
     prefer_typed_callables: bool,
+    explicit_missing_ok: bool,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -702,6 +709,12 @@ impl<'a> Linter<'a> {
             prefer_tempdir_scope: options.prefer_tempdir_scope,
             prefer_inferred_variants: options.prefer_inferred_variants,
             prefer_positional_constructors: options.prefer_positional_constructors,
+            // Naming the rule asks for it as the setting does, so its sites
+            // can be counted without a configuration file.
+            explicit_missing_ok: options.explicit_missing_ok
+                || only.as_deref().is_some_and(|only| {
+                    only.contains(&DiagnosticCode::LintExplicitMissingOk)
+                }),
             prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
             // Naming the rule in `--only` asks for it as the setting does.
             prefer_typed_callables: options.prefer_typed_callables
@@ -10883,6 +10896,16 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(method);
+        if self.explicit_missing_ok {
+            let removal = lint_explicit_missing_ok::implicit_missing_ok(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                fs_is_shadowed,
+                expr,
+            );
+            self.diagnostics.extend(removal);
+        }
     }
 
     fn lint_redundant_named_bool(
