@@ -1379,8 +1379,10 @@ just its leader. A spawned handle can be stopped on purpose with
 `handle.cancel(signal:, kill_after:)`, which signals the group, escalates to
 `SIGKILL` after the grace period, and reaps the child. A child that dies from a
 signal is `Status` data for `run.status` and a `ProcessError.Signal` for the
-forms that fail on a bad exit. A handle still running when its scope ends is
-cancelled and reaped before that scope's defers run:
+forms that fail on a bad exit. Cancelling a handle that is already finished,
+waited for, or cancelled does nothing and succeeds, so `defer handle.cancel()`
+is always safe. A handle still running when its scope ends is cancelled and
+reaped before that scope's defers run:
 
 ```xsh
 let worker = spawn run sleep 30 ?
@@ -1840,10 +1842,13 @@ Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
 
 ### `xsht-config.ini`
 
-`xsht` reads the nearest `xsht-config.ini` above each file; `xsh` reads its
-`module_path` for the entry script and ignores the rest. Relative paths
-resolve from the config's directory. A config that does not decode is an
-error for both.
+`xsht` reads the nearest `xsht-config.ini` above each file, and that config
+alone governs the file, from whatever directory the command is started; a
+file with none above it gets the defaults. `include` and `test_roots` list
+one project's directories, so they are read from the config in the current
+directory. `xsh` reads `module_path` for the entry script and ignores the
+rest. Relative paths resolve from the config's directory. A config that does
+not decode is an error for both.
 
 ```ini
 # Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.

@@ -3604,7 +3604,7 @@ A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
 
-At most 10000 function calls are open at once. The call that would be one
+At most 50000 function calls are open at once. The call that would be one
 more fails with the runtime error `stack-overflow`, whose message names the
 innermost open calls, so recursion that never ends is an error instead of a
 script that runs until memory does. Recursion over data stays far below the
@@ -4526,13 +4526,18 @@ server.cancel(signal: "TERM", kill_after: 2s)
   then returns the first error without partial statuses.
 - `handle.cancel(signal: "TERM", kill_after: 2s)` signals the child's process
   group, sends `SIGKILL` after `kill_after` if needed, reaps it, and returns
-  `Result[Unit, ProcessError]`.
+  `Result[Unit, ProcessError]`. Cancelling is idempotent: on a handle whose
+  child has already exited, or that a `wait`, an earlier `cancel`, or its
+  owning scope (11.8) has already consumed, it does nothing and returns
+  `Ok()`, so `defer handle.cancel()` is safe in the scope that owns the
+  handle. An unknown `signal` name is still an error.
 - Nonzero exits and signal deaths are `Status` data. Setup failures, timeouts,
   cancellation, and invalid handles are `ProcessError`. A trailing `?` applies
   to the whole `spawn`, `wait`, or `cancel` expression.
 - A handle exposes `pid`, `command`, `argv`, and `detached`, which stay
   readable after the child is gone. The first `wait` or `cancel` consumes the
-  child, and later use of any alias fails with `ProcessError.Unknown`.
+  child; a later `wait` through any alias fails with `ProcessError.Unknown`,
+  and a later `cancel` is the no-op above.
 - `wait until` begins the polling statement of 8.6, so the handle of a `wait`
   cannot be the bare name `until`; write `wait (until)`.
 
@@ -4544,8 +4549,10 @@ it into an outer binding, or breaking it out of a loop transfers ownership
 outward. When a scope exits, its owned non-detached handles are cancelled and
 reaped and its owned network jobs are cancelled and drained, before the scope's
 defers run. Detached handles are released to a background reaper instead. A
-`NetJob` is consumed by its first `wait()` or `cancel()`, like a process
-handle. These are process and transfer fan-out, not an async runtime: there
+`NetJob` is consumed by its first `wait()` or `cancel()`, and either one fails
+on a consumed job (`net-job-not-live`): only a process handle's `cancel` is
+idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
+with `process-missing` once the child is reaped. These are process and transfer fan-out, not an async runtime: there
 are no futures, callbacks, channels, `await`, or wait-any.
 
 An `FsRoot` and an `fs.lock` lock are not owned this way: nothing releases
@@ -5175,13 +5182,18 @@ the generated `docs/reference/cli.md`. `xsh` is a plain runner and rejects
 tracing flags. Runtime stdout and stderr are never
 decorated; diagnostics go to stderr.
 
-Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
-file under the current directory plus `include` entries from the nearest
-`xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
-nearest config among its ancestors (for `module_path`, `[format] line-width`
-(default 120), lint options, and `[check] annotate`); a file with no config
-above it has no project module roots (3.3). `xsht fmt` discovery also
-skips the discovery root's `[format] exclude` patterns.
+Without paths, `check`, `lint`, `fmt`, `grep`, and `refactor` process every
+`.xsh` file under the current directory and under the `include` entries of
+the `xsht-config.ini` in the current directory; a directory argument stands
+for the files under it. Each file is governed by the nearest config above
+it and by no other, wherever the command was started: that config supplies
+the file's `module_path`, `[format] line-width` (default 120), lint options,
+and `[check] annotate`. A file with no config above it takes the defaults
+and has no project module roots (3.3). Discovery skips a file named by the
+`exclude` (for `xsht fmt`, also the `[format] exclude`) of any config from
+the file's nearest one up to the one governing the directory discovery
+started from, so an exclusion covers the projects nested below it. A file
+named on the command line is processed whatever an `exclude` says.
 
 `xsht check` runs exactly the checks that execution runs before evaluating
 anything, plus a lowering check that also needs no execution. Dynamic
@@ -5193,8 +5205,9 @@ optionally local bindings), only when checking reports no diagnostics.
 `xsht lint` reports `lint.*` findings and the checker findings that carry fixes
 (such as `check.bool-statement`). `--fix` applies only fixes that preserve
 behavior and comments; a rewritten file must parse and check with no new
-diagnostics. `--only RULE,...` limits reporting and fixing to the named codes
-and applies exactly their edits, leaving every other byte unformatted, so
+diagnostics. `--only RULE,...` limits reporting and fixing to the named codes,
+runs a named rule even where a `[lint]` key leaves it off, and applies
+exactly the named rules' edits, leaving every other byte unformatted, so
 `xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
 statements appear. `xsht lint --list [--format text|jsonl]` prints every
 selectable code with a one-line summary; the generated
@@ -5266,8 +5279,9 @@ nowhere yet, so its traceback starts at the caller's form.
 
 ## 17. Native Tests
 
-`xsht test` discovers tests in `tests/**/*.xsh` and `showcase/tests/**/*.xsh`
-under the current directory. Missing roots mean zero tests. Test ids have the
+`xsht test` discovers tests in the `test_roots` of the `xsht-config.ini` in
+the current directory, or in `tests` when it names none. Missing roots mean
+zero tests. Test ids have the
 form `tests/file.xsh::name`.
 
 ```xsh
