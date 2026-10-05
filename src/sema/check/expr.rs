@@ -976,14 +976,16 @@ impl Checker {
             ArenaExprKind::PatternCondition { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
-                // Over an error family only a catch-all counts as unable to
-                // fail here. Variant and facet patterns that happen to cover
-                // every variant of the family stay accepted conditions: they
-                // were before families became closed for `match`, and
-                // rejecting them needs a rewrite to offer first.
-                let coverage_ty = match &value_ty {
-                    Type::ErrorFamily(_) => &Type::Error,
-                    other => other,
+                // Over an enum or an error family only a catch-all counts as
+                // unable to fail here. Variant and facet patterns that happen
+                // to cover every variant stay accepted conditions: a
+                // declaration that gains a variant turns the same condition
+                // into one that can fail, and the two closed sets follow one
+                // rule. The broad `Error` has no variant list, so judging
+                // against it leaves the catch-all as the only cover.
+                let coverage_ty = match value_ty.unvalidated() {
+                    Type::ErrorFamily(_) | Type::Tag(_) => &Type::Error,
+                    _ => &value_ty,
                 };
                 let cannot_fail = super::stmt::patterns_are_exhaustive_arena(
                     arena,

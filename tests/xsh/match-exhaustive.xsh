@@ -450,3 +450,36 @@ show(A)
   )?
   assert count(stderr, "err[check.pattern-type]") == 2, stderr
 }
+
+# An enum follows the rule of an error family: variant patterns that together
+# cover every variant are still a condition, and only a catch-all cannot
+# fail.
+test test_pattern_conditions_over_an_enum_stay_refutable { |ctx|
+  let accepted = test.expect(
+    ctx,
+    """enum Mode { Fast, Slow(Int) }
+enum Only { One(Int) }
+
+let mode: Mode = Slow(3)
+if let (Fast | Slow(_)) as either = mode { print \${either is Slow(3)} }
+if let Slow(delay) = mode { print \$delay }
+let only: Only = One(4)
+if let One(value) = only { print \$value }
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+  assert accepted.stdout == "true\n3\n4\n", accepted.stdout
+
+  let stderr = check_errors(
+    ctx,
+    """enum Mode { Fast, Slow(Int) }
+
+let mode: Mode = Fast
+if let whole = mode { print \${whole is Fast} }
+if let _ = mode { print "any" }
+""",
+  )?
+  assert count(stderr, "err[check.irrefutable-pattern-condition]") == 2, stderr
+  assert count(stderr, "err[") == 2, stderr
+}

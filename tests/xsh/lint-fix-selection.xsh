@@ -1,7 +1,7 @@
-test test_selected_lint_fix_applies_beside_an_unselected_check_warning { |ctx|
-  # The first match draws `check.non-exhaustive-match`, which the selection
-  # leaves out. That warning was there before the fix, so it is not a new
-  # diagnostic and must not reject the fix to the second match.
+test test_selected_lint_fix_applies_beside_an_unselected_check_error { |ctx|
+  # The first match draws the error `check.non-exhaustive-match`, which the
+  # selection leaves out. That error was there before the fix, so it is not a
+  # new diagnostic and must not reject the fix to the second match.
   let source = r"""enum Tok { A, B, C }
 
 proc show(t: Tok) {
@@ -30,9 +30,9 @@ print ${pick(B)}
   assert file.read_text()? == source.replace("    _ => 2,", with: "    else => 2,")
 }
 
-test test_selected_check_fix_applies_beside_an_unselected_check_warning { |ctx|
+test test_selected_check_fix_applies_beside_an_unselected_check_error { |ctx|
   # The selected fix puts `assert` on the Bool statement. The match keeps its
-  # unselected check warning, which the rewrite neither adds nor removes, and
+  # unselected check error, which the rewrite neither adds nor removes, and
   # an unrestricted run still reports it.
   let source = """enum Tok { A, B, C }
 
@@ -50,8 +50,8 @@ show(A)
   let fixed = run.capture --text "xsht" lint --fix --only check.bool-statement $file
   assert fixed.status.exited_with(0), fixed.stderr
   assert file.read_text()? == source.replace("  t == A", with: "  assert t == A")
-  let all = run.capture --text "xsht" lint $file
-  assert "check.non-exhaustive-match" in all.stderr, all.stderr
+  let all = run.capture --text --accept=[2] "xsht" lint $file
+  assert "err[check.non-exhaustive-match]" in all.stderr, all.stderr
 }
 
 test test_check_warning_does_not_hide_lint_findings { |ctx|

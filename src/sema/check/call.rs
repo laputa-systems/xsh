@@ -1326,6 +1326,13 @@ impl Checker {
                 span,
             );
         }
+        // `Ok(...)` and `Err(...)` build the `Result` of an optional
+        // `Result` too: the constructor is never `null`, so the payload and
+        // error types come from the type under the `?`.
+        let expected_context = match expected_context {
+            Some(Type::Optional(present)) => Some(present.as_ref()),
+            other => other,
+        };
         match name {
             "Ok" => {
                 let expected = expected_context.and_then(Type::result_ok);

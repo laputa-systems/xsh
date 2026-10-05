@@ -621,3 +621,50 @@ let label = match level {
   assert "parse.inferred-variant-arm" in after_else.stderr, after_else.stderr
   assert "parse.match-else-arm" in after_else.stderr, after_else.stderr
 }
+
+# `Ok(...)` and `Err(...)` are never `null`, so under an optional `Result`
+# they take the payload and error types of the `Result` inside it, in a
+# return, a tail, a binding, and an argument.
+test test_result_constructors_follow_an_optional_result_type { |ctx|
+  let executed = test.expect(
+    ctx,
+    r"""error FetchError = Gone(message: Str) | Usage(code: Int)
+
+pure pending(step: Int) -> Result[Int, FetchError]? {
+  return null when step == 0
+  return Ok(7) when step == 1
+  return Err(.Usage(2)) when step == 2
+  Err(.Gone("gone"))
+}
+
+pure describe(outcome: Result[Int, FetchError]?) -> Str {
+  guard let settled = outcome else {
+    return "pending"
+  }
+  match settled {
+    Ok(value) => f"ok {value}"
+    Err(FetchError.Usage {code}) => f"usage {code}"
+    Err(_) => "gone"
+  }
+}
+
+let bound: Result[Int, FetchError]? = Err(.Usage(4))
+let kept: Result[Int, FetchError]? = Ok(5)
+print ${describe(pending(0))} ${describe(pending(1))} ${describe(pending(2))} ${describe(pending(3))}
+print ${describe(bound)} ${describe(kept)} ${describe(Err(.Gone("argument")))} ${describe(Ok(6))}
+""",
+    status: 0,
+  )?
+  assert executed.stdout == "pending ok 7 usage 2 gone\nusage 4 ok 5 gone ok 6\n", executed.stdout
+
+  # The payload is still checked against the type under the `?`.
+  let mismatched = test.run_script(
+    ctx,
+    r"""error FetchError = Gone(message: Str)
+
+let wrong: Result[Int, FetchError]? = Ok("seven")
+""",
+  )?
+  assert ! mismatched.success, mismatched.stdout
+  assert "check.type-mismatch" in mismatched.stderr, mismatched.stderr
+}

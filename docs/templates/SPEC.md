@@ -1938,6 +1938,12 @@ plain `T`, and a `Result` there is propagated with `?`:
 {{.spec.scope_result_tail.source}}
 ```
 
+A constructor takes its payload and error types from the expected type. Where
+a `Result[T, E]?` is expected, `Ok(...)` and `Err(...)` are checked against
+the `Result[T, E]` under the `?`, since neither is `null`: `Ok(7)` has the
+error type `E`, and `Err(.Variant(...))` selects the variant from `E`
+(6.8).
+
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
 
@@ -2205,9 +2211,10 @@ where it is an optional binding: `if let name = subject` with `subject: T?`
 takes the `else` branch (and `while let` ends the loop) on `null`, and
 otherwise matches the pattern against the value as a `T`. A pattern that can
 fail on its own is matched against an optional subject as it is, with no
-unwrapping. Over a value of one error family only a catch-all cannot fail:
-variant and facet patterns that together cover the family (6.8) are still a
-condition.
+unwrapping. Over a value of an enum or of one error family only a catch-all
+cannot fail: variant and facet patterns that together cover every variant
+(6.8) are still a condition, so `if let One(value) = only` is accepted for an
+enum with the single variant `One`.
 
 An optional binding also narrows its subject (5.4): after
 `guard let name = subject else { ... }`, and inside the branch or body selected

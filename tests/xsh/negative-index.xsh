@@ -30,6 +30,58 @@ test test_negative_literal_index_counts_from_the_end {
   assert items[1..][-1] == 3
 }
 
+pure fetch_rows(ready: Bool) -> Result[List[Int]] {
+  fail "not ready" unless ready
+  Ok([7, 8, 9])
+}
+
+pure branch_tail(items: List[Int], first: Bool) -> Int {
+  if first { items[-2] } else { items[-1] }
+}
+
+pure arm_tail(items: List[Int]) -> Int {
+  match items.len() {
+    0 => 0
+    else => items[-1]
+  }
+}
+
+pure fetched_tail(ready: Bool) -> Result[Int] {
+  (fetch_rows(ready)?)[-1]
+}
+
+# The value of a function body, of an `if` or `match` branch, and of a
+# comprehension element is computed on the evaluator's explicit frame stack,
+# where a call argument or a top-level binding is computed by the recursive
+# one. Both read an index from the end; these are the frame-stack positions,
+# with the base that fails and the index that is out of range.
+test test_negative_literal_index_in_tail_branch_and_comprehension_positions { |ctx|
+  assert last(["a", "b"]) == "b"
+  assert branch_tail([1, 2, 3], true) == 2
+  assert branch_tail([1, 2, 3], false) == 3
+  assert arm_tail([4, 5]) == 5
+  assert [row[-1] for row in [[1, 2], [3]]] == [2, 3]
+  assert [row[-1] for row in [[1, 2], [3, 4]] if row[-2] > 1] == [4]
+  assert fetched_tail(true) is Ok(9)
+  assert fetched_tail(false) is Err(_)
+
+  let output = test.run_script(
+    ctx,
+    """pure tail(items: List[Int]) -> Int {
+  items[-3]
+}
+
+print \${tail([1, 2, 3])}
+print \${tail([1, 2])}
+print "unreachable"
+""",
+  )?
+  assert output.status != 0
+  assert output.stdout == "1\n", output.stdout
+  assert "index-out-of-range" in output.stderr, output.stderr
+  assert ":2:" in output.stderr, output.stderr
+}
+
 test test_negative_literal_index_follows_a_null_safe_hop {
   let absent: List[Int]? = null
   let present: List[Int]? = [4, 5]
