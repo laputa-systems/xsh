@@ -13,6 +13,6 @@ let by_name = {
   for item in items
   if item.enabled
 }
-let chain = source.display().replace("/", "_").replace("-", "_")
+let chain = source.display().replace("/", with: "_").replace("-", with: "_")
 # fmt: skip
 let skipped=1+2

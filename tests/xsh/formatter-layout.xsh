@@ -803,8 +803,8 @@ let by_name = {
   if item.enabled
 }
 let chain = source.display()
-  .replace("/", "_")
-  .replace("-", "_")
+  .replace("/", with: "_")
+  .replace("-", with: "_")
 # fmt: skip
 let skipped=1+2
 """, actual

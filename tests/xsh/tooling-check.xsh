@@ -474,7 +474,7 @@ test test_check_local_method_chain_through_if_binding { |ctx|
     let stripped = raw.trim()
     let line = if stripped.starts_with("export ") { (stripped.split("export ").get(1) ?? "").trim() } else { stripped }
     if line.starts_with(f"{name}=") {
-      return (line.split("=").get(1) ?? "").trim().replace("\"", "").replace("'", "")
+      return (line.split("=").get(1) ?? "").trim().replace("\"", with: "").replace("'", with: "")
     }
   }
   return ""
