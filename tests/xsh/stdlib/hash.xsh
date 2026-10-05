@@ -279,3 +279,17 @@ test test_hash_streaming_algorithm_vectors { |ctx|
   assert hash.checksum(empty, "bsd")?.size == 0
   assert hash.digest_file(empty, "blake2b")?.hex() == "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce"
 }
+
+# Cross-block vectors use distinct lengths around the final-block boundary.
+test test_blake2b_final_block_boundaries { |ctx|
+  let data_127 = test.temp_file(ctx, name: "blake-127", contents: bytes.zero(127)?)?
+  assert hash.digest_file(data_127, "blake2b", length: 256)?.hex() == "0f2dfeb03485c703d0c8584a40d135192ecb150247e9377595ed718d84b08a85"
+  let data_128 = test.temp_file(ctx, name: "blake-128", contents: bytes.zero(128)?)?
+  assert hash.digest_file(data_128, "blake2b", length: 256)?.hex() == "378d0caaaa3855f1b38693c1d6ef004fd118691c95c959d4efa950d6d6fcf7c1"
+  let data_129 = test.temp_file(ctx, name: "blake-129", contents: bytes.zero(129)?)?
+  assert hash.digest_file(data_129, "blake2b", length: 256)?.hex() == "baadfb64c3bd2cd187b54accc5e61a0720ed86bf48c28017873536cf9015d1b8"
+  let data_256 = test.temp_file(ctx, name: "blake-256", contents: bytes.zero(256)?)?
+  assert hash.digest_file(data_256, "blake2b", length: 256)?.hex() == "2b69702a889248a4d6620475a105dccd5e0d4230aca8a492aaf6510e55d55b02"
+  let data_65537 = test.temp_file(ctx, name: "blake-65537", contents: bytes.zero(65537)?)?
+  assert hash.digest_file(data_65537, "blake2b", length: 256)?.hex() == "a16f64213781b84f138b13b3778a4b94e9776135137e6cd942f6073636005f36"
+}

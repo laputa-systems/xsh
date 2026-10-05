@@ -197,7 +197,7 @@ pub(crate) fn checksum_reader(
 fn hash_reader(
     algorithm: &str, length: i64, reader: &mut dyn Read, span: Span,
 ) -> Result<(Vec<u8>, u32, i64), RuntimeError> {
-    let mut digest: Option<Box<dyn md5::DynDigest>> = match algorithm {
+    let mut digest: Option<Box<dyn md5::digest::DynDigest>> = match algorithm {
         "md5" => Some(Box::new(md5::Md5::new())),
         "sha1" => Some(Box::new(sha1::Sha1::new())),
         "sha224" => Some(Box::new(sha2::Sha224::new())),
