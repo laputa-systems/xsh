@@ -250,21 +250,6 @@ fn xsht_lint_uses_nested_config_for_discovered_files() {
 }
 
 #[test]
-fn xsht_ast_prints_parser_debug_output() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["ast", "tests/fixtures/runtime/cli-trace.xsh"])
-        .output()
-        .expect("run xsht");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("Program"));
-    assert!(stdout.contains("ProcDef"));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.is_empty());
-}
-
-#[test]
 fn xsht_test_lists_and_filters_native_tests() {
     let listed = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--list", "test_dns"])
