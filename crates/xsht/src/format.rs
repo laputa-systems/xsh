@@ -891,6 +891,21 @@ impl<'a> Writer<'a> {
                         output.push(' ');
                         self.write_block(body, indent, output);
                     }
+                    ArenaSugar::GuardFail { condition, fail } => {
+                        let ArenaStmtKind::Sugar { form, operands, .. } =
+                            self.arena.stmt(fail).kind
+                        else {
+                            unreachable!("a `guard` that fails holds a `fail` statement")
+                        };
+                        let ArenaSugar::Fail { failure, cause } = self.arena.sugar(form, operands)
+                        else {
+                            unreachable!("a `fail` statement has the operands of `fail`")
+                        };
+                        output.push_str("guard ");
+                        self.write_expr(condition, WORD, output);
+                        output.push_str(" else ");
+                        self.write_fail(failure, cause, Follow::END, output);
+                    }
                 }
             }
             ArenaStmtKind::Guard {

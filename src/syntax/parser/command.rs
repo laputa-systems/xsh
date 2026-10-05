@@ -33,6 +33,23 @@ impl<'a> Parser<'a> {
         } else {
             let arena_command = self.parse_command_arena_only(arena)?;
             let propagate = self.consume(TokenKindMatch::Question).is_some();
+            // Only `print` and `eprint` take a postfix guard: any other
+            // command reads the word as an argument.
+            let prints = matches!(
+                arena_command,
+                ArenaCommand::Core {
+                    name: CoreCommand::Print | CoreCommand::Eprint,
+                    ..
+                }
+            );
+            if prints && (self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless)) {
+                let inner = arena.push_command_statement(
+                    arena_command,
+                    propagate,
+                    self.span(start, self.previous_end()),
+                );
+                return self.parse_guarded_stmt_arena_only(start, inner, arena);
+            }
             (arena_command, propagate)
         };
         let end = self.expect_terminator();
@@ -181,7 +198,19 @@ impl<'a> Parser<'a> {
                 block = Some(id);
             }
             CoreCommand::Print | CoreCommand::Eprint => {
-                args = self.parse_command_args_arena_only(false, arena);
+                // A word `when` or `unless` begins the statement's postfix
+                // guard. Quoted, it is text to print.
+                arena.begin_command_args();
+                while !self.at_command_end(false)
+                    && !self.at_keyword(Keyword::When)
+                    && !self.at_keyword(Keyword::Unless)
+                {
+                    let Some(arg) = self.parse_command_arg_arena_only(arena) else {
+                        break;
+                    };
+                    arena.push_command_arg_input(arg);
+                }
+                args = arena.finish_command_args();
             }
         }
         Some(ArenaCommand::Core {

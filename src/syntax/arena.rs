@@ -5161,6 +5161,18 @@ impl AstArena {
                     "an indexed `for` has an index, an item, a source, and a body, found {operands:?}"
                 )
             }
+            (
+                SugarForm::GuardFail,
+                &[
+                    ArenaSugarOperand::Expr(condition),
+                    ArenaSugarOperand::Stmt(fail),
+                ],
+            ) => ArenaSugar::GuardFail { condition, fail },
+            (SugarForm::GuardFail, operands) => {
+                unreachable!(
+                    "a `guard` that fails has a condition and a `fail` statement, found {operands:?}"
+                )
+            }
         }
     }
 
@@ -5834,10 +5846,13 @@ pub enum SugarForm {
     /// `for INDEX, ITEM in SOURCE { BODY }`: operands are the index binding,
     /// the item binding, the source expression, and the body block.
     ForIndex,
+    /// `guard CONDITION else fail FAILURE`: operands are the condition and
+    /// the `fail` statement.
+    GuardFail,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
@@ -5845,13 +5860,14 @@ impl SugarForm {
         Self::Fail,
         Self::Atomically,
         Self::ForIndex,
+        Self::GuardFail,
     ];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
             Self::Repeat | Self::Guard | Self::Atomically | Self::ForIndex => true,
-            Self::When | Self::Unless | Self::Fail => false,
+            Self::When | Self::Unless | Self::Fail | Self::GuardFail => false,
         }
     }
 
@@ -5900,6 +5916,8 @@ pub enum ArenaSugar {
         source: ExprId,
         body: BlockId,
     },
+    /// `guard condition else fail ...`, where `fail` is the `fail` statement.
+    GuardFail { condition: ExprId, fail: StmtId },
 }
 
 /// The table rows one sugar expansion added.

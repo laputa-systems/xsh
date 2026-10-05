@@ -221,6 +221,22 @@ impl Parser<'_> {
     ) -> Option<()> {
         let condition = self.parse_condition_arena_only(arena)?.id;
         self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
+        // After `else` only a block or `fail` can follow, so the word needs
+        // no space after it to be the statement.
+        if self.current_name().is_some_and(|name| name == FAIL_WORD)
+            && !matches!(
+                self.peek_tag(1),
+                None | Some(
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Eof
+                )
+            )
+        {
+            return self.parse_guard_fail_arena_only(start, keyword, condition, arena);
+        }
         let else_block = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
         arena.push_sugar(
@@ -234,6 +250,51 @@ impl Parser<'_> {
         );
         Some(())
     }
+
+    /// Parses the `fail FAILURE` that follows `guard CONDITION else`. The
+    /// statement ends there: the `fail` takes no postfix guard of its own.
+    fn parse_guard_fail_arena_only(
+        &mut self,
+        start: usize,
+        keyword: Span,
+        condition: ExprId,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        let fail = self.parse_fail_form_arena_only(self.current_start(), false, arena)?;
+        let end = self.expect_terminator();
+        let span = self.span(start, end);
+        // The `fail` belongs to the expansion's block, not to the enclosing
+        // statement list.
+        let registered = arena.pop_last_statement();
+        assert_eq!(registered, fail, "the `fail` statement is registered last");
+        arena.push_sugar(
+            SugarForm::GuardFail,
+            &[
+                ArenaSugarOperand::Expr(condition),
+                ArenaSugarOperand::Stmt(fail),
+            ],
+            span,
+            |arena| expand_guard_fail(arena, keyword, condition, fail, span),
+        );
+        Some(())
+    }
+}
+
+/// `guard CONDITION else fail FAILURE` is `if CONDITION {} else { fail
+/// FAILURE }`, which is what `fail FAILURE unless CONDITION` is.
+///
+/// The empty branch sits on the `guard` word, and the other on the `fail`
+/// statement, which has no braces of its own.
+fn expand_guard_fail(
+    arena: &mut ArenaProgramBuilder<'_>,
+    keyword: Span,
+    condition: ExprId,
+    fail: StmtId,
+    span: Span,
+) -> StmtId {
+    let then_block = arena.push_block_of(&[], keyword);
+    let else_block = arena.push_block_of(&[fail], arena.stmt_span(fail));
+    arena.push_if(&[(condition, then_block)], Some(else_block), span)
 }
 
 #[derive(Clone, Copy)]
@@ -422,6 +483,26 @@ impl Parser<'_> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        let inner = self.parse_fail_form_arena_only(start, true, arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
+        Some(())
+    }
+
+    /// Parses `fail FAILURE` or `fail FAILURE because CAUSE` and registers
+    /// the statement.
+    ///
+    /// A `fail` that is a statement of its own ends at its terminator, or at
+    /// its last operand when a postfix guard follows. One that is part of
+    /// another statement always ends at its last operand, and the terminator
+    /// is that statement's.
+    fn parse_fail_form_arena_only(
+        &mut self,
+        start: usize,
+        own_statement: bool,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<StmtId> {
         let keyword = self.bump();
         let failure = self.parse_expr_id_arena_only(arena)?;
         let failure_end = arena.expr_span(failure).end();
@@ -432,7 +513,7 @@ impl Parser<'_> {
             None
         };
         let guarded = self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless);
-        let end = if guarded {
+        let end = if guarded || !own_statement {
             self.previous_end()
         } else {
             self.expect_terminator()
@@ -468,13 +549,9 @@ impl Parser<'_> {
             ],
             None => vec![ArenaSugarOperand::Expr(failure)],
         };
-        let inner = arena.push_sugar(SugarForm::Fail, &written, span, |arena| {
+        Some(arena.push_sugar(SugarForm::Fail, &written, span, |arena| {
             expand_fail(arena, operands, span)
-        });
-        if guarded {
-            return self.parse_guarded_stmt_arena_only(start, inner, arena);
-        }
-        Some(())
+        }))
     }
 }
 
@@ -862,6 +939,163 @@ mod tests {
         }
         assert!(sentences > 300, "only {sentences} sentences");
         assert!(fails * 2 > sentences, "only {fails} of {sentences} are fail statements");
+    }
+
+    /// The statement a postfix guard holds, or `None` when the first
+    /// statement of `source` is not guarded.
+    fn guarded_statement(program: &ArenaProgram) -> Option<ArenaStmtKind> {
+        let first = program.statement_ids().next().expect("one statement");
+        let arena = &program.arena;
+        let ArenaStmtKind::Sugar {
+            form: SugarForm::When | SugarForm::Unless,
+            operands,
+            ..
+        } = arena.stmt(first).kind
+        else {
+            return None;
+        };
+        arena
+            .sugar_operands(operands)
+            .iter()
+            .find_map(|operand| match operand {
+                crate::syntax::arena::ArenaSugarOperand::Stmt(inner) => {
+                    Some(arena.stmt(*inner).kind)
+                }
+                _ => None,
+            })
+    }
+
+    /// An expression statement before `when` or `unless` is the guard's
+    /// payload. A bare name there is a command instead, with the guard word
+    /// as its first argument, which is a sentence of another production.
+    #[test]
+    fn every_guarded_expression_sentence_parses_as_a_guarded_expression() {
+        let mut sentences = 0;
+        let mut guarded = 0;
+        for (depth, seed, source) in sentences_of("guarded_expression_statement") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            let first = parsed.arena.statement_ids().next().expect("one statement");
+            match guarded_statement(&parsed.arena) {
+                Some(inner) => {
+                    guarded += 1;
+                    assert!(
+                        matches!(inner, ArenaStmtKind::Expr(_)),
+                        "depth {depth} seed {seed} guards something else:\n{source}"
+                    );
+                }
+                None => assert!(
+                    matches!(
+                        parsed.arena.arena.stmt(first).kind,
+                        ArenaStmtKind::Command(_)
+                    ),
+                    "depth {depth} seed {seed} is neither guarded nor a command:\n{source}"
+                ),
+            }
+        }
+        assert!(sentences > 300, "only {sentences} sentences");
+        assert!(guarded * 2 > sentences, "only {guarded} of {sentences} are guarded");
+    }
+
+    /// In a `print` or `eprint` statement the word `when` or `unless` always
+    /// begins the guard, so a sentence with one is a guarded command.
+    #[test]
+    fn every_print_sentence_parses_with_its_guard() {
+        let mut sentences = 0;
+        let mut guarded = 0;
+        for (depth, seed, source) in sentences_of("print_statement") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            let first = parsed.arena.statement_ids().next().expect("one statement");
+            match guarded_statement(&parsed.arena) {
+                Some(inner) => {
+                    guarded += 1;
+                    assert!(
+                        matches!(inner, ArenaStmtKind::Command(_)),
+                        "depth {depth} seed {seed} guards something else:\n{source}"
+                    );
+                }
+                // `print + x` and `print(x)` are expressions.
+                None => assert!(
+                    matches!(
+                        parsed.arena.arena.stmt(first).kind,
+                        ArenaStmtKind::Command(_) | ArenaStmtKind::Expr(_)
+                    ),
+                    "depth {depth} seed {seed}:\n{source}"
+                ),
+            }
+        }
+        assert!(sentences > 300, "only {sentences} sentences");
+        assert!(guarded * 4 > sentences, "only {guarded} of {sentences} are guarded");
+    }
+
+    #[test]
+    fn every_guard_fail_sentence_parses_as_a_guard_that_fails() {
+        let mut sentences = 0;
+        for (depth, seed, source) in sentences_of("guard_fail_statement") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            assert!(
+                first_statement_is(&parsed.arena, SugarForm::GuardFail),
+                "depth {depth} seed {seed} is not a guard that fails:\n{source}"
+            );
+        }
+        assert!(sentences > 300, "only {sentences} sentences");
+    }
+
+    /// Where no guard is allowed the parser and the productions agree: the
+    /// word is an argument of any other command and of a run form, and a
+    /// binding, a `defer`, and a braceless `guard` reject it.
+    #[test]
+    fn a_guard_is_read_only_where_the_grammar_has_one() {
+        let recognizer = Recognizer::new(grammar());
+        for (source, accepted) in [
+            ("deploy when ready\n", true),
+            ("git.push when ready\n", true),
+            ("run make when ready\n", true),
+            ("total = run.text make ? when ready\n", true),
+            ("print \"when\" unless quiet\n", true),
+            ("let total = count() when ready\n", false),
+            ("defer close() when ready\n", false),
+            ("assert ready when checked\n", false),
+            ("guard ready else fail \"no\" when checked\n", false),
+            ("guard ready else return\n", false),
+            ("print \"x\" when\n", false),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert_eq!(parsed.diagnostics.is_empty(), accepted, "parser: {source}");
+            let tokens = lex_grammar_tokens(source).expect("lexes");
+            assert_eq!(recognizer.recognize(&tokens).is_ok(), accepted, "grammar: {source}");
+        }
+        // The first two are commands whose arguments are the words.
+        for source in ["deploy when ready\n", "run make when ready\n"] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(guarded_statement(&parsed.arena).is_none(), "{source}");
+        }
+    }
+
+    #[test]
+    fn the_grammar_recognizes_written_guarded_statements() {
+        assert_grammar_recognizes(&[
+            include_str!("../../../tests/xsh/guarded-statements.xsh"),
+            include_str!("../../../docs/snippets/spec/69-guarded-statements.xsh"),
+            include_str!("../../../docs/snippets/spec/69-guard-fail.xsh"),
+        ]);
     }
 
     #[test]

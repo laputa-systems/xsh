@@ -306,6 +306,60 @@ fn keyword_forms(keywords: impl IntoIterator<Item = Keyword>) -> Vec<StatementFo
     forms
 }
 
+fn postfix_guard_leads() -> Vec<Vec<Term>> {
+    [Keyword::When, Keyword::Unless]
+        .map(|guard| vec![keyword_term(guard)])
+        .to_vec()
+}
+
+/// What begins a statement of its own where an expression statement could
+/// start: keyword statements, scope statements, and `process.command {`,
+/// which reads as a dotted command.
+fn expression_statement_stops() -> Vec<Vec<Term>> {
+    use TokenTag as T;
+    let mut leads: Vec<Vec<Term>> = STATEMENT_KEYWORDS
+        .iter()
+        .map(|(keyword, _)| vec![keyword_term(*keyword)])
+        .collect();
+    leads.push(vec![
+        word_term(CoreCommand::Env.as_str(), false),
+        tag_term(T::LParen),
+    ]);
+    // Contextual words that begin declarations and commands.
+    leads.push(vec![word_term(CoreCommand::Cd.as_str(), false)]);
+    leads.extend([
+        vec![word_term("test", false), term(Class::Name, false)],
+        vec![word_term("on", false), term(Class::Name, false)],
+    ]);
+    leads.extend([
+        vec![word_term("on", false), tag_term(T::Int)],
+        vec![
+            word_term("cli", false),
+            tag_term(T::Ident),
+            tag_term(T::LParen),
+        ],
+        vec![
+            word_term("error", false),
+            term(Class::Name, false),
+            tag_term(T::Equals),
+        ],
+        vec![
+            word_term("error", false),
+            term(Class::Name, false),
+            tag_term(T::LBrace),
+        ],
+    ]);
+    leads.extend(BUILDER_APIS.map(|(module, function)| {
+        vec![
+            word_term(module, false),
+            glued_tag_term(T::Dot),
+            word_term(function, true),
+            tag_term(T::LBrace),
+        ]
+    }));
+    leads
+}
+
 /// The productions of the compound or simple forms among `forms`.
 fn statement_rules(forms: &[StatementForm], compound: bool) -> Vec<Item> {
     forms
@@ -715,7 +769,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([r("tempdir_scope"), opt(t(T::Question))]),
                 seq([r("within_scope"), opt(t(T::Question))]),
                 seq([r("named_command"), opt(t(T::Question))]),
+                r("print_statement"),
                 r("expression_statement"),
+                r("guarded_expression_statement"),
+                r("guard_fail_statement"),
                 r("exit_statement"),
                 r("fail_statement"),
             ])),
@@ -1023,10 +1080,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
                             g(T::Equals),
                         ]),
                     ]),
-                    r("expression_or_run"),
+                    r("guarded_value"),
                 ]),
                 // Setting an environment variable takes only plain `=`.
-                seq([t(T::EnvString), t(T::Equals), r("expression_or_run")]),
+                seq([t(T::EnvString), t(T::Equals), r("guarded_value")]),
             ]),
         ),
         rule(
@@ -1131,54 +1188,53 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "expression_statement",
             seq([
-                // These begin statements of their own: keyword statements,
-                // scope statements, and `process.command {`, which reads as a
-                // dotted command.
-                not({
-                    let mut leads: Vec<Vec<Term>> = STATEMENT_KEYWORDS
-                        .iter()
-                        .map(|(keyword, _)| vec![keyword_term(*keyword)])
-                        .collect();
-                    leads.push(vec![
-                        word_term(CoreCommand::Env.as_str(), false),
-                        tag_term(T::LParen),
-                    ]);
-                    // Contextual words that begin declarations and commands.
-                    leads.push(vec![word_term(CoreCommand::Cd.as_str(), false)]);
-                    leads.extend([
-                        vec![word_term("test", false), term(Class::Name, false)],
-                        vec![word_term("on", false), term(Class::Name, false)],
-                    ]);
-                    leads.extend([
-                        vec![word_term("on", false), tag_term(T::Int)],
-                        vec![
-                            word_term("cli", false),
-                            tag_term(T::Ident),
-                            tag_term(T::LParen),
-                        ],
-                        vec![
-                            word_term("error", false),
-                            term(Class::Name, false),
-                            tag_term(T::Equals),
-                        ],
-                        vec![
-                            word_term("error", false),
-                            term(Class::Name, false),
-                            tag_term(T::LBrace),
-                        ],
-                    ]);
-                    leads.extend(BUILDER_APIS.map(|(module, function)| {
-                        vec![
-                            word_term(module, false),
-                            glued_tag_term(T::Dot),
-                            word_term(function, true),
-                            tag_term(T::LBrace),
-                        ]
-                    }));
-                    leads
-                }),
+                not(expression_statement_stops()),
                 r("expression"),
                 opt(t(T::Question)),
+            ]),
+        ),
+        // A name followed by a space and a word is a command, so a bare name
+        // before the guard is one whose first argument is that word.
+        rule(
+            Statements,
+            "guarded_expression_statement",
+            seq([
+                not({
+                    let mut stops = expression_statement_stops();
+                    stops.extend([Keyword::When, Keyword::Unless].map(|guard| {
+                        vec![term(Class::Name, false), keyword_term(guard)]
+                    }));
+                    // A scope statement is the whole statement.
+                    stops.extend([
+                        vec![word_term("within", false), tag_term(T::Duration)],
+                        vec![word_term("within", false), term(Class::Name, false)],
+                        vec![
+                            word_term("tempdir", false),
+                            tag_term(T::Ident),
+                            tag_term(T::LBrace),
+                        ],
+                    ]);
+                    stops
+                }),
+                r("expression"),
+                r("postfix_guard"),
+            ]),
+        ),
+        // Only `fail` may follow `else` without braces, and it takes no
+        // postfix guard of its own.
+        rule(
+            Statements,
+            "guard_fail_statement",
+            seq([
+                kw(Keyword::Guard),
+                not([vec![keyword_term(Keyword::Let)]]),
+                r("guard_condition"),
+                kw(Keyword::Else),
+                w("fail"),
+                line(seq([
+                    r("expression"),
+                    opt(seq([w("because"), r("expression")])),
+                ])),
             ]),
         ),
         rule(
@@ -2188,13 +2244,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "named_command",
             alt([
                 seq([
-                    alt([
-                        core_word(CoreCommand::Print),
-                        core_word(CoreCommand::Eprint),
-                    ]),
-                    opt(seq([r("lead_argument"), star(r("command_argument"))])),
-                ]),
-                seq([
                     core_word(CoreCommand::Cd),
                     not([vec![tag_term(T::Equals)]]),
                     r("command_argument"),
@@ -2234,6 +2283,25 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
             ]),
         ),
+        // A word `when` or `unless` begins the statement's postfix guard, so
+        // no argument starts with one.
+        rule(
+            Commands,
+            "print_statement",
+            seq([
+                alt([
+                    core_word(CoreCommand::Print),
+                    core_word(CoreCommand::Eprint),
+                ]),
+                opt(seq([
+                    not(postfix_guard_leads()),
+                    r("lead_argument"),
+                    star(seq([not(postfix_guard_leads()), r("command_argument")])),
+                ])),
+                opt(t(T::Question)),
+                opt(r("postfix_guard")),
+            ]),
+        ),
         rule(
             Commands,
             "lead_argument",
@@ -2265,6 +2333,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         vec![tag_term(T::Equals)],
                         vec![tag_term(T::Dot)],
                     ]);
+                    // A dotted name before a postfix guard is an expression
+                    // statement.
+                    stops.extend(postfix_guard_leads());
                     stops
                 }),
                 r("command_argument"),

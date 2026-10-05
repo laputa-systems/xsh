@@ -60,6 +60,16 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 sugar: "proc built(ready: Bool) [process] -> Status {\n  return (run.status make) when ready\n  return when (run.status true)\n  run.status false\n}\n",
                 core: Core::Written("proc built(ready: Bool) [process] -> Status {\n  if ready {\n    return (run.status make)\n  }\n  if (run.status true) {\n    return\n  }\n  run.status false\n}\n"),
             },
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/69-guarded-statements.xsh"),
+                core: Core::Desugared,
+            },
+            // An expression statement, each assignment, and both printing
+            // commands; a quoted `when` is a word to print.
+            Case {
+                sugar: "proc tally(rows: List[Int], verbose: Bool) -> Result[Int] {\n  var total = 0\n  for row in rows {\n    total += row when row > 0\n    total = 0 unless row > -10\n    print \"when\" $row unless verbose\n    eprint row $row when verbose\n    print when verbose\n    rows.len() unless verbose\n    fs.remove(p\"/tmp/x\") when verbose\n  }\n  Ok(total)\n}\n",
+                core: Core::Written("proc tally(rows: List[Int], verbose: Bool) -> Result[Int] {\n  var total = 0\n  for row in rows {\n    if row > 0 {\n      total += row\n    }\n    if row > -10 {\n    } else {\n      total = 0\n    }\n    if verbose {\n    } else {\n      print \"when\" $row\n    }\n    if verbose {\n      eprint row $row\n    }\n    if verbose {\n      print\n    }\n    if verbose {\n    } else {\n      rows.len()\n    }\n    if verbose {\n      fs.remove(p\"/tmp/x\")\n    }\n  }\n  Ok(total)\n}\n"),
+            },
         ],
         SugarForm::Unless => &[
             Case {
@@ -132,6 +142,18 @@ fn cases(form: SugarForm) -> &'static [Case] {
             Case {
                 sugar: "type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for row, {name, size} in entries {\n    continue when name == \"\"\n    for index, part in name.split(\"/\") |> where { . != \"\" } {\n      break when index > row\n      yield size + part.len()\n    }\n  }\n}\n",
                 core: Core::Written("type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for {index: row, value: {name, size}} in entries |> enumerate() {\n    if name == \"\" {\n      continue\n    }\n    for {index, value: part} in (name.split(\"/\") |> where { . != \"\" }) |> enumerate() {\n      if index > row {\n        break\n      }\n      yield size + part.len()\n    }\n  }\n}\n"),
+            },
+        ],
+        SugarForm::GuardFail => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/69-guard-fail.xsh"),
+                core: Core::Desugared,
+            },
+            // A variant with a cause, as a match arm's statement, and where
+            // `fail` and `error` are locals.
+            Case {
+                sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  guard target != p\"/\" else fail .Busy() because cause\n  guard target.is_absolute() else fail .Missing(path: target)\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  guard fail < 100 else fail error\n  match fail {\n    0 => guard error == \"\" else fail \"zero\"\n    _ => {}\n  }\n  Ok(fail)\n}\n",
+                core: Core::Written("error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  if target != p\"/\" {\n  } else {\n    return Err(.Busy(), cause: cause)\n  }\n  if target.is_absolute() {\n  } else {\n    return Err(.Missing(path: target))\n  }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 100 {\n  } else {\n    return Err(error.failure(error))\n  }\n  match fail {\n    0 => {\n      if error == \"\" {\n      } else {\n        return Err(error.failure(\"zero\"))\n      }\n    }\n    _ => {}\n  }\n  Ok(fail)\n}\n"),
             },
         ],
     }

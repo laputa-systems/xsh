@@ -938,6 +938,11 @@ impl<'a> Parser<'a> {
         let target_id = self.parse_assign_target_arena_only(arena)?;
         let op = self.parse_assign_op();
         let value = self.parse_expr_or_run_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner =
+                arena.push_assignment(target_id, op, value, self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
         let end = self.expect_terminator();
         arena.push_assignment(target_id, op, value, self.span(start, end));
         Some(())
@@ -2047,6 +2052,10 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         let expr_id = self.parse_expr_id_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner = arena.push_expr_statement(expr_id, self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
         let end = self.expect_terminator();
         arena.push_expr_statement(expr_id, self.span(start, end));
         Some(())

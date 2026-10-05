@@ -2029,6 +2029,29 @@ block the following statements may rely on the opposite of the condition, as
 after the `if`. Group a run payload: `return (run.status make) when ready`;
 without parentheses `when ready` would become argv words.
 
+An expression statement, an assignment, and a `print` or `eprint` statement
+accept the same guard, with the same expansion:
+
+```xsh
+{{.spec.guarded_statements.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.guarded_statements.desugared}}
+```
+
+No other statement takes one. A binding is not guarded because its name would
+be bound inside the branch, and a command other than `print` and `eprint`
+reads `when` and `unless` as argument words, as a run form does. In a `print`
+or `eprint` statement a bare word `when` or `unless` always begins the guard;
+quote the word to print it. An assignment whose value is a run form is
+guarded after the form's `?` or with the form in parentheses. A statement
+that begins with a bare or dotted name followed by a space is a command, so
+`cleanup when done` passes two words to `cleanup`; write the call
+`cleanup() when done`.
+
 `guard cond else { ... }` continues when `cond` holds and otherwise runs the
 block. It is sugar too:
 
@@ -2047,6 +2070,21 @@ continuation on every path (by `return`, `break`, `continue`, or `exit`), or
 the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
+
+When the block would hold one `fail`, the braces may be left out:
+
+```xsh
+{{.spec.guard_fail.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.guard_fail.desugared}}
+```
+
+which is also what `fail ... unless cond` means. Only `fail` may follow
+`else` without braces, and that `fail` takes no postfix guard of its own.
 
 `fail message` returns from the enclosing function with an error that carries
 `message`. It is sugar:

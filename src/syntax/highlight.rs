@@ -410,6 +410,10 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "exit" | "fail") && operand_statement_word(source, tokens, at) {
         return Kind::Keyword;
     }
+    // After the `else` of a `guard`, `fail` is the statement without a block.
+    if text == "fail" && guard_fail_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
     // `because` is an ordinary name except between the failure and the cause
     // of a `fail` statement.
     if text == "because" && fail_because_word(source, tokens, at) {
@@ -553,6 +557,21 @@ fn operand_statement_word(source: &str, tokens: &[Token], at: usize) -> bool {
         })
 }
 
+/// Whether the word at `tokens[at]` follows the keyword `else` with its
+/// failure after it on the line, as in `guard COND else fail MESSAGE`. No
+/// other statement puts a name after `else`.
+fn guard_fail_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    at.checked_sub(1).is_some_and(|before| {
+        let before = tokens[before];
+        before.tag == TokenTag::Keyword && &source[before.start..before.end] == "else"
+    }) && tokens.get(at + 1).is_some_and(|next| {
+        !matches!(
+            next.tag,
+            TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Comment
+        )
+    })
+}
+
 /// Whether `tokens[at]` is the `because` of a statement that begins with the
 /// word `fail` on the same line: outside every bracket the failure opens,
 /// and not a field name.
@@ -567,9 +586,15 @@ fn fail_because_word(source: &str, tokens: &[Token], at: usize) -> bool {
         .iter()
         .rposition(|token| token.tag == TokenTag::FatArrow)
         .map_or(first, |arrow| first + arrow + 1);
+    // So does the `fail` of a `guard`, after `else`.
+    let first = tokens[first..at]
+        .iter()
+        .rposition(|token| token.tag == TokenTag::Keyword && text(token) == "else")
+        .map_or(first, |otherwise| first + otherwise + 1);
     if at < first + 2
         || text(&tokens[first]) != "fail"
-        || !operand_statement_word(source, tokens, first)
+        || !(operand_statement_word(source, tokens, first)
+            || guard_fail_word(source, tokens, first))
         || tokens[at - 1].tag == TokenTag::Dot
     {
         return false;
@@ -1002,6 +1027,16 @@ mod tests {
         assert_eq!(kind_of(source, "because) because"), Kind::Plain);
         assert_eq!(kind_of(source, "because because.fail"), Kind::Keyword);
         assert_eq!(kind_of(source, "because.fail"), Kind::Plain);
+    }
+
+    #[test]
+    fn fail_after_the_else_of_a_guard_is_the_statement() {
+        let source = "guard ready else fail \"no\" because problem\nlet kept = if ready { fail } else { fail }\nguard ready else fail(\"x\")\n";
+        assert_eq!(kind_of(source, "fail \"no\""), Kind::Keyword);
+        assert_eq!(kind_of(source, "because problem"), Kind::Keyword);
+        assert_eq!(kind_of(source, "fail } else"), Kind::Plain);
+        assert_eq!(kind_of(source, "fail }\n"), Kind::Plain);
+        assert_eq!(kind_of(source, "fail(\"x\")"), Kind::Keyword);
     }
 
     #[test]

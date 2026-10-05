@@ -718,6 +718,12 @@ impl<'a> Parser<'a> {
                         .token_table
                         .name_at(index + 1)
                         .is_some_and(|name| name == "is"))
+                // A postfix guard follows an expression statement, as an
+                // operator would.
+                && !matches!(
+                    self.token_table.keyword_at(index + 1),
+                    Some(Keyword::When | Keyword::Unless)
+                )
         })
     }
 
