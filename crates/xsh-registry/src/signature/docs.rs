@@ -1643,7 +1643,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Path", "chmod") => Some((
             "Changes permission bits on a path.",
-            "The mode is an explicit host permission value and the operation may require privilege.",
+            "The mode is an explicit host permission value and the operation may require privilege. A final symlink is followed unless `follow_symlinks: false`, which changes the link itself; Linux cannot change a symlink's mode, so there that call fails with `EOPNOTSUPP` and leaves the target alone.",
             &["path", "filesystem", "permissions"],
         )),
         ("Path", "hardlink") => Some((

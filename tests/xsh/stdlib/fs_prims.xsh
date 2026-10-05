@@ -228,6 +228,32 @@ test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
   assert file.chmod(0o10000) is Err(_)
 }
 
+test test_chmod_runs_in_every_call_position { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-chmod-positions")?
+  let file = fp"{root}/file"
+  file.write("x")
+
+  assert file.chmod(0o611, follow_symlinks: true) is Ok(_)
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o611
+  assert file.chmod(0o622, follow_symlinks: false) is Ok(_)
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o622
+
+  let present: Path? = file
+  let changed = present?.chmod(0o633)
+  assert changed != null
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o633
+  let _ = present?.chmod(0o644, follow_symlinks: false)
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o644
+  let named = present?.chmod(0o655, follow_symlinks: true)
+  assert named != null
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o655
+
+  let absent: Path? = null
+  let skipped = absent?.chmod(0o600)
+  assert skipped == null
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o655
+}
+
 test test_mknod_creates_nodes_under_the_umask { |ctx|
   let root = test.temp_dir(ctx, name: "fs-mknod")?
   let mask = fs.umask()?

@@ -9505,6 +9505,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some((checked.get("data")?, checked.get("mode")?))
     }
 
+    /// The operands of a checked `PATH.chmod(mode)` or
+    /// `PATH.chmod(mode, follow_symlinks: B)` after the receiver, in parameter
+    /// order. The name is shared with the rooted method, which is dispatched
+    /// by name, so the `Path` method cannot take the route of a method whose
+    /// name lowering does not know and is given its operation here.
+    fn path_chmod_operands(
+        &self,
+        call: ExprId,
+        args: &[ArenaCallArg],
+    ) -> Option<Vec<Option<ExprId>>> {
+        let checked = self.checked_path_method_arguments(call, args)?;
+        (checked.sig.op == RuntimeOp::FsChmod).then(|| checked.ordered())
+    }
+
     /// The module operation a checked `Path` method runs as when it has no
     /// lowering of its own, with its operands after the receiver in parameter
     /// order. The registry gives such a method the operation of the function
@@ -10502,6 +10516,30 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
+                if name == "chmod"
+                    && let Some(operands) = self.path_chmod_operands(id, &args_vec)
+                {
+                    let mut args =
+                        vec![Some(self.lower_expr(base, slots, current_function, item_slot)?)];
+                    for operand in operands {
+                        args.push(match operand {
+                            Some(operand) => {
+                                Some(self.lower_expr(operand, slots, current_function, item_slot)?)
+                            }
+                            None => None,
+                        });
+                    }
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::ModuleCall {
+                            cli_plan: None,
+                            op: RuntimeOp::FsChmod,
+                            args,
+                            span,
+                        }
+                    ));
+                }
                 if name == "write"
                     && let Some((data, mode)) = self.path_write_mode_args(id, &args_vec)
                 {
@@ -11156,6 +11194,30 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 current_function,
                                 item_slot
                             )?,
+                            span,
+                        }
+                    ));
+                }
+                if name == "chmod"
+                    && let Some(operands) = self.path_chmod_operands(id, &args_vec)
+                {
+                    let mut args =
+                        vec![Some(self.lower_postfix_receiver(base, slots, current_function, item_slot)?)];
+                    for operand in operands {
+                        args.push(match operand {
+                            Some(operand) => {
+                                Some(self.lower_expr(operand, slots, current_function, item_slot)?)
+                            }
+                            None => None,
+                        });
+                    }
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::ModuleCall {
+                            cli_plan: None,
+                            op: RuntimeOp::FsChmod,
+                            args,
                             span,
                         }
                     ));
@@ -15901,7 +15963,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "du" | "metadata" | "readlink" | "resolve" | "remove_dir" | "unlink"
             | "read_lines" | "components" | "bytes" => arg_count == 0,
             "ext_or" => arg_count == 1,
-            "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate" | "chmod"
+            "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate"
             | "hardlink" | "write" | "write_atomic" | "starts_with" | "ends_with" | "write_lines" | "glob"
             | "rglob" => arg_count == 1,
             "copy" | "rename" | "mkdir" | "remove" => arg_count == 1 || arg_count == 2,

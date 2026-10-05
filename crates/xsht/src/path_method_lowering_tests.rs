@@ -57,23 +57,39 @@ fn every_registry_path_method_lowers() {
     let mut calls = 0;
     for method in &receiver.methods {
         for overload in &method.overloads {
-            // Required parameters positionally, then every parameter, so a
-            // defaulted one is lowered both absent and present.
+            // Required parameters alone, then every parameter with the
+            // defaulted ones positional where their label rule allows it, then
+            // every parameter with each defaulted one passed by name: a
+            // defaulted parameter is lowered absent and present, and present
+            // both ways a caller can write it.
             let required = overload
                 .sig
                 .params
                 .iter()
                 .filter(|param| !param.defaulted)
                 .count();
-            for arity in [required, overload.sig.params.len()] {
-                let arguments = overload.sig.params[..arity]
+            let written = |arity: usize, name_defaults: bool| {
+                overload.sig.params[..arity]
                     .iter()
-                    .map(|param| match param.label {
-                        LabelRule::Free => argument(&param.ty).to_owned(),
-                        LabelRule::Required => format!("{}: {}", param.name, argument(&param.ty)),
+                    .map(|param| {
+                        if param.label == LabelRule::Required
+                            || (name_defaults && param.defaulted)
+                        {
+                            format!("{}: {}", param.name, argument(&param.ty))
+                        } else {
+                            argument(&param.ty).to_owned()
+                        }
                     })
                     .collect::<Vec<_>>()
-                    .join(", ");
+                    .join(", ")
+            };
+            let every = overload.sig.params.len();
+            let mut forms = vec![written(required, false), written(every, false)];
+            let named = written(every, true);
+            if !forms.contains(&named) {
+                forms.push(named);
+            }
+            for arguments in forms {
                 // A plain call and a null-safe one are lowered separately.
                 for (parameter, access) in [("Path", "."), ("Path?", "?.")] {
                     let source = format!(

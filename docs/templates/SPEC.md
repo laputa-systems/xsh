@@ -4217,9 +4217,14 @@ Contracts worth knowing without consulting the reference:
   `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,
   `ino`, `rdev`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
   one file when `dev` and `ino` match. `fs.set_owner`, `fs.set_times` (explicit
-  nanoseconds, kernel "now", or unchanged per field), `fs.chmod` and `fs.link`
-  take `follow_symlinks`. Linux cannot change a symlink's mode, so the
-  no-follow `fs.chmod` on a symlink fails with `EOPNOTSUPP`. `fs.mknod`
+  nanoseconds, kernel "now", or unchanged per field), and `fs.link` take
+  `follow_symlinks`, and so does the method `PATH.chmod(mode,
+  follow_symlinks: B)`, which follows a final symlink by default.
+  `follow_symlinks: false` changes the path itself: on anything but a symlink
+  that is the same change, and on a symlink it changes the link's own mode
+  where the platform has one. Linux cannot change a symlink's mode, so there
+  the no-follow `chmod` of a symlink fails with `fs-chmod` and errno
+  `EOPNOTSUPP`, and the link's target is left alone. `fs.mknod`
   creates FIFOs, sockets, and device nodes under the umask (`fs.umask()`).
   `fs.copy_file` creates the destination with the source's permission bits
   (or `mode`), copies by `FICLONE`, `copy_file_range`, or read and write

@@ -5570,11 +5570,11 @@ impl Evaluator {
             }
             RuntimeOp::FsChmod if values.len() == 2 || values.len() == 3 => {
                 let follow_symlinks =
-                    lowered_bool_arg_or(values.get(2).cloned(), true, "fs.chmod", span)?;
-                let mode = lowered_int_arg(values.get(1).cloned(), "fs.chmod", span)?;
+                    lowered_bool_arg_or(values.get(2).cloned(), true, "Path.chmod", span)?;
+                let mode = lowered_int_arg(values.get(1).cloned(), "Path.chmod", span)?;
                 let path = lowered_path_arg(
                     values.first().cloned().expect("checked value length"),
-                    "fs.chmod",
+                    "Path.chmod",
                     span,
                 )?;
                 lowered_unit_result(fs_module::chmod_path(
@@ -11747,15 +11747,6 @@ impl Evaluator {
             let size = lowered_int_arg(values.pop(), "Path.truncate", *span)?;
             let value =
                 lowered_unit_result(fs_module::truncate_path(self.host_path(path), size, *span));
-            return Ok(ControlFlow::Continue(value));
-        }
-        if let LoweredValue::Path(path) = &receiver
-            && name == "chmod"
-            && values.len() == 1
-        {
-            let mode = lowered_int_arg(values.pop(), "Path.chmod", *span)?;
-            let value =
-                lowered_unit_result(fs_module::chmod_path(self.host_path(path), mode, true, *span));
             return Ok(ControlFlow::Continue(value));
         }
         if let LoweredValue::Path(source) = &receiver
