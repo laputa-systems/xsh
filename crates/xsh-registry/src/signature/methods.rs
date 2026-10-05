@@ -1279,6 +1279,28 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
             ]),
         },
+        // Only the operations that keep a path confined are listed here.
+        // Anything else called on a `RelPath` is the `Path` method and
+        // returns what that returns.
+        MethodReceiverSig {
+            receiver: MethodReceiver::RelPath,
+            methods: method_map(vec![
+                method(
+                    "parent",
+                    Vec::new(),
+                    Type::RelPath,
+                    true,
+                    RuntimeOp::PathParent,
+                ),
+                method(
+                    "normalize",
+                    Vec::new(),
+                    Type::RelPath,
+                    true,
+                    RuntimeOp::PathNormalize,
+                ),
+            ]),
+        },
     ];
     for receiver in &mut receivers {
         for method in &mut receiver.methods {
@@ -1306,6 +1328,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     MethodReceiver::NonEmpty => Some(Type::NonEmpty(Box::new(variable(
                         BuiltinTypeParameter::Element,
                     )))),
+                    MethodReceiver::RelPath => Some(Type::RelPath),
                     MethodReceiver::Result => Some(Type::Result(
                         Box::new(variable(BuiltinTypeParameter::Element)),
                         Box::new(variable(BuiltinTypeParameter::Error)),

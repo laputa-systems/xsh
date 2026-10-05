@@ -696,6 +696,7 @@ impl Type {
             BuiltinTypeName::FsRoot => Self::FsRoot,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
+            BuiltinTypeName::RelPath => Self::rel_path(),
         }
     }
 
@@ -1038,7 +1039,7 @@ impl Type {
 
     pub fn can_display(&self) -> bool {
         matches!(
-            self,
+            self.unvalidated(),
             Self::Str
                 | Self::Int
                 | Self::UInt
@@ -1055,7 +1056,7 @@ impl Type {
             // when each member does.
             Self::Union(members) => members.iter().all(Self::can_be_argv_item),
             _ => matches!(
-                self,
+                self.unvalidated(),
                 Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
             ),
         }

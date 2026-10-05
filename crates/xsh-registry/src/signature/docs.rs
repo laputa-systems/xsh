@@ -47,6 +47,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::NetJob => "NetJob",
         MethodReceiver::FsRoot => "FsRoot",
         MethodReceiver::NonEmpty => "NonEmpty",
+        MethodReceiver::RelPath => "RelPath",
     }
 }
 
@@ -1688,6 +1689,16 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Returns a non-empty list with another list appended.",
             "Appending cannot empty a list, so the result keeps the `NonEmpty[T]` type whatever the other list holds.",
             &["list", "non-empty", "mutation", "collection"],
+        )),
+        ("RelPath", "parent") => Some((
+            "Returns the lexical parent path, still a RelPath.",
+            "Dropping the last component of a path that never climbs above its start cannot make it climb, and the parent of a single component is `.`, so the result keeps the `RelPath` type.",
+            &["path", "rel-path", "component"],
+        )),
+        ("RelPath", "normalize") => Some((
+            "Normalizes lexical path components, still a RelPath.",
+            "Every `..` of a RelPath has a component before it to cancel, so the normalized path holds no `..` and is `.` when nothing is left.",
+            &["path", "rel-path", "normalization"],
         )),
         ("Str", "trim") => Some((
             "Removes surrounding Unicode whitespace.",

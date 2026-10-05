@@ -1282,7 +1282,7 @@ pub(super) fn command_arg_can_match_module_param_arena(
 
 #[allow(dead_code)]
 pub(super) fn command_arg_can_be_path_like_arena(arg: &ArenaCommandArg, ty: &Type) -> bool {
-    matches!(ty, Type::Path | Type::Str | Type::Unknown)
+    matches!(ty.unvalidated(), Type::Path | Type::Str | Type::Unknown)
         || matches!(arg.kind, ArenaCommandArgKind::Word(_))
 }
 

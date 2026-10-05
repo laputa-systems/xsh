@@ -654,6 +654,7 @@ diagnostic_codes! {
         LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", warning, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";
         LintPreferAsConversion = "lint.prefer-as-conversion", warning, "Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names";
         LintPreferTextPattern = "lint.prefer-text-pattern", warning, "Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in)";
+        LintPreferRelPath = "lint.prefer-rel-path", warning, "Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

@@ -336,7 +336,8 @@ cannot be sugar, because declaration scans do not look inside a surface form:
 A validated type is a base type plus a property the checker tracks
 (`docs/SPEC.md` 4.13): `Type::Validated` holds a `ValidatedType`, a
 `Validation` and the base it narrows. There is one mechanism, in
-`src/sema/validated.rs`, and `NonEmpty[T]` is its first instance. The rules
+`src/sema/validated.rs`; `NonEmpty[T]` over `List[T]` and `RelPath` over
+`Path` are its instances. The rules
 that make a validated type sound are written once, for every instance:
 
 - **Assignability.** `Type::matches_expected` lets a validated type fit its
@@ -364,17 +365,32 @@ An instance is one `Validation` variant. Adding it makes each `match` on
    operations (`method_receiver`), and whether it survives concatenation and
    element-wise mapping;
 2. in `src/sema/check/validated.rs`: which literals pass
-   (`validated_list_literal` is the list case; a scalar instance adds its own
-   literal case beside it and calls it from that literal's arm of
-   `check_expr_arena_inner`);
+   (`validated_list_literal` is the list case, `validated_static_path_literal`
+   and `validated_interpolated_path_literal` the path cases; another scalar
+   instance adds its own literal case beside them and calls it from that
+   literal's arm of `check_expr_arena_inner`);
 3. in `src/sema/constants.rs::constant_passes_validation`: which constant
    values pass;
 4. in `src/runtime/eval/validated.rs`: which runtime values pass, for `Value`
    and for `LoweredValue`.
 
+A property that is a function of the value alone is one function read by the
+literal case, the constant case, and the runtime case, so the three cannot
+disagree: `validated::is_rel_path` is the whole definition of `RelPath`.
+
+A validation over a scalar base is where erasure is easiest to miss, because
+checker and lowering code compares scalar types by equality. A site that asks
+"is this a `Path`?" of an operand asks it of `ty.unvalidated()`; a site that
+asks it of a declared slot (a parameter the argument must fit) compares the
+declared type as written. A validated parameter whose storage kind is a
+scalar carries the test of its declared type (`compact_type_check`), which is
+what a dynamic call runs; a parameter row stores the storage kind, not the
+declared type, so the verifier cannot tell that such a test was dropped.
+
 The operations an instance guarantees or survives are ordinary registry
 methods on its own `MethodReceiver` (`crates/xsh-registry`): `NonEmpty` lists
-`first`, `last`, `push`, and `extend`. `check_method_dispatch_arena` looks a
+`first`, `last`, `push`, and `extend`, and `RelPath` lists `parent` and
+`normalize`. `check_method_dispatch_arena` looks a
 method up there first and, when it is absent, dispatches on the base type, so
 "every other operation returns the base type" needs no list. A guaranteed
 operation keeps a defended runtime failure for the value the checker ruled

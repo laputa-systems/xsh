@@ -1567,6 +1567,7 @@ fn lint_config_for_file(
             && !configured_return_annotations,
         prefer_typed_callables: tool_config.config.lint.prefer_typed_callables,
         prefer_non_empty_argv: tool_config.config.lint.prefer_non_empty_argv,
+        prefer_rel_path: tool_config.config.lint.prefer_rel_path,
         return_proof: Some(crate::xsht::lint::ReturnProofContext {
             file: file.to_string(),
             module_roots: module_roots.clone(),

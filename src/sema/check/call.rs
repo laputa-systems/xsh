@@ -17,7 +17,10 @@ fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
         // A list built before the call has one element type; text and paths
         // together make it a union, and each member is still an argv word.
         Type::Union(members) => members.iter().all(process_command_argv_item_type_is_valid),
-        _ => matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown),
+        _ => matches!(
+            ty.unvalidated(),
+            Type::Str | Type::Path | Type::Any | Type::Unknown
+        ),
     }
 }
 
@@ -2121,7 +2124,7 @@ impl Checker {
 
         let target_ty = self.check_optional_api_arg_arena(arena, source, slots[0], None);
         if !matches!(
-            target_ty,
+            target_ty.unvalidated(),
             Type::Str | Type::Path | Type::Any | Type::Unknown
         ) {
             self.error(

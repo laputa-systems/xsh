@@ -12399,6 +12399,49 @@ pure union_task(source: Str) -> Result[Str] {
         });
     }
 
+    // A validated parameter stored as a scalar has a storage kind that says
+    // nothing of the validation, so it carries the test of its declared type
+    // and a call that arrives with an unchecked value is refused by it.
+    #[test]
+    fn a_validated_scalar_parameter_carries_the_test_of_its_type() {
+        run_with_large_stack(|| {
+            let source = r#"pure beneath(rel: RelPath) -> Path {
+  return rel
+}
+"#;
+            let program = Arc::new(fixture("validated-params.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let call = |program: &Arc<FullProgram>, raw: &str| {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(program));
+                evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(program, "beneath")),
+                    LoweredFunctionKind::Pure,
+                    &[Value::Path(
+                        crate::runtime::value::PathValue::from_text(raw).unwrap(),
+                    )],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+            };
+            // A value the parameter refuses never reaches the body: the
+            // direct call declines it or fails.
+            assert!(matches!(call(&program, "etc/passwd"), Some(Ok(_))));
+            assert!(!matches!(call(&program, "/etc/passwd"), Some(Ok(_))));
+            assert!(!matches!(call(&program, "../etc/passwd"), Some(Ok(_))));
+
+            let [cold] = program.store.param_cold.as_slice() else {
+                panic!("the one parameter has a cold row");
+            };
+            let tested = program.store.validations[cold.validation as usize].type_id;
+            assert_eq!(
+                program.store.semantic.to_type(tested).unwrap(),
+                Type::rel_path()
+            );
+        });
+    }
+
     #[test]
     fn inferred_require_targets_survive_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {

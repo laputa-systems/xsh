@@ -795,7 +795,7 @@ fn is_argv_word_list_argument(actual: &Type) -> bool {
     fn word(ty: &Type) -> bool {
         match ty {
             Type::Union(members) => members.iter().all(word),
-            _ => matches!(ty, Type::Str | Type::Path | Type::Unknown),
+            _ => matches!(ty.unvalidated(), Type::Str | Type::Path | Type::Unknown),
         }
     }
     matches!(actual, Type::List(item) if word(item))

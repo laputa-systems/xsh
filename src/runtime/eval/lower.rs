@@ -3439,7 +3439,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     name: Arc::from(expected.to_string()),
                 })
             } else if param.ty_defaulted {
-                lowered_type_needs_static_check(kind).then(|| LoweredTypeCheck {
+                (lowered_type_needs_static_check(kind) || expected.validated().is_some()).then(|| LoweredTypeCheck {
                     schema: None,
                     ty: expected.clone(),
                     name: Arc::from(expected.to_string()),
@@ -10678,7 +10678,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 // A Path receiver compares whole components, so it takes the method
                 // call below instead of the byte predicate.
                 let str_predicate = match name.as_str().as_str() {
-                    _ if matches!(self.checked_expr_type(base), Some(Type::Path)) => None,
+                    _ if matches!(
+                        self.checked_expr_type(base).as_ref().map(Type::unvalidated),
+                        Some(Type::Path)
+                    ) =>
+                    {
+                        None
+                    }
                     "starts_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::StartsWith),
                     "ends_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::EndsWith),
                     _ => None,
@@ -14973,7 +14979,13 @@ fn compact_type_check(
     namespace: Option<Name>,
 ) -> Option<LoweredTypeCheck> {
     let checked = compact_runtime_type_in_namespace(arena, ty, declarations, namespace);
-    (lowered_type_needs_static_check(kind) || checked.has_unsigned_constraint()).then(|| {
+    // A validated type stored as a scalar has a storage kind that says
+    // nothing of the validation, so the type itself is tested where an
+    // unchecked value arrives.
+    (lowered_type_needs_static_check(kind)
+        || checked.has_unsigned_constraint()
+        || checked.validated().is_some())
+    .then(|| {
         LoweredTypeCheck {
             schema: None,
             ty: checked,
@@ -15364,7 +15376,7 @@ fn lowered_builtin_type_name(name: &str) -> Option<LoweredType> {
         BuiltinTypeName::Digest => Some(LoweredType::Digest),
         BuiltinTypeName::Regex => Some(LoweredType::Regex),
         BuiltinTypeName::Status => Some(LoweredType::Status),
-        BuiltinTypeName::Path => Some(LoweredType::Path),
+        BuiltinTypeName::Path | BuiltinTypeName::RelPath => Some(LoweredType::Path),
         BuiltinTypeName::Command => Some(LoweredType::Command),
         BuiltinTypeName::ProcessHandle => Some(LoweredType::ProcessHandle),
         BuiltinTypeName::NetJob => Some(LoweredType::NetJob),

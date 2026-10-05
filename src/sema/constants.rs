@@ -3703,6 +3703,9 @@ fn constant_passes_validation(
         crate::sema::validated::Validation::NonEmpty => {
             matches!(value, LiteralConstant::List(values) if !values.is_empty())
         }
+        crate::sema::validated::Validation::RelPath => {
+            matches!(value, LiteralConstant::Path(text) if crate::sema::validated::is_rel_path(text.as_bytes()))
+        }
     }
 }
 

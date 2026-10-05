@@ -57,6 +57,7 @@ builtin_type_names!(
     (NetJob, "NetJob"),
     (FsRoot, "FsRoot"),
     (Result, "Result"),
+    (RelPath, "RelPath"),
 );
 
 /// Fixed relationships used only by builtin signature templates.
@@ -122,6 +123,8 @@ pub enum Type {
     Union(Vec<Type>),
     /// A list of the element type that holds at least one element.
     NonEmpty(Box<Type>),
+    /// A path that is not absolute and never climbs above where it starts.
+    RelPath,
 }
 
 /// The full CLI outcome always contains this envelope, independently of the

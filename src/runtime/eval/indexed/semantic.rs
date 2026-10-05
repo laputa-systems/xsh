@@ -1579,6 +1579,18 @@ mod tests {
             bad_base.type_data[id.index()].lhs = base;
             assert!(bad_base.verify().is_err());
         }
+
+        // A validation over a scalar base round-trips the same way, and its
+        // row cannot be read as the validation of another base.
+        let rel = Type::rel_path();
+        let rel_id = builder.intern_type(&mut pools, &rel).unwrap();
+        pools.verify().unwrap();
+        assert_eq!(pools.to_type(rel_id).unwrap(), rel);
+        assert_eq!(pools.display_type(rel_id).unwrap(), "RelPath");
+        assert_ne!(rel_id, builder.intern_type(&mut pools, &Type::Path).unwrap());
+        let mut swapped = pools.clone();
+        swapped.type_data[rel_id.index()].rhs = Validation::NonEmpty.code();
+        assert!(swapped.verify().is_err());
     }
 
     #[test]

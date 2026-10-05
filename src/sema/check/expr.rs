@@ -21,7 +21,7 @@ pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
 /// literal qualifies only by having taken the `Path` type from its expected
 /// type; a `Str` never does.
 pub(super) fn is_path_like_type(ty: &Type) -> bool {
-    matches!(ty, Type::Path | Type::Any | Type::Unknown)
+    matches!(ty.unvalidated(), Type::Path | Type::Any | Type::Unknown)
 }
 
 /// Arena-native span helper for expression-or-run values.
@@ -527,7 +527,15 @@ impl Checker {
                 self.check_string_literal(arena, expr.span, *value, expected)
             }
             ArenaExprKind::Regex(_) => Type::Regex,
-            ArenaExprKind::PathStr(_) => Type::Path,
+            ArenaExprKind::PathStr(value) => {
+                match expected.and_then(|expected| self.validated_path_expectation(expected)) {
+                    Some(validated) => {
+                        let text = arena.arena.string_literal(*value).clone();
+                        self.validated_static_path_literal(&validated, text.as_bytes(), expr.span)
+                    }
+                    None => Type::Path,
+                }
+            }
             ArenaExprKind::GlobStr(_) => {
                 if self.in_pure {
                     self.error(
@@ -543,7 +551,12 @@ impl Checker {
             }
             ArenaExprKind::PathFmtString(parts) => {
                 self.check_fmt_string_arena(arena, source, *parts, expr.span);
-                Type::Path
+                match expected.and_then(|expected| self.validated_path_expectation(expected)) {
+                    Some(validated) => self.validated_interpolated_path_literal(
+                        arena, source, &validated, *parts, expr.span,
+                    ),
+                    None => Type::Path,
+                }
             }
             ArenaExprKind::Bytes(_) => Type::Bytes,
             ArenaExprKind::Ident(name) => {
@@ -660,7 +673,7 @@ impl Checker {
                     }
                     ContextScopeKind::Cwd => {
                         if !matches!(
-                            input_type,
+                            input_type.unvalidated(),
                             Type::Path | Type::Str | Type::Unknown | Type::Invalid
                         ) {
                             self.error(
@@ -2650,6 +2663,14 @@ impl Checker {
                 for (operand, other) in [(right, &left_ty), (left, &right_ty)] {
                     self.note_compared_variant_qualifier(arena, operand, other);
                 }
+                // Equality compares values, and a validated value is a value
+                // of its base: `rel == path` and `maybe_rel == path` compare
+                // as paths do.
+                let compared = |ty: &Type| match ty {
+                    Type::Optional(inner) => Type::Optional(Box::new(inner.unvalidated().clone())),
+                    ty => ty.unvalidated().clone(),
+                };
+                let (left_ty, right_ty) = (compared(&left_ty), compared(&right_ty));
                 if left_ty != Type::Any
                     && right_ty != Type::Any
                     && !left_ty.matches_expected(&right_ty)
@@ -2737,7 +2758,9 @@ impl Checker {
                     // is defined for every pair of values, as `==` is.
                     Type::List(item) => {
                         if left_ty != Type::Any {
-                            self.expect_type(item, &left_ty, left_span);
+                            // The member is compared, not stored, so it
+                            // need not pass a validation the elements carry.
+                            self.expect_type(item.unvalidated(), &left_ty, left_span);
                         }
                     }
                     Type::Str => {
@@ -2750,7 +2773,10 @@ impl Checker {
                         self.expect_type(&Type::Str, &left_ty, left_span);
                     }
                     Type::Path => {
-                        if !matches!(left_ty, Type::Str | Type::Path | Type::Any | Type::Unknown) {
+                        if !matches!(
+                            left_ty.unvalidated(),
+                            Type::Str | Type::Path | Type::Any | Type::Unknown
+                        ) {
                             self.error(
                                 left_span,
                                 "Path membership requires Str or Path",
@@ -2764,7 +2790,7 @@ impl Checker {
                     Type::EnvPathList => {
                         if left_ty == Type::Any {
                             self.expect_type(&Type::Path, &left_ty, left_span);
-                        } else if !matches!(left_ty, Type::Path | Type::Unknown) {
+                        } else if !matches!(left_ty.unvalidated(), Type::Path | Type::Unknown) {
                             self.error(
                                 left_span,
                                 "env.PATH membership requires Path; write a path literal such as p\"/opt/bin\"",
@@ -3009,7 +3035,8 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
             return Type::Unknown;
         }
-        match base_ty {
+        // A field is read from the value, which is a value of the base.
+        match base_ty.into_unvalidated() {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
                 Some(ty) => ty.clone(),

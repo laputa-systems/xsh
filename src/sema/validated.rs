@@ -19,15 +19,59 @@ use std::fmt;
 pub enum Validation {
     /// `NonEmpty[T]`: a `List[T]` that holds at least one element.
     NonEmpty,
+    /// `RelPath`: a `Path` that is not absolute and whose `..` components
+    /// never climb above where the path starts.
+    RelPath,
+}
+
+/// Whether the native bytes of a path are a `RelPath`. This is the whole
+/// definition, read by the checker for a literal and a constant and by the
+/// runtime for a value, so the three cannot disagree.
+///
+/// The path is not empty and does not start with `/`. Its components are the
+/// pieces between `/` separators: an empty piece (a repeated or trailing
+/// separator) and `.` stay where they are, a name goes one level down, and
+/// `..` goes one level up and must have a level to leave. The test is
+/// lexical: it reads no filesystem and knows nothing of symlinks.
+pub fn is_rel_path(bytes: &[u8]) -> bool {
+    if bytes.is_empty() || bytes[0] == b'/' {
+        return false;
+    }
+    let mut depth = 0usize;
+    for component in bytes.split(|byte| *byte == b'/') {
+        match component {
+            b"" | b"." => {}
+            b".." => match depth.checked_sub(1) {
+                Some(above) => depth = above,
+                None => return false,
+            },
+            _ => depth += 1,
+        }
+    }
+    true
+}
+
+/// Why `bytes` is not a `RelPath`, for a literal the checker rejects.
+pub fn rel_path_failure(bytes: &[u8]) -> Option<&'static str> {
+    if is_rel_path(bytes) {
+        None
+    } else if bytes.is_empty() {
+        Some("is empty")
+    } else if bytes[0] == b'/' {
+        Some("is absolute")
+    } else {
+        Some("climbs above where it starts")
+    }
 }
 
 impl Validation {
-    pub const ALL: [Self; 1] = [Self::NonEmpty];
+    pub const ALL: [Self; 2] = [Self::NonEmpty, Self::RelPath];
 
     /// The identity a lowered program stores for the validation.
     pub const fn code(self) -> u32 {
         match self {
             Self::NonEmpty => 1,
+            Self::RelPath => 2,
         }
     }
 
@@ -42,6 +86,8 @@ impl Validation {
         match self {
             Self::NonEmpty => (!matches!(base, Type::List(_)))
                 .then(|| format!("`NonEmpty` validates a List, not {base}")),
+            Self::RelPath => (!matches!(base, Type::Path))
+                .then(|| format!("`RelPath` validates a Path, not {base}")),
         }
     }
 
@@ -51,6 +97,7 @@ impl Validation {
     pub fn method_receiver(self) -> Option<MethodReceiver> {
         match self {
             Self::NonEmpty => Some(MethodReceiver::NonEmpty),
+            Self::RelPath => Some(MethodReceiver::RelPath),
         }
     }
 
@@ -59,6 +106,7 @@ impl Validation {
     pub fn survives_concatenation(self) -> bool {
         match self {
             Self::NonEmpty => true,
+            Self::RelPath => false,
         }
     }
 
@@ -67,6 +115,7 @@ impl Validation {
     pub fn survives_mapping(self) -> bool {
         match self {
             Self::NonEmpty => true,
+            Self::RelPath => false,
         }
     }
 
@@ -80,18 +129,22 @@ impl Validation {
     pub fn failure(self) -> &'static str {
         match self {
             Self::NonEmpty => "an empty list",
+            Self::RelPath => "a path that is empty, absolute, or climbs above where it starts",
         }
     }
 
     /// How to obtain the validated type from a value of the base type.
     pub fn conversion_note(self, ty: &Type) -> String {
-        let written = ty
-            .annotation_source()
-            .unwrap_or_else(|| "NonEmpty[T]".to_string());
         match self {
-            Self::NonEmpty => format!(
-                "a list is a {ty} only once it is known to hold an element: validate it with `.require({written})?`, or write a list literal with at least one element where {ty} is expected"
-            ),
+            Self::NonEmpty => {
+                let written = ty
+                    .annotation_source()
+                    .unwrap_or_else(|| "NonEmpty[T]".to_string());
+                format!(
+                    "a list is a {ty} only once it is known to hold an element: validate it with `.require({written})?`, or write a list literal with at least one element where {ty} is expected"
+                )
+            }
+            Self::RelPath => "a path is a RelPath only once it is known to stay beneath where it starts: validate it with `.require(RelPath)?`, or write a path literal where RelPath is expected".to_string(),
         }
     }
 
@@ -99,6 +152,7 @@ impl Validation {
         match (self, base) {
             (Self::NonEmpty, Type::List(item)) => write!(f, "NonEmpty[{item}]"),
             (Self::NonEmpty, base) => write!(f, "NonEmpty<{base}>"),
+            (Self::RelPath, _) => f.write_str("RelPath"),
         }
     }
 
@@ -108,6 +162,7 @@ impl Validation {
                 Some(format!("NonEmpty[{}]", item.annotation_source()?))
             }
             (Self::NonEmpty, _) => None,
+            (Self::RelPath, _) => Some("RelPath".to_string()),
         }
     }
 }
@@ -179,6 +234,14 @@ impl Type {
         }))
     }
 
+    /// `RelPath`.
+    pub fn rel_path() -> Self {
+        Self::Validated(Box::new(ValidatedType {
+            validation: Validation::RelPath,
+            base: Self::Path,
+        }))
+    }
+
     pub fn validated(&self) -> Option<&ValidatedType> {
         match self {
             Self::Validated(validated) => Some(validated),
@@ -244,6 +307,57 @@ mod tests {
             assert_eq!(Validation::from_code(validation.code()), Some(validation));
         }
         assert_eq!(Validation::from_code(0), None);
+    }
+
+    #[test]
+    fn a_rel_path_is_relative_and_never_climbs_above_its_start() {
+        for accepted in [
+            ".", "a", "a/b", "a/", "a//b", "./a", "a/./b", "a/..", "a/../b", "a/b/../..",
+            "...", "..a", "a..", ".hidden",
+        ] {
+            assert!(is_rel_path(accepted.as_bytes()), "{accepted}");
+            assert_eq!(rel_path_failure(accepted.as_bytes()), None);
+        }
+        for (rejected, why) in [
+            ("", "is empty"),
+            ("/", "is absolute"),
+            ("/a", "is absolute"),
+            ("//a", "is absolute"),
+            ("..", "climbs above where it starts"),
+            ("../a", "climbs above where it starts"),
+            ("./..", "climbs above where it starts"),
+            ("a/../..", "climbs above where it starts"),
+            ("a/b/../../../c", "climbs above where it starts"),
+            ("a//../..", "climbs above where it starts"),
+        ] {
+            assert!(!is_rel_path(rejected.as_bytes()), "{rejected}");
+            assert_eq!(rel_path_failure(rejected.as_bytes()), Some(why), "{rejected}");
+        }
+        // The rule reads bytes: a name that is not UTF-8 is a name.
+        assert!(is_rel_path(b"a/\xff/b"));
+        assert!(!is_rel_path(b"\xff/../.."));
+    }
+
+    #[test]
+    fn a_rel_path_fits_a_path_and_never_the_reverse() {
+        let rel = Type::rel_path();
+        assert!(rel.matches_expected(&Type::Path));
+        assert!(rel.matches_expected(&rel));
+        assert!(rel.matches_expected(&Type::Optional(Box::new(Type::Path))));
+        assert!(!Type::Path.matches_expected(&rel));
+        assert!(!Type::Str.matches_expected(&rel));
+        assert!(!Type::Any.matches_expected(&rel));
+        assert!(!rel.matches_expected(&Type::Str));
+        assert_eq!(rel.unvalidated(), &Type::Path);
+        assert_eq!(rel.to_string(), "RelPath");
+        assert_eq!(rel.annotation_source().as_deref(), Some("RelPath"));
+        assert_eq!(Type::builtin_from_name("RelPath"), Some(rel.clone()));
+        assert!(rel.can_display() && rel.can_be_argv_item());
+        assert!(ValidatedType::new(Validation::RelPath, Type::Str).is_err());
+        assert!(
+            crate::sema::types::union_member_error(&[rel, Type::Path])
+                .is_some_and(|reason| reason.contains("already fits"))
+        );
     }
 
     #[test]

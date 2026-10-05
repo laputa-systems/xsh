@@ -639,7 +639,7 @@ impl Checker {
                     op_span,
                     "compound assignment requires Int or Float operands",
                 ));
-            if *left == Type::Path {
+            if *left.unvalidated() == Type::Path {
                 diagnostic = diagnostic.with_note(
                     "operators never join paths; build the path with an `fp\"...\"` literal",
                 );

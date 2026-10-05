@@ -107,6 +107,8 @@ mod lint_explicit_run_capture;
 mod lint_explicit_missing_ok;
 #[path = "lint_prefer_non_empty_argv.rs"]
 mod lint_prefer_non_empty_argv;
+#[path = "lint_prefer_rel_path.rs"]
+mod lint_prefer_rel_path;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -486,6 +488,8 @@ pub struct LintOptions {
     /// Opt in to `lint.prefer-text-pattern`, which has no fix: it notes
     /// where text is taken apart by position.
     pub prefer_text_pattern: bool,
+    /// Opt in to `lint.prefer-rel-path`.
+    pub prefer_rel_path: bool,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -561,6 +565,7 @@ impl Default for LintOptions {
             explicit_missing_ok: false,
             prefer_non_empty_argv: false,
             prefer_text_pattern: false,
+            prefer_rel_path: false,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -618,6 +623,7 @@ pub struct Linter<'a> {
     prefer_typed_callables: bool,
     explicit_missing_ok: bool,
     prefer_text_pattern: bool,
+    prefer_rel_path: bool,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -841,6 +847,10 @@ impl<'a> Linter<'a> {
             prefer_text_pattern: options.prefer_text_pattern
                 || only.as_deref().is_some_and(|only| {
                     only.contains(&DiagnosticCode::LintPreferTextPattern)
+                }),
+            prefer_rel_path: options.prefer_rel_path
+                || only.as_deref().is_some_and(|only| {
+                    only.contains(&DiagnosticCode::LintPreferRelPath)
                 }),
             prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
             // Naming the rule in `--only` asks for it as the setting does.
@@ -3480,8 +3490,16 @@ impl<'a> Linter<'a> {
         let expression = self.arena.expr(expr);
         match expression.kind {
             ArenaExprKind::Int(_) => self.expr_types.get(&expression.span) == Some(&Type::UInt),
-            // A string literal is a Path only because a Path was expected.
-            ArenaExprKind::Str(_) => self.expr_types.get(&expression.span) == Some(&Type::Path),
+            // A string literal is a Path only because a Path was expected,
+            // and a validated path only because that type was.
+            ArenaExprKind::Str(_) => self
+                .expr_types
+                .get(&expression.span)
+                .is_some_and(|ty| *ty.unvalidated() == Type::Path),
+            ArenaExprKind::PathStr(_) | ArenaExprKind::PathFmtString(_) => self
+                .expr_types
+                .get(&expression.span)
+                .is_some_and(|ty| ty.validated().is_some()),
             ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. } => {
@@ -11152,6 +11170,11 @@ impl<'a> Linter<'a> {
                 expr,
             );
             self.diagnostics.extend(removal);
+        }
+        if self.prefer_rel_path {
+            let rooted =
+                lint_prefer_rel_path::unvalidated_rooted_path(self.arena, &self.expr_types, expr);
+            self.diagnostics.extend(rooted);
         }
         let emptiness = lint_prefer_is_empty::length_compared_with_zero(
             self.arena,

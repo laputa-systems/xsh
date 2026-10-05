@@ -14,6 +14,7 @@
 
 use super::{Checker, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
+use crate::sema::validated::ValidatedType;
 use crate::syntax::arena::{ArenaExprKind, ArenaProgram, ExprId, StringLiteralId};
 
 impl Checker {
@@ -41,7 +42,31 @@ impl Checker {
             );
         }
         self.path_literals.insert(span);
-        Type::Path
+        match expected.and_then(|expected| self.validated_path_expectation(expected)) {
+            Some(validated) => {
+                let text = arena.arena.string_literal(literal).clone();
+                self.validated_static_path_literal(&validated, text.as_bytes(), span)
+            }
+            None => Type::Path,
+        }
+    }
+
+    /// The validated path type `expected` asks for, such as `RelPath`. A
+    /// path literal written there is judged against the validation.
+    pub(super) fn validated_path_expectation(&self, expected: &Type) -> Option<ValidatedType> {
+        match expected {
+            Type::Validated(validated) if *validated.base() == Type::Path => {
+                Some(validated.as_ref().clone())
+            }
+            Type::Optional(inner) => self.validated_path_expectation(inner),
+            Type::Inference(_) => self
+                .type_constraints
+                .resolve(expected)
+                .ok()
+                .filter(|resolved| !resolved.contains_inference())
+                .and_then(|resolved| self.validated_path_expectation(&resolved)),
+            _ => None,
+        }
     }
 
     /// Whether `expected` asks for a `Path`. An optional path asks for one;
@@ -50,6 +75,9 @@ impl Checker {
     fn expects_path(&self, expected: &Type) -> bool {
         match expected {
             Type::Path => true,
+            // A validated path is a path first; the literal that takes the
+            // type is then judged against the validation.
+            Type::Validated(validated) => *validated.base() == Type::Path,
             Type::Optional(inner) => self.expects_path(inner),
             Type::Inference(_) => self
                 .type_constraints

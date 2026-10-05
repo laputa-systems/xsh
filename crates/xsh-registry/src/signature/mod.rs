@@ -264,6 +264,9 @@ pub enum MethodReceiver {
     /// A `NonEmpty[T]` value: the operations the validation guarantees or
     /// survives. Every other method of the value is a `List` method.
     NonEmpty,
+    /// A `RelPath` value: the operations that keep a path confined. Every
+    /// other method of the value is a `Path` method.
+    RelPath,
 }
 
 #[derive(Clone, Debug)]

@@ -415,6 +415,7 @@ literal configuration data (`lint.prefer-const`).
 | `Str` | valid UTF-8 text |
 | `Bytes` | arbitrary bytes |
 | `Path` | native path bytes without NUL |
+| `RelPath` | a `Path` that is not absolute and never climbs above where it starts (4.13) |
 | `Regex`, `Digest` | compiled regex; typed hash digest |
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
 | `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
@@ -552,6 +553,10 @@ the root and for each repeated separator.
 ```xsh
 {{.spec.path_queries.source}}
 ```
+
+A path that must stay beneath some root, such as an entry of a package
+manifest or an archive, has the type `RelPath` (4.13): a `Path` known not to
+be absolute and not to climb out with `..`.
 
 ### 4.5 Lists, maps, and records
 
@@ -907,6 +912,25 @@ not merely a `List[Str]`.
 {{.spec.non_empty.source}}
 ```
 
+`RelPath` is the validated type over `Path` whose values stay beneath where
+they start. The rule is lexical and exact, on the path's native bytes:
+
+- the path is not empty and does not begin with `/`;
+- reading its components left to right, a name goes one level down, `..`
+  goes one level up, and no `..` is reached at the starting level.
+
+A `.` component and an empty component (a repeated or trailing `/`) change
+nothing, so `a/./b`, `a//b`, and `a/b/` are `RelPath`s, as is `.`, the path
+of the starting directory itself. `a/../b` is one; `..`, `a/../..`, and
+`/a` are not. The rule reads no filesystem and says nothing about symlinks:
+a `RelPath` that passes through a symlink can still leave the root, and
+refusing that stays the job of the rooted operation that resolves it
+(`FsRoot`, archive extraction).
+
+```xsh
+{{.spec.rel_path.source}}
+```
+
 A value gets a validated type in exactly three ways:
 
 - **A literal the checker can judge.** A list literal written where a
@@ -916,7 +940,16 @@ A value gets a validated type in exactly three ways:
   `check.validated-literal`. The same holds for constants and field defaults,
   whose values are known. Without that expectation a list literal is a
   `List[T]`, as before: inference never produces a validated type from a
-  literal.
+  literal. A path literal (`"..."`, `p"..."`) written where a `RelPath` is
+  expected has that type when its text passes the rule, and is
+  `check.validated-literal` when it does not. An interpolating literal
+  `fp"..."` written there is how `RelPath`s are joined: it has the type when
+  every interpolation is a `RelPath` without a format specification, each
+  one has `/` or an end of the literal on both sides, and the written text
+  passes the rule with each interpolation read as `.`. So
+  `fp"{dir}/{name}"` and `fp"{dir}/cache/{name}"` are `RelPath`s for
+  `RelPath` values, and `fp"{dir}/.."`, `fp"/{dir}"`, `fp"{dir}{name}"`,
+  and a literal that interpolates text or a plain `Path` are not.
 - **One validation at an explicit boundary.** `value.require(NonEmpty[T])`
   (5.3) tests the value once and returns `Result[NonEmpty[T]]`; `.require()`
   takes the target from an expectation as usual. A slot of the type inside a
@@ -929,14 +962,25 @@ A value gets a validated type in exactly three ways:
   when either operand is `NonEmpty`, `+=` on a `NonEmpty` variable, and a
   list comprehension with a single `for` clause over a `NonEmpty` list and no
   `if` clause. Replacing an element (`names[0] = value`) keeps the type of the
-  variable.
+  variable. For `RelPath` these are `.parent()`, which is `.` for a single
+  component, and `.normalize()`, which is `.` when nothing is left.
 
 Every other operation reads the value as its base type and returns what the
 base returns: indexing, slicing, `.get`, `.len`, `.join`, `.collect`,
 iteration, `in`, list patterns, a `@` splice, a pipeline source, and a
 comprehension with a filter or more than one `for` clause all see a
 `List[T]`, and those that produce a list produce a `List[T]`. Validate again
-to get the type back.
+to get the type back. A `RelPath` is likewise read as a `Path` by every
+other path method, by display and interpolation, by a command argument, and
+by a comparison: `.with_ext`, `.strip_prefix`, `.relative_to`, and
+`.components` return plain paths, and an `fp"..."` literal written where no
+`RelPath` is expected is a `Path`.
+
+`p.strip_prefix(root)` returns a `Path`, not a `RelPath`: its result is the
+whole of `p` when `root` is empty, and keeps any `..` that `p` has after the
+prefix (`/a/b/../../etc` without `/a` is `b/../../etc`). When `p` equals
+`root` the result is `.`. Validate the result where a `RelPath` is wanted:
+`p.strip_prefix(root)?.require(RelPath)?`.
 
 The operations the property guarantees exist only on the validated type.
 `NonEmpty[T]` has `first()` and `last()`, which return `T` and cannot fail; a
@@ -959,7 +1003,15 @@ value of the wrong type is. `first()` and `last()` on a dynamic (`Any`)
 receiver fail with `index-out-of-bounds` on an empty list.
 
 A rest parameter collects zero or more arguments, so it is a `List[T]` and
-cannot be declared `NonEmpty[T]`. `cli main` parameters do not take the type.
+cannot be declared `NonEmpty[T]`. `cli main` parameters do not take a
+validated type. A validated type is not a map key type
+(`check.map-key-type`); key the map by the base, which a validated value
+fits. JSON has no path, so a `RelPath` field in a schema given to `.require`
+decodes as a `Path` field does.
+
+```xsh
+{{.spec.rel_path_unvalidated.source}}
+```
 
 ## 5. Typing
 
@@ -998,7 +1050,9 @@ is expected. Incompatible contributions are errors; inference never widens to
   it. The element type stays invariant (`NonEmpty[Str]` is not
   `NonEmpty[Any]`), and as an element type the two differ:
   `List[NonEmpty[Str]]` is not `List[List[Str]]`. In a `Union`, a validated
-  type and its base cannot both be members.
+  type and its base cannot both be members. `RelPath` fits `Path`, so every
+  parameter that takes a path takes a `RelPath`; a `Path` fits `RelPath`
+  only through a judged literal, `.require(RelPath)`, or a type test.
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
@@ -1087,7 +1141,8 @@ continuation, loop body, or match arm where a condition proved it.
   remaining members where it fails: the one member left, or the smaller union.
   `x is (T | U)` narrows to those members.
 - `x is NonEmpty[T]` on a `List[T]` narrows to `NonEmpty[T]` where the test
-  passes (4.13). Where it fails, `x` stays a `List[T]`.
+  passes (4.13). Where it fails, `x` stays a `List[T]`. `x is RelPath` on a
+  `Path` does the same.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
@@ -3388,7 +3443,11 @@ Contracts worth knowing without consulting the reference:
   `write_lines` wrote when no element contains `\n` or ends with `\r`.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
-  path resolution, not the process.
+  path resolution, not the process. Their path parameters are `Path`, so they
+  take a `RelPath` (4.13), the type of a path already known to be relative
+  and free of an escaping `..`; a function that passes a path on to a root
+  should declare it `RelPath`. The handle still resolves every path it is
+  given, because only resolution sees a symlink.
 - Archive extraction and `patch.apply` reject absolute paths, parent
   traversal, symlink escapes, and overwrites unless asked.
 - `time` has no civil-time formatter; run `date` for locale-aware output.

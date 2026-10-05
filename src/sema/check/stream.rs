@@ -227,7 +227,7 @@ impl Checker {
                     );
                 }
                 if matches!(
-                    item_ty,
+                    item_ty.unvalidated(),
                     Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
                 ) || is_sortable_record_key_type(&item_ty)
                 {
@@ -995,7 +995,7 @@ fn result_ok_or_self(ty: &Type) -> Type {
 /// checked program and an unchecked `xsh` run agree on what can sort. An
 /// `Any` key is a dynamic boundary, rejected before this check.
 fn is_sortable_key_type(ty: &Type) -> bool {
-    match ty {
+    match ty.unvalidated() {
         Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
         Type::Record(fields) => fields.values().all(is_sortable_key_type),
         _ => false,
