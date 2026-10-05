@@ -4,3 +4,12 @@ test test_date_format { |ctx|
   let offset = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u +%z
   assert offset.trim() == "+0000"
 }
+
+test test_date_native_epoch_and_nanoseconds { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d @-0.000000001 "+%Y-%m-%d %H:%M:%S.%N %s"
+  assert output == "1969-12-31 23:59:59.999999999 -1\n"
+  let plus = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d @0 "+literal+%Y"
+  assert plus == "literal+1970\n"
+  let iso = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d "2000-02-29 12:34:56" -Iseconds
+  assert iso == "2000-02-29T12:34:56+00:00\n"
+}
