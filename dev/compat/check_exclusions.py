@@ -31,6 +31,36 @@ CATEGORIES = {
     "uutils-extension": "asserts a uutils extension GNU does not have; XSH follows GNU",
 }
 ID = re.compile(r"^test_([a-z0-9_]+)::([A-Za-z0-9_:]+)$")
+RSTEST_CASE = re.compile(r"^case_(\d+)_(\w+)$")
+
+
+def test_id_exists(test_path: str, source: str) -> bool:
+    parts = test_path.split("::")
+    case = RSTEST_CASE.fullmatch(parts[-1])
+    function_parts = parts[:-1] if case else parts
+    functions = [
+        part
+        for part in function_parts
+        if re.search(rf"\bfn {re.escape(part)}\b", source)
+    ]
+    if not functions:
+        return False
+    if not case:
+        return True
+
+    function = functions[-1]
+    declaration = re.search(
+        rf"(?m)((?:^[ \t]*#\[[^\n]*\][ \t]*\n)+)^[ \t]*fn\s+{re.escape(function)}\b",
+        source,
+    )
+    if not declaration:
+        return False
+    cases = re.findall(
+        r"(?m)^[ \t]*#\[case(?:::(\w+))?(?:\(|\])",
+        declaration.group(1),
+    )
+    ordinal = int(case.group(1))
+    return 1 <= ordinal <= len(cases) and cases[ordinal - 1] == case.group(2)
 
 
 def main() -> int:
@@ -59,8 +89,7 @@ def main() -> int:
             path = Path(root) / "tests" / "by-util" / f"test_{util}.rs"
             if util not in sources:
                 sources[util] = path.read_text(errors="replace") if path.exists() else ""
-            function = match.group(2).split("::")[-1]
-            if not re.search(rf"\bfn {re.escape(function)}\b", sources[util]):
+            if not test_id_exists(match.group(2), sources[util]):
                 errors.append(f"{test_id}: no such test in the pinned uutils tree")
     if errors:
         print("exclusions check failed:", file=sys.stderr)
