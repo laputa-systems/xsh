@@ -54,7 +54,7 @@ test test_comm_order_checks { |ctx|
   let checked = comm_run(ctx, root, ["--check-order", "bad1", "bad2"])?
   assert checked.status == 1
   assert checked.stdout == b"\t\te\n"
-  assert checked.stderr == "comm: file 2 is not in sorted order\n", checked.stderr
+  assert checked.stderr == "comm: file 1 is not in sorted order\n", checked.stderr
 
   let unchecked = comm_run(ctx, root, ["--nocheck-order", "bad1", "bad2"])?
   assert unchecked.status == 0

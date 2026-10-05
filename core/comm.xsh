@@ -83,9 +83,6 @@ pure order(left: Bytes, right: Bytes) -> Int {
   1
 }
 
-# Tracks one input's previous line so that a line out of order is reported once.
-type Checker = {last: Bytes?, failed: Bool}
-
 proc read_input(name: Str) [fs, process, env, error, io] -> Bytes {
   guard let data = gnu.read_operand(name) else { |failure|
     gnu.name_error(name, failure)
@@ -168,14 +165,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var only1 = 0
   var only2 = 0
   var both = 0
-  var differ = false
-  var last1: Bytes? = null
-  var last2: Bytes? = null
+  var unpairable = false
   var bad1 = false
   var bad2 = false
-  var stop = false
 
-  while (first < left.len() or second < right.len()) and ! stop {
+  # GNU checks a line against its predecessor as the next line is read, and the
+  # default mode only once an unpairable line has been seen, so a disorder
+  # among lines read before that goes unnoticed. The last line of a file is
+  # checked again when it is consumed.
+  while first < left.len() or second < right.len() {
     let step = if first >= left.len() {
       1
     } else if second >= right.len() {
@@ -185,50 +183,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if step != 0 {
-      differ = true
-    }
-
-    let check = mode == "always" or (mode == "differ" and differ)
-    var disorder1 = false
-    var disorder2 = false
-
-    if step <= 0 {
-      let line = left[first]
-
-      if mode != "never" {
-        if check and last1 != null and order(line, last1) < 0 {
-          disorder1 = true
-        }
-
-        last1 = line
-      }
-    }
-
-    if step >= 0 {
-      let line = right[second]
-
-      if mode != "never" {
-        if check and last2 != null and order(line, last2) < 0 {
-          disorder2 = true
-        }
-
-        last2 = line
-      }
-    }
-
-    if disorder1 and ! bad1 {
-      gnu.error("file 1 is not in sorted order")
-      bad1 = true
-    }
-
-    if disorder2 and ! bad2 and ! (step == 0 and disorder1 and mode == "always") {
-      gnu.error("file 2 is not in sorted order")
-      bad2 = true
-    }
-
-    if mode == "always" and (disorder1 or disorder2) {
-      stop = true
-      continue
+      unpairable = true
     }
 
     if step < 0 {
@@ -236,23 +191,65 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         out += [left[first], mark]
       }
 
-      first += 1
       only1 += 1
     } else if step > 0 {
       if ! opts.hide2 {
         out += [tab2, right[second], mark]
       }
 
-      second += 1
       only2 += 1
     } else {
       if ! opts.hide3 {
         out += [tab3, left[first], mark]
       }
 
-      first += 1
-      second += 1
       both += 1
+    }
+
+    let checking = mode == "always" or (mode == "differ" and unpairable)
+
+    if step <= 0 {
+      first += 1
+
+      if checking {
+        let unsorted = if first < left.len() {
+          order(left[first - 1], left[first]) > 0
+        } else {
+          first >= 2 and order(left[first - 2], left[first - 1]) > 0
+        }
+
+        if unsorted and ! bad1 {
+          gnu.error("file 1 is not in sorted order")
+          bad1 = true
+
+          if mode == "always" {
+            gnu.write_bytes(bytes.concat(out))
+            exit 1
+          }
+        }
+      }
+    }
+
+    if step >= 0 {
+      second += 1
+
+      if checking {
+        let unsorted = if second < right.len() {
+          order(right[second - 1], right[second]) > 0
+        } else {
+          second >= 2 and order(right[second - 2], right[second - 1]) > 0
+        }
+
+        if unsorted and ! bad2 {
+          gnu.error("file 2 is not in sorted order")
+          bad2 = true
+
+          if mode == "always" {
+            gnu.write_bytes(bytes.concat(out))
+            exit 1
+          }
+        }
+      }
     }
   }
 
@@ -262,11 +259,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   gnu.write_bytes(bytes.concat(out))
 
-  if mode != "never" and (bad1 or bad2) {
-    if mode == "differ" {
-      gnu.error("input is not in sorted order")
-    }
-
+  if bad1 or bad2 {
+    gnu.error("input is not in sorted order")
     exit 1
   }
 }
