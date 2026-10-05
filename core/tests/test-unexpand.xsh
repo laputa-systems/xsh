@@ -1,0 +1,31 @@
+test test_unexpand_initial_and_all { |ctx|
+  let input = test.temp_file(ctx, name: "spaces", contents: b"        a       b\n")?
+  let initial = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- $input
+  assert initial == "\ta       b\n"
+  let all = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert all == "\ta\tb\n"
+}
+
+test test_unexpand_finite_stops_and_single_spaces { |ctx|
+  let input = test.temp_file(ctx, name: "spaces", contents: b"      a b c\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -t 2,4 $input
+  assert output == "\t\t  a b c\n"
+}
+
+test test_unexpand_unicode_display_columns { |ctx|
+  let input = test.temp_file(ctx, name: "wide", contents: b"\xe4\xb8\xad      X")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output == "中\tX"
+}
+
+test test_unexpand_ideographic_blanks_preserve_unconverted_bytes { |ctx|
+  let input = test.temp_file(ctx, name: "wide", contents: b"\xe3\x80\x80\xe3\x80\x80\xe3\x80\x80\xe3\x80\x80Z\na\xe3\x80\x80b\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output == "\tZ\na　b\n"
+}
+
+test test_unexpand_does_not_split_wide_blank_at_a_tab_stop { |ctx|
+  let input = test.temp_file(ctx, name: "wide", contents: b"   \xe3\x80\x80X\ty\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a -t4 $input
+  assert output == "   \u{3000}X\ty\n"
+}
