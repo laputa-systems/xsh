@@ -72,6 +72,9 @@ mod lint_prefer_propagation;
 #[path = "lint_env_path_list.rs"]
 mod lint_env_path_list;
 
+#[path = "lint_write_mode.rs"]
+mod lint_write_mode;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -5644,6 +5647,7 @@ impl<'a> Linter<'a> {
             self.lint_negative_if_as_boolean_guard(first);
         }
         lint_optional_binding::lint_null_test_then_binding(self, stmts);
+        lint_write_mode::lint_write_then_chmod(self, stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for (index, &stmt) in stmts.iter().enumerate() {

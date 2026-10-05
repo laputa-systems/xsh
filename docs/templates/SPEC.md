@@ -2675,6 +2675,24 @@ Contracts worth knowing without consulting the reference:
 {{.spec.path_glob.source}}
 ```
 
+- `Path.write(data, mode: M)` and `fs.write(path, data, mode: M)` write a
+  file whose permission bits are exactly `M` (`0` through `0o7777`), as
+  `chmod` would set them, before any of the data is in it:
+
+  ```xsh
+  {{.spec.write_mode.source}}
+  ```
+
+  A new file is created with `M` narrowed by the process umask and then set to
+  `M`, so it is never open to anyone `M` excludes. An existing file is not
+  replaced: its bits are set to `M` first, then it is truncated and written,
+  so a process that already has it open keeps that access, and a failure to
+  set the bits (`fs-chmod`) leaves its contents alone. A mode out of range
+  fails with `fs-chmod` before the file is opened. Without `mode` a new file
+  gets `0o666` narrowed by the umask and an existing file keeps its bits.
+  `lint.prefer-write-mode` merges a `write` that is directly followed by a
+  `chmod` of the same path. The command form `fs.write PATH DATA` takes no
+  mode.
 - `Path.write_lines(lines)` writes each element of a `List[Str]` followed by
   `\n`, so every line is terminated and an empty list writes an empty file.
   Creating, replacing, the file mode, and failures are those of `Path.write`.

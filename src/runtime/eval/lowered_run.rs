@@ -4640,6 +4640,25 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::write_path(self.host_path(&path), &data, span))
             }
+            RuntimeOp::FsWrite if values.len() == 3 => {
+                let mode = lowered_int_arg(values.pop(), "fs.write", span)?;
+                let data = lowered_bytes_or_str_owned(
+                    values.pop().expect("checked value length"),
+                    "fs.write",
+                    span,
+                )?;
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "fs.write",
+                    span,
+                )?;
+                lowered_unit_result(fs_module::write_path_with_mode(
+                    self.host_path(&path),
+                    &data,
+                    mode,
+                    span,
+                ))
+            }
             RuntimeOp::FsWriteAtomic if values.len() == 2 => {
                 let data = lowered_bytes_or_str_owned(
                     values.pop().expect("checked value length"),

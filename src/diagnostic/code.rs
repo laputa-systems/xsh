@@ -627,6 +627,7 @@ diagnostic_codes! {
         LintRedundantUseAlias = "lint.redundant-use-alias", warning, "Drop a `use` alias that repeats the last path segment, as in `use a.b as b`";
         LintListAnyUnion = "lint.list-any-union", warning, "Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types";
         LintPreferEnvPathList = "lint.prefer-env-path-list", warning, "Write a search-path environment value as a `List[Path]` instead of formatting a `:`-separated string";
+        LintPreferWriteMode = "lint.prefer-write-mode", warning, "Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)`";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

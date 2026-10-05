@@ -1333,6 +1333,41 @@ fn fs_module() -> ModuleSig {
                 RuntimeOp::FsWrite,
             ),
         ),
+        // The mode is a separate overload, not a defaulted parameter, so the
+        // command form `fs.write PATH DATA` keeps its two words: a command
+        // word cannot be told from a mode.
+        (
+            "write",
+            super::ModuleFnSig {
+                command: false,
+                ..sig(
+                    vec![
+                        param("path", Type::Path),
+                        param("data", Type::Bytes),
+                        param("mode", Type::Int),
+                    ],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsWrite,
+                )
+            },
+        ),
+        (
+            "write",
+            super::ModuleFnSig {
+                command: false,
+                ..sig(
+                    vec![
+                        param("path", Type::Path),
+                        param("data", Type::Str),
+                        param("mode", Type::Int),
+                    ],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsWrite,
+                )
+            },
+        ),
         (
             "write_atomic",
             sig(

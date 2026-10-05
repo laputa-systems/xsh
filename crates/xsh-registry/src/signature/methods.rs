@@ -226,6 +226,20 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::FsWrite,
                 ),
                 method(
+                    "write",
+                    vec![param("data", Type::Bytes), param("mode", Type::Int)],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsWrite,
+                ),
+                method(
+                    "write",
+                    vec![param("data", Type::Str), param("mode", Type::Int)],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsWrite,
+                ),
+                method(
                     "write_atomic",
                     vec![param("data", Type::Bytes)],
                     result(Type::Unit),

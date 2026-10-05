@@ -595,7 +595,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "write") => Some((
             "Writes text or bytes to a path.",
-            "The input type selects the boundary explicitly and the write replaces the destination according to host filesystem policy.",
+            "The input type selects the boundary explicitly and the write replaces the destination according to host filesystem policy. With a mode the file has exactly those permission bits before any data is in it: a new file is never wider than the mode, and an existing file has its bits set before it is truncated.",
             &["filesystem", "write"],
         )),
         ("fs", "write_atomic") => Some((
@@ -1460,7 +1460,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Path", "write") => Some((
             "Writes text or bytes to a path.",
-            "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call.",
+            "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call. With a mode the file has exactly those permission bits before any data is in it: a new file is never wider than the mode, and an existing file has its bits set before it is truncated.",
             &["path", "filesystem", "write"],
         )),
         ("Path", "write_lines") => Some((

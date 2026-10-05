@@ -526,6 +526,56 @@ fn write_path_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), Runt
         .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))
 }
 
+/// Writes `data` to a file whose permission bits are exactly `mode` before
+/// any of the data is in it.
+pub(crate) fn write_path_with_mode(
+    path: PathBuf,
+    data: &[u8],
+    mode: i64,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, write_path_with_mode_unnamed(path, data, mode, span))
+}
+
+fn write_path_with_mode_unnamed(
+    path: PathBuf,
+    data: &[u8],
+    mode: i64,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mode = permission_bits(mode, span)?;
+    // A new file is created with the mode narrowed by the umask, so it is
+    // never wider than asked. The open does not truncate: an existing file
+    // keeps its contents until its bits are set, so a failure to set them
+    // changes nothing.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .mode(mode)
+        .open(path)
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
+    // Set on the open file, so the bits land on the file that is written
+    // even if the path is renamed meanwhile; this also undoes the umask and
+    // replaces an existing file's bits.
+    file.set_permissions(std::fs::Permissions::from_mode(mode))
+        .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))?;
+    file.set_len(0)
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
+    file.write_all(data)
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))
+}
+
+/// The permission bits of a mode argument, which must be `0..=0o7777`.
+fn permission_bits(mode: i64, span: Span) -> Result<u32, RuntimeError> {
+    if !(0..=0o7777).contains(&mode) {
+        return Err(RuntimeError::new("fs-chmod", "mode is out of range").with_span(span));
+    }
+    Ok(mode as u32)
+}
+
 pub(crate) fn rooted_write_atomic(
     root: &Root,
     path: &Path,
@@ -1898,10 +1948,8 @@ pub(crate) fn chmod_path(path: PathBuf, mode: i64, span: Span) -> Result<(), Run
 }
 
 fn chmod_path_unnamed(path: PathBuf, mode: i64, span: Span) -> Result<(), RuntimeError> {
-    if !(0..=0o7777).contains(&mode) {
-        return Err(RuntimeError::new("fs-chmod", "mode is out of range").with_span(span));
-    }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode as u32))
+    let mode = permission_bits(mode, span)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
         .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))
 }
 
