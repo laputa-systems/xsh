@@ -1412,12 +1412,12 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Path", "strip_prefix") => Some((
             "Removes an explicit path prefix.",
-            "The prefix must match the path boundary; unrelated paths return an error.",
+            "The prefix must be a leading run of whole components. The result is a RelPath, `.` when the path equals the prefix; an unrelated path, an empty prefix, and a remainder whose `..` climbs above the prefix are errors. Lexical, with no filesystem access.",
             &["path", "relative"],
         )),
         ("Path", "starts_with") => Some((
             "Tests whether a path begins with the components of another path.",
-            "Whole components are compared, never bytes: `/usr/lib` starts with `/usr` and not with `/us`, and `starts_with(p\"/\")` holds exactly for absolute paths. True exactly when strip_prefix succeeds; lexical, with no filesystem access.",
+            "Whole components are compared, never bytes: `/usr/lib` starts with `/usr` and not with `/us`, and `starts_with(p\"/\")` holds exactly for absolute paths. strip_prefix succeeds only where this holds; lexical, with no filesystem access.",
             &["path", "component", "prefix"],
         )),
         ("Path", "ends_with") => Some((

@@ -17,9 +17,13 @@ proc stage(root: FsRoot, tree: Path, file: Path) [fs, error] {
   let backup: RelPath = fp"{config.parent()}/backup/{config}"
   install(root, {rel: backup, mode: 0o600}, "debug = false\n")
 
-  # Any other path is validated once, at an explicit boundary.
-  let rel = file.strip_prefix(tree)?.require(RelPath)?
+  # What is left of a path beneath a prefix is a RelPath, or a failure.
+  let rel = file.strip_prefix(tree)?
   install(root, {rel, mode: 0o644}, file.read_text()?)
+
+  # Any other path is validated once, at an explicit boundary.
+  let copy = fp"doc/{file.name()}".require(RelPath)?
+  install(root, {rel: copy, mode: 0o644}, file.read_text()?)
 }
 
 # end example

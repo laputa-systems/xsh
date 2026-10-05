@@ -175,15 +175,40 @@ test test_validation_runs_once_at_the_explicit_boundary {
   assert word is RelPath
 }
 
-# `strip_prefix` alone does not confine its result: an empty prefix returns an
-# absolute path whole, and a `..` after the prefix is kept.
-test test_strip_prefix_result_is_validated_before_it_is_a_rel_path {
+# `strip_prefix` returns what is left beneath the prefix as a RelPath, and
+# fails wherever that remainder would not be confined.
+test test_strip_prefix_returns_a_rel_path_or_fails {
   let file = /srv/tree/share/doc
-  let rel = file.strip_prefix("/srv/tree")?.require(RelPath)?
+  let rel: RelPath = file.strip_prefix("/srv/tree")?
   assert rel == "share/doc"
-  assert p"/srv/tree".strip_prefix("/srv/tree")?.require(RelPath)? == "."
-  assert file.strip_prefix(p"")?.require(RelPath) is Err(_)
-  assert p"/srv/tree/../../etc".strip_prefix("/srv")?.require(RelPath) is Err(_)
+  let whole: RelPath = p"/srv/tree".strip_prefix("/srv/tree")?
+  assert whole == "."
+  let beneath_root = file.strip_prefix(/)?
+  assert beneath_root == "srv/tree/share/doc"
+
+  # A `..` that stays beneath the prefix is kept as written.
+  let dotted: RelPath = p"/srv/tree/a/../b".strip_prefix("/srv/tree")?
+  assert dotted == "a/../b"
+  assert dotted.normalize() == "b"
+
+  # An empty prefix would return an absolute path whole.
+  assert prefix_failure(file, p"") == "prefix is empty"
+  assert prefix_failure(p"share/doc", p"") == "prefix is empty"
+  # A `..` after the prefix would leave it.
+  assert prefix_failure(/srv/tree/../../etc, "/srv") == "remainder climbs above the prefix"
+  assert prefix_failure(/srv/.., "/srv") == "remainder climbs above the prefix"
+  assert prefix_failure(file, "/srv/tr") == "path does not start with prefix"
+
+  # The result is a plain path wherever one is expected.
+  let plain: Path = file.strip_prefix("/srv")?
+  assert plain == "tree/share/doc"
+}
+
+pure prefix_failure(whole: Path, prefix: Path) -> Str {
+  match whole.strip_prefix(prefix) {
+    Ok(rest) => f"ok: {rest}"
+    Err(error) => error.message
+  }
 }
 
 test test_fs_root_takes_a_rel_path { |ctx|
@@ -198,7 +223,7 @@ test test_fs_root_takes_a_rel_path { |ctx|
   assert root.exists(joined("etc", "app"))?
   assert beneath(dir, entry.rel).read_text()? == "key = 1\n"
 
-  let found = beneath(dir, entry.rel).strip_prefix(dir)?.require(RelPath)?
+  let found = beneath(dir, entry.rel).strip_prefix(dir)?
   assert found == entry.rel
 }
 

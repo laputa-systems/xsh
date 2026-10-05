@@ -2168,15 +2168,18 @@ pub(super) fn lowered_path_method_value(
                     RuntimeError::new("type-error", "strip_prefix expected Path").with_span(span),
                 );
             };
+            // The result is typed `RelPath`, so every `Ok` must pass its
+            // rule. An empty prefix is a prefix of every path and would
+            // return an absolute path whole; a `..` after the prefix can
+            // leave it.
+            if prefix.bytes.is_empty() {
+                return Ok(lowered_result_err("path-prefix", "prefix is empty"));
+            }
             let pathbuf = pathbuf_from_path_value(&path);
             let prefix = pathbuf_from_path_value(prefix);
-            match pathbuf.strip_prefix(&prefix) {
-                Ok(stripped) if stripped.as_os_str().is_empty() => {
-                    PathValue::from_text(".").map(LoweredValue::Path)
-                }
-                Ok(stripped) => {
-                    path_value_from_pathbuf(stripped.to_path_buf()).map(LoweredValue::Path)
-                }
+            let stripped = match pathbuf.strip_prefix(&prefix) {
+                Ok(stripped) if stripped.as_os_str().is_empty() => PathValue::from_text("."),
+                Ok(stripped) => path_value_from_pathbuf(stripped.to_path_buf()),
                 Err(_) => {
                     return Ok(lowered_result_err(
                         "path-prefix",
@@ -2184,8 +2187,16 @@ pub(super) fn lowered_path_method_value(
                     ));
                 }
             }
-            .map(|value| LoweredValue::ResultOk(Box::new(value)))
-            .map_err(|error| error.with_span(span))
+            .map_err(|error| error.with_span(span))?;
+            if !crate::sema::validated::is_rel_path(&stripped.bytes) {
+                return Ok(lowered_result_err(
+                    "path-prefix",
+                    "remainder climbs above the prefix",
+                ));
+            }
+            Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Path(
+                stripped,
+            ))))
         }
         "relative_to" if args.len() == 1 => {
             let LoweredValue::Path(base) = &args[0] else {

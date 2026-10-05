@@ -113,7 +113,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method_with_arg_check(
                     "strip_prefix",
                     vec![param("prefix", Type::Path)],
-                    result(Type::Path),
+                    result(Type::RelPath),
                     true,
                     RuntimeOp::PathStripPrefix,
                     ApiArgCheck::PathLikeSingle,
