@@ -3,8 +3,9 @@ e"STAGE" = "build" # set for the rest of the script
 env LC_ALL=C {
   e"STAGE" = "test" # undone when this scope ends
   e"RETRIES" = 3 # converted like an argv item
-  let seen = run.text printenv STAGE RETRIES ?
-  print f"child sees: {seen.lines().join(" ")}"
+  let stage = run.text printenv STAGE ?
+  let retries = run.text printenv RETRIES ?
+  print f"child sees: {stage.trim()} {retries.trim()}"
 }
 
 print f"after the scope: STAGE={e"STAGE"?} RETRIES={e"RETRIES" ?? "(unset)"}"
