@@ -617,13 +617,3 @@ pub(crate) fn assert_ok(output: &std::process::Output) {
         stderr_text(output)
     );
 }
-
-pub(crate) fn assert_exit(output: &std::process::Output, code: i32) {
-    assert_eq!(
-        output.status.code(),
-        Some(code),
-        "stdout:\n{}\nstderr:\n{}",
-        stdout_text(output),
-        stderr_text(output)
-    );
-}

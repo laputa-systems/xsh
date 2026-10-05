@@ -114,23 +114,6 @@ fn examples_have_timed_trace_output() {
 }
 
 #[test]
-fn trace_error_fixture_has_timed_error_trace() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "tests/fixtures/runtime/cli-trace-error.xsh"])
-        .output()
-        .expect("run xsht");
-
-    assert_exit(&output, 3);
-    assert_eq!(stdout_text(&output), "");
-    let stderr = stderr_text(&output);
-    assert!(stderr.contains("err: `false` exited 1"));
-    assert!(!stderr.contains("runtime traceback"));
-    assert!(stderr.contains("proc fail at"));
-    assert!(stderr.contains("trace summary"));
-    assert!(stderr.contains("script duration"));
-}
-
-#[test]
 fn example_corpus_is_formatted() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["fmt", "--check"])
@@ -167,20 +150,4 @@ fn example_runtime_cases_cover_every_example_script() {
         .collect();
 
     assert_eq!(discovered, expected);
-}
-
-#[test]
-fn trace_output_includes_timing() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "--raw", "tests/fixtures/runtime/cli-trace.xsh"])
-        .output()
-        .expect("run xsht");
-
-    assert_ok(&output);
-    let stderr = stderr_text(&output);
-    assert!(stderr.contains("kind=script.enter"));
-    assert!(stderr.contains("kind=proc.enter"));
-    assert!(stderr.contains("kind=core.call"));
-    assert!(stderr.contains("start_us="));
-    assert!(stderr.contains("duration_us="));
 }

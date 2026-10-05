@@ -143,3 +143,24 @@ test test_ast_prints_parser_debug_output {
   assert "ProcDef" in ast.stdout
   assert ast.stderr == ""
 }
+
+# A failing script still gets its trace summary, after the error and the
+# frame it failed in, and exits with the script's status.
+test test_trace_of_a_failing_script_reports_the_error_and_a_timed_summary {
+  let traced = run.capture --text "xsht" trace tests/fixtures/runtime/cli-trace-error.xsh
+  assert traced.status.exited_with(3), traced.stderr
+  assert traced.stdout == ""
+  assert "err: `false` exited 1" in traced.stderr, traced.stderr
+  assert "runtime traceback" not in traced.stderr, traced.stderr
+  assert "proc fail at" in traced.stderr, traced.stderr
+  assert "trace summary" in traced.stderr, traced.stderr
+  assert "script duration" in traced.stderr, traced.stderr
+}
+
+test test_raw_trace_events_carry_start_and_duration {
+  let traced = run.capture --text "xsht" trace --raw tests/fixtures/runtime/cli-trace.xsh
+  assert traced.status.exited_with(0), traced.stderr
+  for fragment in ["kind=script.enter", "kind=proc.enter", "kind=core.call", "start_us=", "duration_us="] {
+    assert fragment in traced.stderr, traced.stderr
+  }
+}
