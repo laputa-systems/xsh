@@ -1659,7 +1659,7 @@ impl Checker {
         // The rules record constructors follow: a swapped pair of positional
         // arguments must be a type error, and positional arguments lead.
         if let Some((left, right)) = info.fields.positional_conflict(leading.len()) {
-            let mut diagnostic = Diagnostic::warning(format!(
+            let mut diagnostic = Diagnostic::error(format!(
                 "fields `{left}` and `{right}` can hold the same value, so they must be passed by name"
             ))
             .with_code(DiagnosticCode::CheckPositionalErrorArguments)
@@ -1673,7 +1673,7 @@ impl Checker {
             self.diagnostics.push(diagnostic);
         }
         for argument in &trailing {
-            let diagnostic = Diagnostic::warning(
+            let diagnostic = Diagnostic::error(
                 "positional error constructor arguments must come before named ones",
             )
             .with_code(DiagnosticCode::CheckPositionalErrorArguments)

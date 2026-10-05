@@ -701,11 +701,19 @@ does not; a family written in braces stays in braces.
 
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
-A constructor takes payload fields by name (with puns) or positionally:
-positional arguments fill the leading fields in the order the variant
-declares them, the order record constructors use (4.7). Arguments evaluate
-once in source order, and the error is the same value whether a field was
-passed by name or by position.
+A constructor takes payload fields by name (with puns) or positionally, by
+the rules of a record constructor (4.7): positional arguments come first and
+fill fields in the order the variant declares them, and they are accepted
+only when no single value fits two of the fields they fill, so exchanging two
+of them is always a type error. Other fields are passed by name
+(`check.positional-error-arguments`):
+
+```xsh
+{{.spec.error_constructor_arguments.source}}
+```
+
+Arguments evaluate once in source order, and the error is the same value
+whether a field was passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;

@@ -386,7 +386,7 @@ diagnostic_codes! {
         CheckPipelineHole = "check.pipeline-hole", error, "Reject `_` used as anything other than a whole-argument placeholder in an immediate pipeline call";
         CheckPipelineStage = "check.pipeline-stage", error, "Reject a value pipeline stage that is not a call";
         CheckPipelineStdin = "check.pipeline-stdin", error, "Reject stdin redirection on a byte pipeline segment other than the first";
-        CheckPositionalErrorArguments = "check.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
+        CheckPositionalErrorArguments = "check.positional-error-arguments", error, "Reject positional error constructor arguments that follow a named one or fill fields a single value fits two of";
         CheckProcCommandSyntax = "check.proc-command-syntax", error, "Reject calling a `proc` with command syntax instead of expression-call syntax";
         CheckProcessArgvEmpty = "check.process-argv-empty", error, "Reject an empty argv list in `process.command_argv`";
         CheckPublicResultError = "check.public-result-error", warning, "Require an exported signature or module contract to spell the error type of each Result";

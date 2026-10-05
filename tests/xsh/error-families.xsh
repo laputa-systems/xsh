@@ -462,9 +462,6 @@ for package in ["a", "b", "c"] {
 }
 """)
   let module_env = {XSH_MODULE_PATH: root.display()}
-  let before = test.run_script(ctx, main.read_text()?, [], module_env)?
-  assert before.success, before.stderr
-
   let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $main ?
   assert ! fixing.status.exited_with(2), fixing.stderr
   let fixed = module_file.read_text()?
@@ -478,8 +475,39 @@ for package in ["a", "b", "c"] {
 
   let after = test.run_script(ctx, main.read_text()?, [], module_env)?
   assert after.success, after.stderr
-  assert after.stdout == before.stdout
+  assert after.stdout == """kind: a has no proof
+missing: b is not installed
+ok
+"""
   let remaining = run.capture --text "xsht" check $main ?
   assert "check.positional-error-arguments" not in remaining.stderr, remaining.stderr
   assert "check.public-result-error" not in remaining.stderr, remaining.stderr
+}
+
+test test_error_constructors_follow_the_record_constructor_rules { |ctx|
+  for call in [
+    """E.Pair("s", "f")""",
+    """E.Located(p"conf", "bad")""",
+    """E.Maybe(1, null)""",
+    """E.Triple(alpha: true, 1, "m")""",
+  ] {
+    let rejected = test.run_script(
+      ctx,
+      f"""error E = Pair(second: Str, first: Str) | Located(file: Path, message: Str) | Maybe(code: Int, other: Int?) | Triple(zulu: Int, mike: Str, alpha: Bool)
+let built = {call}
+""",
+    )?
+    assert ! rejected.success, call
+    assert "check.positional-error-arguments" in rejected.stderr, rejected.stderr
+  }
+
+  let accepted = test.run_script(
+    ctx,
+    """error E = Pair(second: Str, first: Str) | Triple(zulu: Int, mike: Str, alpha: Bool)
+let pair = E.Pair("s", first: "f")
+let triple = E.Triple(1, "m", alpha: true)
+print "ok"
+""",
+  )?
+  assert accepted.success, accepted.stderr
 }
