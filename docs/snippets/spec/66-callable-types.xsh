@@ -21,5 +21,5 @@ proc run_step(step: Step, root: Path) [fs, process, error] {
 
 let build: Builder = if debug { debug_build } else { release_build }
 build(workspace)
-run_step(Step("release", release_build), workspace)
+run_step(Step(name: "release", build: release_build), workspace)
 # end example

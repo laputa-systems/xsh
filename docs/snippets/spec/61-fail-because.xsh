@@ -17,6 +17,6 @@ proc fetch(url: Str) -> Result[Str, FetchError] {
 
 match fetch("ftp://mirror/index") {
   Ok(body) => print $body
-  Err(.RemoteFetch {message}) => print $message
-  Err(.Offline) => print "offline"
+  Err(FetchError.RemoteFetch {message}) => print $message
+  Err(FetchError.Offline) => print "offline"
 }

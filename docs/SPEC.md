@@ -640,7 +640,7 @@ a fallback, `?.`/`?[...]` to guard an operation, or a null test to narrow (see
 ```xsh
 type BuildOptions = {root: Path, jobs: UInt = 4, flags: List[Str] = []}
 
-let opts = BuildOptions(p"src")
+let opts = BuildOptions(root: p"src")
 let wide = BuildOptions(root:, jobs: 16)
 ```
 
@@ -653,7 +653,7 @@ type Entry = {path: Path, kind: Kind, mode: Int = 0o644}
 
 let tool = Entry(p"usr/bin/xsh", Binary, mode: 0o755)
 let config = Entry(p"etc/xsh.conf", File)
-let link = Entry(p"usr/bin/sh", Symlink)
+let link = Entry(path: p"usr/bin/sh", kind: Symlink)
 ```
 
 Positional arguments are accepted only when no single value fits two of the
@@ -822,11 +822,11 @@ error FetchError {
 }
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
-  fail .Invalid(file:, message: "empty") when text == ""
+  return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
 }
 
 pure parse_url(url: Str) -> Result[Str, FetchError] {
-  fail .Usage(f"not a URL: {url}") unless url.starts_with("https://")
+  return Err(FetchError.Usage(f"not a URL: {url}")) unless url.starts_with("https://")
   Ok(url)
 }
 ```
@@ -984,7 +984,7 @@ pure describe(word: Word) -> Str {
 }
 
 proc build(root: Path) [process, error] {
-  let task = Task("make", ["-C", root, "all"])
+  let task = Task(tool: "make", args: ["-C", root, "all"])
   run $task.tool @(task.args) ?
 
   for word in task.args {
@@ -2990,7 +2990,7 @@ proc run_step(step: Step, root: Path) [fs, process, error] {
 
 let build: Builder = if debug { debug_build } else { release_build }
 build(workspace)
-run_step(Step("release", release_build), workspace)
+run_step(Step(name: "release", build: release_build), workspace)
 ```
 
 A value gets a callable type in one of two ways: a function is named where
@@ -3979,7 +3979,7 @@ Programs that operate on unknown JSON (formatters, filters, validators) branch
 on runtime shape with type patterns:
 
 ```xsh
-error JsonShape = NotScalar
+error JsonShape = NotScalar(message: Str)
 
 pure scalar_label(v: Any) -> Result[Str, JsonShape] {
   match v {
@@ -3988,7 +3988,7 @@ pure scalar_label(v: Any) -> Result[Str, JsonShape] {
     i is Int => f"integer {i}"
     f is Float => f"float {f}"
     s is Str => f"string of {s.count_chars()} characters"
-    else => Err(.NotScalar("expected a scalar"))
+    else => Err(JsonShape.NotScalar(message: "expected a scalar"))
   }
 }
 ```
