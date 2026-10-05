@@ -1144,7 +1144,7 @@ under the temp dir: true</code></pre></figure>
   <span class="hl-punctuation">}</span>
 
   <span class="hl-keyword">let</span> backup <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>file<span class="hl-interpolation">}</span><span class="hl-path">.bak"</span>
-  fs<span class="hl-punctuation">.</span><span class="hl-function">copy</span><span class="hl-punctuation">(</span>file<span class="hl-punctuation">,</span> backup<span class="hl-punctuation">,</span> <span class="hl-property">overwrite</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
+  file<span class="hl-punctuation">.</span><span class="hl-function">copy</span><span class="hl-punctuation">(</span>backup<span class="hl-punctuation">,</span> <span class="hl-property">overwrite</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
   file<span class="hl-punctuation">.</span><span class="hl-function">write_atomic</span><span class="hl-punctuation">(</span>after<span class="hl-punctuation">)</span>
   <span class="hl-keyword">print</span> diff<span class="hl-punctuation">.</span><span class="hl-function">unified</span><span class="hl-punctuation">(</span>backup<span class="hl-punctuation">,</span> file<span class="hl-punctuation">)</span><span class="hl-operator">?</span><span class="hl-punctuation">.</span><span class="hl-property">text</span><span class="hl-punctuation">.</span><span class="hl-function">trim</span><span class="hl-punctuation">()</span>
 <span class="hl-punctuation">}</span>
@@ -1215,12 +1215,12 @@ sshd_config: PermitRootLogin is already no</code></pre></figure>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">proc</span> <span class="hl-function">fetch</span><span class="hl-punctuation">(</span><span class="hl-property">url</span><span class="hl-punctuation">:</span> <span class="hl-type">Str</span><span class="hl-punctuation">,</span> <span class="hl-property">out</span><span class="hl-punctuation">:</span> <span class="hl-type">Path</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
   <span class="hl-keyword">let</span> partial <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>out<span class="hl-interpolation">}</span><span class="hl-path">.partial"</span>
   <span class="hl-keyword">defer</span> <span class="hl-punctuation">{</span>
-    fs<span class="hl-punctuation">.</span><span class="hl-function">remove</span><span class="hl-punctuation">(</span>partial<span class="hl-punctuation">,</span> <span class="hl-property">missing_ok</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
+    partial<span class="hl-punctuation">.</span><span class="hl-function">remove</span><span class="hl-punctuation">(</span><span class="hl-property">missing_ok</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
     <span class="hl-keyword">print</span> <span class="hl-string">"removed partial download"</span>
   <span class="hl-punctuation">}</span>
 
   <span class="hl-keyword">run</span> <span class="hl-function">curl</span> <span class="hl-operator">-</span>fsSL <span class="hl-operator">-</span>o <span class="hl-variable">$partial</span> <span class="hl-variable">$url</span>
-  fs<span class="hl-punctuation">.</span><span class="hl-function">rename</span><span class="hl-punctuation">(</span>partial<span class="hl-punctuation">,</span> out<span class="hl-punctuation">)</span>
+  partial<span class="hl-punctuation">.</span><span class="hl-function">rename</span><span class="hl-punctuation">(</span>out<span class="hl-punctuation">)</span>
 <span class="hl-punctuation">}</span>
 
 <span class="hl-function">fetch</span><span class="hl-punctuation">(</span><span class="hl-string">"https://mirror.example.org/laputa.iso"</span><span class="hl-punctuation">,</span> <span class="hl-path">p"laputa.iso"</span><span class="hl-punctuation">)</span></code></pre></figure>
@@ -1286,7 +1286,7 @@ state<span class="hl-punctuation">.</span><span class="hl-function">write</span>
 <span class="hl-keyword">let</span> dir <span class="hl-operator">=</span> scratch<span class="hl-punctuation">.</span><span class="hl-function">host_path</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
 
 <span class="hl-keyword">let</span> release <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>dir<span class="hl-interpolation">}</span><span class="hl-path">/app-1.4"</span>
-fs<span class="hl-punctuation">.</span><span class="hl-function">mkdir</span><span class="hl-punctuation">(</span><span class="hl-path">fp"</span><span class="hl-interpolation">{</span>release<span class="hl-interpolation">}</span><span class="hl-path">/bin"</span><span class="hl-punctuation">)</span>
+<span class="hl-path">fp"</span><span class="hl-interpolation">{</span>release<span class="hl-interpolation">}</span><span class="hl-path">/bin"</span><span class="hl-punctuation">.</span><span class="hl-function">mkdir</span><span class="hl-punctuation">()</span>
 <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>release<span class="hl-interpolation">}</span><span class="hl-path">/bin/app"</span><span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"#!/bin/xsh\nprint \"app 1.4\"\n"</span><span class="hl-punctuation">)</span>
 <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>release<span class="hl-interpolation">}</span><span class="hl-path">/README"</span><span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"app 1.4\n"</span><span class="hl-punctuation">)</span>
 
@@ -1486,7 +1486,7 @@ executable: /usr/local/bin/xsh
   <span class="hl-keyword">let</span> before <span class="hl-operator">=</span> config<span class="hl-punctuation">.</span><span class="hl-function">read_text</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
   <span class="hl-keyword">let</span> after <span class="hl-operator">=</span> sshd<span class="hl-punctuation">.</span><span class="hl-function">set_option</span><span class="hl-punctuation">(</span>before<span class="hl-punctuation">,</span> <span class="hl-string">"PermitRootLogin"</span><span class="hl-punctuation">,</span> <span class="hl-string">"no"</span><span class="hl-punctuation">)</span>
   <span class="hl-keyword">if</span> after <span class="hl-operator">!=</span> before <span class="hl-punctuation">{</span>
-    fs<span class="hl-punctuation">.</span><span class="hl-function">copy</span><span class="hl-punctuation">(</span>config<span class="hl-punctuation">,</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>config<span class="hl-interpolation">}</span><span class="hl-path">.bak"</span><span class="hl-punctuation">,</span> <span class="hl-property">overwrite</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
+    config<span class="hl-punctuation">.</span><span class="hl-function">copy</span><span class="hl-punctuation">(</span><span class="hl-path">fp"</span><span class="hl-interpolation">{</span>config<span class="hl-interpolation">}</span><span class="hl-path">.bak"</span><span class="hl-punctuation">,</span> <span class="hl-property">overwrite</span><span class="hl-punctuation">:</span> <span class="hl-constant">true</span><span class="hl-punctuation">)</span>
     config<span class="hl-punctuation">.</span><span class="hl-function">write_atomic</span><span class="hl-punctuation">(</span>after<span class="hl-punctuation">)</span>
     <span class="hl-keyword">print</span> <span class="hl-string">f"updated </span><span class="hl-interpolation">{</span>config<span class="hl-interpolation">}</span><span class="hl-string">"</span>
   <span class="hl-punctuation">}</span>

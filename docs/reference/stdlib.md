@@ -607,6 +607,9 @@ Process-scoped utility helpers.
 - `Path.ext_or(fallback: Str) -> Str` — Returns the path extension, or a fallback when there is no extension.
 - `Path.glob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern below a path.
 - `Path.hardlink(path: Path) -> Result[Unit, Error]` — Creates a hard link to a path.
+- `Path.is_dir() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
+- `Path.is_file() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
+- `Path.is_symlink() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
 - `Path.lines() -> Result[Stream[Str], Error]` — Streams UTF-8 file lines.
 - `Path.metadata() -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads a path's filesystem metadata record.
 - `Path.mkdir(parents: Bool = default) -> Result[Unit, Error]` — Creates a directory at a path.

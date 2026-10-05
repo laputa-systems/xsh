@@ -1233,7 +1233,7 @@ proc edit_config(file: Path, key: Str, value: Str) {
   }
 
   let backup = fp"{file}.bak"
-  fs.copy(file, backup, overwrite: true)
+  file.copy(backup, overwrite: true)
   file.write_atomic(after)
   print diff.unified(backup, file)?.text.trim()
 }
@@ -1351,12 +1351,12 @@ and the script exits with status 3:
 proc fetch(url: Str, out: Path) {
   let partial = fp"{out}.partial"
   defer {
-    fs.remove(partial, missing_ok: true)
+    partial.remove(missing_ok: true)
     print "removed partial download"
   }
 
   run curl -fsSL -o $partial $url
-  fs.rename(partial, out)
+  partial.rename(out)
 }
 
 fetch("https://mirror.example.org/laputa.iso", p"laputa.iso")
@@ -1461,7 +1461,7 @@ defer scratch.close()?
 let dir = scratch.host_path()?
 
 let release = fp"{dir}/app-1.4"
-fs.mkdir(fp"{release}/bin")
+fp"{release}/bin".mkdir()
 fp"{release}/bin/app".write("#!/bin/xsh\nprint \"app 1.4\"\n")
 fp"{release}/README".write("app 1.4\n")
 
@@ -1729,7 +1729,7 @@ cli main(config: Path = /etc/ssh/sshd_config) {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {
-    fs.copy(config, fp"{config}.bak", overwrite: true)
+    config.copy(fp"{config}.bak", overwrite: true)
     config.write_atomic(after)
     print f"updated {config}"
   }

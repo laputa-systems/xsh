@@ -333,7 +333,7 @@ cli main(source: Path, dest: Path, jobs: UInt = 4, verbose = false) {
     print f"copying {source} to {dest} with {jobs} jobs"
   }
 
-  fs.copy(source, dest)
+  source.copy(dest)
 }
 ```
 
@@ -2071,7 +2071,9 @@ where it is an optional binding: `if let name = subject` with `subject: T?`
 takes the `else` branch (and `while let` ends the loop) on `null`, and
 otherwise matches the pattern against the value as a `T`. A pattern that can
 fail on its own is matched against an optional subject as it is, with no
-unwrapping.
+unwrapping. Over a value of one error family only a catch-all cannot fail:
+variant and facet patterns that together cover the family (6.8) are still a
+condition.
 
 An optional binding also narrows its subject (5.4): after
 `guard let name = subject else { ... }`, and inside the branch or body selected
@@ -2119,9 +2121,9 @@ control leaves the enclosing block with an error:
 ```xsh
 proc publish(output: Path) {
   let partial = fp"{output}.partial"
-  errdefer fs.remove(partial, missing_ok: true)
+  errdefer partial.remove(missing_ok: true)
   render(partial)
-  fs.rename(partial, output)
+  partial.rename(output)
 }
 ```
 
@@ -2306,7 +2308,7 @@ one. A non-empty delay list requires the `time` effect. Each attempt emits a
 
 ```xsh
 ctx f"installing {package.name}" {
-  fs.copy(source, dest)
+  source.copy(dest)
 }
 ```
 
@@ -3382,13 +3384,40 @@ let tests = package.rglob(f"*_test.{suffix}")? # at any depth
 let nested = package.glob("src/**/*.xsh")? # the same pattern as g"..."
 ```
 
+- An operation on one path is a `Path` method: `out.write(text)`, not
+  `fs.write(out, text)`. Eleven operations still have both spellings, with
+  the same parameters after the path, the same result, and the same failures:
+  `chmod`, `copy`, `executable`, `exists`, `metadata`, `mkdir`, `read_text`,
+  `remove`, `rename`, `write`, and `write_atomic`. `lint.prefer-path-method`
+  rewrites the `fs` call when its first argument is statically a `Path`,
+  moving that argument in front of the call and leaving the rest as written,
+  so operands are still evaluated left to right. `fs` keeps what has no
+  single path to be a method of: the working directory and roots, traversal,
+  locks, mounts, temporary files, and installs.
+- `Path.is_dir()`, `Path.is_file()`, and `Path.is_symlink()` each return
+  `Result[Bool]` and ask what the path itself is:
+
+  ```xsh
+  return Ok("link") when out.is_symlink()?
+let kind = if out.is_dir()? { "directory" } else if out.is_file()? { "file" } else { "other" }
+  ```
+
+  `p.is_dir()` is exactly `p.metadata()?.kind == "dir"`, and likewise for
+  `"file"` and `"symlink"`, without building the entry. None of them follows
+  a symbolic link in the last component: for a link `is_symlink` is `true`
+  and the other two are `false`, whatever the link names. A path that does
+  not exist is an error (`fs-metadata`), as it is for `metadata`, not
+  `false`; ask `exists()` first where absence is expected. Every other kind
+  of entry (a socket, a device) is `false` for all three.
+  `lint.prefer-path-kind` rewrites the comparison, and `!=` to the negated
+  call.
 - `Path.write(data, mode: M)` and `fs.write(path, data, mode: M)` write a
   file whose permission bits are exactly `M` (`0` through `0o7777`), as
   `chmod` would set them, before any of the data is in it:
 
   ```xsh
   key.write(secret, mode: 0o600)
-fs.write(fp"{key}.pub", "public\n", mode: 0o644)
+fp"{key}.pub".write("public\n", mode: 0o644)
   ```
 
   A new file is created with `M` narrowed by the process umask and then set to

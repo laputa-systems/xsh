@@ -137,6 +137,8 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-env-path-list` | Write a search-path environment value as a `List[Path]` instead of formatting a `:`-separated string |
 | `lint.prefer-write-mode` | Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)` |
 | `lint.prefer-for-index` | Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list |
+| `lint.prefer-path-kind` | Test a path's kind with `is_dir()`, `is_file()`, or `is_symlink()` instead of comparing `metadata()?.kind` |
+| `lint.prefer-path-method` | Call the `Path` method instead of the `fs` function that takes the path first |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |
