@@ -7,7 +7,7 @@ test test_static_runner_satisfies_the_stage_contract { |ctx|
 use stage_contract
 
 ## Accepts a command request without creating a child process.
-export proc execute(spec: stage_contract.CommandSpec) [process, error, io] -> Result[Unit] {
+export proc execute(spec: stage_contract.CommandSpec) [process, error, io] -> Result[Unit, Error] {
   return Ok()
 }
 """)

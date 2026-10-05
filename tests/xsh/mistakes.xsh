@@ -543,7 +543,8 @@ print $target
     {
       name: "path_compared_to_text",
       source: r"""let root = p"/tmp"
-if root == "/tmp" { print yes }
+let text = "/tmp"
+if root == text { print yes }
 """,
       code: "check.type-mismatch",
       cause: "expected Path, found Str",

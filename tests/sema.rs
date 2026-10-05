@@ -400,7 +400,7 @@ fn checker_rejects_stage_5_acceptance_cases() {
             "check.try-context",
         ),
         ("let b = b\"x\"\nrun echo (b) ?\n", "check.argv-conversion"),
-        ("let xs = [\"echo\"]\nrun @xs value ?\n", "check.run-target"),
+        ("run @([])\n", "check.run-target"),
         (
             "proc needs(value: Str) -> Result[Unit] { return Ok() }\nlet b = b\"x\"\nneeds (b) ?\n",
             "check.proc-command-syntax",

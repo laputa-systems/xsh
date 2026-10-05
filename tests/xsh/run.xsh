@@ -182,7 +182,7 @@ export proc build() [process, error] {
   let output = test.run_script(
     ctx,
     f"""type Package = module {{
-  export proc build() [process, error]
+  export proc build() [process, error] -> Result[Unit, Error]
 }}
 let package = module.load(p"{module_path}")?.require(Package)?
 package.build()?
