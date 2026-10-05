@@ -149,7 +149,7 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
       }
     }
     match fs.children(target) {
-      Ok(children) => for child in children { if ! change(fp"{target}/{child.path.basename()}", spec, reference, opts, false, ancestors + [key], umask) { success = false } }
+      Ok(children) => for child in children { if ! change(perm.child_path(target, child.path)?, spec, reference, opts, false, ancestors + [key], umask) { success = false } }
       Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
     }
     }

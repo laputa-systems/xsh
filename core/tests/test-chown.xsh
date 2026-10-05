@@ -123,3 +123,13 @@ test test_chown_numeric_id_allows_leading_space_and_forced_numeric_prefix { |ctx
   assert fs.stat(target)?.uid == before.uid
   assert fs.stat(target)?.gid == before.gid
 }
+
+test test_chown_recursive_preserves_non_utf8_child_names { |ctx|
+  if user.current()?.uid != 0 { test.skip("changing numeric owners requires root") }
+  let root = test.temp_dir(ctx, name: "raw-owner-name")?
+  let child = Path.parse_bytes(bytes.concat([root.bytes(), b"/child\xff"]))?
+  child.write("x")
+  let result = perm_run(ctx, ["-R", "12345", root.display()])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(child)?.uid == 12345
+}

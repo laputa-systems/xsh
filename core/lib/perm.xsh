@@ -231,7 +231,7 @@ proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, group_o
         if root.dev == meta.dev and root.ino == meta.ino { refuse_root(target); return false }
       }
       match fs.children(target) {
-        Ok(children) => for child in children { if ! owner_tree(fp"{target}/{child.path.basename()}", ids, filter, opts, group_only, false, ancestors + [key]) { success = false } }
+        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, group_only, false, ancestors + [key]) { success = false } }
         Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
       }
     }
@@ -282,4 +282,12 @@ export proc refuse_root(target: Path) [process, env] {
   let alias = if name == "/" { "" } else { " (same as '/')" }
   gnu.error(f"it is dangerous to operate recursively on {gnu.quote(name)}{alias}")
   gnu.error("use --no-preserve-root to override this failsafe")
+}
+
+## Preserve the operand spelling while retaining a directory child's native bytes.
+export pure child_path(parent: Path, child: Path) -> Result[Path, Error] {
+  let prefix = parent.bytes()
+  let separator = if prefix.byte_at(prefix.len() - 1) == 47 { b"" } else { b"/" }
+  let component = child.relative_to(child.parent()).bytes()
+  Path.parse_bytes(bytes.concat([prefix, separator, component]))
 }

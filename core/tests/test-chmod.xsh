@@ -168,3 +168,26 @@ test test_chmod_traversal_is_independent_of_link_mutation { |ctx|
   assert fs.stat(child)?.mode.bit_and(0o7777) == 0o600
   assert fs.stat(tree)?.mode.bit_and(0o7777) == directory_mode
 }
+
+test test_chmod_recursive_reports_search_permission_failure { |ctx|
+  if user.current()?.uid == 0 { test.skip("root bypasses directory search permissions") }
+  let root = test.temp_dir(ctx, name: "searchless")?
+  let blocked = fp"{root}/blocked"
+  blocked.mkdir()
+  fp"{blocked}/child".write("x")
+  blocked.chmod(0o400)
+  let result = perm_run(ctx, ["-R", "a+r", root.display()])?
+  blocked.chmod(0o700)
+  assert result.status == 1
+  assert result.stderr.find("Permission denied") != null
+}
+
+test test_chmod_recursive_preserves_non_utf8_child_names { |ctx|
+  let root = test.temp_dir(ctx, name: "raw-name")?
+  let child = Path.parse_bytes(bytes.concat([root.bytes(), b"/child\xff"]))?
+  child.write("x")
+  child.chmod(0o644)
+  let result = perm_run(ctx, ["-R", "700", root.display()])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(child)?.mode.bit_and(0o7777) == 0o700
+}
