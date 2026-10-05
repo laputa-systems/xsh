@@ -89,7 +89,7 @@ proc parse_spec(text: Str, by_bytes: Bool) [process, env] -> Spec {
 
   if value == null {
     gnu.error(
-      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote(if from_start { text } else { digits })}",
+      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote_value(if from_start { text } else { digits })}",
     )
     exit 1
   }
@@ -107,7 +107,7 @@ proc match_choice(text: Str, choices: List[Str], option: Str) [process, env] -> 
   return found[0] when found.len() == 1
 
   let kind = if found.len() == 0 { "invalid" } else { "ambiguous" }
-  gnu.error(f"{kind} argument {gnu.quote(text)} for '--{option}'")
+  gnu.error(f"{kind} argument {gnu.quote_value(text)} for '--{option}'")
   eprint "Valid arguments are:"
 
   for choice in choices {
@@ -285,12 +285,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let retrying = opts.retry or opts.big_f
 
   if opts.max_unchanged != "" and ! rx"^[0-9]+$".matches(opts.max_unchanged) {
-    gnu.error(f"invalid maximum number of unchanged stats between opens: {gnu.quote(opts.max_unchanged)}")
+    gnu.error(f"invalid maximum number of unchanged stats between opens: {gnu.quote_value(opts.max_unchanged)}")
     exit 1
   }
 
   if opts.sleep != "" and ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(opts.sleep) {
-    gnu.error(f"invalid number of seconds: {gnu.quote(opts.sleep)}")
+    gnu.error(f"invalid number of seconds: {gnu.quote_value(opts.sleep)}")
     exit 1
   }
 
@@ -300,7 +300,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let parsed = if rx"^[0-9]{1,10}$".matches(opts.pid) { opts.pid.parse_int() ?? -1 } else { -1 }
 
     if parsed < 0 or parsed > 2147483647 {
-      gnu.error(f"invalid PID: {gnu.quote(opts.pid)}")
+      gnu.error(f"invalid PID: {gnu.quote_value(opts.pid)}")
       exit 1
     }
 
@@ -394,7 +394,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if pid == 0 or alive {
       gnu.error(
-        f"cannot follow {gnu.quote(growing[0])}: following a growing file is not supported because output is not flushed incrementally",
+        f"cannot follow {gnu.quote_value(growing[0])}: following a growing file is not supported because output is not flushed incrementally",
       )
       exit 1
     }

@@ -133,7 +133,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       let found = find_user(target)
 
       if found == null {
-        gnu.error(f"{gnu.quote(target)}: no such user")
+        gnu.error(f"{gnu.quote_value(target)}: no such user")
         ok = false
         continue
       }

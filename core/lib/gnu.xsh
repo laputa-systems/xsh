@@ -214,6 +214,35 @@ export proc quote(name: Str) [env] -> Str {
   quote_bytes(bytes.from_text(name))
 }
 
+## Quote a value for a message the way GNU `quote` does (locale style): `'...'`
+## with C escapes (`\t`, `\n`, `\ooo`, `\\`, `\'`) and curly quotes in a UTF-8
+## locale. File names use `quote`; arguments such as an invalid number or time
+## interval use this.
+export proc quote_value(text: Str) [env] -> Str {
+  quote_value_bytes(bytes.from_text(text))
+}
+
+## `quote_value` for raw bytes; undecodable bytes print as octal.
+export proc quote_value_bytes(raw: Bytes) [env] -> Str {
+  let utf8 = utf8_locale()
+  let pieces = decode_name(raw, utf8)
+  var out = ""
+
+  for index in range(pieces.texts.len()) {
+    let text = pieces.texts[index]
+
+    if text == "\\" {
+      out = f"{out}\\\\"
+    } else if text == "'" {
+      out = f"{out}\\'"
+    } else {
+      out = f"{out}{text}"
+    }
+  }
+
+  if utf8 { f"‘{out}’" } else { f"'{out}'" }
+}
+
 ## Quote a name only when it needs it (GNU `quotef`).
 export proc quote_maybe(name: Str) [env] -> Str {
   return name when rx"^[A-Za-z0-9_.,+%@:/{}\]-][A-Za-z0-9_.,+%@:/{}\]~#-]*$".matches(name)

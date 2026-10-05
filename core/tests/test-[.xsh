@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
-# Runs core/[.xsh by its real path (so the invoked name is [ and
-# `lib.gnu` resolves beside it), capturing both streams.
+# Runs core/test.xsh through a symlink named [ (the installed alias shape), with
+# `lib` linked beside it so modules resolve, capturing both streams.
 proc applet_run(
   ctx: TestContext,
   args: List[Str],
@@ -11,7 +11,9 @@ proc applet_run(
   let root = test.temp_dir(ctx, name: "[")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
-  let script = fp"{ctx.core_dir}/[.xsh"
+  let script = fp"{root}/["
+  fs.symlink(fp"{ctx.core_dir}/test.xsh", script)?
+  fs.symlink(fp"{ctx.core_dir}/lib", fp"{root}/lib")?
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, stdin, out, err)
   let status = process.run(plan)?

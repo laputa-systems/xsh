@@ -64,7 +64,7 @@ proc parse_count(text: Str, what: Str) [process, env] -> Count {
   let value = tio.parse_count(digits)
 
   if value == null {
-    gnu.error(f"invalid number of {what}: {gnu.quote(digits)}")
+    gnu.error(f"invalid number of {what}: {gnu.quote_value(digits)}")
     exit 1
   }
 
