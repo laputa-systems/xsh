@@ -294,6 +294,28 @@ proc posix_mode() [env] -> Bool {
   }
 }
 
+# `read_bytes` returns nothing for files whose size the kernel reports as 0
+# (procfs); `read_text` reads them to the end, and a file that is not UTF-8 is
+# read line by line.
+proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
+  let data = file.read_bytes()?
+
+  return Ok(data) when data.len() > 0
+
+  match file.read_text() {
+    Ok(text) => return Ok(bytes.from_text(text))
+    Err(_) => {}
+  }
+
+  var pieces: List[Bytes] = []
+
+  for line in file.bytes_lines()? {
+    pieces += [line, b"\n"]
+  }
+
+  Ok(bytes.concat(pieces))
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: WcOptions = cli.applet(
     argv,
@@ -455,7 +477,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
 
       if counted == null {
-        match input.path.read_bytes() {
+        match read_file(input.path) {
           Ok(read) => data = read
           Err(failure) => {
             if gnu.errno(failure) == 21 {
