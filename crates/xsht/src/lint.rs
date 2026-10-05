@@ -11234,14 +11234,9 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(method);
-        let labels = lint_argument_label::unlabeled_arguments(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            fs_is_shadowed,
-            expr,
-        );
-        self.diagnostics.extend(labels);
+        let symlink =
+            lint_argument_label::positional_symlink(self.arena, self.source, fs_is_shadowed, expr);
+        self.diagnostics.extend(symlink);
         if self.prefer_rel_path {
             let rooted =
                 lint_prefer_rel_path::unvalidated_rooted_path(self.arena, &self.expr_types, expr);

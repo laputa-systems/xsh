@@ -4,8 +4,8 @@ use super::{
     ApiArgCheck, MethodReceiver, MethodReceiverSig, MethodSig, NamedMethodSigs, ParamSig,
     RuntimeOp, Type, btree_map, default_param, fs_entry_type, fs_root_children_result_type,
     fs_root_filesystem_stats_type, fs_root_read_result_type, fs_root_readlink_result_type,
-    fs_root_type, labeled_param, net_response_type, param, regex_match_type, relabeled_param,
-    result, sig_with_arg_check,
+    fs_root_type, labeled_param, net_response_type, param, regex_match_type, result,
+    sig_with_arg_check,
 };
 use crate::types::BuiltinTypeParameter;
 
@@ -264,7 +264,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "copy",
                     vec![
-                        relabeled_param("to", "dest", Type::Path),
+                        labeled_param("to", Type::Path),
                         default_param("overwrite", Type::Bool),
                     ],
                     result(Type::Unit),
@@ -274,7 +274,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "rename",
                     vec![
-                        relabeled_param("to", "dest", Type::Path),
+                        labeled_param("to", Type::Path),
                         default_param("overwrite", Type::Bool),
                     ],
                     result(Type::Unit),
@@ -332,7 +332,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "hardlink",
-                    vec![relabeled_param("at", "path", Type::Path)],
+                    vec![labeled_param("at", Type::Path)],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsHardlink,
@@ -698,10 +698,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "replace",
-                    vec![
-                        param("from", Type::Str),
-                        relabeled_param("with", "to", Type::Str),
-                    ],
+                    vec![param("from", Type::Str), labeled_param("with", Type::Str)],
                     Type::Str,
                     true,
                     RuntimeOp::TextReplace,
@@ -1246,10 +1243,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "replace",
-                    vec![
-                        param("text", Type::Str),
-                        relabeled_param("with", "replacement", Type::Str),
-                    ],
+                    vec![param("text", Type::Str), labeled_param("with", Type::Str)],
                     Type::Str,
                     true,
                     RuntimeOp::RegexReplace,

@@ -599,7 +599,6 @@ impl Checker {
         else {
             return;
         };
-        let expanded = crate::sema::arguments::with_current_api_labels(sig, expanded);
         let params = crate::sema::builtin_templates::callable_parameters(concrete);
         let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded) else {
             return;
@@ -695,8 +694,6 @@ impl Checker {
                 else {
                     return false;
                 };
-                let expanded =
-                    crate::sema::arguments::with_current_api_labels(&method.sig, expanded);
                 crate::sema::arguments::bind_static_arguments(&params, &expanded).is_ok()
             })
             .collect::<Vec<_>>();

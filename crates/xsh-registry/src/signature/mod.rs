@@ -214,31 +214,11 @@ pub struct ParamSig {
 pub enum LabelRule {
     /// By position, or labeled with the parameter's name.
     Free,
-    /// Labeled with the parameter's name, which is chosen so that the call
-    /// reads as a sentence and its operands cannot be swapped unnoticed:
-    /// `src.copy(to: dest)`, `text.replace("a", with: "b")`.
-    ///
-    /// A call that passes the argument by position still checks, and so does
-    /// one that labels it with `formerly`, the name the parameter had before
-    /// it was chosen to be read; `lint.prefer-argument-label` writes the
-    /// label at both.
-    Written { formerly: Option<&'static str> },
-}
-
-impl ParamSig {
-    /// Whether an argument labeled `label` is this parameter's.
-    pub fn accepts_label(&self, label: &str) -> bool {
-        self.name == label || self.former_label() == Some(label)
-    }
-
-    /// The name this parameter had before its label was chosen, still
-    /// accepted as its label.
-    pub fn former_label(&self) -> Option<&'static str> {
-        match self.label {
-            LabelRule::Free => None,
-            LabelRule::Written { formerly } => formerly,
-        }
-    }
+    /// Only labeled with the parameter's name, which is chosen so that the
+    /// call reads as a sentence and its operands cannot be swapped
+    /// unnoticed: `src.copy(to: dest)`, `text.replace("a", with: "b")`. A
+    /// call that passes the argument by position does not check.
+    Required,
 }
 
 /// Preparation facts that refine a callable beyond structural type substitution.
@@ -474,20 +454,7 @@ pub fn labeled_param(name: &'static str, ty: Type) -> ParamSig {
         name,
         ty,
         defaulted: false,
-        label: LabelRule::Written { formerly: None },
-    }
-}
-
-/// A `labeled_param` that was named `formerly` when it was passed by
-/// position.
-pub fn relabeled_param(name: &'static str, formerly: &'static str, ty: Type) -> ParamSig {
-    ParamSig {
-        name,
-        ty,
-        defaulted: false,
-        label: LabelRule::Written {
-            formerly: Some(formerly),
-        },
+        label: LabelRule::Required,
     }
 }
 

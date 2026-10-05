@@ -158,10 +158,11 @@ pub(super) fn operations_with_a_path_method() -> &'static [&'static str] {
                                     .iter()
                                     .zip(&overload.params[1..])
                                     .all(|(method, function)| {
-                                        // A method parameter renamed to be
-                                        // read as a label still takes the
-                                        // function's name for it.
-                                        method.accepts_label(function.name)
+                                        // A method whose parameter is
+                                        // named to be read as a required
+                                        // label is not the function under
+                                        // another spelling.
+                                        method.name == function.name
                                             && method.ty == function.ty
                                             && method.defaulted == function.defaulted
                                     })
@@ -226,8 +227,6 @@ mod tests {
                 "write_atomic",
                 "exists",
                 "executable",
-                "copy",
-                "rename",
                 "mkdir",
                 "remove",
                 "chmod",
@@ -263,13 +262,13 @@ mod tests {
     // `p"..."`. In each the operand is still evaluated first.
     #[test]
     fn an_operand_that_is_not_a_receiver_is_respelled() {
-        let source = "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  fs.write(if first { out } else { other }, text)\n  fs.write(/tmp/marker, text)\n  fs.write(\"marker.txt\", text)\n  fs.copy(out.resolve()?, other)\n  let found = fs.exists(\"marker.txt\")?\n  assert found\n}\n";
+        let source = "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  fs.write(if first { out } else { other }, text)\n  fs.write(/tmp/marker, text)\n  fs.write(\"marker.txt\", text)\n  fs.chmod(out.resolve()?, 0o600)\n  let found = fs.exists(\"marker.txt\")?\n  assert found\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 5, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  (if first { out } else { other }).write(text)\n  p\"/tmp/marker\".write(text)\n  p\"marker.txt\".write(text)\n  out.resolve()?.copy(other)\n  let found = p\"marker.txt\".exists()?\n  assert found\n}\n"
+            "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  (if first { out } else { other }).write(text)\n  p\"/tmp/marker\".write(text)\n  p\"marker.txt\".write(text)\n  out.resolve()?.chmod(0o600)\n  let found = p\"marker.txt\".exists()?\n  assert found\n}\n"
         );
         assert!(lint(&fixed).is_empty());
     }

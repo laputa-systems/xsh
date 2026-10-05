@@ -449,7 +449,7 @@ impl Checker {
     ) {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
         let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
-            Ok(expanded) => crate::sema::arguments::with_current_api_labels(sig, expanded),
+            Ok(expanded) => expanded,
             Err(error) => {
                 self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
                 return;
@@ -478,6 +478,29 @@ impl Checker {
                 return;
             }
         };
+        // A spread supplies several values from one entry, so the rule reads
+        // the expanded values, each beside the parameter it reached.
+        for (value, &slot) in expanded.iter().zip(&binding.argument_slots) {
+            if value.name.is_some()
+                || sig.params[slot].label != crate::modules::signature::LabelRule::Required
+            {
+                continue;
+            }
+            let label = sig.params[slot].name;
+            self.diagnostics.push(
+                crate::diagnostic::Diagnostic::error(format!(
+                    "this argument is passed by position; it takes the label `{label}`"
+                ))
+                .with_code(DiagnosticCode::CheckNamedArg)
+                .with_label(crate::diagnostic::Label::primary(
+                    value.span,
+                    format!("write `{label}: ...`"),
+                ))
+                .with_note(format!(
+                    "`{label}:` says which operand this is, so two operands of one type cannot be swapped unnoticed"
+                )),
+            );
+        }
         for (arg, slot) in args.iter().zip(binding.argument_slots) {
             let expected = self
                 .type_constraints
@@ -734,10 +757,7 @@ pub(super) fn module_sig_accepts_arg_name_at_arena(
     match arg {
         ArenaCallArgKind::Positional(_) => sig.params.get(index).is_some(),
         ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => false,
-        ArenaCallArgKind::Named { name, .. } => sig
-            .params
-            .iter()
-            .any(|param| param.accepts_label(name.as_str().as_str())),
+        ArenaCallArgKind::Named { name, .. } => sig.params.iter().any(|param| param.name == *name),
     }
 }
 
@@ -759,10 +779,7 @@ pub(super) fn bind_module_args_arena(
                 *binding = Some(arg_index);
             }
             ArenaCallArgKind::Named { name, .. } => {
-                let param_index = sig
-                    .params
-                    .iter()
-                    .position(|param| param.accepts_label(name.as_str().as_str()))?;
+                let param_index = sig.params.iter().position(|param| param.name == *name)?;
                 if bindings[param_index].is_some() {
                     return None;
                 }

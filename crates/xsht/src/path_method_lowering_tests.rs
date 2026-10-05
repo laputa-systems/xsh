@@ -7,7 +7,7 @@ use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceMap;
 use xsh::frontend::syntax::parser::Parser;
-use xsh_registry::signature::{MethodReceiver, api_spec};
+use xsh_registry::signature::{LabelRule, MethodReceiver, api_spec};
 use xsh_registry::types::Type;
 
 /// A literal of a parameter type. A new parameter type needs a line here.
@@ -68,7 +68,10 @@ fn every_registry_path_method_lowers() {
             for arity in [required, overload.sig.params.len()] {
                 let arguments = overload.sig.params[..arity]
                     .iter()
-                    .map(|param| argument(&param.ty))
+                    .map(|param| match param.label {
+                        LabelRule::Free => argument(&param.ty).to_owned(),
+                        LabelRule::Required => format!("{}: {}", param.name, argument(&param.ty)),
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 // A plain call and a null-safe one are lowered separately.

@@ -285,21 +285,6 @@ pub struct ParamSig {
     pub label: LabelRule,
 }
 
-impl ParamSig {
-    /// Whether an argument labeled `label` is this parameter's.
-    pub fn accepts_label(&self, label: &str) -> bool {
-        self.name == label || self.former_label() == Some(label)
-    }
-
-    /// The name this parameter had before its label was chosen, still
-    /// accepted as its label.
-    pub fn former_label(&self) -> Option<&'static str> {
-        match self.label {
-            LabelRule::Free => None,
-            LabelRule::Written { formerly } => formerly,
-        }
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct MethodReceiverSig {
@@ -660,8 +645,13 @@ mod tests {
                         .enumerate()
                         .map(|(index, param)| format!(", a{index}: {}", param.ty))
                         .collect::<String>();
-                    let args = (0..required.len())
-                        .map(|index| format!("a{index}"))
+                    let args = required
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| match param.label {
+                            super::LabelRule::Free => format!("a{index}"),
+                            super::LabelRule::Required => format!("{}: a{index}", param.name),
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let probe = |effects: Vec<&str>| {
@@ -704,5 +694,46 @@ mod tests {
             undeclared.is_empty(),
             "impure methods without an effect: {undeclared:?}"
         );
+    }
+
+    // The checker rejects a positional argument of a labeled parameter where
+    // it binds the arguments of a method that has one overload and the
+    // standard argument check. A required label declared anywhere else would
+    // be accepted by position without a word.
+    #[test]
+    fn a_required_label_is_declared_only_where_the_checker_enforces_it() {
+        use super::{ApiArgCheck, LabelRule, MethodReceiver, ModuleFnSig};
+
+        let requires = |sig: &ModuleFnSig| {
+            sig.params
+                .iter()
+                .any(|param| param.label == LabelRule::Required)
+        };
+        for (module, sig) in api_spec().module_entries() {
+            for function in &sig.functions {
+                assert!(
+                    !function.overloads.iter().any(requires),
+                    "{module}.{} requires a label",
+                    function.name
+                );
+            }
+        }
+        let mut required = 0;
+        for (receiver, methods) in api_spec().method_entries() {
+            for method in methods {
+                if !method.overloads.iter().any(|overload| requires(&overload.sig)) {
+                    continue;
+                }
+                required += 1;
+                assert!(
+                    method.overloads.len() == 1
+                        && method.overloads[0].sig.arg_check == ApiArgCheck::Standard
+                        && receiver != MethodReceiver::PathConstructor,
+                    "{receiver:?}.{} requires a label the checker does not enforce",
+                    method.name
+                );
+            }
+        }
+        assert_eq!(required, 6);
     }
 }
