@@ -127,6 +127,7 @@ Exit status:
 # whether stdout is a terminal.
 type Cfg = {
   format: Str,
+  format_set: Bool,
   ignore_mode: Str,
   sort: Str?,
   reverse: Bool,
@@ -380,25 +381,25 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "ignore_backups" => {...c, ignores: c.ignores + ["*~", ".*~"]}
     "ctime" => {...c, time: "ctime", time_given: true}
     "atime" => {...c, time: "atime", time_given: true}
-    "columns" => {...c, format: "columns"}
-    "across" => {...c, format: "across"}
-    "commas" => {...c, format: "commas"}
-    "long" => {...c, format: "long"}
-    "single" => {...c, format: if c.format == "long" { "long" } else { "single-column" }}
+    "columns" => {...c, format_set: true, format: "columns"}
+    "across" => {...c, format_set: true, format: "across"}
+    "commas" => {...c, format_set: true, format: "commas"}
+    "long" => {...c, format_set: true, format: "long"}
+    "single" => {...c, format_set: true, format: if c.format == "long" and c.format_set { "long" } else { "single-column" }}
     "color" => {...c, color: if when_option(v, "--color", tty) { "always" } else { "never" }}
     "directory" => {...c, directory: true}
-    "dired" => {...c, format: "long", hyperlink: "never", dired: true}
+    "dired" => {...c, format_set: true, format: "long", hyperlink: "never", dired: true}
     "f" => {...c, ignore_mode: "all", sort: "none"}
     "classify_short" => {...c, indicator: "classify"}
     "classify" => {...c, indicator: if when_option(v, "--classify", tty) { "classify" } else { "none" }}
     "file_type" => {...c, indicator: "file-type"}
     "slash" => {...c, indicator: "slash"}
     "indicator_style" => {...c, indicator: argmatch(arg, INDICATOR_NAMES, INDICATOR_NAMES, "--indicator-style")}
-    "format" => {...c, format: argmatch(arg, FORMAT_NAMES, FORMAT_VALUES, "--format")}
-    "full_time" => {...c, format: "long", time_style: "full-iso"}
-    "g" => {...c, format: "long", owner: false}
-    "o" => {...c, format: "long", group: false}
-    "numeric" => {...c, format: "long", numeric: true}
+    "format" => {...c, format_set: true, format: argmatch(arg, FORMAT_NAMES, FORMAT_VALUES, "--format")}
+    "full_time" => {...c, format_set: true, format: "long", time_style: "full-iso"}
+    "g" => {...c, format_set: true, format: "long", owner: false}
+    "o" => {...c, format_set: true, format: "long", group: false}
+    "numeric" => {...c, format_set: true, format: "long", numeric: true}
     "group_dirs_first" => {...c, dirs_first: true}
     "no_group" => {...c, group: false}
     "human" => {...c, human: "human", block_size: 1, file_human: "human", file_block_size: 1}
@@ -430,7 +431,7 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "tabsize" => {...c, tabsize: line_option(arg, "tab size")}
     "width" => {...c, width: line_option(arg, "line width")}
     "context" => {...c, context: true}
-    "zero" => {...c, zero: true, quoting: "literal", hide_control: false}
+    "zero" => {...c, zero: true, format: if c.format_set { c.format } else { "single-column" }, quoting: "literal", hide_control: false, color: "never"}
     else => c
   }
 }
@@ -2074,7 +2075,7 @@ proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
 
     w.nlink = max_of(w.nlink, digits(f.st.nlink))
 
-    if cfg.owner {
+    if cfg.owner or cfg.author {
       let key = f"{f.st.uid}"
 
       if ! cfg.numeric and ! (key in users) {
@@ -2460,7 +2461,7 @@ pure owner_text(ctx: Ctx, wd: Widths, f: File, by_group: Bool) -> Str {
 
   let id = if by_group { f.st.gid } else { f.st.uid }
   let key = f"{id}"
-  let known = if ctx.cfg.numeric { "" } else if by_group { wd.groups[key] } else { wd.users[key] }
+  let known = if ctx.cfg.numeric { "" } else if by_group { wd.groups.get(key) ?? "" } else { wd.users.get(key) ?? "" }
 
   if known == "" { f"{rpad(key, width)} " } else { f"{lpad(known, width)} " }
 }
@@ -2534,15 +2535,10 @@ proc long_line(ctx: Ctx, f: File, wd: Widths, pad: Bool, used0: Bool) [fs] -> Lo
 
 type Dirent = {raw: Bytes, kind: Str}
 
-proc read_dir(target: Path) [fs, error] -> Result[List[Dirent]] {
-  var out: List[Dirent] = []
-
-  for entry in fs.children(target)? {
-    let raw = if entry.name.find("\u{fffd}") == null { bytes.from_text(entry.name) } else { base_raw(entry.path.bytes()) }
-    out += [Dirent(raw, entry.kind)]
-  }
-
-  Ok(out)
+# A directory entry's raw name: the lossy text unless it holds an undecodable
+# byte, in which case the path's own bytes.
+pure entry_raw(name: Str, entry_path: Path) -> Bytes {
+  if name.find("\u{fffd}") == null { bytes.from_text(name) } else { base_raw(entry_path.bytes()) }
 }
 
 type Pending = {raw: Bytes, arg: Bool, marker: Bool}
@@ -2610,6 +2606,14 @@ pure file_ignored(ctx: Ctx, name: Str) -> Bool {
   let hidden = name.starts_with(".") and (mode == "default" or name == "." or name == "..")
 
   (mode != "all" and hidden) or (mode == "default" and glob_matches(ctx.hide_globs, name)) or glob_matches(ctx.ignore_globs, name)
+}
+
+proc take_entry(ctx: Ctx, dir: Bytes, raw: Bytes, kind: Str) [fs, process, env] -> Gobbled {
+  if file_ignored(ctx, lossy(raw)) {
+    return {file: null, status: 0}
+  }
+
+  gobble(ctx, raw, dir, false, kind)
 }
 
 proc flush(out: List[Bytes]) [process, env, io] -> Unit {
@@ -2692,7 +2696,9 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
     let display = lossy(dir.raw)
     let target = raw_path(dir.raw)
 
-    guard let entries = read_dir(target) else { |problem|
+    let opened = fs.children(target)
+
+    guard let lister = opened else { |problem|
       gnu.cannot("open directory", display, problem)
       status = max_of(status, if dir.arg { 2 } else { 1 })
       continue
@@ -2745,10 +2751,18 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
       names = [Dirent(b".", "dir"), Dirent(b"..", "dir")]
     }
 
-    for entry in names + entries {
-      continue when file_ignored(ctx, lossy(entry.raw))
+    for entry in names {
+      let g = take_entry(ctx, dir.raw, entry.raw, entry.kind)
+      status = max_of(status, g.status)
 
-      let g = gobble(ctx, entry.raw, dir.raw, false, entry.kind)
+      if let found = g.file {
+        listing += [found]
+        total += found.st.blocks_512
+      }
+    }
+
+    for entry in lister {
+      let g = take_entry(ctx, dir.raw, entry_raw(entry.name, entry.path), entry.kind)
       status = max_of(status, g.status)
 
       if let found = g.file {
@@ -2886,7 +2900,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   }
 
   line_length = cfg.width ?? line_length
-  var tabsize = 8
+  var tabsize = if tty { 0 } else { 8 }
   let tab_env = env_text("TABSIZE") ?? ""
 
   if cfg.tabsize == null and tab_env != "" {
@@ -3045,6 +3059,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
 
   let start: Cfg = {
+    format_set: false,
     format: if prog == "dir" { "columns" } else if prog == "vdir" { "long" } else if tty { "columns" } else { "single-column" },
     ignore_mode: "default",
     sort: null,

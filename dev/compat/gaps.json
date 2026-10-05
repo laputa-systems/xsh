@@ -3,6 +3,14 @@
   "utilities": {
     "basename": [
       "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+    ],
+    "ls": [
+      "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+      "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
+      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
+      "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
+      "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
+      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text."
     ]
   }
 }
