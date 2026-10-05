@@ -117,8 +117,10 @@ fn fs_root_receiver_cli_fix_checks_an_isolated_fixture_and_converges() {
         String::from_utf8_lossy(&result.stderr)
     );
     let first = fs::read_to_string(&path).unwrap();
+    // A later round removes the `?`: a statement-position `Result[Unit]`
+    // already propagates its failure.
     assert!(
-        first.contains("root.mkdir(p\"nested\", parents: true)?"),
+        first.contains("  root.mkdir(p\"nested\", parents: true)\n"),
         "{first}"
     );
     let second = xsht::lint_files(&files, true, false, None);
@@ -1773,6 +1775,7 @@ pure is_op(t: Tok, name: Str) -> Bool {
     TOp(s) => return s == name
     _ => return false
   }
+
   return false
 }
 ";

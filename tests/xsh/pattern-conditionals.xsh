@@ -265,7 +265,7 @@ match outcome {
 }
 """,
     """let outcome = Ok(7)
-match outcome { Ok(value) if value > 0 => { print $value }, _ => {} }
+match outcome { Ok(value) if value > 0 => { print $value }, else => {} }
 """,
     """let outcome = Ok(7)
 match outcome { Ok(value) => { print $value }, Err(error) => { print $error } }

@@ -1,6 +1,7 @@
 use crate::xsht::format::Formatter;
 use xsh::diagnostic::{DiagnosticCode, DiagnosticRenderer};
-use xsh::frontend::source::{SourceMap, Span};
+use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::syntax::cst::SyntaxTree;
 use xsh::frontend::syntax::parser::Parser;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -113,19 +114,57 @@ fn apply_cst_edits(
         return Ok(None);
     }
 
-    if migrating_syntax || line_width.is_none() {
+    let unformatted = |rewritten: String| {
         let rewritten_parse = Parser::parse_source_arena_only(source_id, &rewritten);
         if !rewritten_parse.diagnostics.is_empty() {
             return Err(DiagnosticRenderer::new().render(&rewritten_parse.diagnostics, &sources));
         }
-        return Ok(Some(rewritten));
-    }
+        Ok(Some(rewritten))
+    };
+    let Some(line_width) = line_width.filter(|_| !migrating_syntax) else {
+        return unformatted(rewritten);
+    };
 
     let formatted = Formatter::new()
-        .with_line_width(line_width.expect("formatted edit width"))
+        .with_line_width(line_width)
         .format_source(source_id, &rewritten);
     if !formatted.diagnostics.is_empty() {
         return Err(DiagnosticRenderer::new().render(&formatted.diagnostics, &sources));
     }
+    // A fix is declined when a comment lies inside its span. The formatter
+    // can lift a comment out of an expression, which would let the next
+    // round apply the declined fix across it. When formatting would move a
+    // comment, keep the exact edits and the authored layout instead.
+    if comment_anchors(source_id, &rewritten) != comment_anchors(source_id, &formatted.formatted) {
+        return unformatted(rewritten);
+    }
     Ok(Some(formatted.formatted))
+}
+
+/// Each comment with the number of word characters of code before it.
+///
+/// Formatting changes whitespace, separators, and grouping delimiters, never
+/// a word, so a comment keeps this count exactly when it stays between the
+/// same two words of code.
+fn comment_anchors(source_id: SourceId, text: &str) -> Vec<(usize, &str)> {
+    let (cst, _) = SyntaxTree::parse(source_id, text);
+    let mut comments = cst
+        .comment_trivia()
+        .map(|(_, comment)| comment.span.range())
+        .collect::<Vec<_>>();
+    comments.sort_by_key(|range| range.start);
+    let words = |code: &str| {
+        code.bytes()
+            .filter(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || !byte.is_ascii())
+            .count()
+    };
+    let mut anchors = Vec::with_capacity(comments.len());
+    let mut code_start = 0;
+    let mut words_before = 0;
+    for comment in comments {
+        words_before += text.get(code_start..comment.start).map_or(0, words);
+        code_start = comment.end;
+        anchors.push((words_before, text[comment.clone()].trim_end()));
+    }
+    anchors
 }

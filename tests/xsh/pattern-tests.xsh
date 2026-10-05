@@ -215,12 +215,12 @@ test test_pattern_predicate_lint_preserves_comments_and_bindings { |ctx|
 let selected = match value {
   # Preserve this explanation.
   Ok(_) => true,
-  _ => false
+  else => false
 }
 print done
 """,
     """let value = Ok(7)
-let selected = match value { Ok(payload) => true, _ => false }
+let selected = match value { Ok(payload) => true, else => false }
 print done
 """,
   ] {
@@ -229,6 +229,34 @@ print done
     assert candidate.read_text()? == source
     assert "lint.boolean-pattern-test" in fixed.stderr
   }
+}
+
+test test_pattern_predicate_lint_keeps_a_declined_fix_declined_after_another_fix { |ctx|
+  # The `_` arm has a fix and the boolean match does not, because of the
+  # comment. Formatting the result would lift the comment out of the match
+  # and let a second round rewrite the match across it.
+  let source = """let value = Ok(7)
+let selected = match value {
+  # Preserve this explanation.
+  Ok(_) => true,
+  _ => false
+}
+print done
+"""
+  let expected = """let value = Ok(7)
+let selected = match value {
+  # Preserve this explanation.
+  Ok(_) => true,
+  else => false
+}
+print done
+"""
+  let candidate = test.temp_file(ctx, name: "pattern-test-declined-fix.xsh", contents: bytes.from_text(source))?
+  let _ = run.capture --text "xsht" lint --fix $candidate ?
+  assert candidate.read_text()? == expected
+  let second = run.capture --text "xsht" lint --fix $candidate ?
+  assert candidate.read_text()? == expected
+  assert "lint.boolean-pattern-test" in second.stderr
 }
 
 test test_pattern_predicates_resolve_qualified_constructor_type_and_facet_names { |ctx|
