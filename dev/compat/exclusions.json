@@ -18,6 +18,12 @@
       "utility": "tee",
       "category": "uutils-extension",
       "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
+    },
+    {
+      "id": "test_sleep::test_invalid_duration::case_7_single_quote",
+      "utility": "sleep",
+      "category": "uutils-extension",
+      "reason": "uutils quotes an argument containing an apostrophe as \"'1\" (double quotes); GNU quote() prints '\\'1' (verified on GNU coreutils 9.4: `sleep \"'1\"`), and XSH follows GNU via gnu.quote_value."
     }
   ]
 }

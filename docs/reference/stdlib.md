@@ -200,6 +200,7 @@ INI decoding, encoding, and file helpers.
 
 Script stdin and stdout helpers.
 
+- `io.flush_stdout() -> Result[Unit, Error]` — Writes the buffered standard output to the host and reports the outcome.
 - `io.stdin_bytes() -> Result[Bytes, Error]` — Reads all standard input as Bytes.
 - `io.stdin_line() -> Result[Str, Error]` — Reads one line from standard input.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
@@ -345,18 +346,34 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.command() -> Command` — Builds a typed command plan without starting it.
 - `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
 - `process.current_pid() -> Result[Int, Error]` — Returns the current process ID.
+- `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a selected signal to a process.
+- `process.kill_group(pgid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a signal to every member of a process group.
 - `process.list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
+- `process.new_session() -> Result[Int, Error]` — Moves a process into a process group, or makes this process a session leader.
+- `process.nice(increment: Int) -> Result[Int, Error]` — Reads or changes scheduling priority (niceness).
+- `process.parent_pid() -> Result[Int, Error]` — Returns the parent process ID of this process.
 - `process.port(port: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
 - `process.ports() -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
+- `process.priority(pid: Int = default, which: Str = default) -> Result[Int, Error]` — Reads or changes scheduling priority (niceness).
+- `process.rlimit(resource: Str) -> Result[{hard: Int?, resource: Str, soft: Int?}, Error]` — Reads or changes this process's resource limits.
+- `process.rlimits() -> Result[List[{hard: Int?, resource: Str, soft: Int?}], Error]` — Reads or changes this process's resource limits.
 - `process.run(command: Command) -> Result[Status, ProcessError]` — Runs a typed command and returns its process status.
 - `process.script_path() -> Result[Path, Error]` — Returns the script path this process was started with.
+- `process.session_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
+- `process.set_group_id(pid: Int, pgid: Int) -> Result[Unit, Error]` — Moves a process into a process group, or makes this process a session leader.
+- `process.set_priority(pid: Int, value: Int, which: Str = default) -> Result[Unit, Error]` — Reads or changes scheduling priority (niceness).
+- `process.set_rlimit(resource: Str, soft: Int? = default, hard: Int? = default) -> Result[Unit, Error]` — Reads or changes this process's resource limits.
+- `process.set_signal_action(signal: Str, action: Str) -> Result[Unit, Error]` — Reads or changes how this process treats a signal.
 - `process.signal(signal: Str) -> Result[{name: Str, number: Int}, Error]` — Sends a selected signal to a process.
+- `process.signal_action(signal: Str) -> Result[Str, Error]` — Reads or changes how this process treats a signal.
+- `process.signals() -> List[{name: Str, number: Int}]` — Lists the named signals of the host in number order.
 - `process.spawn(command: Command) -> Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]` — Starts a typed command and returns an owned process handle record.
 - `process.stats(pid: Int) -> Result[{rss_kb: Int, vsz_kb: Int}, Error]` — Reads structured process or listener information from the host.
 - `process.threads() -> Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
 - `process.wait_any(handles: List[ProcessHandle]) -> Result[{index: Int, pid: Int, status: Status}, ProcessError]` — Waits for one process from an owned handle set.
 - `process.wait_ready(handles: List[ProcessHandle]) -> Result[List[{index: Int, pid: Int, status: Status}], ProcessError]` — Waits for a process handle to become waitable.
+- `process.wait_timeout(handles: List[ProcessHandle], timeout: Duration) -> Result[{index: Int, pid: Int, status: Status}?, ProcessError]` — Waits for one process from an owned handle set for at most a duration.
 - `process.which(name: Str) -> Result[Path, Error]` — Resolves an executable through the current PATH.
 
 ### `regex`
@@ -458,25 +475,40 @@ Terminal styling, control sequences, and width-aware text padding.
 
 Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 
+- `unix.close_fd(fd: Int) -> Result[Unit, Error]` — Opens a path as a bare descriptor number, or closes one.
+- `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
+- `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
+- `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.kill_all(name: Str, signal: Str = default) -> Result[{matched: Int, signaled: Int}, Error]` — Sends a signal to a Unix process group or selected process set.
 - `unix.kill_process_group(pid: Int, signal: Str) -> Result[Unit, Error]` — Sends a signal to a Unix process group or selected process set.
+- `unix.load_average() -> Result[{fifteen: Float, five: Float, one: Float}, Error]` — Reads the system load averages.
 - `unix.notify_close(fd: Int) -> Result[Unit, Error]` — Signals readiness or closes a Unix service notification channel.
 - `unix.notify_ready(fd: Int) -> Result[Bool, Error]` — Signals readiness or closes a Unix service notification channel.
+- `unix.open_fd(path: Path, write: Bool = default, nonblock: Bool = default) -> Result[Int, Error]` — Opens a path as a bare descriptor number, or closes one.
+- `unix.open_pty() -> Result[{master: Int, name: Str, replica: Int}, Error]` — Opens a pseudo-terminal pair.
 - `unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.read_utmp(path: Path = default) -> Result[List[{addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}], Error]` — Reads the login session records of a utmp or wtmp file.
 - `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` — Reaps available Unix child events.
+- `unix.set_foreground_group(pgid: Int, fd: Int = default) -> Result[Unit, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.set_hostname(hostname: Str) -> Result[Unit, Error]` — Changes the Unix host name.
-- `unix.set_tty_attrs(attrs: Record, fd: Int = default) -> Result[Unit, Error]` — Reads or changes Unix terminal state.
+- `unix.set_tty_attrs(attrs: Record, fd: Int = default, when: Str = default) -> Result[Unit, Error]` — Reads or changes Unix terminal state.
+- `unix.set_window_size(rows: Int, cols: Int, xpixel: Int = default, ypixel: Int = default, fd: Int = default) -> Result[Unit, Error]` — Reads or sets a terminal's window size.
 - `unix.shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -> Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
 - `unix.spawn_logged_process_group(command: Command, logger: Command) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_process_group(command: Command, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_process_group_log(command: Command, log: Path, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_with_tty(command: Command, tty: Str) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.tty() -> Result[Str, Error]` — Reads or changes Unix terminal state.
-- `unix.tty_attrs(fd: Int = default) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Reads or changes Unix terminal state.
+- `unix.tty_attrs(fd: Int = default) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Reads or changes Unix terminal state.
+- `unix.tty_mode(attrs: Record, mode: Str) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Applies raw, cooked, cbreak, or sane to a terminal attributes record.
+- `unix.tty_session(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
+- `unix.tty_table() -> {chars: List[{index: Int, name: Str, sane: Int}], flags: List[{field: Str, mask: Int, name: Str, sane: Bool, value: Int}], speeds: List[Int]}` — Returns the termios flag, control character, and baud rate names of the host.
+- `unix.ttyname(fd: Int = default) -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.uptime_seconds() -> Result[Int, Error]` — Reads Unix host uptime in seconds.
 - `unix.wait_pid1_event(timeout: Duration = default) -> Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.window_size(fd: Int = default) -> Result[{cols: Int, rows: Int, xpixel: Int, ypixel: Int}, Error]` — Reads or sets a terminal's window size.
 
 ### `user`
 
@@ -672,6 +704,7 @@ Process-scoped utility helpers.
 - `Status.exit_code() -> Result[Int, Error]` — Reads one field from a process status.
 - `Status.exited() -> Bool` — Checks how a process status completed.
 - `Status.exited_with(code: Int) -> Bool` — Checks a process exit code.
+- `Status.shell_code() -> Result[Int, Error]` — Reports a status the way a shell does: the exit code, or 128 plus the signal.
 - `Status.signal_number() -> Result[Int, Error]` — Reads one field from a process status.
 - `Status.signaled() -> Bool` — Checks how a process status completed.
 
@@ -772,6 +805,7 @@ Process-scoped utility helpers.
 - `ProcessEntry {argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}` — Describes one process-table entry.
 - `ProcessPort {argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}` — Describes one process-owned network port.
 - `ProcessThread {argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}` — Describes one thread belonging to a process.
+- `Rlimit {hard: Int?, resource: Str, soft: Int?}` — Describes one resource limit of the calling process.
 - `Signal {name: Str, number: Int}` — Describes a Unix signal value.
 - `Spawn {argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}` — Represents an owned spawned process.
 - `SystemExecutionUnits {clock_ticks_per_second: Int, page_size_bytes: Int}` — Reports host page size and process clock-tick rate.
@@ -784,9 +818,16 @@ Process-scoped utility helpers.
 - `UnixGroupId {gid: Int, name: Str}` — Describes Unix group identity numbers.
 - `UnixId {egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}` — Describes Unix user and group identity numbers.
 - `UnixKillAllResult {matched: Int, signaled: Int}` — Reports a Unix process-set signal operation.
+- `UnixLoadAverage {fifteen: Float, five: Float, one: Float}` — Reports the system load averages over one, five, and fifteen minutes.
 - `UnixLoggedProcessGroup {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}` — Represents an owned Unix process group with logging.
 - `UnixPid1Event {children: List[{pid: Int, status: Status}], kind: Str, signal: Str}` — Describes one PID 1 lifecycle event.
 - `UnixPid1Shutdown {kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}` — Describes a requested PID 1 shutdown action.
+- `UnixPty {master: Int, name: Str, replica: Int}` — Describes a pseudo-terminal pair opened by unix.open_pty.
 - `UnixSpawnedChild {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}` — Represents a Unix child spawned in a process group.
-- `UnixTtyAttrs {cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}` — Describes Unix terminal attributes.
+- `UnixTtyAttrs {cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}` — Describes Unix terminal attributes.
+- `UnixTtyChar {index: Int, name: Str, sane: Int}` — Describes one named terminal control character slot.
+- `UnixTtyFlag {field: Str, mask: Int, name: Str, sane: Bool, value: Int}` — Describes one named terminal mode flag of the termios tables.
+- `UnixTtyTable {chars: List[{index: Int, name: Str, sane: Int}], flags: List[{field: Str, mask: Int, name: Str, sane: Bool, value: Int}], speeds: List[Int]}` — Lists the terminal flags, control characters, and baud rates the host knows by name.
+- `UnixUtmp {addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}` — Describes one record of a utmp or wtmp file.
+- `UnixWindowSize {cols: Int, rows: Int, xpixel: Int, ypixel: Int}` — Describes a terminal's window size.
 - `User {gid: Int, home: Path, name: Str, shell: Str, uid: Int}` — Describes a Unix user account.
