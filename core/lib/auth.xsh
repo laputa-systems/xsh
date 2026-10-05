@@ -136,7 +136,7 @@ export proc nologin_path() [env, error] -> Result[Path] {
 export proc passwd_file_configured() [env] -> Bool {
   var found = false
 
-  match env.get("XSH_PASSWD_FILE") {
+  match e"XSH_PASSWD_FILE" {
     Ok(_) => found = true
     Err(_) => found = false
   }

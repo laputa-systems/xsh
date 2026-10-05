@@ -1,5 +1,5 @@
 let compiler = env ({CC: "clang", BUILD_MODE: "release"}) {
-  env.get("CC")?
+  e"CC"?
 }?
 let directory = cd (p".") {
   fs.cwd()?

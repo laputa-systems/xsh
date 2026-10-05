@@ -60,14 +60,14 @@ print "done"
 test test_env_value_scope_accepts_typed_overlays_and_restores {
   let original = env.get_or("XSH_VALUE_SCOPE", "absent")?
   let selected = env ({XSH_VALUE_SCOPE: "inner", XSH_SCOPE_NUMBER: 7}) {
-    assert env.get("XSH_SCOPE_NUMBER")? == "7"
-    env.get("XSH_VALUE_SCOPE")?
+    assert e"XSH_SCOPE_NUMBER"? == "7"
+    e"XSH_VALUE_SCOPE"?
   }?
   assert selected == "inner"
   assert env.get_or("XSH_VALUE_SCOPE", "absent")? == original
   let overlay: Map[Str, Str] = {["XSH_VALUE_SCOPE"]: "map value"}
   assert env (overlay) {
-    env.get("XSH_VALUE_SCOPE")?
+    e"XSH_VALUE_SCOPE"?
   }? == "map value"
 }
 
@@ -91,7 +91,7 @@ test test_scope_defers_run_before_environment_restoration {
   var observed = ""
   let result = env ({XSH_VALUE_SCOPE: "deferred"}) {
     defer {
-      observed = env.get("XSH_VALUE_SCOPE")?
+      observed = e"XSH_VALUE_SCOPE"?
     }
     false
   }?
@@ -155,9 +155,9 @@ test test_nested_scopes_restore_to_the_immediate_parent {
   let original = env.get_or("XSH_SCOPE_NESTED", "absent")?
   let selected = env ({XSH_SCOPE_NESTED: "outer"}) {
     assert env ({XSH_SCOPE_NESTED: "inner"}) {
-      env.get("XSH_SCOPE_NESTED")?
+      e"XSH_SCOPE_NESTED"?
     }? == "inner"
-    env.get("XSH_SCOPE_NESTED")?
+    e"XSH_SCOPE_NESTED"?
   }?
   assert selected == "outer"
   assert env.get_or("XSH_SCOPE_NESTED", "absent")? == original
@@ -189,7 +189,7 @@ test test_scope_input_and_scalar_fields_evaluate_once_in_order {
     },
   }) {
     sequence = sequence * 10 + 3
-    env.get("SECOND")?
+    e"SECOND"?
   }?
   assert sequence == 123
   assert value == "2"

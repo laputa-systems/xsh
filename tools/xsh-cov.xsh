@@ -39,7 +39,7 @@ proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
 }
 
 proc xsht_path(root: Path) [env] -> Path {
-  let configured = (env.get("XSHT") ?? "").trim()
+  let configured = (e"XSHT" ?? "").trim()
 
   return repo_path(root, configured) when configured != ""
 
