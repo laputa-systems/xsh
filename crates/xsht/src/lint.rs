@@ -1897,6 +1897,7 @@ impl<'a> Linter<'a> {
                         self.lint_expr(guard);
                     }
                     self.lint_block_statements(arm.block);
+                    self.widen_guard_fix_to_arm_block(arm.block);
                     self.pop_scope();
                 }
                 self.regex_recovery_context = old_regex_context;
@@ -10421,6 +10422,39 @@ impl<'a> Linter<'a> {
                 replacement,
             )),
         );
+    }
+
+    /// A match arm whose braces hold one postfix-guarded statement is printed
+    /// without them, `0 => return x when c`. When the guard fix replaces the
+    /// only statement of such a block, it replaces the braces too.
+    fn widen_guard_fix_to_arm_block(&mut self, block: BlockId) {
+        let block = self.arena.block(block);
+        let mut statements = self.arena.stmt_ids(block.statements);
+        let (Some(only), None) = (statements.next(), statements.next()) else {
+            return;
+        };
+        if !block.params.is_empty() {
+            return;
+        }
+        let stmt_span = self.arena.stmt(only).span;
+        let block_span = self.arena.span(block.span);
+        let braces_only = self
+            .source
+            .get(block_span.start()..stmt_span.start())
+            .zip(self.source.get(stmt_span.end()..block_span.end()))
+            .is_some_and(|(open, close)| open.trim() == "{" && close.trim() == "}");
+        if !braces_only {
+            return;
+        }
+        for hint in self
+            .diagnostics
+            .iter_mut()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferGuard))
+            .flat_map(|diagnostic| diagnostic.fix_hints.iter_mut())
+            .filter(|hint| hint.span == Some(stmt_span))
+        {
+            hint.span = Some(block_span);
+        }
     }
 
     fn lint_if_as_guard(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {

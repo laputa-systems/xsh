@@ -4409,6 +4409,100 @@ fn linter_prefer_guard_preserves_comments_else_and_multiple_actions() {
 }
 
 #[test]
+fn linter_prefer_guard_drops_the_braces_of_a_single_statement_match_arm() {
+    // `xsht fmt` prints an arm holding one guarded statement without braces,
+    // so the fix to the only statement of a braced arm takes the braces too.
+    // An arm with a second statement, or with a comment, keeps them.
+    let fix = |source: &str| {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+        let mut hints = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")
+            })
+            .flat_map(|diagnostic| &diagnostic.fix_hints)
+            .collect::<Vec<_>>();
+        hints.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
+        let mut fixed = source.to_string();
+        for hint in hints {
+            fixed.replace_range(
+                hint.span.unwrap().range(),
+                hint.replacement.as_ref().unwrap(),
+            );
+        }
+        fixed
+    };
+    let source = "\
+pure pick(n: Int, c: Bool) -> Int {
+  match n {
+    0 => {
+      if c {
+        return 1
+      }
+    }
+    1 => {
+      if c {
+        return 2
+      }
+
+      return 3
+    }
+    else => {}
+  }
+
+  4
+}
+";
+    let fixed = fix(source);
+    assert_eq!(
+        fixed,
+        "\
+pure pick(n: Int, c: Bool) -> Int {
+  match n {
+    0 => return 1 when c
+    1 => {
+      return 2 when c
+
+      return 3
+    }
+    else => {}
+  }
+
+  4
+}
+"
+    );
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, fixed);
+
+    let commented = "\
+pure pick(n: Int, c: Bool) -> Int {
+  match n {
+    0 => {
+      # The cached value wins.
+      if c {
+        return 1
+      }
+    }
+    else => {}
+  }
+
+  4
+}
+";
+    assert_eq!(
+        fix(commented),
+        commented.replace(
+            "      if c {\n        return 1\n      }\n",
+            "      return 1 when c\n"
+        )
+    );
+}
+
+#[test]
 fn linter_prefer_guard_groups_external_run_payload() {
     let source = "proc value(selected: Bool) [process] -> Status { if selected { return run.status /usr/bin/true }; return run.status /usr/bin/true }\n";
     let parsed = parse_lint_source(source);
