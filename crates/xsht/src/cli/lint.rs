@@ -784,10 +784,10 @@ fn lint_workspace_root(
             )
         })
     });
+    // A check error leaves the checked facts incomplete, so the file is not
+    // linted. A check warning does not: it is reported beside the lints.
     let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic| {
-        migration_lint_code(diagnostic.code).is_none()
-            && diagnostic.code != Some(DiagnosticCode::CheckRemovedMembership)
-            && !spelling_only(diagnostic)
+        diagnostic.severity == Severity::Error && reported_check_finding(diagnostic)
     });
     if !checked.diagnostics.is_empty()
         && unrelated_check_error
@@ -901,7 +901,7 @@ fn lint_workspace_root(
                     .diagnostics
                     .iter()
                     .filter(|diagnostic| {
-                        spelling_only(diagnostic)
+                        (spelling_only(diagnostic) || reported_check_finding(diagnostic))
                             && diagnostic_mentions_source(diagnostic, module.source_id)
                     })
                     .cloned(),
@@ -948,7 +948,8 @@ fn lint_workspace_root(
                 index: results.len(),
                 kind: LintResultKind::Diagnostics {
                     status: if linted.diagnostics.iter().any(|diagnostic| {
-                        diagnostic.severity == Severity::Error
+                        (diagnostic.severity == Severity::Error
+                            || reported_check_finding(diagnostic))
                             && diagnostic
                                 .code
                                 .is_some_and(|code| code.family() == DiagnosticFamily::Check)
@@ -1345,6 +1346,14 @@ fn order_modules_depth_first(
 
 /// Source parentheses that do not change the parse leave every checked fact
 /// intact, so they never hide lint diagnostics.
+/// A check diagnostic `xsht lint` reports as the checker's own finding: not
+/// one a lint code stands for, and not a spelling the lint run judges.
+fn reported_check_finding(diagnostic: &Diagnostic) -> bool {
+    migration_lint_code(diagnostic.code).is_none()
+        && diagnostic.code != Some(DiagnosticCode::CheckRemovedMembership)
+        && !spelling_only(diagnostic)
+}
+
 fn spelling_only(diagnostic: &Diagnostic) -> bool {
     diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
 }
