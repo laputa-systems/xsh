@@ -344,7 +344,11 @@ fn grammar_rejects_sources_the_parser_rejects() {
         "exit when ready\n",
         "fail unless ready\n",
         "exit ?\n",
-        "fail as Int\n",
+        "fail ?\n",
+        "exit as\n",
+        "fail as\n",
+        "exit is\n",
+        "fail is\n",
     ] {
         assert!(
             !Parser::parse_source_arena_only(SourceId::new(0), source)
@@ -545,6 +549,13 @@ fn statement_start_conversions_are_parsed_and_recognized_alike() {
         ("row.cell.text as Int\n", true),
         ("count as UInt as Int\n", true),
         ("count as Int + 1\n", false),
+        // `exit` and `fail` are names wherever they do not begin their
+        // statements, and an `as` after one continues an expression.
+        ("fail as Int\n", true),
+        ("exit as Int\n", true),
+        ("fail is Int\n", false),
+        ("exit is Int\n", false),
+        ("exit as Int when ready\n", false),
         ("proc f(count: Str) {\n  count as Int\n}\n", false),
         ("let kept = try { count as Int }\n", false),
         ("count \"as\" UInt\n", false),

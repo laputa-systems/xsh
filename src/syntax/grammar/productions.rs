@@ -360,6 +360,15 @@ fn keyword_forms(keywords: impl IntoIterator<Item = Keyword>) -> Vec<StatementFo
     forms
 }
 
+/// The words that continue a name as a conversion or a type test. After
+/// `exit` or `fail` they make the word a binding of that name, so neither
+/// statement takes a status or a message named `as` or `is`.
+fn conversion_or_test_leads() -> Vec<Vec<Term>> {
+    ["as", "is"]
+        .map(|word| vec![word_term(word, false)])
+        .to_vec()
+}
+
 fn postfix_guard_leads() -> Vec<Vec<Term>> {
     [Keyword::When, Keyword::Unless]
         .map(|guard| vec![keyword_term(guard)])
@@ -412,14 +421,14 @@ fn expression_statement_stops() -> Vec<Vec<Term>> {
             tag_term(T::LBrace),
         ]
     }));
-    // `exit` and `fail` begin their statements before a `?` or an `as` is
-    // read as the rest of an expression over a binding of that name.
-    leads.extend(["exit", "fail"].into_iter().flat_map(|word| {
-        [
-            vec![word_term(word, false), tag_term(T::Question)],
-            vec![word_term(word, false), word_term("as", false)],
-        ]
-    }));
+    // `exit` and `fail` begin their statements before a `?` is read as the
+    // rest of an expression over a binding of that name. An `as` or an `is`
+    // after either word continues an expression, as an operator does.
+    leads.extend(
+        ["exit", "fail"]
+            .into_iter()
+            .map(|word| vec![word_term(word, false), tag_term(T::Question)]),
+    );
     leads
 }
 
@@ -1235,7 +1244,12 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "exit_statement",
-            seq([w("exit"), line(r("expression")), opt(r("postfix_guard"))]),
+            seq([
+                w("exit"),
+                not(conversion_or_test_leads()),
+                line(r("expression")),
+                opt(r("postfix_guard")),
+            ]),
         ),
         // `fail` is a contextual word: it begins the statement where a
         // command named `fail` would be read, with its message or
@@ -1245,6 +1259,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "fail_statement",
             seq([
                 w("fail"),
+                not(conversion_or_test_leads()),
                 line(seq([
                     r("expression"),
                     opt(seq([w("because"), r("expression")])),
