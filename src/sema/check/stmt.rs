@@ -2140,6 +2140,7 @@ impl Checker {
         self.collect_function_local_constraints(arena, source, def, pure);
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
+        let previous_collect = self.enter_callable_collect_scope();
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
         let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
@@ -2308,6 +2309,7 @@ impl Checker {
         self.current_effects = previous_effects;
         self.effect_owner = previous_effect_owner;
         self.in_defer_block = previous_defer;
+        self.leave_callable_collect_scope(previous_collect);
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
@@ -2324,6 +2326,7 @@ impl Checker {
         self.collect_stream_local_constraints(arena, source, def);
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
+        let previous_collect = self.enter_callable_collect_scope();
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
         let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
@@ -2419,6 +2422,7 @@ impl Checker {
         self.current_effects = previous_effects;
         self.effect_owner = previous_effect_owner;
         self.in_defer_block = previous_defer;
+        self.leave_callable_collect_scope(previous_collect);
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
@@ -3079,6 +3083,9 @@ impl Checker {
                 DiagnosticCode::CheckDeferControlFlow,
             );
         }
+        if self.in_collect() {
+            return self.check_collect_yield_delegation_arena(arena, source, value, span);
+        }
         self.reject_yield_in_retry(span);
         let expected = self.current_yield.clone();
         if expected.is_none() {
@@ -3154,6 +3161,9 @@ impl Checker {
                 "`yield` is not allowed in a deferred cleanup block",
                 DiagnosticCode::CheckDeferControlFlow,
             );
+        }
+        if self.in_collect() {
+            return self.check_collect_yield_arena(arena, source, value, span);
         }
         self.reject_yield_in_retry(span);
         let expected = match self.current_yield.clone() {

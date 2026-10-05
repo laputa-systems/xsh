@@ -147,7 +147,7 @@ impl<'a> Parser<'a> {
                     )
                 {
                     self.parse_test_declaration_arena_only(start, arena)
-                } else if self.lookahead_is_ctx_block() {
+                } else if self.lookahead_is_ctx_block() || self.lookahead_is_collect() {
                     self.parse_expr_statement_arena_only(start, arena)
                 } else if self.lookahead_is_error_def() {
                     self.parse_error_def_arena_only(start, arena)

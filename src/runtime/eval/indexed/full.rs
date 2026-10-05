@@ -10635,6 +10635,48 @@ pure selected() -> Str {
         assert!(FullVerifier::verify(&missing).is_err());
     }
 
+    /// A `collect` block lowers to a local list and an append per yield, so
+    /// its yields must never reach the program as producer yields, and an
+    /// append must name a slot of the function that holds the block.
+    #[test]
+    fn collect_yields_lower_to_appends_that_the_verifier_ties_to_a_slot() {
+        let program = fixture(
+            "collect.xsh",
+            "let squares = collect {\n  for n in [1, 2] {\n    yield n * n\n  }\n  yield @[7, 8]\n}\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let tags = &program.store.tags;
+        assert!(
+            !tags
+                .iter()
+                .any(|tag| matches!(tag, FullTag::StmtYield | FullTag::StmtYieldDelegate)),
+            "a collect yield lowered as a producer yield"
+        );
+        let appends: Vec<usize> = tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| **tag == FullTag::StmtAssign)
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(appends.len(), 2, "one append for each yield");
+        for append in appends {
+            // The slot is the row's first word.
+            let payload = program.store.data[append]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
+            let mut invalid = program.clone();
+            invalid.store.extra[payload.start] = u32::MAX - 1;
+            assert!(
+                FullVerifier::verify(&invalid)
+                    .unwrap_err()
+                    .message
+                    .contains("slot"),
+                "an append to a slot the function does not have verified"
+            );
+        }
+    }
+
     /// The executor reads a backoff's three durations by position, so a
     /// backoff row over any other number of delays, or a row whose schedule
     /// is no schedule, must not verify.

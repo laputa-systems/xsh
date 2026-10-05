@@ -3843,6 +3843,11 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_expr_kind(ArenaExprKind::Convert { value, target }, span)
     }
 
+    pub fn push_collect_expr(&mut self, block: BlockId, span: Span) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::Collect { block }, span)
+    }
+
     /// Records that `expr` was written inside the parentheses spanning `span`.
     pub fn record_paren_group(&mut self, expr: ExprId, span: Span) {
         self.paren_groups.push((expr, span));
@@ -4867,6 +4872,9 @@ impl AstArena {
             ArenaExprTag::Convert => ArenaExprKind::Convert {
                 value: ExprId::new(data.lhs as usize),
                 target: TypeExprId::new(data.rhs as usize),
+            },
+            ArenaExprTag::Collect => ArenaExprKind::Collect {
+                block: BlockId::new(data.lhs as usize),
             },
             ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
@@ -6506,6 +6514,7 @@ pub enum ArenaExprTag {
     SetComp,
     BinaryUnion,
     BinaryIntersect,
+    Collect,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -6707,6 +6716,12 @@ pub enum ArenaExprKind {
     Convert {
         value: ExprId,
         target: TypeExprId,
+    },
+    /// `collect { ... }`: the list of what the block's own `yield`s give, in
+    /// the order they run. A `yield` in a callable nested in the block
+    /// belongs to that callable.
+    Collect {
+        block: BlockId,
     },
     Loop {
         block: BlockId,
@@ -7960,6 +7975,10 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::Convert { value, target } => (
                 ArenaExprTag::Convert,
                 ArenaExprData::new(raw_expr_id(value), raw_type_expr_id(target)),
+            ),
+            ArenaExprKind::Collect { block } => (
+                ArenaExprTag::Collect,
+                ArenaExprData::new(raw_block_id(block), 0),
             ),
             ArenaExprKind::Capture(block) => (
                 ArenaExprTag::Capture,

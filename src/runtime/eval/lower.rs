@@ -1952,6 +1952,7 @@ fn compact_collect_expr_call_edges(
         ArenaExprKind::Capture(block)
         | ArenaExprKind::ValueBlock(block)
         | ArenaExprKind::Loop { block }
+        | ArenaExprKind::Collect { block }
         | ArenaExprKind::Retry { block, .. }
         | ArenaExprKind::TempDirScope {
             path: None, block, ..
@@ -2386,7 +2387,15 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Convert { .. } => 47,
         ArenaExprKind::Set(_) => 48,
         ArenaExprKind::SetComp { .. } => 49,
+        ArenaExprKind::Collect { .. } => 50,
     }
+}
+
+/// The local that holds the list of one `collect` expression. No identifier
+/// can spell it, and each expression has its own, so a nested `collect`
+/// neither sees nor shadows the list around it.
+fn collect_local(collect: ExprId) -> Name {
+    Name::intern(&format!("%collect{}", collect.index()))
 }
 
 fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
@@ -2443,6 +2452,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::ContextScope { .. } => "context_scope",
         ArenaExprKind::TempDirScope { .. } => "tempdir_scope",
         ArenaExprKind::Convert { .. } => "convert",
+        ArenaExprKind::Collect { .. } => "collect",
     }
 }
 
@@ -5037,6 +5047,30 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered
     }
 
+    /// `items`, a list, appended to the local of the `collect` expression
+    /// that the checker gave this yield. That expression encloses the yield
+    /// in the same function, so its local is in scope.
+    fn lower_collect_yield(
+        &mut self,
+        id: StmtId,
+        items: BuildExprId,
+        slots: &SlotScope,
+    ) -> Option<BuildStmtId> {
+        let collect = *self.bodies.collect_yields.get(&id)?;
+        let slot = slots.resolve(collect_local(collect))?;
+        Some(push_build_row!(
+            self,
+            stmt,
+            BuildStmtRow::Assign {
+                slot,
+                op: AssignOp::Add,
+                value: items,
+                check: None,
+                span: self.program.arena.stmt(id).span,
+            }
+        ))
+    }
+
     /// A retry attempt has its own lexical scope. Its implicit tail uses the
     /// distinct value flow so explicit returns and loop transfers keep their
     /// enclosing targets, while propagation failures remain retryable.
@@ -6014,6 +6048,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: push_build_row!(self, expr, BuildExprRow::Unit),
                 }
             )),
+            // The checker decided that this yield appends to a `collect`
+            // expression: it adds to that expression's local.
+            ArenaStmtKind::YieldDelegate(value)
+                if self.bodies.collect_yields.contains_key(&id) =>
+            {
+                let items = self.lower_expr(value, slots, current_function, item_slot)?;
+                self.lower_collect_yield(id, items, slots)
+            }
+            ArenaStmtKind::Yield(value) if self.bodies.collect_yields.contains_key(&id) => {
+                let item = match value {
+                    ArenaExprOrRun::Expr(value) => {
+                        self.lower_expr(value, slots, current_function, item_slot)?
+                    }
+                    ArenaExprOrRun::Run(run) => {
+                        self.lower_run_binding_value(run, slots, current_function, item_slot)?
+                    }
+                };
+                let items = push_build_row!(self, expr, BuildExprRow::List(vec![item]));
+                self.lower_collect_yield(id, items, slots)
+            }
             ArenaStmtKind::YieldDelegate(value) => Some(push_build_row!(
                 self,
                 stmt,
@@ -8207,6 +8261,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
+            // A block that binds an empty list to a local of its own, runs
+            // the body as an inner block, and has the local as its value. The
+            // body's yields append to that local (`lower_collect_yield`).
+            ArenaExprKind::Collect { block } => {
+                let saved = slots.enter();
+                let slot = slots.declare(collect_local(id));
+                let lowered = (|| {
+                    let empty = push_build_row!(self, expr, BuildExprRow::List(Vec::new()));
+                    let bind = push_build_row!(
+                        self,
+                        stmt,
+                        BuildStmtRow::Let { slot, value: empty }
+                    );
+                    let body = self.lower_block(block, slots, current_function, item_slot)?;
+                    let body = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span });
+                    let run = push_build_row!(self, stmt, BuildStmtRow::Expr { value: body, span });
+                    let list = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                    let value = push_build_row!(self, stmt, BuildStmtRow::Value { value: list });
+                    Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::ValueBlock {
+                            body: vec![bind, run, value],
+                            span,
+                        }
+                    ))
+                })();
+                slots.exit(saved);
+                lowered
+            }
             ArenaExprKind::Retry {
                 schedule,
                 delays,

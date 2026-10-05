@@ -2990,6 +2990,10 @@ impl<'a> Writer<'a> {
                 output.push_str("loop ");
                 self.write_block(*block, 0, output);
             }
+            ArenaExprKind::Collect { block } => {
+                output.push_str("collect ");
+                self.write_block(*block, indent_for_expr(output), output);
+            }
             ArenaExprKind::Retry {
                 schedule,
                 delays,
@@ -3071,7 +3075,9 @@ impl<'a> Writer<'a> {
         // indentation it had, which is wrong wherever the block has moved.
         if matches!(
             self.arena.expr(expr_id).kind,
-            ArenaExprKind::ValueBlock(_) | ArenaExprKind::Capture(_)
+            ArenaExprKind::ValueBlock(_)
+                | ArenaExprKind::Capture(_)
+                | ArenaExprKind::Collect { .. }
         ) {
             return false;
         }

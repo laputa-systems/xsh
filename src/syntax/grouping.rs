@@ -1316,6 +1316,7 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
                 | Tag::SpawnRun
                 | Tag::Capture
                 | Tag::Loop
+                | Tag::Collect
                 | Tag::Retry
                 | Tag::ValueBlock
                 | Tag::EnvString

@@ -25,6 +25,7 @@ mod builder;
 mod call;
 #[path = "check/callable_alias.rs"]
 mod callable_alias;
+mod collect;
 #[path = "check/command.rs"]
 mod command;
 #[path = "check/compact.rs"]
@@ -218,6 +219,10 @@ pub struct CheckOutput {
     /// `while`. A `null` subject takes the failure path and any other value is
     /// bound; lowering reads this instead of deciding from the subject's type.
     pub optional_binding_spans: BTreeSet<Span>,
+    /// Each `yield` that appends to a `collect` expression, keyed by the
+    /// `yield` statement, with the span of that expression. Lowering reads
+    /// the target here instead of working out which block a yield is in.
+    pub collect_yields: BTreeMap<Span, Span>,
     /// Calls whose callee is a value of a callable type, keyed by call
     /// expression, with the signature the call was checked against. Lowering
     /// reads the signature here instead of working out what the callee is.
@@ -748,6 +753,9 @@ pub struct Checker {
     record_require_migrations: BTreeMap<Span, RecordRequireMigration>,
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     optional_binding_spans: BTreeSet<Span>,
+    collect_yields: BTreeMap<Span, Span>,
+    /// The `collect` expression a `yield` here appends to.
+    collect_scope: Option<collect::CollectScope>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
     text_patterns: BTreeMap<Span, TextPattern>,
@@ -911,6 +919,7 @@ impl Checker {
                 record_require_migrations: checker.record_require_migrations,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
+                collect_yields: checker.collect_yields,
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
                 text_patterns: checker.text_patterns,
@@ -1089,6 +1098,7 @@ impl Checker {
                 record_require_migrations: checker.record_require_migrations,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
+                collect_yields: checker.collect_yields,
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
                 text_patterns: checker.text_patterns,
@@ -1169,6 +1179,8 @@ impl Checker {
             record_require_migrations: BTreeMap::new(),
             error_constructors: BTreeMap::new(),
             optional_binding_spans: BTreeSet::new(),
+            collect_yields: BTreeMap::new(),
+            collect_scope: None,
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
             text_patterns: BTreeMap::new(),

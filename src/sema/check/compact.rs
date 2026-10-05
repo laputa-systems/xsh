@@ -109,6 +109,9 @@ pub struct CompactBodyFacts {
     pub optional_binding_conditions: FxHashSet<ExprId>,
     /// `guard let` statements whose subject is an optional, not a `Result`.
     pub optional_binding_guards: FxHashSet<StmtId>,
+    /// Each `yield` that appends to a `collect` expression, with that
+    /// expression. A `yield` that is not here suspends a producer.
+    pub collect_yields: FxHashMap<StmtId, ExprId>,
     /// Calls through a value of a callable type, keyed by call, with the
     /// signature each was checked against.
     pub typed_callable_calls: FxHashMap<ExprId, std::sync::Arc<crate::sema::types::TypedCallable>>,
@@ -220,6 +223,16 @@ impl CompactBodyFacts {
                 }
             }
         }
+        // The checker names a `collect` expression by its span.
+        let collects: FxHashMap<Span, ExprId> = if checked.collect_yields.is_empty() {
+            FxHashMap::default()
+        } else {
+            (0..arena.expr_tags.len())
+                .map(ExprId::from_index)
+                .filter(|id| matches!(arena.expr(*id).kind, ArenaExprKind::Collect { .. }))
+                .map(|id| (arena.expr(id).span, id))
+                .collect()
+        };
         for index in 0..arena.stmt_tags.len() {
             let id = StmtId::from_index(index);
             let statement = arena.stmt(id);
@@ -230,6 +243,14 @@ impl CompactBodyFacts {
                 && checked.optional_binding_spans.contains(&statement.span)
             {
                 facts.optional_binding_guards.insert(id);
+            }
+            if matches!(
+                statement.kind,
+                ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_)
+            ) && let Some(collect) = checked.collect_yields.get(&statement.span)
+                && let Some(collect) = collects.get(collect)
+            {
+                facts.collect_yields.insert(id, *collect);
             }
         }
         if !checked.handler_input_types.is_empty() {

@@ -484,6 +484,7 @@ diagnostic_codes! {
         CheckYield = "check.yield", error, "Reject `yield` outside a stream producer, inside a `retry` attempt, or inside a `within` block";
         CheckYieldDelegation = "check.yield-delegation", error, "Reject `yield @` of a value that is not a `List` or `Stream`";
         CheckYieldStream = "check.yield-stream", error, "Reject `yield` of a stream value; use `yield @stream`";
+        CheckCollectItem = "check.collect-item", error, "Reject a `collect` block that never yields where no expected type gives its item type";
         CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
         CheckUnionType = "check.union-type", error, "Reject a `Union[...]` whose members are fewer than two, repeat or contain one another, or are `Any`, `Null`, optional, a stream, a callable type, or another union";
         CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
@@ -664,6 +665,7 @@ diagnostic_codes! {
         LintPreferArgumentLabel = "lint.prefer-argument-label", warning, "Write the label of an argument whose parameter is registered with one (`src.copy(to: dest)`, `text.replace(\"a\", with: \"b\")`), and call `link.symlink(to: target)` instead of `fs.symlink(target, link)`";
         LintEmptySentinel = "lint.empty-sentinel", note, "Note an optional bound through `?? \"\"` whose binding is then tested for emptiness, which an optional binding keeps apart from an empty value";
         LintPreferSet = "lint.prefer-set", warning, "Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in)";
+        LintPreferCollect = "lint.prefer-collect", warning, "Build a list that is declared empty and then only appended to with `collect { ... }`";
         LintPreferWaitUntil = "lint.prefer-wait-until", note, "Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit";
     }
     Format {

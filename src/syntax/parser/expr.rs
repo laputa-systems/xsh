@@ -1360,6 +1360,17 @@ impl<'a> Parser<'a> {
         self.peek_tag(after) == Some(TokenTag::LBrace)
     }
 
+    /// `collect {` on one line. `collect` is contextual: the name directly
+    /// before a `{` always begins the expression, wherever an expression may
+    /// start, so a value named `collect` that a block follows is written
+    /// `(collect)`. A `|> collect()` stage and a `.collect()` call are not
+    /// read here.
+    pub(super) fn lookahead_is_collect(&self) -> bool {
+        self.current_tag() == TokenTag::Ident
+            && self.current_name().is_some_and(|name| name == "collect")
+            && self.peek_tag(1) == Some(TokenTag::LBrace)
+    }
+
     pub(super) fn parse_within_scope_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -1512,6 +1523,17 @@ impl<'a> Parser<'a> {
         }
         if self.lookahead_is_within_scope() {
             return self.parse_within_scope_arena_only(arena, true);
+        }
+        if self.lookahead_is_collect() {
+            let start = self.current_start();
+            self.bump();
+            let block = self.parse_block_arena_only(arena)?;
+            let span = self.span(start, self.previous_end());
+            return Some(ArenaOnlyExpr {
+                id: arena.push_collect_expr(block, span),
+                span,
+                bare_ident: None,
+            });
         }
         if let Some(form) = self.current_keyword().and_then(grammar::primary_form) {
             return self.parse_keyword_primary_arena_only(form, span, arena);

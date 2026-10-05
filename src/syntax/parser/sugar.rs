@@ -862,6 +862,78 @@ mod tests {
         assert!(backoffs > 20, "only {backoffs} backoffs");
     }
 
+    /// `collect {` always begins a collect expression, so every sentence of
+    /// the production parses as one, alone and after `let NAME =`.
+    #[test]
+    fn every_collect_sentence_of_the_grammar_parses_as_a_collect_expression() {
+        use crate::syntax::arena::{ArenaExprKind, ArenaExprOrRun};
+        let mut sentences = 0;
+        for (depth, seed, source) in sentences_of("collect_expression") {
+            sentences += 1;
+            for bound in [false, true] {
+                let source = if bound {
+                    format!("let bound = {source}")
+                } else {
+                    source.clone()
+                };
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(
+                    parsed.diagnostics.is_empty(),
+                    "depth {depth} seed {seed}: {}\n{source}",
+                    parsed.diagnostics[0].message
+                );
+                let first = parsed.arena.statement_ids().next().expect("one statement");
+                let arena = &parsed.arena.arena;
+                let expr = match arena.stmt(first).kind {
+                    ArenaStmtKind::Expr(expr) => Some(expr),
+                    ArenaStmtKind::Let {
+                        initializer: ArenaExprOrRun::Expr(expr),
+                        ..
+                    } => Some(expr),
+                    _ => None,
+                };
+                assert!(
+                    expr.is_some_and(|expr| matches!(
+                        arena.expr(expr).kind,
+                        ArenaExprKind::Collect { .. }
+                    )),
+                    "depth {depth} seed {seed} is not a collect expression:\n{source}"
+                );
+            }
+        }
+        assert!(sentences > 100, "only {sentences} sentences");
+    }
+
+    /// The grammar and the parser read `collect {` as the expression in every
+    /// position, and a name spelled `collect` everywhere else.
+    #[test]
+    fn the_grammar_and_the_parser_agree_on_collect() {
+        let recognizer = Recognizer::new(grammar());
+        let cases = [
+            ("let xs = collect { yield 1 }\n", true),
+            ("collect { yield 1 }\n", true),
+            ("let n = collect { yield 1 }.len() + 1\n", true),
+            ("let both = collect { yield 1 } |> collect()\n", true),
+            ("let either = set.from(collect { yield 1 }) | {2, 3}\n", true),
+            ("if collect { yield 1 } == [] { print \"x\" }\n", true),
+            ("for x in collect { yield 1 } { print $x }\n", true),
+            ("let ys = xs |> collect()\n", true),
+            ("let ys = xs.collect()\n", true),
+            ("let collect = 1\nlet y = collect + 1\n", true),
+            ("let collect = true\nif (collect) { print \"x\" }\n", true),
+            // A block directly after the name is the expression's, so the
+            // `if` has no body.
+            ("let collect = true\nif collect { print \"x\" }\n", false),
+            ("let xs = collect\n", true),
+        ];
+        for (source, sentence) in cases {
+            let tokens = lex_grammar_tokens(source).expect("lexes");
+            assert_eq!(recognizer.recognize(&tokens).is_ok(), sentence, "grammar: {source}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert_eq!(parsed.diagnostics.is_empty(), sentence, "parser: {source}");
+        }
+    }
+
     /// The grammar and the parser read the same texts as a `wait until`
     /// statement or a `retry backoff`, and reject the same ones.
     #[test]
@@ -872,6 +944,9 @@ mod tests {
             ("wait until a or\nb within limits.short every 1ms\n", true),
             ("wait until x is Thing as t within t.limit backoff a.b..c.d\n", true),
             ("wait until until within within every every\n", true),
+            // A set union in the condition ends at the word like any other.
+            ("wait until key in a | b within 5s backoff 1ms..5ms\n", true),
+            ("wait until (a | b).is_empty() within limit\n", true),
             ("wait until until within within backoff backoff .. backoff\n", true),
             ("let r = retry backoff 1ms..limit within limit on (is Timeout) { 1 }\n", true),
             ("let r = retry backoff a.b .. 5s within 5s { 1 }\n", true),
@@ -1204,6 +1279,8 @@ mod tests {
             include_str!("../../../tests/xsh/wait-until.xsh"),
             include_str!("../../../docs/snippets/spec/72-wait-until.xsh"),
             include_str!("../../../docs/snippets/spec/72-retry-backoff.xsh"),
+            include_str!("../../../tests/xsh/collect.xsh"),
+            include_str!("../../../docs/snippets/spec/73-collect.xsh"),
         ]);
     }
 

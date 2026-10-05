@@ -32,7 +32,7 @@ pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun
     }
 }
 
-fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
+pub(super) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
     if next.matches_expected(current) {
         return Some(current.clone());
     }
@@ -1058,6 +1058,9 @@ impl Checker {
             ),
             ArenaExprKind::Loop { block } => {
                 self.check_loop_arena(arena, source, *block, expr.span)
+            }
+            ArenaExprKind::Collect { block } => {
+                self.check_collect_arena(arena, source, *block, expected, expr.span)
             }
             ArenaExprKind::Capture(block) => {
                 self.check_capture_arena(arena, source, *block, expected, expr.span)

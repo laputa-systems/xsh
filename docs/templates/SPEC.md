@@ -113,6 +113,7 @@ and the `as` that ends its destination (8.7),
 head of a `wait until` statement (8.6),
 `backoff` directly after `retry` and the `within` that follows its intervals
 (8.8),
+`collect` directly before the `{` of a `collect` expression (6.9),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -1657,6 +1658,47 @@ content is a single name. A block introduces a lexical and cleanup scope but
 no function, error, or loop boundary. In statement position it runs as
 statements; in value position its tail is its value.
 
+`collect { ... }` is an expression whose value is the list of what its block
+yields:
+
+```xsh
+{{.spec.collect.source}}
+```
+
+The block runs once, as statements. Each `yield value` in it appends one
+item, and `yield @list` appends every item of a `List`, in the order the
+yields run; the value is a new `List[T]` when the block reaches its end. A
+`yield` belongs to the nearest `collect` whose block holds it, through any
+`if`, `match`, loop, bare block, `try`, or scope in between, and through a
+postfix `when` or `unless`. A function, a stage block, and a nested `collect`
+have their own yields: in a stage block inside the block a `yield` is not the
+`collect`'s (`check.yield` outside a producer). Inside a `stream` producer,
+the yields of a `collect` block append to its list and emit nothing.
+
+`T` is the item type of the expected type when the context states a
+`List[T]`, and otherwise the common type of the yields, found as a list
+literal finds the type of its elements. A block that never yields needs the
+expected type (`check.collect-item`). A `yield` takes no stream, and
+`yield @` takes no stream either: collect it first
+(`yield @rows.collect()`).
+
+The block is no boundary. `?` and a statement's failure leave it as they
+would leave a bare block, and the list is then discarded; `return`, `break`,
+and `continue` keep their targets, so a `break` ends a loop around the
+`collect` and no list is produced. A `yield` inside a `retry` attempt in the
+block is rejected (`check.yield`), because a failed attempt would leave its
+items behind; a `collect` inside the attempt builds a list per attempt. A
+`yield` in a `within` body in the block is allowed: nothing is suspended
+there. The expression has no effect of its own and may be used in a pure
+function.
+
+The word `collect` directly before a `{` on one line always begins this
+expression, wherever an expression may start, and is an ordinary name
+everywhere else (`rows.collect()`, `|> collect()`). A value named `collect`
+that a block follows is written `(collect)`. `lint.prefer-collect` rewrites a
+list that is declared empty and then only appended to, where a comprehension
+(6.5) does not already say it.
+
 A callback block receives one item: a stream stage block (13.1) other than
 `fold` and `reduce`, or an error handler after `??` (8.4). Written without
 `|name|`, such a block takes that item as its implicit parameter `.`, so
@@ -2832,7 +2874,8 @@ source evaluates once when reached; handle results explicitly
 value` is rejected. Defers run when the producer finishes, fails, or its
 consumer stops early (a delegated child is closed before its parent). Streams
 are one-pass, and aliases share one cursor. Producers use proc-style effect
-clauses.
+clauses. A `yield` inside a `collect` block (6.9) in a producer appends to
+that block's list and emits nothing.
 
 ### 9.6 Effects
 

@@ -460,6 +460,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     {
         return Kind::Keyword;
     }
+    // `collect { ... }` is an expression wherever one may start; a
+    // `.collect()` call and a `|> collect()` stage have no brace after them.
+    if text == "collect" && !after_dot && next.is_some_and(|next| next.tag == TokenTag::LBrace) {
+        return Kind::Keyword;
+    }
     // `tempdir NAME { ... }` opens a scope wherever an expression may start.
     if text == "tempdir"
         && !after_dot
@@ -1148,6 +1153,14 @@ mod tests {
         assert_eq!(kind_of(source, "every + backoff"), Kind::Plain);
         assert_eq!(kind_of(source, "backoff\nwait"), Kind::Plain);
         assert_eq!(kind_of(source, "until)"), Kind::Plain);
+    }
+
+    #[test]
+    fn collect_is_a_keyword_only_before_a_block() {
+        let source = "let xs = collect { yield 1 }\nlet ys = xs.collect()\nlet collect = 2\n";
+        assert_eq!(kind_of(source, "collect {"), Kind::Keyword);
+        assert_ne!(kind_of(source, "collect()"), Kind::Keyword);
+        assert_eq!(kind_of(source, "collect = 2"), Kind::Plain);
     }
 
     #[test]

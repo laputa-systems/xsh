@@ -28,6 +28,8 @@ mod prefer_atomically;
 mod prefer_within;
 #[path = "lint_prefer_wait_until.rs"]
 mod prefer_wait_until;
+#[path = "lint_prefer_collect.rs"]
+mod prefer_collect;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 
@@ -1254,6 +1256,7 @@ impl<'a> Linter<'a> {
         prefer_tempdir::lint_scratch_directories(self, statements, None);
         prefer_atomically::lint_published_files(self, statements, None);
         prefer_within::lint_repeated_timeouts(self, statements);
+        prefer_collect::lint_built_lists(self, statements);
         prefer_wait_until::lint_polling_loops(self, statements);
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
@@ -3567,6 +3570,7 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::Retry { .. }
             | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Collect { .. }
             | ArenaExprKind::ErrorContext { .. }
             | ArenaExprKind::ContextScope { .. }
             | ArenaExprKind::TempDirScope { .. } => true,
@@ -5685,6 +5689,7 @@ impl<'a> Linter<'a> {
             lint_prefer_text_pattern::lint_positional_text(self, &stmts);
         }
         prefer_within::lint_repeated_timeouts(self, &stmts);
+        prefer_collect::lint_built_lists(self, &stmts);
         prefer_wait_until::lint_polling_loops(self, &stmts);
         self.lint_statement_sequence(&stmts);
     }
@@ -11933,7 +11938,8 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
-        | ArenaExprKind::Loop { .. } => {}
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Collect { .. } => {}
     }
     out
 }
@@ -11945,6 +11951,7 @@ fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
         ArenaExprKind::Capture(block)
         | ArenaExprKind::ValueBlock(block)
         | ArenaExprKind::Loop { block }
+        | ArenaExprKind::Collect { block }
         | ArenaExprKind::Retry { block, .. }
         | ArenaExprKind::ErrorContext { block, .. }
         | ArenaExprKind::ContextScope { block, .. }
@@ -12455,6 +12462,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                     })
         }
         ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::Collect { .. }
         | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::TempDirScope { .. } => true,
@@ -13023,7 +13031,9 @@ impl LintExprVisitor<'_, '_> {
                     self.linter.assertion_capture_depth -= 1;
                 }
             }
-            ArenaExprKind::Loop { block } => self.linter.lint_block(block),
+            ArenaExprKind::Loop { block } | ArenaExprKind::Collect { block } => {
+                self.linter.lint_block(block)
+            }
             // The directory name is the block's parameter, in scope for the
             // body and not for the path.
             ArenaExprKind::TempDirScope { path, block, .. } => {
@@ -13809,6 +13819,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::TempDirScope { .. }
         | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
 }
@@ -13900,6 +13911,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::TempDirScope { .. }
         | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Retry { .. } => true,
     }
 }
@@ -14677,7 +14689,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaExprKind::Capture(block)
             | ArenaExprKind::ValueBlock(block)
-            | ArenaExprKind::Loop { block } => self.scan_block(block),
+            | ArenaExprKind::Loop { block }
+            | ArenaExprKind::Collect { block } => self.scan_block(block),
             ArenaExprKind::TempDirScope { path, block, .. } => {
                 if let Some(path) = path {
                     self.scan_expr(path);
@@ -15501,9 +15514,9 @@ fn expr_flow(
             message,
         )
         .then(block_flow(arena, block)),
-        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => {
-            block_flow(arena, block)
-        }
+        ArenaExprKind::Capture(block)
+        | ArenaExprKind::ValueBlock(block)
+        | ArenaExprKind::Collect { block } => block_flow(arena, block),
         ArenaExprKind::Loop { block } => loop_flow(arena, block),
         // A retry retries failed attempts, but a normally-completing attempt
         // produces the expression's `Result`; it is not an infinite loop.

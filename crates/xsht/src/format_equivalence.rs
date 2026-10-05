@@ -1028,6 +1028,10 @@ impl CanonicalWriter<'_> {
                 self.expr(*value);
                 self.ty(*target);
             }
+            ArenaExprKind::Collect { block } => {
+                self.put("collect;");
+                self.block(*block);
+            }
             ArenaExprKind::Loop { block } => {
                 self.put("loop;");
                 self.block(*block);

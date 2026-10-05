@@ -642,6 +642,9 @@ impl Checker {
             );
         }
         self.push_deferred_capture_scope();
+        // A stage block is a callable: a `yield` in it is not one of an
+        // enclosing `collect` block.
+        let outer_collect = self.enter_callable_collect_scope();
         let mut names = FxHashSet::default();
         for (index, param) in params.iter().take(max_params).enumerate() {
             if !names.insert(param.name) {
@@ -697,6 +700,7 @@ impl Checker {
             }
         }
         self.item_frames.pop();
+        self.leave_callable_collect_scope(outer_collect);
         self.pop_scope();
         tail_ty
     }

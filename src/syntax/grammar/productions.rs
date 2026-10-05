@@ -1699,7 +1699,12 @@ pub(super) fn rules() -> Vec<super::Rule> {
             alt([
                 r("literal"),
                 t(T::LastStatus),
-                ident(),
+                // `collect {` always begins a collect expression.
+                seq([
+                    not([vec![word_term("collect", false), tag_term(T::LBrace)]]),
+                    ident(),
+                ]),
+                r("collect_expression"),
                 r("list_literal"),
                 r("record_literal"),
                 r("map_comprehension"),
@@ -2068,6 +2073,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
                 block(),
             ]),
+        ),
+        // `collect` is contextual: the name directly before a `{` on one
+        // line always begins this expression.
+        rule(
+            Expressions,
+            "collect_expression",
+            seq([w("collect"), block()]),
         ),
         // A duration in a head that words follow: nothing longer than a
         // literal or a dotted name, so the next word is never part of it.
