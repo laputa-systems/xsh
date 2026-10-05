@@ -120,3 +120,56 @@ test test_install_missing_directory_target_does_not_create_it { |ctx|
   assert ! target.exists()?
   assert source.read_text()? == "payload"
 }
+
+test test_install_compare_copies_fifo_source_symlink_in_bounded_chunks { |ctx|
+  let root = test.temp_dir(ctx)?
+  let fifo = fp"{root}/fifo"
+  fs.mkfifo(fifo, 0o600)
+  let source = fp"{root}/source"
+  source.symlink(to: fifo)
+  let payload = fp"{root}/payload"
+  let chunks = ["x"] |> repeat(131072)
+  let expected = bytes.from_text(chunks.join("") + "tail")
+  payload.write(expected)
+  let writer_script = fp"{root}/writer.xsh"
+  writer_script.write(f"fp\"{fifo}\".write(fp\"{payload}\".read_bytes()?)\n")
+  let writer = spawn run ${ctx.xsh_bin} $writer_script ?
+  defer writer.cancel(kill_after: 100ms)
+  let dest = fp"{root}/dest"
+  dest.write(b"")
+  dest.chmod(0o755)
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let reader_command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "-C", source.display(), dest.display()],
+    root, {}, b"", fp"{root}/out", fp"{root}/err", timeout: 3s)
+  let status = process.run(reader_command)?
+  assert status.exited_with(0)
+  assert (wait writer?).exited_with(0)
+  assert dest.read_bytes()? == expected
+  assert fs.stat(dest)?.kind == "file"
+}
+
+test test_install_reads_stdin_descriptor_alias { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let dest = fp"{root}/dest"
+  let payload = b"stream\0payload\n"
+  let command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "-m", "640", "/dev/fd/0", dest.display()],
+    root, {}, payload, fp"{root}/out", fp"{root}/err")
+  assert process.run(command)?.exited_with(0)
+  assert dest.read_bytes()? == payload
+  assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o640
+}
+
+test test_install_source_symlink_cannot_replace_its_own_target { |ctx|
+  let root = test.temp_dir(ctx)?
+  let target = fp"{root}/target"
+  target.write("keep")
+  let source = fp"{root}/source"
+  source.symlink(to: target)
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- $source $target
+  assert status.exited_with(1)
+  assert target.read_text()? == "keep"
+  assert source.readlink()? == target
+}

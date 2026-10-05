@@ -61,30 +61,37 @@ proc equal_contents(source: Path, dest: Path, size: Int) -> Result[Bool] {
 }
 
 proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?, gid: Int?, backup: Str) -> Result[Bool] {
-  let actual = source.resolve()?
-  let metadata = fs.stat(actual)?
-  let null_device = metadata.kind == "char" and fs.dev_major(metadata.rdev) == 1 and fs.dev_minor(metadata.rdev) == 3
-  if metadata.kind != "file" and ! null_device {
+  # Kernel descriptor aliases can name streams that have no canonical pathname.
+  # Follow them for metadata and let the copier open the original source path.
+  let metadata = fs.stat(source, follow_symlinks: true)?
+  if metadata.kind == "dir" {
     gnu.error(f"omitting directory {gnu.quote(source.display())}")
     exit 1
   }
-  if files.same(actual, target)? {
-    gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
+  if metadata.kind not in ["file", "fifo", "char", "block"] {
+    gnu.error(f"cannot install {gnu.quote(source.display())}: unsupported file type {gnu.quote(metadata.kind)}")
     exit 1
   }
   let existing = files.present(target)?
+  if existing {
+    let old = fs.stat(target)?
+    if (metadata.dev == old.dev and metadata.ino == old.ino) or files.same_entry(source, target)? {
+      gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
+      exit 1
+    }
+  }
   if existing and fs.stat(target)?.kind == "dir" {
     gnu.error(f"cannot overwrite directory {gnu.quote(target.display())} with non-directory")
     exit 1
   }
-  if existing and opts.compare {
+  if existing and opts.compare and metadata.kind == "file" {
     let old = fs.stat(target)?
     if old.kind == "file" and old.size == metadata.size and old.mode.bit_and(0o7777) == mode and
       mode.bit_and(0o7000) == 0 and metadata.mode.bit_and(0o7000) == 0 and
       old.mode.bit_and(0o7000) == 0 and (! opts.preserve or old.mtime_ns == metadata.mtime_ns) and
       old.uid == (uid ?? user.current()?.uid) and old.gid == (gid ?? group.current()?.gid) and
       (uid == null or old.uid == uid) and (gid == null or old.gid == gid) and
-      equal_contents(actual, target, metadata.size)? { return false }
+      equal_contents(source, target, metadata.size)? { return false }
   }
   var saved: Path? = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
@@ -98,12 +105,12 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   let scratch = fs.tempfile()?
   defer scratch.root.close()
   let staged = fp"{target.parent()}/.xsh-install-{scratch.root.host_path()?.name()}"
-  if null_device { staged.write(b"") } else { let _ = fs.copy_file(actual, staged, reflink: "auto", sparse: "never", mode: 0o600)? }
+  let _ = fs.copy_file(source, staged, reflink: "auto", sparse: "never", mode: 0o600)?
   defer staged.remove()
   fs.set_owner(staged, uid: uid, gid: gid)
   staged.chmod(mode)
   if opts.preserve {
-    let copied = fs.stat(actual)?
+    let copied = fs.stat(source, follow_symlinks: true)?
     fs.set_times(staged, atime_ns: copied.atime_ns, mtime_ns: copied.mtime_ns)
   }
   if saved != null {
