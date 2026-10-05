@@ -325,5 +325,6 @@ Each is a section of `TODO.md` with ordered, numbered items.
 | `MOD` | effects, modules, and inference | `src/sema/check/infer_{effects,return}.rs`, `src/loader.rs`, SPEC 3.3, 4.9, 9 |
 | `CMD` | commands, lexer, CLI, and tooling | `src/syntax/lexer.rs`, `src/syntax/parser/command.rs`, SPEC 2, 3.2, 10, 11 |
 | `LINT` | fixes to existing lints | `crates/xsht/src/lint.rs` |
+| `ITER` | build and gate speed | `Cargo.toml` profiles, `docs/TESTING.md`, `crates/xsht/src/xsht/test.rs` |
 
 Prerequisites that cross workstreams are written on the item in `TODO.md`.
