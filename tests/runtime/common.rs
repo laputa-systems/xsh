@@ -3,7 +3,6 @@
 pub(crate) use std::collections::BTreeMap;
 pub(crate) use std::io::{BufRead, BufReader, Read, Write};
 pub(crate) use std::os::unix::ffi::{OsStrExt, OsStringExt};
-pub(crate) use std::os::unix::fs::PermissionsExt;
 pub(crate) use std::path::{Path, PathBuf};
 pub(crate) use std::process::{Child, Command, Stdio};
 pub(crate) use std::sync::OnceLock;
@@ -160,12 +159,6 @@ fn explicit_target(target_dir: &Path, profile_dir: &Path) -> Option<String> {
 
 pub(crate) type JsonValue = miniserde::json::Value;
 
-pub(crate) fn xsh<const N: usize>(args: [&str; N]) -> std::process::Output {
-    let mut cmd = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
-    cmd.args(args);
-    cmd.output().expect("run xsh")
-}
-
 pub(crate) fn json_parse(text: &str) -> JsonValue {
     miniserde::json::from_str(text).expect("parse JSON")
 }
@@ -289,27 +282,6 @@ pub(crate) fn wait_child_status(
     let _ = child.kill();
     let status = child.wait().expect("wait killed child");
     panic!("timed out waiting for canceled xsh process: {status}");
-}
-
-pub(crate) fn pstree_parent_child_order(stdout: &str, parent_pid: u32) -> Option<(usize, usize)> {
-    let mut parent_line = None;
-    let mut child_line = None;
-    let parent_marker = format!("[{parent_pid}]");
-    for (index, line) in stdout.lines().enumerate() {
-        if line.contains(&parent_marker) {
-            parent_line = Some(index);
-        }
-        if parent_line.is_some()
-            && line.contains("sleep [")
-            && (line.contains("├─sleep")
-                || line.contains("└─sleep")
-                || line.contains("|-sleep")
-                || line.contains("`-sleep"))
-        {
-            child_line = Some(index);
-        }
-    }
-    parent_line.zip(child_line)
 }
 
 pub(crate) fn run_temp_script(name: &str, source: &str) -> std::process::Output {

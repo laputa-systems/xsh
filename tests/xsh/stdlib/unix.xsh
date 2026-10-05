@@ -1,3 +1,16 @@
+# Script prelude: starts `child` in a process group of its own and waits until
+# it reports, through the file named by the first argument, that it is running.
+# The child then sleeps until it is signaled.
+const ready_sleeper = r"""let marker = Path(args[0])
+let sleeper = process.command_argv("sh", ["sh", "-c", "printf ready > $1; exec sleep 30", "sh", marker.display()])
+let child = unix.spawn_process_group(sleeper)?
+var ready_tries = 0
+while ! marker.exists()? and ready_tries < 300 {
+  time.sleep(10ms)?
+  ready_tries += 1
+}
+"""
+
 type FakeChildEvent = {pid: Int, status: Status}
 
 test test_unix_fake_covers_module_surface { |ctx|
@@ -134,4 +147,179 @@ test test_wait_pid1_event_timeout_kind { |ctx|
   test.unix_fake(ctx, {event_kind: "timeout"})
   assert unix.wait_pid1_event(timeout: 5ms)?.kind == "timeout"
   assert unix.wait_pid1_event()?.kind == "timeout"
+}
+
+test test_unix_uptime_seconds_is_real_where_the_platform_has_one {
+  if system.uname()?.sysname in ["Linux", "Darwin"] {
+    assert unix.uptime_seconds()? >= 0
+  } else {
+    test.error_kind(unix.uptime_seconds(), "unix-unsupported")
+  }
+}
+
+test test_unix_exec_replaces_the_script_process { |ctx|
+  let output = test.expect(
+    ctx,
+    """let command = process.command_argv("sh", ["sh", "-c", "printf replaced"])
+unix.exec(command)?
+print "not-reached"
+""",
+    status: 0,
+  )?
+  assert output.stdout == "replaced"
+}
+
+# The process-group entries start and reap real children. `unix.reap_child_events`
+# collects every exited child of its process, so each test below runs its
+# script in a process of its own.
+proc process_groups_are_supported() [env, error] -> Bool {
+  system.uname()?.sysname in ["Linux", "Darwin"]
+}
+
+test test_unix_reap_child_events_reports_an_exit_status { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let output = test.expect(
+    ctx,
+    r"""type ChildEvent = {pid: Int, status: Status}
+let command = process.command_argv("false", ["false"])
+let child = unix.spawn_process_group(command)?
+var events: List[ChildEvent] = []
+var tries = 0
+while events.len() == 0 and tries < 100 {
+  time.sleep(10ms)?
+  events = unix.reap_child_events()?.collect()
+  tries += 1
+}
+print ${events[0].pid == child.pid} ${events[0].status.exited_with(1)}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "true true\n"
+}
+
+test test_unix_reap_child_events_reports_a_signal_status { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "unix-child-signal")?
+  let output = test.expect(
+    ctx,
+    ready_sleeper + r"""type ChildEvent = {pid: Int, status: Status}
+let term = process.signal("TERM")?
+unix.kill_process_group(child.pid, "TERM")?
+var events: List[ChildEvent] = []
+var tries = 0
+while events.len() == 0 and tries < 100 {
+  time.sleep(10ms)?
+  events = unix.reap_child_events()?.collect()
+  tries += 1
+}
+print ${events[0].pid == child.pid} ${events[0].status.signaled()} ${events[0].status.signal_number()? == term.number}
+""",
+    status: 0,
+    args: [fp"{root}/ready"],
+  )?
+  assert output.stdout == "true true true\n"
+}
+
+test test_unix_process_group_can_be_signaled_without_killing_its_parent { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "unix-process-group")?
+  let output = test.expect(
+    ctx,
+    ready_sleeper + r"""unix.kill_process_group(child.pid, "TERM")?
+time.sleep(50ms)?
+let reaped = unix.reap_child_events()?.collect()
+match process.kill(child.pid, signal: "0") {
+  Err(e) => {
+    test.error_kind(e, "process-missing")?
+    print ${child.detach} ${child.new_session} ${child.ignore_hup} ${marker.exists()?} ${reaped.len() >= 0} "process-missing"
+  }
+}
+""",
+    status: 0,
+    args: [fp"{root}/ready"],
+  )?
+  assert output.stdout == "true false true true true process-missing\n"
+}
+
+test test_unix_logged_process_group_pipes_stdout_and_stderr_to_the_logger { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "unix-logged-process-group")?
+  let log = fp"{root}/service.log"
+  let output = test.expect(
+    ctx,
+    r"""let log = Path(args[0])
+let command = process.command_argv("sh", ["sh", "-c", "printf service-out; printf service-err >&2"])
+let logger = process.command_argv("sh", ["sh", "-c", "cat > $1", "sh", log.display()])
+let child = unix.spawn_logged_process_group(command, logger)?
+var events = unix.reap_child_events()?.collect()
+var tries = 0
+while events.len() < 2 and tries < 100 {
+  time.sleep(10ms)?
+  events = events.extend(unix.reap_child_events()?.collect())
+  tries += 1
+}
+print ${child.pid > 0} ${child.log_pid > 0}
+""",
+    status: 0,
+    args: [log],
+  )?
+  assert output.stdout == "true true\n"
+  let log_text = log.read_text()?
+  assert "service-out" in log_text, log_text
+  assert "service-err" in log_text, log_text
+}
+
+test test_unix_kill_all_does_not_match_a_wrapper_shell_by_its_script_argument { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix.kill_all needs Linux or macOS")
+    return
+  }
+  # The shell's process name is `sh`; the script name appears only in its argv.
+  let root = test.temp_dir(ctx, name: "unix-killall-wrapper")?
+  let script = fp"{root}/wrapper-killall-target"
+  let marker = fp"{root}/ready"
+  script.write(
+    r"""#!/bin/sh
+printf ready > "$1"
+sleep 30 &
+child=$!
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true' EXIT TERM INT
+wait "$child"
+""",
+  )
+  let wrapper = spawn run sh $script $marker ?
+  var tries = 0
+  while ! marker.exists() and tries < 300 {
+    time.sleep(10ms)
+    tries += 1
+  }
+
+  assert marker.exists()?
+  let output = test.expect(
+    ctx,
+    """match unix.kill_all("wrapper-killall-target") {
+  Err(e) => {
+    test.error_kind(e, "process-missing")?
+    print "process-missing"
+  }
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "process-missing\n"
+  # The wrapper is still running: signal 0 reaches it.
+  process.kill(wrapper.pid, signal: "0")
+  wrapper.cancel(signal: "TERM", kill_after: 1s)
 }

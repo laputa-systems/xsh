@@ -137,6 +137,17 @@ test test_linux_entries_reach_the_host_without_a_gate {
   }
 }
 
+test test_linux_chroot_reports_the_host_failure { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("linux.chroot is Linux-only")
+    return
+  }
+  # A directory that does not exist cannot become the root, whatever the
+  # privileges of the test, so the call fails without changing the process.
+  let root = test.temp_dir(ctx, name: "linux-chroot")?
+  test.error_kind(linux.chroot(fp"{root}/missing"), "linux-chroot")
+}
+
 test test_linux_fake_rejects_unknown_settings { |ctx|
   test.error_kind(test.linux_fake(ctx, {dry_run: "1"}), "test-linux-fake")
   test.error_kind(test.linux_fake(ctx, {log: true}), "test-linux-fake")
