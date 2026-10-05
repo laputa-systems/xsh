@@ -24,12 +24,8 @@ Closed. Each is written on its item below.
 | `PROP-8`, `PROP-9`, `MATCH-8` | One propagation rule: a failure leaves a function only through a form visible at the site. See `PROP`. |
 | `PATH-11` | The defaults flip only after a lint has made today's defaults explicit at every call that relies on them. |
 | `PATH-12` | The type is named `RelPath`. |
-| `PATH-13`, `MATCH-10` | Methods, not phrases: `p.is_dir()` and `xs.is_empty()`. `is` keeps one meaning, the type test. |
 | `ERR-4` | `Err(.Variant(...))` requires a declared family-typed return. There is no rule that guesses a family. |
-| `MATCH-2` | Ordinary and Str-backed enums first, as a direct change of severity with no autofix; an exactly known error family after that. |
-| `MATCH-7` | Only a literal negative index counts from the end. A computed negative index still fails. |
-| `TYPE-2` | The spelling written on the item: `proc(...) [effects] -> T`. |
-| `TYPE-4`, `TYPE-5`, `PATH-12` | One checker mechanism for validated types, built with `TYPE-4`. |
+| `TYPE-5`, `TYPE-6`, `PATH-12` | Instances of the one checker mechanism for validated types (`docs/ARCHITECTURE.md`, "Adding a validated type"); `.require(T)` is the conversion. |
 | `TYPE-6` | `nominal type`. Identity only; field privacy is not part of it. |
 | `SCOPE-9` | Last, and narrow: use after a consuming operation in straight-line code of one scope. |
 
@@ -44,13 +40,21 @@ Still open; the item is not assigned until it is closed here:
 | `SCOPE-10` | Whether a deliberate `exit N` runs `errdefer` actions. |
 | `TYPE-5` | Range syntax and inclusive-bound spelling. |
 | `TYPE-7` | Spelling of the local dynamic-traversal escape hatch. |
+| `PROP-7` | Whether a command statement takes a postfix guard (`when` is an argv word in `print "x" when verbose` today); which `if c { stmt }` sites a lint rewrites; whether `assert`, `defer`, and bindings count as simple statements; `guard c else fail "m"` against `fail "m" unless c`, which expand alike. Proposed: expression statements, assignments, and `print`/`eprint` only, with no lint for an existing `if`. |
+| `PATH-9` | A parameter cannot say "label required later", so the rename needs either a label rule in the registry that one lint is driven from, or a plain rename now. Also: the eventual error code; whether `Regex.replace`, `Path.rename`, and `Path.hardlink` are included; whether the symlink fix, which swaps evaluation order, is limited to effect-free operands. Proposed: the label rule. |
+| `PATH-18` | A mount that refuses `statvfs`: skip it, as `df` does, or list it without statistics. |
+| `SCOPE-12` | Which rule both `tempdir` forms follow. A: `at` becomes a second head of the core scope, following `cd` and `env` (proposed; no corpus site is expected to change). B: setup failures propagate and the value is the body's tail, which splits `tempdir` from `cd` and `env` and needs the answer to `SCOPE-3`. `SCOPE-11`'s tail-block fix waits on it. |
+| `MATCH-5` | The lint has no behavior-preserving fix and `xsht lint` fails on any diagnostic: add a note severity that does not fail the gate (proposed), make the rule opt-in, or leave it on and fail Laputa's lint. |
+| `TYPE-3` | The set literal. `{a, b}` with bare names is already a record literal. A: braces are a set only where `Set[T]` is expected or an element is not a bare name, and the empty set is `set.empty()` (proposed). B: no literal, `set.of(a, b)`. |
+| `CMD-5` | Whether defaults may be computed (the item's example is, SPEC 3.2 requires constants; proposed: allow, evaluated after parsing and shown unevaluated in help); whether a module may declare `cli` entries; whether a bare `cli main(...)` may sit beside subcommand entries (proposed: no); how a path word is spelled (proposed: snake to kebab, as options). |
 | literal braces | No accepted design (see "Open, without an accepted design"). |
 
 ## `PROP`: propagation and failure flow
 
 What `?` means, where a failure may leave without one, and the statements
-that produce failures. The lints for a redundant statement `?`, a redundant
-`}?`, and a re-propagating `match` are merged and applied to both corpora.
+that produce failures. Merged and applied to both corpora: `fail MESSAGE`
+and `fail ... because CAUSE`, a `Result[Bool]` condition that propagates,
+`try run...`, and the lints that remove each redundant `?`.
 
 The propagation rule the later items implement, replacing the list in SPEC 1
 ("Results, not exceptions"): a failure leaves a function only through a form
@@ -67,28 +71,18 @@ Nothing else propagates. A `Result` in a binding, an argument, an operand, or
 a return is data and needs `?`, whatever type the context expects. Where the
 rule makes a `?` redundant, a lint removes it, so each site has one spelling.
 
-- `PROP-5` **`fail MESSAGE` statement**, desugaring to `return Err(error.failure(msg))`.
-  Replaces the 124 one-variant `error X = Failed(message: Str)` families that
-  exist only to have something to return. Typed families stay for errors
-  callers match on.
-- `PROP-6` **`fail ... because ERR`**: `fail .RemoteFetch(f"fetching {url}") because problem`
-  keeps the replaced error as the cause. Laputa uses `cause:` zero times.
-  Needs `PROP-5`; the `.Variant` spelling needs `ERR-4`.
 - `PROP-7` **Postfix `when`/`unless` on any simple statement**, and
   `guard cond else fail "..."` without braces:
   `print f"copying {src}" when verbose`, `fs.remove(tmp) when tmp.exists()`.
   Needs `PROP-5`.
-- `PROP-8` **Conditions propagate `Result[Bool]`.** In a fallible function,
-  `if ! fs.exists(p) { ... }` propagates the error, like statement position
-  (about 880 condition lines carry `)?` today).
-  A condition is a control position under the propagation rule. Last in the
-  workstream, with `PROP-9`.
-- `PROP-9` **Value-position `run.*` forms propagate.** `let v = run.text git describe`
-  propagates; `try run.text ...` captures. Removes the detached trailing ` ?`
-  that reads like an argv word (361 Laputa lines).
-  `run` is the visible form under the propagation rule. Migrate in two steps:
-  first a lint writes `try` on every value-position run form that is captured
-  today, then the bare form changes meaning and the trailing `?` is removed.
+- `PROP-9` **Value-position `run.*` forms propagate**, second step.
+  `try run.text ...` captures and `lint.explicit-run-capture` has written
+  `try` on every run form whose failure is kept as a value, in both corpora.
+  What remains: the bare form changes meaning (`let v = run.text git describe`
+  propagates) and the trailing `?` is removed by a lint (361 Laputa lines).
+  Plain `run` in value position yields a `Status` and is not part of it.
+  `try { run.text x }` is a nested `Result` today and changes meaning with
+  the bare form, so the lint must rewrite it first.
 - `PROP-10` `let v = f()?` reports the enclosing call site as the failing
   span. A failing `defer` in a `Result` proc surfaces as
   `err[runtime.error]`, not as an `Err`. A replaced error with the same kind
@@ -96,6 +90,12 @@ rule makes a `?` redundant, a lint removes it, so each site has one spelling.
 - `PROP-11` Other `?` that is ceremony, by rough count over both corpora:
   `defer f()?` 667 and plain `run cmd ?` 272 behave the same without it;
   13 Laputa `Ok(v) => x = v` matches could be `x = f()?`.
+- `PROP-12` `lint.prefer-fail` changes what an uncaught failure reports,
+  from `Family.Variant` to `validation`, and it reads only the linted file:
+  a test in another file that names the kind goes stale
+  (`tests/xsh/system-report.xsh` did). A file-header comment directly above
+  a family blocks nothing now, but a comment inside or beside the
+  declaration still leaves the emptied family for a hand edit.
 
 ## `ERR`: error families and variants
 
@@ -142,26 +142,25 @@ queries are `Path` methods. `.display()` stays at real text boundaries (JSON,
 be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
 `str(p)`) stay rejected.
 
-- `PATH-7` **Path lists as environment values.** A `List[Path]` in an env overlay
-  joins with the platform separator, losslessly:
-  `PATH: [fp"{root}/usr/bin", ...env.PATH]` instead of
-  `f"{root}/usr/bin:{env.get("PATH") ?? ""}"`, whose empty fallback leaves a
-  trailing `:` (about 25 Laputa sites).
-- `PATH-8` **`fs.write(p, x, mode: M)` creates the file with its final mode**,
-  merging `write` + `chmod` pairs by autofix.
 - `PATH-9` **Argument labels that read as a sentence**: `link.symlink(to: target)`,
   `s.replace("#undef ", with: "")`, `src.copy(to: dest)`. Ends argument-order
   bugs in symlink (~220 symlink, ~840 replace, ~160 copy calls).
-- `PATH-10` **One spelling per filesystem operation.** `fs.write(p, x)` and
-  `p.write(x)` (likewise `exists`, `read_text`, `remove`, `mkdir`) are two
-  names for one concept: about 1,250 `fs.op(path, ...)` calls against
-  about 4,000 method calls. Keep the Path method ("methods first"), keep
-  `fs.*` only where there is no single path receiver, and lint + autofix.
-- `PATH-11` **`fs.remove` and `fs.mkdir` default to `missing_ok: true` and
-  `parents: true`**, the overwhelmingly common choice (~390 sites each).
-  Rejected: a declarative `ensure p is absent` form (too magical).
-  Changes what existing calls do. Needs `PATH-10`, and a lint that first makes
-  today's defaults explicit at every call that relies on them.
+- `PATH-10` **One spelling per filesystem operation**, second step.
+  `lint.prefer-path-method` has rewritten `fs.op(path, ...)` to
+  `path.op(...)` in both corpora for `chmod`, `copy`, `executable`,
+  `exists`, `metadata`, `mkdir`, `read_text`, `remove`, `rename`, `write`,
+  and `write_atomic`. What remains: remove those `fs.*` functions, keeping
+  `fs.*` only where there is no single path receiver. A site with a comment
+  beside the path, a literal with an escape, or an `f"..."` operand has no
+  fix.
+- `PATH-11` **`remove` defaults to `missing_ok: true`**, second step.
+  `mkdir` already defaults to `parents: true` in both spellings, so only
+  `remove` changes. `lint.explicit-missing-ok` (opt-in,
+  `[lint] explicit-missing-ok`) writes `missing_ok: false` where a `remove`
+  relies on today's default: 9 sites here, 14 in Laputa, not yet applied.
+  What remains: apply it in both corpora, flip the default, add a
+  `remove`/`missing_ok: true` row to `lint.redundant-default`, and delete
+  the opt-in lint and its setting.
 - `PATH-12` **A confined relative-path type for root-relative operations.** Add
   `RelPath` (name open) for native-byte paths proven not to be absolute and
   not to escape their logical root. `file.strip_prefix(root)?` can return it
@@ -174,19 +173,12 @@ be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
   manifests, root composition, image construction, and archive handling.
   `MATCH-8` defines the conversion boundary it validates at. An instance of
   the validated-type mechanism of `TYPE-4`; needs it.
-- `PATH-13` **Path kind predicates as methods**: `out.is_dir()`,
-  `out.is_file()`, `out.is_symlink()`, each a `Result[Bool]` beside
-  `exists()`, with a lint for the kind comparisons they replace (~950
-  `exists` calls, ~390 kind comparisons). In a condition they need no `?`
-  once `PROP-8` has merged; the methods themselves do not need it.
-- `PATH-17` Finish the byte sinks: `process.which`, `linux.mount` source,
-  `linux.modinfo`, `applet.su_session`, and `test.run_script` args still
-  take text; argv lists built separately can now be
-  `List[Union[Str, Path]]` (list parameters need an added overload, because
-  `List[Str]` is not `List[Union[Str, Path]]`). `env.PATH` `append`,
-  `prepend`, and `in` still reject a string literal, against the one
-  literal rule. Where overloads disagree (`hash.sha256`, `fs.executable`) a
-  literal stays `Str`.
+- `PATH-17` Finish the byte sinks that need the Linux container or a
+  decision: `linux.mount` source, `linux.modinfo`, and `applet.su_session`
+  (which of its three text parameters takes a `Path`) still take text.
+  `test.run_script` and `test.expect` take `args: List[Union[Str, Path]]`
+  as one signature, not the added overloads first planned, because three
+  overloads made an omitted or `[]` argument ambiguous.
 - `PATH-18` `fs.mounts()`, `fs.mount_for`, and `linux.disk_usage()` fail
   as a whole with `Permission denied` when `statvfs` is refused on one mount
   point. On a Linux host that runs Docker, an unprivileged user is refused on
@@ -195,6 +187,11 @@ be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
   `runtime::linux::linux_real_read_only_surfaces_work_in_container`). `df`
   skips such a mount. Decide between skipping it and listing it without
   statistics; a mount the caller named must still fail.
+- `PATH-19` `lint.prefer-env-path-list` has 18 Laputa sites and no
+  automatic fix, because the list drops the trailing empty entry of an unset
+  variable, keeps a value that is not UTF-8, and fails on a directory that
+  contains `:`. Each site needs a look. `x?.kind` after a call parses as a
+  null-safe field, not as `?` and then a field.
 
 Rejected this round: `/` as path join (keep `fp"..."`).
 
@@ -203,6 +200,10 @@ Rejected this round: `/` as path join (keep `fp"..."`).
 Block forms that own a resource or a deadline, and the ownership rules behind
 them. Most are sugar over `defer`. `repeat N times` is merged; it runs
 `range(N)`, so a negative count counts down instead of running zero times.
+`atomically replace DEST as NAME { ... }` and `within DURATION { ... }` are
+merged. `within` takes a duration literal or a dotted name, rejects `yield`
+in its body, never interrupts a deferred action, and returns `Ok` for a body
+that reaches its end, however late.
 
 - `SCOPE-3` **`collect { ... }` blocks**: the block's `yield`s (including
   `yield x when c` and yields inside loops) append to a List that is its
@@ -223,20 +224,6 @@ them. Most are sugar over `defer`. `repeat N times` is merged; it runs
   checker-known `ContextManager[T]` protocol is preferable to adding a
   general trait system only for this feature. Unlike Python, cleanup must not
   silently suppress the body's error; replacement/causal errors stay explicit.
-- `SCOPE-6` **`atomically replace DEST as TMP { ... }` for files produced by external
-  work.** The block receives a hidden sibling path, guarantees its cleanup on
-  failure, and renames it over `DEST` only after the body succeeds:
-  `atomically replace image as tmp { run docker save --output $tmp ... }`.
-  This is the file counterpart to `write_atomic` for producers that cannot
-  write through XSH itself (Docker, archive creation, compilers, copies, image
-  builders). Laputa has `fs.rename` in about 15 XSH files and several
-  remove/defer/copy-or-build/rename publication sequences. Define "atomic" here
-  as visibility by same-directory rename; crash durability remains explicit
-  through `fsync`, rather than hiding a durability policy in the sugar. Keep
-  the broader `atomically at DIR { ... }` directory transaction deferred
-  separately.
-- `SCOPE-7` **`within DURATION { ... }`**: a timeout scope over any block, failing with
-  `Timeout`; the same word as `wait until ... within` (~68 timeout sites).
 - `SCOPE-8` **`wait until COND within DURATION`**, failing loudly with `Timeout`
   instead of hand-written polling loops that silently fall through (~37
   `time.sleep` loops). Include exponential backoff in the same sugar, e.g.
@@ -273,6 +260,13 @@ them. Most are sugar over `defer`. `repeat N times` is merged; it runs
   a statement whose failures propagate. Make them read as one feature: the
   same position and value rules, one SPEC section, and one lint family
   (`lint.prefer-tempdir-scope`, `lint.prefer-tempdir`).
+- `SCOPE-13` `within` and `par-map`: an item failure or an early `return`
+  still lets the items already running finish; only a deadline, a
+  cancellation, or shutdown stops them. The fused `par-map` reduce stage has
+  no native test of its own, and only the network case tests an operation
+  that turns an interruption into an `Err` value. `fs.temp_sibling` names an
+  unused path by chance, not by a lock. `xsht fmt` prints
+  `(spawn run sh -c f"...") ?`, which the grammar does not recognize.
 
 Deferred for further design: `atomically at DIR { ... }` (stage writes in a
 hidden sibling directory, rename into place on success, remove on failure).
@@ -282,30 +276,9 @@ hidden sibling directory, rename into place on success, remove on failure).
 Patterns, exhaustiveness, conditional binding, indexing, and explicit
 conversion.
 
-- `MATCH-2` **Statement matches over closed types are exhaustive errors, not
-  warnings.** A non-exhaustive statement match on an ordinary or Str-backed
-  enum becomes a check error, so adding a variant breaks an old match at
-  check time; a deliberate catch-all is `else =>`. Change the severity
-  directly: the warning finds no site in either corpus, and an autofix that
-  appends `else => {}` would not preserve behavior, because an unmatched
-  statement match fails today with `match-no-arm`. An exactly known error
-  family follows.
-- `MATCH-3` Two codes have per-site severity: `check.non-exhaustive-match` and
-  `check.reveal-type`.
-  `MATCH-2` removes the `check.non-exhaustive-match` case.
 - `MATCH-5` **Optionals instead of `""` sentinels.** Lint `?? ""` (~475 Laputa sites)
   whose binding is later compared with `""`, and suggest optional binding:
   collapsing "unset" into "empty" makes the two indistinguishable.
-- `MATCH-6` **`for i, x in xs`** with an index binding; lint + autofix counter
-  `while i < xs.len()` loops into it or into a slice.
-- `MATCH-7` **Negative single-element indexes.** Slices already count negative bounds
-  from the end, but `xs[-1]` fails at run time with `index-out-of-range`
-  (verified) and there is no `.last()`. Make `xs[-1]` index from the end;
-  lint + autofix `xs[xs.len() - N]` (about 71 sites). A literal negative
-  index on a too-short literal list should be a check error.
-  Decided: only a literal negative index counts from the end. A computed
-  index that turns out negative still fails with `index-out-of-range`, so an
-  off-by-one cannot read the last element silently.
 - `MATCH-8` **`text as Int`** parsing (also `as UInt`, `as Path`, ...), propagating a
   failed parse (~284 `.parse_int()` sites).
 - `MATCH-9` **String patterns in f-string syntax**: `if let f"{key}={value}" = line`,
@@ -315,49 +288,22 @@ conversion.
   follow Python's spec letters. Holes match leftmost-shortest, the last takes
   the rest; a non-match is just a non-matching arm. Targets ~40 split-then-index
   sites, ~33 regex captures, and many `starts_with` + slice pairs.
-- `MATCH-10` **`.is_empty()` on `Str`, `Bytes`, `List`, `Map`, and `Set`**, with
-  a lint and autofix for `.len() == 0`, `.len() > 0`, and `.len() != 0`
-  (about 615 sites).
-- `MATCH-11` A Result `guard let` whose block falls through passes the
-  check. A `Result[T]?` call propagates `Err` at a plain `let`. `x == null`
-  narrowing is lost in the final `else` after an `else if`.
+- `MATCH-12` `Ok(...)` and `.Variant(...)` are rejected where
+  `Result[T, E]?` is expected. An `if let` that lists every variant of an
+  enum is `check.irrefutable-pattern-condition`, while one over an error
+  family is not. `ExprIndexFromEnd` in the explicit-frame executor has no
+  test that is known to reach it. The two older tests in
+  `tests/xsh/lint-fix-selection.xsh` still say "warning" for
+  `check.non-exhaustive-match`.
 
 ## `TYPE`: type-level hardening
 
 New type forms. Each keeps a runtime failure from being the first place an
 invalid value is noticed. `TYPE-7` depends on the others and goes last.
 
-- `TYPE-2` **Typed first-class callables that retain signatures and effects.** Add a
-  callable type form such as
-  `type Builder = proc(root: Path) [fs, process, error] -> Result[Unit]`.
-  Conditional selection, records, parameters, and returns can then carry a
-  checked callable without degrading to dynamic `Proc.call(...) ->
-  Result[Any]`: `let build: Builder = if debug { debug_build } else {
-  release_build }; build(root)?`. Start with conservative assignability:
-  parameter labels/types and result shape must match, while the concrete
-  callable's effects may be a subset of the declared bound. Keep bare
-  `Proc`/`Pure` as the explicit dynamic escape hatch. This closes a major
-  type-and-effect erasure boundary without introducing futures, callbacks as a
-  runtime model, or general higher-kinded typing.
 - `TYPE-3` **`Set[T]` with `{"a", "b"}` literals**, `in`, `|`, `&`, `-`, `.add`.
   Replaces `Map[Bool]` sets and their meaningless `true` values (about 500
   `Map[Bool]`/`set.empty()` sites).
-- `TYPE-4` **`NonEmpty[T]` for collections whose first element is part of the
-  contract.** A command argv is the canonical case: it is not merely a
-  `List[Arg]`; it must contain an executable. Non-empty literals satisfy the
-  type at check time, while converting an arbitrary list validates once.
-  `first()` (and equivalent guaranteed operations) are total on
-  `NonEmpty[T]`. Preserve the guarantee only through operations that
-  obviously do so (for example `map` and appending); ordinary filters,
-  slices, and removals return `List[T]` unless revalidated. This pairs with
-  `run @argv` so an empty command can eventually become a type error rather
-  than a runtime setup failure.
-  `CMD-3` uses it to reject an empty command at check time.
-  Build it as the first instance of one checker mechanism for validated
-  types: a base type, a validation that runs once at an explicit conversion,
-  literals checked statically, and a short list of operations that preserve
-  the guarantee, every other operation returning the base type. `TYPE-5` and
-  `PATH-12` are further instances and must not add a second mechanism.
 - `TYPE-5` **Bounded scalar types, deliberately not general refinement types.** Support
   finite constant bounds for a small set of scalar domains, e.g.
   `type Port = Int range 1..65535`, `ExitCode`, sizes, modes, and similar
@@ -396,9 +342,16 @@ invalid value is noticed. `TYPE-7` depends on the others and goes last.
   typed-callable and union items in this batch remove two important reasons to
   reach for it.
   Needs `TYPE-1` and `TYPE-2`.
-- `TYPE-8` Lowering types a narrowed slot by its declared union, so it
-  accepts any method some member has. Publish narrowed types as checker
-  facts and have lowering consume them.
+- `TYPE-9` Left from typed callables and `NonEmpty`: a typed call whose
+  callee is a local, a field, or a call result is tied to its type only by a
+  kind check at run time; `m.handler(x)` on a module's exported callable
+  value has no committed test; `lint.prefer-typed-callable` covers
+  parameters, not record fields; a stage descriptor such as `map(scale)`
+  still needs a function name. `Proc.call` on a proc with a non-`Result`
+  return is typed `Result[Any]` but yields the raw value. `lint.unused-type`
+  reports a type named only inside `Union[...]`. A mistyped `const` is
+  reported twice. Unverified: `lowered_str_byte_op` picks `StrByteAt` by
+  method name alone, which may mislower `Bytes.byte_at`.
 
 ## `MOD`: effects, modules, and inference
 
@@ -414,35 +367,29 @@ to inference.
 ## `CMD`: commands, lexer, CLI, and tooling
 
 Command words, literals, script entry points, the test API, and repository
-tooling. The items are independent of each other.
+tooling. The items are independent of each other. `test.expect` is merged
+and applied here; it returns the script's output record, so a call that
+needs nothing more is written `let _ = test.expect(...)?` at 87 sites.
+Returning `Result[Unit]` instead would remove that, at the cost of the 384
+sites that go on to read the record.
 
 - `CMD-5` **Subcommand `cli` entries.** `cli main repo check(repo: Path = default_repo()) { ... }`:
   several `cli` entries named by a subcommand path, each with generated help
   and option parsing. Replaces the `var parsed = Placeholder(...)` +
   `match cli.parse(...) { Ok(v) => parsed = v  Err(e) => return Err(e) }`
   dance (11 times in Laputa's `pm/cli.xsh`, 850 lines).
-- `CMD-6` **`test.expect(ctx, src, status: N, stderr: [...])`** for script tests. The
-  status is a required argument (0 for success), stderr/stdout fragments are
-  optional, and any mismatch reports the full output. Replaces
-  `run_script` + `assert output.status == N, output.stderr` + repeated
-  `assert "..." in output.stderr, output.stderr` (1,013 `run_script` calls,
-  about 587 status and 567 stderr asserts here).
 - `CMD-7` `cargo dev test linux --ci` passes the host target (`aarch64-apple-darwin`)
   into the container, so it works only on a Linux host. Use
   `cargo dev test linux` on macOS. The Linux run also shares `target/` with
   the host and overwrites `target/release` with Linux binaries.
 - `CMD-8` Cargo's `unused_dependencies` lint flags `mimalloc` in xsht and xshi.
   This is a false positive: the binaries use it, the libraries do not.
-- `CMD-15` After `abort` is removed nothing populates the checker fact
-  `terminating_call_spans`; its plumbing through the checker output, lint
-  options, and flow analysis (about 30 sites) can go.
-  `dev/tests/test-targets.xsh::test_dev_main_target_override_reaches_context`
-  overflows the stack on a debug binary. Lint flow no longer folds
-  `guard true` and `guard false`.
-  On x86_64 Alpine a debug `xsh` overflows the default 8 MiB stack on
-  `dev/main.xsh -- help`, so every `cargo dev` command and `make` target dies
-  with a segmentation fault there; `ulimit -s 65536` or
-  `XSH_DEV=target/release/xsh make ...` gets past it.
+- `CMD-15` Nothing populates the checker fact `terminating_call_spans`
+  since `abort` was removed; its plumbing through the checker output, lint
+  options, and flow analysis (about 30 sites) can go. Lint flow no longer
+  folds `guard true` and `guard false`.
+  `lower_named_spread_call` clones the whole program and its bodies for
+  each call.
 - `CMD-16` Measure retained frontend memory for guarded statements, which
   now take several arena rows where they took one
   (`xsh-frontend-stats`).
@@ -457,40 +404,18 @@ integrator runs them after a merge (`campaign.md`). A lint visits only the
 module it is linting, through the linter's traversal; a scan of an arena
 table costs files times the whole workspace.
 
-- `LINT-2` **Filter loops become comprehensions.** Rejected: a `for x in xs if c`
-  statement form. Instead `lint.prefer-list-comp` must also rewrite loops whose
-  first statement is `continue unless c` / `continue when c` (83 sites) when
-  the body only accumulates.
-- `LINT-3` `lint.prefer-list-element-assignment` still limits its argument
-  to identifiers and literals, the rule that made
-  `lint.prefer-list-compound-assignment` miss nine sites in ten.
-  `x.extend(a).extend(b)` chains have no single `+=` spelling and stay
-  unflagged.
-- `LINT-4` A `lint.prefer-guard` fix inside a single-statement match-arm
-  block is not format-stable: `xsht fmt` collapses
-  `0 => { return .. when c }` into `0 => return .. when c`.
-- `LINT-5` `xsht lint --fix` re-parses the whole file for each fix that
-  contains `(` (`minimize_fix_grouping`), which made a 1,057-site migration
-  take 39 s of CPU.
-- `LINT-6` SPEC does not say whether `x += e` reads `x` before it evaluates
-  `e`. The implementation does; a lint relies on it.
-- `LINT-7` `xsht lint --fix --only CODE` rejects every fix round in a file
-  that has any unselected check warning. `xsht lint --fix` ignored SIGTERM
-  during one long run.
-- `LINT-8` Fixes whose output is not what the formatter prints, or that fire
-  where they should not; each has a failing test:
-  - `lint.prefer-item-shorthand` writes `map .upper()` where `xsht fmt`
-    writes `map { .upper() }`
-    (`lint::linter_list_compound_assignment_reaches_every_argument_that_leaves_the_local_alone`).
-  - `lint.prefer-match-else` leaves a blank line after the `match` that
-    `xsht fmt` removes
-    (`lint::linter_reports_dead_code_after_all_returning_match`).
-  - An unfiltered `xsht lint --fix` now rewrites two files the tests expect
-    it to leave alone because a comment or guard is in the way
-    (`tests/xsh/pattern-conditionals.xsh::test_pattern_conditional_lint_retains_comments_guards_and_error_bindings`,
-    `tests/xsh/pattern-tests.xsh::test_pattern_predicate_lint_preserves_comments_and_bindings`).
-  - `lint::fs_root_receiver_cli_fix_checks_an_isolated_fixture_and_converges`
-    fails on its `root.mkdir(p"nested", parents: true)` fixture.
+- `LINT-9` What still costs time in `xsht lint --fix` is the check of each
+  file's import graph after every round (`ITER-6`). Laputa has 139 files
+  that `xsht fmt --check` rejects and has never been formatted as a whole.
+  `x += e` evaluates `e` first and reads `x` when the update commits; SPEC 7
+  now says so, where this file once said the opposite.
+- `LINT-10` Flaky under load, passing alone:
+  `lint_performance::repository_lint_is_clean_within_wall_budget`,
+  `desugar::the_desugared_corpus_checks_and_tests_like_the_corpus` (its
+  traced system-report test), and
+  `showcase/tests/test-px.xsh::test_px_default_search_matches_executable_substrings`,
+  which once failed to spawn a file it had just written with
+  `Text file busy`.
 
 ## Laputa
 
