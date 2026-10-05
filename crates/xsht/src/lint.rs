@@ -105,6 +105,8 @@ mod lint_prefer_typed_callable;
 mod lint_argument_label;
 #[path = "lint_prefer_non_empty_argv.rs"]
 mod lint_prefer_non_empty_argv;
+#[path = "lint_prefer_set.rs"]
+mod lint_prefer_set;
 #[path = "lint_prefer_rel_path.rs"]
 mod lint_prefer_rel_path;
 #[path = "lint_empty_sentinel.rs"]
@@ -484,6 +486,9 @@ pub struct LintOptions {
         Option<BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>>,
     /// Opt in to `lint.prefer-inferred-proc-return`.
     pub prefer_inferred_proc_returns: bool,
+    /// Opt in to the advice of `lint.prefer-set` for a `Map[K, Bool]` that
+    /// is not provably a set; the fix for one that is needs no opt-in.
+    pub prefer_set: bool,
     /// Opt in to `lint.prefer-text-pattern`, which has no fix: it notes
     /// where text is taken apart by position.
     pub prefer_text_pattern: bool,
@@ -557,6 +562,7 @@ impl Default for LintOptions {
             prefer_implicit_messages: false,
             message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
+            prefer_set: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
             return_proof: None,
@@ -681,6 +687,7 @@ pub struct Linter<'a> {
     assertion_capture_depth: usize,
     duration_conversion_module_unshadowed: bool,
     list_any_bindings: lint_list_any_union::ListAnyBindings,
+    set_like_bindings: lint_prefer_set::SetLikeBindings,
     /// `lint.prefer-item-shorthand` and `lint.prefer-match-else` reports,
     /// gathered while callbacks and matches are visited and reported after
     /// the walk in source order.
@@ -792,6 +799,11 @@ impl<'a> Linter<'a> {
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
         let only = options.only;
+        // Naming the rule in `--only` asks for its advice as the setting does.
+        let prefer_set_advice = options.prefer_set
+            || only
+                .as_deref()
+                .is_some_and(|only| only.contains(&DiagnosticCode::LintPreferSet));
         // Naming a rule in `--only` asks for it as its setting does, so a
         // corpus can count and migrate its sites without a configuration file.
         let named = |code| only.as_deref().is_some_and(|only| only.contains(&code));
@@ -893,6 +905,7 @@ impl<'a> Linter<'a> {
             regex_recovery_context: false,
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
+            set_like_bindings: lint_prefer_set::SetLikeBindings::default(),
             item_shorthands: Vec::new(),
             catch_all_arms: Vec::new(),
             fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
@@ -949,6 +962,10 @@ impl<'a> Linter<'a> {
         linter.diagnostics.extend(catch_all_arms);
         let list_any_bindings = std::mem::take(&mut linter.list_any_bindings);
         linter.diagnostics.extend(list_any_bindings.finish());
+        let set_like_bindings = std::mem::take(&mut linter.set_like_bindings);
+        linter
+            .diagnostics
+            .extend(set_like_bindings.finish(source, prefer_set_advice));
         let fail_candidates = std::mem::take(&mut linter.fail_candidates);
         linter
             .diagnostics
@@ -1537,6 +1554,7 @@ impl<'a> Linter<'a> {
     }
 
     fn collect_type_expr_refs(&mut self, ty: TypeExprId) {
+        self.set_like_bindings.visit_type(self.arena, self.source, ty);
         if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied {
             let base = TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize);
             self.collect_type_expr_refs(base);
@@ -1762,6 +1780,8 @@ impl<'a> Linter<'a> {
         let stmt = self.arena.stmt(stmt_id);
         self.lint_propagation(stmt_id);
         self.fail_candidates.visit_stmt(self.arena, stmt_id);
+        self.set_like_bindings
+            .visit_stmt(self.arena, self.source, stmt_id, &self.expr_types);
         match stmt.kind {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),
@@ -12656,6 +12676,9 @@ impl LintExprVisitor<'_, '_> {
         self.linter
             .fail_candidates
             .visit_expr(self.linter.arena, expr);
+        self.linter
+            .set_like_bindings
+            .visit_expr(self.linter.arena, self.linter.source, expr);
         if let Some(diagnostic) = lint_redundant_propagation::redundant_condition_propagation(
             self.linter.arena,
             self.linter.source,

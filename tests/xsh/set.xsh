@@ -72,7 +72,7 @@ test test_set_operators_and_methods_return_new_sets {
 
   let none: Set[Str] = set.empty()
   assert none.is_empty()
-  assert none.len() == 0
+  assert none.len() < 1
   assert none | left == left
   let numbers: Set[Int] = set.from([3, 1, 3])
   assert numbers == {1, 3}
@@ -188,4 +188,56 @@ print \${one.len()} \${mixed.len()} \${squares.len()} \${wide.len()}
   assert stable.status.exited_with(0), stable.stdout + stable.stderr
   let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == "1 2 2 3\n"
+}
+
+# The migration lint makes a local map of `true` a set in one fix, and the
+# result is formatted, checks, and behaves the same.
+test test_lint_makes_a_local_map_of_true_a_set { |ctx|
+  let source = """proc show(words: List[Str]) [io] {
+  var seen: Map[Bool] = {}
+  var extra = set.from(["z"])
+  for word in words {
+    if word not in seen {
+      seen[word] = true
+      extra = set.add(extra, word.upper())
+    }
+  }
+
+  let kept: Map[Bool] = {a: true, b: false}
+  print \${seen.len()} \${seen.keys().join(",")} \${extra.keys().join(",")} \${kept.len()}
+}
+
+show(["b", "a", "b"])
+"""
+  let before = test.expect(ctx, source, status: 0)?
+  let candidate = test.temp_file(ctx, name: "sets.xsh", contents: bytes.from_text(source))?
+
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-set $candidate ?
+  let report = linted.stdout + linted.stderr
+  assert count(report, "warn[lint.prefer-set]") == 3, report
+  assert count(report, "is a map used as a set") == 2, report
+  assert count(report, "may be a set") == 1, report
+
+  # Two fixes that overlap are applied one per pass. The advice has no fix
+  # and stays reported.
+  repeat 2 times {
+    run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-set $candidate ?
+  }
+
+  let left = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-set $candidate ?
+  assert count(left.stdout + left.stderr, "warn[lint.prefer-set]") == 1, left.stderr
+
+  let rewritten = candidate.read_text()?
+  assert "  var seen: Set[Str] = set.empty()\n" in rewritten, rewritten
+  assert "  var extra: Set[Str] = set.from([\"z\"])\n" in rewritten, rewritten
+  assert "      seen = seen.add(word)\n" in rewritten, rewritten
+  assert "      extra = extra.add(word.upper())\n" in rewritten, rewritten
+  assert "seen.to_list().join" in rewritten, rewritten
+  assert "  let kept: Map[Bool] = {a: true, b: false}\n" in rewritten, rewritten
+
+  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  assert stable.status.exited_with(0), stable.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
+  assert after.stdout == before.stdout
+  assert after.stdout == "2 a,b A,B,z 2\n"
 }

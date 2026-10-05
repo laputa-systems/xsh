@@ -1610,6 +1610,7 @@ fn lint_config_for_file(
         // not also want them removed.
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
             && !configured_return_annotations,
+        prefer_set: tool_config.config.lint.prefer_set,
         prefer_rel_path: tool_config.config.lint.prefer_rel_path,
         return_proof: Some(crate::xsht::lint::ReturnProofContext {
             file: file.to_string(),

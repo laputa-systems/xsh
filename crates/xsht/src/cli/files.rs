@@ -210,6 +210,8 @@ pub struct LintConfig {
     pub prefer_positional_constructors: bool,
     pub prefer_implicit_messages: bool,
     pub prefer_inferred_proc_returns: bool,
+    /// On only when `prefer-set = true`.
+    pub prefer_set: bool,
     /// On only when `prefer-text-pattern = true`.
     pub prefer_text_pattern: bool,
     pub prefer_rel_path: bool,
@@ -228,6 +230,7 @@ impl Default for LintConfig {
             prefer_positional_constructors: false,
             prefer_implicit_messages: false,
             prefer_inferred_proc_returns: false,
+            prefer_set: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
             runless_except: Vec::new(),
@@ -365,6 +368,7 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
             .is_some_and(|value| value == "true"),
         prefer_inferred_proc_returns: ini_string(lint, "prefer-inferred-proc-returns")
             .is_some_and(|value| value == "true"),
+        prefer_set: ini_string(lint, "prefer-set").is_some_and(|value| value == "true"),
         prefer_text_pattern: ini_string(lint, "prefer-text-pattern")
             .is_some_and(|value| value == "true"),
         prefer_rel_path: ini_string(lint, "prefer-rel-path").is_some_and(|value| value == "true"),

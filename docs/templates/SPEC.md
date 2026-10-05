@@ -598,6 +598,11 @@ Each of these is rejected where it is written:
 {{.spec.set_rejected.source}}
 ```
 
+`xsht lint` rewrites a local `Map[K, Bool]` that only ever stores `true` and
+is read only through `in`, `not in`, `len()`, `is_empty()`, and `keys()` to a
+`Set[K]` (`lint.prefer-set`), and on request notes every other
+`Map[K, Bool]`, where a stored `false` may mean something.
+
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
 a schema that names fewer. The builtin `Record` type erases field knowledge.
