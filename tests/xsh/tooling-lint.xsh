@@ -425,3 +425,75 @@ test test_lint_fix_converges_when_tail_edits_contain_named_argument_edits { |ctx
   assert after.status.exited_with(0), after.stderr
   assert before.stdout == after.stdout
 }
+
+# Arm bodies that differ only in spacing merge before and after `xsht fmt`:
+# the linter reports the same arms of both matches whichever way the file is
+# laid out.
+test test_formatting_preserves_identical_match_arm_lints { |ctx|
+  let root = project(
+    ctx,
+    {
+      "arms.xsh": "const n = 2\nmatch n {\n  1 => print  \"small\"\n  2 => print \"small\"\n  else => print \"big\"\n}\nlet label = match n {\n  1 => [1,2]\n  2 => [1, 2]\n  else => []\n}\nprint f\"{label.len()}\"\n",
+    },
+  )?
+  let merged = ["lint.identical-match-arms", "lint.identical-match-arms"]
+
+  let written = xsht(root, ["lint"])?
+  assert written.status.exited_with(1), written.stderr
+  assert warning_codes(written.stderr) == merged, written.stderr
+  assert "arms.xsh:3:3\n    1 => print  \"small\"\n" in written.stderr, written.stderr
+  assert "arms.xsh:8:3\n    1 => [1,2]\n" in written.stderr, written.stderr
+
+  let formatted = xsht(root, ["fmt"])?
+  assert formatted.status.exited_with(0), formatted.stderr
+
+  let relinted = xsht(root, ["lint"])?
+  assert relinted.status.exited_with(1), relinted.stderr
+  assert warning_codes(relinted.stderr) == merged, relinted.stderr
+  assert "arms.xsh:4:3\n    1 => print \"small\"\n" in relinted.stderr, relinted.stderr
+  assert "arms.xsh:10:3\n    1 => [1, 2],\n" in relinted.stderr, relinted.stderr
+  assert "check.redundant-parens" not in relinted.stderr, relinted.stderr
+}
+
+# A lint gate is `xsht lint` over a tree being clean. A finding in a module
+# that is only imported fails it, and the read-only command leaves every
+# source as it was.
+test test_lint_discovery_reports_imported_module_diagnostics_without_writing_sources { |ctx|
+  let sources: Map[Str, Str] = {
+    "xsht-config.ini": "module_path = .\n",
+    "main.xsh": "use helper\nprint helper.value\n",
+    "helper.xsh": "##! Helper module.\n## Exports a value.\nexport let value = 1\n\npure unused() -> Int {\n  return 1\n}\n",
+  }
+  let root = project(ctx, sources)?
+  let linted = xsht(root, ["lint"])?
+  assert linted.status.exited_with(1), linted.stderr
+  assert "lint.unused-callable" in diagnostics(linted.stderr), linted.stderr
+  for name in sources.keys() {
+    assert fp"{root}/{name}".read_text()? == sources[name], f"read-only lint changed {name}"
+  }
+}
+
+# Diagnostic fixtures are invalid on purpose. The config's `exclude` keeps
+# them out of discovery, and without it the same tree fails on the fixture's
+# checker error.
+test test_lint_discovery_obeys_configured_fixture_exclusions { |ctx|
+  let invalid_source = "let value: Int = \"wrong\"\n"
+  let root = project(
+    ctx,
+    {
+      "xsht-config.ini": "exclude = fixtures/**/*.xsh\n",
+      "main.xsh": "print \"ready\"\n",
+      "fixtures/invalid.xsh": invalid_source,
+    },
+  )?
+  let clean = xsht(root, ["lint"])?
+  assert clean.status.exited_with(0), clean.stderr
+  assert clean.stdout == ""
+  assert diagnostics(clean.stderr) == ""
+
+  fp"{root}/xsht-config.ini".write("")
+  let rejected = xsht(root, ["lint"])?
+  assert rejected.status.exited_with(2), rejected.stderr
+  assert "check.type-mismatch" in diagnostics(rejected.stderr), rejected.stderr
+  assert fp"{root}/fixtures/invalid.xsh".read_text()? == invalid_source
+}

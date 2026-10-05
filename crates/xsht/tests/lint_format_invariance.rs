@@ -560,23 +560,6 @@ fn accept_layout_edits(
     accept_layout_edits(source, canonical, accepted, right, budget);
 }
 
-/// Arm bodies that differ only in spacing merge before and after `xsht fmt`.
-#[test]
-fn formatting_preserves_identical_match_arms() {
-    let corpus = TempDir::new().expect("corpus directory");
-    let source = "const n = 2\nmatch n {\n  1 => print  \"small\"\n  2 => print \"small\"\n  else => print \"big\"\n}\nlet label = match n {\n  1 => [1,2]\n  2 => [1, 2]\n  else => []\n}\nprint f\"{label.len()}\"\n";
-    fs::write(corpus.path().join("arms.xsh"), source).expect("write corpus file");
-    assert_eq!(
-        assert_formatting_preserves_lints(
-            "identical arms",
-            corpus.path(),
-            false,
-            || written_lints(corpus.path(), false)
-        ),
-        2
-    );
-}
-
 #[test]
 fn formatting_preserves_lints_on_the_repository_corpus() {
     let count =
