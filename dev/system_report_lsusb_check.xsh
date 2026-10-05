@@ -132,7 +132,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice], Error] {
   }
 
   var devices = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for line in output.lines() {
     continue when line.trim() == ""
     let fields = words(line.trim())
@@ -150,7 +150,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice], Error] {
       return Err(lsusb_failure("lsusb list has duplicate or invalid device identity"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     devices += [{bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?}]
   }
 
@@ -307,10 +307,10 @@ export pure compare_lsusb(
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
-  var basic_seen = set.empty()
+  var basic_seen: Set[Str] = set.empty()
   for reference in devices {
     let key = f"{reference.bus}:{reference.device}"
-    basic_seen = set.add(basic_seen, key)
+    basic_seen = basic_seen.add(key)
     if key not in candidate_by_key {
       mismatches += [f"{key}.missing"]
       continue
@@ -330,10 +330,10 @@ export pure compare_lsusb(
     }
   }
 
-  var tree_seen = set.empty()
+  var tree_seen: Set[Str] = set.empty()
   for row in tree {
     let key = f"{row.bus}:{row.device}"
-    tree_seen = set.add(tree_seen, key)
+    tree_seen = tree_seen.add(key)
     if key not in candidate_by_key {
       mismatches += [f"{key}.tree_missing"]
       continue

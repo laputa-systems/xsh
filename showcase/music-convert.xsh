@@ -91,7 +91,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     "opus",
   ]
 
-  let audio_ext_set = set.from(audio_exts)
+  let audio_ext_set: Set[Str] = set.from(audio_exts)
 
   let files = fs.files(root)
     |> where .path.ext() in audio_ext_set

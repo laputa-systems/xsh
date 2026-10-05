@@ -573,6 +573,7 @@ Process-scoped utility helpers.
 - `List[Str].join(separator: Str = default) -> Str` — Joins list values into text.
 - `List[T].len() -> Int` — Returns the number of list elements.
 - `List[T].push(item: T) -> List[T]` — Returns a list with one value appended.
+- `List[T].to_set() -> Set[T]` — Returns the set of a list's elements.
 
 ### Map
 
@@ -674,6 +675,14 @@ Process-scoped utility helpers.
 ### Result
 
 - `Result[T, E].context(kind: Str, message: Str = default) -> Self` — Adds a domain-specific error context before propagation.
+
+### Set
+
+- `Set[T].add(item: T) -> Set[T]` — Returns the set with one more element.
+- `Set[T].is_empty() -> Bool` — Tests whether a value has no elements.
+- `Set[T].len() -> Int` — Returns the number of elements in a set.
+- `Set[T].remove(item: T) -> Set[T]` — Returns the set without one element.
+- `Set[T].to_list() -> List[T]` — Lists the elements of a set in its iteration order.
 
 ### Status
 

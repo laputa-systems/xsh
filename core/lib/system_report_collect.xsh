@@ -119,7 +119,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   }
 
   var ids: List[Int] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for word in value.split(" ") {
     continue when word == ""
     for character in word {
@@ -155,7 +155,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
       return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership exceeds 65536 CPUs"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     ids += [cpu_id]
   }
 

@@ -102,8 +102,9 @@ true try type unless use var wait when while with yield
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
-statement (8.6), `at` in the head of a `tempdir NAME at PATH` scope (10.4),
+`on`, `tempdir`, `test`, `nominal` directly before `type` (4.7), `repeat` and
+`times` in the head of a `repeat` statement (8.6), `at` in the head of a
+`tempdir NAME at PATH` scope (10.4),
 `fail` at the start of a `fail` statement and `because` after its first
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
@@ -443,6 +444,7 @@ literal configuration data (`lint.prefer-const`).
 | `Regex`, `Digest` | compiled regex; typed hash digest |
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
 | `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
+| `Set[T]` | distinct elements of one key type, in key order (4.5) |
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
@@ -616,11 +618,83 @@ byte order. Keys are never converted between domains. `.set`, `.remove`, and
 `.push` return a new map. JSON objects and environment names require `Str`
 keys.
 
+`Set[T]` holds distinct elements of one type. `T` is a type a map key can
+have (`Str`, `Int`, `UInt`, `Bool`, `Bytes`, `Path`, or `Duration`); any other
+element type is an error (`check.set-element-type`). A set has no insertion
+order: iteration, `.to_list()`, a comprehension or `for` over it, and a
+pipeline from it all visit the elements in the order a map visits its keys,
+whatever order built the set. Two sets are equal when they hold the same
+elements. `.add(x)` and `.remove(x)` return a new set, and adding an element
+the set holds or removing one it does not returns an equal set. `.len()` and
+`.is_empty()` count elements, and `list.to_set()` drops a list's repeated
+elements. The operators are `in`, `not in`, `|`, `&`, and `-` (6.2); the
+literal is in 6.4. A set is not indexed, and a constant cannot be one.
+
+```xsh
+pure allowed(kind: Str, extra: Set[Str]) -> Bool {
+  kind in {"file", "dir"} | extra
+}
+
+proc report(words: List[Str]) [error] {
+  # An element that is not a bare name makes braces a set.
+  let stop = {"a", "the"}
+  let first = "one"
+  let named = {first, "two"}
+
+  # Bare names alone are a record unless a set is expected.
+  let second = "two"
+  let pair: Set[Str] = {first, second}
+  assert pair == named
+
+  # A set has no empty or one-element form of its own without a comma.
+  var seen: Set[Str] = set.empty()
+  let only = {"one",}
+  for word in words {
+    if word not in stop {
+      seen = seen.add(word)
+    }
+  }
+
+  # Sets iterate in key order, whatever order built them.
+  let lengths = {word.byte_len() for word in seen}
+  assert (seen & only).to_list() == ["one"]
+  assert (seen - only).len() + 1 == seen.len()
+  assert words.to_set() - stop == seen
+  print (json.encode(seen)?) (json.encode(lengths)?)
+  assert allowed("link", {"link",})
+}
+```
+
+Each of these is rejected where it is written:
+
+```xsh
+let ratios = {1.5, 2.5} # error: check.set-element-type
+let nested: Set[List[Str]] = set.empty() # error: check.set-element-type
+let rows = [[1], [2]].to_set() # error: check.set-element-type
+let words = {"a", "b"}
+let mixed = {"a", 1} # error: check.type-mismatch
+let ready = true | false # error: check.set-operator
+let joined = words | ["c"] # error: check.set-operator
+let ints = {1, 2}
+let numbers = words & ints # error: check.type-mismatch
+let less = words - "a" # error: check.type-mismatch
+let none: Set[Str] = {} # error: check.type-mismatch
+let one: Set[Str] = {"a"} # error: check.type-mismatch
+let first = words[0] # error: check.index-type
+print ${ratios.len()} ${nested.len()} ${rows.len()} ${mixed.len()} $ready
+print ${joined.len()} ${numbers.len()} ${less.len()} ${none.len()} ${one.len()} $first
+```
+
+`xsht lint` rewrites a local `Map[K, Bool]` that only ever stores `true` and
+is read only through `in`, `not in`, `len()`, `is_empty()`, and `keys()` to a
+`Set[K]` (`lint.prefer-set`), and on request notes every other
+`Map[K, Bool]`, where a stored `false` may mean something.
+
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
 a schema that names fewer. The builtin `Record` type erases field knowledge.
 
-Lists, maps, and records have value semantics: assigning, passing, or storing
+Lists, maps, sets, and records have value semantics: assigning, passing, or storing
 one behaves as a copy, so mutating a `var` never changes another binding
 (copies share storage until written).
 
@@ -694,6 +768,98 @@ not decide them, and conflicting evidence is an error, never a guessed `Any`
 (`check.constructor-inference`). Defaults must be valid for every
 substitution. Functions, enums, error families, and module contracts are not
 generic, and there is no expression-level type-argument syntax.
+
+A schema is structural: any record with its fields fits it. `nominal type`
+declares a schema whose name is also an identity, for a value whose fields
+alone do not say what it is:
+
+```xsh
+nominal type Package = {id: Str, version: Str}
+
+type Listing = {id: Str, version: Str}
+
+# Only the constructor builds one from parts.
+pure pinned(id: Str, version: Str) -> Package {
+  Package(id:, version:)
+}
+
+pure install_name(pkg: Package) -> Str {
+  f"{pkg.id}-{pkg.version}"
+}
+
+# A Package is read as the record it is wherever a record is expected.
+pure summary(listing: Listing) -> Str {
+  f"{listing.id} {listing.version}"
+}
+
+proc resolve(manifest: Str) [error] -> Result[Str] {
+  # `.require` is the conversion: it checks the fields and returns a Package.
+  let pkg = json.decode(manifest)?.require(Package)?
+  let newer = pinned(pkg.id, "2.0")
+  # A spread copies fields; the result is an ordinary record.
+  let listing = {...newer, version: "2.1"}
+  Ok(f"{install_name(pkg)} {install_name(newer)} {summary(newer)} {summary(listing)}")
+}
+```
+
+```text
+xsh-1.0 xsh-2.0 xsh 2.0 xsh 2.1
+```
+
+A value has a nominal type from two places only: the type's constructor, and
+`.require(Name)` (5.3), which is the explicit conversion from any value,
+dynamic or already typed, and checks the fields as it does for the structural
+schema. A record literal never has the type, wherever it is written, and
+neither does a value of another type with the same fields, including another
+nominal type; the mismatch says to use the constructor. A nominal type is
+the validated type (4.13) whose base is its record schema, so the rest
+follows from that base:
+
+- **Fields** are read as the record's: `pkg.id`. Identity is all the
+  declaration adds; fields are as visible as those of any schema.
+- **Assignability.** The value fits its structural base and any schema the
+  base fits, at any depth (5.2). Nothing fits the nominal type but itself.
+- **Spread.** `{...pkg, version: v}` copies fields and is a structural record.
+- **JSON.** `.require(Package)` on decoded data checks the fields and
+  constructs the value. Encoding writes the record; no name is written.
+- **Equality** compares the records. A `Package` and a record with equal
+  fields are equal.
+- **Patterns.** Record patterns and destructuring match the fields.
+- **Type tests.** The identity is not in the value, so a runtime test could
+  only compare fields. `value is Package` and the type pattern
+  `name is Package` are allowed where the static type already says which
+  types the value can be: a `Union` that lists `Package`. On `Any`, on a
+  structural record, or on any other type they are `check.pattern-type`, with
+  a note to convert with `.require(Package)?`; the same holds for a tested
+  type that contains one, such as `List[Package]`. A `Union` cannot list a
+  nominal type beside a type whose values have its fields
+  (`check.union-type`): the runtime could not tell the members apart.
+- **Dynamic calls.** `Pure.call` and `Proc.call` check an argument against a
+  nominal parameter where the call runs, as `.require` would: by its fields.
+
+A nominal type is a record schema without type parameters (`check.schema`).
+Two modules may declare nominal types of one name and shape; they are
+different types, and an exported one is built with `module.Name(...)`.
+
+```xsh
+nominal type Package = {id: Str, version: Str}
+nominal type Tagged = Str # error: check.schema
+
+type Listing = {id: Str, version: Str}
+type Either = Union[Package, Listing] # error: check.union-type
+
+pure consume_package(pkg: Package) -> Str {
+  pkg.id
+}
+
+proc install(id: Str, version: Str, listing: Listing, raw: Any) [io] {
+  print consume_package({id, version}) # error: check.type-mismatch
+  print consume_package(listing) # error: check.type-mismatch
+  print (raw is Package) # error: check.pattern-type
+  print (listing is Package) # error: check.pattern-type
+  print consume_package(Package(id:, version:))
+}
+```
 
 ### 4.8 Enums
 
@@ -1114,6 +1280,9 @@ proc launch(extra: List[Str]) [process, error] {
 }
 ```
 
+A `nominal type` (4.7) is the validated type over its record schema whose
+values came from its constructor or from `.require`.
+
 `RelPath` is the validated type over `Path` whose values stay beneath where
 they start. The rule is lexical and exact, on the path's native bytes:
 
@@ -1295,9 +1464,11 @@ is expected. Incompatible contributions are errors; inference never widens to
 ### 5.2 Assignability
 
 - Identical types match. Every concrete value fits `Any`.
-- `List`, `Map`, and `Stream` are invariant in their parameters: `List[Str]` is
-  not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`. A validated type
-  in a parameter is the exception (below).
+- `List`, `Map`, `Stream`, and `Set` are invariant in their parameters:
+  `List[Str]` is not `List[Any]`, `Stream[Int]` is not `Stream[UInt]`, and
+  `Set[Int]` is not `Set[UInt]`. A validated type in a parameter is the
+  exception (below). A set is never a list or a map of the same elements;
+  `.to_list()` and `list.to_set()` convert.
 - `null` and `T` both fit `T?`.
 - A value fits `Union[A, B, ...]` when it fits a member. A union fits another
   union when each of its members fits one of the other's, whatever the order.
@@ -1312,7 +1483,9 @@ is expected. Incompatible contributions are errors; inference never widens to
   `NonEmpty[Any]`). In a `Union`, a validated
   type and its base cannot both be members. `RelPath` fits `Path`, so every
   parameter that takes a path takes a `RelPath`; a `Path` fits `RelPath`
-  only through a judged literal, `.require(RelPath)`, or a type test.
+  only through a judged literal, `.require(RelPath)`, or a type test. A
+  `nominal type` (4.7) fits its record schema; a record fits it only through
+  the constructor or `.require`.
 - That rule is general: it holds at any depth inside another type. A type
   fits an expected type that differs from it only by having the base where it
   has a validated type, so `List[RelPath]` fits `List[Path]`, `RelPath?` fits
@@ -1353,7 +1526,14 @@ proc listing(tree: Path, files: List[Path]) [error] -> Result[List[Str]] {
 - A callable type (9.4) accepts a function, or a value of another callable
   type, of the same kind (`pure` or `proc`) with the same parameter labels and
   types in order and the same return type. Only effects may differ: the
-  function may need fewer effects than the type's clause allows. A value of a
+  function may need fewer effects than the type's clause allows. Of the
+  return type, two things may differ, neither of which needs a conversion
+  where the call returns: a validated type may stand where its base is
+  written, at any depth, and the error of a `Result` may be narrower, so a
+  function returning `Result[T, BuildError]` fits a type that returns
+  `Result[T]`. The value position does not otherwise vary (`Int` is not
+  `UInt`, and a wider record is not a narrower one), and parameter types do
+  not vary at all. A value of a
   callable type fits `Proc` or `Pure` of its kind; a `Proc`, a `Pure`, or an
   `Any` never fits a callable type.
 - Equality may compare `T` with `T?` in either order; it yields `Bool` and does
@@ -1592,7 +1772,9 @@ The [precedence table](reference/grammar.md#operator-precedence) lists every
 operator from tightest to loosest: postfix forms, then prefix `!` and `-`,
 the conversion `as` (6.11), multiplicative, additive, ordering and membership, equality and `is`, `and`,
 and loosest `or` and the right-associative `??`. A `|>` pipeline is looser
-than every operator.
+than every operator. The set operators share the arithmetic levels: `&` binds
+like `*` and `|` like `+`, so `a | b & c` is `a | (b & c)` and
+`x in a | b` tests membership in the union.
 
 Some combinations must be grouped explicitly, because a reader cannot tell the
 intended meaning at a glance:
@@ -1625,9 +1807,9 @@ one of these grouping rules (`check.redundant-parens`, whose fix removes
 them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
 `(x?).name` (otherwise `?.`), `(-x).abs()`, `-(text as Int)` and
 `(text as Int).float()` (a conversion is looser than a prefix and takes no
-suffix), a conversion of a name that begins a statement (`(count as UInt)`,
-which would otherwise be the command `count`), a command form followed by more of
-its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
+suffix), a command form followed by more of
+its expression (`(run cat file).len()`, `(run list-names) | extra`, where `|`
+would add a pipeline segment, or `(run cat file)?.lines()`, where the
 final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
 assignment value that starts with `run`, a pipeline before an operator or
@@ -1649,7 +1831,9 @@ pair. `(a < b) < c` compares a `Bool` instead.
 | Operator | Operands | Result |
 |---|---|---|
 | `+` | `Int`, `UInt`, `Float`, `Duration`, `Str`, `List[T]` (same type on both sides) | same type |
-| `-` | `Int`, `UInt`, `Float`, `Duration` | same type |
+| `-` | `Int`, `UInt`, `Float`, `Duration`; two `Set[T]` (difference) | same type |
+| `\|` | two `Set[T]` (union) | `Set[T]` |
+| `&` | two `Set[T]` (intersection) | `Set[T]` |
 | `*` | `Int`, `UInt`, `Float`; `Duration` with `Int` | see 4.2–4.3 |
 | `/` | `Int`, `UInt`, `Float`; `Duration` by `Int` or `Duration` | see 4.2–4.3 |
 | `%` | `Int`, `UInt` | same type |
@@ -1660,7 +1844,12 @@ pair. `(a < b) < c` compares a `Bool` instead.
 | `in`, `not in` | see below | `Bool` |
 | `??` | `Result[T, E]` or `T?` on the left, `T` on the right | `T` |
 
-`in` tests element membership in a `List`, key presence in a `Map`, field
+`|` and `&` are defined only on two sets of one element type
+(`check.set-operator`); the Boolean operators are the words `or` and `and`,
+and a doubled `||` or `&&` is `parse.unsupported-boolean-operator`. A line
+never begins with `|` or `&`.
+
+`in` tests element membership in a `List` or a `Set`, key presence in a `Map`, field
 presence in a `Record` (with a `Str` key), substring containment in `Str`,
 byte containment in `Bytes`, display-text containment in a `Path` (not
 filesystem ancestry), and entry membership in `env.PATH`. A present key or
@@ -1691,7 +1880,7 @@ parameter's default). Unknown names and parameters supplied twice are errors.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
-### 6.4 List, record, and map literals
+### 6.4 List, record, map, and set literals
 
 ```xsh
 let argv = ["cc", @flags, "-o", output]
@@ -1710,6 +1899,35 @@ let merged = {...defaults, ...overrides}
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace
   earlier ones, though every entry still evaluates, key before value.
+- **Sets.** Braces are a set literal in two cases, and only these:
+  1. *An entry is not a bare name.* `{"a", "b"}`, `{1, 2}`, and
+     `{f(x), y.z}` are sets. One such entry is enough: in `{a, "b"}` the name
+     `a` is an element too, so the literal is a set of the value of `a` and
+     `"b"`. This is decided by how the braces are written, so it holds
+     everywhere, including where `Any` is expected: there `{"a", "b"}` is a
+     `Set[Str]` and `{a, b}` is a record.
+  2. *A `Set[T]` is expected* (an annotated binding, a `Set[T]` parameter,
+     field, or return, or the other operand of a set operator) and every
+     entry is a bare name: `let s: Set[Str] = {a, b}`. Anywhere else `{a, b}`
+     is the record `{a: a, b: b}`.
+
+  `{}` is always the empty record or map; the empty set is `set.empty()`,
+  written where a `Set[T]` is expected. Braces around one expression are a
+  block (6.9), so a one-element set has a comma after its element: `{"a",}`.
+  Writing `{}` or `{"a"}` where a set is expected is `check.type-mismatch`,
+  with a fix. The first entry of a set literal is not a bare name followed by
+  a command word (that is a block whose first statement is a command) and
+  does not begin with `[`, which starts a computed map key; parenthesize such
+  an element. Elements share one type, from context when present, evaluate
+  once in order, and a repeated element is held once. A literal that writes
+  both `key: value` entries and set elements is an error
+  (`parse.brace-literal-mixed`):
+
+  ```xsh
+  let entry = {"kind", name: name} # error: parse.brace-literal-mixed
+let later = {name: name, "kind"} # error: parse.brace-literal-mixed
+  ```
+
 - **Functional update.** `{...config, build.jobs: 8, build.flags.debug: true}`
   copies `config` and replaces existing nested fields. It requires exactly one
   leading spread of a known record, and every path must name an existing field
@@ -1731,12 +1949,16 @@ let pairs = [
 
 Clauses run like nested `for` loops with `if` filters: each inner iterable is
 evaluated anew per outer binding, a false filter skips the rest, and the
-projection runs once per surviving combination. Sources may be lists, streams
-(pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
+projection runs once per surviving combination. Sources may be lists, sets,
+streams (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
 are `Bool` values, never assertions. A failed comprehension exposes no partial
 result. A map comprehension is the only entry in its braces; an entry or
 spread before it is an error (`parse.map-comprehension-entries`).
+
+Braces around a projection without a `key:` are a set comprehension:
+`{word.lower() for word in words}` is the `Set[Str]` of the projected values,
+each held once. A set is also a source: its elements arrive in key order.
 
 ### 6.6 Indexing and slicing
 
@@ -1891,7 +2113,8 @@ An arm whose whole unguarded pattern is `_` means exactly what `else` means;
 
 A bare `{ ... }` is a block when its first entry is a statement and a record or
 map literal when its first entry looks like a field (`{}`, `{name}`,
-`{name: v}`, `{[k]: v}`, `{...r}`). Write `{ (value) }` for a block whose only
+`{name: v}`, `{[k]: v}`, `{...r}`). It is a set literal or set comprehension
+when its first entry is an expression followed by `,` or `for` (6.4, 6.5). Write `{ (value) }` for a block whose only
 content is a single name. A block introduces a lexical and cleanup scope but
 no function, error, or loop boundary. In statement position it runs as
 statements; in value position its tail is its value.
@@ -2039,7 +2262,7 @@ match line {
 Taking text apart by position says less: `parts[1]` after a `split` fails at
 run time where a pattern would not match, and a `starts_with` test followed
 by a slice states the prefix twice. The opt-in `lint.prefer-text-pattern`
-notes both shapes and rewrites neither, because a pattern's last hole keeps
+notes (16.1) both shapes and rewrites neither, because a pattern's last hole keeps
 any further separator where `split` makes another piece.
 
 ### 6.11 Conversion
@@ -2115,9 +2338,8 @@ because its type reads a following `.`, `[`, or `?` as part of itself: write
 `(text as Int).float()`. `text as Int?` names the optional type and is
 rejected.
 
-`as` is a contextual word. Three other forms use it, and one position reads
-it as a plain word; each is decided by position before a conversion is
-considered:
+`as` is a contextual word. Three other forms use it; each is decided by
+position before a conversion is considered:
 
 - `use M as N` renames a module (3.3). A `use` statement holds no
   expression.
@@ -2130,10 +2352,14 @@ considered:
   destination is the first one outside brackets that stands directly before
   a name and `{`. Every earlier `as` is part of the destination, so
   `atomically replace target as Path as tmp { ... }` converts `target`.
-- A statement that begins with a name or a `.name` chain followed by a word
-  is a command (10.1), and `as` is a word: `count as UInt` alone on a line
-  runs the command `count`. A conversion there is grouped, `(count as UInt)`;
-  in a binding, an argument, an operand, or a `return` it needs no grouping.
+
+A statement that begins with a name or a `.name` chain followed by a word is
+a command (10.1), except where the word continues an expression: an operator,
+`is`, or `as`. `count as UInt` alone on a line is therefore a conversion and
+never runs a command named `count`, and the grouping `(count as UInt)` is
+redundant there as it is anywhere else (`check.redundant-parens`). A command
+that takes the text `as` as its first argument quotes it or uses `run`:
+`run label "as" draft`.
 
 ## 7. Bindings And Assignment
 
@@ -2334,6 +2560,26 @@ is a value. The handler creates no boundary: `return`, `break`, `continue`,
 and `?` inside it target the enclosing function, loop, or capture. Optional
 values have no error and cannot use a handler parameter.
 
+A fallback gives the missing case a value, so it suits a value that needs no
+second look. `let title = titles.get(key) ?? ""` followed by a test of
+`title` against `""` asks about the missing case after merging it with an
+empty title; a conditional binding (8.6) keeps the two apart:
+
+```xsh
+pure describe(titles: Map[Str], key: Str) -> Str {
+  if let Ok(title) = titles.get(key) {
+    return f"title: {title}"
+  }
+
+  "untitled"
+}
+```
+
+`lint.empty-sentinel` notes (16.1) a `Str?` or `Result[Str]` bound through
+`?? ""` whose binding a later statement of the same block compares with `""`
+or asks `.is_empty()`. It offers no rewrite, because the two programs differ
+when the value is present and empty.
+
 ### 8.5 Results as values
 
 `Ok(value)` and `Err(error)` construct results; `Ok()` is `Ok(Unit)`. A
@@ -2373,6 +2619,12 @@ proc staged_line(root: Path) [fs, error] -> Result[Str] {
   }
 }
 ```
+
+A constructor takes its payload and error types from the expected type. Where
+a `Result[T, E]?` is expected, `Ok(...)` and `Err(...)` are checked against
+the `Result[T, E]` under the `?`, since neither is `null`: `Ok(7)` has the
+error type `E`, and `Err(.Variant(...))` selects the variant from `E`
+(6.8).
 
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
@@ -2684,9 +2936,10 @@ where it is an optional binding: `if let name = subject` with `subject: T?`
 takes the `else` branch (and `while let` ends the loop) on `null`, and
 otherwise matches the pattern against the value as a `T`. A pattern that can
 fail on its own is matched against an optional subject as it is, with no
-unwrapping. Over a value of one error family only a catch-all cannot fail:
-variant and facet patterns that together cover the family (6.8) are still a
-condition.
+unwrapping. Over a value of an enum or of one error family only a catch-all
+cannot fail: variant and facet patterns that together cover every variant
+(6.8) are still a condition, so `if let One(value) = only` is accepted for an
+enum with the single variant `One`.
 
 An optional binding also narrows its subject (5.4): after
 `guard let name = subject else { ... }`, and inside the branch or body selected
@@ -2988,7 +3241,9 @@ stream lines_of(paths: List[Path]) [fs, error] -> Stream[Str] {
 
 Calls to value-returning procs remain effectful in expressions. First-class
 `Proc` values have `.call(...) -> Result[Any]` and `Pure` values
-`.call(...) -> Any`; their arguments are checked at runtime.
+`.call(...) -> Any`; their arguments are checked at runtime. A dynamic `Proc`
+does not say what its proc returns, so `Proc.call` is the proc's own `Result`
+when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
 
 ### 9.2 Parameters
 
@@ -3129,7 +3384,11 @@ rejected. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was
-made from. The handle does not carry its signature, so the type is never a
+made from, and a call through the type enters the function as a dynamic call
+does: the function tests the number of arguments and each argument against
+its own parameter types before its body starts. That test is the fallback,
+never the first check; nothing a checked program does reaches it. The handle
+does not carry its signature, so the type is never a
 runtime test: it cannot be the target of `.require`, of `is`, or of a type
 pattern, alone or inside a schema (`check.callable-type`), and it is not a
 union member (4.12). A callable type whose parameter has a default, a rest
@@ -3137,7 +3396,7 @@ marker, a repeated label, or no type is also `check.callable-type`. A function
 that does not fit, a dynamic `Proc` or `Pure` where a callable type is
 expected, and a spliced call are `check.callable-mismatch`. `Proc` and `Pure`
 stay the types of callables whose signature is not known until run time.
-The opt-in `lint.prefer-typed-callable` reports a `Proc` or `Pure` parameter
+`lint.prefer-typed-callable` notes (16.1) a `Proc` or `Pure` parameter
 of a private function when every call in the module passes a function with
 one signature, and names the callable type. It offers no fix: the body's
 `.call(...)` and what it does with the dynamic result change with the type.
@@ -3379,7 +3638,7 @@ where the type is not known. A `NAME=$list` word keeps its older rule for
 every other list, which accepts exactly one item; that includes an empty
 list, which does not say what it is a list of.
 
-`lint.prefer-env-path-list` reports a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
+`lint.prefer-env-path-list` notes (16.1) a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
 Its rewrite, `NAME: [fp"{dir}", @env.PathList.NAME ?? []]`, is offered but
 not applied by `--fix`, because it is not the same value in three cases: an
 unset variable no longer leaves a trailing empty entry (which a search treats
@@ -4169,7 +4428,7 @@ the text was JSON. `.require(Package)?` is the trust boundary (5.3). Integers
 that fit decode as `Int` and other finite numbers as `Float`.
 
 JSON-compatible values are `Null`, `Bool`, representable `Int`, finite
-`Float`, `Str`, lists, `Str`-keyed maps and records of compatible values,
+`Float`, `Str`, lists and sets, `Str`-keyed maps and records of compatible values,
 optional values (absent as `null`), unions of compatible members, and
 Str-backed enums (as their wire strings). Everything else needs explicit conversion: `Path` (`.display()`),
 `Bytes` (`.base64()`), `Digest` (`.hex()`), `Duration`, `Status`, `Result`,
@@ -4177,7 +4436,11 @@ errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.
 
 `json.encode` and `json.write` emit ordinary JSON with record keys in sorted
-order (`pretty: true` indents deterministically). `json.encode_lines` and
+order (`pretty: true` indents deterministically). A set is written as an array
+of its elements in key order, so a `Set[Str]` is a sorted array.
+`.require(Set[T])` accepts a set, or an array whose elements are distinct
+values of `T`; an array that repeats an element fails with `schema`, because
+a validation boundary does not drop data. `json.encode_lines` and
 `json.write_lines` emit one compact value per line, each followed by a newline.
 
 Not every temporary value needs a schema. A record literal is already typed:
@@ -4239,7 +4502,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `cli` | argument parsing beyond `cli main` |
 | `module` | runtime module loading |
 | `error` | `error.fail` validation failures |
-| `map`, `set` | empty-map factory; `Str` sets as `Map[Bool]` |
+| `map`, `set` | empty-map factory; `set.empty()` and `set.from(items)`, which build a `Set[T]` where one is expected and otherwise the legacy `Map[Bool]` string set that `set.add` and `set.remove` update |
 | `system`, `cpu`, `user`, `group` | host identity and resources |
 | `unix`, `linux`, `elf` | privileged and platform-specific host operations, ELF inspection |
 | `mime`, `shlex`, `tui`, `utils` | MIME lookup, shell quoting for display, terminal styling, process-scoped cache |
@@ -4458,7 +4721,7 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | `xshi` | interactive shell (`docs/SPEC-INTERACTIVE.md`) |
 | `xsht check [--summary] [--annotate[=CLASSES]] [PATH...]` | parse, type-check, and validate scripts |
 | `xsht fmt [--check] [FILE...]` | format |
-| `xsht lint [--fix] [--only RULE,...] [--runless] [FILE...]` | quality checks and safe fixes |
+| `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]` | quality checks and safe fixes |
 | `xsht test [OPTIONS] [FILTER]` | run native tests (17) |
 | `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] SCRIPT ARGS...` | run with tracing |
 | `xsht api [QUERY...]` | query language and standard-library reference data |
@@ -4496,6 +4759,17 @@ statements appear. `xsht lint --list [--format text|jsonl]` prints every
 selectable code with a one-line summary; the generated
 `docs/reference/lints.md` is that catalog. Each finding names its rule, and a fix is withheld (with an
 explanation) whenever equivalence cannot be proved.
+
+A lint finding has one of two severities. A warning (`warn[CODE]`) is a
+shape with one preferred spelling; it fails the run with status 1. A note
+(`note[CODE]`) is advice that no rewrite can apply safely, because the
+better form means something else at some input or needs a decision outside
+the file, such as `lint.prefer-non-empty-argv`. A note is printed and
+selected with `--only` like a warning, but a run that reports only notes
+exits 0, and `--fix` writes nothing for one. A run that printed a note ends
+its findings with a count of each kind, `xsht lint: 2 findings, 3 notes`.
+`--deny-notes` makes a note fail the run with status 1. `xsht check` reports
+no lint finding of either severity.
 
 `xsht grep` patterns are XSH expressions where uppercase identifiers are
 metavariables (`X.push(ITEM)`, `ARGS..` for zero or more arguments). Matching

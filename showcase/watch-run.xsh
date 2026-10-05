@@ -16,7 +16,7 @@ on SIGTERM [error] {
 }
 
 proc stamp(root: Path, exts: List[Str]) [fs] -> Int {
-  let ext_set = set.from(exts)
+  let ext_set: Set[Str] = set.from(exts)
 
   fs.files(root)
     |> where exts.is_empty() or .path.ext() in ext_set

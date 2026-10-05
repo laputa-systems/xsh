@@ -2610,7 +2610,7 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int], Error] 
 ## Parses explicit-column util-linux topology output without treating its IDs as kernel IDs.
 export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu], Error] {
   let data = json.decode(output)?.require(LscpuTopology)?
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var rows: List[LscpuTopologyCpu] = []
   for item in data.cpus {
     let key = f"{item.cpu}"
@@ -2618,7 +2618,7 @@ export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu], 
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     rows += [item]
   }
 
@@ -2632,25 +2632,25 @@ export pure select_present_lscpu_topology(
   rows: List[LscpuTopologyCpu],
   present: List[Int],
 ) -> Result[List[LscpuTopologyCpu], Error] {
-  var present_set = set.empty()
+  var present_set: Set[Str] = set.empty()
   for id in present {
     let key = f"{id}"
     if id < 0 or key in present_set {
       return Err(check_failure("CPU present reference has an invalid or duplicate ID"))
     }
 
-    present_set = set.add(present_set, key)
+    present_set = present_set.add(key)
   }
 
   var selected: List[LscpuTopologyCpu] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for item in rows {
     let key = f"{item.cpu}"
     if item.cpu < 0 or key in seen {
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU ID"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     if key in present_set {
       selected += [item]
     }
@@ -2676,14 +2676,14 @@ pure topology_group_signatures(groups: Map[List[Int]]) -> List[Str] {
 
 pure topology_group_difference(reference: List[Str], candidate: List[Str]) -> List[Str] {
   var mismatches: List[Str] = []
-  var reference_set = set.empty()
-  var candidate_set = set.empty()
+  var reference_set: Set[Str] = set.empty()
+  var candidate_set: Set[Str] = set.empty()
   for item in reference {
-    reference_set = set.add(reference_set, item)
+    reference_set = reference_set.add(item)
   }
 
   for item in candidate {
-    candidate_set = set.add(candidate_set, item)
+    candidate_set = candidate_set.add(item)
   }
 
   for item in reference {
@@ -2845,14 +2845,14 @@ pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCac
       return Err(check_failure("cache reference has an invalid identity or size"))
     }
 
-    var seen = set.empty()
+    var seen: Set[Str] = set.empty()
     for cpu_id in row.shared_cpus {
       let key = f"{cpu_id}"
       if cpu_id < 0 or key in seen {
         return Err(check_failure("cache reference repeats a shared CPU"))
       }
 
-      seen = set.add(seen, key)
+      seen = seen.add(key)
     }
 
     let source_key = f"{row.owner_cpu_id}:{row.sysfs_index}"
@@ -2992,7 +2992,7 @@ export pure compare_cpu_cache_sharing(
   }
 
   var actual_by_cpu: Map[List[Str]] = {}
-  var seen_cpu = set.empty()
+  var seen_cpu: Set[Str] = set.empty()
   var relationship_mismatches: List[Str] = []
   for cpu_item in cpus {
     let cpu_key = f"{cpu_item.id}"
@@ -3000,14 +3000,14 @@ export pure compare_cpu_cache_sharing(
       return Err(check_failure("candidate cache membership repeats a CPU"))
     }
 
-    seen_cpu = set.add(seen_cpu, cpu_key)
+    seen_cpu = seen_cpu.add(cpu_key)
     var keys: List[Str] = []
-    var seen_id = set.empty()
+    var seen_id: Set[Str] = set.empty()
     for cache_id in cpu_item.cache_ids {
       let id_key = f"{cache_id}"
       return Err(check_failure("candidate CPU repeats a cache link")) when id_key in seen_id
 
-      seen_id = set.add(seen_id, id_key)
+      seen_id = seen_id.add(id_key)
       if id_key not in candidate_key_by_id {
         relationship_mismatches += [f"{cpu_item.id}.unknown_cache_id"]
       } else {
@@ -3191,7 +3191,7 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
   }
 
   var ids: List[Int] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for term in source.split(",") {
     let bounds = term.split("-")
     if bounds.is_empty() or bounds.len() > 2 {
@@ -3212,7 +3212,7 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
       let key = f"{id}"
       return Err(check_failure("CPU set contains a duplicate identifier")) when key in seen
 
-      seen = set.add(seen, key)
+      seen = seen.add(key)
       ids += [id]
       break when id == last
       id += 1
@@ -4332,7 +4332,7 @@ pure usb_interface_settings_match(
     return false
   }
 
-  var matched = set.empty()
+  var matched: Set[Str] = set.empty()
   for expected in reference {
     let key = f"{expected.configuration_value ?? -1}:{expected.number}"
     return false when key in matched
@@ -4350,7 +4350,7 @@ pure usb_interface_settings_match(
 
     return false unless found
 
-    matched = set.add(matched, key)
+    matched = matched.add(key)
   }
 
   true
@@ -4881,13 +4881,13 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
     return Err(check_failure("power supply capture layout differs from metadata"))
   }
 
-  var changed_seen = set.empty()
+  var changed_seen: Set[Str] = set.empty()
   for relative in capture.changing_sources {
     if relative in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
       return Err(check_failure("power supply changing source metadata is invalid"))
     }
 
-    changed_seen = set.add(changed_seen, relative)
+    changed_seen = changed_seen.add(relative)
   }
 
   for index in range(layout.paths.len()) {
@@ -6486,13 +6486,13 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
     return Err(check_failure("hwmon capture topology differs from metadata"))
   }
 
-  var changing_seen = set.empty()
+  var changing_seen: Set[Str] = set.empty()
   for gauge in capture.changing_gauges {
     if ! hwmon_bundle_gauge(gauge) or gauge not in layout.source_paths or gauge in changing_seen {
       return Err(check_failure("hwmon changing gauge metadata is invalid"))
     }
 
-    changing_seen = set.add(changing_seen, gauge)
+    changing_seen = changing_seen.add(gauge)
   }
 
   for index in range(layout.source_paths.len()) {
@@ -7255,7 +7255,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
 
 pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
   var ids: List[Int] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for word in output.trim().replace("\t", with: " ").split(" ") {
     continue when word == ""
     let id = reference_cpu_number(word)?
@@ -7268,7 +7268,7 @@ pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
       return Err(check_failure("CPUFreq CPU membership exceeds 65536 identifiers"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     ids += [id]
   }
 
@@ -7832,13 +7832,13 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
     return Err(check_failure("CPUFreq capture layout differs from metadata"))
   }
 
-  var gauge_paths = set.empty()
+  var gauge_paths: Set[Str] = set.empty()
   for relative in capture.changing_gauges {
     if relative not in layout.source_paths or ! cpufreq_bundle_is_gauge(relative) or relative in gauge_paths {
       return Err(check_failure("CPUFreq capture has an invalid changing gauge path"))
     }
 
-    gauge_paths = set.add(gauge_paths, relative)
+    gauge_paths = gauge_paths.add(relative)
   }
 
   for index in range(layout.source_paths.len()) {
@@ -8039,7 +8039,7 @@ export pure compare_cpu_topology_raw(
     by_id = by_id.set(key, index)
   }
 
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var missing_ids: List[Int] = []
   var field_mismatches: List[Str] = []
   var matched_count = 0
@@ -8049,7 +8049,7 @@ export pure compare_cpu_topology_raw(
       return Err(check_failure("CPU topology reference repeats an ID"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     if key not in by_id {
       missing_ids += [item.id]
       continue
@@ -8485,17 +8485,17 @@ export proc replay_memory_bundle(bundle: FsRoot) [fs, time, error] -> Result[Mem
 }
 
 pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[CpuIdSetComparison] {
-  var reference_seen = set.empty()
+  var reference_seen: Set[Str] = set.empty()
   for cpu_id in reference {
     let key = f"{cpu_id}"
     if cpu_id < 0 or key in reference_seen {
       return Err(check_failure("reference CPU set has a negative or duplicate ID"))
     }
 
-    reference_seen = set.add(reference_seen, key)
+    reference_seen = reference_seen.add(key)
   }
 
-  var candidate_seen = set.empty()
+  var candidate_seen: Set[Str] = set.empty()
   var matched_count = 0
   var unexpected_ids: List[Int] = []
   for cpu_id in candidate {
@@ -8504,7 +8504,7 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
       return Err(check_failure("candidate report has a negative or duplicate CPU ID"))
     }
 
-    candidate_seen = set.add(candidate_seen, key)
+    candidate_seen = candidate_seen.add(key)
     if key in reference_seen {
       matched_count += 1
     } else {
@@ -8606,7 +8606,7 @@ pure meminfo_byte_field(name: Str) -> Bool {
 ## Parses bounded procfs memory rows without borrowing the collector's parser.
 export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReferenceCounter], Error] {
   var counters: List[MeminfoReferenceCounter] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for line in output.lines() {
     continue when line.trim() == ""
     let pair = line.split(":", maxsplit: 1)
@@ -8638,7 +8638,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
         unit: if kib { "bytes" } else if source_unit == "" { "count" } else { source_unit },
       },
     ]
-    seen = set.add(seen, name)
+    seen = seen.add(name)
   }
 
   if "MemTotal" not in seen {
@@ -8786,7 +8786,7 @@ export pure parse_thp_reference(output: Str) -> Result[Str, Error] {
   return Err(check_failure("THP reference is empty")) when words.is_empty()
 
   var selected_count = 0
-  var names = set.empty()
+  var names: Set[Str] = set.empty()
   for word in words {
     let bracketed = word.starts_with("[") and word.ends_with("]") and word.count_chars() >= 3
     let name = if bracketed {
@@ -8800,7 +8800,7 @@ export pure parse_thp_reference(output: Str) -> Result[Str, Error] {
       return Err(check_failure("THP reference has an invalid or duplicate policy name"))
     }
 
-    names = set.add(names, name)
+    names = names.add(name)
     if bracketed {
       selected_count += 1
     }
@@ -9351,7 +9351,7 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
   }
 
   var rows: List[PsiReferenceRow] = []
-  var kinds = set.empty()
+  var kinds: Set[Str] = set.empty()
   for line in output.lines() {
     let columns = line.replace("\t", with: " ").split(" ") |> where .trim() != ""
     if columns.len() != 5 or columns[0] not in ["some", "full"] or columns[0] in kinds {
@@ -9359,19 +9359,19 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
     }
 
     let kind = columns[0]
-    kinds = set.add(kinds, kind)
+    kinds = kinds.add(kind)
     var avg10: Str? = null
     var avg60: Str? = null
     var avg300: Str? = null
     var total_text: Str? = null
-    var fields = set.empty()
+    var fields: Set[Str] = set.empty()
     for column in columns |> drop(1) {
       let pair = column.split("=", maxsplit: 1)
       if pair.len() != 2 or pair[0] in fields {
         return Err(check_failure("PSI reference has an invalid or duplicate field"))
       }
 
-      fields = set.add(fields, pair[0])
+      fields = fields.add(pair[0])
       match pair[0] {
         "avg10" => avg10 = pair[1]
         "avg60" => avg60 = pair[1]
@@ -9736,7 +9736,7 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice], E
   }
 
   var devices: List[SwapReferenceDevice] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for line in lines |> drop(1) {
     let columns = line.replace("\t", with: " ").split(" ") |> where .trim() != ""
     if columns.len() != 5 or columns[0] == "" or columns[0] in seen {
@@ -9750,7 +9750,7 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice], E
       return Err(check_failure("swapon reference reports used bytes above size"))
     }
 
-    seen = set.add(seen, columns[0])
+    seen = seen.add(columns[0])
     devices += [{name: columns[0], kind: columns[1], size_bytes: size, used_bytes: used, priority: priority}]
   }
 
@@ -9776,7 +9776,7 @@ export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenc
   }
 
   var devices: List[SwapReferenceDevice] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for line in lines |> drop(1) {
     let columns = proc_swap_words(line)
     if columns.len() != 5 {
@@ -9795,7 +9795,7 @@ export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenc
       return Err(check_failure("proc swap reference has an invalid byte counter"))
     }
 
-    seen = set.add(seen, name)
+    seen = seen.add(name)
     devices += [
       {
         name: name,
@@ -9919,13 +9919,13 @@ export pure compare_swap_devices(
   reference: List[SwapReferenceDevice],
 ) -> Result[SwapReferenceComparison, Error] {
   let data = json.decode(candidate_json)?
-  var reference_seen = set.empty()
+  var reference_seen: Set[Str] = set.empty()
   for device in reference {
     if device.name == "" or device.name in reference_seen or device.size_bytes < 0 or device.size_bytes > 9007199254740991 or device.used_bytes < 0 or device.used_bytes > device.size_bytes or device.priority < -9007199254740991 or device.priority > 9007199254740991 {
       return Err(check_failure("swap reference contains an invalid or duplicate device"))
     }
 
-    reference_seen = set.add(reference_seen, device.name)
+    reference_seen = reference_seen.add(device.name)
   }
 
   let raw_swaps = json.get(data, ["memory", "swaps"], null)
@@ -9967,7 +9967,7 @@ export pure compare_swap_devices(
   }
 
   let candidates = raw_swaps.require(List[CandidateSwapDevice])?
-  var candidate_seen = set.empty()
+  var candidate_seen: Set[Str] = set.empty()
   var candidate_field_missing = source_evidence_missing
   var matched_count = 0
   var unexpected_names: List[Str] = []
@@ -9987,7 +9987,7 @@ export pure compare_swap_devices(
       return Err(check_failure("candidate swap report contains a duplicate identity"))
     }
 
-    candidate_seen = set.add(candidate_seen, name)
+    candidate_seen = candidate_seen.add(name)
     if name not in reference_seen {
       unexpected_names += [name]
       continue
@@ -10097,7 +10097,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], E
   }
 
   var references: List[PciReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for block in output.replace(
     """\r
 """,
@@ -10146,7 +10146,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], E
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
-    seen = set.add(seen, bdf.address)
+    seen = seen.add(bdf.address)
     let class_base = pci_reference_hex(fields.get("Class") ?? "", 4)?
     let prog_if = pci_reference_optional_hex(fields, "ProgIf", 2)?
     let revision = pci_reference_optional_hex(fields, "Rev", 2)?
@@ -10232,7 +10232,7 @@ export pure compare_lspci_identity(
     candidates = candidates.set(address, function)
   }
 
-  var references = set.empty()
+  var references: Set[Str] = set.empty()
   var missing_addresses: List[Str] = []
   var field_mismatches: List[Str] = []
   var matched_count = 0
@@ -10241,7 +10241,7 @@ export pure compare_lspci_identity(
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
-    references = set.add(references, item.address)
+    references = references.add(item.address)
     if item.address not in candidates {
       missing_addresses += [item.address]
       continue
@@ -10864,7 +10864,7 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
   }
 
   var zones: List[ThermalZoneReference] = []
-  var seen_zones = set.empty()
+  var seen_zones: Set[Str] = set.empty()
   for zone_path in listing.children {
     let zone_name = zone_path.name()
     continue unless zone_name.starts_with("thermal_zone")
@@ -10874,14 +10874,14 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
       return Err(check_failure("thermal reference has a noncanonical or duplicate zone ID"))
     }
 
-    seen_zones = set.add(seen_zones, f"{id}")
+    seen_zones = seen_zones.add(f"{id}")
     let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       return Err(check_failure(f"thermal reference attributes for {zone_name} are incomplete"))
     }
 
     var trip_indices: List[Int] = []
-    var seen_trips = set.empty()
+    var seen_trips: Set[Str] = set.empty()
     for attribute in attributes.children {
       let name = attribute.name()
       continue when ! name.starts_with("trip_point_") or ! name.ends_with("_temp")
@@ -10895,7 +10895,7 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
         return Err(check_failure("thermal reference has a noncanonical or duplicate trip index"))
       }
 
-      seen_trips = set.add(seen_trips, f"{trip_index}")
+      seen_trips = seen_trips.add(f"{trip_index}")
       trip_indices += [trip_index]
     }
 
@@ -11177,12 +11177,12 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
   }
 
   var rows: List[PciBindingReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for device_path in listing.children {
     let address = pci_reference_bdf(device_path.name())?.address
     return Err(check_failure("PCI binding reference repeats a BDF")) when address in seen
 
-    seen = set.add(seen, address)
+    seen = seen.add(address)
     let entry = root.readlink(device_path)?
     let attributes = root.children(device_path, max_entries: 4096)?
     if attributes.state != "complete" {
@@ -11254,12 +11254,12 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
   }
 
   var rows: List[PciLinkReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for device_path in listing.children {
     let address = pci_reference_bdf(device_path.name())?.address
     return Err(check_failure("PCI link reference repeats a BDF")) when address in seen
 
-    seen = set.add(seen, address)
+    seen = seen.add(address)
     rows += [
       {
         address: address,
@@ -11945,8 +11945,8 @@ pure ip_link_operstate(value: Str) -> Result[Str] {
 export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference], Error] {
   let rows = json.decode(output)?.require(List[Record])?
   var links: List[IpLinkReference] = []
-  var ids = set.empty()
-  var names = set.empty()
+  var ids: Set[Str] = set.empty()
+  var names: Set[Str] = set.empty()
   if rows.len() > 65536 {
     return Err(check_failure("ip link reference contains too many interfaces"))
   }
@@ -11971,15 +11971,15 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference], Err
       return Err(check_failure("ip link reference has a duplicate interface identity"))
     }
 
-    ids = set.add(ids, id_key)
-    names = set.add(names, name)
-    var flag_seen = set.empty()
+    ids = ids.add(id_key)
+    names = names.add(name)
+    var flag_seen: Set[Str] = set.empty()
     for flag in flags {
       if flag == "" or flag in flag_seen {
         return Err(check_failure("ip link reference has an invalid flag list"))
       }
 
-      flag_seen = set.add(flag_seen, flag)
+      flag_seen = flag_seen.add(flag)
     }
 
     var operstate: Str? = null
@@ -12038,7 +12038,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     position += 1
   }
 
-  var reference_ids = set.empty()
+  var reference_ids: Set[Str] = set.empty()
   var reference_by_name: Map[Int] = {}
   for link in reference {
     if link.name in reference_by_name {
@@ -12057,7 +12057,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
       return Err(check_failure("ip link reference has a duplicate interface index"))
     }
 
-    reference_ids = set.add(reference_ids, id_key)
+    reference_ids = reference_ids.add(id_key)
     if id_key not in candidate_by_id {
       missing_ids += [link.ifindex]
       continue
@@ -12245,15 +12245,15 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
   }
 
   var links: List[NetworkLinkRawReference] = []
-  var seen_indices = set.empty()
-  var seen_names = set.empty()
+  var seen_indices: Set[Str] = set.empty()
+  var seen_names: Set[Str] = set.empty()
   for entry in listing.children {
     let name = entry.name()
     if name == "" or name in seen_names {
       return Err(check_failure("network link reference has an invalid interface name"))
     }
 
-    seen_names = set.add(seen_names, name)
+    seen_names = seen_names.add(name)
     let ifindex = network_raw_number(root, fp"{entry}/ifindex", false, 9007199254740991)?
     if ! ifindex.complete or (ifindex.value ?? 0) <= 0 {
       return Err(check_failure(f"network link reference lacks an exact interface index for {name}"))
@@ -12264,7 +12264,7 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
       return Err(check_failure("network link reference repeats an interface index"))
     }
 
-    seen_indices = set.add(seen_indices, f"{index}")
+    seen_indices = seen_indices.add(f"{index}")
     let hardware_type = network_raw_number(root, fp"{entry}/type", false, 65535)?
     let flags = network_raw_number(root, fp"{entry}/flags", true, 4294967295)?
     let rx_bytes = network_raw_number(root, fp"{entry}/statistics/rx_bytes", false, 9007199254740991)?
@@ -12465,7 +12465,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
   let rows = json.decode(output)?.require(List[Record])?
   var addresses: List[IpAddressReference] = []
   var interfaces = set.empty()
-  var identities = set.empty()
+  var identities: Set[Str] = set.empty()
   if rows.len() > 65536 {
     return Err(check_failure("ip address reference contains too many interfaces"))
   }
@@ -12519,7 +12519,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
         return Err(check_failure("ip address reference has a duplicate address identity"))
       }
 
-      identities = set.add(identities, key)
+      identities = identities.add(key)
       addresses += [
         {
           ifindex: ifindex,
@@ -12567,7 +12567,7 @@ export pure compare_ip_addresses(
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
   let candidate_links = json.get(candidate_data, ["network", "links"])?.require(List[CandidateAddressLink])?
   var candidate_by_key: Map[CandidateIpAddress] = {}
-  var candidate_links_seen = set.empty()
+  var candidate_links_seen: Set[Str] = set.empty()
   var candidate_count = 0
   var candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   for link in candidate_links {
@@ -12576,7 +12576,7 @@ export pure compare_ip_addresses(
       return Err(check_failure("candidate network addresses have an invalid or duplicate interface index"))
     }
 
-    candidate_links_seen = set.add(candidate_links_seen, link_key)
+    candidate_links_seen = candidate_links_seen.add(link_key)
     for address in link.addresses {
       candidate_count += 1
       if address.address.state != "observed" or address.address.value == null {
@@ -12593,7 +12593,7 @@ export pure compare_ip_addresses(
     }
   }
 
-  var reference_keys = set.empty()
+  var reference_keys: Set[Str] = set.empty()
   var missing_keys: List[Str] = []
   var field_mismatches: List[Str] = []
   var matched_count = 0
@@ -12603,7 +12603,7 @@ export pure compare_ip_addresses(
       return Err(check_failure("ip address reference has a duplicate address identity"))
     }
 
-    reference_keys = set.add(reference_keys, key)
+    reference_keys = reference_keys.add(key)
     if key not in candidate_by_key {
       missing_keys += [key]
       continue
@@ -12648,7 +12648,7 @@ export pure compare_ip_address_lifetimes(
   let enumerated = json.get(data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
   let links = json.get(data, ["network", "links"])?.require(List[CandidateAddressLifetimeLink])?
   var observed_by_key: Map[CandidateAddressLifetime] = {}
-  var seen_links = set.empty()
+  var seen_links: Set[Str] = set.empty()
   var candidate_count = 0
   for link in links {
     let link_key = f"{link.ifindex}"
@@ -12656,7 +12656,7 @@ export pure compare_ip_address_lifetimes(
       return Err(check_failure("candidate address lifetime comparison has a duplicate link identity"))
     }
 
-    seen_links = set.add(seen_links, link_key)
+    seen_links = seen_links.add(link_key)
     for address in link.addresses {
       candidate_count += 1
       continue when address.address.state != "observed" or address.address.value == null
@@ -12679,7 +12679,7 @@ export pure compare_ip_address_lifetimes(
     after_by_key = after_by_key.set(key, address)
   }
 
-  var seen_before = set.empty()
+  var seen_before: Set[Str] = set.empty()
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   for address in before {
@@ -12688,7 +12688,7 @@ export pure compare_ip_address_lifetimes(
       return Err(check_failure("before address reference repeats an identity"))
     }
 
-    seen_before = set.add(seen_before, key)
+    seen_before = seen_before.add(key)
     if key not in after_by_key {
       unstable_fields += [f"{key}.presence"]
       continue
@@ -13015,7 +13015,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
     }
   }
 
-  var candidate_keys = set.empty()
+  var candidate_keys: Set[Str] = set.empty()
   var candidate_key_list: List[Str] = []
   var comparable_count = 0
   var unscored_family_count = 0
@@ -13136,11 +13136,11 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       return Err(check_failure("candidate network rules have duplicate static selectors"))
     }
 
-    candidate_keys = set.add(candidate_keys, key)
+    candidate_keys = candidate_keys.add(key)
     candidate_key_list += [key]
   }
 
-  var reference_keys = set.empty()
+  var reference_keys: Set[Str] = set.empty()
   var missing_keys: List[Str] = []
   var matched_count = 0
   for rule in reference {
@@ -13149,7 +13149,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       return Err(check_failure("ip rule reference has duplicate static selectors"))
     }
 
-    reference_keys = set.add(reference_keys, key)
+    reference_keys = reference_keys.add(key)
     if key in candidate_keys {
       matched_count += 1
     } else {
@@ -13592,7 +13592,7 @@ export pure compare_ip_routes(
     }
   }
 
-  var candidate_keys = set.empty()
+  var candidate_keys: Set[Str] = set.empty()
   var candidate_key_list: List[Str] = []
   for route_index in range(candidate.len()) {
     let route = candidate[route_index]
@@ -13710,11 +13710,11 @@ export pure compare_ip_routes(
       return Err(check_failure("candidate network routes have duplicate static identities"))
     }
 
-    candidate_keys = set.add(candidate_keys, key)
+    candidate_keys = candidate_keys.add(key)
     candidate_key_list += [key]
   }
 
-  var reference_keys = set.empty()
+  var reference_keys: Set[Str] = set.empty()
   var missing_keys: List[Str] = []
   var matched_count = 0
   for route in reference {
@@ -13723,7 +13723,7 @@ export pure compare_ip_routes(
       return Err(check_failure("ip route reference has duplicate static identities"))
     }
 
-    reference_keys = set.add(reference_keys, key)
+    reference_keys = reference_keys.add(key)
     if key in candidate_keys {
       matched_count += 1
     } else {
@@ -13791,7 +13791,7 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference, Error] {
   var edges: List[BlockReferenceEdge] = []
   var by_name: Map[Int] = {}
   var by_major_minor: Map[Str] = {}
-  var edge_seen = set.empty()
+  var edge_seen: Set[Str] = set.empty()
   var cursor = 0
   while cursor < pending.len() {
     if pending.len() > 65536 {
@@ -13866,7 +13866,7 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference, Error] {
       let edge = BlockReferenceEdge(parent_name:, child_name: name, partition: kind == "part")
       let key = block_edge_key(edge)
       if key not in edge_seen {
-        edge_seen = set.add(edge_seen, key)
+        edge_seen = edge_seen.add(key)
         edges += [edge]
       }
 
@@ -13992,19 +13992,19 @@ export pure compare_block_devices(
   var matched_edges = 0
   var missing_edges = 0
   var unexpected_edges = 0
-  var reference_edges = set.empty()
+  var reference_edges: Set[Str] = set.empty()
   for edge in reference.edges {
-    reference_edges = set.add(reference_edges, block_edge_key(edge))
+    reference_edges = reference_edges.add(block_edge_key(edge))
   }
 
-  var candidate_edges = set.empty()
+  var candidate_edges: Set[Str] = set.empty()
   var candidate_edge_keys: List[Str] = []
   for child_index in range(candidates.len()) {
     let child = candidates[child_index]
     continue when child.name == null or child.name == ""
     let child_name = child.name
-    var slave_seen = set.empty()
-    var holder_seen = set.empty()
+    var slave_seen: Set[Str] = set.empty()
+    var holder_seen: Set[Str] = set.empty()
     if child.parent_device_index != null {
       let parent_index = child.parent_device_index ?? -1
       if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null {
@@ -14014,7 +14014,7 @@ export pure compare_block_devices(
       let parent_name = candidates[parent_index].name ?? ""
       let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: true})
       if edge_key not in candidate_edges {
-        candidate_edges = set.add(candidate_edges, edge_key)
+        candidate_edges = candidate_edges.add(edge_key)
         candidate_edge_keys += [edge_key]
       }
     }
@@ -14025,11 +14025,11 @@ export pure compare_block_devices(
         return Err(check_failure("candidate block report has an invalid slave index"))
       }
 
-      slave_seen = set.add(slave_seen, index_key)
+      slave_seen = slave_seen.add(index_key)
       let parent_name = candidates[parent_index].name ?? ""
       let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: false})
       if edge_key not in candidate_edges {
-        candidate_edges = set.add(candidate_edges, edge_key)
+        candidate_edges = candidate_edges.add(edge_key)
         candidate_edge_keys += [edge_key]
       }
     }
@@ -14040,11 +14040,11 @@ export pure compare_block_devices(
         return Err(check_failure("candidate block report has an invalid holder index"))
       }
 
-      holder_seen = set.add(holder_seen, index_key)
+      holder_seen = holder_seen.add(index_key)
       let holder_name = candidates[holder_index].name ?? ""
       let edge_key = block_edge_key({parent_name: child_name, child_name: holder_name, partition: false})
       if edge_key not in candidate_edges {
-        candidate_edges = set.add(candidate_edges, edge_key)
+        candidate_edges = candidate_edges.add(edge_key)
         candidate_edge_keys += [edge_key]
       }
     }
@@ -14114,7 +14114,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
   }
 
   var devices: List[BlockQueueReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for row in raw.require(List[Record])? {
     let name = json.get(row, ["kname"])?.require(Str)?
     let kind = json.get(row, ["type"], null).require(Str?)?
@@ -14131,7 +14131,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
       return Err(check_failure("lsblk queue reference has a duplicate identity or unsafe value"))
     }
 
-    seen = set.add(seen, name)
+    seen = seen.add(name)
     devices += [
       {
         name: name,
@@ -14187,7 +14187,7 @@ export pure compare_block_queue_fields(
     reference_by_name = reference_by_name.set(name, index)
   }
 
-  var candidate_seen = set.empty()
+  var candidate_seen: Set[Str] = set.empty()
   var candidate_field_missing = false
   var matched_count = 0
   var unexpected_names: List[Str] = []
@@ -14208,7 +14208,7 @@ export pure compare_block_queue_fields(
       return Err(check_failure("candidate queue report has duplicate identity"))
     }
 
-    candidate_seen = set.add(candidate_seen, name)
+    candidate_seen = candidate_seen.add(name)
     if name not in reference_by_name {
       unexpected_names += [name]
       continue
@@ -14358,14 +14358,14 @@ export proc read_block_queue_sources(
   queue: List[BlockQueueReference],
 ) [fs, error] -> Result[List[BlockQueueSources], Error] {
   var sources: List[BlockQueueSources] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for device in queue {
     let name = device.name
     if name == "" or name in [".", ".."] or "/" in name or name in seen {
       return Err(check_failure("block reference has an unsafe or duplicate kernel name"))
     }
 
-    seen = set.add(seen, name)
+    seen = seen.add(name)
     let firmware_primary = bounded_block_reference_text(root, fp"sys/class/block/{name}/device/firmware_rev")?
     let firmware = if firmware_primary == null {
       bounded_block_reference_text(root, fp"sys/class/block/{name}/device/rev")?
@@ -14658,7 +14658,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
 
   var devices: List[BlockRawDevice] = []
   var edges: List[BlockReferenceEdge] = []
-  var edge_seen = set.empty()
+  var edge_seen: Set[Str] = set.empty()
   var queue: List[BlockQueueReference] = []
   for entry in layout.entries {
     let name = entry.name
@@ -14730,7 +14730,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       let key = block_edge_key(edge)
       if key not in edge_seen {
         edges += [edge]
-        edge_seen = set.add(edge_seen, key)
+        edge_seen = edge_seen.add(key)
       }
     }
 
@@ -14755,7 +14755,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
         let key = block_edge_key(edge)
         if key not in edge_seen {
           edges += [edge]
-          edge_seen = set.add(edge_seen, key)
+          edge_seen = edge_seen.add(key)
         }
       }
     }
@@ -14932,7 +14932,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     }
   }
 
-  var candidate_edges = set.empty()
+  var candidate_edges: Set[Str] = set.empty()
   var candidate_edge_keys: List[Str] = []
   for child in candidates {
     let child_name = child.name ?? ""
@@ -14945,7 +14945,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
       let edge = {parent_name: candidates[index].name ?? "", child_name: child_name, partition: true}
       let key = block_edge_key(edge)
       if key not in candidate_edges {
-        candidate_edges = set.add(candidate_edges, key)
+        candidate_edges = candidate_edges.add(key)
         candidate_edge_keys += [key]
       }
     }
@@ -14958,7 +14958,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
       let edge = {parent_name: candidates[parent_index].name ?? "", child_name: child_name, partition: false}
       let key = block_edge_key(edge)
       if key not in candidate_edges {
-        candidate_edges = set.add(candidate_edges, key)
+        candidate_edges = candidate_edges.add(key)
         candidate_edge_keys += [key]
       }
     }
@@ -14971,13 +14971,13 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
       let edge = {parent_name: child_name, child_name: candidates[holder_index].name ?? "", partition: false}
       let key = block_edge_key(edge)
       if key not in candidate_edges {
-        candidate_edges = set.add(candidate_edges, key)
+        candidate_edges = candidate_edges.add(key)
         candidate_edge_keys += [key]
       }
     }
   }
 
-  var reference_edges = set.empty()
+  var reference_edges: Set[Str] = set.empty()
   var matched_edges = 0
   var missing_edges = 0
   for edge in reference.edges {
@@ -14986,7 +14986,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
       return Err(check_failure("block raw reference repeats an edge"))
     }
 
-    reference_edges = set.add(reference_edges, key)
+    reference_edges = reference_edges.add(key)
     if key in candidate_edges {
       matched_edges += 1
     } else {
@@ -15171,13 +15171,13 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
     return Err(check_failure("block capture layout differs from metadata"))
   }
 
-  var changed_seen = set.empty()
+  var changed_seen: Set[Str] = set.empty()
   for relative in capture.changing_stats {
     if ! relative.ends_with("/stat") or relative not in layout.source_paths or relative in changed_seen {
       return Err(check_failure("block changing stat metadata is invalid"))
     }
 
-    changed_seen = set.add(changed_seen, relative)
+    changed_seen = changed_seen.add(relative)
   }
 
   for index in range(layout.source_paths.len()) {
@@ -15292,7 +15292,7 @@ export pure compare_block_queue_sources(
     }
   }
 
-  var candidate_seen = set.empty()
+  var candidate_seen: Set[Str] = set.empty()
   var candidate_field_missing = false
   var matched_count = 0
   var unexpected_names: List[Str] = []
@@ -15309,7 +15309,7 @@ export pure compare_block_queue_sources(
       return Err(check_failure("candidate block source report has duplicate identity"))
     }
 
-    candidate_seen = set.add(candidate_seen, name)
+    candidate_seen = candidate_seen.add(name)
     if name not in before_by_name {
       unexpected_names += [name]
       continue
@@ -15554,7 +15554,7 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
   }
 
   var mounts: List[MountReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for line in source.lines() {
     if mounts.len() >= 65536 {
       return Err(check_failure("mountinfo reference exceeds the row bound"))
@@ -15590,7 +15590,7 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
       return Err(check_failure("mountinfo reference has an invalid or duplicate mount ID"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     var optional_fields = [fields[index] for index in range(6, separator)]
     let safe_optional_fields = reference_mount_sanitized_optional_fields(optional_fields)
     let propagation = reference_mount_propagation(safe_optional_fields)
@@ -15741,7 +15741,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference], Erro
 
   let rows = raw.require(List[Record])?
   var mounts: List[MountReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for row in rows {
     for field in [
       "id",
@@ -15783,7 +15783,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference], Erro
       return Err(check_failure("findmnt reference has an invalid or duplicate mount row"))
     }
 
-    seen = set.add(seen, identity)
+    seen = seen.add(identity)
     mounts += [
       {
         mount_id: mount_id,
@@ -15843,7 +15843,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     reference_by_id = reference_by_id.set(key, index)
   }
 
-  var candidate_seen = set.empty()
+  var candidate_seen: Set[Str] = set.empty()
   var matched_count = 0
   var unexpected_ids: List[Int] = []
   var field_mismatches: List[Int] = []
@@ -15860,7 +15860,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
       return Err(check_failure("candidate mount report has invalid or duplicate ID"))
     }
 
-    candidate_seen = set.add(candidate_seen, key)
+    candidate_seen = candidate_seen.add(key)
     if key not in reference_by_id {
       unexpected_ids += [mount.mount_id]
       continue
@@ -15969,7 +15969,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
   var eligible: List[Int] = []
   for mount in mounts {
     var current_id = mount.mount_id
-    var seen = set.empty()
+    var seen: Set[Str] = set.empty()
     var safe = true
     var depth = 0
     while depth < mounts.len() {
@@ -15979,7 +15979,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
         break
       }
 
-      seen = set.add(seen, key)
+      seen = seen.add(key)
       let current = mounts[by_id.get(key) ?? -1]
       if ! mount_usage_local_filesystem(current.filesystem) or (target_counts.get(current.target) ?? 0) != 1 {
         safe = false
@@ -16083,12 +16083,12 @@ export pure compare_mount_usage(
 
   let data = json.decode(candidate_json)?
   let candidates = json.get(data, ["storage", "mounts"])?.require(List[CandidateMountUsage])?
-  var expected_ids = set.empty()
+  var expected_ids: Set[Str] = set.empty()
   for mount in mounts {
-    expected_ids = set.add(expected_ids, f"{mount.mount_id}")
+    expected_ids = expected_ids.add(f"{mount.mount_id}")
   }
 
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var mismatched_ids: List[Int] = []
   var matched_count = 0
   var unstable = false
@@ -16098,7 +16098,7 @@ export pure compare_mount_usage(
       return Err(check_failure("candidate mount usage has unexpected or duplicate ID"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     var matches = false
     if candidate.mount_id in eligible {
       let first = before[before_by_id.get(key) ?? -1]
@@ -16175,7 +16175,7 @@ export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModu
   return [] when raw == ""
 
   var modules: List[KernelModuleReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   let lines = raw.split("\n")
   for row in lines |> enumerate() {
     continue when row.index == lines.len() - 1 and row.value == ""
@@ -16186,7 +16186,7 @@ export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModu
 
     let size = reference_module_number(words[1])?
     let users: Int? = if words[2] == "-" { null } else { reference_module_number(words[2])? }
-    seen = set.add(seen, words[0])
+    seen = seen.add(words[0])
     modules += [{name: words[0], size_bytes: size, users: users, state: words[4]}]
   }
 
@@ -16215,7 +16215,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
   }
 
   var modules: List[KernelModuleReference] = []
-  var raw_seen = set.empty()
+  var raw_seen: Set[Str] = set.empty()
   if raw.trim() != "" {
     for line in raw.trim().split("\n") {
       let words = module_reference_words(line)
@@ -16229,7 +16229,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
         return Err(check_failure("lsmod and proc module facts disagree"))
       }
 
-      raw_seen = set.add(raw_seen, words[0])
+      raw_seen = raw_seen.add(words[0])
       modules += [{name: words[0], size_bytes: size, users: users, state: words[4]}]
     }
   }
@@ -16298,7 +16298,7 @@ export pure compare_kernel_modules(
     reference_by_name = reference_by_name.set(name, index)
   }
 
-  var candidate_seen = set.empty()
+  var candidate_seen: Set[Str] = set.empty()
   var matched_count = 0
   var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
@@ -16310,7 +16310,7 @@ export pure compare_kernel_modules(
       return Err(check_failure("candidate module report has duplicate or empty identity"))
     }
 
-    candidate_seen = set.add(candidate_seen, module_item.name)
+    candidate_seen = candidate_seen.add(module_item.name)
     if module_item.name not in reference_by_name {
       unexpected_names += [module_item.name]
       continue
@@ -16637,7 +16637,7 @@ export pure compare_kernel_parameters(
     candidates += [{source: "module", name: value.name, value: value.value}]
   }
 
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var matched_count = 0
   var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
@@ -16647,7 +16647,7 @@ export pure compare_kernel_parameters(
       return Err(check_failure("candidate kernel parameters contain an empty or duplicate identity"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     if key not in reference_by_key {
       unexpected_names += [key]
       continue
@@ -18500,7 +18500,7 @@ export pure parse_cgroup2_limit(output: Str) -> Result[Cgroup2LimitReference, Er
 ## Decodes the named CPU counters the report exports from a complete cpu.stat source.
 export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterReference], Error] {
   var counters: List[Cgroup2CounterReference] = []
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for line in output.lines() {
     let fields = cgroup2_reference_words(line)
     continue when fields.is_empty()
@@ -18523,7 +18523,7 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
       return Err(check_failure("cgroup2 cpu.stat reference repeats a counter"))
     }
 
-    seen = set.add(seen, name)
+    seen = seen.add(name)
     counters += [
       {
         resource: f"cpu.stat.{name}",
@@ -18539,7 +18539,7 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
 ## Decodes per-device I/O counters while rejecting ambiguous device and field identities.
 export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterReference], Error] {
   var counters: List[Cgroup2CounterReference] = []
-  var devices = set.empty()
+  var devices: Set[Str] = set.empty()
   for line in output.lines() {
     let fields = cgroup2_reference_words(line)
     continue when fields.is_empty()
@@ -18553,8 +18553,8 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
       let _ = cgroup2_reference_number(part)?
     }
 
-    devices = set.add(devices, device)
-    var seen_fields = set.empty()
+    devices = devices.add(device)
+    var seen_fields: Set[Str] = set.empty()
     for item in fields |> drop(1) {
       let pair = item.split("=", maxsplit: 1)
       if pair.len() != 2 {
@@ -18566,7 +18566,7 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
         return Err(check_failure("cgroup2 io.stat reference repeats a device counter"))
       }
 
-      seen_fields = set.add(seen_fields, pair[0])
+      seen_fields = seen_fields.add(pair[0])
       counters += [
         {
           resource: f"io.stat.{device}.{pair[0]}",
@@ -19034,13 +19034,13 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
     return Err(check_failure("cgroup2 capture layout differs from metadata"))
   }
 
-  var changed_seen = set.empty()
+  var changed_seen: Set[Str] = set.empty()
   for relative in capture.changing_sources {
     if relative in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
       return Err(check_failure("cgroup2 changing source metadata is invalid"))
     }
 
-    changed_seen = set.add(changed_seen, relative)
+    changed_seen = changed_seen.add(relative)
   }
 
   for index in range(layout.paths.len()) {
@@ -19145,7 +19145,7 @@ export pure compare_cgroup2_resources(
 
   let data = json.decode(candidate_json)?
   let candidates = json.get(data, ["memory", "cgroup"])?.require(List[CandidateCgroup2Resource])?
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var matched = 0
   var unexpected: List[Str] = []
   var field_mismatches: List[Str] = []
@@ -19156,7 +19156,7 @@ export pure compare_cgroup2_resources(
       return Err(check_failure("candidate cgroup2 resources repeat an identity"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     if key not in before_by_key {
       unexpected += [key]
       continue
@@ -19254,7 +19254,7 @@ export pure compare_cpu_scope_cgroup(
     by_level = by_level.set(key, ancestor)
   }
 
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var mismatches: List[Str] = []
   var checked = 0
   for candidate in candidates {
@@ -19264,7 +19264,7 @@ export pure compare_cpu_scope_cgroup(
       return Err(check_failure("candidate CPU scope has duplicate resource identities"))
     }
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     checked += 1
     let level = f"{candidate.hierarchy_level}"
     if level not in by_level {
@@ -19812,12 +19812,12 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
     return Err(check_failure("process bundle PID listing differs"))
   }
 
-  var selected_names = set.empty()
+  var selected_names: Set[Str] = set.empty()
   for name in expected_names {
-    selected_names = set.add(selected_names, name)
+    selected_names = selected_names.add(name)
   }
 
-  var skipped_names = set.empty()
+  var skipped_names: Set[Str] = set.empty()
   for skip in capture.skipped {
     if skip.name == "" or (skip.name.split("")
       |> any { |part|
@@ -19826,7 +19826,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
       return Err(check_failure("process bundle skipped PID metadata is invalid"))
     }
 
-    skipped_names = set.add(skipped_names, skip.name)
+    skipped_names = skipped_names.add(skip.name)
   }
 
   var source_by_path: Map[ProcessBundleSource] = {}
@@ -19838,14 +19838,14 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
     source_by_path = source_by_path.set(item.path, item)
   }
 
-  var seen_pids = set.empty()
+  var seen_pids: Set[Str] = set.empty()
   for pid in capture.pids {
     let pid_key = f"{pid}"
     if pid <= 0 or pid > 9007199254740991 or pid_key in seen_pids {
       return Err(check_failure("process bundle has an invalid or duplicate PID"))
     }
 
-    seen_pids = set.add(seen_pids, pid_key)
+    seen_pids = seen_pids.add(pid_key)
     for field in [
       {
         name: "cgroup",

@@ -50,7 +50,7 @@ proc main(...argv: List[Str]) [fs, error] {
     ]
   }
 
-  let scan_ext_set = set.from(scan_exts)
+  let scan_ext_set: Set[Str] = set.from(scan_exts)
   let re = rx"\b(TODO|FIXME|HACK|XXX|NOTE)\b[:\s]*(.*)"
 
   let files = fs.files(root)

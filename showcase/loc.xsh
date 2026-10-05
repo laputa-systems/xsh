@@ -4,7 +4,7 @@
 # Usage: xsh showcase/loc.xsh -- [ROOT] [EXT...]
 # Example: xsh showcase/loc.xsh -- src rs xsh
 proc main(root = p".", ...exts: List[Str]) [fs, error] {
-  let ext_set = set.from(exts)
+  let ext_set: Set[Str] = set.from(exts)
 
   # Stream into a per-extension {files, lines} accumulator instead of buffering
   # every file with `group-by`: O(distinct extensions) live, and the per-file

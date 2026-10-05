@@ -73,12 +73,13 @@ Usage:
 xsht lint — Run quality checks and optional fixes
 
 Usage:
-  xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]
+  xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [--deny-notes] [FILE...]
   xsht lint --list [--format text|jsonl]
 
   --fix                  Apply safe autofixes
   --only RULE[,RULE...]  Report and fix only the named lint codes
   --runless              Reject external commands unless configured
+  --deny-notes           Exit 1 when a note is reported
   --list                 List every selectable code with a summary
   --format FORMAT        text or jsonl, with --list
 ```

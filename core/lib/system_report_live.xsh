@@ -745,13 +745,13 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
   }
 
   var current_id = mount_id
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   var depth = 0
   while depth < index.rows.len() {
     let key = f"{current_id}"
     return false when key in seen
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
     let row_index = index.by_id.get(current_id) ?? -1
     return false when row_index < 0
 
@@ -929,9 +929,9 @@ proc collect_storage(
   let pci_indices = pci_function_indices(pci_functions)
   var issues: List[report.CollectionIssue] = []
   var candidates: List[BlockCandidate] = []
-  var listed_names = set.empty()
+  var listed_names: Set[Str] = set.empty()
   for device_path in listing.children {
-    listed_names = set.add(listed_names, device_path.name())
+    listed_names = listed_names.add(device_path.name())
   }
 
   if listing.state != "complete" {
@@ -1786,7 +1786,7 @@ proc collect_sensors(
     }
 
     var trip_indices: List[Int] = []
-    var seen_trip_indices = set.empty()
+    var seen_trip_indices: Set[Str] = set.empty()
     for attribute in attributes.children {
       let attribute_name = attribute.name()
       continue when ! attribute_name.starts_with("trip_point_") or ! attribute_name.ends_with("_temp")
@@ -1804,7 +1804,7 @@ proc collect_sensors(
         continue
       }
 
-      seen_trip_indices = set.add(seen_trip_indices, f"{trip_number}")
+      seen_trip_indices = seen_trip_indices.add(f"{trip_number}")
       trip_indices += [trip_number]
     }
 
@@ -2391,7 +2391,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
   let source = read_value(root, p"proc/modules", max_bytes: 1048576)
   var issues: List[report.CollectionIssue] = []
   var modules: List[report.KernelModule] = []
-  var seen_modules = set.empty()
+  var seen_modules: Set[Str] = set.empty()
   if command_line.observation.state != .Observed {
     issues += [
       issue("kernel", "command_line", command_line.observation.state, command_line.error_kind, command_line.errno),
@@ -2435,7 +2435,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
         continue
       }
 
-      seen_modules = set.add(seen_modules, columns[0])
+      seen_modules = seen_modules.add(columns[0])
       let users: Int? = if users_unavailable { null } else { users_number }
       modules += [{name: columns[0], size_bytes: size, users: users, state: columns[4]}]
     }
@@ -4924,19 +4924,19 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
     issues += [issue("memory", "meminfo", report.Malformed, "empty_meminfo", null)]
   } else {
     let meminfo_lines = source.observation.value.lines()
-    var seen_names = set.empty()
-    var duplicate_names = set.empty()
+    var seen_names: Set[Str] = set.empty()
+    var duplicate_names: Set[Str] = set.empty()
     for line in meminfo_lines {
       let pair = line.split(":", maxsplit: 1)
       continue when pair.len() != 2
       let name = pair[0].trim()
       continue when name == ""
       if name in seen_names and name not in duplicate_names {
-        duplicate_names = set.add(duplicate_names, name)
+        duplicate_names = duplicate_names.add(name)
         issues += [issue("memory", f"meminfo.{name}", report.Malformed, "duplicate_field", null)]
       }
 
-      seen_names = set.add(seen_names, name)
+      seen_names = seen_names.add(name)
     }
 
     for line_item in meminfo_lines |> enumerate() {
@@ -5026,7 +5026,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
   let swaps_source = read_value(root, p"proc/swaps", max_bytes: 262144)
   var swaps: List[report.SwapDevice] = []
-  var seen_swaps = set.empty()
+  var seen_swaps: Set[Str] = set.empty()
   if swaps_source.observation.state != .Observed or swaps_source.observation.value == null {
     issues += [issue("memory", "swaps", swaps_source.observation.state, swaps_source.error_kind, swaps_source.errno)]
   } else {
@@ -5083,7 +5083,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
           continue
         }
 
-        seen_swaps = set.add(seen_swaps, name)
+        seen_swaps = seen_swaps.add(name)
         swaps += [
           {
             name: {
@@ -5734,8 +5734,8 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
 
     let cpu_stat = read_value(root, fp"{source_path}/cpu.stat", max_bytes: 16384)
     if cpu_stat.observation.state == .Observed and cpu_stat.observation.value != null {
-      var seen_cpu_stat = set.empty()
-      var duplicate_cpu_stat = set.empty()
+      var seen_cpu_stat: Set[Str] = set.empty()
+      var duplicate_cpu_stat: Set[Str] = set.empty()
       for line in cpu_stat.observation.value.lines() {
         let fields = parse_words(line)
         if fields.len() == 2 and fields[0] in [
@@ -5749,7 +5749,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           "burst_usec",
         ] {
           if fields[0] in seen_cpu_stat and fields[0] not in duplicate_cpu_stat {
-            duplicate_cpu_stat = set.add(duplicate_cpu_stat, fields[0])
+            duplicate_cpu_stat = duplicate_cpu_stat.add(fields[0])
             issues += [
               issue(
                 "memory",
@@ -5761,7 +5761,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
             ]
           }
 
-          seen_cpu_stat = set.add(seen_cpu_stat, fields[0])
+          seen_cpu_stat = seen_cpu_stat.add(fields[0])
         }
       }
 
@@ -5929,13 +5929,13 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
 
     let io_stat = read_value(root, fp"{source_path}/io.stat", max_bytes: 262144)
     if io_stat.observation.state == .Observed and io_stat.observation.value != null {
-      var seen_io_devices = set.empty()
-      var duplicate_io_devices = set.empty()
+      var seen_io_devices: Set[Str] = set.empty()
+      var duplicate_io_devices: Set[Str] = set.empty()
       for line in io_stat.observation.value.lines() {
         let fields = parse_words(line)
         if fields.len() >= 1 {
           if fields[0] in seen_io_devices and fields[0] not in duplicate_io_devices {
-            duplicate_io_devices = set.add(duplicate_io_devices, fields[0])
+            duplicate_io_devices = duplicate_io_devices.add(fields[0])
             issues += [
               issue(
                 "memory",
@@ -5947,7 +5947,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
             ]
           }
 
-          seen_io_devices = set.add(seen_io_devices, fields[0])
+          seen_io_devices = seen_io_devices.add(fields[0])
         }
       }
 
@@ -5964,13 +5964,13 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
         }
 
         continue when fields[0] in duplicate_io_devices
-        var seen_io_fields = set.empty()
-        var duplicate_io_fields = set.empty()
+        var seen_io_fields: Set[Str] = set.empty()
+        var duplicate_io_fields: Set[Str] = set.empty()
         for item in fields |> drop(1) {
           let pair = item.split("=", maxsplit: 1)
           if pair.len() == 2 and pair[0] in ["rbytes", "wbytes", "rios", "wios", "dbytes", "dios"] {
             if pair[0] in seen_io_fields and pair[0] not in duplicate_io_fields {
-              duplicate_io_fields = set.add(duplicate_io_fields, pair[0])
+              duplicate_io_fields = duplicate_io_fields.add(pair[0])
               issues += [
                 issue(
                   "memory",
@@ -5982,7 +5982,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
               ]
             }
 
-            seen_io_fields = set.add(seen_io_fields, pair[0])
+            seen_io_fields = seen_io_fields.add(pair[0])
           }
         }
 

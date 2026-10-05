@@ -41,7 +41,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let re = regex.compile(opts.pattern)?
   let root = opts.root.resolve()?
   let exts = if opts.ext.is_empty() { ["xsh", "txt", "md"] } else { opts.ext }
-  let ext_set = set.from(exts)
+  let ext_set: Set[Str] = set.from(exts)
 
   if opts.verbose {
     print f"pattern: {opts.pattern}"

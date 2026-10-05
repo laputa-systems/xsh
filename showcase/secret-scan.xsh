@@ -58,7 +58,7 @@ proc main(...argv: List[Str]) [fs, error] {
     ]
   }
 
-  let scan_ext_set = set.from(scan_exts)
+  let scan_ext_set: Set[Str] = set.from(scan_exts)
 
   # Static patterns are prepared before scanning.
   let patterns = [

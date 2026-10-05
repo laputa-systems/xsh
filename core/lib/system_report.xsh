@@ -306,12 +306,12 @@ export pure parse_cpu_list(text: Str) -> Result[List[Int], Error] {
     return Err(cpu_list_error("CPU list contains no identifiers"))
   }
 
-  var seen = set.empty()
+  var seen: Set[Str] = set.empty()
   for identifier in identifiers {
     let key = f"{identifier}"
     return Err(cpu_list_error("CPU list contains a duplicate identifier")) when key in seen
 
-    seen = set.add(seen, key)
+    seen = seen.add(key)
   }
 
   identifiers |> sort-by .
@@ -2186,7 +2186,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
     )
   }
 
-  var class_keys = set.empty()
+  var class_keys: Set[Str] = set.empty()
   for device in report.devices.devices {
     if device.parent_device_class_index != null and ((device.parent_device_class_index ?? -1) < 0 or (device.parent_device_class_index ?? -1) >= report.devices.devices.len()) {
       return Err(SystemReportError.InvalidJson("device-class parent index is outside the report"))
@@ -2213,11 +2213,11 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
         )
       }
 
-      class_keys = set.add(class_keys, key)
+      class_keys = class_keys.add(key)
     }
   }
 
-  var sensor_keys = set.empty()
+  var sensor_keys: Set[Str] = set.empty()
   for channel in report.sensors.channels {
     if channel.parent_pci_function_index != null and ((channel.parent_pci_function_index ?? -1) < 0 or (channel.parent_pci_function_index ?? -1) >= report.pci.functions.len()) {
       return Err(SystemReportError.InvalidJson("hwmon PCI parent index is outside the report"))
@@ -2240,7 +2240,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
         )
       }
 
-      sensor_keys = set.add(sensor_keys, key)
+      sensor_keys = sensor_keys.add(key)
     }
   }
 
@@ -2284,7 +2284,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
     }
   }
 
-  var idle_keys = set.empty()
+  var idle_keys: Set[Str] = set.empty()
   for state in report.cpu.idle_states {
     if state.state_index != null {
       let index = state.state_index ?? -1
@@ -2298,7 +2298,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
           return Err(SystemReportError.InvalidJson("CPUIdle states must have unique CPU and state indexes"))
         }
 
-        idle_keys = set.add(idle_keys, key)
+        idle_keys = idle_keys.add(key)
       }
     }
   }
