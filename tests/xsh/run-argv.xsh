@@ -18,7 +18,7 @@ test test_spliced_target_in_every_run_form {
   assert status.exited_with(3)
   let captured = run.capture --text @(["sh", "-c", "printf out; printf err >&2"])
   assert captured.stdout == "out" and captured.stderr == "err"
-  let lines = (run.stream --text @(["printf", "a\nb\n"]))? |> collect()
+  let lines = run.stream --text @(["printf", "a\nb\n"]) |> collect()
   assert lines == ["a", "b"]
   let upper = run.text @(["printf", "piped"]) | run @(["tr", "a-z", "A-Z"])
   assert upper == "PIPED"

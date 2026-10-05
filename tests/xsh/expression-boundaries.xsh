@@ -65,7 +65,7 @@ print shout(greeting() ?)
 }
 
 test test_a_run_form_heads_a_pipeline_in_any_position { |ctx|
-  let count = (run.stream --text printf "a\nb\n")? |> count()
+  let count = run.stream --text printf "a\nb\n" |> count()
   assert count == 2
   let words = (run.text printf "x y").split(" ")
   assert words == ["x", "y"]
