@@ -7,6 +7,6 @@ pure scalar_label(v: Any) -> Result[Str, JsonShape] {
     i is Int => f"integer {i}"
     f is Float => f"float {f}"
     s is Str => f"string of {s.count_chars()} characters"
-    _ => Err(JsonShape.NotScalar(message: "expected a scalar"))
+    else => Err(JsonShape.NotScalar(message: "expected a scalar"))
   }
 }

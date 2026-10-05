@@ -1398,6 +1398,26 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The prefix must match the path boundary; unrelated paths return an error.",
             &["path", "relative"],
         )),
+        ("Path", "starts_with") => Some((
+            "Tests whether a path begins with the components of another path.",
+            "Whole components are compared, never bytes: `/usr/lib` starts with `/usr` and not with `/us`, and `starts_with(p\"/\")` holds exactly for absolute paths. True exactly when strip_prefix succeeds; lexical, with no filesystem access.",
+            &["path", "component", "prefix"],
+        )),
+        ("Path", "ends_with") => Some((
+            "Tests whether a path ends with the components of another path.",
+            "Whole components are compared, never bytes: `a/b.txt` ends with `b.txt` and not with `txt`, and an absolute suffix matches only an equal path. Use ext for an extension test; lexical, with no filesystem access.",
+            &["path", "component", "suffix"],
+        )),
+        ("Path", "components") => Some((
+            "Splits a path into its components, each a Path.",
+            "The components starts_with, ends_with, and strip_prefix compare: a root is the component `/`, repeated and trailing separators and a `.` after the first component yield nothing, `..` is kept, and the empty path has none. Native bytes are preserved; lexical, with no filesystem access.",
+            &["path", "component", "split"],
+        )),
+        ("Path", "bytes") => Some((
+            "Returns the native bytes of a path.",
+            "Lossless: Path.parse_bytes of the result is the same path. Use it where bytes are wanted (hashing, binary formats) instead of encoding display text, which replaces bytes that are not UTF-8.",
+            &["path", "bytes", "conversion"],
+        )),
         ("Path", "with_ext") => Some((
             "Replaces a path extension.",
             "The operation changes spelling only and does not rename or touch the filesystem path.",
@@ -1423,6 +1443,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The operation preserves arbitrary file bytes and does not perform UTF-8 validation.",
             &["path", "filesystem", "bytes"],
         )),
+        ("Path", "read_lines") => Some((
+            "Reads a UTF-8 file into a list of its lines.",
+            "Exactly read_text()?.lines(): the whole file is read and decoded at the call, and lines carry no terminators. Use lines for a lazy stream consumed once.",
+            &["path", "filesystem", "utf8", "lines"],
+        )),
         ("Path", "lines") => Some((
             "Streams UTF-8 file lines.",
             "Line production is lazy and invalid UTF-8 remains an error at the text boundary.",
@@ -1437,6 +1462,21 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Writes text or bytes to a path.",
             "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call.",
             &["path", "filesystem", "write"],
+        )),
+        ("Path", "write_lines") => Some((
+            "Writes a list of text lines to a path, each followed by a newline.",
+            "Every element is terminated, so an empty list writes an empty file; elements are written as given. Creating, replacing, the file mode, and failures are those of write.",
+            &["path", "filesystem", "write", "lines"],
+        )),
+        ("Path", "glob") => Some((
+            "Expands a relative glob pattern below a path.",
+            "Each match is the receiver joined with the matched components, in byte order without duplicates, using the matcher of glob literals; the receiver is never read as a pattern. A missing root matches nothing; an empty or absolute pattern and an unreadable directory are errors.",
+            &["path", "filesystem", "glob", "pattern"],
+        )),
+        ("Path", "rglob") => Some((
+            "Expands a relative glob pattern at any depth below a path.",
+            "Exactly glob with `**/` before the pattern: hidden directories are entered and symbolic links to directories are not followed.",
+            &["path", "filesystem", "glob", "pattern", "recursive"],
         )),
         ("Path", "copy") => Some((
             "Copies a path to an explicit destination.",

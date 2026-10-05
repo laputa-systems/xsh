@@ -23,6 +23,10 @@ pub(crate) fn migration_lint_code(code: Option<DiagnosticCode>) -> Option<Diagno
             Some(DiagnosticCode::LintCompatibilityVocabulary)
         }
         DiagnosticCode::ParseEnvScopeMigration => Some(DiagnosticCode::LintEnvScope),
+        DiagnosticCode::CheckPublicResultError => Some(DiagnosticCode::LintPublicResultError),
+        DiagnosticCode::CheckPositionalErrorArguments => {
+            Some(DiagnosticCode::LintPositionalErrorArguments)
+        }
         _ => None,
     }
 }

@@ -94,7 +94,8 @@ fn local_capture_helpers_decline_references_captures_control_and_promises() {
         format!("{body}{use_site}let other = read_port()\n"),
         format!("{body}{use_site}let other = {{read_port}}\n"),
         format!("{body}{use_site}let alias = read_port\n"),
-        format!("export {body}{use_site}"),
+        // An export spells its error type; it is still not a local helper.
+        format!("export proc read_port() [error] -> Result[Int, Error] {{ \"7\".parse_int()? }}\n{use_site}"),
         format!("{body}print before\n{use_site}"),
         format!("# Keep the callable boundary.\n{body}{use_site}"),
         format!("proc read_port() [error] -> Result[Int] {{ # explain parsing\n \"7\".parse_int()? }}\n{use_site}"),

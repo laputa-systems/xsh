@@ -31,7 +31,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   print f"CPU     {cpu.count()}"
   print f"Memory  {bytes.human(mem_used)} / {bytes.human(memory.total)} ({ratio_text(mem_used, memory.total)})"
 
-  if let Ok(shell) = env.get("SHELL") {
+  if let Ok(shell) = e"SHELL" {
     print f"Shell   {shell}"
   }
 

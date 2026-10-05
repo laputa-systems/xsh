@@ -478,8 +478,9 @@ e"STAGE" = "build" # set for the rest of the script
 env LC_ALL=C {
   e"STAGE" = "test" # undone when this scope ends
   e"RETRIES" = 3 # converted like an argv item
-  let seen = run.text printenv STAGE RETRIES ?
-  print f"child sees: {seen.lines().join(" ")}"
+  let stage = run.text printenv STAGE ?
+  let retries = run.text printenv RETRIES ?
+  print f"child sees: {stage.trim()} {retries.trim()}"
 }
 
 print f"after the scope: STAGE={e"STAGE"?} RETRIES={e"RETRIES" ?? "(unset)"}"
@@ -569,7 +570,7 @@ for role in fleet |> group-by .role {
 match "deploy web-2 --force".fields() {
   ["deploy", target, ..flags] => print f"deploy {target} with {flags.len()} flag(s)"
   ["status"] => print "status"
-  _ => print "usage: deploy TARGET | status"
+  else => print "usage: deploy TARGET | status"
 }
 ```
 
@@ -840,6 +841,8 @@ for {now, delta} in busiest {
 The greedy `(.*)` matches up to the last `)` on the line, so the command name
 can contain anything. `guard let` binds an `Ok` value or runs its `else` block,
 which here skips processes that vanished mid-scan instead of failing the run.
+Over an optional it binds the value that is not `null` the same way:
+`guard let user = lookup(id) else { return }`.
 
 ## JSON Boundaries
 
@@ -1632,7 +1635,7 @@ cli main(config: Path, emit_json = false) {
 
   if failed > 0 {
     eprint f"{failed} check(s) failed"
-    abort(1)
+    exit 1
   }
 }
 ```
@@ -1670,7 +1673,7 @@ Things worth noticing:
 - No proc declares its effects. The checker infers them, so `healthy` is
   known to be the one that reaches the network, and a caller restricted to
   `[fs, process, error]` could not call it.
-- `abort(1)` exits with a chosen status without a traceback. Deferred cleanup
+- `exit 1` exits with a chosen status without a traceback. Deferred cleanup
   still runs.
 
 ## Testing
@@ -1820,18 +1823,25 @@ use checks.disk as usage  # the same module, bound as usage.*
 ```
 
 Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
-(colon-separated). That has two consequences worth knowing:
+(colon-separated), then each `module_path` root of the project's
+`xsht-config.ini`. That has two consequences worth knowing:
 
-- `xsh` itself does not read `xsht-config.ini`. Run entry scripts with
-  `XSH_MODULE_PATH=lib xsh bin/harden.xsh`, install modules next to the
-  scripts, or set the variable in the unit file or wrapper that launches them.
+- `xsh` reads `module_path`, and only that, from the nearest
+  `xsht-config.ini` above the entry script, exactly as `xsht` does:
+  `xsh bin/harden.xsh` finds `lib/sshd.xsh` with nothing else set, and so
+  does `cd bin && xsh harden.xsh`. A script with no config above it has no
+  project roots in either tool, and the current directory is never searched;
+  install such a script's modules next to it or set `XSH_MODULE_PATH` in the
+  unit file or wrapper that launches it.
 - File-relative lookup wins, so a test file named `tests/sshd.xsh` that says
   `use sshd` imports itself. Name test files `test-*.xsh`.
 
 ### `xsht-config.ini`
 
-`xsht` reads the nearest `xsht-config.ini` above each file. Relative paths
-resolve from the config's directory.
+`xsht` reads the nearest `xsht-config.ini` above each file; `xsh` reads its
+`module_path` for the entry script and ignores the rest. Relative paths
+resolve from the config's directory. A config that does not decode is an
+error for both.
 
 ```ini
 # Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.
@@ -1839,7 +1849,7 @@ include = tools
 # Glob patterns excluded from discovery.
 exclude = build/**/*.xsh
   vendor/**/*.xsh
-# Module search roots for checking, linting, and tests (default: .).
+# Module search roots for running, checking, linting, and tests (default: .).
 module_path = lib
 # Where `xsht test` looks for test declarations.
 test_roots = tests

@@ -27,7 +27,7 @@ use crate::runtime::value::{
     DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
     RunError, RuntimeError, StreamValue, Value, error_constructor, structured_error_constructor,
 };
-use crate::sema::types::{CallableType, ModuleExportType, Type};
+use crate::sema::types::Type;
 use crate::source::Span;
 use crate::symbol::QualifiedName;
 use crate::syntax::arena::ArenaProgram;
@@ -110,7 +110,7 @@ impl Evaluator {
         ctx: &RecordMap,
         source: &str,
         args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -124,7 +124,7 @@ impl Evaluator {
         source: &str,
         xsh_args: &[String],
         script_args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -149,7 +149,7 @@ impl Evaluator {
         source: &str,
         trace_args: &[String],
         script_args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -176,7 +176,7 @@ impl Evaluator {
         source: &str,
         tool_args: &[String],
         script_args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -778,6 +778,21 @@ fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeE
     })
 }
 
+/// The UTF-8 text of a file: the one read behind `read_text` and `read_lines`,
+/// so the two cannot disagree on which files they accept or how they fail.
+fn read_host_path_text(path: &Path, span: Span) -> Result<String, RuntimeError> {
+    String::from_utf8(read_host_path_bytes_vec(path, span)?).map_err(|error| {
+        RuntimeError::new(
+            "invalid-utf8",
+            format!(
+                "file is not valid UTF-8 at byte {}",
+                error.utf8_error().valid_up_to()
+            ),
+        )
+        .with_span(span)
+    })
+}
+
 fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
     read_host_path_bytes_unnamed(path, span).map_err(|mut error| {
         error.message = format!("{}: {}", path.display(), error.message);
@@ -1349,56 +1364,6 @@ fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), R
         .map_err(|error| RuntimeError::host(operation, &error).with_span(span))
 }
 
-/// Whether a captured module-export signature satisfies the contract `expected`:
-/// same arity, matching (bidirectional) param types and rest flags, a defaulted
-/// flag that the contract permits, compatible return type, and the contract's
-/// effects match the function's checked effects exactly. An entry without a
-/// clause is unrestricted and accepts any effects, as in static checking.
-fn lowered_signature_matches_contract(sig: &CallableType, expected: &CallableType) -> bool {
-    sig.params.len() == expected.params.len()
-        && sig
-            .params
-            .iter()
-            .zip(&expected.params)
-            .all(|(actual, expected)| {
-                actual.rest == expected.rest && actual.ty.matches_expected(&expected.ty)
-            })
-        && crate::sema::types::callable_effects_match(&sig.effects, &expected.effects)
-        && sig.return_ty.matches_expected(&expected.return_ty)
-}
-
-fn lowered_module_matches_contract(
-    evaluator: &Evaluator,
-    module: &BTreeMap<Arc<str>, LoweredValue>,
-    exports: &BTreeMap<Name, ModuleExportType>,
-) -> bool {
-    exports.iter().all(|(name, export)| {
-        let name_text = name.as_str();
-        let Some(value) = module.get::<str>(name_text.as_str()) else {
-            return export.optional();
-        };
-        match export {
-            ModuleExportType::Value { ty, .. } => lowered_value_matches_static_type(value, ty),
-            ModuleExportType::Proc { sig, .. } => match value {
-                LoweredValue::Proc(function) => evaluator
-                    .lookup_module_export_signature(*function)
-                    .is_none_or(|captured| {
-                        !captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
-                    }),
-                _ => false,
-            },
-            ModuleExportType::Pure { sig, .. } => match value {
-                LoweredValue::Pure(function) => evaluator
-                    .lookup_module_export_signature(*function)
-                    .is_none_or(|captured| {
-                        captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
-                    }),
-                _ => false,
-            },
-        }
-    })
-}
-
 /// Builds a `module-load` error naming the module and its first diagnostics,
 /// so a failed `module.load` points at the broken file instead of only the
 /// loading call site.
@@ -1683,7 +1648,7 @@ fn validate_dynamic_module_top_level(
     span: Span,
 ) -> Result<(), RuntimeError> {
     for stmt in program.statement_ids() {
-        let code = match program.arena.stmt(stmt).kind {
+        let code = match program.arena.stmt(program.arena.core_stmt_id(stmt)).kind {
             crate::syntax::arena::ArenaStmtKind::SignalHook(_) => {
                 Some(DiagnosticCode::CheckSignalHookModule)
             }
@@ -1710,19 +1675,6 @@ fn validate_dynamic_module_top_level(
         }
     }
     Ok(())
-}
-
-pub(super) fn lowered_value_satisfies_require(
-    evaluator: &Evaluator,
-    value: &LoweredValue,
-    ty: &Type,
-) -> bool {
-    match (value, ty) {
-        (LoweredValue::Module(module), Type::Module(exports)) => {
-            lowered_module_matches_contract(evaluator, module, exports)
-        }
-        _ => lowered_value_matches_static_type(value, ty),
-    }
 }
 
 fn lowered_result_ok(value: LoweredValue) -> LoweredValue {
@@ -2194,11 +2146,11 @@ fn lowered_record_arg(
 }
 
 #[cfg(feature = "native-tests")]
-fn lowered_optional_str_record(
+fn lowered_optional_env_record(
     value: Option<LoweredValue>,
     operation: &str,
     span: Span,
-) -> Result<BTreeMap<String, String>, RuntimeError> {
+) -> Result<BTreeMap<String, Vec<u8>>, RuntimeError> {
     let Some(value) = value else {
         return Ok(BTreeMap::new());
     };
@@ -2221,17 +2173,25 @@ fn lowered_optional_str_record(
 
     let mut env = BTreeMap::new();
     for (key, value) in fields.iter() {
-        let Some(text) = lowered_str_value(value) else {
-            return Err(RuntimeError::new(
-                "type-error",
-                format!(
-                    "{operation} env field `{key}` expected Str, found {}",
-                    value.type_name()
-                ),
-            )
-            .with_span(span));
+        // Text as UTF-8 and a Path as its native bytes; nothing else is an
+        // environment value here.
+        let bytes = match value {
+            LoweredValue::Path(path) => path.bytes.clone(),
+            value => match lowered_str_value(value) {
+                Some(text) => text.as_bytes().to_vec(),
+                None => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!(
+                            "{operation} env field `{key}` expected Str or Path, found {}",
+                            value.type_name()
+                        ),
+                    )
+                    .with_span(span));
+                }
+            },
         };
-        env.insert(key.to_string(), text.to_string());
+        env.insert(key.to_string(), bytes);
     }
     Ok(env)
 }
@@ -2299,25 +2259,34 @@ fn lowered_path_like_arg(
     }
 }
 
+/// The bytes one environment value hands to a child: a Path's native bytes,
+/// and for every other value its display text, which is what an argv word
+/// carries. Converting a Path through its display text would replace every
+/// byte sequence that is not UTF-8.
+fn lowered_env_value_bytes(value: &LoweredValue, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    if let LoweredValue::Path(path) = value {
+        return Ok(path.bytes.clone());
+    }
+    let mut text = String::new();
+    push_lowered_display(&mut text, value, span)?;
+    Ok(text.into_bytes())
+}
+
 fn lowered_env_record_arg(
     value: LoweredValue,
     operation: &str,
     span: Span,
-) -> Result<BTreeMap<String, String>, RuntimeError> {
+) -> Result<BTreeMap<String, Vec<u8>>, RuntimeError> {
     let mut env = BTreeMap::new();
     match value {
         LoweredValue::Record(fields) => {
             for (name, value) in fields.iter() {
-                let mut text = String::new();
-                push_lowered_display(&mut text, value, span)?;
-                env.insert(name.to_string(), text);
+                env.insert(name.to_string(), lowered_env_value_bytes(value, span)?);
             }
         }
         LoweredValue::RecordVec(fields) => {
             for (name, value) in fields.iter() {
-                let mut text = String::new();
-                push_lowered_display(&mut text, value, span)?;
-                env.insert(name.to_string(), text);
+                env.insert(name.to_string(), lowered_env_value_bytes(value, span)?);
             }
         }
         _ => {
@@ -4643,20 +4612,8 @@ impl Evaluator {
                     "fs.read_text",
                     span,
                 )?;
-                match read_host_path_bytes_vec(&self.host_path(&path), span) {
-                    Ok(bytes) => match String::from_utf8(bytes) {
-                        Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
-                        Err(error) => lowered_result_err_value(
-                            RuntimeError::new(
-                                "invalid-utf8",
-                                format!(
-                                    "file is not valid UTF-8 at byte {}",
-                                    error.utf8_error().valid_up_to()
-                                ),
-                            )
-                            .with_span(span),
-                        ),
-                    },
+                match read_host_path_text(&self.host_path(&path), span) {
+                    Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -7823,7 +7780,7 @@ impl Evaluator {
                 let args =
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_script", span)?;
                 let env =
-                    lowered_optional_str_record(values.get(3).cloned(), "test.run_script", span)?;
+                    lowered_optional_env_record(values.get(3).cloned(), "test.run_script", span)?;
                 let stdin =
                     lowered_bytes_arg_or_empty(values.get(4).cloned(), "test.run_script", span)?;
                 let name = lowered_str_arg_owned(
@@ -7848,7 +7805,7 @@ impl Evaluator {
                 let script_args =
                     lowered_optional_str_list(values.get(3).cloned(), "test.run_xsh", span)?;
                 let env =
-                    lowered_optional_str_record(values.get(4).cloned(), "test.run_xsh", span)?;
+                    lowered_optional_env_record(values.get(4).cloned(), "test.run_xsh", span)?;
                 let stdin =
                     lowered_bytes_arg_or_empty(values.get(5).cloned(), "test.run_xsh", span)?;
                 let name = lowered_str_arg_owned(
@@ -7880,7 +7837,7 @@ impl Evaluator {
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_xsht_trace", span)?;
                 let script_args =
                     lowered_optional_str_list(values.get(3).cloned(), "test.run_xsht_trace", span)?;
-                let env = lowered_optional_str_record(
+                let env = lowered_optional_env_record(
                     values.get(4).cloned(),
                     "test.run_xsht_trace",
                     span,
@@ -10999,6 +10956,19 @@ impl Evaluator {
             }
         }
         for (index, span) in defers.into_iter().rev() {
+            // Every statement succeeded, so the module's top level is not
+            // leaving with an error and its `errdefer` actions do not run.
+            let on_error = self
+                .indexed_program
+                .as_ref()
+                .expect("indexed module program remains installed")
+                .driver_step_defers_on_error(index)
+                .map_err(|error| {
+                    RuntimeError::new("module-load", error.message).with_span(span)
+                })?;
+            if on_error {
+                continue;
+            }
             let _ = self.eval_indexed_driver_step(index, span).ok_or_else(|| {
                 RuntimeError::new("module-load", "indexed module defer is unavailable")
                     .with_span(span)
@@ -11113,6 +11083,69 @@ impl Evaluator {
         {
             let result = self.path_lines_stream(path.clone(), name == "bytes_lines", *span);
             let value = lowered_runtime_value(result, *span)?;
+            return Ok(ControlFlow::Continue(value));
+        }
+        if let LoweredValue::Path(root) = &receiver
+            && (name == "glob" || name == "rglob")
+            && values.len() == 1
+        {
+            let Some(pattern) = lowered_str_value(&values[0]) else {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("{name} expected Str, found {}", values[0].type_name()),
+                )
+                .with_span(*span));
+            };
+            let found = super::expand_glob_below(
+                &self.host_path(root),
+                root,
+                pattern,
+                name == "rglob",
+                *span,
+            )
+            .and_then(|matches| {
+                matches
+                    .into_iter()
+                    .map(|bytes| PathValue::new(bytes).map(LoweredValue::Path))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.with_span(*span))
+            });
+            let value = match found {
+                Ok(paths) => lowered_result_ok(LoweredValue::List(paths)),
+                Err(error) => lowered_result_err_value(error),
+            };
+            return Ok(ControlFlow::Continue(value));
+        }
+        if let LoweredValue::Path(path) = &receiver
+            && name == "read_lines"
+            && values.is_empty()
+        {
+            // `str::lines` is the split behind `Str.lines`, so this is
+            // `read_text()?.lines()` in one call.
+            let value = match read_host_path_text(&self.host_path(path), *span) {
+                Ok(text) => lowered_result_ok(LoweredValue::List(
+                    text.lines()
+                        .map(|line| LoweredValue::Str(line.into()))
+                        .collect(),
+                )),
+                Err(error) => lowered_result_err_value(error),
+            };
+            return Ok(ControlFlow::Continue(value));
+        }
+        if let LoweredValue::Path(path) = &receiver
+            && name == "write_lines"
+            && values.len() == 1
+        {
+            let lines = lowered_str_list_arg(values.pop(), "Path.write_lines", *span)?;
+            let mut data = Vec::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
+            for line in &lines {
+                data.extend_from_slice(line.as_bytes());
+                data.push(b'\n');
+            }
+            // The same write as `Path.write`, so creation, replacement, mode,
+            // and failures cannot drift from it.
+            let value =
+                lowered_unit_result(fs_module::write_path(self.host_path(path), &data, *span));
             return Ok(ControlFlow::Continue(value));
         }
         if let LoweredValue::Path(source) = &receiver

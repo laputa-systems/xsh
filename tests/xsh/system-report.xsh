@@ -51,11 +51,11 @@ type FixturePciFunction = {
 type SystemReportModel = module {
   export pure frequency_policies_for_cpu(policies: List[FixtureCpuFreqPolicy], cpu_id: Int) -> List[FixtureCpuFreqPolicy]
   export pure pci_parent_function(functions: List[FixturePciFunction], child: FixturePciFunction) -> FixturePciFunction?
-  export pure parse_cpu_list(text: Str) -> Result[List[Int]]
-  export pure select_report_section(report: Record, selected: Str) -> Result[Record]
-  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
-  export pure decode_report_json(text: Str) -> Result[report_model.SystemReport]
-  export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str]
+  export pure parse_cpu_list(text: Str) -> Result[List[Int], Error]
+  export pure select_report_section(report: Record, selected: Str) -> Result[Record, Error]
+  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error]
+  export pure decode_report_json(text: Str) -> Result[report_model.SystemReport, Error]
+  export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str, Error]
 }
 
 type PciAddress = {domain: Int, bus: Int, device: Int, function: Int}
@@ -113,16 +113,16 @@ type UsbDescriptorAlternateFixture = {
 }
 
 type SystemReportCollectors = module {
-  export pure parse_pci_address(value: Str) -> Result[PciAddress]
-  export pure parse_pci_hex_value(value: Str) -> Result[Int]
+  export pure parse_pci_address(value: Str) -> Result[PciAddress, Error]
+  export pure parse_pci_hex_value(value: Str) -> Result[Int, Error]
   export pure pci_parent_address(target: Path, child_address: Str) -> Str?
-  export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord]]
+  export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord], Error]
   export proc read_source_text(root: FsRoot, path: Path, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
   export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumericObservation
   export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumericObservation
   export pure bounded_size_bytes(source: SourceRead) -> BoundedNumericObservation
   export pure valid_psi_average(value: Str) -> Bool
-  export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy]
+  export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Error]
   export pure decode_os_release_value(raw: Str) -> Str?
   export pure valid_os_release_key(key: Str) -> Bool
   export pure valid_os_release_id(value: Str) -> Bool
@@ -134,16 +134,16 @@ type SystemReportCollectors = module {
 type BlockScheduler = {active: Str, available: List[Str]}
 
 type SystemReportLiveCollector = module {
-  export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternateFixture]]
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report_model.SystemReport]
-  export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report_model.SystemReport]
+  export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternateFixture], Error]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report_model.SystemReport, Error]
+  export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report_model.SystemReport, Error]
   export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection
   export proc link_network_device_sources(root: FsRoot, assembled: NetworkCollection, pci_functions: List[report_model.PciFunction], usb_devices: List[report_model.UsbDevice]) [fs, error] -> NetworkCollection
   export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead
   export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation
   export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation
-  export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult]
-  export pure parse_proc_stat(text: Str) -> Result[ProcStat]
+  export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error]
+  export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error]
   export pure usb_parent_address(target: Path) -> Str?
   export pure pci_address_in_target(target: Path) -> Str?
   export pure link_usb_parents(devices: List[report_model.UsbDevice]) -> List[report_model.UsbDevice]
@@ -158,7 +158,7 @@ pure cpu_policy_members(policy: model.CpuFreqPolicy) -> Str {
 }
 """,
     [],
-    {XSH_MODULE_PATH: ctx.core_dir.parent().display()},
+    {XSH_MODULE_PATH: ctx.core_dir.parent()},
   )?
   assert output.status == 2
   assert "expected Str, found List[Int]" in output.stderr
@@ -174,7 +174,7 @@ pure forbidden_live_collection() -> Result[Unit] {
 }
 """,
     [],
-    {XSH_MODULE_PATH: ctx.core_dir.parent().display()},
+    {XSH_MODULE_PATH: ctx.core_dir.parent()},
   )?
   assert output.status == 2
   assert "effectful proc is not allowed in pure functions" in output.stderr
@@ -3128,19 +3128,23 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
   let report_path = test.temp_path(ctx, name: "system-report-v1.json")
   report_path.write(json.encode(json_report_fixture())?)?
 
-  let projected = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json ?
+  let projected = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+    --section cpu --json ?
   let decoded = json.decode(projected)?
   assert decoded.schema_version == 1
   assert decoded.identity.hostname.state == "redacted"
   assert decoded.cpu.status.state == "complete"
   assert decoded.memory.status.state == "not_requested"
   assert "workstation-name" not in projected
-  let json_full = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json --full ?
+  let json_full = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+    --section cpu --json --full ?
   assert json_full == projected
 
-  let sensitive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --sensitive --json ?
+  let sensitive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+    --sensitive --json ?
   assert "workstation-name" in sensitive
-  let default_json = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --json ?
+  let default_json = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+    --json ?
   assert "/private/host/snapshot" not in default_json
   assert "mount-secret" not in default_json
   assert "private-sensor-label" not in default_json
@@ -3161,7 +3165,8 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
 }
 
 test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
-  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
+  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- \
+    --section hardware ?
   assert outcome.status.exited_with(3)
   assert outcome.stdout == ""
   assert "err: SystemReportCliError.Usage:" in outcome.stderr
@@ -3172,13 +3177,15 @@ test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
 test test_system_report_command_rejects_malformed_replay { |ctx|
   let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+    2> $stderr
   assert ! status.exited_with(0)
   assert "invalid replay report" in stderr.read_text()?
 
   let invalid_utf8 = test.temp_file(ctx, name: "system-report-invalid-utf8.json", contents: b"\xff")?
   let utf8_stderr = test.temp_path(ctx, name: "system-report-invalid-utf8.stderr")
-  let utf8_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $invalid_utf8 2> $utf8_stderr
+  let utf8_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from \
+    $invalid_utf8 2> $utf8_stderr
   assert ! utf8_status.exited_with(0)
   assert "not valid UTF-8" in utf8_stderr.read_text()?
 
@@ -3187,12 +3194,14 @@ test test_system_report_command_rejects_malformed_replay { |ctx|
     json.encode({...json_report_fixture().require(report_model.SystemReportJson)?, schema_version: 99})?,
   )?
   let unsupported_stderr = test.temp_path(ctx, name: "system-report-unsupported-schema.stderr")
-  let unsupported_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $unsupported_path 2> $unsupported_stderr
+  let unsupported_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from \
+    $unsupported_path 2> $unsupported_stderr
   assert ! unsupported_status.exited_with(0)
   assert "unsupported schema version" in unsupported_stderr.read_text()?
 
   let section_stderr = test.temp_path(ctx, name: "system-report-invalid-section.stderr")
-  let section_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware 2> $section_stderr
+  let section_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section \
+    hardware 2> $section_stderr
   assert ! section_status.exited_with(0)
   assert section_stderr.read_text()?.trim() != ""
 }

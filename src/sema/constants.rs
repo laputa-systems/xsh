@@ -1169,7 +1169,9 @@ impl RecordConstructors {
                     );
                 }
             }
-            ArenaTypeExprTag::Module => {}
+            // A union gives its value no expectation: the value is typed on
+            // its own and then has to fit a member.
+            ArenaTypeExprTag::Module | ArenaTypeExprTag::Union => {}
         }
         Ok(result)
     }
@@ -1263,7 +1265,7 @@ impl RecordConstructors {
             ArenaTypeDefBody::TagUnion(_) if arguments.is_empty() => {
                 Ok(Type::Tag(self.nominal_names[&id]))
             }
-            ArenaTypeDefBody::ModuleContract(entries) if arguments.is_empty() => arena
+            ArenaTypeDefBody::ModuleContract { entries, exact } if arguments.is_empty() => arena
                 .module_contract_entries(entries)
                 .iter()
                 .map(|entry| {
@@ -1302,7 +1304,7 @@ impl RecordConstructors {
                     Ok((entry.name, export))
                 })
                 .collect::<Result<BTreeMap<_, _>, SchemaTypeError>>()
-                .map(|exports| Type::Module(exports.into())),
+                .map(|exports| Type::Module(Arc::new(crate::sema::types::ModuleType { exports, exact }))),
             _ => Err(SchemaTypeError::new(
                 DiagnosticCode::CheckTypeParameters,
                 "type parameters are supported only on record schemas and aliases",
@@ -1497,6 +1499,18 @@ impl RecordConstructors {
             ArenaTypeExprTag::Optional => Type::Optional(Box::new(
                 self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
             )),
+            ArenaTypeExprTag::Union => {
+                let members = arena
+                    .union_type_members(ty)
+                    .map(|member| {
+                        self.resolve_instance_annotation(arena, member, namespace, bindings, active)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if let Some(reason) = crate::sema::types::union_member_error(&members) {
+                    return Err(SchemaTypeError::new(DiagnosticCode::CheckUnionType, reason));
+                }
+                Type::Union(members)
+            }
             ArenaTypeExprTag::Result => Type::Result(
                 Box::new(
                     self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
@@ -1511,7 +1525,7 @@ impl RecordConstructors {
             ArenaTypeExprTag::Module => {
                 match self.resolve_instance_annotation(arena, inner, namespace, bindings, active)? {
                     Type::Module(exports) => Type::Module(exports),
-                    Type::Record(fields) => Type::Module(
+                    Type::Record(fields) => Type::Module(Arc::new(crate::sema::types::ModuleType::open(
                         fields
                             .into_iter()
                             .map(|(name, ty)| {
@@ -1523,9 +1537,8 @@ impl RecordConstructors {
                                     },
                                 )
                             })
-                            .collect::<BTreeMap<_, _>>()
-                            .into(),
-                    ),
+                            .collect::<BTreeMap<_, _>>(),
+                    ))),
                     _ => Type::Invalid,
                 }
             }
@@ -2791,6 +2804,21 @@ impl ConstantPreparation<'_> {
         result
     }
 
+    /// The type an element of an untyped list, map, or record literal was
+    /// prepared with, when it says more than the element's value does: a
+    /// size literal is `UInt` although its value is an integer. A written
+    /// type for the collection decides instead.
+    fn declared_literal_type(&self, element: Option<ExprId>, expected: Option<&Type>) -> Option<Type> {
+        if expected.is_some_and(|ty| !ty.contains_inference()) {
+            return None;
+        }
+        self.prepared
+            .types
+            .get(&element?)
+            .filter(|ty| !ty.contains_inference())
+            .cloned()
+    }
+
     fn expression_inner(
         &mut self,
         id: ExprId,
@@ -3015,6 +3043,9 @@ impl ConstantPreparation<'_> {
                     _ => None,
                 };
                 let mut values = Vec::new();
+                // The first element decides an untyped list's item type, as
+                // it does for a runtime list.
+                let mut first_item = None;
                 for item in arena.list_elements(items) {
                     if item.splice_span.is_some() {
                         let LiteralConstant::List(items) =
@@ -3024,6 +3055,9 @@ impl ConstantPreparation<'_> {
                         };
                         values.extend(items.iter().cloned());
                     } else {
+                        if values.is_empty() {
+                            first_item = Some(item.value);
+                        }
                         let schema = self
                             .expected_schema
                             .as_ref()
@@ -3040,6 +3074,11 @@ impl ConstantPreparation<'_> {
                         )?);
                     }
                 }
+                if let Some(item) = self.declared_literal_type(first_item, expected)
+                    && values.iter().all(|value| constant_matches_type(value, &item))
+                {
+                    self.prepared.types.insert(id, Type::List(Box::new(item)));
+                }
                 LiteralConstant::List(Arc::new(values))
             }
             ArenaExprKind::Record(fields) => {
@@ -3050,6 +3089,8 @@ impl ConstantPreparation<'_> {
                         .any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }));
                 let mut values = BTreeMap::new();
                 let mut map_values = BTreeMap::new();
+                let mut first_map_value = None;
+                let mut field_values = Vec::new();
                 let (key_context, value_context) = match expected {
                     Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())),
                     _ => (None, None),
@@ -3111,12 +3152,20 @@ impl ConstantPreparation<'_> {
                                 .and_then(|schema| schema.value_context().children.get(&component))
                         })
                         .cloned();
+                    let value_expr = value;
                     let value =
                         self.expression_with_schema(value, scope, child_ty, schema, depth + 1)?;
                     if map {
+                        if map_values.is_empty() {
+                            first_map_value = Some(value_expr);
+                        }
                         map_values.insert(key, value);
-                    } else if values.insert(name.ok_or_else(failure)?, value).is_some() {
-                        return Err(failure());
+                    } else {
+                        let name = name.ok_or_else(failure)?;
+                        field_values.push((name, value_expr));
+                        if values.insert(name, value).is_some() {
+                            return Err(failure());
+                        }
                     }
                 }
                 if map {
@@ -3128,9 +3177,35 @@ impl ConstantPreparation<'_> {
                             "constant Map keys must have one scalar domain".into(),
                         ));
                     }
+                    if let Some(value) = self.declared_literal_type(first_map_value, expected)
+                        && map_values
+                            .values()
+                            .all(|entry| constant_matches_type(entry, &value))
+                    {
+                        self.prepared.types.insert(
+                            id,
+                            Type::Map(
+                                Box::new(constant_map_key_type(map_values.keys())),
+                                Box::new(value),
+                            ),
+                        );
+                    }
                     LiteralConstant::Map(Arc::new(map_values))
                 } else {
-                    LiteralConstant::Record(Arc::new(values))
+                    let value = LiteralConstant::Record(Arc::new(values));
+                    let declared: Vec<(Name, Type)> = field_values
+                        .into_iter()
+                        .filter_map(|(name, field)| {
+                            Some((name, self.declared_literal_type(Some(field), expected)?))
+                        })
+                        .collect();
+                    if !declared.is_empty()
+                        && let Type::Record(mut fields) = value.value_type()
+                    {
+                        fields.extend(declared);
+                        self.prepared.types.insert(id, Type::Record(fields));
+                    }
+                    value
                 }
             }
             ArenaExprKind::Call { callee, args } => {
@@ -3346,6 +3421,15 @@ impl ConstantPreparation<'_> {
                 } else {
                     value
                 }
+            }
+            // A size literal is `UInt`, which its integer value alone does
+            // not say; a concrete expected type still decides the constant's.
+            ArenaExprKind::Int(literal) if arena.int_literal(literal).is_size() => {
+                let bytes = arena.int_literal(literal).value().ok_or_else(failure)?;
+                if expected.is_none_or(Type::contains_inference) {
+                    self.prepared.types.insert(id, Type::UInt);
+                }
+                LiteralConstant::Int(bytes)
             }
             _ => LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?,
         };
@@ -3747,6 +3831,13 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         Type::Optional(inner) => {
             let mut classes = value_classes(inner)?;
             classes.push(ValueClass::Null);
+            return Some(classes);
+        }
+        Type::Union(members) => {
+            let mut classes = Vec::new();
+            for member in members {
+                classes.extend(value_classes(member)?);
+            }
             return Some(classes);
         }
         Type::Tag(name) if name.as_str().starts_with("type parameter ") => return None,

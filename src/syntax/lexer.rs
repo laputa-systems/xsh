@@ -34,6 +34,28 @@ pub(crate) enum InterpolationEnd {
     Unclosed,
 }
 
+// The lexer validates a literal it decodes itself, and the parser decodes the
+// text of interpolating literals and command words. Both report the same
+// condition through these constructors, so one code names it.
+
+pub(crate) fn invalid_escape_diagnostic(span: Span) -> Diagnostic {
+    Diagnostic::error("invalid escape sequence")
+        .with_code(DiagnosticCode::LexInvalidEscape)
+        .with_label(Label::primary(span, "unsupported escape sequence"))
+}
+
+pub(crate) fn bytes_unicode_escape_diagnostic(span: Span) -> Diagnostic {
+    Diagnostic::error("unicode escapes are not valid in bytes literals")
+        .with_code(DiagnosticCode::LexInvalidBytesEscape)
+        .with_label(Label::primary(span, "bytes literals use byte escapes only"))
+}
+
+pub(crate) fn invalid_utf8_string_diagnostic(span: Span) -> Diagnostic {
+    Diagnostic::error("string literal is not valid UTF-8")
+        .with_code(DiagnosticCode::LexInvalidString)
+        .with_label(Label::primary(span, "invalid string literal"))
+}
+
 /// Finds the end of the f-string interpolation whose expression starts at
 /// `start`, just after its `{`, by lexing real tokens: the closing `}` is the
 /// first one outside every bracket, string, and nested f-string the lexer
@@ -126,6 +148,7 @@ impl<'a> Lexer<'a> {
             let quoted = grammar::quoted_literal_at(self.source.as_bytes(), start);
             match self.peek_byte() {
                 Some(b' ' | b'\t') => self.lex_whitespace(),
+                Some(b'\\') => self.lex_line_continuation(),
                 Some(b'\r') if self.peek_next_byte() == Some(b'\n') => {
                     self.offset += 2;
                     self.push(TokenKind::Newline, start, self.offset);
@@ -297,6 +320,45 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// A `\` that follows whitespace and ends its line joins that line to
+    /// the next: the backslash and the line break are whitespace, and the
+    /// parser accepts them only between the parts of a command. Any other
+    /// backslash outside a string is an error, so a word never silently
+    /// absorbs one.
+    fn lex_line_continuation(&mut self) {
+        let start = self.offset;
+        let after_space = start
+            .checked_sub(1)
+            .and_then(|before| self.source.as_bytes().get(before))
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t'));
+        let rest = &self.source.as_bytes()[start + 1..];
+        let line_break = if rest.starts_with(b"\r\n") {
+            2
+        } else {
+            usize::from(rest.starts_with(b"\n"))
+        };
+        self.offset += 1;
+        if after_space && line_break > 0 {
+            self.offset += line_break;
+            if !self.scan_only {
+                self.token_builder.push_line_continuation(start);
+            }
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::error("unexpected character")
+                .with_code(DiagnosticCode::LexUnexpectedCharacter)
+                .with_label(Label::primary(
+                    self.span(start, self.offset),
+                    if line_break > 0 {
+                        "write a space before a `\\` that continues a command"
+                    } else {
+                        "a `\\` continues a command only as the last character of its line"
+                    },
+                )),
+        );
+    }
+
     fn lex_comment(&mut self) {
         let start = self.offset;
         self.offset += 1;
@@ -405,6 +467,10 @@ impl<'a> Lexer<'a> {
             self.offset += suffix.len();
             self.push(TokenKind::Duration, start, self.offset);
             return;
+        }
+        // A size literal is an integer literal spelled with a unit.
+        if let Some(suffix) = grammar::size_suffix_at(self.source.as_bytes(), self.offset) {
+            self.offset += suffix.len();
         }
         self.push(TokenKind::Int, start, self.offset);
     }
@@ -657,14 +723,9 @@ impl<'a> Lexer<'a> {
                     }
                     StringLiteralKind::Bytes => unreachable!(),
                 },
-                Err(_) => self.diagnostics.push(
-                    Diagnostic::error("string literal is not valid UTF-8")
-                        .with_code(DiagnosticCode::LexInvalidString)
-                        .with_label(Label::primary(
-                            self.span(literal_start, self.offset),
-                            "invalid string literal",
-                        )),
-                ),
+                Err(_) => self.diagnostics.push(invalid_utf8_string_diagnostic(
+                    self.span(literal_start, self.offset),
+                )),
             }
         }
     }
@@ -714,27 +775,16 @@ impl<'a> Lexer<'a> {
                 }
                 self.invalid_escape(escape_start, self.offset);
             }
-            b'u' if bytes => self.diagnostics.push(
-                Diagnostic::error("unicode escapes are not valid in bytes literals")
-                    .with_code(DiagnosticCode::LexInvalidBytesEscape)
-                    .with_label(Label::primary(
-                        self.span(escape_start, self.offset),
-                        "bytes literals use byte escapes only",
-                    )),
-            ),
+            b'u' if bytes => self.diagnostics.push(bytes_unicode_escape_diagnostic(
+                self.span(escape_start, self.offset),
+            )),
             _ => self.invalid_escape(escape_start, self.offset),
         }
     }
 
     fn invalid_escape(&mut self, start: usize, end: usize) {
-        self.diagnostics.push(
-            Diagnostic::error("invalid escape sequence")
-                .with_code(DiagnosticCode::LexInvalidEscape)
-                .with_label(Label::primary(
-                    self.span(start, end.max(start + 1)),
-                    "unsupported escape sequence",
-                )),
-        );
+        self.diagnostics
+            .push(invalid_escape_diagnostic(self.span(start, end.max(start + 1))));
     }
 
     fn push(&mut self, kind: TokenKind, start: usize, _end: usize) {
@@ -897,6 +947,22 @@ mod tests {
                 .map(|flags| (flags.has_interpolation, flags.raw_literal)),
             Some((false, false))
         );
+    }
+
+    #[test]
+    fn number_token_ends_where_the_lexer_stopped() {
+        // Token ends are recomputed from the source. A float takes no unit,
+        // so the letters after one belong to the next token.
+        for (source, expected) in [
+            ("1.5s", vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "s")]),
+            ("2e3ms", vec![(TokenTag::Float, "2e3"), (TokenTag::Ident, "ms")]),
+            ("1.5MiB", vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "MiB")]),
+            ("90s", vec![(TokenTag::Duration, "90s")]),
+            ("64MiB", vec![(TokenTag::Int, "64MiB")]),
+            ("64", vec![(TokenTag::Int, "64")]),
+        ] {
+            assert_eq!(super::lex_spellings(source), expected, "{source}");
+        }
     }
 
     #[test]

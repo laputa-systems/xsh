@@ -391,6 +391,9 @@ impl Checker {
         for arg in args {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
+        if self.reject_unnarrowed_union(&base_ty, &format!("calling `{name}`"), span) {
+            return Type::Unknown;
+        }
         let diagnostic = if let Type::Optional(inner) = &base_ty {
             Diagnostic::error(format!(
                 "method `{name}` needs a present value, found {base_ty}"
@@ -663,7 +666,7 @@ impl Checker {
             .collect::<Vec<_>>();
         let matches = overloads
             .iter()
-            .filter(|method| module_overload_matches_arena(arena, args, &actuals, &method.sig))
+            .filter(|method| module_overload_matches_arena(args, &actuals, &method.sig))
             .collect::<Vec<_>>();
         if let Some(method) = matches.first() {
             if matches.len() > 1 && actuals.iter().all(|ty| !matches!(ty, Type::Unknown)) {

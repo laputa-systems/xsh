@@ -7,8 +7,9 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBuilderEntryKind, ArenaExprOrRun, ArenaModuleContractEntryKind, ArenaProgramBuilder,
-    ArenaTypeDefBody, BindingTargetId, BuilderBlockId, ExprId, TypeExprId,
+    ArenaBuilderEntryKind, ArenaErrorVariant, ArenaExprOrRun, ArenaModuleContractEntryKind,
+    ArenaProgramBuilder, ArenaTypeDefBody, BindingTargetId, BuilderBlockId, DeferTrigger, ExprId,
+    TypeExprId,
 };
 use crate::syntax::grammar::{self, StatementForm};
 use std::str::FromStr;
@@ -50,6 +51,15 @@ impl<'a> Parser<'a> {
         }
         match (self.current_tag(), self.current_keyword()) {
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
+                if self.lookahead_is_repeat() {
+                    return self.parse_repeat_arena_only(start, arena);
+                }
+                if self.lookahead_is_without() {
+                    return self.parse_without_arena_only(start, arena);
+                }
+                if self.lookahead_is_tempdir() {
+                    return self.parse_tempdir_arena_only(start, arena);
+                }
                 if self.current_name().is_some_and(|name| name == "env")
                     && self.peek_tag(1) == Some(TokenTag::LBrace)
                 {
@@ -170,6 +180,8 @@ impl<'a> Parser<'a> {
                     || self.lookahead_is_expr_binary()
                 {
                     self.parse_expr_statement_arena_only(start, arena)
+                } else if self.lookahead_is_exit() {
+                    self.parse_exit_arena_only(start, arena)
                 } else {
                     self.parse_command_statement_arena_only(start, arena)
                 }
@@ -301,9 +313,20 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKindMatch::Equals, "expected `=` in type definition");
         let body_start = self.index;
-        let body = if self.at_ident("module") {
+        // `exact` is a word only here, directly before `module`; anywhere
+        // else it stays an ordinary name, so `type T = exact` aliases a type.
+        let exact = self.at_ident("exact")
+            && self.peek_tag(1) == Some(TokenTag::Ident)
+            && self.peek_name(1).is_some_and(|name| name == "module");
+        let body = if exact || self.at_ident("module") {
+            if exact {
+                self.bump();
+            }
             self.bump();
-            ArenaTypeDefBody::ModuleContract(self.parse_module_contract_arena_only(arena)?)
+            ArenaTypeDefBody::ModuleContract {
+                entries: self.parse_module_contract_arena_only(arena)?,
+                exact,
+            }
         } else if self.at(TokenKindMatch::LBrace) {
             ArenaTypeDefBody::RecordSchema(self.parse_record_schema_arena_only(arena)?)
         } else if let Some(variants) = self.recover_legacy_tag_union_arena_only(arena) {
@@ -686,7 +709,10 @@ impl<'a> Parser<'a> {
         if self.at(TokenKindMatch::LBracket) {
             // Recover past the parameter list so the variants still parse.
             let parameters_start = self.current_start();
-            while !self.at(TokenKindMatch::Equals) && !self.at(TokenKindMatch::Eof) {
+            while !self.at(TokenKindMatch::Equals)
+                && !self.at(TokenKindMatch::LBrace)
+                && !self.at(TokenKindMatch::Eof)
+            {
                 self.bump();
             }
             self.diagnostic_at(
@@ -695,25 +721,20 @@ impl<'a> Parser<'a> {
                 DiagnosticCode::ParseGenericErrorFamily,
             );
         }
-        self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
-        self.skip_newlines();
-        let mut variants = Vec::new();
-        loop {
-            if self.consume(TokenKindMatch::Pipe).is_some() {
-                self.skip_newlines();
-            }
-            if self.at(TokenKindMatch::Eof) {
-                break;
-            }
-            let variant_start = self.current_start();
-            let variant_name =
-                if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
-                    let name = self
-                        .current_name()
-                        .expect("error variant name token has payload");
-                    self.bump();
-                    name
-                } else {
+        let variants = if self.at(TokenKindMatch::LBrace) {
+            self.parse_error_variant_block_arena_only(arena)?
+        } else {
+            self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
+            self.skip_newlines();
+            let mut variants = Vec::new();
+            loop {
+                if self.consume(TokenKindMatch::Pipe).is_some() {
+                    self.skip_newlines();
+                }
+                if self.at(TokenKindMatch::Eof) {
+                    break;
+                }
+                let Some(variant) = self.parse_error_variant_arena_only(arena)? else {
                     if variants.is_empty() {
                         self.diagnostic_here(
                             "expected error variant",
@@ -722,52 +743,125 @@ impl<'a> Parser<'a> {
                     }
                     break;
                 };
-            let mut fields = Vec::new();
-            if self.consume(TokenKindMatch::LParen).is_some() {
+                variants.push(variant);
+                if self.consume(TokenKindMatch::Pipe).is_none() {
+                    break;
+                }
                 self.skip_newlines();
-                while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
-                    let field_start = self.current_start();
-                    let field_name = self.expect_label_name("expected error payload field")?;
-                    self.expect(
-                        TokenKindMatch::Colon,
-                        "expected `:` after error payload field",
-                    );
-                    let ty_id = self.parse_type_expr(arena)?;
-                    let ty_end = self.previous_end();
-                    let span = self.span(field_start, ty_end);
-                    fields.push(arena.build_error_field(field_name, ty_id, span));
-                    self.skip_newlines();
-                    if self.consume(TokenKindMatch::Comma).is_none() {
-                        break;
-                    }
-                    self.skip_newlines();
-                }
-                self.expect(
-                    TokenKindMatch::RParen,
-                    "expected `)` after error payload fields",
-                );
             }
-            let mut facets = Vec::new();
-            if self.consume(TokenKindMatch::Colon).is_some() {
-                loop {
-                    facets.push(self.expect_ident("expected error facet")?);
-                    if self.consume(TokenKindMatch::Comma).is_none() {
-                        break;
-                    }
-                }
-            }
-            let variant_end = self.previous_end();
-            let span = self.span(variant_start, variant_end);
-            variants.push(arena.build_error_variant(variant_name, fields, &facets, span));
-            if self.consume(TokenKindMatch::Pipe).is_none() {
-                break;
-            }
-            self.skip_newlines();
-        }
+            variants
+        };
         let end = self.expect_terminator();
         let span = self.span(start, end);
         arena.push_error_def(name, variants, span);
         Some(())
+    }
+
+    /// The braced variant list of an error family: one variant per line.
+    /// A newline is the only separator, because `,` already separates the
+    /// facets that may end a variant's line.
+    fn parse_error_variant_block_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<Vec<ArenaErrorVariant>> {
+        self.expect(
+            TokenKindMatch::LBrace,
+            "expected `{` after error family name",
+        )?;
+        let mut variants = Vec::new();
+        loop {
+            self.skip_enum_trivia();
+            if self.at(TokenKindMatch::RBrace) || self.at(TokenKindMatch::Eof) {
+                break;
+            }
+            let Some(variant) = self.parse_error_variant_arena_only(arena)? else {
+                self.diagnostic_here("expected error variant", DiagnosticCode::ParseErrorVariant);
+                break;
+            };
+            variants.push(variant);
+            if !matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment)
+                && !self.at(TokenKindMatch::RBrace)
+                && !self.at(TokenKindMatch::Eof)
+            {
+                self.diagnostic_here(
+                    "each error variant in braces is on its own line, with no separator",
+                    DiagnosticCode::ParseErrorVariant,
+                );
+                // Step over one stray separator so the remaining variants
+                // are still declared and checked.
+                if self.consume(TokenKindMatch::Comma).is_none()
+                    && self.consume(TokenKindMatch::Pipe).is_none()
+                    && !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent)
+                {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKindMatch::RBrace, "expected `}` after error variants")?;
+        if variants.is_empty() {
+            self.diagnostic_previous(
+                "an error family requires at least one variant",
+                DiagnosticCode::ParseErrorVariant,
+            );
+        }
+        Some(variants)
+    }
+
+    /// One variant with its payload fields and facets, or `None` when the
+    /// current token cannot begin a variant.
+    fn parse_error_variant_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<Option<ArenaErrorVariant>> {
+        if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
+            return Some(None);
+        }
+        let variant_start = self.current_start();
+        let variant_name = self
+            .current_name()
+            .expect("error variant name token has payload");
+        self.bump();
+        let mut fields = Vec::new();
+        if self.consume(TokenKindMatch::LParen).is_some() {
+            self.skip_newlines();
+            while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
+                let field_start = self.current_start();
+                let field_name = self.expect_label_name("expected error payload field")?;
+                self.expect(
+                    TokenKindMatch::Colon,
+                    "expected `:` after error payload field",
+                );
+                let ty_id = self.parse_type_expr(arena)?;
+                let ty_end = self.previous_end();
+                let span = self.span(field_start, ty_end);
+                fields.push(arena.build_error_field(field_name, ty_id, span));
+                self.skip_newlines();
+                if self.consume(TokenKindMatch::Comma).is_none() {
+                    break;
+                }
+                self.skip_newlines();
+            }
+            self.expect(
+                TokenKindMatch::RParen,
+                "expected `)` after error payload fields",
+            );
+        }
+        let mut facets = Vec::new();
+        if self.consume(TokenKindMatch::Colon).is_some() {
+            loop {
+                facets.push(self.expect_ident("expected error facet")?);
+                if self.consume(TokenKindMatch::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        let span = self.span(variant_start, self.previous_end());
+        Some(Some(arena.build_error_variant(
+            variant_name,
+            fields,
+            &facets,
+            span,
+        )))
     }
 
     fn parse_binding_arena_only(
@@ -1107,8 +1201,9 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    /// `error Name =` or `error Name[...] =`; the bracketed form is parsed
-    /// only to report that generic error families are unsupported.
+    /// `error Name =`, `error Name {`, or either after `[...]`; the bracketed
+    /// form is parsed only to report that generic error families are
+    /// unsupported.
     fn lookahead_is_error_def(&self) -> bool {
         if self.current_name() != Some(Name::intern("error"))
             || !matches!(
@@ -1137,7 +1232,10 @@ impl<'a> Parser<'a> {
                 index += 1;
             }
         }
-        self.token_table.tag_at(index) == Some(TokenTag::Equals)
+        matches!(
+            self.token_table.tag_at(index),
+            Some(TokenTag::Equals | TokenTag::LBrace)
+        )
     }
 
     fn lookahead_is_signal_hook(&self) -> bool {
@@ -1336,13 +1434,9 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
-        self.bump(); // consume `guard`
+        let keyword = self.bump(); // consume `guard`
         if !self.at_keyword(Keyword::Let) {
-            let condition = self.parse_condition_arena_only(arena)?.id;
-            self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
-            let else_block = self.parse_block_arena_only(arena)?;
-            arena.push_boolean_guard(condition, else_block, self.span(start, self.previous_end()));
-            return Some(());
+            return self.parse_boolean_guard_arena_only(start, keyword, arena);
         }
         self.expect_keyword(Keyword::Let, "expected `let` after `guard`");
         let target = self.parse_binding_target_arena_only("expected binding name", arena)?;
@@ -1511,7 +1605,9 @@ impl<'a> Parser<'a> {
     /// stands for `if` (a misspelled `elif`). A statement never starts with
     /// `else`, so an `else` on the line after the closing `}` can only belong
     /// to this `if`: it is reported with a fix that joins the lines, and the
-    /// parse continues as if it were written there.
+    /// parse continues as if it were written there. `else =>` is the one
+    /// exception: it heads the catch-all arm of the match this `if` is an arm
+    /// body of, and never continues the `if`.
     pub(super) fn consume_else(&mut self) -> Option<bool> {
         let mut offset = 0;
         while matches!(
@@ -1521,7 +1617,8 @@ impl<'a> Parser<'a> {
             offset += 1;
         }
         let is_else = self.peek_tag(offset) == Some(TokenTag::Keyword)
-            && self.peek_keyword(offset) == Some(Keyword::Else);
+            && self.peek_keyword(offset) == Some(Keyword::Else)
+            && self.peek_tag(offset + 1) != Some(TokenTag::FatArrow);
         let is_elif = self.peek_tag(offset) == Some(TokenTag::Ident)
             && self
                 .peek_label_name(offset)
@@ -1648,22 +1745,6 @@ impl<'a> Parser<'a> {
         Some(arena.push_binding_target_record(fields, rest, self.span(start, self.previous_end())))
     }
 
-    fn parse_guarded_stmt_arena_only(
-        &mut self,
-        start: usize,
-        inner: crate::syntax::arena::StmtId,
-        arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<()> {
-        let negate = self.consume_keyword(Keyword::Unless).is_some();
-        if !negate {
-            self.expect_keyword(Keyword::When, "expected `when` or `unless`");
-        }
-        let condition = self.parse_expr_id_arena_only(arena)?;
-        let end = self.expect_terminator();
-        arena.push_guarded_stmt(inner, negate, condition, self.span(start, end));
-        Some(())
-    }
-
     fn parse_return_arena_only(
         &mut self,
         start: usize,
@@ -1686,6 +1767,39 @@ impl<'a> Parser<'a> {
         }
         let end = self.expect_terminator();
         arena.push_return(Some(value), self.span(start, end));
+        Some(())
+    }
+
+    /// Whether the command statement at the cursor is `exit STATUS`. `exit`
+    /// is not reserved: it begins the statement only where a command named
+    /// `exit` would be read, with its status on the same line.
+    fn lookahead_is_exit(&self) -> bool {
+        self.current_name().is_some_and(|name| name == "exit")
+            && !matches!(
+                self.peek_tag(1),
+                None | Some(
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Eof
+                )
+            )
+    }
+
+    fn parse_exit_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        self.bump();
+        let status = self.parse_expr_id_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner = arena.push_exit(status, self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
+        let end = self.expect_terminator();
+        arena.push_exit(status, self.span(start, end));
         Some(())
     }
 
@@ -1728,6 +1842,11 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        let trigger = if self.current_keyword() == Some(Keyword::Errdefer) {
+            DeferTrigger::Error
+        } else {
+            DeferTrigger::Exit
+        };
         self.bump();
         let value = if self.at(TokenKindMatch::LBrace) {
             let block_start = self.current_start();
@@ -1739,7 +1858,7 @@ impl<'a> Parser<'a> {
             self.parse_expr_or_run_arena_only(arena)?
         };
         let end = self.expect_terminator();
-        arena.push_defer(value, self.span(start, end));
+        arena.push_defer(value, trigger, self.span(start, end));
         Some(())
     }
 
@@ -1832,8 +1951,12 @@ impl<'a> Parser<'a> {
         self.expect(TokenKindMatch::LBrace, "expected `{` to start match arms")?;
         self.skip_separators();
         arena.begin_match_arms();
+        let mut else_arm = None;
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            if self.parse_match_arm_arena_only(arena).is_none() {
+            if self
+                .parse_match_arm_arena_only(arena, &mut else_arm)
+                .is_none()
+            {
                 self.recover_match_arm();
             }
             self.skip_separators();
@@ -1848,23 +1971,23 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    fn parse_match_arm_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) -> Option<()> {
+    fn parse_match_arm_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        else_arm: &mut Option<crate::source::Span>,
+    ) -> Option<()> {
         let start = self.current_start();
-        let (pattern, _pattern_span) = self.parse_pattern_arena_only(arena)?;
-        let guard = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
+        let (pattern, guard, spelling) = self.parse_match_arm_head_arena_only(arena, else_arm)?;
         let block_id = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_field_record() {
             self.parse_block_arena_only(arena)?
         } else {
             let stmt_start = self.current_start();
             let previous = self.comma_is_terminator;
             self.comma_is_terminator = true;
+            let outer_arm_body = self.arm_body_start.replace(self.index);
             arena.begin_block();
             let stmt = self.parse_statement_arena_only(arena);
+            self.arm_body_start = outer_arm_body;
             self.comma_is_terminator = previous;
             if stmt.is_none() {
                 arena.discard_block();
@@ -1881,7 +2004,7 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
         }
         let span = self.span(start, arm_end);
-        arena.push_match_arm_input_id(pattern, guard, block_id, span);
+        arena.push_match_arm_input_id(pattern, guard, block_id, spelling, span);
         Some(())
     }
 

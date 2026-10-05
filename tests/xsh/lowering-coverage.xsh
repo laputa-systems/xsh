@@ -75,7 +75,7 @@ proc nested() {
 nested()
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == """15 12 6

@@ -192,12 +192,37 @@ impl Checker {
         }
     }
 
+    /// A pure function reports failure only through its `Result`. A statement
+    /// that propagates outside any capture needs that `Result` exactly as `?`
+    /// does; otherwise the failure would unwind out of a function whose
+    /// signature says it cannot fail. A proc is held to its `error` effect
+    /// instead.
+    fn require_pure_propagation_context(&mut self, error: &Type, span: Span) {
+        if !self.in_pure || self.current_yield.is_some() {
+            return;
+        }
+        if self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown) {
+            self.inferred_propagations.push((error.clone(), span));
+        } else if self
+            .current_return
+            .as_ref()
+            .is_some_and(|return_ty| !return_ty.is_result())
+        {
+            self.error(
+                span,
+                "a statement-position `Result[Unit]` propagates its failure, which requires a Result-returning context",
+                DiagnosticCode::CheckTryContext,
+            );
+        }
+    }
+
     pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
         let Type::Result(_, error) = ty else {
             return;
         };
         self.require_effect(Effect::Error, span, "statement failure propagation");
         if self.retry_attempt_depth == 0 {
+            self.require_pure_propagation_context(error, span);
             return;
         }
         if let Some(errors) = self.error_boundary_errors.last_mut() {
@@ -242,16 +267,67 @@ impl Checker {
             return;
         }
         if !actual.matches_expected(expected) {
+            // Two module types print alike; the exports that differ are the
+            // useful part of the report.
+            let unmet_exports = match (expected, actual) {
+                (Type::Module(expected), Type::Module(actual)) => expected.unmet_by(actual),
+                _ => Vec::new(),
+            };
+            let unnarrowed_member = !matches!(expected, Type::Union(_))
+                && matches!(actual, Type::Union(members)
+                    if members.iter().any(|member| member.matches_expected(expected)));
+            // Collections are invariant, so a list of one member is not a
+            // list of the union even though each element would fit.
+            let member_collection = match (expected, actual) {
+                (Type::List(expected), Type::List(actual)) => {
+                    matches!(**expected, Type::Union(_)) && actual.matches_expected(expected)
+                }
+                _ => false,
+            };
             let (expected, actual) = self.mismatch_labels(expected, actual);
-            self.diagnostics.push(
-                Diagnostic::error("type mismatch")
-                    .with_code(DiagnosticCode::CheckTypeMismatch)
-                    .with_label(Label::primary(
-                        span,
-                        format!("expected {expected}, found {actual}"),
-                    )),
-            );
+            let mut diagnostic = Diagnostic::error("type mismatch")
+                .with_code(DiagnosticCode::CheckTypeMismatch)
+                .with_label(Label::primary(
+                    span,
+                    format!("expected {expected}, found {actual}"),
+                ));
+            if unnarrowed_member {
+                diagnostic = diagnostic.with_note(format!(
+                    "a union value is a {expected} only after `value is {expected}` or a `name is {expected}` match arm proves it"
+                ));
+            }
+            if member_collection {
+                diagnostic = diagnostic.with_note(
+                    "a List is invariant in its element type; build the list with the union element type, for example `[item for item in items]` where the union list is expected",
+                );
+            }
+            for reason in unmet_exports {
+                diagnostic = diagnostic.with_note(reason);
+            }
+            self.diagnostics.push(diagnostic);
         }
+    }
+
+    /// Reports `check.union-narrow` and returns true when `ty` is a union. A
+    /// union value supports only what needs no knowledge of its member, so
+    /// every operation that reads the value calls this with the receiver or
+    /// operand type before it looks for a concrete one.
+    pub(super) fn reject_unnarrowed_union(&mut self, ty: &Type, use_site: &str, span: Span) -> bool {
+        let Type::Union(members) = ty else {
+            return false;
+        };
+        let first = members[0]
+            .annotation_source()
+            .unwrap_or_else(|| "Member".to_string());
+        self.diagnostics.push(
+            Diagnostic::error(format!("{ty} must be narrowed to one member before {use_site}"))
+                .with_code(DiagnosticCode::CheckUnionNarrow)
+                .with_label(Label::primary(span, format!("this value is {ty}")))
+                .with_note(format!(
+                    "test it (`if value is {first} {{ ... }}`) or match it with one `name is Member` arm per member"
+                )),
+        );
+        true
     }
 
     /// Rejects an `Any` value used by an operation that interprets it: an
@@ -445,9 +521,11 @@ impl Checker {
                                 )
                             })
                             .collect::<BTreeMap<_, _>>();
-                        Type::Module(exports.into())
+                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(exports)))
                     }
-                    Type::Unknown | Type::Invalid => Type::Module(Default::default()),
+                    Type::Unknown | Type::Invalid => {
+                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(BTreeMap::new())))
+                    }
                     other => {
                         self.error(
                             program.arena.type_expr_span(inner),
@@ -468,6 +546,20 @@ impl Checker {
             ArenaTypeExprTag::Optional => Type::Optional(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
+            ArenaTypeExprTag::Union => {
+                let members = program
+                    .arena
+                    .union_type_members(type_id)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|member| self.type_from_arena(program, member))
+                    .collect::<Vec<_>>();
+                if let Some(reason) = crate::sema::types::union_member_error(&members) {
+                    self.error(span, &reason, DiagnosticCode::CheckUnionType);
+                    return Type::Invalid;
+                }
+                Type::Union(members)
+            }
         }
     }
 
@@ -569,7 +661,7 @@ impl Checker {
                 }
                 Type::Record(record)
             }
-            TypeDefBody::ModuleContract(entries) => {
+            TypeDefBody::ModuleContract { entries, exact } => {
                 let mut exports = BTreeMap::new();
                 for entry in entries {
                     let export_ty = match entry.kind {
@@ -594,7 +686,7 @@ impl Checker {
                     };
                     exports.insert(entry.name, export_ty);
                 }
-                Type::Module(exports.into())
+                Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType { exports, exact }))
             }
             TypeDefBody::TagUnion(variants) => {
                 Type::Tag(variants.first().map_or(key, |variant| variant.type_name))

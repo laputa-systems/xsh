@@ -71,9 +71,60 @@ let selected = record.require("hello")
 print $selected
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.status == 0
   assert output.stdout == """hello
 """
+}
+
+# The removed call sits in a module that the linted root imports, and the root
+# is long enough to have text at the call's offsets. The fix copies the
+# receiver's text, so it is offered only by the check that holds that file's
+# text: linting the importer must not rewrite the module from the importer's
+# text, and linting the module itself fixes it.
+test test_record_require_migration_fix_reads_the_text_of_its_own_file { |ctx|
+  let root = test.temp_dir(ctx, name: "record-require-module")?
+  let module_file = fp"{root}/names.xsh"
+  let module_source = r"""##! Package names, validated the way callers used to with a string contract.
+
+## A package name.
+export type PackageName = {name: Str}
+
+## The name of the demo package.
+export proc demo() [error] -> Result[Str, Error] {
+  let checked = record.require(PackageName(name: "demo"), {name: "Str"})?
+  checked.name
+}
+"""
+  module_file.write_atomic(module_source)?
+  let main = fp"{root}/main.xsh"
+  main.write_atomic(r"""use names
+
+pure first_label() -> Str { "the first of several labels that only make this file long" }
+pure second_label() -> Str { "the second of several labels that only make this file long" }
+pure third_label() -> Str { "the third of several labels that only make this file long" }
+pure fourth_label() -> Str { "the fourth of several labels that only make this file long" }
+
+print names.demo()?
+print first_label().byte_len() second_label().byte_len() third_label().byte_len() fourth_label().byte_len()
+""")?
+
+  let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main ?
+  assert "check.removed-record-require" in reported.stderr, reported.stderr
+  assert "help: validate the existing named schema" not in reported.stderr, reported.stderr
+  let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main ?
+  assert ! under_importer.status.exited_with(0), under_importer.stderr
+  assert module_file.read_text()? == module_source
+
+  let offered = run.capture --text "xsht" lint --only lint.removed-record-require $module_file ?
+  assert "help: validate the existing named schema -> PackageName(name: \"demo\").require(PackageName)" in offered.stderr, offered.stderr
+
+  let as_root = run.capture --text "xsht" lint --fix --only lint.removed-record-require $module_file ?
+  assert as_root.status.exited_with(0), as_root.stderr
+  let fixed = module_file.read_text()?
+  assert "let checked = PackageName(name: \"demo\").require(PackageName)?" in fixed, fixed
+  let after = test.run_script(ctx, main.read_text()?, [], {XSH_MODULE_PATH: root})?
+  assert after.success, after.stderr
+  assert after.stdout == "demo\n57 58 57 58\n"
 }

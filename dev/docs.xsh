@@ -2,14 +2,17 @@
 ##! with the stdlib `template` module, and checks that committed output is current.
 ##!
 ##! Template data is one record:
-##! - `tour.NAME` and `spec.NAME`: `{source, output, platform}` for the snippet
+##! - `tour.NAME` and `spec.NAME`: `{source, output, desugared, platform}` for the snippet
 ##!   `docs/snippets/COLLECTION/NN-NAME.xsh` (`-` in NAME becomes `_`). `source` is the whole
 ##!   file, or the concatenation of its `# begin example` ... `# end example` regions,
 ##!   each dedented, so a fragment is checked inside a wrapper program the document
 ##!   does not show. `output` is the snippet's stdout when some template references
 ##!   `.COLLECTION.NAME.output`, and null otherwise, so only shown outputs run. A snippet
 ##!   whose first line is `# platform: linux` is checked but never run; any output
-##!   shown for it is literal text in the template.
+##!   shown for it is literal text in the template. `desugared` is the same regions of
+##!   `xsht desugar` on the snippet, when some template references
+##!   `.COLLECTION.NAME.desugared`, and null otherwise: a sugar form's documented
+##!   expansion is the one the implementation builds.
 ##! - `docs/snippets/COLLECTION/rejected/NN-NAME.xsh` snippets show code that must fail to
 ##!   check: `check` requires exactly the diagnostics their `# error: CODE` comments
 ##!   name, on those lines, and every other snippet must check clean. Other `.xsh`
@@ -33,7 +36,7 @@ export error DocsError = Stale(message: Str) | Snippet(message: Str) | Layout(me
 ## The binaries that render and verify the documentation.
 export type DocTools = {xsh: Path, xsht: Path}
 
-type Snippet = {source: Str, output: Str?, platform: Str}
+type Snippet = {source: Str, output: Str?, desugared: Str?, platform: Str}
 
 type SnippetFile = {name: Str, key: Str, path: Path, rejected: Bool}
 
@@ -96,6 +99,8 @@ const snippet_collections = ["tour", "spec"]
 
 const output_reference = rx"\.(tour|spec)\.[a-z0-9_]+\.output"
 
+const desugared_reference = rx"\.(tour|spec)\.[a-z0-9_]+\.desugared"
+
 const region_begin = "# begin example"
 
 const region_end = "# end example"
@@ -147,6 +152,21 @@ pure shown_outputs(templates: List[Str], collection: Str) -> List[Str] {
   var names: List[Str] = []
   for source in templates {
     for found in output_reference.find(source) {
+      let parts = found.text.split(".")
+      if parts[1] == collection {
+        names += [parts[2]]
+      }
+    }
+  }
+
+  names
+}
+
+# The names of the `collection` snippets whose desugared form some template shows.
+pure shown_expansions(templates: List[Str], collection: Str) -> List[Str] {
+  var names: List[Str] = []
+  for source in templates {
+    for found in desugared_reference.find(source) {
       let parts = found.text.split(".")
       if parts[1] == collection {
         names += [parts[2]]
@@ -243,6 +263,17 @@ proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -
   body(stdout.read_text()?)
 }
 
+# The example regions of a snippet as `xsht desugar` prints the whole file.
+# Comments stay on the statements they lead, so the region markers survive.
+proc desugared_source(xsht: Path, file: SnippetFile) [process, error] -> Result[Str] {
+  let result = run.capture --text $xsht desugar $file.path ?
+  guard result.status.ok else {
+    return Err(DocsError.Snippet(message: f"xsht desugar {file.name} failed: {result.stderr.trim()}"))
+  }
+
+  shown_source(file.name, result.stdout)
+}
+
 proc snippet_files(dir: Path) [fs, error] -> Result[List[SnippetFile]] {
   let rejected_dir = fp"{dir}/rejected"
   var files: List[SnippetFile] = []
@@ -261,7 +292,12 @@ proc snippet_files(dir: Path) [fs, error] -> Result[List[SnippetFile]] {
   files
 }
 
-proc snippets(dir: Path, xsh: Path, shown: List[Str]) [fs, process, env, error] -> Result[Map[Str, Snippet]] {
+proc snippets(
+  dir: Path,
+  tools: DocTools,
+  shown: List[Str],
+  expanded: List[Str],
+) [fs, process, env, error] -> Result[Map[Str, Snippet]] {
   let search_path = env.get_or("PATH", "")?
   let collected = snippet_files(dir)?
     |> par-map(jobs: 8) { |file|
@@ -274,10 +310,18 @@ proc snippets(dir: Path, xsh: Path, shown: List[Str]) [fs, process, env, error] 
       } else if file.rejected {
         return Err(DocsError.Snippet(message: f"a template shows the output of rejected {file.name}"))
       } else {
-        run_snippet(xsh, file.path, search_path)?
+        run_snippet(tools.xsh, file.path, search_path)?
       }
 
-      {name: file.key, snippet: Snippet(source: shown_source(file.name, source)?, output:, platform:)}
+      let desugared: Str? = if file.key not in expanded {
+        null
+      } else if file.rejected {
+        return Err(DocsError.Snippet(message: f"a template shows the desugared form of rejected {file.name}"))
+      } else {
+        desugared_source(tools.xsht, file)?
+      }
+
+      {name: file.key, snippet: Snippet(source: shown_source(file.name, source)?, output:, desugared:, platform:)}
     }
 
   var table: Map[Str, Snippet] = {}
@@ -292,6 +336,14 @@ proc snippets(dir: Path, xsh: Path, shown: List[Str]) [fs, process, env, error] 
   for name in shown {
     guard name in table else {
       return Err(DocsError.Layout(message: f"a template shows the output of unknown snippet {dir.name()}.{name}"))
+    }
+  }
+
+  for name in expanded {
+    guard name in table else {
+      return Err(
+        DocsError.Layout(message: f"a template shows the desugared form of unknown snippet {dir.name()}.{name}"),
+      )
     }
   }
 
@@ -483,8 +535,18 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
   let sources = [{rel: t.path.relative_to(templates_dir).display(), source: t.path.read_text()?} for t in templates]
   let shown = [t.source for t in sources]
   let data = {
-    tour: snippets(fp"{root}/docs/snippets/tour", tools.xsh, shown_outputs(shown, "tour"))?,
-    spec: snippets(fp"{root}/docs/snippets/spec", tools.xsh, shown_outputs(shown, "spec"))?,
+    tour: snippets(
+      fp"{root}/docs/snippets/tour",
+      tools,
+      shown_outputs(shown, "tour"),
+      shown_expansions(shown, "tour"),
+    )?,
+    spec: snippets(
+      fp"{root}/docs/snippets/spec",
+      tools,
+      shown_outputs(shown, "spec"),
+      shown_expansions(shown, "spec"),
+    )?,
     project: project(root)?,
     stdlib: stdlib(tools.xsht)?,
     cli: cli_reference(tools)?,
@@ -521,7 +583,7 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
 }
 
 ## Regenerates every generated document under `docs/`, rewriting only files that changed.
-export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit] {
+export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit, Error] {
   for doc in render(root, tools)? {
     let target = fp"{root}/docs/{doc.rel}"
     if ! target.exists()? or target.read_text()? != doc.text {
@@ -535,7 +597,7 @@ export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] 
 ## Fails when committed generated docs differ from a fresh render, when a
 ## snippet's check diagnostics differ from its `# error: CODE` comments, or when
 ## the tour project's tests fail.
-export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit] {
+export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit, Error] {
   let stale = [
     f"docs/{doc.rel}"
     for doc in render(root, tools)?
@@ -568,7 +630,7 @@ export pure release_tools(ctx: context.Context) -> DocTools {
 }
 
 ## Builds the release `xsh` and `xsht` that render the docs.
-export proc build_release(ctx: context.Context) [process, error, io] -> Result[Unit] {
+export proc build_release(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "docs-build",

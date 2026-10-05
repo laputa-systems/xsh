@@ -1,7 +1,7 @@
 type Plugin = module {
   export let name: Str
   export optional let description: Str
-  export proc execute(root: Path) [fs, error] -> Result[Unit]
+  export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
 }
 
 test test_module_load { |ctx|
@@ -33,6 +33,304 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   assert plugin.keys().len() == 3
   plugin.execute(root)?
   assert fp"{root}/out.txt".read_text()? == "demo"
+}
+
+type Builder = module {
+  export pure label(value: Str) -> Str
+  export proc build(root: Path) [fs, error] -> Result[Path, Error]
+}
+
+# A callable export is called the same way on a contract-checked module
+# whether the module was bound to a name first or reached through `?.`.
+test test_module_export_call_chains_after_require { |ctx|
+  let root = test.temp_dir(ctx, name: "chained-export-call")?
+  let builder_path = fp"{root}/builder.xsh"
+  builder_path.write("""##! Test builder module.
+
+## Labels a value.
+export pure label(value: Str) -> Str {
+  f"built-{value}"
+}
+
+## Writes the build marker and returns its path.
+export proc build(root: Path) [fs, error] -> Result[Path] {
+  let marker = fp"{root}/marker.txt"
+  marker.write(label("marker"))?
+  marker
+}
+""")?
+
+  let bound = module.load(builder_path)?.require(Builder)?
+  let bound_marker = bound.build(root)?
+  let chained_marker = module.load(builder_path)?.require(Builder)?.build(root)?
+  assert chained_marker == bound_marker
+  assert chained_marker.read_text()? == "built-marker"
+  assert module.load(builder_path)?.require(Builder)?.label("x") == bound.label("x")
+}
+
+type MissingOnly = module {
+  export let name: Str
+  export optional let description: Str
+  export let version: Int
+  export pure render(value: Str) -> Str
+}
+
+type MismatchedOnly = module {
+  export let name: Int
+  export pure label(value: Str, suffix: Str) -> Str
+  export proc build(root: Str) [fs, error] -> Result[Path, Error]
+}
+
+type EffectsAndReturn = module {
+  export proc build(root: Path) [fs, process, error] -> Result[Path, Error]
+  export pure label(value: Str) -> Int
+}
+
+type WrongKinds = module {
+  export proc label(value: Str) -> Str
+  export let build: Str
+  export pure name() -> Str
+}
+
+type MissingAndMismatched = module {
+  export let name: Int
+  export let version: Int
+}
+
+proc contract_fixture(ctx: TestContext) [fs, error] -> Result[Path] {
+  let root = test.temp_dir(ctx, name: "contract-report")?
+  let fixture = fp"{root}/fixture.xsh"
+  fixture.write("""##! Contract report fixture.
+
+## The fixture name.
+export let name: Str = "fixture"
+
+## Labels a value.
+export pure label(value: Str) -> Str {
+  f"label-{value}"
+}
+
+## Returns the root it was given.
+export proc build(root: Path) [fs, error] -> Result[Path] {
+  root.mkdir()?
+  root
+}
+""")?
+  fixture
+}
+
+# A failed contract check names every violation in one error, with the
+# expected and found signatures, and its facets say which categories occurred.
+test test_module_contract_failure_names_missing_exports { |ctx|
+  let fixture = contract_fixture(ctx)?
+  match module.load(fixture)?.require(MissingOnly) {
+    Ok(_) => test.fail("a module without required exports satisfied the contract")?
+    Err(error) => {
+      assert error is MissingExport
+      assert ! (error is MismatchedExport)
+      assert "missing export `version`: expected `export let version: Int`" in error.message, error.message
+      assert "missing export `render`: expected `export pure render(value: Str) -> Str`" in error.message, error.message
+      assert "description" not in error.message, error.message
+      assert "`name`" not in error.message, error.message
+      assert "expected Module, found Module" not in error.message, error.message
+    }
+  }
+}
+
+test test_module_contract_failure_names_mismatched_exports { |ctx|
+  let fixture = contract_fixture(ctx)?
+  match module.load(fixture)?.require(MismatchedOnly) {
+    Ok(_) => test.fail("a module with other signatures satisfied the contract")?
+    Err(error) => {
+      assert error is MismatchedExport
+      assert ! (error is MissingExport)
+      assert "mismatched export `name`: expected `export let name: Int`, found `export let name: Str` (the value type differs)" in error.message, error.message
+      assert "mismatched export `label`: expected `export pure label(value: Str, suffix: Str) -> Str`, found `export pure label(value: Str) -> Str` (the contract declares 2 parameters, the export takes 1 parameter)" in error.message, error.message
+      assert "mismatched export `build`: expected `export proc build(root: Str) [fs, error] -> Result[Path, Error]`, found `export proc build(root: Path) [fs, error] -> Result[Path, Error]` (parameter 1 has type Path, the contract declares Str)" in error.message, error.message
+    }
+  }
+
+  match module.load(fixture)?.require(EffectsAndReturn) {
+    Ok(_) => test.fail("a module with other effects satisfied the contract")?
+    Err(signature) => {
+      assert signature is MismatchedExport
+      assert "(the effects are [fs, error], the contract declares [fs, process, error])" in signature.message, signature.message
+      assert "(the return type is Str, the contract declares Int)" in signature.message, signature.message
+    }
+  }
+
+  match module.load(fixture)?.require(WrongKinds) {
+    Ok(_) => test.fail("a module with other export kinds satisfied the contract")?
+    Err(kinds) => {
+      assert kinds is MismatchedExport
+      assert "(the contract declares a proc, the module exports a pure function)" in kinds.message, kinds.message
+      assert "(the contract declares a value, the module exports a callable)" in kinds.message, kinds.message
+      assert "(the contract declares a callable, the module exports a value)" in kinds.message, kinds.message
+    }
+  }
+}
+
+test test_module_contract_failure_reports_both_categories { |ctx|
+  let fixture = contract_fixture(ctx)?
+  match module.load(fixture)?.require(MissingAndMismatched) {
+    Ok(_) => test.fail("an unsatisfied contract succeeded")?
+    Err(error) => {
+      assert error is MissingExport
+      assert error is MismatchedExport
+      assert "mismatched export `name`" in error.message, error.message
+      assert "missing export `version`" in error.message, error.message
+      test.error_kind(error, "schema")?
+    }
+  }
+}
+
+type ExactFixture = exact module {
+  export let name: Str
+  export optional let description: Str
+  export pure label(value: Str) -> Str
+  export proc build(root: Path) [fs, error] -> Result[Path, Error]
+}
+
+type ExactTooSmall = exact module {
+  export let name: Str
+  export optional let description: Str
+}
+
+type ExactAllCategories = exact module {
+  export let name: Int
+  export let version: Int
+}
+
+# An exact contract is the module's whole surface: the same module passes when
+# every export is listed (an optional one may be absent) and fails, naming each
+# extra export, when the contract lists fewer.
+test test_exact_module_contract_rejects_unexpected_exports { |ctx|
+  let fixture = contract_fixture(ctx)?
+  let exact = module.load(fixture)?.require(ExactFixture)?
+  assert exact.label("x") == "label-x"
+
+  match module.load(fixture)?.require(ExactTooSmall) {
+    Ok(_) => test.fail("a module with unlisted exports satisfied an exact contract")?
+    Err(error) => {
+      assert error is UnexpectedExport
+      assert ! (error is MissingExport)
+      assert ! (error is MismatchedExport)
+      assert "unexpected export `build`: `export proc build(root: Path) [fs, error] -> Result[Path, Error]` is not in the exact contract" in error.message, error.message
+      assert "unexpected export `label`: `export pure label(value: Str) -> Str` is not in the exact contract" in error.message, error.message
+      assert "`name`" not in error.message, error.message
+      assert "description" not in error.message, error.message
+      test.error_kind(error, "schema")?
+    }
+  }
+
+  match module.load(fixture)?.require(ExactAllCategories) {
+    Ok(_) => test.fail("an unsatisfied exact contract succeeded")?
+    Err(error) => {
+      assert error is MissingExport
+      assert error is MismatchedExport
+      assert error is UnexpectedExport
+      assert "mismatched export `name`" in error.message, error.message
+      assert "missing export `version`" in error.message, error.message
+      assert "unexpected export `build`" in error.message, error.message
+      assert "unexpected export `label`" in error.message, error.message
+    }
+  }
+
+  # The open form of the same small contract still allows the extras.
+  let _ = module.load(fixture)?.require(OpenNameOnly)?
+}
+
+type OpenNameOnly = module {
+  export let name: Str
+}
+
+# A statically imported module satisfies an exact contract only when it
+# exports nothing else, and a value typed by an open contract never does.
+test test_exact_module_contract_is_checked_statically { |ctx|
+  let root = test.temp_dir(ctx, name: "exact-static")?
+  fp"{root}/service.xsh".write("""##! Service fixture.
+
+## The service name.
+export let name: Str = "cache"
+
+## An export the small contract does not list.
+export pure extra() -> Int {
+  1
+}
+""")?
+  let env_root = {XSH_MODULE_PATH: root.display()}
+
+  let accepted = test.run_script(
+    ctx,
+    r"""type Service = exact module {
+  export let name: Str
+  export pure extra() -> Int
+  export optional let description: Str
+}
+
+use service
+
+proc main() [io] {
+  let checked: Service = service
+  print ${checked.name} ${checked.extra()}
+}
+""",
+    [],
+    env_root,
+  )?
+  assert accepted.success, accepted.stderr
+  assert accepted.stdout == "cache 1\n", accepted.stdout
+
+  let rejected = test.run_script(
+    ctx,
+    """type Service = exact module {
+  export let name: Str
+}
+
+use service
+
+let checked: Service = service
+""",
+    [],
+    env_root,
+  )?
+  assert rejected.status == 2, rejected.stderr
+  assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  assert "unexpected export `extra`: the exact contract does not list it" in rejected.stderr, rejected.stderr
+
+  let widened = test.run_script(
+    ctx,
+    """type Open = module {
+  export let name: Str
+}
+
+type Service = exact module {
+  export let name: Str
+}
+
+use service
+
+let open: Open = service
+let checked: Service = open
+""",
+    [],
+    env_root,
+  )?
+  assert widened.status == 2, widened.stderr
+  assert "check.type-mismatch" in widened.stderr, widened.stderr
+  assert "an exact contract needs `.require(Contract)`" in widened.stderr, widened.stderr
+
+  # Outside a contract position `exact` stays an ordinary name.
+  let ordinary = test.run_script(
+    ctx,
+    r"""let exact = 3
+type Count = Int
+let count: Count = exact
+print $count
+""",
+  )?
+  assert ordinary.success, ordinary.stderr
+  assert ordinary.stdout == "3\n", ordinary.stdout
 }
 
 type VersionedModule = module {
@@ -300,7 +598,7 @@ let _ = module.load(p"{optional_path}")?.require(Plugin)?
 let _ = module.load(p"{effect_path}")?.require(Runner)?
 """,
   ] {
-    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
+    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
     {
       let assertion_condition = ! result.success
       let assertion_message = source
@@ -336,7 +634,7 @@ proc main() [fs, error] -> Result[Unit] {{
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -385,7 +683,7 @@ print ${alpha.sum_numbers()}
 print ${beta.count_words()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -414,7 +712,7 @@ use selector
 print ${selector.select(["unknown"]).len()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -455,7 +753,7 @@ match dynamic {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -475,7 +773,7 @@ match failure {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = aliased
@@ -493,7 +791,7 @@ let provider = module.load(p"{root}/helper.xsh")?.require(FailureProvider)?
 print ${{provider.failure() is Err(_)}}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = loaded
@@ -557,7 +855,7 @@ proc main() [error] -> Result[Unit] {
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = positive
@@ -584,7 +882,7 @@ match helper.HelperError.Failed(detail: "failed") {
 }
 """,
   ] {
-    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
+    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
     {
       let assertion_condition = ! result.success
       let assertion_message = source
@@ -607,7 +905,7 @@ proc main() [error] -> Result[Unit] {
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = aliased
@@ -631,7 +929,7 @@ let _: State = h.Ready
 HelperError.Failed(detail: "failed")
 """,
   ] {
-    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
+    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
     {
       let assertion_condition = ! result.success
       let assertion_message = source
@@ -673,7 +971,7 @@ print ${labeler.call(pkg)}
 shower.call(pkg)?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -723,7 +1021,7 @@ let context: l.Context = {root: Path("workspace"), target: selected}
 l.normalize(context)?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -768,7 +1066,7 @@ use caller as c
 c.invoke(p"{src}", p"{out}")?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -797,7 +1095,7 @@ use pm.configure
 print ${configure.label("pkgconf")}
 """,
     [],
-    {XSH_MODULE_PATH: lib.display()},
+    {XSH_MODULE_PATH: lib},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -927,7 +1225,7 @@ let pkg = module.load(p"{package}")?.require(Pkg)?
 pkg.build(p"{dynamic_out}")?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = dynamic
@@ -950,7 +1248,7 @@ proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
 main(@args)?
 """,
     [static_src.display(), static_out.display()],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = static_output
@@ -979,7 +1277,7 @@ use stream_only
 let _: Runner = stream_only
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let assertion_condition = ! concrete_empty.success
@@ -995,7 +1293,7 @@ type Invalid = module {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let assertion_condition = ! stream_contract.success
@@ -1111,4 +1409,96 @@ test plain_run_child_finds_configured_roots { |ctx|
       assert "2 passed" in output.stdout, output.stdout
     } ?
   }
+}
+
+# `use a.b` binds `b`; the lint drops an alias that only repeats it, and the
+# program means the same afterwards.
+test test_redundant_use_alias_is_reported_and_fixed { |ctx|
+  let root = test.temp_dir(ctx, name: "redundant-use-alias")?
+  fp"{root}/checks".mkdir()?
+  fp"{root}/checks/disk.xsh".write("""##! Disk checks.
+
+## The usage threshold.
+export pure threshold() -> Int {
+  90
+}
+""")?
+  let script = fp"{root}/main.xsh"
+  script.write(r"""use checks.disk as disk
+use checks.disk as usage
+
+print ${disk.threshold()} ${usage.threshold()}
+""")?
+
+  let before = run.capture --text "xsh" $script ?
+  assert before.status.exited_with(0), before.stderr
+
+  let reported = run.capture --text "xsht" lint --only lint.redundant-use-alias $script ?
+  assert "lint.redundant-use-alias" in reported.stderr, reported.stderr
+  assert "`as disk` repeats the name this `use` already binds" in reported.stderr, reported.stderr
+  assert "as usage" not in reported.stderr, reported.stderr
+
+  let fixed = run.capture --text "xsht" lint --fix --only lint.redundant-use-alias $script ?
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert script.read_text()? == r"""use checks.disk
+use checks.disk as usage
+
+print ${disk.threshold()} ${usage.threshold()}
+"""
+
+  let after = run.capture --text "xsh" $script ?
+  assert after.status.exited_with(0), after.stderr
+  assert after.stdout == before.stdout
+  assert after.stdout == "90 90\n", after.stdout
+}
+
+# A top-level binding annotated with a module contract lowers like the same
+# binding in a proc, for a static namespace and for a loaded module, and procs
+# can read it.
+test test_top_level_binding_takes_a_module_contract_annotation { |ctx|
+  let root = test.temp_dir(ctx, name: "top-level-contract")?
+  fp"{root}/service.xsh".write("""##! Service fixture.
+
+## The service name.
+export let name: Str = "cache"
+
+## Labels a value with the service name.
+export pure label(value: Str) -> Str {
+  f"{name}-{value}"
+}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    f"""type Service = module {{
+  export let name: Str
+  export optional let description: Str
+  export pure label(value: Str) -> Str
+}}
+
+type ExactService = exact module {{
+  export let name: Str
+  export pure label(value: Str) -> Str
+}}
+
+use service
+
+let open: Service = service
+let exact: ExactService = service
+let loaded: Service = module.load(p"{root}/service.xsh")?.require(Service)?
+var current: Service = open
+current = loaded
+
+proc describe() [io] {{
+  print ${{open.label("proc")}}
+}}
+
+print ${{open.name}} ${{exact.label("exact")}} ${{loaded.label("loaded")}} ${{current.name}}
+describe()
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "cache cache-exact cache-loaded cache\ncache-proc\n", output.stdout
 }

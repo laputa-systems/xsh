@@ -71,7 +71,10 @@ fn run_lint(root: &Path, budget: Duration) -> Result<LintRun, String> {
 }
 
 fn require_clean_lint(run: &LintRun) -> Result<(), String> {
-    if run.status.success() && run.stdout.is_empty() && run.stderr.is_empty() {
+    if run.status.success()
+        && run.stdout.is_empty()
+        && crate::stderr_before_timing_line("lint", &run.stderr).is_empty()
+    {
         return Ok(());
     }
     Err(format!(

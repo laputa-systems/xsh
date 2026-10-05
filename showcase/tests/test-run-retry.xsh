@@ -17,7 +17,7 @@ test test_run_retry_cancellation_reaps_child_descendants { |ctx|
   let wrapper = spawn process.command_argv(
     executable,
     [
-      executable.display(),
+      executable,
       "showcase/run-retry.xsh",
       "--",
       "sh",

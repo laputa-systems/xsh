@@ -64,7 +64,7 @@ test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|
   let executable = ctx.xsh_bin
   let archive_child = spawn process.command_argv(
     executable,
-    [executable.display(), "showcase/archive-unpack.xsh", "--", "--compress", source, "--dry-run=false"],
+    [executable, "showcase/archive-unpack.xsh", "--", "--compress", source, "--dry-run=false"],
   )?
   let writer = spawn process.command_argv(
     "sh",

@@ -45,6 +45,7 @@ pub(crate) mod loader;
 pub mod mem_track;
 pub(crate) mod modules;
 pub mod process;
+pub(crate) mod project;
 pub(crate) mod runner;
 pub(crate) mod runtime;
 /// Tooling-only runtime allocation accounting used by `xsh-runtime-stats`.

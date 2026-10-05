@@ -26,7 +26,7 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  let root = if opts.root.display() == "." {
+  let root = if opts.root == "." {
     if let Ok(r) = fs.gitroot() {
       r
     } else {
@@ -105,7 +105,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
           for pattern in patterns {
             if pattern.re.matches(line) {
-              hits = hits.push({file: rel, line: line_num, kind: pattern.kind, text: line.trim()})
+              hits += [{file: rel, line: line_num, kind: pattern.kind, text: line.trim()}]
             }
           }
         }

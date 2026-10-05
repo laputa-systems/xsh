@@ -1,10 +1,10 @@
 #!/bin/xsh
-use lib.text_input as text_input
+use lib.text_input
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
+    else => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 

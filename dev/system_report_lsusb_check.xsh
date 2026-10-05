@@ -126,7 +126,7 @@ pure words(value: Str) -> List[Str] {
 }
 
 ## Parses stable `Bus NNN Device NNN: ID VVVV:PPPP` prefixes only.
-export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
+export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice], Error] {
   if output.byte_len() > 1048576 {
     return Err(lsusb_failure("lsusb list output exceeds its bound"))
   }
@@ -151,7 +151,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     }
 
     seen = set.add(seen, key)
-    devices = devices.push({bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?})
+    devices += [{bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?}]
   }
 
   devices |> sort-by f"{.bus}:{.device}"
@@ -166,7 +166,7 @@ pure field_after(fields: List[Str], name: Str) -> Str? {
 }
 
 ## Keeps the current root bus while parsing child interface rows.
-export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
+export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow], Error] {
   if output.byte_len() > 1048576 {
     return Err(lsusb_failure("lsusb tree output exceeds its bound"))
   }
@@ -205,13 +205,15 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
       }
     }
 
-    rows = rows.push({
-      bus: bus,
-      device: decimal(dev_token)?,
-      port: decimal(port_token)?,
-      interface_number: interface_number,
-      driver: driver,
-    })
+    rows += [
+      {
+        bus: bus,
+        device: decimal(dev_token)?,
+        port: decimal(port_token)?,
+        interface_number: interface_number,
+        driver: driver,
+      },
+    ]
   }
 
   rows
@@ -244,7 +246,7 @@ pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
 }
 
 ## Reads one device descriptor without interpreting configuration or interface text tables.
-export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[LsusbDescriptor] {
+export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[LsusbDescriptor, Error] {
   if output.byte_len() > 1048576 {
     return Err(lsusb_failure("lsusb verbose output exceeds its bound"))
   }
@@ -252,7 +254,7 @@ export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[Ls
   var headers = []
   for line in output.lines() {
     if line.starts_with("Bus ") {
-      headers = headers.extend(parse_lsusb_list(line)?)
+      headers += parse_lsusb_list(line)?
     }
   }
 
@@ -282,7 +284,7 @@ export pure compare_lsusb(
   devices: List[LsusbDevice],
   tree: List[LsusbTreeRow],
   descriptor: LsusbDescriptor,
-) -> Result[LsusbComparison] {
+) -> Result[LsusbComparison, Error] {
   let report = json.decode(candidate_json)?.require(CandidateReport)?
   var candidate_by_key: Map[Int] = {}
   var mismatches = []
@@ -299,7 +301,7 @@ export pure compare_lsusb(
 
     let key = f"{item.bus_number}:{item.device_number}"
     if key in candidate_by_key {
-      mismatches = mismatches.push(f"{key}.duplicate")
+      mismatches += [f"{key}.duplicate"]
     }
 
     candidate_by_key = candidate_by_key.set(key, index)
@@ -310,13 +312,13 @@ export pure compare_lsusb(
     let key = f"{reference.bus}:{reference.device}"
     basic_seen = set.add(basic_seen, key)
     if key not in candidate_by_key {
-      mismatches = mismatches.push(f"{key}.missing")
+      mismatches += [f"{key}.missing"]
       continue
     }
 
     let candidate = report.usb.devices[candidate_by_key.get(key)?]
     if candidate.vendor_id != reference.vendor_id or candidate.product_id != reference.product_id {
-      mismatches = mismatches.push(f"{key}.ids")
+      mismatches += [f"{key}.ids"]
     } else {
       matched_devices += 1
     }
@@ -324,7 +326,7 @@ export pure compare_lsusb(
 
   for key in candidate_by_key.keys() {
     if key not in basic_seen {
-      mismatches = mismatches.push(f"{key}.unexpected")
+      mismatches += [f"{key}.unexpected"]
     }
   }
 
@@ -333,7 +335,7 @@ export pure compare_lsusb(
     let key = f"{row.bus}:{row.device}"
     tree_seen = set.add(tree_seen, key)
     if key not in candidate_by_key {
-      mismatches = mismatches.push(f"{key}.tree_missing")
+      mismatches += [f"{key}.tree_missing"]
       continue
     }
 
@@ -345,18 +347,18 @@ export pure compare_lsusb(
 
     let port_parts = (candidate.port_path ?? "").split(".")
     if (decimal(port_parts.get(port_parts.len() - 1) ?? "") ?? -1) != row.port {
-      mismatches = mismatches.push(f"{key}.port")
+      mismatches += [f"{key}.port"]
       continue
     }
 
     let interfaces = candidate.interfaces |> where .number == (row.interface_number ?? -1)
     if interfaces.len() != 1 {
-      mismatches = mismatches.push(f"{key}.interface")
+      mismatches += [f"{key}.interface"]
       continue
     }
 
     if row.driver != null and interfaces[0].driver != row.driver {
-      mismatches = mismatches.push(f"{key}.driver")
+      mismatches += [f"{key}.driver"]
     } else {
       matched_tree_rows += 1
     }
@@ -364,13 +366,13 @@ export pure compare_lsusb(
 
   for reference in devices {
     if f"{reference.bus}:{reference.device}" not in tree_seen {
-      mismatches = mismatches.push(f"{reference.bus}:{reference.device}.tree_absent")
+      mismatches += [f"{reference.bus}:{reference.device}.tree_absent"]
     }
   }
 
   let selected_key = f"{descriptor.bus}:{descriptor.device}"
   if selected_key not in candidate_by_key {
-    mismatches = mismatches.push(f"{selected_key}.descriptor_absent")
+    mismatches += [f"{selected_key}.descriptor_absent"]
   } else {
     let selected = report.usb.devices[candidate_by_key.get(selected_key)?]
     for pair in [
@@ -396,9 +398,9 @@ export pure compare_lsusb(
       },
     ] {
       if pair.actual == null {
-        partial = partial.push(f"{selected_key}.{pair.name}")
+        partial += [f"{selected_key}.{pair.name}"]
       } else if pair.actual != pair.expected {
-        mismatches = mismatches.push(f"{selected_key}.{pair.name}")
+        mismatches += [f"{selected_key}.{pair.name}"]
       } else {
         matched_descriptor_fields += 1
       }
@@ -441,7 +443,7 @@ export proc compare_live_lsusb(
   xsh_bin: Str,
   script: Str,
   executable: Str,
-) [fs, process, time, error] -> Result[LsusbRun] {
+) [fs, process, time, error] -> Result[LsusbRun, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") or ! executable.starts_with("/") {
     return Err(lsusb_failure("lsusb comparison requires absolute paths"))
   }

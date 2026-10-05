@@ -51,6 +51,7 @@ use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
+mod module_contract;
 mod modules;
 mod require;
 #[cfg(feature = "native-tests")]
@@ -158,7 +159,8 @@ pub struct NativeTestRunRequest {
     pub source: String,
     pub tool_args: Vec<String>,
     pub script_args: Vec<String>,
-    pub env: BTreeMap<String, String>,
+    /// Overrides by name; a value is the bytes the script receives.
+    pub env: BTreeMap<String, Vec<u8>>,
     pub stdin: Vec<u8>,
     /// The fakes the requesting test installed; the host runs the script
     /// under the same fakes.
@@ -946,6 +948,9 @@ enum BuildTopKind {
     Expr(BuildExprId),
     Defer {
         value: BuildExprId,
+        /// Whether this is an `errdefer`: the action runs only when its scope
+        /// leaves with an error.
+        on_error: bool,
         span: Span,
     },
     SignalHook {
@@ -1179,12 +1184,17 @@ enum BuildStmtRow {
     /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
     /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
     /// run `else_body`, which must diverge.
+    ///
+    /// With `optional`, `value` is an optional instead: `null` runs
+    /// `else_body` and any other value is bound to `target` as it is. A null
+    /// value carries no error, so an optional guard has no `else_param_slot`.
     Guard {
         target: LoweredCompTarget,
         value: BuildExprId,
         else_param_slot: Option<usize>,
         else_body: Vec<BuildStmtId>,
         span: Span,
+        optional: bool,
     },
     With {
         bindings: Vec<(usize, BuildExprId)>,
@@ -1380,6 +1390,9 @@ enum BuildStmtRow {
     Continue,
     Defer {
         value: BuildExprId,
+        /// Whether this is an `errdefer`: the action runs only when its scope
+        /// leaves with an error.
+        on_error: bool,
     },
 }
 
@@ -2919,6 +2932,12 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "base32_decode",
     "starts_with",
     "ends_with",
+    "write_lines",
+    "read_lines",
+    "glob",
+    "rglob",
+    "components",
+    "bytes",
     "wait",
     "cancel",
     "context",
@@ -4208,7 +4227,23 @@ impl Evaluator {
         source_id: SourceId,
         allow_checker_only: bool,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
-        let mut declarations = Checker::check_compact_declarations(program);
+        self.prepare_checked_compact_indexed_only(
+            program,
+            source_id,
+            allow_checker_only,
+            Checker::check_compact_declarations(program),
+        )
+    }
+
+    /// Prepare a program from the declarations of the check that already
+    /// produced its diagnostics, so its bodies are not checked again.
+    pub(crate) fn prepare_checked_compact_indexed_only(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+        allow_checker_only: bool,
+        mut declarations: CompactDeclOutput,
+    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
         }
@@ -4502,10 +4537,7 @@ impl Evaluator {
     ) -> Vec<Diagnostic> {
         program.symbol_owner().with_current(|| {
             let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-            if let Some(diagnostic) = declarations.diagnostics.first() {
-                return vec![diagnostic.clone()];
-            }
-            match evaluator.prepare_compact_indexed_only_or_diagnostic_with_parts(
+            match evaluator.prepare_checked_compact_indexed_only(
                 program,
                 source_id,
                 true,
@@ -4548,7 +4580,7 @@ impl Evaluator {
             let diagnostics = vec![runtime_diagnostic(
                 span,
                 message,
-                DiagnosticCode::RuntimeCompactStatementCount,
+                DiagnosticCode::CompactStatementCount,
             )];
             let traceback = Some(self.traceback_for_value(
                 span,
@@ -4654,7 +4686,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         &error.message,
-                        DiagnosticCode::RuntimeIndexedDriver,
+                        DiagnosticCode::CompactIndexedDriver,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,
@@ -4928,7 +4960,25 @@ impl Evaluator {
                     self.current_scope_id(),
                     Ok(Flow::Continue(Value::Unit)),
                 );
+                // The script leaves its top level with an error when a
+                // statement failed, it aborted, or a signal is shutting it
+                // down; a failed cleanup action makes that true for the
+                // actions registered before it.
+                let script_failed = traceback.is_some()
+                    || abort.is_some()
+                    || self.signal_state.shutdown_status.is_some();
                 for index in compact_indexed_defers.into_iter().rev() {
+                    let on_error = self
+                        .indexed_program
+                        .as_ref()
+                        .expect("verified indexed program remains installed")
+                        .driver_step_defers_on_error(index)
+                        .expect("a verified deferred step carries its trigger");
+                    let cleanup_failed =
+                        cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_)));
+                    if on_error && !script_failed && !cleanup_failed {
+                        continue;
+                    }
                     let action = self
                         .eval_indexed_driver_step(index, script_span)
                         .unwrap_or_else(|| {
@@ -5106,10 +5156,11 @@ impl Evaluator {
         mut self,
         program: Arc<ArenaProgram>,
         source_id: SourceId,
+        declarations: CompactDeclOutput,
     ) -> Result<PreparedTestProgram, Diagnostic> {
         self.capture_process_output = true;
         let plan = program.symbol_owner().with_current(|| {
-            self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false)
+            self.prepare_checked_compact_indexed_only(&program, source_id, false, declarations)
         })?;
         let script_span = plan.script_span;
         let shared = self.lowered_shared_state();
@@ -5423,13 +5474,23 @@ impl Evaluator {
                         error_kind: kind.clone(),
                     },
                 );
-                let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
-                    failing_span: Some(span),
-                    exe_path: self.exe_path_for_traceback(),
-                    operation_kind: "result.propagate".to_string(),
-                    error: TraceError::from_propagated_value(&error),
-                    frames: self.call_stack.clone(),
-                });
+                // A recorded traceback belongs to one error. The operand may
+                // have handled that `Err` and produced another without
+                // starting a statement or a call, as `(f() ?? Err(other))?`
+                // does, so the record is reused only for the error it
+                // describes; any other error starts its traceback here.
+                let propagated = TraceError::from_propagated_value(&error);
+                let traceback = self
+                    .pending_traceback
+                    .take()
+                    .filter(|recorded| recorded.error == propagated)
+                    .unwrap_or_else(|| Traceback {
+                        failing_span: Some(span),
+                        exe_path: self.exe_path_for_traceback(),
+                        operation_kind: "result.propagate".to_string(),
+                        error: propagated,
+                        frames: self.call_stack.clone(),
+                    });
                 Flow::Propagate(Propagation { error, traceback })
             }
             other => Flow::Propagate(Propagation {
@@ -6751,23 +6812,64 @@ fn assign_op_runtime_text(op: AssignOp) -> &'static str {
     }
 }
 
-fn expand_glob_pattern(
-    cwd: &std::path::Path,
-    pattern: &str,
-    span: Span,
-) -> Result<Vec<Vec<u8>>, RuntimeError> {
+/// The `/`-separated components of a glob pattern, without empty ones.
+fn glob_pattern_components(pattern: &str, span: Span) -> Result<Vec<Vec<u8>>, RuntimeError> {
     if pattern.contains('\0') {
         return Err(
             RuntimeError::new("glob-pattern", "glob patterns cannot contain NUL").with_span(span),
         );
     }
-    let absolute = pattern.as_bytes().starts_with(b"/");
-    let components = pattern
+    Ok(pattern
         .as_bytes()
         .split(|byte| *byte == b'/')
         .filter(|component| !component.is_empty())
         .map(|component| component.to_vec())
-        .collect::<Vec<_>>();
+        .collect())
+}
+
+/// `Path.glob` and `Path.rglob`: `pattern` expanded below `root` by the walk
+/// that expands a glob literal below the working directory, so the two can
+/// never match differently. `host_root` is `root` as the host resolves it;
+/// every match is spelled as `root` followed by the components that matched.
+/// `recursive` matches the pattern at any depth, as a leading `**` component
+/// does.
+fn expand_glob_below(
+    host_root: &std::path::Path,
+    root: &PathValue,
+    pattern: &str,
+    recursive: bool,
+    span: Span,
+) -> Result<Vec<Vec<u8>>, RuntimeError> {
+    let mut components = glob_pattern_components(pattern, span)?;
+    // A pattern that names its own root would silently ignore the receiver,
+    // and one with no components names nothing to match.
+    if pattern.starts_with('/') {
+        return Err(RuntimeError::new(
+            "glob-pattern",
+            "glob pattern must be relative to the receiver",
+        )
+        .with_span(span));
+    }
+    if components.is_empty() {
+        return Err(RuntimeError::new("glob-pattern", "glob pattern is empty").with_span(span));
+    }
+    if recursive {
+        components.insert(0, b"**".to_vec());
+    }
+    let mut matches = Vec::new();
+    expand_glob_components(host_root, &root.bytes, &components, 0, span, &mut matches)?;
+    matches.sort_unstable();
+    matches.dedup();
+    Ok(matches)
+}
+
+fn expand_glob_pattern(
+    cwd: &std::path::Path,
+    pattern: &str,
+    span: Span,
+) -> Result<Vec<Vec<u8>>, RuntimeError> {
+    let components = glob_pattern_components(pattern, span)?;
+    let absolute = pattern.as_bytes().starts_with(b"/");
     if components.is_empty() {
         return Ok(Vec::new());
     }
@@ -7061,7 +7163,22 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             }),
             _ => false,
         },
-        Type::Module(exports) => matches!(value, Value::Module(_)) && exports.is_empty(),
+        // The same shape rule as the lowered form of this test below.
+        Type::Module(contract) => match value {
+            Value::Module(_) if contract.is_empty() && !contract.exact => true,
+            Value::Module(module) => {
+                contract.iter().all(|(field, export)| {
+                    match module.get(field.as_str().as_ref()) {
+                        Some(value) => value_matches_static_type(value, &export.field_type()),
+                        None => export.optional(),
+                    }
+                }) && (!contract.exact
+                    || module
+                        .iter()
+                        .all(|(exported, _)| contract.contains_key(&Name::intern(exported.to_string()))))
+            }
+            _ => false,
+        },
         Type::DynamicModule => matches!(value, Value::Module(_)),
         Type::Result(ok_ty, err_ty) => match value {
             Value::Result(ResultValue::Ok(value)) => value_matches_static_type(value, ok_ty),
@@ -7091,6 +7208,12 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::Tag(name) => matches!(value, Value::Tag { type_name, .. } if type_name == name),
         Type::Optional(inner) => {
             matches!(value, Value::Null) || value_matches_static_type(value, inner)
+        }
+        Type::Union(members) => {
+            crate::sema::types::first_accepting_union_member(members, |member| {
+                value_matches_static_type(value, member)
+            })
+            .is_some()
         }
     }
 }
@@ -7177,14 +7300,25 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             }),
             _ => false,
         },
-        Type::Module(exports) => match value {
-            LoweredValue::Module(_) if exports.is_empty() => true,
-            LoweredValue::Module(module) => exports.iter().all(|(field, export)| {
-                let field_text = field.as_str();
-                module.get::<str>(field_text.as_str()).is_some_and(|value| {
-                    lowered_value_matches_static_type(value, &export.field_type())
-                })
-            }),
+        // The shape a contract promises: each entry present with its kind and
+        // value type, an optional entry possibly absent, and nothing else when
+        // the contract is exact. Callable signatures are the business of
+        // `.require(Contract)` and of the checker.
+        Type::Module(contract) => match value {
+            LoweredValue::Module(_) if contract.is_empty() && !contract.exact => true,
+            LoweredValue::Module(module) => {
+                contract.iter().all(|(field, export)| {
+                    match module.get::<str>(field.as_str().as_str()) {
+                        Some(value) => {
+                            lowered_value_matches_static_type(value, &export.field_type())
+                        }
+                        None => export.optional(),
+                    }
+                }) && (!contract.exact
+                    || module
+                        .keys()
+                        .all(|exported| contract.contains_key(&Name::intern(exported.as_ref()))))
+            }
             _ => false,
         },
         Type::DynamicModule => matches!(value, LoweredValue::Module(_)),
@@ -7218,6 +7352,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {
             matches!(value, LoweredValue::Null) || lowered_value_matches_static_type(value, inner)
+        }
+        Type::Union(members) => {
+            crate::sema::types::first_accepting_union_member(members, |member| {
+                lowered_value_matches_static_type(value, member)
+            })
+            .is_some()
         }
     }
 }

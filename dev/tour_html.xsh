@@ -772,7 +772,7 @@ proc code_html(hl: Highlighter, block: CodeBlock) [fs, process, error] -> Result
     "xsh" => xsh_html(hl, block.source)?,
     "bash" => [shell_line(line) for line in block.source.lines()].join("\n"),
     "ini" => [ini_line(line) for line in block.source.lines()].join("\n"),
-    _ => esc(block.source),
+    else => esc(block.source),
   }
 
   let label = fence_labels[block.lang]
@@ -946,7 +946,7 @@ proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Res
 
 ## Renders the tour Markdown as a complete HTML document, coloring XSH code
 ## with `xsht highlight`.
-export proc render(markdown: Str, xsht: Path) [fs, process, error] -> Result[Str] {
+export proc render(markdown: Str, xsht: Path) [fs, process, error] -> Result[Str, Error] {
   let blocks = parse_blocks(markdown.lines())?
   let scratch = fs.tempdir()?
   defer scratch.close()?

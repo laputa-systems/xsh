@@ -71,6 +71,12 @@ impl Checker {
         types: &[Type],
         span: Span,
     ) -> Option<String> {
+        // The edit copies the receiver's text, and `source` is the root
+        // program's: a call in an imported module lies at offsets of another
+        // file. That call gets its fix when its own file is the root.
+        if self.module_depth != 0 {
+            return None;
+        }
         let [receiver_arg, required_arg] = args else {
             return None;
         };

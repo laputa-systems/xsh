@@ -37,15 +37,15 @@ pure format_counts(counts: Counts, show_lines: Bool, show_words: Bool, show_byte
   var cols = []
 
   if show_lines {
-    cols = cols.push(tui.left_pad(f"{counts.lines}", width))
+    cols += [tui.left_pad(f"{counts.lines}", width)]
   }
 
   if show_words {
-    cols = cols.push(tui.left_pad(f"{counts.words}", width))
+    cols += [tui.left_pad(f"{counts.words}", width)]
   }
 
   if show_bytes {
-    cols = cols.push(tui.left_pad(f"{counts.bytes}", width))
+    cols += [tui.left_pad(f"{counts.bytes}", width)]
   }
 
   cols.join(" ")

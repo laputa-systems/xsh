@@ -17,6 +17,9 @@ The productions read the lexer's tokens after three adjustments:
 - Comments are dropped.
 - A line break followed (after any blank or comment lines) by a
   [continuation token](#line-continuation) is removed, joining the two lines.
+- A `\` that follows whitespace and ends its line is whitespace, together
+  with its line break. It is accepted only between the parts of a command
+  (SPEC 2.5); the productions never see it.
 - Every other run of line breaks is one `NEWLINE`.
 
 A newline or `;` ends a statement. A compound statement (one that ends with
@@ -45,7 +48,7 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 | `NAME` | an identifier that may also contain `-` after its first character |
 | `LABEL` | an identifier or keyword used as a field label |
 | `MEMBER` | a label or a hyphenated name after `.` |
-| `INT` | a decimal or `0o` octal integer |
+| `INT` | a decimal or `0o` octal integer, or a decimal byte count with a size unit (`64MiB`) |
 | `FLOAT` | a decimal number with a fraction or exponent |
 | `DURATION` | an integer followed by a duration suffix |
 | `STRING` | a `"..."`, `"""..."""`, or raw `r"..."` string |
@@ -64,7 +67,7 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 Keywords:
 
 ```text
-and assert break const continue defer else enum export false for guard if in let loop match not null or proc pure retry return run spawn stream true try type unless use var wait when while with yield
+and assert break const continue defer else enum errdefer export false for guard if in let loop match not null or proc pure retry return run spawn stream true try type unless use var wait when while with yield
 ```
 
 Every other quoted word is contextual: it is an ordinary identifier outside
@@ -147,7 +150,10 @@ compound_statement = if_statement
                    | guard_statement
                    | with_statement
                    | signal_hook
-                   | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook ) ;
+                   | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
+                   | repeat_statement
+                   | without_statement
+                   | tempdir_statement ;
 simple_statement = binding
                  | assert_statement
                  | return_statement
@@ -165,7 +171,8 @@ simple_statement = binding
                  | context_scope "?"?
                  | tempdir_scope "?"?
                  | named_command "?"?
-                 | expression_statement ;
+                 | expression_statement
+                 | exit_statement ;
 ```
 
 ## Declarations
@@ -176,13 +183,13 @@ binding = ( "let" | "const" | "var" ) binding_rest ;
 binding_rest = binding_target ( ":" type_expr )? "=" expression_or_run ;
 binding_target = IDENT | "{" list(destructure_field) "}" ;
 destructure_field = "." ~"." | IDENT | LABEL ":" NEWLINE* binding_target ;
-type_declaration = "type" IDENT ( "[" IDENT ( "," IDENT )* "]" )? "=" ( "module" module_contract | record_schema | type_expr ) ;
+type_declaration = "type" IDENT ( "[" IDENT ( "," IDENT )* "]" )? "=" ( "exact"? "module" module_contract | record_schema | type_expr ) ;
 record_schema = "{" list(schema_field) "}" ;
 schema_field = LABEL ":" type_expr ( "=" expression )? ;
 module_contract = "{" NEWLINE* ( contract_entry separator* ( "," separator* )? )* "}" ;
 contract_entry = "export" "optional"? ( "proc" NAME "(" parameters ")" effects? ( "->" type_expr )? | "pure" IDENT "(" parameters ")" "->" type_expr | "let"? IDENT ":" type_expr ) ;
 enum_declaration = "enum" IDENT ( "{" list1(IDENT ( "(" list(type_expr) ")" )?) "}" | ":" "Str" "{" list1(IDENT "=" expression) "}" ) ;
-error_declaration = "error" IDENT "=" NEWLINE* ( "|" NEWLINE* )? error_variant ( "|" NEWLINE* error_variant )* ;
+error_declaration = "error" IDENT ( "=" NEWLINE* ( "|" NEWLINE* )? error_variant ( "|" NEWLINE* error_variant )* | "{" NEWLINE* error_variant ( NEWLINE error_variant )* NEWLINE* "}" ) ;
 error_variant = NAME ( "(" list(LABEL ":" type_expr) ")" )? ( ":" IDENT ( "," IDENT )* )? ;
 proc_declaration = "proc" NAME "(" parameters ")" effects? ( "->" type_expr )? block ;
 pure_declaration = "pure" IDENT "(" parameters ")" ( "->" type_expr )? block ;
@@ -205,17 +212,25 @@ guarded_value = expression_item postfix_guard? | run_form ( "?" postfix_guard? )
 return_statement = "return" ( postfix_guard | guarded_value )? ;
 yield_statement = "yield" ( "@" expression postfix_guard? | guarded_value ) ;
 break_statement = "break" ( postfix_guard | expression postfix_guard? )? ;
+exit_statement = "exit" line(expression) postfix_guard? ;
 continue_statement = "continue" postfix_guard? ;
-defer_statement = "defer" ( block | !"{" expression_or_run ) ;
+defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
-expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "process" ~"." ~"command" "{" ) expression "?"? ;
+expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "process" ~"." ~"command" "{" ) expression "?"? ;
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition block ;
 for_statement = "for" binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
-match_statement = "match" condition_expression "{" ( separator | arm_head ( block | compound_statement ) ","? | arm_head arm_statement separator | arm_head !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," )* ( arm_head arm_statement )? "}" ;
-arm_head = pattern ( "if" expression )? "=>" ;
+repeat_statement = "repeat" line(condition_expression) "times" block ;
+without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
+tempdir_statement = "tempdir" IDENT "at" condition_expression block ;
+match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
+arm_head = !( "." IDENT ) pattern ( "if" expression )? "=>" ;
+else_arm_head = "else" "=>" ;
+arm_body = ( block | compound_statement ) ","?
+         | arm_statement separator
+         | !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," ;
 arm_statement = !"{" simple_statement
               | &( "{" "." "." | "{" "[" | "{" LABEL ":" | "{" LABEL "." | "{" STRING ":" | "{" NEWLINE "." "." | "{" NEWLINE "[" | "{" NEWLINE LABEL ":" | "{" NEWLINE LABEL "." | "{" NEWLINE STRING ":" ) record_expression "?"? ;
 guard_statement = "guard" ( !"let" guard_condition "else" block | "let" binding_target ( ":" type_expr )? "=" ( expression_item | run_form "?" ) "else" NEWLINE* block ) ;
@@ -309,8 +324,9 @@ record_field = "." ~"." ~"." expression
              | IDENT ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
 if_expression = "if" condition block ( "else" "if" condition block )* "else" block ;
-match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* match_expression_arm? "}" ;
-match_expression_arm = arm_head ( block | !"{" expression_item | record_expression "?"? ) ;
+match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
+match_expression_arm = arm_head arm_value ;
+arm_value = block | !"{" expression_item | record_expression "?"? ;
 record_expression = ( record_literal | map_comprehension ) postfix* logical_tail ( "|>" pipe_stage )* ;
 retry_expression = "retry" "[" list(expression) "]" ( "on" "(" NEWLINE* pattern NEWLINE* ")" ( "as" IDENT )* )? block ;
 operand = ( ( "!" | "-" ) unary | primary ( ~"." MEMBER | ~"[" index "]" | ~"(" call_arguments ")" )* ) !( "." MEMBER | "[" | "(" ) ;
@@ -371,6 +387,8 @@ primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
                 | NAME "." IDENT "(" pattern? ")"
                 | NAME "." IDENT ( "." IDENT )? record_pattern?
                 | NAME "(" ( pattern ( "," pattern )* ","? )? ")"
+                | "." IDENT "(" ( pattern ( "," pattern )* ","? )? ")"
+                | "." IDENT record_pattern?
                 | !( "is" | "_" ) NAME !"is"
                 | "null"
                 | "true"
@@ -393,6 +411,8 @@ condition_primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
                           | NAME "." IDENT "(" pattern? ")"
                           | NAME "." IDENT ( "." IDENT )? condition_payload?
                           | NAME "(" ( pattern ( "," pattern )* ","? )? ")"
+                          | "." IDENT "(" ( pattern ( "," pattern )* ","? )? ")"
+                          | "." IDENT condition_payload?
                           | !( "is" | "_" ) NAME !"is"
                           | "null"
                           | "true"
@@ -419,8 +439,9 @@ builtin_type = "List" "[" type_expr "]"
              | "Map" "[" type_expr ( "," type_expr )? "]"
              | "Stream" "[" type_expr "]"
              | "Module" "[" type_expr "]"
-             | "Result" "[" type_expr ( "," type_expr )? "]" ;
-named_type = !( "List" | "Map" | "Stream" | "Module" | "Result" ) IDENT ( "." IDENT )? ;
+             | "Result" "[" type_expr ( "," type_expr )? "]"
+             | "Union" "[" type_expr ( "," type_expr )* "]" ;
+named_type = !( "List" | "Map" | "Stream" | "Module" | "Result" | "Union" ) IDENT ( "." IDENT )? ;
 type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 ```
 

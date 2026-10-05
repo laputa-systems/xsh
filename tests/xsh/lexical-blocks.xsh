@@ -282,7 +282,7 @@ export let name = "invalid"
     """use invalid
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   let import_rejected = ! imported.success
   let import_details = imported.stderr

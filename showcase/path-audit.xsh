@@ -124,9 +124,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
         let earlier = same_display |> where .name == exact_name
 
         if earlier.len() > 0 {
-          shadows = shadows.push(
-            {name: child.name, path: child_path, detail: f"shadows {earlier[0].path}"},
-          )
+          shadows += [{name: child.name, path: child_path, detail: f"shadows {earlier[0].path}"}]
         } else {
           first_path[child.name] = same_display.push({name: exact_name, path: child_path})
         }

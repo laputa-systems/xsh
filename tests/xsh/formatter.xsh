@@ -61,6 +61,50 @@ test test_fmt_nested_multiline_string_preserves_value { |ctx|
   assert stable.status.exited_with(0), stable.stderr
 }
 
+# A conditional or comprehension on the right of an assignment breaks the way
+# a `let` initializer does, and a conditional operand never breaks inside a
+# one-line branch, so a second pass changes nothing.
+test test_fmt_assigned_conditionals_are_stable { |ctx|
+  let source = p"tests/fixtures/fmt/assigned-conditionals.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/assigned-conditionals.xsh",
+    p"tests/fixtures/fmt/assigned-conditionals.expected.xsh",
+    "assigned-conditionals.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/assigned-conditionals.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+}
+
+# A continued command keeps the author's line breaks, a command too long for
+# its line is broken with `\`, and neither changes what the commands run.
+test test_fmt_command_continuation { |ctx|
+  let before = test.run_script(ctx, p"tests/fixtures/fmt/command-continuation.xsh".read_text()?)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/command-continuation.xsh",
+    p"tests/fixtures/fmt/command-continuation.expected.xsh",
+    "command-continuation.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/command-continuation.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+}
+
+# A comment that ends a command's line stays on that line, as it does after
+# any other statement; it used to move to a line of its own below.
+test test_fmt_keeps_a_trailing_comment_on_a_command { |ctx|
+  let source = "print one two # said\nrun true # ran\nlet text = run.text printf x ? # captured\nprint $text \\\n  again # continued\n\nif true {\n  print inside # nested\n}\n"
+  let file = test.temp_file(ctx, name: "trailing.xsh", contents: bytes.from_text(source))?
+  let formatted = run.capture --text "xsht" fmt $file ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  assert file.read_text()? == source
+}
+
 test test_fmt_path_format_specs_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/path-format-specs.xsh".read_text()?
   let before = test.run_script(ctx, source)?
@@ -101,4 +145,19 @@ test test_fmt_match_arm_nested_blocks_preserve_value { |ctx|
   assert after.stdout == before.stdout
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
+}
+
+test test_fmt_error_families_choose_the_form_by_width { |ctx|
+  let source = p"tests/fixtures/fmt/error-families.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/error-families.xsh",
+    p"tests/fixtures/fmt/error-families.expected.xsh",
+    "fmt-error-families.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/error-families.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
 }

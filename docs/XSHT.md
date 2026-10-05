@@ -21,6 +21,7 @@ the authoritative option reference.
 | `xsht grep` / `xsht refactor` | AST-pattern search and span-based rewrite | `crates/xsht/src/grep.rs`, `crates/xsht/src/cli/refactor.rs` |
 | `xsht ast SCRIPT` | parser debug output | `crates/xsht/src/cli/syntax_tree.rs` |
 | `xsht highlight SCRIPT` | syntax highlighting runs as JSON Lines, from the lexer (`src/syntax/highlight.rs`) | `src/syntax/highlight.rs`, `crates/xsht/src/cli/highlight.rs` |
+| `xsht desugar SCRIPT` | the script with every sugar statement replaced by its expansion | `crates/xsht/src/format.rs` (`Formatter::desugar_source`), `crates/xsht/src/cli/desugar.rs` |
 | `xsht grammar [--format ebnf\|json]` | the language's productions as EBNF, or the JSON reference that `make docs` renders | `src/syntax/grammar/reference.rs`, `crates/xsht/src/app.rs` |
 
 Dispatch starts in `xsht::app::main` (`crates/xsht/src/app.rs`); every command
@@ -30,18 +31,27 @@ façade rather than building parallel parser/checker pipelines. Shared parse and
 check diagnostics are deduplicated per command, so an imported module's error
 is reported once.
 
+`xsht check` and `xsht lint` end their stderr with one timing line whenever
+they processed a file, for example
+`xsht check: 301 files in 4.75s (thread time by stage: discover 0.03s, load 7.16s, check 30.90s, lower 6.06s)`.
+A stage sums the time of every worker thread that ran it, so stages can add up
+to more than the wall-clock total; a consumer that compares stderr drops that
+last line (`StageTimings`, `crates/xsht/src/cli/timing.rs`).
+
 ## Configuration
 
-`xsht-config.ini` is resolved per file from the nearest ancestor; the current
-directory's config controls no-argument discovery. Relative paths resolve from
-the config's directory. A missing file means defaults; an invalid file is a
-command error.
+`xsht-config.ini` is resolved per file from the nearest ancestor of the file's
+absolute location; the current directory's config controls no-argument
+discovery. Relative paths resolve from the config's directory. A file with no
+config above it takes tool settings from the current directory's config or
+the defaults, and has no project module roots. An invalid file is a command
+error.
 
 | Key | Meaning |
 |---|---|
 | `include` | extra roots for no-argument discovery |
 | `exclude` | glob patterns removed from discovery for path-oriented commands; an explicit directory uses its nearest config's `exclude` |
-| `module_path` | module search roots (default `.`); `xsht test` also passes them to `module.load` and appends them to children's `XSH_MODULE_PATH` |
+| `module_path` | module search roots (default `.`, the config's directory), searched after file-relative lookup and `XSH_MODULE_PATH`; `xsh` and `xshi` read this one key for the entry script through the same `project_module_roots` (`src/project.rs`); `xsht test` also passes the roots to `module.load` and appends them to children's `XSH_MODULE_PATH` |
 | `test_roots` | directories `xsht test` searches |
 | `[format] line-width` | formatter width target (default 120) |
 | `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
@@ -49,7 +59,9 @@ command error.
 | `[lint] prefer-inferred-pure-returns` | opt-in removal of private pure return annotations the checker can infer |
 | `[lint] prefer-inferred-private-effects` | `false` turns off `lint.prefer-inferred-private-effects`, which is on by default |
 | `[lint] prefer-env-string`, `prefer-item-shorthand`, `prefer-tempdir-scope` | each rule is on by default; `false` disables its corpus-migration suggestion |
-| `[lint] prefer-inferred-variants`, `prefer-positional-constructors` | opt-in `lint.prefer-inferred-variant` (drop a variant qualifier the expected type selects) and `lint.prefer-positional-constructor` (pass in-order constructor fields positionally) |
+| `[lint] prefer-inferred-variants`, `prefer-positional-constructors` | opt-in `lint.prefer-inferred-variant` (drop a variant qualifier the expected type selects, or in a pattern the matched value's type; a match arm head keeps its qualifier) and `lint.prefer-positional-constructor` (pass in-order constructor fields positionally) |
+| `[lint] prefer-inferred-proc-returns` | opt-in `lint.prefer-inferred-proc-return`: a private proc drops its return annotation when a second check of the file without it is clean and leaves every checked type, statement position, and effect of the file unchanged. Exports, `main`, tests, and recursive procs keep theirs, as does a body that needs the annotation as an expected type (`Err(.Variant(...))`, `.require()`, an empty collection). Off when `[check] annotate` writes returns |
+| `[lint] prefer-implicit-messages` | opt-in `lint.prefer-implicit-message`: a variant declared `V(message: Str)` drops its payload and takes the message positionally. Calls that name `message:` are fixed first; the declaration is fixed only when the family is not exported, because calls in importing files are not visible |
 | `[lint] runless-except` | commands allowed under `--runless` |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |
 | `[coverage] exclude` | files removed from the `xsht test --cov` denominator only |
@@ -92,6 +104,9 @@ A safe fix:
 When a rule cannot preserve nearby comments, it reports without a fix. Lint
 diagnostics are invariant under formatting; a rule that measures source shape
 measures the formatter's spelling. Shapes the formatter owns are not lint rules.
+`lint.prefer-guard` reports a postfix guard only when the guarded statement fits
+88 columns, because the formatter has no readable multiline layout for a longer
+one; a longer guard stays an `if` block.
 `check.redundant-parens` is the one diagnostic formatting removes: it never
 blocks `fmt` or hides lint diagnostics, and formatted output has none
 (`lint_format_invariance`). `check.mixed-logical` still blocks `fmt`, which
@@ -145,6 +160,38 @@ Items carry a purpose, an optional contract (only constraints that prevent a
 wrong program), derived effects, signatures, tags, and an example; they never
 expose Rust names, implementation paths, or tests. The registry rejects missing
 or unknown documentation.
+
+## Desugar
+
+`xsht desugar SCRIPT` prints the program the checker and the runtime read:
+each sugar statement (`docs/DESIGN.md`) is replaced by the core statements its
+expansion builds, and everything else is printed as `xsht fmt` prints it. It
+is the formatter with one switch, so a form needs no code of its own here: a
+`SugarForm` added in `src/syntax/parser/sugar.rs` is expanded the day it
+parses.
+
+- The script is parsed, not checked. The output checks when the script does,
+  with the same diagnostics apart from positions, and runs the same.
+- Comments stay on the statement they lead. A trailing comment stays on the
+  statement's line when the expansion fits on one line and moves to the
+  guarded statement otherwise.
+- A local that an expansion binds under a name no identifier can spell is
+  printed under a fresh name, `STEM_N`, that the script spells nowhere.
+- A statement after `# fmt: skip`, or an expression with a comment inside,
+  is copied from the source by `xsht fmt`; when it holds sugar, `desugar`
+  prints it instead, formatted.
+- One rule is not in the output: the failure block of `guard cond else` must
+  leave the enclosing continuation, and the `if` printed for it may fall
+  through. A script that checks loses nothing.
+- The command refuses to print (exit 1, a diagnostic on stderr) when the
+  script does not parse, or when what it would print does not parse back to
+  exactly the expansion. The second is a bug in the command.
+
+`make docs` shows a snippet's expansion in the SPEC with
+`{{.spec.NAME.desugared}}`, which runs this command, so a documented expansion
+is the implemented one. `the_desugared_corpus_checks_and_tests_like_the_corpus`
+(`crates/xsht/tests/desugar.rs`) desugars every native test file that holds
+sugar and requires the same check diagnostics and test results.
 
 ## Source representations
 

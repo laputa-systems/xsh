@@ -5,7 +5,7 @@ use stage as stages
 use targets
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
-export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit] {
+export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit, Error] {
   return when ctx.host_os != targets.Linux or ! ctx.target.static_musl
 
   let libc = /usr/lib/libc.so
@@ -24,7 +24,7 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
 }
 
 ## Builds the repository with the current development Cargo profile.
-export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit] {
+export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit, Error] {
   prepare_native_musl(ctx)?
   stages.execute(
     stages.command(
@@ -39,9 +39,10 @@ export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
 }
 
 ## Runs the repository's non-mutating deprecated-import contract.
-export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Result[Unit] {
+export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Result[Unit, Error] {
   let pattern = "xsh::(source|symbol|syntax|sema|loader|runner|runtime|modules|parse_script_with_module_roots)"
-  let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests src/entrypoints --glob "*.rs" ?
+  let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests \
+    src/entrypoints --glob "*.rs" ?
 
   if result.stdout.trim() != "" {
     return Err(
@@ -66,7 +67,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
 
 ## Compiles the release lint gate before measuring read-only lint on the configured repository corpus,
 ## then checks generated docs with release binaries.
-export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "check-lint",
@@ -97,14 +98,14 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
 export proc check_docs(
   ctx: context.Context,
   tools: documentation.DocTools,
-) [fs, process, env, error, io] -> Result[Unit] {
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   print f"[check-docs target={ctx.target.triple}] render docs/templates and compare"
   documentation.check(ctx.root, tools)?
 }
 
 ## Runs the focused, source-non-mutating development check suite. Its tools
 ## and tests run release binaries, as every test does.
-export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "check-build",
@@ -206,7 +207,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
 }
 
 ## Runs the repository-owner-only formatting and autofix workflow.
-export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit] {
+export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "lint-rustfmt",

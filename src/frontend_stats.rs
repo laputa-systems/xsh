@@ -262,8 +262,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
                     * size_of::<(crate::symbol::Name, crate::sema::check::ErrorVariantInfo)>();
                 for variant in family.variants.values() {
                     type_count += variant.fields.len();
-                    bytes += size_of::<BTreeMap<crate::symbol::Name, Type>>()
-                        + variant.fields.len() * size_of::<(crate::symbol::Name, Type)>()
+                    bytes += variant.fields.len() * size_of::<(crate::symbol::Name, Type)>()
                         + variant.fields.values().map(type_owned_bytes).sum::<usize>()
                         + variant.facets.capacity() * size_of::<crate::symbol::Name>();
                 }
@@ -345,11 +344,14 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     ));
 
     mem_track::begin_stage();
-    let checked = parse_load_check_text(
+    let mut checked = parse_load_check_text(
         path,
         source.to_string(),
         Vec::new(),
-        CheckOptions::default(),
+        CheckOptions {
+            embedded_bodies: true,
+            ..CheckOptions::default()
+        },
     );
     let _ = checked.parsed.cst.get();
     let ast_traffic = mem_track::end_stage();
@@ -357,7 +359,12 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let ast_retained_bytes = ast.retained_bytes;
     let (checked_type_count, checked_retained_bytes) =
         measure_check_output(checked.checked.as_ref());
-    let declarations = Checker::check_compact_declarations(&checked.parsed.arena);
+    let checked_diagnostics = diagnostic_count(&checked);
+    // The measured pipeline is the runner's: one check feeds lowering.
+    let declarations = match checked.checked.take() {
+        Some(output) => Checker::compact_declarations(&checked.parsed.arena, output),
+        None => Checker::check_compact_declarations(&checked.parsed.arena),
+    };
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);
     let (body_type_count, body_retained_bytes) =
@@ -379,9 +386,19 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         probe_compact_lower_constructed_bodies(&checked.parsed.arena, &declarations, source);
     let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
     let lower_diagnostics = usize::from(
-        evaluator
-            .prepare_compact_indexed_only(&checked.parsed.arena, checked.entry_source_id)
-            .is_none(),
+        checked
+            .parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| {
+                evaluator.prepare_checked_compact_indexed_only(
+                    &checked.parsed.arena,
+                    checked.entry_source_id,
+                    false,
+                    declarations.clone(),
+                )
+            })
+            .is_err(),
     );
     let lowered = evaluator.frontend_lowered_stats();
     let lower_traffic = mem_track::end_stage();
@@ -405,7 +422,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         lower_traffic,
     ));
 
-    let diagnostics = lexed.diagnostics.len() + diagnostic_count(&checked) + lower_diagnostics;
+    let diagnostics = lexed.diagnostics.len() + checked_diagnostics + lower_diagnostics;
     let ast_stmt_count = ast.statements;
     let ast_expr_count = ast.expressions;
     let ast_pattern_count = ast.patterns;

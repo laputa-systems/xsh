@@ -96,7 +96,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   if operands.len() > 1 {
     for operand in operands |> drop(1) {
-      roots = roots.push(fp"{operand}")
+      roots += [fp"{operand}"]
     }
   }
 

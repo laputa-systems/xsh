@@ -59,7 +59,7 @@ pub struct CompactDeclOutput {
 pub enum CompactTypeDefInfo {
     Alias(TypeExprId),
     Record(BTreeMap<Name, Type>),
-    Module(std::sync::Arc<BTreeMap<Name, ModuleExportType>>),
+    Module(std::sync::Arc<crate::sema::types::ModuleType>),
     TagUnion,
 }
 
@@ -92,8 +92,20 @@ pub struct CompactBodyFacts {
     pub handler_input_types: FxHashMap<BlockId, Type>,
     /// Leading-dot variants keyed by the constructing call or member expression.
     pub inferred_variants: FxHashMap<ExprId, super::InferredVariant>,
+    /// String literals whose expected type made them a `Path`.
+    pub path_literals: FxHashSet<ExprId>,
     /// The schema field each record constructor argument supplies, keyed by call.
     pub record_constructor_fields: FxHashMap<ExprId, Vec<Name>>,
+    /// What each `.Name` pattern stands for.
+    pub inferred_variant_patterns:
+        FxHashMap<crate::syntax::arena::PatternId, super::InferredVariantPattern>,
+    /// The argument binding of each error constructor, keyed by call.
+    pub error_constructors: FxHashMap<ExprId, super::CheckedErrorConstructor>,
+    /// `if let` and `while let` conditions that bind the non-null value of an
+    /// optional subject: `null` fails the condition before the pattern runs.
+    pub optional_binding_conditions: FxHashSet<ExprId>,
+    /// `guard let` statements whose subject is an optional, not a `Result`.
+    pub optional_binding_guards: FxHashSet<StmtId>,
 }
 
 impl CompactBodyFacts {
@@ -130,19 +142,51 @@ impl CompactBodyFacts {
             if let Some(variant) = checked.inferred_variants.get(&span) {
                 facts.inferred_variants.insert(id, variant.clone());
             }
+            if matches!(expression.kind, ArenaExprKind::Str(_))
+                && checked.path_literals.contains(&span)
+            {
+                facts.path_literals.insert(id);
+            }
             if let Some(fields) = checked.record_constructor_fields.get(&span) {
                 facts.record_constructor_fields.insert(id, fields.clone());
+            }
+            if let Some(constructor) = checked.error_constructors.get(&span) {
+                facts.error_constructors.insert(id, constructor.clone());
             }
             if let ArenaExprKind::Call { callee, .. } = expression.kind
                 && let Some(fact) = checked.record_constructor_instances.get(&span)
             {
                 record_constructor_types.insert(callee, fact.ty.clone());
             }
+            if matches!(expression.kind, ArenaExprKind::PatternCondition { .. })
+                && checked.optional_binding_spans.contains(&span)
+            {
+                facts.optional_binding_conditions.insert(id);
+            }
+        }
+        if !checked.inferred_variant_patterns.is_empty() {
+            for (index, pattern) in arena.patterns.iter().enumerate() {
+                if pattern.kind.is_inferred_variant()
+                    && let Some(resolved) = checked
+                        .inferred_variant_patterns
+                        .get(&arena.span(pattern.span))
+                {
+                    facts
+                        .inferred_variant_patterns
+                        .insert(crate::syntax::arena::PatternId::from_index(index), resolved.clone());
+                }
+            }
         }
         for index in 0..arena.stmt_tags.len() {
             let id = StmtId::from_index(index);
-            if let Some(position) = checked.statement_positions.get(&arena.stmt(id).span) {
+            let statement = arena.stmt(id);
+            if let Some(position) = checked.statement_positions.get(&statement.span) {
                 facts.statement_positions.insert(id, *position);
+            }
+            if matches!(statement.kind, ArenaStmtKind::Guard { .. })
+                && checked.optional_binding_spans.contains(&statement.span)
+            {
+                facts.optional_binding_guards.insert(id);
             }
         }
         if !checked.handler_input_types.is_empty() {
@@ -161,17 +205,36 @@ impl CompactBodyFacts {
 }
 
 impl Checker {
-    // Compact execution must pass the same checked boundaries as normal source
-    // checking before representation probes can prepare runtime frames.
+    /// Check `program` for lowering when no entry check has run: embedded
+    /// modules, directly prepared programs, and tests. A caller that already
+    /// checked the program with `CheckOptions::embedded_bodies` passes that
+    /// output to `compact_declarations` instead, so each body is checked once.
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
+        // An entry check owns the `reveal_type` gate; a program prepared
+        // without one must not be rejected for it here. Without the entry text
+        // the check cannot judge source spelling and reports nothing for it.
+        let options = super::CheckOptions {
+            reveal_types: true,
+            embedded_bodies: true,
+            ..super::CheckOptions::default()
+        };
+        let checked = Checker::check_arena_with_options(program, "", options);
+        Self::compact_declarations(program, checked)
+    }
+
+    /// The declarations and body facts lowering consumes, re-keyed from the
+    /// check that produced the program's diagnostics. Compact execution passes
+    /// the same checked boundaries as source checking because it is the same
+    /// check.
+    pub fn compact_declarations(
+        program: &ArenaProgram,
+        checked: super::CheckOutput,
+    ) -> CompactDeclOutput {
+        assert!(
+            checked.embedded_bodies_checked,
+            "lowering needs facts for embedded implementation bodies"
+        );
         program.symbol_owner().with_current(|| {
-            // Entry checking owns the `reveal_type` gate; `xsht check` admits it
-            // and runtime lowering skips it, so this replay must not reject it.
-            let options = super::CheckOptions {
-                reveal_types: true,
-                ..super::CheckOptions::default()
-            };
-            let checked = Checker::check_arena_for_lowering(program, options);
             let (bodies, record_constructor_types) = CompactBodyFacts::collect(program, &checked);
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
@@ -360,7 +423,7 @@ impl CompactDeclCollector {
                 }
                 CompactTypeDefInfo::Record(record)
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
+            ArenaTypeDefBody::ModuleContract { entries, exact } => {
                 let mut names = FxHashSet::default();
                 let entries = program.arena.module_contract_entries(entries);
                 self.output.module_contract_entries += entries.len();
@@ -409,7 +472,7 @@ impl CompactDeclCollector {
                         }
                     }
                 }
-                CompactTypeDefInfo::Module(exports.into())
+                CompactTypeDefInfo::Module(std::sync::Arc::new(crate::sema::types::ModuleType { exports, exact }))
             }
             ArenaTypeDefBody::TagUnion(variants) => {
                 let variants = program.arena.tag_variants(variants);
@@ -483,7 +546,7 @@ impl CompactDeclCollector {
             let fields = program.arena.error_fields(variant.fields);
             self.output.error_fields += fields.len();
             let mut field_names = FxHashSet::default();
-            let mut field_types = BTreeMap::new();
+            let mut field_types = Vec::with_capacity(fields.len());
             for field in fields {
                 if !field_names.insert(field.name) {
                     self.error(
@@ -492,15 +555,12 @@ impl CompactDeclCollector {
                         DiagnosticCode::CheckDuplicateRecordField,
                     );
                 }
-                field_types.insert(field.name, Type::from_arena(&program.arena, field.ty));
+                field_types.push((field.name, Type::from_arena(&program.arena, field.ty)));
             }
             let facets = program.arena.names(variant.facets).collect::<Vec<_>>();
             family_variants.insert(
                 variant.name,
-                ErrorVariantInfo {
-                    fields: field_types,
-                    facets,
-                },
+                ErrorVariantInfo::declared(field_types, facets),
             );
         }
         let info = ErrorFamilyInfo {

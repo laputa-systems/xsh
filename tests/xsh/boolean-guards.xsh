@@ -119,12 +119,12 @@ test test_boolean_guard_rejects_fallthrough_and_parameters { |ctx|
     {
       source: """guard 1 else { abort(1) }
 """,
-      code: "check.guard-condition",
+      code: "check.if-condition",
     },
     {
       source: """guard Ok(true) else { abort(1) }
 """,
-      code: "check.guard-condition",
+      code: "check.if-condition",
     },
     {
       source: """guard true else { loop { break } }

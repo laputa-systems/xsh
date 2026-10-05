@@ -19,7 +19,7 @@ pure digit_value(ch: Str) -> Result[Int] {
     "5" => 5
     "6" => 6
     "7" => 7
-    _ => Err(AppletError.Usage(f"invalid mode digit '{ch}'"))
+    else => Err(AppletError.Usage(f"invalid mode digit '{ch}'"))
   }
 }
 
@@ -78,7 +78,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
           }
         }
         "s" => mask = mask + 0o4000
-        _ => {}
+        else => {}
       }
     }
 
@@ -93,7 +93,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
           }
         }
         "s" => mask = mask + 0o2000
-        _ => {}
+        else => {}
       }
     }
 
@@ -108,7 +108,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
           }
         }
         "t" => mask = mask + 0o1000
-        _ => {}
+        else => {}
       }
     }
   }
@@ -150,7 +150,7 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
       "+" => mode = add_mask(mode, mask)
       "-" => mode = remove_mask(mode, mask)
       "=" => mode = add_mask(remove_mask(mode, class_mask(who)), mask)
-      _ => return Err(AppletError.Usage(f"unsupported mode '{spec}'"))
+      else => return Err(AppletError.Usage(f"unsupported mode '{spec}'"))
     }
   }
 

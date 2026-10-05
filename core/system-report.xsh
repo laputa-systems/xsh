@@ -1,8 +1,12 @@
 #!/bin/xsh
-use lib.system_report as system_report
+use lib.system_report
 use lib.system_report_live as live_collector
 
-error SystemReportCliError = Usage(message: Str) : Usage | InvalidInput(message: Str) : InvalidInput | Unsupported(message: Str) : Unsupported
+error SystemReportCliError {
+    Usage(message: Str) : Usage
+    InvalidInput(message: Str) : InvalidInput
+    Unsupported(message: Str) : Unsupported
+}
 
 type SystemReportOptions = {
   from_report: Str,

@@ -1,9 +1,8 @@
 use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
-    AnnotationPolicy, AnnotationSelection, CliOutput, TraceFormat, TraceOptions, api_command,
-    ast_script, check_paths_with_summary_options, format_files, grep_scripts, highlight_script,
-    lint_files,
-    refactor_scripts, trace_script,
+    AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions,
+    api_command, ast_script, check_paths_timed, desugar_script, format_files, grep_scripts, highlight_script,
+    lint_files_timed, refactor_scripts, trace_script,
 };
 use crate::xsht::commands::{self, ParsedArgs};
 use crate::xsht::help::{command_help as generated_command_help, root_help};
@@ -52,8 +51,8 @@ pub fn main() -> ExitCode {
             paths,
             annotation_selection,
             summary,
-        }) => finish_command(|| {
-            check_paths_with_summary_options(&paths, annotation_selection, summary)
+        }) => finish_timed("check", |timings| {
+            check_paths_timed(&paths, annotation_selection, summary, timings)
         }),
         Ok(Command::Fmt { files, check }) => finish_command(|| format_files(&files, check)),
         Ok(Command::Lint {
@@ -61,9 +60,12 @@ pub fn main() -> ExitCode {
             fix,
             runless,
             only,
-        }) => finish_command(|| lint_files(&files, fix, runless, only)),
+        }) => finish_timed("lint", |timings| {
+            lint_files_timed(&files, fix, runless, only, timings)
+        }),
         Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
         Ok(Command::Highlight { script }) => finish_command(|| highlight_script(&script)),
+        Ok(Command::Desugar { script }) => finish_command(|| desugar_script(&script)),
         Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
         Ok(Command::Api { options }) => finish_command(|| api_command(&options)),
         Ok(Command::Test { options }) => finish_command(|| test_scripts(options)),
@@ -117,6 +119,9 @@ enum Command {
     Highlight {
         script: String,
     },
+    Desugar {
+        script: String,
+    },
     Trace {
         options: TraceOptions,
     },
@@ -160,6 +165,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "ast" => parse_ast(&args[1..]),
         "grammar" => parse_grammar(&args[1..]),
         "highlight" => parse_highlight(&args[1..]),
+        "desugar" => parse_desugar(&args[1..]),
         "trace" => parse_trace(&args[1..]),
         "api" => parse_api(&args[1..]),
         "test" => parse_test(&args[1..]),
@@ -350,6 +356,18 @@ fn parse_ast(args: &[String]) -> Result<Command, String> {
             script: script.clone(),
         }),
         _ => Err("`xsht ast` accepts exactly one SCRIPT".to_string()),
+    })
+}
+
+fn parse_desugar(args: &[String]) -> Result<Command, String> {
+    parse_command("desugar", args, |parsed| {
+        match parsed.positionals.as_slice() {
+            [] => Err("`xsht desugar` requires SCRIPT".to_string()),
+            [script] => Ok(Command::Desugar {
+                script: script.clone(),
+            }),
+            _ => Err("`xsht desugar` accepts exactly one SCRIPT".to_string()),
+        }
     })
 }
 
@@ -617,6 +635,17 @@ fn parse_refactor(args: &[String]) -> Result<Command, String> {
 
 fn finish_command(run: impl FnOnce() -> CliOutput) -> ExitCode {
     finish(run())
+}
+
+/// Run `xsht check` or `xsht lint` and close its stderr with the stage timing
+/// report.
+fn finish_timed(command: &str, run: impl FnOnce(&StageTimings) -> CliOutput) -> ExitCode {
+    let timings = StageTimings::start();
+    let mut output = run(&timings);
+    if let Some(report) = timings.report(command) {
+        output.stderr.extend_from_slice(report.as_bytes());
+    }
+    finish(output)
 }
 
 fn finish(output: CliOutput) -> ExitCode {

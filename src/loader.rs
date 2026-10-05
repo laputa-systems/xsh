@@ -421,7 +421,7 @@ fn add_compact_file_declaration(
         ArenaStmtKind::Export(inner) => add_compact_file_declaration(program, inner, summary),
         ArenaStmtKind::TypeDef(def) => {
             summary.type_defs += 1;
-            if let crate::syntax::arena::ArenaTypeDefBody::ModuleContract(entries) =
+            if let crate::syntax::arena::ArenaTypeDefBody::ModuleContract { entries, .. } =
                 program.arena.type_def(def).body
             {
                 summary.module_contract_entries +=
@@ -957,7 +957,7 @@ fn read_module_from_candidates(
         }
     }
     Err(format!(
-        "failed to read module; tried {}. Set XSH_MODULE_PATH to add module search roots",
+        "failed to read module; tried {}. Set XSH_MODULE_PATH, or `module_path` in the project's xsht-config.ini, to add module search roots",
         failures.join(", ")
     ))
 }
@@ -979,11 +979,14 @@ pub fn resolve_user_module(
     read_module_from_candidates(importer, path, extra_roots).map(Some)
 }
 
+/// Where a `use` may load from, in search order: beside the importing file,
+/// then each `XSH_MODULE_PATH` directory, then each project module root.
+/// Every loader, in every binary, searches in this order.
 #[allow(clippy::single_call_fn)]
 fn resolve_module_path_candidates(
     importer: &Path,
     path: &[Name],
-    extra_roots: &[PathBuf],
+    project_roots: &[PathBuf],
 ) -> Vec<PathBuf> {
     let mut candidates = vec![module_path_from_base(
         importer.parent().unwrap_or_else(|| Path::new(".")),
@@ -994,7 +997,7 @@ fn resolve_module_path_candidates(
             candidates.push(module_path_from_base(&base, path));
         }
     }
-    for base in extra_roots {
+    for base in project_roots {
         candidates.push(module_path_from_base(base, path));
     }
     let mut seen = FxHashSet::default();

@@ -274,7 +274,7 @@ let values = [1, 2] |> map(helpers.add)
 print values[0]
 print ${(["a"] |> map(helpers.surround))[0]}
 """)?
-  let output = test.run_script(ctx, script.read_text()?, [], {XSH_MODULE_PATH: directory.display()})?
+  let output = test.run_script(ctx, script.read_text()?, [], {XSH_MODULE_PATH: directory})?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message

@@ -49,6 +49,12 @@ pub(super) enum TypeTag {
     UInt,
     ErasedRecord,
     DynamicModule,
+    // A module type whose listed exports are the module's whole surface.
+    // The payload is the same as `Module`.
+    ExactModule,
+    // A closed union. `lhs` is the member count and `rhs` the offset of the
+    // member type ids in `type_extra`, in the order the union lists them.
+    Union,
 }
 
 impl TypeTag {
@@ -200,6 +206,32 @@ impl SemanticPools {
         Ok((fields, types))
     }
 
+    /// The member type ids of a union, in the order the union lists them.
+    fn union_members(&self, id: TypeId) -> Result<&[u32], IrVerifyError> {
+        if self.type_tag(id)? != TypeTag::Union {
+            return Err(IrVerifyError::new("type id does not denote a union"));
+        }
+        let data = self.type_data[id.index()];
+        let start = data.rhs as usize;
+        let end = start
+            .checked_add(data.lhs as usize)
+            .ok_or_else(|| IrVerifyError::new("union type payload overflows"))?;
+        self.type_extra
+            .get(start..end)
+            .ok_or_else(|| IrVerifyError::new("union type payload is out of bounds"))
+    }
+
+    /// Rewrites the first union in the pool to claim a single member, as a
+    /// corrupted program would, and reports whether the pool has a union.
+    #[cfg(test)]
+    pub(super) fn truncate_first_union_for_test(&mut self) -> bool {
+        let Some(index) = self.type_tags.iter().position(|tag| *tag == TypeTag::Union) else {
+            return false;
+        };
+        self.type_data[index].lhs = 1;
+        true
+    }
+
     pub(super) fn display_type(&self, id: TypeId) -> Result<String, IrVerifyError> {
         self.display_type_inner(id, 0)
     }
@@ -245,7 +277,7 @@ impl SemanticPools {
                 }
                 Type::Record(fields)
             }
-            TypeTag::Module => {
+            TypeTag::Module | TypeTag::ExactModule => {
                 let shape = ShapeId::from_raw(data.lhs)
                     .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
                 let names = self.shape_fields(shape)?;
@@ -290,7 +322,10 @@ impl SemanticPools {
                     };
                     fields.insert(name, value);
                 }
-                Type::Module(fields.into())
+                Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
+                    exports: fields,
+                    exact: tag == TypeTag::ExactModule,
+                }))
             }
             TypeTag::Result => Type::Result(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Status => Type::Status,
@@ -314,6 +349,12 @@ impl SemanticPools {
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
+            TypeTag::Union => Type::Union(
+                self.union_members(id)?
+                    .iter()
+                    .map(|raw| child(*raw))
+                    .collect::<Result<_, _>>()?,
+            ),
         })
     }
 
@@ -389,7 +430,7 @@ impl SemanticPools {
             TypeTag::Regex => Some("Regex"),
             TypeTag::Path => Some("Path"),
             TypeTag::Record => Some("Record"),
-            TypeTag::Module => Some("Module"),
+            TypeTag::Module | TypeTag::ExactModule => Some("Module"),
             TypeTag::Status => Some("Status"),
             TypeTag::EnvPathList => Some("EnvPathList"),
             TypeTag::Error => Some("Error"),
@@ -450,6 +491,15 @@ impl SemanticPools {
                 Name::from_symbol(Symbol::from_raw(data.lhs)),
                 Name::from_symbol(Symbol::from_raw(data.rhs))
             )),
+            TypeTag::Union => {
+                let mut members = Vec::new();
+                for raw in self.union_members(id)? {
+                    let member = TypeId::from_raw(*raw)
+                        .ok_or_else(|| IrVerifyError::new("union member type id is invalid"))?;
+                    members.push(self.display_type_inner(member, depth + 1)?);
+                }
+                Ok(format!("Union[{}]", members.join(", ")))
+            }
             _ => Err(IrVerifyError::new("type tag has no display schema")),
         }
     }
@@ -571,6 +621,37 @@ impl SemanticPools {
                     }
                 }
                 TypeTag::ErrorVariant => {}
+                // The checker never publishes a union it would have to
+                // simplify, and the runtime tries members in order, so a
+                // pool whose union has one member, repeats one, or lists a
+                // type that accepts every value, `null`, or another union's
+                // values was not produced by lowering.
+                TypeTag::Union => {
+                    let id =
+                        TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
+                    let members = self.union_members(id)?;
+                    if members.len() < 2 {
+                        return Err(IrVerifyError::new("union type has fewer than two members"));
+                    }
+                    for (position, raw) in members.iter().enumerate() {
+                        let member = verify_type_raw(self, *raw, Some(index))?;
+                        if matches!(
+                            self.type_tags[member.index()],
+                            TypeTag::Any
+                                | TypeTag::Null
+                                | TypeTag::Optional
+                                | TypeTag::Stream
+                                | TypeTag::Union
+                        ) {
+                            return Err(IrVerifyError::new(
+                                "union member type cannot be a member of a union",
+                            ));
+                        }
+                        if members[..position].contains(raw) {
+                            return Err(IrVerifyError::new("union type repeats a member"));
+                        }
+                    }
+                }
                 TypeTag::Record => {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
@@ -579,7 +660,7 @@ impl SemanticPools {
                         verify_type_raw(self, *raw, Some(index))?;
                     }
                 }
-                TypeTag::Module => {
+                TypeTag::Module | TypeTag::ExactModule => {
                     let shape = ShapeId::from_raw(data.lhs)
                         .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
                     let fields = self.shape_fields(shape)?;
@@ -679,6 +760,8 @@ enum TypeKey {
     Named(TypeTag, Name),
     NamedPair(TypeTag, Name, Name),
     Aggregate(TypeTag, ShapeId, Box<[u32]>),
+    /// Member type ids in the order the union lists them.
+    Union(Box<[u32]>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -718,7 +801,9 @@ impl SemanticPoolBuilder {
             .types
             .keys()
             .map(|key| match key {
-                TypeKey::Aggregate(_, _, words) => words.len() * size_of::<u32>(),
+                TypeKey::Aggregate(_, _, words) | TypeKey::Union(words) => {
+                    words.len() * size_of::<u32>()
+                }
                 _ => 0,
             })
             .sum::<usize>();
@@ -839,8 +924,12 @@ impl SemanticPoolBuilder {
                         }
                     }
                 }
-                let key =
-                    TypeKey::Aggregate(TypeTag::Module, shape, words.clone().into_boxed_slice());
+                let tag = if exports.exact {
+                    TypeTag::ExactModule
+                } else {
+                    TypeTag::Module
+                };
+                let key = TypeKey::Aggregate(tag, shape, words.clone().into_boxed_slice());
                 let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
                 (key, IrData::new(shape.raw(), start), words)
             }
@@ -874,6 +963,19 @@ impl SemanticPoolBuilder {
             Type::Unit => scalar(TypeTag::Unit),
             Type::Tag(name) => named(TypeTag::Tag, *name),
             Type::Optional(inner) => self.unary(pools, TypeTag::Optional, inner)?,
+            Type::Union(members) => {
+                let mut words = Vec::with_capacity(members.len());
+                for member in members {
+                    words.push(self.intern_type(pools, member)?.raw());
+                }
+                let count = checked_u32(words.len(), "semantic_extra_overflow")?;
+                let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
+                (
+                    TypeKey::Union(words.clone().into_boxed_slice()),
+                    IrData::new(count, start),
+                    words,
+                )
+            }
         };
         if let Some(id) = self.types.get(&key) {
             return Ok(*id);
@@ -886,6 +988,7 @@ impl SemanticPoolBuilder {
             | TypeKey::Named(tag, _)
             | TypeKey::NamedPair(tag, _, _)
             | TypeKey::Aggregate(tag, _, _) => *tag,
+            TypeKey::Union(_) => TypeTag::Union,
         };
         pools.type_tags.push(tag);
         pools.type_data.push(data);
@@ -1073,6 +1176,12 @@ mod tests {
     use crate::sema::types::{CallableParamType, CallableType};
     use std::collections::BTreeMap;
 
+    fn module_type(
+        exports: BTreeMap<Name, ModuleExportType>,
+    ) -> std::sync::Arc<crate::sema::types::ModuleType> {
+        std::sync::Arc::new(crate::sema::types::ModuleType::open(exports))
+    }
+
     fn callable() -> CallableType {
         CallableType {
             params: vec![
@@ -1122,7 +1231,7 @@ mod tests {
             first_signature
         );
 
-        let module = Type::Module(std::sync::Arc::new(BTreeMap::from([
+        let module = Type::Module(module_type(BTreeMap::from([
             (
                 Name::intern("count"),
                 ModuleExportType::Value {
@@ -1146,6 +1255,41 @@ mod tests {
         pools.verify().unwrap();
     }
 
+    // Exactness is part of a module type's identity: it survives the pool,
+    // and an exact payload is verified like an open one.
+    #[test]
+    fn exact_module_types_keep_their_exactness_and_are_verified() {
+        use crate::sema::types::ModuleType;
+        let exports = BTreeMap::from([(
+            Name::intern("count"),
+            ModuleExportType::Value {
+                ty: Type::Int,
+                optional: false,
+            },
+        )]);
+        let open = Type::Module(std::sync::Arc::new(ModuleType::open(exports.clone())));
+        let exact = Type::Module(std::sync::Arc::new(ModuleType::exact(exports)));
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let open_id = builder.intern_type(&mut pools, &open).unwrap();
+        let exact_id = builder.intern_type(&mut pools, &exact).unwrap();
+        assert_ne!(open_id, exact_id);
+        assert_eq!(pools.to_type(open_id).unwrap(), open);
+        assert_eq!(pools.to_type(exact_id).unwrap(), exact);
+        pools.verify().unwrap();
+
+        let mut corrupted = pools.clone();
+        let payload = corrupted.type_data[exact_id.index()].rhs as usize;
+        corrupted.type_extra[payload] = 3;
+        assert!(
+            corrupted
+                .verify()
+                .unwrap_err()
+                .message
+                .contains("module export flags are invalid")
+        );
+    }
+
     #[test]
     fn erased_record_and_module_facts_remain_distinct_from_empty_shapes() {
         let mut pools = SemanticPools::default();
@@ -1162,7 +1306,7 @@ mod tests {
         let empty_module = builder
             .intern_type(
                 &mut pools,
-                &Type::Module(std::sync::Arc::new(BTreeMap::new())),
+                &Type::Module(module_type(BTreeMap::new())),
             )
             .unwrap();
         assert_ne!(erased_record, empty_record);
@@ -1175,7 +1319,7 @@ mod tests {
         assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
         assert_eq!(
             pools.to_type(empty_module).unwrap(),
-            Type::Module(std::sync::Arc::new(BTreeMap::new()))
+            Type::Module(module_type(BTreeMap::new()))
         );
         pools.verify().unwrap();
     }
@@ -1200,6 +1344,53 @@ mod tests {
             }
             pools.verify().unwrap();
         });
+    }
+
+    #[test]
+    fn union_types_round_trip_in_member_order_and_reject_corruption() {
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let words = Type::Union(vec![Type::Str, Type::Path]);
+        let reversed = Type::Union(vec![Type::Path, Type::Str]);
+        let id = builder
+            .intern_type(&mut pools, &Type::List(Box::new(words.clone())))
+            .unwrap();
+        let union = builder.intern_type(&mut pools, &words).unwrap();
+        let other = builder.intern_type(&mut pools, &reversed).unwrap();
+        // Member order is part of the type the runtime tries members in.
+        assert_ne!(union, other);
+        assert_eq!(builder.intern_type(&mut pools, &words).unwrap(), union);
+        assert_eq!(pools.to_type(union).unwrap(), words);
+        assert_eq!(pools.to_type(other).unwrap(), reversed);
+        assert_eq!(pools.display_type(id).unwrap(), "List[Union[Str, Path]]");
+        pools.verify().unwrap();
+
+        let data = pools.type_data[union.index()];
+        let any = builder.intern_type(&mut pools, &Type::Any).unwrap();
+        let optional = builder
+            .intern_type(&mut pools, &Type::Optional(Box::new(Type::Str)))
+            .unwrap();
+        pools.verify().unwrap();
+
+        let mut one_member = pools.clone();
+        one_member.type_data[union.index()].lhs = 1;
+        assert!(one_member.verify().is_err());
+
+        let mut out_of_bounds = pools.clone();
+        out_of_bounds.type_data[union.index()].lhs = u32::MAX;
+        assert!(out_of_bounds.verify().is_err());
+
+        let mut repeated = pools.clone();
+        repeated.type_extra[data.rhs as usize + 1] = repeated.type_extra[data.rhs as usize];
+        assert!(repeated.verify().is_err());
+
+        // A member must be a type lowering could have listed, and must
+        // precede the union that lists it.
+        for member in [any.raw(), optional.raw(), other.raw(), union.raw()] {
+            let mut bad_member = pools.clone();
+            bad_member.type_extra[data.rhs as usize] = member;
+            assert!(bad_member.verify().is_err());
+        }
     }
 
     #[test]

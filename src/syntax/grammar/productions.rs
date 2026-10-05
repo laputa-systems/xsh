@@ -360,6 +360,19 @@ fn pattern_primary(payload: &'static str) -> Item {
             ])),
             t(TokenTag::RParen),
         ]),
+        // A variant of the matched value's enum or error family.
+        seq([
+            t(TokenTag::Dot),
+            t(TokenTag::Ident),
+            t(TokenTag::LParen),
+            opt(seq([
+                r("pattern"),
+                star(seq([t(TokenTag::Comma), r("pattern")])),
+                opt(t(TokenTag::Comma)),
+            ])),
+            t(TokenTag::RParen),
+        ]),
+        seq([t(TokenTag::Dot), t(TokenTag::Ident), opt(r(payload))]),
         seq([
             not([vec![word_term("is", false)], vec![word_term("_", false)]]),
             class(Class::Name),
@@ -670,6 +683,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     kw(Keyword::Export),
                     alt(exported(true).into_iter().chain([r("signal_hook")])),
                 ]),
+                r("repeat_statement"),
+                r("without_statement"),
+                r("tempdir_statement"),
             ])),
         ),
         rule(
@@ -691,6 +707,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([r("tempdir_scope"), opt(t(T::Question))]),
                 seq([r("named_command"), opt(t(T::Question))]),
                 r("expression_statement"),
+                r("exit_statement"),
             ])),
         ),
         // Declarations.
@@ -753,7 +770,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ])),
                 t(T::Equals),
                 alt([
-                    seq([w("module"), r("module_contract")]),
+                    seq([opt(w("exact")), w("module"), r("module_contract")]),
                     r("record_schema"),
                     r("type_expr"),
                 ]),
@@ -838,11 +855,24 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 w("error"),
                 ident(),
-                t(T::Equals),
-                nl(),
-                opt(seq([t(T::Pipe), nl()])),
-                r("error_variant"),
-                star(seq([t(T::Pipe), nl(), r("error_variant")])),
+                alt([
+                    seq([
+                        t(T::Equals),
+                        nl(),
+                        opt(seq([t(T::Pipe), nl()])),
+                        r("error_variant"),
+                        star(seq([t(T::Pipe), nl(), r("error_variant")])),
+                    ]),
+                    // One variant per line: a line break is the separator.
+                    seq([
+                        t(T::LBrace),
+                        nl(),
+                        r("error_variant"),
+                        star(seq([t(T::Newline), r("error_variant")])),
+                        nl(),
+                        t(T::RBrace),
+                    ]),
+                ]),
             ]),
         ),
         rule(
@@ -1040,6 +1070,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ])),
             ]),
         ),
+        // `exit` is a contextual word: it begins the statement where a
+        // command named `exit` would be read, with its status on the line.
+        rule(
+            Statements,
+            "exit_statement",
+            seq([w("exit"), line(r("expression")), opt(r("postfix_guard"))]),
+        ),
         rule(
             Statements,
             "continue_statement",
@@ -1049,7 +1086,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "defer_statement",
             seq([
-                kw(Keyword::Defer),
+                alt([kw(Keyword::Defer), kw(Keyword::Errdefer)]),
                 alt([
                     block(),
                     seq([not([vec![tag_term(T::LBrace)]]), r("expression_or_run")]),
@@ -1098,6 +1135,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                             word_term("error", false),
                             term(Class::Name, false),
                             tag_term(T::Equals),
+                        ],
+                        vec![
+                            word_term("error", false),
+                            term(Class::Name, false),
+                            tag_term(T::LBrace),
                         ],
                     ]);
                     leads.extend(BUILDER_APIS.map(|(module, function)| {
@@ -1170,6 +1212,48 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "loop_statement",
             seq([kw(Keyword::Loop), block()]),
         ),
+        // `repeat` and `times` are contextual words: the statement is the
+        // whole head `repeat COUNT times {`, written on one line.
+        rule(
+            Statements,
+            "repeat_statement",
+            seq([
+                w("repeat"),
+                line(r("condition_expression")),
+                w("times"),
+                block(),
+            ]),
+        ),
+        // `without` is a contextual word: the statement is the whole head
+        // `without EFFECT, ... {`, written on one line.
+        rule(
+            Statements,
+            "without_statement",
+            seq([
+                w("without"),
+                line(seq([
+                    alt(effect_names().into_iter().map(w)),
+                    star(seq([
+                        t(T::Comma),
+                        alt(effect_names().into_iter().map(w)),
+                    ])),
+                ])),
+                block(),
+            ]),
+        ),
+        // `tempdir` and `at` are contextual words: the statement is recognized
+        // by the three words that begin it.
+        rule(
+            Statements,
+            "tempdir_statement",
+            seq([
+                w("tempdir"),
+                t(T::Ident),
+                w("at"),
+                r("condition_expression"),
+                block(),
+            ]),
+        ),
         rule(
             Statements,
             "match_statement",
@@ -1177,32 +1261,16 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 kw(Keyword::Match),
                 r("condition_expression"),
                 t(T::LBrace),
-                star(alt([
-                    sep(),
+                star(alt([sep(), seq([r("arm_head"), r("arm_body")])])),
+                // The catch-all `else` arm is the last arm.
+                opt(alt([
+                    seq([r("arm_head"), r("arm_statement")]),
                     seq([
-                        r("arm_head"),
-                        alt([block(), r("compound_statement")]),
-                        opt(t(T::Comma)),
-                    ]),
-                    seq([r("arm_head"), r("arm_statement"), sep()]),
-                    // `assert` and an error family read a following `,` as
-                    // part of the statement.
-                    seq([
-                        r("arm_head"),
-                        not([
-                            vec![keyword_term(Keyword::Assert)],
-                            vec![
-                                word_term("error", false),
-                                tag_term(T::Ident),
-                                tag_term(T::Equals),
-                            ],
-                            vec![keyword_term(Keyword::Export), word_term("error", false)],
-                        ]),
-                        r("arm_statement"),
-                        t(T::Comma),
+                        r("else_arm_head"),
+                        alt([r("arm_body"), r("arm_statement")]),
+                        star(sep()),
                     ]),
                 ])),
-                opt(seq([r("arm_head"), r("arm_statement")])),
                 t(T::RBrace),
             ]),
         ),
@@ -1210,9 +1278,45 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "arm_head",
             seq([
+                // A line beginning with `.name` continues the line before
+                // it, so a head never begins with a target-typed variant.
+                not([vec![tag_term(T::Dot), tag_term(T::Ident)]]),
                 r("pattern"),
                 opt(seq([kw(Keyword::If), r("expression")])),
                 t(T::FatArrow),
+            ]),
+        ),
+        // `else` takes no guard: a guarded catch-all is `_ if cond =>`.
+        rule(
+            Statements,
+            "else_arm_head",
+            seq([kw(Keyword::Else), t(T::FatArrow)]),
+        ),
+        // A statement arm's body with what ends it before a following arm.
+        rule(
+            Statements,
+            "arm_body",
+            alt([
+                seq([
+                    alt([block(), r("compound_statement")]),
+                    opt(t(T::Comma)),
+                ]),
+                seq([r("arm_statement"), sep()]),
+                // `assert` and an error family read a following `,` as
+                // part of the statement.
+                seq([
+                    not([
+                        vec![keyword_term(Keyword::Assert)],
+                        vec![
+                            word_term("error", false),
+                            tag_term(T::Ident),
+                            tag_term(T::Equals),
+                        ],
+                        vec![keyword_term(Keyword::Export), word_term("error", false)],
+                    ]),
+                    r("arm_statement"),
+                    t(T::Comma),
+                ]),
             ]),
         ),
         rule(
@@ -1595,20 +1699,31 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     sep(),
                     seq([r("match_expression_arm"), alt([t(T::Comma), sep()])]),
                 ])),
-                opt(r("match_expression_arm")),
+                // The catch-all `else` arm is the last arm.
+                opt(alt([
+                    r("match_expression_arm"),
+                    seq([
+                        r("else_arm_head"),
+                        r("arm_value"),
+                        opt(t(T::Comma)),
+                        star(sep()),
+                    ]),
+                ])),
                 t(T::RBrace),
             ]),
         ),
         rule(
             Expressions,
             "match_expression_arm",
-            seq([
-                r("arm_head"),
-                alt([
-                    block(),
-                    seq([not([vec![tag_term(T::LBrace)]]), r("expression_item")]),
-                    seq([r("record_expression"), opt(t(T::Question))]),
-                ]),
+            seq([r("arm_head"), r("arm_value")]),
+        ),
+        rule(
+            Expressions,
+            "arm_value",
+            alt([
+                block(),
+                seq([not([vec![tag_term(T::LBrace)]]), r("expression_item")]),
+                seq([r("record_expression"), opt(t(T::Question))]),
             ]),
         ),
         // An arm value that starts with a record, which the parser tells
@@ -1929,13 +2044,20 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     opt(seq([t(T::Comma), r("type_expr")])),
                     t(T::RBracket),
                 ]),
+                seq([
+                    w("Union"),
+                    t(T::LBracket),
+                    r("type_expr"),
+                    star(seq([t(T::Comma), r("type_expr")])),
+                    t(T::RBracket),
+                ]),
             ]),
         ),
         rule(
             Types,
             "named_type",
             seq([
-                not(["List", "Map", "Stream", "Module", "Result"]
+                not(["List", "Map", "Stream", "Module", "Result", "Union"]
                     .map(|word| vec![word_term(word, false)])),
                 ident(),
                 opt(seq([t(T::Dot), ident()])),

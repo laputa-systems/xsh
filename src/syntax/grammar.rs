@@ -16,7 +16,10 @@
 //! Productions read a token stream prepared by [`grammar_tokens`]: comments
 //! are dropped, a line break before a line-continuation token (see
 //! [`line_continuation`]) is removed exactly as the parser joins the lines,
-//! and every remaining run of line breaks is one `NEWLINE` terminal. A
+//! and every remaining run of line breaks is one `NEWLINE` terminal. A `\`
+//! that ends a line never reaches the productions: the lexer reads it and
+//! its line break as whitespace, and the parser rejects one written outside
+//! a command (`TokenTable::line_continuations`). A
 //! terminal can require that its token is written directly after the
 //! previous one ([`Term::glued`]), which is how the grammar states the
 //! parser's spacing rules: `f(x)` is a call while `f (x)` passes a typed
@@ -409,7 +412,7 @@ impl StatementForm {
     }
 }
 
-pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 24] = [
+pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 25] = [
     (Keyword::Let, StatementForm::Binding),
     (Keyword::Const, StatementForm::Binding),
     (Keyword::Var, StatementForm::Binding),
@@ -421,6 +424,7 @@ pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 24] = [
     (Keyword::Return, StatementForm::Return),
     (Keyword::Yield, StatementForm::Yield),
     (Keyword::Defer, StatementForm::Defer),
+    (Keyword::Errdefer, StatementForm::Defer),
     (Keyword::Break, StatementForm::Break),
     (Keyword::Continue, StatementForm::Continue),
     (Keyword::Match, StatementForm::Match),
@@ -445,12 +449,13 @@ pub fn statement_form(keyword: Keyword) -> Option<StatementForm> {
 }
 
 /// Keyword statements a builder block accepts as entries.
-pub const BUILDER_STATEMENT_KEYWORDS: [Keyword; 14] = [
+pub const BUILDER_STATEMENT_KEYWORDS: [Keyword; 15] = [
     Keyword::Let,
     Keyword::Const,
     Keyword::Var,
     Keyword::Return,
     Keyword::Defer,
+    Keyword::Errdefer,
     Keyword::If,
     Keyword::While,
     Keyword::For,
@@ -617,6 +622,33 @@ pub fn duration_suffix_at(bytes: &[u8], offset: usize) -> Option<&'static str> {
     DURATION_SUFFIXES
         .into_iter()
         .find(|suffix| rest.starts_with(suffix.as_bytes()))
+}
+
+/// Size literal suffixes with the number of bytes each stands for: binary
+/// units are powers of 1024 and decimal units powers of 1000.
+pub const SIZE_SUFFIXES: [(&str, u64); 6] = [
+    ("KiB", 1 << 10),
+    ("MiB", 1 << 20),
+    ("GiB", 1 << 30),
+    ("KB", 1_000),
+    ("MB", 1_000_000),
+    ("GB", 1_000_000_000),
+];
+
+/// The size suffix written at `offset`, right after an integer's digits. A
+/// suffix that runs on into more name characters is not one: `1KBps` is not
+/// a size.
+pub fn size_suffix_at(bytes: &[u8], offset: usize) -> Option<&'static str> {
+    let rest = bytes.get(offset..)?;
+    SIZE_SUFFIXES
+        .into_iter()
+        .map(|(suffix, _)| suffix)
+        .find(|suffix| {
+            rest.starts_with(suffix.as_bytes())
+                && !rest
+                    .get(suffix.len())
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        })
 }
 
 /// A `|>` stage that the parser reads as a structured stream stage rather
@@ -1027,7 +1059,9 @@ pub struct GrammarToken<'s> {
 
 /// The terminals the productions read for `source`: comments are dropped, a
 /// continuation line is joined to the line before it, and each other run of
-/// line breaks becomes one `NEWLINE`. The end-of-input token is not included.
+/// line breaks becomes one `NEWLINE`. A command line continued with `\` has
+/// no line break to join: the lexer emits no token for the backslash or its
+/// line break. The end-of-input token is not included.
 pub fn grammar_tokens<'s>(source: &'s str, table: &TokenTable) -> Vec<GrammarToken<'s>> {
     let length = table.len().saturating_sub(usize::from(
         table.tag_at(table.len().saturating_sub(1)) == Some(TokenTag::Eof),

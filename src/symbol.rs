@@ -6,6 +6,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::str;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{OnceLock, RwLock};
 
 include!(concat!(env!("OUT_DIR"), "/preloaded_symbols.rs"));
@@ -304,6 +305,9 @@ impl Name {
 
     pub fn intern(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();
+        if let Some(symbol) = preloaded_symbol(text) {
+            return Self(symbol);
+        }
         let existing = {
             let interner = interner().read().expect("symbol interner poisoned");
             interner
@@ -346,10 +350,32 @@ impl Name {
     }
 
     pub fn as_str(self) -> NameText {
-        interner()
-            .read()
-            .expect("symbol interner poisoned")
-            .resolve(self.0)
+        if let Some(text) = self.preloaded_text() {
+            return NameText::Preloaded(text);
+        }
+        with_dynamic_spellings(&[self.0], |spellings| match spellings.shared(self.0) {
+            Some(text) => NameText::Dynamic(text.clone()),
+            None => NameText::Preloaded(INVALID_SYMBOL),
+        })
+    }
+
+    /// Preloaded spellings are fixed for the process, so reading one never
+    /// takes the interner lock that concurrent frontends share.
+    fn preloaded_text(self) -> Option<&'static str> {
+        symbol_is_preloaded(self.0).then(|| resolve_preloaded(self.0).unwrap_or(INVALID_SYMBOL))
+    }
+
+    fn spelled(self, text: &str) -> bool {
+        if let Some(own) = self.preloaded_text() {
+            return own == text;
+        }
+        // Interning is canonical: a dynamic symbol never spells a preloaded name.
+        if preloaded_symbol(text).is_some() {
+            return false;
+        }
+        with_dynamic_spellings(&[self.0], |spellings| {
+            spellings.text(self.0) == text
+        })
     }
 
     pub const fn is_builtin(self) -> bool {
@@ -369,49 +395,49 @@ impl PartialEq for Name {
 
 impl PartialEq<str> for Name {
     fn eq(&self, other: &str) -> bool {
-        self.as_str().as_str() == other
+        self.spelled(other)
     }
 }
 
 impl PartialEq<&str> for Name {
     fn eq(&self, other: &&str) -> bool {
-        self.as_str().as_str() == *other
+        self.spelled(other)
     }
 }
 
 impl PartialEq<String> for Name {
     fn eq(&self, other: &String) -> bool {
-        self.as_str().as_str() == other.as_str()
+        self.spelled(other)
     }
 }
 
 impl PartialEq<&String> for Name {
     fn eq(&self, other: &&String) -> bool {
-        self.as_str().as_str() == other.as_str()
+        self.spelled(other)
     }
 }
 
 impl PartialEq<Name> for String {
     fn eq(&self, other: &Name) -> bool {
-        self.as_str() == other.as_str().as_str()
+        other.spelled(self)
     }
 }
 
 impl PartialEq<Name> for &String {
     fn eq(&self, other: &Name) -> bool {
-        self.as_str() == other.as_str().as_str()
+        other.spelled(self)
     }
 }
 
 impl PartialEq<Name> for str {
     fn eq(&self, other: &Name) -> bool {
-        self == other.as_str()
+        other.spelled(self)
     }
 }
 
 impl PartialEq<Name> for &str {
     fn eq(&self, other: &Name) -> bool {
-        *self == other.as_str()
+        other.spelled(self)
     }
 }
 
@@ -426,10 +452,20 @@ impl Ord for Name {
         if self == other {
             return Ordering::Equal;
         }
-        let interner = interner().read().expect("symbol interner poisoned");
-        interner
-            .resolve_ref(self.0)
-            .cmp(interner.resolve_ref(other.0))
+        if let (Some(own), Some(theirs)) = (self.preloaded_text(), other.preloaded_text()) {
+            return own.cmp(theirs);
+        }
+        match (self.preloaded_text(), other.preloaded_text()) {
+            (Some(own), None) => with_dynamic_spellings(&[other.0], |spellings| {
+                own.cmp(spellings.text(other.0))
+            }),
+            (None, Some(theirs)) => with_dynamic_spellings(&[self.0], |spellings| {
+                spellings.text(self.0).cmp(theirs)
+            }),
+            _ => with_dynamic_spellings(&[self.0, other.0], |spellings| {
+                spellings.text(self.0).cmp(spellings.text(other.0))
+            }),
+        }
     }
 }
 
@@ -598,6 +634,7 @@ impl Interner {
             return;
         }
         let text = entry.text.clone();
+        RELEASED_DYNAMIC_SLOTS.fetch_add(1, AtomicOrdering::Release);
         self.dynamic[index] = None;
         self.by_text.remove(text.as_ref());
         self.free_dynamic
@@ -622,29 +659,6 @@ impl Interner {
             .sole_owner
     }
 
-    fn resolve(&self, symbol: Symbol) -> NameText {
-        let raw = symbol.raw();
-        if raw < PRELOADED_SYMBOL_COUNT {
-            return NameText::Preloaded(resolve_preloaded(symbol).unwrap_or("<invalid-symbol>"));
-        }
-        self.dynamic
-            .get(dynamic_index(symbol).unwrap_or_default())
-            .and_then(|entry| entry.as_ref())
-            .map(|entry| NameText::Dynamic(entry.text.clone()))
-            .unwrap_or(NameText::Preloaded("<invalid-symbol>"))
-    }
-
-    fn resolve_ref(&self, symbol: Symbol) -> &str {
-        let raw = symbol.raw();
-        if raw < PRELOADED_SYMBOL_COUNT {
-            return resolve_preloaded(symbol).unwrap_or("<invalid-symbol>");
-        }
-        self.dynamic
-            .get(dynamic_index(symbol).unwrap_or_default())
-            .and_then(|entry| entry.as_ref())
-            .map(|entry| entry.text.as_ref())
-            .unwrap_or("<invalid-symbol>")
-    }
 }
 
 fn symbol_is_preloaded(symbol: Symbol) -> bool {
@@ -656,6 +670,112 @@ fn dynamic_index(symbol: Symbol) -> Option<usize> {
         .raw()
         .checked_sub(PRELOADED_SYMBOL_COUNT)
         .map(|index| index as usize)
+}
+
+/// What a symbol that names no live spelling resolves to.
+const INVALID_SYMBOL: &str = "<invalid-symbol>";
+
+/// Counts dynamic symbol slots returned to the interner. A slot's spelling is
+/// fixed between two releases, so a spelling read at one count stays valid for
+/// every live symbol until the count changes.
+static RELEASED_DYNAMIC_SLOTS: AtomicU64 = AtomicU64::new(0);
+
+/// This thread's copies of dynamic spellings. Frontend workers resolve names
+/// constantly; reading a private copy keeps them off the interner lock and off
+/// reference counts that every thread would otherwise share.
+struct DynamicSpellings {
+    released_slots: u64,
+    by_slot: Vec<Option<std::sync::Arc<str>>>,
+}
+
+impl DynamicSpellings {
+    /// The spelling of a live symbol that `load` was given.
+    fn shared(&self, symbol: Symbol) -> Option<&std::sync::Arc<str>> {
+        dynamic_index(symbol)
+            .and_then(|index| self.by_slot.get(index))
+            .and_then(Option::as_ref)
+    }
+
+    fn text(&self, symbol: Symbol) -> &str {
+        self.shared(symbol).map_or(INVALID_SYMBOL, |text| text)
+    }
+
+    /// Drop every copy made before the most recent slot release, then copy
+    /// the spellings of `symbols` that are missing. A symbol whose slot is
+    /// empty is never recorded, because a later symbol may fill that slot
+    /// without any release.
+    fn load(&mut self, symbols: &[Symbol]) {
+        if self.released_slots == RELEASED_DYNAMIC_SLOTS.load(AtomicOrdering::Acquire)
+            && symbols.iter().all(|symbol| self.shared(*symbol).is_some())
+        {
+            return;
+        }
+        // A release needs the write lock, so the count cannot change while
+        // these spellings are read.
+        let interner = interner().read().expect("symbol interner poisoned");
+        let released_slots = RELEASED_DYNAMIC_SLOTS.load(AtomicOrdering::Acquire);
+        if self.released_slots != released_slots {
+            self.by_slot.clear();
+            self.released_slots = released_slots;
+        }
+        for symbol in symbols {
+            let Some((index, text)) = dynamic_index(*symbol)
+                .and_then(|index| Some((index, interner.dynamic.get(index)?.as_ref()?)))
+                .map(|(index, entry)| (index, &entry.text))
+            else {
+                continue;
+            };
+            if self.by_slot.len() <= index {
+                self.by_slot.resize(index + 1, None);
+            }
+            if self.by_slot[index].is_none() {
+                self.by_slot[index] = Some(text.as_ref().into());
+            }
+        }
+    }
+}
+
+thread_local! {
+    static DYNAMIC_SPELLINGS: RefCell<DynamicSpellings> = const {
+        RefCell::new(DynamicSpellings {
+            released_slots: 0,
+            by_slot: Vec::new(),
+        })
+    };
+}
+
+/// Read the spellings of dynamic `symbols`. `read` must not resolve a name.
+fn with_dynamic_spellings<R>(symbols: &[Symbol], read: impl FnOnce(&DynamicSpellings) -> R) -> R {
+    let mut read = Some(read);
+    let mut read_loaded = |spellings: &mut DynamicSpellings| {
+        spellings.load(symbols);
+        let read = read.take().expect("spellings are read once");
+        read(spellings)
+    };
+    match DYNAMIC_SPELLINGS.try_with(|spellings| read_loaded(&mut spellings.borrow_mut())) {
+        Ok(value) => value,
+        // A thread that is exiting has already dropped its copies.
+        Err(_) => read_loaded(&mut DynamicSpellings {
+            released_slots: 0,
+            by_slot: Vec::new(),
+        }),
+    }
+}
+
+fn preloaded_symbol(text: &str) -> Option<Symbol> {
+    static BY_TEXT: OnceLock<FxHashMap<&'static str, Symbol>> = OnceLock::new();
+    BY_TEXT
+        .get_or_init(|| {
+            (0..PRELOADED_SYMBOL_COUNT)
+                .map(Symbol::from_raw)
+                .map(|symbol| {
+                    let text = resolve_preloaded(symbol).expect("preloaded symbol exists");
+                    (text, symbol)
+                })
+                .collect()
+        })
+        .get(text)
+        .copied()
 }
 
 fn interner() -> &'static RwLock<Interner> {
@@ -734,6 +854,35 @@ mod tests {
             assert_eq!(first.as_str(), "demo_dynamic_name");
             assert!(!first.is_preloaded());
         });
+    }
+
+    // A thread keeps copies of the spellings it resolved; a slot that a later
+    // owner reuses must resolve to the later spelling, including right after
+    // the stale name itself was resolved.
+    #[test]
+    fn reused_dynamic_slots_resolve_to_their_current_spelling() {
+        for round in 0..64 {
+            let earlier = format!("xsh_slot_reuse_earlier_{round}");
+            let later = format!("xsh_slot_reuse_later_{round}");
+            let earlier_owner = SymbolOwner::new();
+            let stale = earlier_owner.with_current(|| Name::intern(&earlier));
+            assert_eq!(stale.as_str(), earlier.as_str());
+            drop(earlier_owner);
+            let _ = stale.as_str();
+            let later_owner = SymbolOwner::new();
+            later_owner.with_current(|| {
+                let name = Name::intern(&later);
+                assert_eq!(name.as_str(), later.as_str());
+                assert!(name == later.as_str());
+                assert_eq!(name.cmp(&Name::INT), later.as_str().cmp("Int"));
+                assert_eq!(
+                    std::thread::scope(|scope| {
+                        scope.spawn(|| name.as_str().to_string()).join().unwrap()
+                    }),
+                    later
+                );
+            });
+        }
     }
 
     #[test]

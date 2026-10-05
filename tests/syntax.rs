@@ -4,7 +4,8 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
+    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, ArenaSugar,
+    ArenaTypeDefBody, SugarForm,
     ArenaWordPart, ExprId, StmtId,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
@@ -17,7 +18,7 @@ use xsh::frontend::syntax::token::TokenTag;
 use xsht::format::Formatter;
 
 #[test]
-fn boolean_guards_keep_separate_arena_kind_and_cst_round_trip() {
+fn boolean_guards_parse_as_sugar_and_cst_round_trip() {
     let source = "proc checked(name: Str?) [] -> Str {\n  guard name != null else {\n    # Preserve the authored failure.\n    return \"missing\"\n  }\n\n  name.trim()\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -33,7 +34,10 @@ fn boolean_guards_keep_separate_arena_kind_and_cst_round_trip() {
         .unwrap();
     assert!(matches!(
         arena.stmt(guard).kind,
-        ArenaStmtKind::BooleanGuard { .. }
+        ArenaStmtKind::Sugar {
+            form: SugarForm::Guard,
+            ..
+        }
     ));
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(
@@ -619,7 +623,7 @@ let plugin: Module[Plugin] = module.load(p"plugin.xsh")?
     let arena = &output.arena.arena;
     assert!(output.arena.statement_ids().any(|id| {
         matches!(arena.stmt(id).kind, ArenaStmtKind::TypeDef(def)
-            if matches!(arena.type_def(def).body, ArenaTypeDefBody::ModuleContract(_)))
+            if matches!(arena.type_def(def).body, ArenaTypeDefBody::ModuleContract { .. }))
     }));
 
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
@@ -1251,7 +1255,7 @@ match Err(Error(kind: "not-found")) {
     let root: Vec<_> = output.arena.statement_ids().collect();
     assert!(
         root.iter()
-            .any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Defer(_)))
+            .any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Defer(..)))
     );
     let block_id = root
         .iter()
@@ -3131,7 +3135,7 @@ fn joined_token_pairs_lex_back_to_the_same_tokens() {
         }
     }
     assert_eq!(texts.len(), 149);
-    assert_eq!(spaced, 11180, "pairs that need a space");
+    assert_eq!(spaced, 11168, "pairs that need a space");
 }
 
 #[test]
@@ -3608,11 +3612,14 @@ fn guarded_value_control_keeps_payload_and_condition_source_spans() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let root = parsed.arena.statement_ids().next().unwrap();
     let arena = &parsed.arena.arena;
-    let ArenaStmtKind::GuardedStmt {
+    let ArenaStmtKind::Sugar { form, operands, .. } = arena.stmt(root).kind else {
+        panic!("expected guarded return");
+    };
+    let ArenaSugar::Guarded {
         stmt,
         condition,
         negate,
-    } = arena.stmt(root).kind
+    } = arena.sugar(form, operands)
     else {
         panic!("expected guarded return");
     };

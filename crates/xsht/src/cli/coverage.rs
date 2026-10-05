@@ -6,7 +6,7 @@ use xsh::api::{MethodReceiver, api_spec};
 use xsh::frontend::load::parse_script_with_module_roots;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaStmtKind, BlockId, ExprId, FunctionDefId, StmtId,
+    ArenaProgram, ArenaStmtKind, ArenaSugar, ArenaSugarOperand, BlockId, ExprId, FunctionDefId, StmtId,
 };
 use xsh::host::json::{
     parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_str, raw_json_as_u64,
@@ -69,7 +69,7 @@ impl CoverageCollector {
         }
     }
 
-    pub fn register_source_files(&mut self, files: &[PathBuf], module_roots: &[PathBuf]) {
+    pub fn register_source_files(&mut self, files: &[PathBuf]) {
         for file in files {
             let file = absolute_path(file);
             let file_text = match fs::read_to_string(&file) {
@@ -84,7 +84,12 @@ impl CoverageCollector {
                 executable_lines: executable_line_numbers(&file_text),
                 proc_decls: proc_decl_lines(&file_text),
             };
-            let metadata = parse_source_metadata(&file, module_roots).unwrap_or_else(|| {
+            // Each file loads with its own project module roots, as it
+            // does when it runs. Metadata is best effort: a file that does
+            // not load keeps the line-based fallback.
+            let module_roots =
+                xsh::frontend::load::project_module_roots(&file).unwrap_or_default();
+            let metadata = parse_source_metadata(&file, &module_roots).unwrap_or_else(|| {
                 BTreeMap::from([(file.to_string_lossy().into_owned(), fallback)])
             });
             for (source_file, metadata) in metadata {
@@ -670,8 +675,30 @@ fn collect_statement(
             collect_block(program, sources, else_block, by_source);
         }
         ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
-        ArenaStmtKind::Guard { else_block, .. }
-        | ArenaStmtKind::BooleanGuard { else_block, .. } => {
+        // A `guard` is counted as one statement, as a `guard let` is.
+        ArenaStmtKind::Sugar { form, operands, .. }
+            if let ArenaSugar::Guard { else_block, .. } = program.arena.sugar(form, operands) =>
+        {
+            add_span(sources, statement.span, by_source);
+            collect_block(program, sources, else_block, by_source);
+        }
+        ArenaStmtKind::Sugar { operands, .. } => {
+            for operand in program.arena.sugar_operands(operands) {
+                match *operand {
+                    ArenaSugarOperand::Expr(expr) => add_expr(program, sources, expr, by_source),
+                    ArenaSugarOperand::Block(block) => {
+                        collect_block(program, sources, block, by_source);
+                    }
+                    ArenaSugarOperand::Stmt(inner) => {
+                        collect_statement(program, sources, inner, by_source);
+                    }
+                    ArenaSugarOperand::BindingTarget(_)
+                    | ArenaSugarOperand::TypeExpr(_)
+                    | ArenaSugarOperand::Name(_) => {}
+                }
+            }
+        }
+        ArenaStmtKind::Guard { else_block, .. } => {
             add_span(sources, statement.span, by_source);
             collect_block(program, sources, else_block, by_source);
         }
@@ -680,14 +707,6 @@ fn collect_statement(
             if let Some(message) = message {
                 add_expr(program, sources, message, by_source);
             }
-        }
-        ArenaStmtKind::GuardedStmt {
-            stmt: inner,
-            condition,
-            ..
-        } => {
-            add_expr(program, sources, condition, by_source);
-            collect_statement(program, sources, inner, by_source);
         }
         ArenaStmtKind::Match { value, arms } => {
             add_expr(program, sources, value, by_source);
@@ -704,8 +723,9 @@ fn collect_statement(
         | ArenaStmtKind::Assign { .. }
         | ArenaStmtKind::Return(_)
         | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Exit(_)
         | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::Defer(_)
+        | ArenaStmtKind::Defer(..)
         | ArenaStmtKind::Break { .. }
         | ArenaStmtKind::Continue
         | ArenaStmtKind::Command(_)
@@ -1053,7 +1073,7 @@ mod tests {
             root: Some(root.clone()),
             ..CoverageCollector::default()
         };
-        collector.register_source_files(&[covered.clone(), missed.clone()], &[]);
+        collector.register_source_files(&[covered.clone(), missed.clone()]);
         collector
             .ingest_jsonl(&format!(
                 "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":7}}\n{{\"kind\":\"core.call\",\"source_span\":{{\"file\":\"{}\",\"start_line\":6,\"end_line\":6}}}}\n",
@@ -1100,7 +1120,7 @@ mod tests {
             exclude: excludes,
             ..CoverageCollector::default()
         };
-        collector.register_source_files(&[kept.clone(), excluded.clone()], &[]);
+        collector.register_source_files(&[kept.clone(), excluded.clone()]);
 
         let files = collector.source_file_coverages();
         assert!(files.iter().any(|file| file.file == "kept.xsh"));

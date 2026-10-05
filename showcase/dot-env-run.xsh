@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
         raw
       }
     }
-    pairs = pairs.push({key: key, val: val})
+    pairs += [{key: key, val: val}]
   }
 
   print f"loaded {pairs.len()} var(s) from {file}"

@@ -4,7 +4,7 @@ use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaExprTag, ArenaProgram,
-    ArenaStmtKind, ArenaStmtTag, ExprId, StmtId,
+    ArenaStmtKind, ArenaStmtTag, DeferTrigger, ExprId, StmtId,
 };
 use xsh::frontend::syntax::parser::Parser;
 
@@ -140,7 +140,7 @@ fn site(
     {
         return None;
     }
-    let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(close)) =
+    let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(close), DeferTrigger::Exit) =
         arena.stmt(*statements.get(index + 1)?).kind
     else {
         return None;

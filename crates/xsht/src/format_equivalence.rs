@@ -13,7 +13,7 @@ use xsh::frontend::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStageKind, ArenaProgram, ArenaRange,
-    ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind,
+    ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaSugarOperand,
     ArenaStreamStage, ArenaText, ArenaTypeDefBody, ArenaWordPart, AssignTargetId, AstArena,
     BindingTargetId, BlockId, BuilderBlockId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId,
     TypeExprId,
@@ -45,6 +45,7 @@ pub(super) fn canonical(program: &ArenaProgram, source: &str) -> Canonical {
         out: String::new(),
         marks: Vec::new(),
         item_alias: None,
+        expanded: None,
     };
     for stmt in program.statement_ids() {
         writer.stmt(stmt);
@@ -71,6 +72,7 @@ pub(crate) fn canonical_block_with_implicit_item(
         out: String::new(),
         marks: Vec::new(),
         item_alias: Some((block, param)),
+        expanded: None,
     };
     writer.block(block);
     writer.out
@@ -89,12 +91,60 @@ pub(crate) fn canonical_subtree(
         out: String::new(),
         marks: Vec::new(),
         item_alias: None,
+        expanded: None,
     };
     match root {
         Ok(block) => writer.block(block),
         Err(expr) => writer.expr(expr),
     }
     writer.out
+}
+
+/// Canonical form of the program the checker and the runtime read: every
+/// sugar statement stands for its expansion.
+pub(super) fn canonical_expanded(program: &ArenaProgram, source: &str) -> Canonical {
+    let mut writer = CanonicalWriter {
+        arena: &program.arena,
+        source,
+        out: String::new(),
+        marks: Vec::new(),
+        item_alias: None,
+        expanded: Some(Vec::new()),
+    };
+    for stmt in program.statement_ids() {
+        writer.stmt(stmt);
+    }
+    Canonical {
+        text: writer.out,
+        marks: writer.marks,
+    }
+}
+
+/// The walk a sugar statement's meaning is read from: its expansion instead
+/// of its operands, with every node entered recorded in walk order.
+#[cfg(test)]
+pub(super) struct ExpandedWalk {
+    pub text: String,
+    pub visited: Vec<ArenaSugarOperand>,
+}
+
+#[cfg(test)]
+pub(super) fn expanded_walk(arena: &AstArena, source: &str, statements: &[StmtId]) -> ExpandedWalk {
+    let mut writer = CanonicalWriter {
+        arena,
+        source,
+        out: String::new(),
+        marks: Vec::new(),
+        item_alias: None,
+        expanded: Some(Vec::new()),
+    };
+    for stmt in statements {
+        writer.stmt(*stmt);
+    }
+    ExpandedWalk {
+        text: writer.out,
+        visited: writer.expanded.unwrap_or_default(),
+    }
 }
 
 struct CanonicalWriter<'a> {
@@ -105,6 +155,10 @@ struct CanonicalWriter<'a> {
     /// A callback block whose sole parameter is written as the item `.`:
     /// the parameter list is omitted and the name reads as `.`.
     item_alias: Option<(BlockId, xsh::frontend::symbols::Name)>,
+    /// Set to read each sugar statement as its expansion, recording every
+    /// node entered. The formatter's walk leaves it unset and compares what
+    /// the user wrote: a sugar statement's form and operands.
+    expanded: Option<Vec<ArenaSugarOperand>>,
 }
 
 impl CanonicalWriter<'_> {
@@ -172,6 +226,12 @@ impl CanonicalWriter<'_> {
 
     fn stmt(&mut self, id: StmtId) {
         let stmt = self.arena.stmt(id);
+        if let Some(visited) = &mut self.expanded {
+            if let ArenaStmtKind::Sugar { expansion, .. } = stmt.kind {
+                return self.stmt(expansion);
+            }
+            visited.push(ArenaSugarOperand::Stmt(id));
+        }
         self.mark(stmt.span.start());
         self.put("S(");
         match &stmt.kind {
@@ -203,8 +263,8 @@ impl CanonicalWriter<'_> {
                         self.put("record;");
                         self.schema_fields(fields);
                     }
-                    ArenaTypeDefBody::ModuleContract(entries) => {
-                        self.put("module;");
+                    ArenaTypeDefBody::ModuleContract { entries, exact } => {
+                        self.put(if exact { "exact module;" } else { "module;" });
                         for entry in self.arena.module_contract_entries(entries) {
                             self.debug(&(entry.name, entry.optional));
                             match &entry.kind {
@@ -305,8 +365,13 @@ impl CanonicalWriter<'_> {
                 self.put("yield*;");
                 self.expr(*expr);
             }
-            ArenaStmtKind::Defer(value) => {
+            ArenaStmtKind::Exit(status) => {
+                self.put("exit;");
+                self.expr(*status);
+            }
+            ArenaStmtKind::Defer(value, trigger) => {
                 self.put("defer;");
+                self.debug(trigger);
                 self.expr_or_run(value);
             }
             ArenaStmtKind::If {
@@ -352,6 +417,20 @@ impl CanonicalWriter<'_> {
                 self.put("loop;");
                 self.block(*block);
             }
+            ArenaStmtKind::Sugar { form, operands, .. } => {
+                self.put("sugar;");
+                self.debug(form);
+                for operand in self.arena.sugar_operands(*operands).to_vec() {
+                    match operand {
+                        ArenaSugarOperand::Expr(expr) => self.expr(expr),
+                        ArenaSugarOperand::Block(block) => self.block(block),
+                        ArenaSugarOperand::Stmt(stmt) => self.stmt(stmt),
+                        ArenaSugarOperand::BindingTarget(target) => self.binding_target(target),
+                        ArenaSugarOperand::TypeExpr(ty) => self.ty(ty),
+                        ArenaSugarOperand::Name(name) => self.debug(&name),
+                    }
+                }
+            }
             ArenaStmtKind::Guard {
                 target,
                 ty,
@@ -359,24 +438,6 @@ impl CanonicalWriter<'_> {
                 else_block,
             } => {
                 self.binding_stmt("guard", *target, *ty, initializer);
-                self.block(*else_block);
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt,
-                negate,
-                condition,
-            } => {
-                self.put("guarded;");
-                self.debug(negate);
-                self.stmt(*stmt);
-                self.expr(*condition);
-            }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                self.put("guard-bool;");
-                self.expr(*condition);
                 self.block(*else_block);
             }
             ArenaStmtKind::Assert { condition, message } => {
@@ -393,6 +454,9 @@ impl CanonicalWriter<'_> {
                 self.put("match;");
                 self.expr(*value);
                 for arm in self.arena.match_arms(*arms) {
+                    // `else` and `_` are one catch-all to the checker but two
+                    // spellings, and the formatter must keep the one written.
+                    self.debug(&arm.spelling);
                     self.pattern(arm.pattern);
                     self.opt_expr(arm.guard);
                     self.block(arm.block);
@@ -492,7 +556,18 @@ impl CanonicalWriter<'_> {
     }
 
     fn block(&mut self, id: BlockId) {
+        if let Some(visited) = &mut self.expanded {
+            visited.push(ArenaSugarOperand::Block(id));
+        }
         let block = self.arena.block(id);
+        if let Some(bound) = self.arena.block_effect_bound(id) {
+            self.put("without(");
+            for effect in self.arena.effects(bound.effects).collect::<Vec<_>>() {
+                self.put(effect.as_str());
+                self.put(",");
+            }
+            self.put(")");
+        }
         self.put("B(");
         let implicit = self.item_alias.is_some_and(|(root, _)| root == id);
         for param in self.arena.block_params(block.params) {
@@ -508,6 +583,9 @@ impl CanonicalWriter<'_> {
     }
 
     fn binding_target(&mut self, id: BindingTargetId) {
+        if let Some(visited) = &mut self.expanded {
+            visited.push(ArenaSugarOperand::BindingTarget(id));
+        }
         match &self.arena.binding_target(id).kind {
             ArenaBindingTargetKind::Name(name) => self.debug(name),
             ArenaBindingTargetKind::Record { fields, rest } => {
@@ -631,6 +709,9 @@ impl CanonicalWriter<'_> {
     }
 
     fn ty(&mut self, id: TypeExprId) {
+        if let Some(visited) = &mut self.expanded {
+            visited.push(ArenaSugarOperand::TypeExpr(id));
+        }
         self.put("T(");
         match type_expr_kind(self.arena, id) {
             ArenaTypeExprKind::Applied { base, arguments } => {
@@ -638,6 +719,12 @@ impl CanonicalWriter<'_> {
                 self.ty(base);
                 for argument in arguments {
                     self.ty(argument);
+                }
+            }
+            ArenaTypeExprKind::Union(members) => {
+                self.put("union;");
+                for member in members {
+                    self.ty(member);
                 }
             }
             ArenaTypeExprKind::Named(name) => self.debug(&name),
@@ -673,6 +760,9 @@ impl CanonicalWriter<'_> {
     }
 
     fn expr(&mut self, id: ExprId) {
+        if let Some(visited) = &mut self.expanded {
+            visited.push(ArenaSugarOperand::Expr(id));
+        }
         let expr = self.arena.expr(id);
         self.mark(expr.span.start());
         self.put("E(");
@@ -946,6 +1036,7 @@ impl CanonicalWriter<'_> {
         self.put(";");
         self.expr(value);
         for arm in self.arena.match_expr_arms(arms) {
+            self.debug(&arm.spelling);
             self.pattern(arm.pattern);
             self.opt_expr(arm.guard);
             self.expr(arm.value);
@@ -1128,3 +1219,7 @@ impl CanonicalWriter<'_> {
         self.put(")");
     }
 }
+
+#[cfg(test)]
+#[path = "sugar_expansion_tests.rs"]
+mod sugar_expansion_tests;

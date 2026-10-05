@@ -335,7 +335,7 @@ pure lang_for_name_ext(name_raw: Str, ext_raw: Str) -> Language {
     "toml" => return LangToml
     "xml" => return LangXml
     "txt" => return LangPlainText
-    _ => {}
+    else => {}
   }
 
   let name = name_raw.lower()
@@ -344,7 +344,7 @@ pure lang_for_name_ext(name_raw: Str, ext_raw: Str) -> Language {
     "dockerfile" => LangDockerfile
     "makefile" => LangMakefile
     n if n == "post-checkout" or n == "post-merge" or n == "upload_snapshots" => LangBash
-    _ => LangUnknown
+    else => LangUnknown
   }
 }
 
@@ -901,7 +901,7 @@ pure count_markdown(text: Bytes) -> Scan {
             toml = add_stats(toml, scan.stats)
             deep = add_stats(deep, scan.deep)
           }
-          _ => {}
+          else => {}
         }
 
         in_fence = false
@@ -993,7 +993,7 @@ pure count_markdown(text: Bytes) -> Scan {
         toml = add_stats(toml, scan.stats)
         deep = add_stats(deep, scan.deep)
       }
-      _ => {}
+      else => {}
     }
   }
 
@@ -1150,7 +1150,7 @@ pure count_language(language: Language, text: Bytes) -> Scan {
     LangTempl => count_slash_plain(text)
     LangToml => count_hash_language(text)
     LangXml => count_html(text, false)
-    _ => empty
+    else => empty
   }
 }
 
@@ -1233,7 +1233,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
         LangTempl => count_slash_plain(text),
         LangToml => count_hash_language(text),
         LangXml => count_html(text, false),
-        _ => count_language(language, text),
+        else => count_language(language, text),
       }
       text = b""
       {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
@@ -1360,7 +1360,7 @@ proc main(...argv: List[Str]) [fs, error] {
           LangTempl => count_slash_plain(text),
           LangToml => count_hash_language(text),
           LangXml => count_html(text, false),
-          _ => count_language(language, text),
+          else => count_language(language, text),
         }
 
         text = b""
@@ -1374,7 +1374,7 @@ proc main(...argv: List[Str]) [fs, error] {
           # never double-count. `blobs` only ever holds non-zero embedded stats.
           let label = language_label(language)
 
-          out = out.push({
+          out += [{
             key: label,
             files: 1,
             blanks: scan.stats.blanks,
@@ -1383,7 +1383,7 @@ proc main(...argv: List[Str]) [fs, error] {
             total_blanks: scan.deep.blanks,
             total_code: scan.deep.code,
             total_comments: scan.deep.comments,
-          })
+          }]
 
           let has_child_blobs = language is (LangHtml | LangMarkdown | LangMdx | LangRust | LangSvg | LangXml)
 
@@ -1392,7 +1392,7 @@ proc main(...argv: List[Str]) [fs, error] {
               let blob = { let lookup_receiver_7 = scan.stats.blobs; let lookup_index_7 = child; let lookup_fallback_7 = zero_stats(); lookup_receiver_7.get(lookup_index_7) ?? lookup_fallback_7 }.require(Stats) ?? zero_stats()
               let cs = blob_deep(blob)
 
-              out = out.push({
+              out += [{
                 key: f"{label}\t{child}",
                 files: 1,
                 blanks: cs.blanks,
@@ -1401,7 +1401,7 @@ proc main(...argv: List[Str]) [fs, error] {
                 total_blanks: 0,
                 total_code: 0,
                 total_comments: 0,
-              })
+              }]
             }
           }
         }
@@ -1449,7 +1449,7 @@ proc main(...argv: List[Str]) [fs, error] {
         continue when cagg.files == 0
         let clines = cagg.blanks + cagg.code + cagg.comments
 
-        child_rows = child_rows.push(
+        child_rows += [
           fmt_row(
             f"|- {clabel}",
             f"{cagg.files}",
@@ -1458,7 +1458,7 @@ proc main(...argv: List[Str]) [fs, error] {
             f"{cagg.comments}",
             f"{cagg.blanks}",
           ),
-        )
+        ]
       }
 
       let lines = totals.blanks + totals.code + totals.comments

@@ -55,7 +55,7 @@ export pure split_fields(line: Str) -> List[Str] {
 }
 
 ## Public authentication helper for shipped core applets.
-export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
+export pure parse_passwd(text: Str) -> Result[List[PasswdEntry], Error] {
   var entries: List[PasswdEntry] = []
 
   for line in text.lines() {
@@ -65,15 +65,17 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
     let gid = fields[3].parse_int() ?? -1
     continue when uid < 0 or gid < 0
 
-    entries = entries.push({
-      name: fields[0],
-      password: fields[1],
-      uid: uid,
-      gid: gid,
-      gecos: fields[4],
-      home: fp"{fields[5]}",
-      shell: fields[6],
-    })
+    entries += [
+      {
+        name: fields[0],
+        password: fields[1],
+        uid: uid,
+        gid: gid,
+        gecos: fields[4],
+        home: fp"{fields[5]}",
+        shell: fields[6],
+      },
+    ]
   }
 
   entries
@@ -87,11 +89,11 @@ export pure parse_shadow(text: Str) -> List[ShadowRecord] {
     let fields = split_fields(line)
 
     if fields.len() < 2 {
-      records = records.push({raw: true, username: "", password: "", rest: [], line: line})
+      records += [{raw: true, username: "", password: "", rest: [], line: line}]
       continue
     }
 
-    records = records.push({raw: false, username: fields[0], password: fields[1], rest: fields |> drop(2), line: ""})
+    records += [{raw: false, username: fields[0], password: fields[1], rest: fields |> drop(2), line: ""}]
   }
 
   records
@@ -103,11 +105,11 @@ export pure render_shadow(records: List[ShadowRecord]) -> Str {
 
   for item in records {
     if item.raw {
-      lines = lines.push(item.line)
+      lines += [item.line]
     } else if item.rest.len() == 0 {
-      lines = lines.push(f"{item.username}:{item.password}")
+      lines += [f"{item.username}:{item.password}"]
     } else {
-      lines = lines.push(f"{item.username}:{item.password}:{item.rest.join(":")}")
+      lines += [f"{item.username}:{item.password}:{item.rest.join(":")}"]
     }
   }
 
@@ -118,17 +120,17 @@ export pure render_shadow(records: List[ShadowRecord]) -> Str {
 }
 
 ## Public authentication helper for shipped core applets.
-export proc passwd_path() [env, error] -> Result[Path] {
+export proc passwd_path() [env, error] -> Result[Path, Error] {
   fp"{env.get_or("XSH_PASSWD_FILE", "/etc/passwd")?}"
 }
 
 ## Public authentication helper for shipped core applets.
-export proc shadow_path() [env, error] -> Result[Path] {
+export proc shadow_path() [env, error] -> Result[Path, Error] {
   fp"{env.get_or("XSH_SHADOW_FILE", "/etc/shadow")?}"
 }
 
 ## Public authentication helper for shipped core applets.
-export proc nologin_path() [env, error] -> Result[Path] {
+export proc nologin_path() [env, error] -> Result[Path, Error] {
   fp"{env.get_or("XSH_NOLOGIN_FILE", "/etc/nologin.txt")?}"
 }
 
@@ -136,7 +138,7 @@ export proc nologin_path() [env, error] -> Result[Path] {
 export proc passwd_file_configured() [env] -> Bool {
   var found = false
 
-  match env.get("XSH_PASSWD_FILE") {
+  match e"XSH_PASSWD_FILE" {
     Ok(_) => found = true
     Err(_) => found = false
   }
@@ -145,12 +147,12 @@ export proc passwd_file_configured() [env] -> Bool {
 }
 
 ## Public authentication helper for shipped core applets.
-export proc read_passwd_entries() [fs, env, error] -> Result[List[PasswdEntry]] {
+export proc read_passwd_entries() [fs, env, error] -> Result[List[PasswdEntry], Error] {
   parse_passwd(passwd_path()?.read_text()?)?
 }
 
 ## Public authentication helper for shipped core applets.
-export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord]] {
+export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord], Error] {
   let path_value = shadow_path()?
 
   if ! path_value.exists()? {
@@ -167,7 +169,7 @@ export proc write_shadow_records(records: List[ShadowRecord]) [fs, env, error] {
 }
 
 ## Public authentication helper for shipped core applets.
-export proc lookup_user(name: Str) [fs, env, error] -> Result[PasswdEntry] {
+export proc lookup_user(name: Str) [fs, env, error] -> Result[PasswdEntry, Error] {
   if passwd_file_configured() {
     for entry in read_passwd_entries()? {
       return entry when entry.name == name
@@ -190,7 +192,7 @@ export proc lookup_user(name: Str) [fs, env, error] -> Result[PasswdEntry] {
 }
 
 ## Public authentication helper for shipped core applets.
-export proc user_by_uid(uid: Int) [fs, env, error] -> Result[PasswdEntry] {
+export proc user_by_uid(uid: Int) [fs, env, error] -> Result[PasswdEntry, Error] {
   if passwd_file_configured() {
     for entry in read_passwd_entries()? {
       return entry when entry.uid == uid
@@ -213,7 +215,7 @@ export proc user_by_uid(uid: Int) [fs, env, error] -> Result[PasswdEntry] {
 }
 
 ## Public authentication helper for shipped core applets.
-export proc current_user_name() [fs, process, env, error] -> Result[Str] {
+export proc current_user_name() [fs, process, env, error] -> Result[Str, Error] {
   var name = "root"
 
   if let Ok(entry) = user_by_uid(applet.current_euid()) {
@@ -250,7 +252,7 @@ export pure account_hash(user_entry: PasswdEntry, records: List[ShadowRecord]) -
 }
 
 ## Public authentication helper for shipped core applets.
-export proc authenticate(user_entry: PasswdEntry) [fs, process, env, error, io] -> Result[Bool] {
+export proc authenticate(user_entry: PasswdEntry) [fs, process, env, error, io] -> Result[Bool, Error] {
   let records = read_shadow_records()?
   let credential = account_hash(user_entry, records)
 
@@ -323,13 +325,15 @@ export pure upsert_shadow(
 
   for item in records {
     if ! item.raw and item.username == username {
-      out = out.push({
-        raw: false,
-        username: username,
-        password: password,
-        rest: shadow_rest_with_defaults(item.rest, last_change),
-        line: "",
-      })
+      out += [
+        {
+          raw: false,
+          username: username,
+          password: password,
+          rest: shadow_rest_with_defaults(item.rest, last_change),
+          line: "",
+        },
+      ]
 
       found = true
     } else {
@@ -338,9 +342,23 @@ export pure upsert_shadow(
   }
 
   if ! found {
-    out = out.push(
-      {raw: false, username: username, password: password, rest: [last_change, "0", "99999", "7", "", "", ""], line: ""},
-    )
+    out += [
+      {
+        raw: false,
+        username: username,
+        password: password,
+        rest: [
+          last_change,
+          "0",
+          "99999",
+          "7",
+          "",
+          "",
+          "",
+        ],
+        line: "",
+      },
+    ]
   }
 
   out

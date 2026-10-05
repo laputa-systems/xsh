@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use super::expr::is_path_like_arena_expr;
+use super::expr::is_path_like_type;
 use super::{
     Checker, FunctionParamSig, FxHashSet, ModuleFnSig, Span, Type,
     command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
@@ -112,7 +112,7 @@ impl Checker {
             .collect::<Vec<_>>();
         let matches = overloads
             .iter()
-            .filter(|sig| module_overload_matches_arena(arena, args, &actuals, sig))
+            .filter(|sig| module_overload_matches_arena(args, &actuals, sig))
             .collect::<Vec<_>>();
         if let Some(sig) = matches.first() {
             if matches.len() > 1 && actuals.iter().all(|ty| !matches!(ty, Type::Unknown)) {
@@ -491,8 +491,7 @@ impl Checker {
                 .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.expected_schema = previous_schema;
-            let kind = arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind;
-            if expected == Type::Path && is_path_like_arena_expr(&kind, &actual) {
+            if expected == Type::Path && is_path_like_type(&actual) {
                 continue;
             }
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
@@ -557,10 +556,8 @@ impl Checker {
             self.error(span, "incorrect function arity", DiagnosticCode::CheckArity);
             return;
         };
-        let ty = self.check_call_arg_arena(arena, source, arg, None);
-        let expr_id = call_arg_expr_id_arena(arg);
-        let kind = arena.arena.expr(expr_id).kind;
-        if !is_path_like_arena_expr(&kind, &ty) {
+        let ty = self.check_call_arg_arena(arena, source, arg, Some(&Type::Path));
+        if !is_path_like_type(&ty) {
             self.error(
                 call_arg_span_arena(arena, arg),
                 "expected Path",
@@ -698,7 +695,6 @@ pub(super) fn common_module_overload_expected_arena(
 
 #[allow(dead_code)]
 pub(super) fn module_overload_matches_arena(
-    arena: &ArenaProgram,
     args: &[ArenaCallArg],
     actuals: &[Type],
     sig: &ModuleFnSig,
@@ -710,15 +706,10 @@ pub(super) fn module_overload_matches_arena(
         .iter()
         .enumerate()
         .all(|(param_index, arg_index)| match arg_index {
-            Some(arg_index) => {
-                let arg = &args[*arg_index];
-                module_arg_matches_param_arena(
-                    arena,
-                    &arg.kind,
-                    &actuals[*arg_index],
-                    &sig.params[param_index].ty,
-                )
-            }
+            Some(arg_index) => module_arg_matches_param_arena(
+                &actuals[*arg_index],
+                &sig.params[param_index].ty,
+            ),
             None => sig.params[param_index].defaulted,
         })
 }
@@ -779,19 +770,6 @@ pub(super) fn bind_module_args_arena(
 }
 
 #[allow(dead_code)]
-pub(super) fn module_arg_matches_param_arena(
-    arena: &ArenaProgram,
-    arg: &ArenaCallArgKind,
-    actual: &Type,
-    expected: &Type,
-) -> bool {
-    if actual.matches_expected(expected) {
-        return true;
-    }
-    if expected != &Type::Path {
-        return false;
-    }
-    let expr_id = call_arg_expr_id_arena(arg);
-    let kind = arena.arena.expr(expr_id).kind;
-    is_path_like_arena_expr(&kind, actual)
+pub(super) fn module_arg_matches_param_arena(actual: &Type, expected: &Type) -> bool {
+    actual.matches_expected(expected) || (expected == &Type::Path && is_path_like_type(actual))
 }

@@ -7,6 +7,7 @@ use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
 use crate::source::{SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
+use crate::syntax::arena::DeferTrigger;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
@@ -1233,7 +1234,9 @@ fn lowered_arena_type_inner(
         ArenaTypeExprTag::Stream => Some(LoweredType::Stream),
         ArenaTypeExprTag::Module => Some(LoweredType::Module),
         ArenaTypeExprTag::Result => Some(LoweredType::Result),
-        ArenaTypeExprTag::Optional => Some(LoweredType::Any),
+        // A union has no single runtime representation; its members keep
+        // their own.
+        ArenaTypeExprTag::Optional | ArenaTypeExprTag::Union => Some(LoweredType::Any),
     }
 }
 
@@ -1687,13 +1690,13 @@ fn compact_collect_stmt_call_edges(
     edges: &mut Vec<usize>,
 ) {
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => {
+        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
             compact_collect_stmt_call_edges(program, inner, namespace, index_of, edges)
         }
         ArenaStmtKind::Let { initializer, .. }
         | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
-        | ArenaStmtKind::Defer(initializer)
+        | ArenaStmtKind::Defer(initializer, _)
         | ArenaStmtKind::Yield(initializer) => {
             compact_collect_expr_or_run_call_edges(
                 program,
@@ -1775,21 +1778,9 @@ fn compact_collect_stmt_call_edges(
                 compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
             }
         }
-        ArenaStmtKind::GuardedStmt {
-            stmt, condition, ..
-        } => {
-            compact_collect_stmt_call_edges(program, stmt, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-        }
-        ArenaStmtKind::BooleanGuard {
-            condition,
-            else_block,
-        } => {
-            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, else_block, namespace, index_of, edges);
-        }
         ArenaStmtKind::Break { value: Some(value) }
         | ArenaStmtKind::Expr(value)
+        | ArenaStmtKind::Exit(value)
         | ArenaStmtKind::YieldDelegate(value) => {
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
@@ -2238,9 +2229,12 @@ fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
         ArenaTypeExprTag::Module => 5,
         ArenaTypeExprTag::Result => 6,
         ArenaTypeExprTag::Optional => 7,
+        ArenaTypeExprTag::Union => 9,
     }
 }
 
+// Indexes 20 and 27 are unassigned: they counted the guarded statement and
+// the boolean guard, which now lower as the `if` they expand to.
 fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
     match kind {
         ArenaStmtKind::Use(_) => 0,
@@ -2258,21 +2252,22 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::Return(_) => 11,
         ArenaStmtKind::YieldDelegate(_) => 12,
         ArenaStmtKind::Yield(_) => 12,
-        ArenaStmtKind::Defer(_) => 13,
+        ArenaStmtKind::Defer(..) => 13,
         ArenaStmtKind::If { .. } => 14,
         ArenaStmtKind::While { .. } => 15,
         ArenaStmtKind::For { .. } => 16,
         ArenaStmtKind::With { .. } => 17,
         ArenaStmtKind::Loop { .. } => 18,
         ArenaStmtKind::Guard { .. } => 19,
-        ArenaStmtKind::GuardedStmt { .. } => 20,
         ArenaStmtKind::Break { .. } => 21,
         ArenaStmtKind::Continue => 22,
         ArenaStmtKind::Match { .. } => 23,
         ArenaStmtKind::Command(_) => 24,
         ArenaStmtKind::TailBareIdent(_) => 25,
-        ArenaStmtKind::Expr(_) => 26,
-        ArenaStmtKind::BooleanGuard { .. } => 27,
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => 26,
+        ArenaStmtKind::Sugar { .. } => {
+            unreachable!("a sugar statement is classified by its expansion")
+        }
         ArenaStmtKind::Assert { .. } => 28,
     }
 }
@@ -2294,27 +2289,29 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::Return(_) => "return",
         ArenaStmtKind::YieldDelegate(_) => "yield-delegate",
         ArenaStmtKind::Yield(_) => "yield",
-        ArenaStmtKind::Defer(_) => "defer",
+        ArenaStmtKind::Defer(..) => "defer",
         ArenaStmtKind::If { .. } => "if",
         ArenaStmtKind::While { .. } => "while",
         ArenaStmtKind::For { .. } => "for",
         ArenaStmtKind::With { .. } => "with",
         ArenaStmtKind::Loop { .. } => "loop",
         ArenaStmtKind::Guard { .. } => "guard",
-        ArenaStmtKind::GuardedStmt { .. } => "guarded_stmt",
         ArenaStmtKind::Break { .. } => "break",
         ArenaStmtKind::Continue => "continue",
         ArenaStmtKind::Match { .. } => "match",
         ArenaStmtKind::Command(_) => "command",
         ArenaStmtKind::TailBareIdent(_) => "tail_bare_ident",
-        ArenaStmtKind::Expr(_) => "expr",
-        ArenaStmtKind::BooleanGuard { .. } => "boolean_guard",
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => "expr",
+        ArenaStmtKind::Sugar { .. } => {
+            unreachable!("a sugar statement is classified by its expansion")
+        }
         ArenaStmtKind::Assert { .. } => "assert",
     }
 }
 
 fn compact_stmt_blocker_label(program: &ArenaProgram, stmt: StmtId) -> String {
     match program.arena.stmt(stmt).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => compact_stmt_blocker_label(program, expansion),
         ArenaStmtKind::Command(command) => {
             format!(
                 "command:{}",
@@ -2968,7 +2965,9 @@ fn compact_body_tail_stmt_kind(program: &ArenaProgram, block: BlockId) -> usize 
         .arena
         .stmt_ids(program.arena.block(block).statements)
         .last()
-        .map(|stmt| compact_stmt_kind_index(program.arena.stmt(stmt).kind))
+        .map(|stmt| {
+            compact_stmt_kind_index(program.arena.stmt(program.arena.core_stmt_id(stmt)).kind)
+        })
         .unwrap_or(COMPACT_STMT_KIND_COUNT - 1)
 }
 
@@ -2977,7 +2976,7 @@ fn compact_body_tail_call_blocker_callee(program: &ArenaProgram, block: BlockId)
         .arena
         .stmt_ids(program.arena.block(block).statements)
         .last()?;
-    match program.arena.stmt(stmt).kind {
+    match program.arena.stmt(program.arena.core_stmt_id(stmt)).kind {
         ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr))) | ArenaStmtKind::Expr(expr) => {
             compact_expr_call_blocker_callee(program, expr)
         }
@@ -3005,7 +3004,7 @@ fn compact_body_tail_command_blocker(
         .arena
         .stmt_ids(program.arena.block(block).statements)
         .last()?;
-    match program.arena.stmt(stmt).kind {
+    match program.arena.stmt(program.arena.core_stmt_id(stmt)).kind {
         ArenaStmtKind::Command(command) => Some(command),
         _ => None,
     }
@@ -3616,7 +3615,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_top_level_blocker_detail(&mut self, id: StmtId, blocker: CompactTopLevelBlocker) {
-        if let ArenaStmtKind::Export(inner) = self.program.arena.stmt(id).kind {
+        if let ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar {
+            expansion: inner, ..
+        } = self.program.arena.stmt(id).kind
+        {
             self.record_top_level_blocker_detail(inner, blocker);
             return;
         }
@@ -3709,7 +3711,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn top_level_blocker_kind(&self, id: StmtId) -> CompactTopLevelBlocker {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) => self.top_level_blocker_kind(inner),
+            ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+                self.top_level_blocker_kind(inner)
+            }
             ArenaStmtKind::Use(_) => CompactTopLevelBlocker::Use,
             ArenaStmtKind::Let { target, ty, .. }
             | ArenaStmtKind::Const { target, ty, .. }
@@ -3738,15 +3742,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 CompactTopLevelBlocker::AssignExpression
             }
             ArenaStmtKind::Assign { .. } => CompactTopLevelBlocker::AssignExpression,
-            ArenaStmtKind::BooleanGuard { .. }
-            | ArenaStmtKind::Assert { .. }
+            ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. } => CompactTopLevelBlocker::Control,
             ArenaStmtKind::Command(_) => CompactTopLevelBlocker::Command,
-            ArenaStmtKind::Expr(_) => CompactTopLevelBlocker::Expression,
-            ArenaStmtKind::Defer(_) => CompactTopLevelBlocker::Defer,
+            ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => CompactTopLevelBlocker::Expression,
+            ArenaStmtKind::Defer(..) => CompactTopLevelBlocker::Defer,
             ArenaStmtKind::SignalHook(_) => CompactTopLevelBlocker::Other,
             _ => CompactTopLevelBlocker::Other,
         }
@@ -3758,7 +3761,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<BuildTopStmtId> {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) => self.lower_top_level_stmt(inner, known),
+            ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+                self.lower_top_level_stmt(inner, known)
+            }
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = self.program.arena.use_stmt(use_id);
                 let key = use_stmt.resolved.clone()?;
@@ -3904,9 +3909,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ty) => {
                         let lowered =
                             lowered_arena_type(&self.program.arena, ty, self.declarations)?;
-                        if !lowerable_top_level_annotation(lowered) {
-                            return None;
-                        }
                         (
                             Some(lowered),
                             compact_type_check(
@@ -3995,9 +3997,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ty) => {
                         let lowered =
                             lowered_arena_type(&self.program.arena, ty, self.declarations)?;
-                        if !lowerable_top_level_annotation(lowered) {
-                            return None;
-                        }
                         (
                             Some(lowered),
                             compact_type_check(
@@ -4120,8 +4119,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     slots,
                 ))
             }
-            ArenaStmtKind::BooleanGuard { .. }
-            | ArenaStmtKind::Assert { .. }
+            ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
@@ -4158,7 +4156,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let kind = BuildTopKind::Expr(value);
                 Some(lowered_top_level(&self.scratch, kind, known, slots))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
+            ArenaStmtKind::Exit(status) => {
+                let mut slots = top_level_slots(known);
+                let span = self.program.arena.stmt(id).span;
+                let value = self.lower_exit(status, span, &mut slots, None, None)?;
+                let kind = BuildTopKind::Expr(value);
+                Some(lowered_top_level(&self.scratch, kind, known, slots))
+            }
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), trigger) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_deferred_expr(value, &mut slots, None, None)?;
                 Some(lowered_top_level(
@@ -4166,12 +4171,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildTopKind::Defer {
                         value,
                         span: self.program.arena.stmt(id).span,
+                        on_error: trigger == DeferTrigger::Error,
                     },
                     known,
                     slots,
                 ))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
+            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run), trigger) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
                 Some(lowered_top_level(
@@ -4179,6 +4185,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildTopKind::Defer {
                         value,
                         span: self.program.arena.stmt(id).span,
+                        on_error: trigger == DeferTrigger::Error,
                     },
                     known,
                     slots,
@@ -4373,10 +4380,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ArenaExprOrRun::Expr(value) => self.concrete_checked_type(value),
                     ArenaExprOrRun::Run(_) => None,
                 };
+                let optional = self.bodies.optional_binding_guards.contains(&id);
                 for (name, checked) in record_binding_types(
                     self.program,
                     target,
-                    checked.as_ref().and_then(Type::result_ok),
+                    checked
+                        .as_ref()
+                        .and_then(|ty| guard_bound_type(ty, optional)),
                 ) {
                     let kind = checked
                         .as_ref()
@@ -4777,6 +4787,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let Some((&tail, prefix)) = ids.split_last() else {
             return Some(Vec::new());
         };
+        let tail = self.program.arena.core_stmt_id(tail);
         let mut lowered = Vec::with_capacity(ids.len());
         for stmt in prefix {
             lowered.push(self.lower_stmt_with_blocker_guard(
@@ -4805,6 +4816,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: self.lower_expr(expr, slots, current_function, item_slot)?,
                 }
             ),
+            ArenaStmtKind::Exit(status) => {
+                let span = self.program.arena.stmt(tail).span;
+                push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Return {
+                        value: self.lower_exit(status, span, slots, current_function, item_slot)?,
+                    }
+                )
+            }
             ArenaStmtKind::TailBareIdent(name) => {
                 let value = self
                     .lower_bare_ident_stmt(tail, name, slots)
@@ -5011,35 +5032,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
+        if let ArenaStmtKind::Sugar { expansion, .. } = self.program.arena.stmt(id).kind {
+            return self.lower_stmt(expansion, slots, current_function, item_slot);
+        }
         self.output.statements += 1;
         let lowered = match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                let condition = self.lower_expr(condition, slots, current_function, item_slot)?;
-                let else_body =
-                    Some(self.lower_block(else_block, slots, current_function, item_slot)?);
-                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::IfBool {
-                            branches: vec![(condition, vec![])],
-                            else_body
-                        }
-                    ))
-                } else {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::If {
-                            branches: vec![(condition, vec![])],
-                            else_body
-                        }
-                    ))
-                }
-            }
+            ArenaStmtKind::Sugar { .. } => unreachable!("lowered through its expansion above"),
             ArenaStmtKind::Let {
                 target,
                 ty,
@@ -5839,7 +5837,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ArenaExprOrRun::Expr(expr) => self.lower_binding_checked_type(None, expr),
                     ArenaExprOrRun::Run(_) => None,
                 };
-                let success_ty = checked.as_ref().and_then(Type::result_ok);
+                // The checker decided whether this guard unwraps a `Result` or
+                // tests an optional for `null`.
+                let optional = self.bodies.optional_binding_guards.contains(&id);
+                let success_ty = checked
+                    .as_ref()
+                    .and_then(|ty| guard_bound_type(ty, optional));
                 let value = match initializer {
                     ArenaExprOrRun::Expr(expr) => {
                         self.lower_expr(expr, slots, current_function, item_slot)?
@@ -5856,7 +5859,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .arena
                     .block_params(self.program.arena.block(else_block).params)
                     .first()
-                    .filter(|param| param.name.as_str() != "_")
+                    // A null optional carries no error to bind.
+                    .filter(|param| !optional && param.name.as_str() != "_")
                     .map(|param| {
                         slots.declare_with_type(
                             param.name,
@@ -5884,53 +5888,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         else_param_slot,
                         else_body,
                         span: self.program.arena.stmt(id).span,
+                        optional,
                     }
                 ))
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt,
-                negate,
-                condition,
-            } => {
-                let mut condition =
-                    self.lower_expr(condition, slots, current_function, item_slot)?;
-                if negate {
-                    let false_value = push_build_row!(self, expr, BuildExprRow::Bool(false));
-                    condition = push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::IfExpr {
-                            branches: vec![(condition, false_value)],
-                            else_value: push_build_row!(self, expr, BuildExprRow::Bool(true)),
-                            span: self.program.arena.stmt(id).span,
-                        }
-                    );
-                }
-                let body = vec![self.lower_stmt_with_blocker_guard(
-                    stmt,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?];
-                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::IfBool {
-                            branches: vec![(condition, body)],
-                            else_body: None,
-                        }
-                    ))
-                } else {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::If {
-                            branches: vec![(condition, body)],
-                            else_body: None,
-                        }
-                    ))
-                }
             }
             ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(push_build_row!(
                 self,
@@ -6025,14 +5985,31 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildStmtRow::Expr { value, span }
                 ))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
-                let value = self.lower_deferred_expr(value, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
+            ArenaStmtKind::Exit(status) => {
+                let span = self.program.arena.stmt(id).span;
+                let value = self.lower_exit(status, span, slots, current_function, item_slot)?;
+                Some(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Expr { value, span }
+                ))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), trigger) => {
+                let value = self.lower_deferred_expr(value, slots, current_function, item_slot)?;
+                Some(push_build_row!(self, stmt, BuildStmtRow::Defer {
+                        value,
+                        on_error: trigger == DeferTrigger::Error,
+                    }
+                ))
+            }
+            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run), trigger) => {
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
+                Some(push_build_row!(self, stmt, BuildStmtRow::Defer {
+                        value,
+                        on_error: trigger == DeferTrigger::Error,
+                    }
+                ))
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let span = self.program.arena.stmt(id).span;
@@ -6067,6 +6044,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_lower_stmt_blocker(&mut self, id: StmtId) -> Option<BuildStmtId> {
+        let id = self.program.arena.core_stmt_id(id);
         let kind = self.program.arena.stmt(id).kind;
         let stmt_span = self.program.arena.stmt(id).span;
         self.output.statement_blockers[compact_stmt_kind_index(kind)] += 1;
@@ -6936,13 +6914,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let wildcard = push_build_row!(self, pattern, BuildPatternRow::Wildcard);
         let yes = push_build_row!(self, expr, BuildExprRow::Bool(true));
         let no = push_build_row!(self, expr, BuildExprRow::Bool(false));
+        let mut arms = vec![(pattern, None, yes), (wildcard, None, no)];
+        if self.bodies.optional_binding_conditions.contains(&id) {
+            // An optional binding fails on `null` before its pattern, which
+            // would otherwise accept and bind it.
+            let null_pattern =
+                push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
+            let absent = push_build_row!(self, expr, BuildExprRow::Bool(false));
+            arms.insert(0, (null_pattern, None, absent));
+        }
         Some((
             push_build_row!(
                 self,
                 expr,
                 BuildExprRow::MatchExpr {
                     value: subject,
-                    arms: vec![(pattern, None, yes), (wildcard, None, no)],
+                    arms,
                     span
                 }
             ),
@@ -7080,6 +7067,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }),
             ArenaExprKind::Bool(value) => {
                 Some(push_build_row!(self, expr, BuildExprRow::Bool(value)))
+            }
+            // A literal the checker typed as a Path is a Path constant, the
+            // same value `p"..."` builds.
+            ArenaExprKind::Str(value) if self.bodies.path_literals.contains(&id) => {
+                let path = self.program.arena.string_literal(value);
+                PathValue::from_text(path.as_ref())
+                    .ok()
+                    .map(|value| push_build_row!(self, expr, BuildExprRow::Path(value)))
             }
             ArenaExprKind::Str(value) => Some(push_build_row!(
                 self,
@@ -8264,6 +8259,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let uint_key = matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key, _)) if **key == Type::UInt);
+        // A quoted label of a map the checker keyed by Path is a Path key.
+        let path_key = matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key, _)) if **key == Type::Path);
         let mut entries = Vec::new();
         for field in self.program.arena.record_fields(fields).to_vec() {
             let key_span = match &field.kind {
@@ -8279,11 +8276,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.program.arena.span(span),
                 ),
                 ArenaRecordFieldKind::Named { name, value, span } => (
-                    Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Str(Arc::from(name.as_str().as_str()))
-                    )),
+                    Some(if path_key {
+                        let path = PathValue::from_text(name.as_str().as_str()).ok()?;
+                        push_build_row!(self, expr, BuildExprRow::Path(path))
+                    } else {
+                        push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::Str(Arc::from(name.as_str().as_str()))
+                        )
+                    }),
                     self.lower_expr(value, slots, current_function, item_slot)?,
                     self.program.arena.span(span),
                 ),
@@ -9429,7 +9431,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(push_build_row!(self, expr, BuildExprRow::Try(checked)));
         }
         if let Some((error, bindings)) =
-            self.lower_compact_error_expr(callee, &args_vec, slots, current_function, item_slot)
+            self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)
         {
             let value = push_build_row!(self, expr, BuildExprRow::Error(Box::new(error)));
             return Some(self.wrap_argument_bindings(value, bindings, span));
@@ -10408,7 +10410,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 // Recognize `<text>.starts_with(n)` / `.ends_with(n)` and lower to the
                 // direct StrPredicate node (the bool-condition path then specializes it
                 // into StrPredicateSlot/TrimStrPredicateSlot for slot/trim receivers).
+                // A Path receiver compares whole components, so it takes the method
+                // call below instead of the byte predicate.
                 let str_predicate = match name.as_str().as_str() {
+                    _ if matches!(self.checked_expr_type(base), Some(Type::Path)) => None,
                     "starts_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::StartsWith),
                     "ends_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::EndsWith),
                     _ => None,
@@ -11095,6 +11100,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn lower_compact_error_expr(
         &mut self,
+        call: ExprId,
         callee: ExprId,
         args: &[ArenaCallArg],
         slots: &mut SlotScope,
@@ -11144,6 +11150,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         let family_key = self.resolved_compact_error_family_key(base)?;
         self.lower_error_variant_payload(
+            call,
             family_key,
             variant,
             args,
@@ -11153,10 +11160,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         )
     }
 
-    /// An error variant value from its constructor arguments, bound to payload
-    /// fields as the checker bound them.
+    /// An error variant value from its constructor arguments. The checker
+    /// decided which payload field each argument fills; a call it published
+    /// no binding for is not lowered.
     fn lower_error_variant_payload(
         &mut self,
+        call: ExprId,
         family_key: CompactErrorFamilyKey,
         variant: Name,
         args: &[ArenaCallArg],
@@ -11167,31 +11176,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let family_name = compact_error_family_display(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
             .and_then(|family| family.variants.get(&variant))?;
-        let expected_fields = info.fields.keys().copied().collect::<Vec<_>>();
-        let mut fields = Vec::with_capacity(expected_fields.len());
+        let binding = self.bodies.error_constructors.get(&call)?.clone();
+        if binding.fields.len() != args.len() {
+            return None;
+        }
+        let mut fields = Vec::with_capacity(info.fields.len());
         let mut bindings = Vec::new();
         let checked = info.fields.values().any(Type::has_unsigned_constraint);
-        let mut seen = FxHashSet::default();
-        let mut positional_index = 0usize;
-        for arg in args {
-            let (field, value) = match arg.kind {
-                ArenaCallArgKind::Named { name, value, .. } => {
-                    if !info.fields.contains_key(&name) || !seen.insert(name) {
-                        return None;
-                    }
-                    (name, value)
-                }
-                ArenaCallArgKind::Positional(value) => {
-                    let field = *expected_fields.get(positional_index)?;
-                    positional_index += 1;
-                    if !seen.insert(field) {
-                        return None;
-                    }
-                    (field, value)
-                }
-                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
-                    return None;
-                }
+        for (arg, field) in args.iter().zip(&binding.fields) {
+            let (ArenaCallArgKind::Named { value, .. } | ArenaCallArgKind::Positional(value)) =
+                arg.kind
+            else {
+                return None;
             };
             let lowered = self.lower_expr(value, slots, current_function, item_slot)?;
             let lowered = if checked {
@@ -11200,7 +11196,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
                 self.checked_unsigned_value(
                     bound,
-                    info.fields.get(&field)?,
+                    info.fields.get(field)?,
                     self.program.arena.expr(value).span,
                 )
             } else {
@@ -11208,8 +11204,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             fields.push((Arc::<str>::from(field.as_str().as_str()), lowered));
         }
-        if expected_fields.iter().any(|field| !seen.contains(field)) {
-            return None;
+        if binding.default_message {
+            // A variant without a payload always carries its message, so a
+            // `{message}` pattern binds what `.message` reads when the
+            // constructor omitted it.
+            let message = push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Str(format!("{family_name}.{variant}").into())
+            );
+            fields.push((Arc::<str>::from("message"), message));
         }
         Some((
             LoweredErrorExpr::Structured {
@@ -11298,6 +11302,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 };
                 let key = self.resolve_compact_error_family_owner(key);
                 let (error, bindings) = self.lower_error_variant_payload(
+                    id,
                     key,
                     variant,
                     &args,
@@ -12882,8 +12887,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn pattern_str_literal(&mut self, pattern: PatternId) -> Option<Option<Arc<str>>> {
         let lowered = match self.program.arena.pattern(pattern).kind {
             ArenaPatternKind::Wildcard => Some(None),
+            // A literal the checker typed as a Path matches a Path subject,
+            // which the text-keyed match cannot compare.
             ArenaPatternKind::Literal(expr) => match self.program.arena.expr(expr).kind {
-                ArenaExprKind::Str(value) => {
+                ArenaExprKind::Str(value) if !self.bodies.path_literals.contains(&expr) => {
                     Some(Some(self.program.arena.string_literal(value).clone()))
                 }
                 _ => None,
@@ -12925,8 +12932,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    /// A pattern's kind, with a target-typed `.Name` replaced by the
+    /// qualified pattern the checker resolved it to. `None` when the checker
+    /// published no resolution, so such a pattern is never lowered by name.
+    fn qualified_pattern_kind(&self, id: PatternId) -> Option<ArenaPatternKind> {
+        let kind = &self.program.arena.pattern(id).kind;
+        if !kind.is_inferred_variant() {
+            return Some(kind.clone());
+        }
+        Some(self.bodies.inferred_variant_patterns.get(&id)?.qualify(kind))
+    }
+
     fn pattern_tag_name(&mut self, pattern: PatternId) -> Option<Option<Arc<str>>> {
-        let lowered = match self.program.arena.pattern(pattern).kind {
+        let lowered = match self.qualified_pattern_kind(pattern)? {
             ArenaPatternKind::Wildcard => Some(None),
             ArenaPatternKind::Constructor { name, arg: None }
                 if self.compact_tag_variant_arity(name) == Some(0) =>
@@ -12947,11 +12965,38 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let stmt = self.program.arena.core_stmt_id(stmt);
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
+            ArenaStmtKind::Exit(status) => {
+                let span = self.program.arena.stmt(stmt).span;
+                self.lower_exit(status, span, slots, current_function, item_slot)
+            }
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             _ => None,
         }
+    }
+
+    /// Lowers `exit STATUS` to the expression that ends the script: it
+    /// evaluates the status and never yields a value, so it stands wherever
+    /// the statement does, as a statement or as the tail of a block.
+    fn lower_exit(
+        &mut self,
+        status: ExprId,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Abort {
+                status: self.lower_expr(status, slots, current_function, item_slot)?,
+                force: None,
+                span,
+            }
+        ))
     }
 
     /// Cleanup bodies use statement position even for their final expression.
@@ -13026,7 +13071,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             body.push(push_build_row!(
                 self,
                 stmt,
-                BuildStmtRow::Defer { value: close }
+                BuildStmtRow::Defer {
+                    value: close,
+                    on_error: false,
+                }
             ));
             let path = root_method(self, RuntimeOp::FsRootPath);
             let path_slot = match self
@@ -13155,9 +13203,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let stmt = self.program.arena.core_stmt_id(stmt);
         let span = self.program.arena.stmt(stmt).span;
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
+            ArenaStmtKind::Exit(status) => {
+                self.lower_exit(status, span, slots, current_function, item_slot)
+            }
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             ArenaStmtKind::Command(command)
                 if self.bodies.statement_positions.get(&stmt)
@@ -13288,7 +13340,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         err_binding_ty: Option<&Type>,
     ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
         self.output.patterns += 1;
-        let lowered = match &self.program.arena.pattern(id).kind {
+        let kind = self.qualified_pattern_kind(id)?;
+        let lowered = match &kind {
             ArenaPatternKind::Group(pattern) => {
                 self.lower_pattern(*pattern, slots, ok_binding_ty, err_binding_ty)
             }
@@ -13679,7 +13732,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         family,
                         variant,
                         fields,
-                    } = self.program.arena.pattern(*arg).kind
+                    } = self.qualified_pattern_kind(*arg)?
                 {
                     return self
                         .lower_error_variant_pattern(family, variant, fields, true, slots)
@@ -13883,6 +13936,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         BuildPatternRow::Literal(LoweredValue::Duration(DurationValue { millis }))
                     )
                 }),
+            ArenaExprKind::Str(value) if self.bodies.path_literals.contains(&id) => {
+                let path = PathValue::from_text(self.program.arena.string_literal(value)).ok()?;
+                Some(push_build_row!(
+                    self,
+                    pattern,
+                    BuildPatternRow::Literal(LoweredValue::Path(path))
+                ))
+            }
             ArenaExprKind::Str(value) => Some(push_build_row!(
                 self,
                 pattern,
@@ -14291,7 +14352,9 @@ fn construct_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> 
         return true;
     }
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => construct_top_level_stmt_is_skippable(program, inner),
+        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+            construct_top_level_stmt_is_skippable(program, inner)
+        }
         ArenaStmtKind::Use(use_id) => construct_use_stmt_is_skippable(program, use_id),
         ArenaStmtKind::Expr(expr) if construct_expr_is_reveal_type_call(program, expr) => true,
         ArenaStmtKind::TypeDef(_)
@@ -14511,6 +14574,12 @@ fn compact_runtime_type_inner(
             declarations,
             depth,
         ))),
+        ArenaTypeExprTag::Union => Type::Union(
+            arena
+                .union_type_members(ty)
+                .map(|member| compact_runtime_type_inner(arena, member, declarations, depth))
+                .collect(),
+        ),
     }
 }
 
@@ -14634,6 +14703,24 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
             "{}?",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
+        ArenaTypeExprTag::Union => format!(
+            "Union[{}]",
+            arena
+                .union_type_members(ty)
+                .map(|member| compact_type_expr_name_string(arena, member))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// The type a `guard let` target receives from a subject of type `subject`:
+/// the non-null value of an optional guard, the `Ok` payload otherwise.
+fn guard_bound_type(subject: &Type, optional: bool) -> Option<&Type> {
+    match subject {
+        Type::Optional(present) if optional => Some(present),
+        _ if optional => None,
+        subject => subject.result_ok(),
     }
 }
 
@@ -14706,6 +14793,9 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Tag(_) => Some(LoweredType::Tag),
         Type::Result(_, _) => Some(LoweredType::Result),
         Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
+        // A union value is stored as whichever member it is, so its slot
+        // has no single storage kind.
+        Type::Union(_) => Some(LoweredType::Any),
         _ => None,
     }
 }
@@ -14715,6 +14805,11 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         Type::Any | Type::Unknown => lowered_method_name(&name.as_str()),
         Type::Invalid => true,
         Type::Optional(inner) => lowered_method_supported_for_type(inner, name, arg_count),
+        // A slot keeps its declared union type inside the branch where the
+        // checker narrowed it, so the call is one the narrowed member has.
+        Type::Union(members) => members
+            .iter()
+            .any(|member| lowered_method_supported_for_type(member, name, arg_count)),
         Type::Result(ok, _) => {
             name == "context" && (arg_count == 1 || arg_count == 2)
                 || lowered_method_supported_for_type(ok, name, arg_count)
@@ -14781,12 +14876,12 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         Type::Path => match name.as_str().as_str() {
             "display" | "name" | "basename" | "dirname" | "ext" | "normalize" | "parent"
             | "lines" | "bytes_lines" | "read_text" | "read_bytes" | "exists" | "executable"
-            | "du" | "metadata" | "readlink" | "resolve" | "remove_dir" | "unlink" => {
-                arg_count == 0
-            }
+            | "du" | "metadata" | "readlink" | "resolve" | "remove_dir" | "unlink"
+            | "read_lines" | "components" | "bytes" => arg_count == 0,
             "ext_or" => arg_count == 1,
             "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate" | "chmod"
-            | "hardlink" | "write" | "write_atomic" => arg_count == 1,
+            | "hardlink" | "write" | "write_atomic" | "starts_with" | "ends_with" | "write_lines" | "glob"
+            | "rglob" => arg_count == 1,
             "copy" | "rename" | "mkdir" | "remove" => arg_count == 1 || arg_count == 2,
             "touch" => arg_count <= 1,
             _ => false,
@@ -14966,37 +15061,6 @@ pub(super) fn lowered_top_level(
         slots,
         slot_count,
     })
-}
-
-fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
-    matches!(
-        ty,
-        LoweredType::Unit
-            | LoweredType::Int
-            | LoweredType::Float
-            | LoweredType::Duration
-            | LoweredType::Bool
-            | LoweredType::Str
-            | LoweredType::Bytes
-            | LoweredType::Digest
-            | LoweredType::Regex
-            | LoweredType::Status
-            | LoweredType::Path
-            | LoweredType::Command
-            | LoweredType::ProcessHandle
-            | LoweredType::NetJob
-            | LoweredType::FsRoot
-            | LoweredType::Stream
-            | LoweredType::Pure
-            | LoweredType::Proc
-            | LoweredType::Error
-            | LoweredType::Record
-            | LoweredType::List
-            | LoweredType::Map
-            | LoweredType::Tag
-            | LoweredType::Result
-            | LoweredType::Any
-    )
 }
 
 impl CompactLowerConstructProbe<'_, '_> {

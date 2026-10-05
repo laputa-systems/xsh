@@ -163,7 +163,7 @@ diagnostic_codes! {
     }
     Lex {
         LexInvalidBytesEscape = "lex.invalid-bytes-escape", error, "Reject a `\\u` unicode escape inside a bytes literal";
-        LexInvalidEscape = "lex.invalid-escape", error, "Reject an unsupported escape sequence in a string literal";
+        LexInvalidEscape = "lex.invalid-escape", error, "Reject an unsupported escape sequence in a string, bytes, or interpolated literal";
         LexInvalidFloat = "lex.invalid-float", error, "Reject a float literal whose exponent has no digits";
         LexInvalidOctal = "lex.invalid-octal", error, "Reject an octal literal with non-octal digits or no digits after `0o`";
         LexInvalidString = "lex.invalid-string", error, "Reject a string literal whose bytes are not valid UTF-8";
@@ -219,12 +219,13 @@ diagnostic_codes! {
         ParseForeignSyntax = "parse.foreign-syntax", error, "Reject syntax from other languages such as `++`, `catch`, `? :`, `elif`, or `[ ... ]` tests";
         ParseGenericErrorFamily = "parse.generic-error-family", error, "Reject generic parameters on an `error` family declaration";
         ParseIfExpressionElse = "parse.if-expression-else", error, "Reject an `if` expression without an `else` branch";
-        ParseInvalidString = "parse.invalid-string", error, "Reject a string literal whose bytes are not valid UTF-8";
-        ParseInvalidStringEscape = "parse.invalid-string-escape", error, "Reject an unsupported escape sequence in a string literal";
+        ParseInferredVariantArm = "parse.inferred-variant-arm", error, "Reject a match arm head that begins with a target-typed `.Name` variant";
         ParseKeywordLabelBinding = "parse.keyword-label-binding", error, "Reject a field label that is a keyword used as an implicit binding name";
         ParseLegacyStderrRedirection = "parse.legacy-stderr-redirection", error, "Reject the legacy stderr redirection spelling in favor of `2>` or `2>>`";
+        ParseLineContinuation = "parse.line-continuation", error, "Reject a `\\` line continuation that is not between the parts of a command";
         ParseListPatternRest = "parse.list-pattern-rest", error, "Reject a list pattern whose rest element is repeated or not last";
         ParseMapComprehensionEntries = "parse.map-comprehension-entries", error, "Reject entries written before a map comprehension in the same braces";
+        ParseMatchElseArm = "parse.match-else-arm", error, "Reject an `else` match arm that has a guard or is not the last arm";
         ParseMixedComparison = "parse.mixed-comparison", error, "Reject ordering mixed with equality, membership, or pattern tests without parentheses";
         ParseModuleCycle = "parse.module-cycle", error, "Reject a module import that forms a cycle";
         ParseModuleLoad = "parse.module-load", error, "Reject an imported module that has parse errors";
@@ -318,10 +319,8 @@ diagnostic_codes! {
         CheckFlatMap = "check.flat-map", error, "Reject a `flat-map` block that does not produce a `List` or `Stream`";
         CheckFmtDollarName = "check.fmt-dollar-name", error, "Reject `$name` in an f-string, which interpolates with `{name}`";
         CheckForIterator = "check.for-iterator", error, "Reject a `for` loop over a value that is not a `List`, `Stream`, `Map`, `Str`, or `Bytes`";
-        CheckGuardBinding = "check.guard-binding", error, "Reject a `guard let` binding that is not a `Result` value";
-        CheckGuardCondition = "check.guard-condition", error, "Reject a `guard` condition that is not `Bool` or `Status`";
+        CheckGuardBinding = "check.guard-binding", error, "Reject a `guard let` binding that is neither a `Result` nor an optional value";
         CheckGuardFallthrough = "check.guard-fallthrough", error, "Reject a `guard` else block that can fall through to the enclosing code";
-        CheckGuardedStmtCondition = "check.guarded-stmt-condition", error, "Reject a guarded statement condition that is not `Bool` or `Status`";
         CheckHandlerBlockParams = "check.handler-block-params", error, "Reject an error handler block with more than one parameter";
         CheckHyphenatedModuleAlias = "check.hyphenated-module-alias", error, "Reject a hyphenated module path segment imported without an `as` alias";
         CheckIfCondition = "check.if-condition", error, "Reject an `if` condition that is not `Bool` or `Status`";
@@ -332,7 +331,7 @@ diagnostic_codes! {
         CheckInferReturn = "check.infer-return", error, "Reject a function whose return shape is underdetermined or inferred inconsistently across paths";
         CheckInferredVariant = "check.inferred-variant", error, "Reject a leading-dot variant whose expected type names no single enum or error family with that variant";
         CheckIntLiteral = "check.int-literal", error, "Reject an integer literal outside the 64-bit signed range";
-        CheckIrrefutablePatternCondition = "check.irrefutable-pattern-condition", error, "Reject a pattern condition that cannot fail instead of binding with `let`";
+        CheckIrrefutablePatternCondition = "check.irrefutable-pattern-condition", error, "Reject a pattern condition that cannot fail over a subject that is not optional, instead of binding with `let`";
         CheckJsonCompatible = "check.json-compatible", error, "Reject a value that is not JSON-compatible, such as `Path`, `Bytes`, `Status`, or `Result`";
         CheckLastStatus = "check.last-status", error, "Reject `$?` read before any status has been set";
         CheckLegacyTestProc = "check.legacy-test-proc", error, "Reject a legacy `test_` proc and require migrating it to a `test NAME { |ctx| ... }` declaration";
@@ -387,8 +386,10 @@ diagnostic_codes! {
         CheckPipelineHole = "check.pipeline-hole", error, "Reject `_` used as anything other than a whole-argument placeholder in an immediate pipeline call";
         CheckPipelineStage = "check.pipeline-stage", error, "Reject a value pipeline stage that is not a call";
         CheckPipelineStdin = "check.pipeline-stdin", error, "Reject stdin redirection on a byte pipeline segment other than the first";
+        CheckPositionalErrorArguments = "check.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
         CheckProcCommandSyntax = "check.proc-command-syntax", error, "Reject calling a `proc` with command syntax instead of expression-call syntax";
         CheckProcessArgvEmpty = "check.process-argv-empty", error, "Reject an empty argv list in `process.command_argv`";
+        CheckPublicResultError = "check.public-result-error", warning, "Require an exported signature or module contract to spell the error type of each Result";
         CheckPureAssignment = "check.pure-assignment", error, "Reject assignment in a `pure` function to anything but its own local `var`";
         CheckPureCommand = "check.pure-command", error, "Reject a command statement inside a `pure` function";
         CheckPureDefer = "check.pure-defer", error, "Reject `defer` inside a `pure` function";
@@ -414,11 +415,12 @@ diagnostic_codes! {
         CheckRetryPattern = "check.retry-pattern", error, "Reject a `retry` selection that is not a nominal error, facet, type, or wildcard pattern";
         CheckReturnOutsideCallable = "check.return-outside-callable", error, "Reject `return` outside a callable body";
         CheckRevealType = "check.reveal-type", mixed, "Report the type of an expression via `reveal_type`; reject it outside `xsht check`";
-        CheckRunTarget = "check.run-target", error, "Reject a `run` target that splices into more than one argv item";
+        CheckRunTarget = "check.run-target", error, "Reject a `run` target that splices an empty list literal, which names no program";
         CheckSchema = "check.schema", error, "Reject a record schema declared with no fields";
         CheckSchemaField = "check.schema-field", error, "Reject an unknown or missing field in a schema-checked record";
         CheckSignalHook = "check.signal-hook", error, "Reject an invalid signal hook declaration, placement, option, or body";
         CheckSignalHookModule = "check.signal-hook-module", error, "Reject a signal hook declared in a module instead of the entry script";
+        CheckSizeLiteral = "check.size-literal", error, "Reject a size literal whose byte count exceeds the 64-bit signed range";
         CheckSliceType = "check.slice-type", error, "Reject slicing a value that is not a `List`, `Str`, or `Bytes`";
         CheckSpawnRunKind = "check.spawn-run-kind", error, "Reject `spawn run` with a form other than `run` or `run.status`";
         CheckSpawnRunShape = "check.spawn-run-shape", error, "Reject `spawn run` without exactly one run segment";
@@ -446,7 +448,7 @@ diagnostic_codes! {
         CheckTestFeatureDisabled = "check.test-feature-disabled", error, "Reject `test` declarations in a build without native-test support";
         CheckTestNested = "check.test-nested", error, "Reject a `test` declaration that is not top-level";
         CheckTestTopLevel = "check.test-top-level", error, "Reject top-level commands, mutation, or control flow in a test file";
-        CheckTryContext = "check.try-context", error, "Reject `?` outside a Result-returning context";
+        CheckTryContext = "check.try-context", error, "Reject `?` or a propagating statement outside a Result-returning context";
         CheckTryError = "check.try-error", error, "Reject `?` that propagates an error type the enclosing Result does not accept";
         CheckTryResult = "check.try-result", error, "Reject `?` applied to a value that is not a `Result`";
         CheckTrySuccessType = "check.try-success-type", error, "Reject a `try` block whose success type cannot be inferred";
@@ -471,28 +473,29 @@ diagnostic_codes! {
         CheckYield = "check.yield", error, "Reject `yield` outside a stream producer or inside a `retry` attempt";
         CheckYieldDelegation = "check.yield-delegation", error, "Reject `yield @` of a value that is not a `List` or `Stream`";
         CheckYieldStream = "check.yield-stream", error, "Reject `yield` of a stream value; use `yield @stream`";
+        CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
+        CheckUnionType = "check.union-type", error, "Reject a `Union[...]` whose members are fewer than two, repeat or contain one another, or are `Any`, `Null`, optional, a stream, or another union";
+        CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";
         CompactCliDefault = "compact.cli-default", error, "Reject a `cli main` parameter default that cannot be lowered to a compact constant";
         CompactIndexedBuild = "compact.indexed-build", error, "Reject a construct that cannot be encoded when building the compact indexed IR";
-        CompactIndexedDriver = "compact.indexed-driver", error, "Reject a program whose compact indexed driver steps fail verification";
+        CompactIndexedDriver = "compact.indexed-driver", error, "Reject a program whose compact indexed driver steps fail verification, when it is prepared or when a step runs";
         CompactIndexedSource = "compact.indexed-source", error, "Reject a compact build whose source text is unavailable for indexed IR";
         CompactMainArgs = "compact.main-args", error, "Reject script arguments that cannot be converted for compact `proc main` dispatch";
         CompactMainMissingSpread = "compact.main-missing-spread", error, "Reject a `proc main` taking script arguments without the `(...argv: List[Str])` form";
-        CompactStatementCount = "compact.statement-count", error, "Reject an indexed driver whose statement count differs from the source program";
+        CompactStatementCount = "compact.statement-count", error, "Reject an indexed driver whose statement count differs from the source program, when it is prepared or run";
         CompactUnloweredMain = "compact.unlowered-main", error, "Reject a `proc main` that cannot be encoded in the compact indexed IR";
         CompactUnloweredStatement = "compact.unlowered-statement", error, "Reject a top-level statement that cannot be encoded in the compact indexed IR";
     }
     Runtime {
         RuntimeCliArgs = "runtime.cli-args", error, "Report a failure binding command-line arguments to the `cli main` signature";
-        RuntimeCompactStatementCount = "runtime.compact-statement-count", error, "Report a compact lowered statement count that differs from the source program";
         RuntimeCompactUnsupportedMain = "runtime.compact-unsupported-main", error, "Report a `proc main` that cannot run in the compact runtime";
         RuntimeCompactUnsupportedStatement = "runtime.compact-unsupported-statement", error, "Report a statement that cannot run in the compact runtime";
         RuntimeDeferControlFlow = "runtime.defer-control-flow", error, "Report `return`, `break`, or `continue` escaping a deferred cleanup";
         RuntimeError = "runtime.error", error, "Report an uncaught runtime error raised while running a script or test";
         RuntimeExitStatus = "runtime.exit-status", error, "Report a script exit status outside the integer range 0 to 255";
-        RuntimeIndexedDriver = "runtime.indexed-driver", error, "Report an indexed driver step that fails verification at run time";
         RuntimeLoopControl = "runtime.loop-control", error, "Report `break` or `continue` used outside a loop at run time";
         RuntimeReturnOutsideFunction = "runtime.return-outside-function", error, "Report `return` used outside a function at run time";
         RuntimeTestMissing = "runtime.test-missing", error, "Report a native test whose proc is not found";
@@ -526,7 +529,11 @@ diagnostic_codes! {
         LintNeedlessAnnotation = "lint.needless-annotation", warning, "Remove a type annotation that the initializer or checked constraints already fix";
         LintOrganizeTopLevelConsts = "lint.organize-top-level-consts", warning, "Group safe immutable top-level constants after imports and before functions";
         LintPathConstructor = "lint.path-constructor", warning, "Prefer a `p` string literal or path interpolation over `Path(...)`";
+        LintPathDisplayEquality = "lint.path-display-equality", warning, "Compare a Path with a string literal directly instead of through `.display()`";
+        LintPathDisplaySink = "lint.path-display-sink", warning, "Pass a Path itself to an argv, environment, or bytes sink instead of its display text";
+        LintPathTextQuery = "lint.path-text-query", warning, "Test a Path for a root component instead of testing its display text for a leading `/`";
         LintPatternConditional = "lint.pattern-conditional", warning, "Use `if let` for a two-arm match with a complementary pattern";
+        LintPositionalErrorArguments = "lint.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
         LintPreferBareFieldLabel = "lint.prefer-bare-field-label", warning, "Write identifier-shaped record field labels without quotes";
         LintPreferBlockString = "lint.prefer-block-string", warning, "Use a block string for a constant multiline string concatenation";
         LintPreferCallableAlias = "lint.prefer-callable-alias", warning, "Use an immutable alias for a callable that exactly forwards to another";
@@ -536,10 +543,12 @@ diagnostic_codes! {
         LintPreferDeferBlock = "lint.prefer-defer-block", warning, "Replace a single-use literal cleanup helper with a `defer` block";
         LintPreferEmptyMapLiteral = "lint.prefer-empty-map-literal", warning, "Use `{}` for an empty map in map-typed contexts";
         LintPreferEnvString = "lint.prefer-env-string", warning, "Read an environment variable with a literal identifier name as `e\"NAME\"`";
+        LintPreferExit = "lint.prefer-exit", warning, "Write a deliberate exit as the statement `exit STATUS` instead of `abort(STATUS)`";
         LintPreferFileLines = "lint.prefer-file-lines", warning, "Use `path.lines()?` instead of `read_text()?.lines()` in a loop";
         LintPreferFsFiles = "lint.prefer-fs-files", warning, "Use `fs.files()` instead of `fs.walk()` filtered to `kind == file`";
         LintPreferGenericRecordConstructor = "lint.prefer-generic-record-constructor", warning, "Let a constructor infer its concrete schema from the supplied fields";
         LintPreferGuard = "lint.prefer-guard", warning, "Use `guard` instead of a single-action `if`";
+        LintPreferImplicitMessage = "lint.prefer-implicit-message", warning, "Declare a variant whose only payload is `message: Str` without a payload and pass its message positionally";
         LintPreferIn = "lint.prefer-in", warning, "Use `in` or `not in` instead of a membership method call";
         LintPreferInferredPrivateEffects = "lint.prefer-inferred-private-effects", warning, "Drop a private proc or stream effect clause that names exactly its inferred effects";
         LintPreferInferredPureReturn = "lint.prefer-inferred-pure-return", warning, "Drop a private pure return type when it is inferred exactly";
@@ -554,24 +563,34 @@ diagnostic_codes! {
         LintPreferMapComp = "lint.prefer-map-comp", warning, "Use a map comprehension instead of a for loop that only builds a map";
         LintPreferMapEntryIteration = "lint.prefer-map-entry-iteration", warning, "Iterate map entries instead of looping over keys and looking each value up";
         LintPreferMapLiteral = "lint.prefer-map-literal", warning, "Construct a fresh Map with one literal instead of incremental insertion";
+        LintPreferMatchElse = "lint.prefer-match-else", warning, "Write a last `_ =>` match arm as the catch-all `else =>`";
         LintPreferMethod = "lint.prefer-method", warning, "Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)`";
         LintPreferNamedArgumentPun = "lint.prefer-named-argument-pun", warning, "Use the named-argument shorthand when the argument repeats its value name";
         LintPreferNamedArgumentSpread = "lint.prefer-named-argument-spread", warning, "Forward record fields with a named argument spread such as `...record`";
         LintPreferNestedRecordUpdate = "lint.prefer-nested-record-update", warning, "Use disjoint static field paths instead of nested record spreads";
+        LintPreferOptionalBinding = "lint.prefer-optional-binding", warning, "Use `guard let` instead of an exiting null test followed by a binding that names the optional again";
         LintPreferOptionalPostfix = "lint.prefer-optional-postfix", warning, "Use a guarded postfix and `??` instead of an explicit null branch";
         LintPreferPositionalConstructor = "lint.prefer-positional-constructor", warning, "Pass leading schema constructor fields positionally when no two of them can hold the same value";
+        LintPreferPropagation = "lint.prefer-propagation", warning, "Use `?` instead of a `match` whose `Err` arm only returns the same error";
+        LintPreferReadLines = "lint.prefer-read-lines", warning, "Read a file's lines with `Path.read_lines()?` instead of `read_text()?.lines()`";
         LintPreferRecordConstructor = "lint.prefer-record-constructor", warning, "Use the named schema constructor for a record literal of a schema type";
         LintPreferRecordDestructuring = "lint.prefer-record-destructuring", warning, "Bind adjacent fields of one record together with a destructuring `let`";
         LintPreferRegexLiteral = "lint.prefer-regex-literal", warning, "Prepare a static regex pattern with an `rx` literal instead of a call";
+        LintPreferRepeat = "lint.prefer-repeat", warning, "Use `repeat N times` instead of `for _ in range(N)`";
         LintPreferScalarIteration = "lint.prefer-scalar-iteration", warning, "Iterate a Str by scalars or bytes without a split List or unused offsets";
+        LintPreferRunArgv = "lint.prefer-run-argv", warning, "Run a command vector with `run.status @argv ?` instead of rebuilding it with `process.command_argv(argv[0], argv)`";
         LintPreferSignatureCli = "lint.prefer-signature-cli", warning, "Declare a literal CLI schema as a `cli main(...)` entry signature";
+        LintPreferSizeLiteral = "lint.prefer-size-literal", warning, "Write a byte count that is a product of literals and powers of 1024 as a size literal";
         LintPreferSlice = "lint.prefer-slice", warning, "Use half-open slicing where offset/count method bounds are equivalent";
         LintPreferStreamProducer = "lint.prefer-stream-producer", warning, "Suggest a `stream` producer with `yield` for a proc that builds a list item by item";
         LintPreferStringConcat = "lint.prefer-string-concat", warning, "Use `+` instead of joining literal pieces with an empty separator";
         LintPreferTempdirScope = "lint.prefer-tempdir-scope", warning, "Use a `tempdir NAME { ... }` scope for a temporary directory used only through its path";
+        LintPreferTempdir = "lint.prefer-tempdir", warning, "Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
+        LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";
+        LintPublicResultError = "lint.public-result-error", warning, "Spell the error type of each Result in an exported signature or module contract";
         LintRedundantBareReturn = "lint.redundant-bare-return", warning, "Remove a bare `return` at the end of a `Result[Unit]` function";
         LintRedundantCommandFmt = "lint.redundant-command-fmt", warning, "Use command value syntax directly for a single-value command f-string";
         LintRedundantCommandInterpolation = "lint.redundant-command-interpolation", warning, "Use expression syntax directly for a single interpolation in command args";
@@ -587,8 +606,10 @@ diagnostic_codes! {
         LintRedundantPathInterpolation = "lint.redundant-path-interpolation", warning, "Remove a single-value path interpolation that wraps one value";
         LintRedundantPathParse = "lint.redundant-path-parse", warning, "Remove a Path display then parse round trip on a value already a Path";
         LintRedundantPipelineStage = "lint.redundant-pipeline-stage", warning, "Remove no-op `where true` and `map .` pipeline stages";
+        LintRedundantPropagation = "lint.redundant-propagation", warning, "Remove `?` from a statement-position `Result[Unit]` call, which already propagates";
         LintRedundantRequire = "lint.redundant-require", warning, "Remove a schema `require` on an expression that already has the required type";
         LintRedundantResultUnit = "lint.redundant-result-unit", warning, "Remove a `Result[Unit]` return annotation that a proc without a value tail infers";
+        LintRedundantScopePropagation = "lint.redundant-scope-propagation", warning, "Remove `?` from a statement-position `cd`, `env`, `try`, or `retry` block, which already propagates";
         LintRedundantStringInterpolation = "lint.redundant-string-interpolation", warning, "Remove a string interpolation containing only a single value";
         LintRedundantTailReturnBinding = "lint.redundant-tail-return-binding", warning, "Return the initializer implicitly instead of binding it and returning at the tail";
         LintRedundantTailReturn = "lint.redundant-tail-return", warning, "Use the tail value implicitly instead of a final `return`";
@@ -603,6 +624,9 @@ diagnostic_codes! {
         LintUnusedCallable = "lint.unused-callable", warning, "Flag an unexported callable not reachable from a bundle entry point";
         LintUnusedLocal = "lint.unused-local", warning, "Flag a local variable that is never read";
         LintUnusedType = "lint.unused-type", warning, "Flag a type declaration that is never referenced";
+        LintPreferInferredProcReturn = "lint.prefer-inferred-proc-return", warning, "Drop a private proc return type when it is inferred exactly";
+        LintRedundantUseAlias = "lint.redundant-use-alias", warning, "Drop a `use` alias that repeats the last path segment, as in `use a.b as b`";
+        LintListAnyUnion = "lint.list-any-union", warning, "Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

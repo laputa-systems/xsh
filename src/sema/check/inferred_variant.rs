@@ -5,9 +5,12 @@
 //! implicit item callbacks use `.` for their item, so `.name` there stays a
 //! field read.
 
-use super::{Checker, Diagnostic, InferredVariant, Label, Name, Span, TagVariantInfo, Type};
+use super::{
+    Checker, Diagnostic, InferredVariant, InferredVariantPattern, Label, Name, Span,
+    TagVariantInfo, Type,
+};
 use crate::diagnostic::DiagnosticCode;
-use crate::syntax::arena::{ArenaCallArg, ArenaExprKind, ArenaProgram, ExprId};
+use crate::syntax::arena::{ArenaCallArg, ArenaExprKind, ArenaPatternKind, ArenaProgram, ExprId};
 
 /// Why a leading-dot name selects no variant.
 enum VariantMiss {
@@ -204,6 +207,178 @@ impl Checker {
         self.diagnostics.push(diagnostic);
     }
 
+    /// Records the qualifier of a qualified variant pattern when the type of
+    /// the matched value selects the same variant, so `.Name` is the same
+    /// pattern. `span` is the pattern's, which begins with the qualifier.
+    pub(super) fn note_pattern_qualifier(
+        &mut self,
+        kind: &ArenaPatternKind,
+        value_ty: &Type,
+        span: Span,
+    ) {
+        self.redundant_variant_qualifiers.remove(&span);
+        let (qualifier, variant) = match kind {
+            ArenaPatternKind::ErrorVariant {
+                family, variant, ..
+            } => (family.to_string(), *variant),
+            ArenaPatternKind::Constructor { name, .. } | ArenaPatternKind::TestName { name, .. } => {
+                let spelled = name.as_str();
+                let Some((qualifier, variant)) = spelled.rsplit_once('.') else {
+                    return;
+                };
+                (qualifier.to_string(), Name::intern(variant))
+            }
+            _ => return,
+        };
+        let spelled = Name::intern(format!("{qualifier}.{variant}"));
+        let family = Name::intern(&qualifier);
+        let same = match self.select_inferred_variant(variant, Some(value_ty)) {
+            Ok(InferredVariant::Tag { type_name, .. }) => self
+                .tag_variants
+                .get(&spelled)
+                .is_some_and(|info| info.type_name == type_name),
+            Ok(InferredVariant::Error {
+                family: selected, ..
+            }) => {
+                selected == family
+                    && !self.tag_variants.contains_key(&spelled)
+                    && self
+                        .error_families
+                        .get(&family)
+                        .is_some_and(|info| info.variants.contains_key(&variant))
+            }
+            Err(_) => false,
+        };
+        if same {
+            self.redundant_variant_qualifiers.insert(
+                span,
+                Span::new(span.source_id, span.start(), span.start() + qualifier.len()),
+            );
+        }
+    }
+
+    /// Resolves a `.Name` pattern against the type of the value it matches
+    /// and publishes the qualified pattern it stands for. `kind` is the
+    /// pattern as parsed: a constructor named `.Name`, or an error variant
+    /// with an empty family. Returns the qualified kind, or `None` after
+    /// reporting why the type selects no such pattern.
+    pub(super) fn resolve_inferred_variant_pattern(
+        &mut self,
+        kind: &ArenaPatternKind,
+        value_ty: &Type,
+        span: Span,
+    ) -> Option<ArenaPatternKind> {
+        self.inferred_variant_patterns.remove(&span);
+        let (name, arg, fields) = match kind {
+            ArenaPatternKind::Constructor { name, arg } => (
+                Name::intern(name.as_str().trim_start_matches('.')),
+                Some(*arg),
+                None,
+            ),
+            ArenaPatternKind::ErrorVariant {
+                variant, fields, ..
+            } => (*variant, None, Some(*fields)),
+            _ => return None,
+        };
+        let variant = match self.select_inferred_variant(name, Some(value_ty)) {
+            Ok(variant) => variant,
+            Err(miss) => {
+                let reported = self.diagnostics.len();
+                self.report_variant_miss(name, miss, span);
+                if let Some(diagnostic) = self.diagnostics.get_mut(reported) {
+                    diagnostic.notes.push(format!(
+                        "a `.{name}` pattern takes its enum or error family from the matched value, which has type `{value_ty}`"
+                    ));
+                    // A union gives no member priority, here as for a
+                    // `.Name` value: the member is tested first.
+                    if matches!(value_ty, Type::Union(_)) {
+                        diagnostic.notes.push(
+                            "test the member first, as in `value is Family`; the narrowed value then selects the variant"
+                                .to_string(),
+                        );
+                    }
+                }
+                return None;
+            }
+        };
+        let (resolved, fact) = match variant {
+            InferredVariant::Tag {
+                type_name,
+                field_types,
+                ..
+            } => {
+                if fields.is_some_and(|fields| fields.len != 0) {
+                    self.error(
+                        span,
+                        &format!("`.{name}` is an enum variant; its payload is matched as `.{name}(...)`"),
+                        DiagnosticCode::CheckPatternConstructor,
+                    );
+                    return None;
+                }
+                if arg.is_none() && !field_types.is_empty() {
+                    self.error(
+                        span,
+                        &format!(
+                            "variant `.{name}` has {} payload value(s); match them as `.{name}(...)`",
+                            field_types.len()
+                        ),
+                        DiagnosticCode::CheckPatternArity,
+                    );
+                    return None;
+                }
+                // The spelling a qualified pattern would use here: the bare
+                // constructor when it is visible, else the first namespace's.
+                let mut spellings: Vec<Name> = self
+                    .tag_variants
+                    .iter()
+                    .filter(|(spelling, info)| {
+                        info.type_name == type_name
+                            && spelling.as_str().rsplit('.').next() == Some(name.as_str().as_str())
+                    })
+                    .map(|(spelling, _)| *spelling)
+                    .collect();
+                spellings.sort_by_key(|spelling| {
+                    let spelling = spelling.as_str();
+                    (spelling.contains('.'), spelling.to_string())
+                });
+                let constructor = *spellings.first()?;
+                let resolved = match (arg, constructor.as_str().split_once('.')) {
+                    (Some(arg), _) => ArenaPatternKind::Constructor {
+                        name: constructor,
+                        arg,
+                    },
+                    (None, Some((namespace, variant))) => ArenaPatternKind::ErrorVariant {
+                        family: Name::intern(namespace),
+                        variant: Name::intern(variant),
+                        fields: fields.unwrap_or_default(),
+                    },
+                    (None, None) => ArenaPatternKind::Binding(constructor),
+                };
+                (resolved, InferredVariantPattern::Tag { constructor })
+            }
+            InferredVariant::Error { family, variant } => {
+                let Some(fields) = fields else {
+                    self.error(
+                        span,
+                        &format!("`.{name}` is an error variant; its fields are matched as `.{name} {{...}}`"),
+                        DiagnosticCode::CheckPatternConstructor,
+                    );
+                    return None;
+                };
+                (
+                    ArenaPatternKind::ErrorVariant {
+                        family,
+                        variant,
+                        fields,
+                    },
+                    InferredVariantPattern::Error { family },
+                )
+            }
+        };
+        self.inferred_variant_patterns.insert(span, fact);
+        Some(resolved)
+    }
+
     /// A bare `.Name` outside a stream stage block.
     pub(super) fn check_inferred_variant_value(
         &mut self,
@@ -373,5 +548,59 @@ impl Checker {
             expr_span,
             Span::new(callee_span.source_id, callee_span.start(), qualifier_end),
         );
+    }
+}
+
+#[cfg(test)]
+mod pattern_tests {
+    use crate::sema::check::{Checker, InferredVariantPattern};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    /// What each `.Name` pattern resolved to, in source order.
+    fn resolved(source: &str) -> Vec<String> {
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        program.symbol_owner().with_current(|| {
+            Checker::check_arena(&program, source)
+                .inferred_variant_patterns
+                .values()
+                .map(|pattern| match pattern {
+                    InferredVariantPattern::Tag { constructor } => format!("tag {constructor}"),
+                    InferredVariantPattern::Error { family } => format!("error {family}"),
+                })
+                .collect()
+        })
+    }
+
+    const PRELUDE: &str = "enum Level { Info, Fault(Str) }\n\
+        error E = Usage | Other(code: Int)\n\
+        pure narrow() -> Result[Level, E] { Ok(Info) }\n\
+        proc broad() -> Result[Level] { Ok(Info) }\n";
+
+    #[test]
+    fn checker_publishes_what_a_variant_pattern_stands_for() {
+        let source = format!(
+            "{PRELUDE}let a = narrow() is Ok(.Info)\n\
+             let b = narrow() is Ok(.Fault(_))\n\
+             let c = narrow() is Err(.Usage)\n\
+             let d = narrow() is Err(.Other {{code: 1}})\n"
+        );
+        assert_eq!(
+            resolved(&source),
+            ["tag Info", "tag Fault", "error E", "error E"]
+        );
+    }
+
+    #[test]
+    fn unresolved_variant_patterns_publish_nothing() {
+        for test in [
+            "broad() is Err(.Usage)",
+            "narrow() is Ok(.Missing)",
+            "narrow() is Ok(.Fault)",
+            "narrow() is Err(.Other(_))",
+        ] {
+            let source = format!("{PRELUDE}let a = {test}\n");
+            assert!(resolved(&source).is_empty(), "{test} published a pattern");
+        }
     }
 }

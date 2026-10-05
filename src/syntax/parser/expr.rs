@@ -226,9 +226,13 @@ impl<'a> Parser<'a> {
         self.expect(TokenKindMatch::LBrace, "expected `{` to start match arms")?;
         self.skip_separators();
         arena.begin_match_expr_arms();
+        let mut else_arm = None;
         self.in_nested_group(|parser| {
             while !parser.at(TokenKindMatch::RBrace) && !parser.at(TokenKindMatch::Eof) {
-                if parser.parse_match_expr_arm_arena_only(arena).is_none() {
+                if parser
+                    .parse_match_expr_arm_arena_only(arena, &mut else_arm)
+                    .is_none()
+                {
                     parser.recover_match_arm();
                 }
                 parser.skip_separators();
@@ -250,28 +254,26 @@ impl<'a> Parser<'a> {
     fn parse_match_expr_arm_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
+        else_arm: &mut Option<Span>,
     ) -> Option<()> {
         let start = self.current_start();
-        let (pattern, _pattern_span) = self.parse_pattern_arena_only(arena)?;
-        let guard = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
+        let (pattern, guard, spelling) = self.parse_match_arm_head_arena_only(arena, else_arm)?;
         let value = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_record_value() {
             self.parse_braced_value_expr_arena_only("match arm", arena)?
                 .0
                 .id
         } else {
-            self.parse_expr_id_arena_only(arena)?
+            let outer_arm_body = self.arm_body_start.replace(self.index);
+            let value = self.parse_expr_id_arena_only(arena);
+            self.arm_body_start = outer_arm_body;
+            value?
         };
         let value_end = self.previous_end();
         if self.consume(TokenKindMatch::Comma).is_some() {
             self.skip_newlines();
         }
         let span = self.span(start, value_end);
-        arena.push_match_expr_arm_input_id(pattern, guard, value, span);
+        arena.push_match_expr_arm_input_id(pattern, guard, value, spelling, span);
         Some(())
     }
 

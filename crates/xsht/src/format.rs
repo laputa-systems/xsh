@@ -10,7 +10,7 @@ use xsh::frontend::syntax::arena::{
     ArenaCommandArgKind, ArenaCompQualifier, ArenaEnvAssignment, ArenaEnvAssignmentValue,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
     ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaText, ArenaTypeExprTag, ArenaWordPart,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, SugarForm, ArenaTypeExprTag, ArenaWordPart,
     AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
@@ -32,6 +32,9 @@ pub(crate) use format_equivalence::{canonical_block_with_implicit_item, canonica
 #[cfg(test)]
 #[path = "format_proofs.rs"]
 mod format_proofs;
+#[cfg(test)]
+#[path = "desugar_tests.rs"]
+mod desugar_tests;
 
 pub const DEFAULT_LINE_WIDTH: usize = 120;
 /// Inside delimiters, before `,`, `)`, `]`, `:`, or `=>`.
@@ -207,6 +210,16 @@ struct Writer<'a> {
     arm_statement: bool,
     /// Blocks whose parameter is written before the brace (`tempdir NAME {`).
     binder_blocks: rustc_hash::FxHashSet<BlockId>,
+    /// Set by a desugared print: a sugar statement is written as its
+    /// expansion instead of as the user spelled it.
+    expand_sugar: bool,
+    /// For a desugared print, the source range of every sugar statement in
+    /// source order, outermost first. Text that holds one is never copied
+    /// from the source, because the copy would keep the sugar.
+    sugar_ranges: Arc<Vec<std::ops::Range<usize>>>,
+    /// For a desugared print, the legal spelling of each local an expansion
+    /// bound under a name no identifier can spell.
+    hidden_names: Arc<Vec<(Name, String)>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -236,6 +249,7 @@ enum ArenaTypeExprKind {
         err: Option<TypeExprId>,
     },
     Optional(TypeExprId),
+    Union(Vec<TypeExprId>),
 }
 
 fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
@@ -273,6 +287,9 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         },
         ArenaTypeExprTag::Optional => {
             ArenaTypeExprKind::Optional(TypeExprId::from_index(data.lhs as usize))
+        }
+        ArenaTypeExprTag::Union => {
+            ArenaTypeExprKind::Union(arena.union_type_members(id).collect())
         }
     }
 }
@@ -350,12 +367,69 @@ impl Formatter {
         verify_formatted_output(source_id, source, &original, output)
     }
 
+    /// Prints `source` with every sugar statement replaced by its expansion
+    /// into core forms, laid out as `format_source` would lay out that
+    /// program.
+    ///
+    /// A comment on a sugar statement stays on its expansion. A local the
+    /// expansion bound under a name no identifier can spell is printed under
+    /// a fresh name that the source spells nowhere. The result is refused,
+    /// with a diagnostic, unless it parses to exactly the tree the checker
+    /// and the runtime read for `source`.
+    pub fn desugar_source(&self, source_id: SourceId, source: &str) -> FormatOutput {
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        if !parsed.diagnostics.is_empty() {
+            return FormatOutput {
+                formatted: String::new(),
+                diagnostics: parsed.diagnostics,
+            };
+        }
+        let mut writer = self.writer(source, &parsed.arena, parsed.cst.get());
+        writer.expand_sugar = true;
+        writer.sugar_ranges = Arc::new(sugar_ranges(&parsed.arena, source_id));
+        writer.hidden_names = Arc::new(hidden_names(&parsed.arena.arena, source));
+        let renamed = !writer.hidden_names.is_empty();
+        let expanded = writer.format_program(&parsed.arena);
+        let refuse = |message: String| FormatOutput {
+            formatted: String::new(),
+            diagnostics: vec![
+                Diagnostic::error(format!("cannot print the expansion of this file: {message}"))
+                    .with_code(DiagnosticCode::FormatEquivalence)
+                    .with_span(Span::new(source_id, 0, 0))
+                    .with_note("this is an `xsht desugar` bug"),
+            ],
+        };
+        let reparsed = Parser::parse_source_arena_only(source_id, &expanded);
+        if let Some(error) = reparsed.diagnostics.first() {
+            return refuse(format!("the expansion does not parse: {}", error.message));
+        }
+        if !reparsed.arena.arena.sugar_expansions.is_empty() {
+            return refuse("a sugar statement was left as written".to_string());
+        }
+        // A renamed local spells differently on purpose; every other program
+        // must come back node for node.
+        if !renamed
+            && format_equivalence::canonical(&reparsed.arena, &expanded).text
+                != format_equivalence::canonical_expanded(&parsed.arena, source).text
+        {
+            return refuse("the printed program is not the expansion".to_string());
+        }
+        self.format_source(source_id, &expanded)
+    }
+
     fn format_program_with_cst(
         &self,
         source: &str,
         program: &ArenaProgram,
         cst: &SyntaxTree,
     ) -> FormatOutput {
+        FormatOutput {
+            formatted: self.writer(source, program, cst).format_program(program),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn writer<'a>(&self, source: &str, program: &'a ArenaProgram, cst: &SyntaxTree) -> Writer<'a> {
         let comments = cst
             .comment_trivia()
             .map(|(id, comment)| PendingComment {
@@ -368,23 +442,105 @@ impl Formatter {
             })
             .collect();
 
-        FormatOutput {
-            formatted: Writer {
-                arena: &program.arena,
-                source: Arc::from(source),
-                comments,
-                next_comment: 0,
-                line_width: self.line_width,
-                force_collection_expanded: false,
-                inline_only: false,
-                after_expression: false,
-                arm_statement: false,
-                binder_blocks: rustc_hash::FxHashSet::default(),
-            }
-            .format_program(program),
-            diagnostics: Vec::new(),
+        Writer {
+            arena: &program.arena,
+            source: Arc::from(source),
+            comments,
+            next_comment: 0,
+            line_width: self.line_width,
+            force_collection_expanded: false,
+            inline_only: false,
+            after_expression: false,
+            arm_statement: false,
+            expand_sugar: false,
+            sugar_ranges: Arc::default(),
+            hidden_names: Arc::default(),
+            binder_blocks: rustc_hash::FxHashSet::default(),
         }
     }
+}
+
+/// The source range of every sugar statement of the root source, in source
+/// order with an enclosing statement before the ones inside it.
+fn sugar_ranges(program: &ArenaProgram, source_id: SourceId) -> Vec<std::ops::Range<usize>> {
+    let arena = &program.arena;
+    let mut ranges = (0..arena.stmt_tags.len())
+        .map(|index| arena.stmt(StmtId::from_index(index)))
+        .filter(|stmt| {
+            matches!(stmt.kind, ArenaStmtKind::Sugar { .. }) && stmt.span.source_id == source_id
+        })
+        .map(|stmt| stmt.span.range())
+        .collect::<Vec<_>>();
+    ranges.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+    ranges
+}
+
+/// Whether `text` is one identifier token, so a name spelled that way can be
+/// written in source.
+fn is_spellable_name(text: &str) -> bool {
+    matches!(
+        lex_spellings(text).as_slice(),
+        [(TokenTag::Ident | TokenTag::ProcIdent, spelled)] if *spelled == text
+    )
+}
+
+/// A legal name for the hidden local `hidden` that `taken` does not hold,
+/// recorded in `taken`. It keeps the identifier characters of the hidden
+/// name so a reader can tell which form bound it.
+fn fresh_name(hidden: &str, taken: &mut std::collections::BTreeSet<String>) -> String {
+    let stem = hidden
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+    let stem = stem.trim_start_matches(|ch: char| ch.is_ascii_digit() || ch == '_');
+    let stem = if stem.is_empty() { "local" } else { stem };
+    // The numeric suffix keeps the name from being a keyword.
+    (1..)
+        .map(|n| format!("{stem}_{n}"))
+        .find(|candidate| taken.insert(candidate.clone()))
+        .expect("an unused suffix exists")
+}
+
+/// The printed spelling of every local of the program whose name no
+/// identifier can spell. Each fresh name differs from every identifier-shaped
+/// word of `source`, so it cannot collide with a name in any scope.
+fn hidden_names(arena: &AstArena, source: &str) -> Vec<(Name, String)> {
+    let mut hidden: Vec<Name> = Vec::new();
+    let mut note = |name: Name| {
+        if !hidden.contains(&name) && !is_spellable_name(name.as_str().as_str()) {
+            hidden.push(name);
+        }
+    };
+    for target in &arena.binding_targets {
+        if let ArenaBindingTargetKind::Name(name) = target.kind {
+            note(name);
+        }
+    }
+    for target in &arena.assign_targets {
+        if let xsh::frontend::syntax::arena::ArenaAssignTargetKind::Name(name) = target.kind {
+            note(name);
+        }
+    }
+    for index in 0..arena.expr_tags.len() {
+        if let ArenaExprKind::Ident(name) = arena.expr(ExprId::from_index(index)).kind {
+            note(name);
+        }
+    }
+    if hidden.is_empty() {
+        return Vec::new();
+    }
+    let mut taken = source
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect::<std::collections::BTreeSet<_>>();
+    hidden
+        .into_iter()
+        .map(|name| {
+            let fresh = fresh_name(name.as_str().as_str(), &mut taken);
+            (name, fresh)
+        })
+        .collect()
 }
 
 impl<'a> Writer<'a> {
@@ -394,7 +550,7 @@ impl<'a> Writer<'a> {
         let mut previous_span: Option<Span> = None;
 
         for stmt_id in program.statement_ids() {
-            let stmt = self.arena.stmt(stmt_id);
+            let stmt = self.arena.stmt(self.layout_stmt(stmt_id));
             if let Some(previous_span) = previous_span {
                 output.push('\n');
                 let forced = previous
@@ -452,9 +608,40 @@ impl<'a> Writer<'a> {
         self.blank_line_between(self.text_end(previous), next)
     }
 
+    /// The statement whose kind decides layout: the statement itself, or in a
+    /// desugared print the expansion that is written in its place. The two
+    /// share a span.
+    fn layout_stmt(&self, id: StmtId) -> StmtId {
+        if self.expand_sugar {
+            self.arena.core_stmt_id(id)
+        } else {
+            id
+        }
+    }
+
+    /// Whether a desugared print must write this text itself because a
+    /// sugar statement lies inside it.
+    fn holds_sugar(&self, span: Span) -> bool {
+        let first = self
+            .sugar_ranges
+            .partition_point(|range| range.start < span.start());
+        self.sugar_ranges
+            .get(first)
+            .is_some_and(|range| range.end <= span.end())
+    }
+
+    /// The spelling a name is printed under.
+    fn name_text(&self, name: Name) -> String {
+        self.hidden_names
+            .iter()
+            .find(|(hidden, _)| *hidden == name)
+            .map_or_else(|| name.as_str().as_str().to_string(), |(_, fresh)| fresh.clone())
+    }
+
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
         let stmt = self.arena.stmt(stmt_id);
-        let skip_formatting = self.write_comments_before(stmt.span.start(), indent, output);
+        let skip_formatting = self.write_comments_before(stmt.span.start(), indent, output)
+            && !self.holds_sugar(stmt.span);
         if skip_formatting {
             self.write_indent(indent, output);
             self.write_raw_stmt(stmt.span, output);
@@ -485,7 +672,7 @@ impl<'a> Writer<'a> {
                 self.write_stmt_body(*inner, indent, output);
             }
             ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, stmt.span, indent, output),
-            ArenaStmtKind::ErrorDef(def) => self.write_error_def(*def, output),
+            ArenaStmtKind::ErrorDef(def) => self.write_error_def(*def, stmt.span, indent, output),
             ArenaStmtKind::Let {
                 target,
                 ty,
@@ -522,7 +709,11 @@ impl<'a> Writer<'a> {
                 output.push(' ');
                 output.push_str(assign_op_text(*op));
                 output.push(' ');
-                self.write_expr_or_run(value, output);
+                // An assigned value breaks like a `let` initializer. Written
+                // flat, an over-long conditional or comprehension broke inside
+                // a one-line block instead, and the next pass read that block
+                // as author-broken and laid it out differently.
+                self.write_expr_or_run_safe(value, output);
             }
             ArenaStmtKind::ProcDef(def) => self.write_function("proc", *def, indent, output),
             ArenaStmtKind::CliMain(def) => self.write_function("cli", *def, indent, output),
@@ -540,12 +731,17 @@ impl<'a> Writer<'a> {
                 output.push_str("yield @");
                 self.write_expr(*value, END, output);
             }
+            ArenaStmtKind::Exit(status) => {
+                output.push_str("exit ");
+                self.write_expr_safe_in(*status, Context::initializer(Follow::END), output);
+            }
             ArenaStmtKind::Yield(value) => {
                 output.push_str("yield ");
                 self.write_expr_or_run_safe(value, output);
             }
-            ArenaStmtKind::Defer(value) => {
-                output.push_str("defer ");
+            ArenaStmtKind::Defer(value, trigger) => {
+                output.push_str(trigger.keyword());
+                output.push(' ');
                 self.write_expr_or_run(value, output);
             }
             ArenaStmtKind::If {
@@ -630,6 +826,49 @@ impl<'a> Writer<'a> {
                 output.push_str("loop ");
                 self.write_block(*block, indent, output);
             }
+            ArenaStmtKind::Sugar { expansion, .. } if self.expand_sugar => {
+                self.write_stmt_body(*expansion, indent, output);
+            }
+            ArenaStmtKind::Sugar { form, operands, .. } => {
+                match self.arena.sugar(*form, *operands) {
+                    ArenaSugar::Repeat { count, body } => {
+                        output.push_str("repeat ");
+                        self.write_expr(count, WORD, output);
+                        output.push_str(" times ");
+                        self.write_block(body, indent, output);
+                    }
+                    ArenaSugar::Guarded {
+                        stmt: inner,
+                        negate,
+                        condition,
+                    } => {
+                        self.write_guarded_action(inner, indent, output);
+                        if negate {
+                            output.push_str(" unless ");
+                        } else {
+                            output.push_str(" when ");
+                        }
+                        self.write_expr(condition, END, output);
+                    }
+                    ArenaSugar::Guard {
+                        condition,
+                        else_block,
+                    } => {
+                        output.push_str("guard ");
+                        self.write_expr(condition, WORD, output);
+                        output.push_str(" else ");
+                        self.write_block(else_block, indent, output);
+                    }
+                    ArenaSugar::Tempdir { name, path, body } => {
+                        output.push_str("tempdir ");
+                        self.write_binding_target(name, output);
+                        output.push_str(" at ");
+                        self.write_expr(path, BRACE, output);
+                        output.push(' ');
+                        self.write_block(body, indent, output);
+                    }
+                }
+            }
             ArenaStmtKind::Guard {
                 target,
                 ty,
@@ -644,30 +883,8 @@ impl<'a> Writer<'a> {
                 output.push_str(" else ");
                 self.write_block(*else_block, indent, output);
             }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                output.push_str("guard ");
-                self.write_expr(*condition, WORD, output);
-                output.push_str(" else ");
-                self.write_block(*else_block, indent, output);
-            }
             ArenaStmtKind::Assert { condition, message } => {
                 self.write_assert(*condition, *message, output)
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt: inner,
-                negate,
-                condition,
-            } => {
-                self.write_guarded_action(*inner, indent, output);
-                if *negate {
-                    output.push_str(" unless ");
-                } else {
-                    output.push_str(" when ");
-                }
-                self.write_expr(*condition, END, output);
             }
             ArenaStmtKind::Break { value } => {
                 output.push_str("break");
@@ -773,8 +990,8 @@ impl<'a> Writer<'a> {
                 output.push_str(" = ");
                 self.write_record_schema(*fields, output);
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
-                output.push_str(" = ");
+            ArenaTypeDefBody::ModuleContract { entries, exact } => {
+                output.push_str(if *exact { " = exact " } else { " = " });
                 self.write_module_contract(*entries, output);
             }
             ArenaTypeDefBody::TagUnion(variants) => {
@@ -833,39 +1050,92 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// An error family in its `=` form while that fits the line, and in the
+    /// brace form (one variant per line) once it does not or when the author
+    /// wrote braces.
     fn write_error_def(
         &mut self,
         def_id: xsh::frontend::syntax::arena::ErrorDefId,
+        span: Span,
+        indent: usize,
         output: &mut String,
     ) {
         let def = self.arena.error_def(def_id).clone();
-        output.push_str("error ");
-        output.push_str(def.name.as_str().as_str());
-        output.push_str(" = ");
         let variants = self.arena.error_variants(def.variants).to_vec();
-        for (index, variant) in variants.iter().enumerate() {
-            if index > 0 {
-                output.push_str(" | ");
+        let raw = self
+            .source
+            .get(span.range())
+            .unwrap_or("")
+            .trim_end_matches(['\n', '\r']);
+        let authored_braces = raw
+            .find(['=', '{'])
+            .is_some_and(|at| raw[at..].starts_with('{'));
+        let variants_end = variants
+            .last()
+            .map_or(span.start(), |variant| self.arena.span(variant.span).end());
+        // Comments between variants, and in braces up to the closing `}`,
+        // have no place in the rebuilt declaration.
+        let body_end = if authored_braces {
+            error_block_close(&self.source, variants_end, span.end())
+        } else {
+            variants_end
+        };
+        if self.comments[self.next_comment..].iter().any(|comment| {
+            comment.span.start() >= span.start() && comment.span.start() < body_end
+        }) {
+            // Keep variant comments at their authored positions.
+            output.push_str(
+                raw.strip_prefix("export")
+                    .map(str::trim_start)
+                    .unwrap_or(raw),
+            );
+            while self
+                .comments
+                .get(self.next_comment)
+                .is_some_and(|comment| comment.span.start() < span.end())
+            {
+                self.next_comment += 1;
             }
-            output.push_str(variant.name.as_str().as_str());
+            return;
+        }
+        let mut parts = Vec::with_capacity(variants.len());
+        for variant in &variants {
+            let mut part = variant.name.as_str().to_string();
             if !variant.fields.is_empty() {
-                output.push('(');
+                part.push('(');
                 let fields = self.arena.error_fields(variant.fields).to_vec();
                 for (field_index, field) in fields.iter().enumerate() {
                     if field_index > 0 {
-                        output.push_str(", ");
+                        part.push_str(", ");
                     }
-                    output.push_str(field.name.as_str().as_str());
-                    output.push_str(": ");
-                    self.write_type(field.ty, output);
+                    part.push_str(field.name.as_str().as_str());
+                    part.push_str(": ");
+                    self.write_type(field.ty, &mut part);
                 }
-                output.push(')');
+                part.push(')');
             }
             if !variant.facets.is_empty() {
-                output.push_str(" : ");
-                output.push_str(&self.join_name_range(variant.facets, ", "));
+                part.push_str(" : ");
+                part.push_str(&self.join_name_range(variant.facets, ", "));
             }
+            parts.push(part);
         }
+        output.push_str("error ");
+        output.push_str(def.name.as_str().as_str());
+        let inline = format!(" = {}", parts.join(" | "));
+        if !authored_braces && self.fits_inline(output, &inline) {
+            output.push_str(&inline);
+            return;
+        }
+        output.push_str(" {\n");
+        for part in &parts {
+            self.write_indent(indent, output);
+            output.push_str("    ");
+            output.push_str(part);
+            output.push('\n');
+        }
+        self.write_indent(indent, output);
+        output.push('}');
     }
 
     fn write_function(
@@ -1121,7 +1391,7 @@ impl<'a> Writer<'a> {
                 .start();
             self.write_comments_before(pattern_start, indent + 1, output);
             self.write_indent(indent + 1, output);
-            self.write_pattern(arm.pattern, output);
+            self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
                 output.push_str(" if ");
                 self.write_expr(guard, CLOSE, output);
@@ -1131,7 +1401,7 @@ impl<'a> Writer<'a> {
             let stmts: Vec<StmtId> = self.arena.stmt_ids(block.statements).collect();
             if stmts.len() == 1 && block.params.is_empty() {
                 let stmt_id = stmts[0];
-                let stmt = self.arena.stmt(stmt_id);
+                let stmt = self.arena.stmt(self.layout_stmt(stmt_id));
                 let definition = matches!(
                     stmt.kind,
                     ArenaStmtKind::ProcDef(_)
@@ -1141,12 +1411,11 @@ impl<'a> Writer<'a> {
                 let control_flow = matches!(
                     stmt.kind,
                     ArenaStmtKind::If { .. }
-                        | ArenaStmtKind::BooleanGuard { .. }
                         | ArenaStmtKind::While { .. }
                         | ArenaStmtKind::For { .. }
                         | ArenaStmtKind::Match { .. }
                         | ArenaStmtKind::With { .. }
-                );
+                ) || matches!(stmt.kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound());
                 let write_arm = |writer: &mut Self, line: &mut String| {
                     // An initializer's nested statements have ordinary block
                     // syntax; only the arm's own expression needs arm grouping.
@@ -1188,6 +1457,22 @@ impl<'a> Writer<'a> {
         if let Some(message) = message {
             output.push_str(", ");
             self.write_expr(message, END, output);
+        }
+    }
+
+    /// A match arm's pattern as its author spelled it: the catch-all stays
+    /// `else` or `_`, whichever was written.
+    fn write_arm_pattern(
+        &mut self,
+        pattern_id: PatternId,
+        spelling: xsh::frontend::syntax::arena::ArenaArmSpelling,
+        output: &mut String,
+    ) {
+        match spelling {
+            xsh::frontend::syntax::arena::ArenaArmSpelling::Else => output.push_str("else"),
+            xsh::frontend::syntax::arena::ArenaArmSpelling::Pattern => {
+                self.write_pattern(pattern_id, output)
+            }
         }
     }
 
@@ -1308,8 +1593,20 @@ impl<'a> Writer<'a> {
                 output.push_str(family.as_str().as_str());
                 output.push('.');
                 output.push_str(variant.as_str().as_str());
-                output.push_str(" {");
                 let fields = self.arena.pattern_fields(*fields).to_vec();
+                // `Family.Variant` and `Family.Variant {}` are one pattern;
+                // keep the author's spelling instead of adding braces.
+                if fields.is_empty()
+                    && !self
+                        .source
+                        .get(self.arena.span(self.arena.pattern(pattern_id).span).range())
+                        .unwrap_or("")
+                        .trim_end()
+                        .ends_with('}')
+                {
+                    return;
+                }
+                output.push_str(" {");
                 for (index, field) in fields.iter().enumerate() {
                     if index > 0 {
                         output.push_str(", ");
@@ -1388,7 +1685,7 @@ impl<'a> Writer<'a> {
         }
         let kind = self.arena.binding_target(target_id).kind.clone();
         match &kind {
-            ArenaBindingTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
+            ArenaBindingTargetKind::Name(name) => output.push_str(&self.name_text(*name)),
             ArenaBindingTargetKind::Record { fields, rest } => {
                 output.push('{');
                 let fields = self.arena.destructure_fields(*fields).to_vec();
@@ -1423,7 +1720,7 @@ impl<'a> Writer<'a> {
         use xsh::frontend::syntax::arena::ArenaAssignTargetKind;
         let kind = self.arena.assign_target(target_id).kind.clone();
         match &kind {
-            ArenaAssignTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
+            ArenaAssignTargetKind::Name(name) => output.push_str(&self.name_text(*name)),
             ArenaAssignTargetKind::Env(name) => write_env_string(*name, output),
             ArenaAssignTargetKind::Field { base, name } => {
                 self.write_assign_target(*base, output);
@@ -1579,7 +1876,7 @@ impl<'a> Writer<'a> {
         let mut previous_span: Option<Span> = None;
         let mut previous_multiline_control_flow = false;
         for (index, stmt_id) in stmts.iter().enumerate() {
-            let stmt = self.arena.stmt(*stmt_id);
+            let stmt = self.arena.stmt(self.layout_stmt(*stmt_id));
             let stmt_span = stmt.span;
             if let Some(previous) = previous_span {
                 output.push('\n');
@@ -1592,7 +1889,9 @@ impl<'a> Writer<'a> {
             let stmt_output_start = output.len();
             let grouped = preserve_value_shape && index == 0 && params.is_empty();
             self.after_expression = index > 0
-                && grouping::statement_may_continue(&self.arena.stmt(stmts[index - 1]).kind);
+                && grouping::statement_may_continue(
+                    &self.arena.stmt(self.layout_stmt(stmts[index - 1])).kind,
+                );
             match stmt.kind {
                 ArenaStmtKind::TailBareIdent(name) if grouped => {
                     self.write_comments_before(stmt_span.start(), indent + 1, output);
@@ -1605,7 +1904,7 @@ impl<'a> Writer<'a> {
                 _ => self.write_stmt(*stmt_id, indent + 1, output),
             }
             previous_span = Some(stmt_span);
-            previous_multiline_control_flow = matches!(
+            previous_multiline_control_flow = (matches!(
                 stmt.kind,
                 ArenaStmtKind::If { .. }
                     | ArenaStmtKind::While { .. }
@@ -1613,7 +1912,11 @@ impl<'a> Writer<'a> {
                     | ArenaStmtKind::With { .. }
                     | ArenaStmtKind::Loop { .. }
                     | ArenaStmtKind::Match { .. }
-            ) && output[stmt_output_start..].contains('\n');
+            ) || matches!(
+                stmt.kind,
+                // A `guard` reads as a precondition of what follows it.
+                ArenaStmtKind::Sugar { form, .. } if form.is_compound() && form != SugarForm::Guard
+            )) && output[stmt_output_start..].contains('\n');
         }
         if self.has_comment_before(close) {
             if let Some(previous) = previous_span {
@@ -1637,10 +1940,13 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let stmt = self.arena.command_stmt(stmt_id).clone();
+        // The `?` or `{` that follows the last part on its line.
+        let tail = 2 * usize::from(stmt.propagate);
+        let continuation = indent_for_expr(output) + 1;
         match &stmt.command {
             ArenaCommand::Proc { name, args } => {
                 output.push_str(name.as_str().as_str());
-                self.write_command_args(*args, output);
+                self.write_command_args(*args, continuation, tail, output);
             }
             ArenaCommand::Core {
                 name,
@@ -1658,11 +1964,20 @@ impl<'a> Writer<'a> {
                         self.write_block(*block, indent, output);
                     }
                 } else {
-                    self.write_command_args(*args, output);
-                    for assignment in &env_assignments {
-                        output.push(' ');
-                        self.write_env_assignment(assignment, output);
-                    }
+                    let tail = if block.is_some() { 2 } else { tail };
+                    // A continuation line under a command with a block is
+                    // indented twice, so it does not read as the block's
+                    // first statement.
+                    let continuation = continuation + usize::from(block.is_some());
+                    let mut parts: Vec<CommandPart> = self
+                        .arena
+                        .command_args(*args)
+                        .iter()
+                        .cloned()
+                        .map(CommandPart::Arg)
+                        .collect();
+                    parts.extend(env_assignments.iter().cloned().map(CommandPart::Env));
+                    self.write_command_parts(&parts, true, continuation, tail, output);
                     if let Some(block) = block {
                         output.push(' ');
                         self.write_block(*block, indent, output);
@@ -1689,6 +2004,7 @@ impl<'a> Writer<'a> {
         let (keyword, value) = match self.arena.stmt(stmt).kind {
             ArenaStmtKind::Return(Some(value)) => ("return", value),
             ArenaStmtKind::YieldDelegate(value) => ("yield @", ArenaExprOrRun::Expr(value)),
+            ArenaStmtKind::Exit(status) => ("exit", ArenaExprOrRun::Expr(status)),
             ArenaStmtKind::Yield(value) => ("yield", value),
             ArenaStmtKind::Break { value: Some(value) } => ("break", ArenaExprOrRun::Expr(value)),
             _ => {
@@ -1740,47 +2056,52 @@ impl<'a> Writer<'a> {
         let segments: Vec<xsh::frontend::syntax::arena::ArenaRunSegment> =
             self.arena.run_segments(run.segments).to_vec();
         for (index, segment) in segments.iter().enumerate() {
-            if index > 0 {
-                output.push_str(" | ");
-            }
-            self.write_run_segment(segment, indent, output);
+            let tail = if index + 1 < segments.len() || run.propagate {
+                2
+            } else {
+                0
+            };
+            self.write_run_segment(segment, index > 0, indent, tail, output);
         }
         if run.propagate {
             output.push_str(" ?");
         }
     }
 
+    /// Writes one segment of a run form. `piped` segments follow a `|`, which
+    /// begins a continuation line when the segment does. `tail` is the width
+    /// that follows the segment's last part on its line: ` |` or ` ?`.
     fn write_run_segment(
         &mut self,
         segment: &xsh::frontend::syntax::arena::ArenaRunSegment,
+        piped: bool,
         indent: usize,
+        tail: usize,
         output: &mut String,
     ) {
-        output.push_str(run_head_text(segment.kind));
-        output.push(' ');
-        if let Some(timeout) = segment.timeout {
-            output.push_str("--timeout=");
-            self.write_expr(timeout, CLOSE, output);
-            output.push(' ');
-        }
-        if let Some(cpu_max) = segment.cpu_max {
-            output.push_str("--cpumax=");
-            self.write_expr(cpu_max, CLOSE, output);
-            output.push(' ');
-        }
-        if let Some(accept) = segment.accept {
-            output.push_str("--accept=");
-            self.write_expr(accept, CLOSE, output);
-            output.push(' ');
-        }
-        let env = self.arena.env_assignments(segment.env).to_vec();
-        for assignment in &env {
-            self.write_env_assignment(assignment, output);
-            output.push(' ');
-        }
+        let head = run_head_text(segment.kind);
         let args: Vec<ArenaCommandArg> = self.arena.command_args(segment.args).to_vec();
         let redirections = self.arena.redirections(segment.redirections).to_vec();
         if segment.grouped {
+            if piped {
+                output.push_str(" | ");
+            }
+            output.push_str(head);
+            output.push(' ');
+            for (name, value) in [
+                ("timeout", segment.timeout),
+                ("cpumax", segment.cpu_max),
+                ("accept", segment.accept),
+            ] {
+                if let Some(value) = value {
+                    self.write_command_part_text(&CommandPart::Option { name, value }, output);
+                    output.push(' ');
+                }
+            }
+            for assignment in self.arena.env_assignments(segment.env).to_vec() {
+                self.write_env_assignment(&assignment, output);
+                output.push(' ');
+            }
             output.push_str("(\n");
             self.write_indent(indent + 1, output);
             self.write_command_arg(&segment.target, output);
@@ -1799,15 +2120,164 @@ impl<'a> Writer<'a> {
             output.push(')');
             return;
         }
-        self.write_command_arg(&segment.target, output);
-        for arg in &args {
-            output.push(' ');
-            self.write_command_arg(arg, output);
+        let mut parts = Vec::new();
+        for (name, value) in [
+            ("timeout", segment.timeout),
+            ("cpumax", segment.cpu_max),
+            ("accept", segment.accept),
+        ] {
+            if let Some(value) = value {
+                parts.push(CommandPart::Option { name, value });
+            }
         }
-        for redirection in &redirections {
+        parts.extend(
+            self.arena
+                .env_assignments(segment.env)
+                .iter()
+                .cloned()
+                .map(CommandPart::Env),
+        );
+        parts.push(CommandPart::Arg(segment.target.clone()));
+        parts.extend(args.into_iter().map(CommandPart::Arg));
+        parts.extend(redirections.into_iter().map(CommandPart::Redirection));
+        // The run form's name and its first part are one unit: a line break
+        // never separates them.
+        let first = parts.remove(0);
+        let first_tail = if parts.is_empty() { tail } else { 2 };
+        if piped {
+            let begins_line = self.piped_segment_begins_line(segment);
+            self.write_continued_command_part(begins_line, indent + 1, first_tail, output, |writer, output| {
+                output.push_str("| ");
+                output.push_str(head);
+                output.push(' ');
+                writer.write_command_part_text(&first, output);
+            });
+        } else {
+            output.push_str(head);
             output.push(' ');
-            self.write_redirection(redirection, output);
+            self.write_command_part_text(&first, output);
         }
+        self.write_command_parts(&parts, false, indent + 1, tail, output);
+    }
+
+    /// Writes the parts of a command after its first word. A part goes on
+    /// the current line after a space, or begins a continuation line after
+    /// ` \`, indented one level under the command, when the author began a
+    /// line with it or when it does not fit. The first part of a command
+    /// stays on the command's line, so `glue_first` is set unless the caller
+    /// has already written it. `tail` is the width that follows the last
+    /// part on its line.
+    fn write_command_parts(
+        &mut self,
+        parts: &[CommandPart],
+        glue_first: bool,
+        indent: usize,
+        tail: usize,
+        output: &mut String,
+    ) {
+        for (index, part) in parts.iter().enumerate() {
+            if index == 0 && glue_first {
+                output.push(' ');
+                self.write_command_part_text(part, output);
+                continue;
+            }
+            // A part that is not the last needs room for the ` \` that may
+            // follow it.
+            let tail = if index + 1 == parts.len() { tail } else { 2 };
+            let begins_line = self.command_part_begins_line(part);
+            self.write_continued_command_part(begins_line, indent, tail, output, |writer, output| {
+                writer.write_command_part_text(part, output)
+            });
+        }
+    }
+
+    fn write_continued_command_part(
+        &mut self,
+        begins_line: bool,
+        indent: usize,
+        tail: usize,
+        output: &mut String,
+        write: impl Fn(&mut Self, &mut String),
+    ) {
+        let start = output.len();
+        let next_comment = self.next_comment;
+        if !begins_line {
+            output.push(' ');
+            write(self, output);
+            // Width never breaks an inline-only rendering, and a part that
+            // already begins its line cannot move further.
+            let first_line = output[start..].split('\n').next().unwrap_or_default();
+            let part_width = first_line.chars().count() - 1;
+            let width = current_line_width(&output[..start]) + 1 + part_width;
+            // A part too wide for a line of its own overflows wherever it
+            // is written, so it stays where the author put it.
+            if self.inline_only
+                || width + tail <= self.line_width
+                || indent * 2 + part_width + tail > self.line_width
+            {
+                return;
+            }
+            output.truncate(start);
+            self.next_comment = next_comment;
+        }
+        output.push_str(" \\\n");
+        self.write_indent(indent, output);
+        write(self, output);
+    }
+
+    fn write_command_part_text(&mut self, part: &CommandPart, output: &mut String) {
+        match part {
+            CommandPart::Option { name, value } => {
+                output.push_str("--");
+                output.push_str(name);
+                output.push('=');
+                self.write_expr(*value, CLOSE, output);
+            }
+            CommandPart::Env(assignment) => self.write_env_assignment(assignment, output),
+            CommandPart::Arg(arg) => self.write_command_arg(arg, output),
+            CommandPart::Redirection(redirection) => self.write_redirection(redirection, output),
+        }
+    }
+
+    /// Whether the author began a line with `part`, after a line that ends
+    /// with a `\` continuation.
+    fn command_part_begins_line(&self, part: &CommandPart) -> bool {
+        let (start, lead) = match part {
+            CommandPart::Option { value, .. } => (self.arena.expr(*value).span.start(), "="),
+            CommandPart::Env(assignment) => (self.arena.span(assignment.span).start(), ""),
+            CommandPart::Arg(arg) => (self.arena.span(arg.span).start(), ""),
+            CommandPart::Redirection(redirection) => {
+                (self.arena.span(redirection.span).start(), "")
+            }
+        };
+        let Some(before) = self.source.get(..start) else {
+            return false;
+        };
+        // An option's span starts at its value, after `--name=`.
+        let before = if lead.is_empty() {
+            before
+        } else {
+            let Some(before) = before.strip_suffix(lead) else {
+                return false;
+            };
+            let name = before.trim_end_matches(|ch: char| ch.is_ascii_alphanumeric());
+            let Some(before) = name.strip_suffix("--") else {
+                return false;
+            };
+            before
+        };
+        follows_line_continuation(before)
+    }
+
+    /// Whether the author began a line with the `|` before `segment`.
+    fn piped_segment_begins_line(
+        &self,
+        segment: &xsh::frontend::syntax::arena::ArenaRunSegment,
+    ) -> bool {
+        self.source
+            .get(..self.arena.span(segment.span).start())
+            .and_then(|before| before.trim_end_matches([' ', '\t']).strip_suffix('|'))
+            .is_some_and(follows_line_continuation)
     }
 
     fn write_env_assignment(&mut self, assignment: &ArenaEnvAssignment, output: &mut String) {
@@ -1874,13 +2344,18 @@ impl<'a> Writer<'a> {
     fn write_command_args(
         &mut self,
         args: xsh::frontend::syntax::arena::ArenaRange,
+        indent: usize,
+        tail: usize,
         output: &mut String,
     ) {
-        let args: Vec<ArenaCommandArg> = self.arena.command_args(args).to_vec();
-        for arg in &args {
-            output.push(' ');
-            self.write_command_arg(arg, output);
-        }
+        let parts: Vec<CommandPart> = self
+            .arena
+            .command_args(args)
+            .iter()
+            .cloned()
+            .map(CommandPart::Arg)
+            .collect();
+        self.write_command_parts(&parts, true, indent, tail, output);
     }
 
     fn write_command_arg(&mut self, arg: &ArenaCommandArg, output: &mut String) {
@@ -2050,7 +2525,7 @@ impl<'a> Writer<'a> {
                 output.push_str(&literal.source_text);
             }
             ArenaExprKind::Bytes(value) => write_bytes(self.arena.bytes_literal(*value), output),
-            ArenaExprKind::Ident(name) => output.push_str(name.as_str().as_str()),
+            ArenaExprKind::Ident(name) => output.push_str(&self.name_text(*name)),
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::LastStatus => output.push_str("$?"),
             ArenaExprKind::List(items) => self.write_list(expr_id, *items, output),
@@ -2076,7 +2551,23 @@ impl<'a> Writer<'a> {
             ArenaExprKind::If {
                 branches,
                 else_value,
-            } => self.write_if_expr(*branches, *else_value, output),
+            } => {
+                // A branch written `{ value }` on one line must not break
+                // inside: the next pass would read that block as broken by
+                // the author and lay it out differently. Every branch breaks
+                // instead, the same layout that pass then keeps.
+                let start = output.len();
+                let next_comment = self.next_comment;
+                let after_expression = self.after_expression;
+                let arm_statement = self.arm_statement;
+                if self.write_if_expr(*branches, *else_value, output) && !self.inline_only {
+                    output.truncate(start);
+                    self.next_comment = next_comment;
+                    self.after_expression = after_expression;
+                    self.arm_statement = arm_statement;
+                    self.write_if_expr_multiline(*branches, *else_value, output);
+                }
+            }
             ArenaExprKind::Match { value, arms } => self.write_match_expr(*value, *arms, output),
             ArenaExprKind::PatternCondition { value, arms } => {
                 output.push_str("let ");
@@ -2307,7 +2798,19 @@ impl<'a> Writer<'a> {
                 self.write_block(*block, indent_for_expr(output), output);
             }
             ArenaExprKind::ValueBlock(block) => {
-                self.write_block_contents(*block, indent_for_expr(output), output, true)
+                // The indentation is that of the line the head starts.
+                let indent = indent_for_expr(output);
+                if let Some(bound) = self.arena.block_effect_bound(*block) {
+                    let effects = self
+                        .arena
+                        .effects(bound.effects)
+                        .map(|effect| effect.as_str())
+                        .collect::<Vec<_>>();
+                    output.push_str("without ");
+                    output.push_str(&effects.join(", "));
+                    output.push(' ');
+                }
+                self.write_block_contents(*block, indent, output, true)
             }
             ArenaExprKind::ValuePipelineCall { input, call, .. } => {
                 self.write_expr(*input, child(*input), output);
@@ -2374,7 +2877,7 @@ impl<'a> Writer<'a> {
         let has_comment = self.comments[self.next_comment..].iter().any(|comment| {
             comment.span.start() >= span.start() && comment.span.start() < span.end()
         });
-        if !has_comment {
+        if !has_comment || self.holds_sugar(span) {
             return false;
         }
         if let Some(raw) = self.source.get(span.range()) {
@@ -2766,8 +3269,9 @@ impl<'a> Writer<'a> {
         branches: xsh::frontend::syntax::arena::ArenaRange,
         else_value: ExprId,
         output: &mut String,
-    ) {
+    ) -> bool {
         let indent = indent_for_expr(output);
+        let mut flat_branch_broke = false;
         for (index, branch) in self
             .arena
             .if_expr_branches(branches)
@@ -2778,13 +3282,17 @@ impl<'a> Writer<'a> {
             output.push_str(if index == 0 { "if " } else { " else if " });
             self.write_expr(branch.condition, BRACE, output);
             output.push(' ');
-            self.write_value_branch(branch.value, indent, output);
+            flat_branch_broke |= self.write_value_branch(branch.value, indent, output);
         }
         output.push_str(" else ");
-        self.write_value_branch(else_value, indent, output);
+        flat_branch_broke |= self.write_value_branch(else_value, indent, output);
+        flat_branch_broke
     }
 
-    fn write_value_branch(&mut self, value: ExprId, indent: usize, output: &mut String) {
+    /// Writes one branch of a conditional expression and reports whether a
+    /// branch kept on one line as `{ value }` had to break inside the value.
+    fn write_value_branch(&mut self, value: ExprId, indent: usize, output: &mut String) -> bool {
+        let start = output.len();
         if let ArenaExprKind::ValueBlock(block) = self.arena.expr(value).kind {
             let statements = self
                 .arena
@@ -2802,6 +3310,7 @@ impl<'a> Writer<'a> {
                         output.push_str("{ ");
                         self.write_statement_expr(expr, output);
                         output.push_str(" }");
+                        return output[start..].contains('\n');
                     }
                     ArenaStmtKind::TailBareIdent(name) => {
                         output.push_str("{ ");
@@ -2813,10 +3322,12 @@ impl<'a> Writer<'a> {
             } else {
                 self.write_block(block, indent, output);
             }
+            false
         } else {
             output.push_str("{ ");
             self.write_statement_expr(value, output);
             output.push_str(" }");
+            output[start..].contains('\n')
         }
     }
 
@@ -2881,7 +3392,7 @@ impl<'a> Writer<'a> {
             } else {
                 output.push(' ');
             }
-            self.write_pattern(arm.pattern, output);
+            self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
                 output.push_str(" if ");
                 self.write_expr(guard, CLOSE, output);
@@ -2918,7 +3429,7 @@ impl<'a> Writer<'a> {
         for index in 0..arms.len() {
             let arm = self.arena.match_expr_arms(arms)[index].clone();
             self.write_indent(indent + 1, output);
-            self.write_pattern(arm.pattern, output);
+            self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
                 output.push_str(" if ");
                 self.write_expr(guard, CLOSE, output);
@@ -3107,7 +3618,9 @@ impl<'a> Writer<'a> {
             }
             ArenaBuilderEntryKind::Entry { name, args, block } => {
                 output.push_str(name.as_str().as_str());
-                self.write_command_args(*args, output);
+                let tail = if block.is_some() { 2 } else { 0 };
+                let continuation = indent + 1 + usize::from(block.is_some());
+                self.write_command_args(*args, continuation, tail, output);
                 if let Some(block) = block {
                     output.push(' ');
                     self.write_builder_block(*block, indent, output);
@@ -3140,6 +3653,16 @@ impl<'a> Writer<'a> {
                         output.push_str(", ");
                     }
                     self.write_type(*argument, output);
+                }
+                output.push(']');
+            }
+            ArenaTypeExprKind::Union(members) => {
+                output.push_str("Union[");
+                for (index, member) in members.iter().enumerate() {
+                    if index != 0 {
+                        output.push_str(", ");
+                    }
+                    self.write_type(*member, output);
                 }
                 output.push(']');
             }
@@ -3939,6 +4462,9 @@ impl<'a> Writer<'a> {
             after_expression: false,
             arm_statement: false,
             binder_blocks: self.binder_blocks.clone(),
+            expand_sugar: self.expand_sugar,
+            sugar_ranges: Arc::clone(&self.sugar_ranges),
+            hidden_names: Arc::clone(&self.hidden_names),
         };
         let mut output = String::new();
         f(&mut writer, &mut output);
@@ -4186,12 +4712,11 @@ fn is_top_level_section(kind: &ArenaStmtKind) -> bool {
     matches!(
         kind,
         ArenaStmtKind::If { .. }
-            | ArenaStmtKind::BooleanGuard { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }
             | ArenaStmtKind::With { .. }
-    )
+    ) || matches!(kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound())
 }
 
 fn original_preserved_string_literal(source: &str, span: Span) -> Option<&str> {
@@ -4222,6 +4747,21 @@ fn tag_variants_original_multiline(
     source
         .get(first.start()..last.end())
         .is_some_and(|source| source.contains('\n'))
+}
+
+/// The offset of the `}` that closes a braced error family whose last variant
+/// ends at `from`: only blank space and comments can come before it.
+fn error_block_close(source: &str, from: usize, limit: usize) -> usize {
+    let mut in_comment = false;
+    for (offset, character) in source.get(from..limit).unwrap_or("").char_indices() {
+        match character {
+            '\n' => in_comment = false,
+            '#' => in_comment = true,
+            '}' if !in_comment => return from + offset,
+            _ => {}
+        }
+    }
+    limit
 }
 
 fn record_field_span(arena: &AstArena, field: &ArenaRecordFieldKind) -> Option<Span> {
@@ -4303,6 +4843,30 @@ fn assign_op_text(op: AssignOp) -> &'static str {
         AssignOp::Div => "/=",
         AssignOp::Rem => "%=",
     }
+}
+
+/// One part of a command after its first word: the unit a `\` line
+/// continuation separates.
+#[derive(Clone)]
+enum CommandPart {
+    /// A run option, `--name=value`.
+    Option {
+        name: &'static str,
+        value: ExprId,
+    },
+    Env(ArenaEnvAssignment),
+    Arg(ArenaCommandArg),
+    Redirection(xsh::frontend::syntax::arena::ArenaRedirection),
+}
+
+/// Whether the source `before` a command part ends with a `\` line
+/// continuation and the indentation of the line it continues onto.
+fn follows_line_continuation(before: &str) -> bool {
+    let before = before.trim_end_matches([' ', '\t']);
+    before
+        .strip_suffix('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .is_some_and(|line| line.ends_with('\\'))
 }
 
 fn run_head_text(kind: RunKind) -> &'static str {
@@ -4551,6 +5115,30 @@ mod tests {
     #[test]
     fn equivalence_ignores_lowered_value_pipeline_sugar() {
         assert_round_trip("let t = \" x \" |> trim()\n", "let t = \" x \".trim()\n");
+    }
+
+    #[test]
+    fn repeat_prints_its_operands_and_keeps_needed_grouping() {
+        for (source, expected) in [
+            (
+                "repeat   n+1   times{\nprint \"tick\"\n}\n",
+                "repeat n + 1 times {\n  print \"tick\"\n}\n",
+            ),
+            (
+                "repeat (n) times { # each\n  total += 1 # one\n}\n",
+                "repeat n times {\n  # each\n  total += 1 # one\n}\n",
+            ),
+            (
+                "repeat times times { repeat (a |> len()) times { total += 1 } }\n",
+                "repeat times times { repeat a.len() times { total += 1 } }\n",
+            ),
+            (
+                "match n {\n  0 => repeat 2 times { total += 1 }\n  _ => {}\n}\n",
+                "match n {\n  0 => repeat 2 times { total += 1 }\n  _ => {}\n}\n",
+            ),
+        ] {
+            assert_round_trip(source, expected);
+        }
     }
 
     #[test]

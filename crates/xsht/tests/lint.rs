@@ -876,7 +876,7 @@ proc helper() -> Result[Unit] {
   return Ok()
 }
 
-export proc public() -> Result[Unit] {
+export proc public() -> Result[Unit, Error] {
   return Ok()
 }
 ";
@@ -1268,7 +1268,8 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
   let checked_row = raw.require(Row)?
   let same_count = f\"{count}\".parse_int()?
   let same_ratio = f\"{ratio}\".parse_float()?
-  print ${parsed_literal} ${parsed_fmt} ${constructed_fmt} ${same_path} ${same_name} ${same_row.name} ${checked_row.name} ${same_count} ${same_ratio}
+  print ${parsed_literal} ${parsed_fmt} ${constructed_fmt} ${same_path} ${same_name} \\
+    ${same_row.name} ${checked_row.name} ${same_count} ${same_ratio}
 }
 ";
     let parsed = parse_lint_source(source);
@@ -3730,7 +3731,7 @@ fn linter_list_compound_assignment_refuses_unchecked_effectful_and_nested_update
 
 #[test]
 fn linter_list_compound_assignment_retains_multiline_comments() {
-    let source = "var values = [1]\nvalues = values.push(\n  2,\n)\nprint ${values.len()}\n";
+    let source = "var values = [1]\nvalues = values.push(\n  2, # keep\n)\nprint ${values.len()}\n";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -3752,6 +3753,285 @@ fn linter_list_compound_assignment_retains_multiline_comments() {
         })
         .expect("checked list update warning");
     assert!(diagnostic.fix_hints.is_empty());
+}
+
+/// The `+=` updates the compound-assignment lint reports for a checked
+/// source, each with its replacement (`None` when only a manual rewrite
+/// exists) and its notes.
+fn list_compound_updates(source: &str) -> Vec<(Option<String>, Vec<String>)> {
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics
+    .into_iter()
+    .filter(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-compound-assignment")
+    })
+    .map(|diagnostic| {
+        (
+            diagnostic
+                .fix_hints
+                .first()
+                .map(|hint| hint.replacement.clone().expect("replacement")),
+            diagnostic.notes.clone(),
+        )
+    })
+    .collect()
+}
+
+#[test]
+fn linter_list_compound_assignment_reaches_every_argument_that_leaves_the_local_alone() {
+    // The argument is evaluated after the receiver read in `push` and before
+    // the read of the current value in `+=`; none of these can assign `names`.
+    let source = r##"type Row = {name: Str, size: UInt}
+
+pure label(item: Str) -> Str {
+  return item.upper()
+}
+
+pure shout(items: List[Str]) -> List[Str] {
+  return items |> map { |item| item.upper() } |> collect()
+}
+
+proc collect_names(items: List[Str], row: Row) [] -> List[Str] {
+  var names: List[Str] = []
+  var rows: List[Row] = []
+  for item in items {
+    names = names.push(label(item))
+    names = names.push(f"{item}!")
+    names = names.push(row.name)
+    names = names.push(items[0])
+    names = names.push((items |> map { |entry| entry.upper() }).join(","))
+    names = names.push("#define X")
+    names = names.extend(shout(items))
+    rows = rows.push({name: item, size: 3})
+  }
+
+  print ${rows.len()}
+  names
+}
+"##;
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let replacements: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code.map(DiagnosticCode::name)
+                == Some("lint.prefer-list-compound-assignment")
+        })
+        .map(|diagnostic| diagnostic.fix_hints[0].replacement.as_deref().unwrap())
+        .collect();
+    assert_eq!(
+        replacements,
+        [
+            "names += [label(item)]",
+            "names += [f\"{item}!\"]",
+            "names += [row.name]",
+            "names += [items[0]]",
+            "names += [(items |> map { |entry| entry.upper() }).join(\",\")]",
+            "names += [\"#define X\"]",
+            "names += shout(items)",
+            "rows += [{name: item, size: 3}]",
+        ]
+    );
+}
+
+#[test]
+fn linter_list_compound_assignment_keeps_an_argument_that_assigns_the_target() {
+    // Evaluating the callback overwrites `names` after `push` has already read
+    // it, so `names += [...]` would keep the overwrite and `push` would not.
+    let source = r##"proc collect_names(items: List[Str]) [] -> List[Str] {
+  var names: List[Str] = []
+  names = names.push(items |> map { |entry| names = [entry]; entry } |> join(","))
+  names = names.push((items |> map { |entry| names = [entry]; entry }).join(","))
+  names = names.push(items |> map { |entry| entry.upper() } |> join(","))
+  names = names.push((items |> map { |entry| entry.upper() }).join(","))
+  names
+}
+"##;
+    // The unformatted pipeline and its formatted method-call spelling parse
+    // differently and must be judged alike.
+    let updates = list_compound_updates(source);
+    assert_eq!(
+        updates
+            .iter()
+            .map(|(replacement, _)| replacement.as_deref())
+            .collect::<Vec<_>>(),
+        [
+            Some("names += [items |> map { |entry| entry.upper() } |> join(\",\")]"),
+            Some("names += [(items |> map { |entry| entry.upper() }).join(\",\")]"),
+        ]
+    );
+}
+
+#[test]
+fn linter_list_compound_assignment_keeps_module_variables_with_calling_arguments() {
+    // Any proc may assign a module-level variable, so a call between the two
+    // reads could change which one the update sees.
+    let source = r##"var seen: List[Str] = []
+
+proc remember(item: Str) [] -> Str {
+  seen = []
+  return item
+}
+
+proc collect_names(item: Str) [] -> List[Str] {
+  seen = seen.push(remember(item))
+  seen = seen.push(item)
+  seen
+}
+"##;
+    let updates = list_compound_updates(source);
+    assert_eq!(updates.len(), 1, "{updates:?}");
+    assert_eq!(updates[0].0.as_deref(), Some("seen += [item]"));
+}
+
+#[test]
+fn linter_list_compound_assignment_offers_a_fix_around_hash_strings_and_call_layout() {
+    // A `#` inside a string is not a comment, and a call laid out over several
+    // lines around a one-line argument still becomes one `+=` statement.
+    let source = r##"proc build() [] -> List[Str] {
+  var lines: List[Str] = []
+  lines = lines.push("#endif /* GUARD_H */")
+  lines = lines.push(
+    "tail",
+  )
+  lines
+}
+"##;
+    assert_eq!(
+        list_compound_updates(source)
+            .into_iter()
+            .map(|(replacement, notes)| (replacement.unwrap(), notes))
+            .collect::<Vec<_>>(),
+        [
+            ("lines += [\"#endif /* GUARD_H */\"]".to_string(), vec![]),
+            ("lines += [\"tail\"]".to_string(), vec![]),
+        ]
+    );
+}
+
+#[test]
+fn linter_list_compound_assignment_copies_multiline_arguments_but_not_comments() {
+    let source = r##"type Row = {name: Str, size: Int}
+
+proc build() [] -> List[Row] {
+  var rows: List[Row] = []
+  rows = rows.push(
+    {name: "a", size: 1}, # first
+  )
+  rows = rows.push({
+    name: "b",
+    size: 2,
+  })
+  rows
+}
+"##;
+    let updates = list_compound_updates(source);
+    assert_eq!(
+        updates,
+        [
+            (
+                None,
+                vec!["comments inside the update require a manual rewrite".to_string()]
+            ),
+            (
+                Some("rows += [{\n    name: \"b\",\n    size: 2,\n  }]".to_string()),
+                vec![]
+            ),
+        ]
+    );
+    // Copying the argument verbatim keeps the continuation lines' own
+    // indentation, so the result is valid source that `fmt` then re-lays out.
+    let fixed = source.replace(
+        "rows = rows.push({\n    name: \"b\",\n    size: 2,\n  })",
+        "rows += [{\n    name: \"b\",\n    size: 2,\n  }]",
+    );
+    assert_parse_check_standalone("multiline compound update", &fixed);
+}
+
+#[test]
+fn linter_list_compound_assignment_wraps_an_update_that_overflows_the_line() {
+    // The formatter lays an overflowing list out one element per line, so the
+    // fix does too and leaves already formatted source formatted.
+    let source = r##"proc build(items: List[Str]) [] -> List[Str] {
+  var lines: List[Str] = []
+  for item in items {
+    lines = lines.push(
+      f"dependency\t{item.upper()}\t{item.lower()}\t{item.trim()}\t{item.upper()}\t{item.lower()}\t{item.trim()}\t{item}",
+    )
+    lines = lines.push("short")
+  }
+
+  lines
+}
+"##;
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let replacements: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code.map(DiagnosticCode::name)
+                == Some("lint.prefer-list-compound-assignment")
+        })
+        .map(|diagnostic| diagnostic.fix_hints[0].replacement.as_deref().unwrap())
+        .collect();
+    assert_eq!(
+        replacements,
+        [
+            "lines += [\n      f\"dependency\\t{item.upper()}\\t{item.lower()}\\t{item.trim()}\\t{item.upper()}\\t{item.lower()}\\t{item.trim()}\\t{item}\",\n    ]",
+            "lines += [\"short\"]",
+        ]
+    );
+}
+
+#[test]
+fn linter_list_compound_assignment_rewrites_push_chains_only() {
+    let source = r##"proc build(more: List[Str]) [] -> List[Str] {
+  var lines: List[Str] = []
+  lines = lines.push("a").push("b")
+  lines = lines.push("c").extend(more)
+  lines = lines.extend(more).extend(more)
+  var index: Map[List[Str]] = {}
+  index = index.push("key", "value")
+  print ${index.len()}
+  lines
+}
+"##;
+    let updates = list_compound_updates(source);
+    assert_eq!(
+        updates,
+        [(Some("lines += [\"a\", \"b\"]".to_string()), vec![])]
+    );
 }
 
 #[test]
@@ -4163,6 +4443,62 @@ fn linter_prefer_guard_keeps_unwieldy_payload_blocks() {
         !diagnostics.iter().any(
             |diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")
         )
+    );
+}
+
+#[test]
+fn linter_prefer_guard_reaches_nested_blocks_and_keeps_only_guards_over_the_column_cap() {
+    // A `return Err(...)` guard is reported wherever it sits, but only when the
+    // postfix form fits in 88 columns: the formatter has no readable layout
+    // for a longer guarded statement, so the block stays.
+    let source = r##"error AppError = Failed(message: Str)
+
+proc validate(argv: List[Str]) [] -> Result[Unit] {
+  if argv.len() > 4 {
+    return Err(AppError.Failed("too many"))
+  }
+
+  if argv.len() > 3 {
+    return Err(AppError.Failed("this message is long enough that the one-line guard passes the column cap"))
+  }
+
+  for arg in argv {
+    if arg == "" {
+      return Err(AppError.Failed("empty"))
+    }
+
+    for part in arg.split(",") {
+      if part == "" {
+        return Err(AppError.Failed("empty part"))
+      }
+    }
+  }
+}
+"##;
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let guards: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard"))
+        .map(|diagnostic| diagnostic.fix_hints[0].replacement.as_deref().unwrap())
+        .collect();
+    assert_eq!(
+        guards,
+        [
+            "return Err(AppError.Failed(\"too many\")) when argv.len() > 4",
+            "return Err(AppError.Failed(\"empty\")) when arg == \"\"",
+            "return Err(AppError.Failed(\"empty part\")) when part == \"\"",
+        ]
     );
 }
 

@@ -55,7 +55,7 @@ test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting
   run git -C $repo commit --quiet -m base ?
   run git -C $repo branch base ?
 
-  let raw_file = Path.parse_bytes(bytes.concat([bytes.from_text(repo.display()), b"/raw-\xff.txt"]))?
+  let raw_file = Path.parse_bytes(bytes.concat([repo.bytes(), b"/raw-\xff.txt"]))?
   raw_file.write("""new
 """)?
   run git -C $repo add -A ?

@@ -9,11 +9,11 @@ type SourceRead = {observation: report_model.TextObservation, errno: Int?, error
 type SystemReportCgroupParser = module {
   export proc read_source_text(root: FsRoot, source_path: Path, max_bytes: Int, preserve_whitespace: Bool) [fs, error] -> SourceRead
   export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath
-  export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?]
-  export pure parse_cpufreq_members(value: Str) -> Result[List[Int]]
-  export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int]]
-  export pure parse_idle_state_index(name: Str) -> Result[Int]
-  export pure parse_pci_decimal_value(value: Str) -> Result[Int]
+  export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?, Error]
+  export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error]
+  export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error]
+  export pure parse_idle_state_index(name: Str) -> Result[Int, Error]
+  export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error]
 }
 
 test test_system_report_bounded_text_reader_withholds_truncated_prefix {

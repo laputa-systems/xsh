@@ -103,11 +103,11 @@ test test_release_names_and_core_paths_are_deterministic {
   assert target_policy.release_suffix("x86_64-unknown-linux-musl")? == "x86_64-linux-musl"
   assert target_policy.release_suffix("aarch64-unknown-linux-musl")? == "aarch64-linux-musl"
   assert target_policy.release_suffix("aarch64-apple-darwin")? == "aarch64-apple-darwin"
-  assert releases.core_install_path(p"bin/hello.xsh").display() == "core/bin/hello"
-  assert releases.core_install_path(p"top.xsh").display() == "core/top"
-  assert releases.core_install_path(p"system-report.xsh").display() == "core/system-report"
-  assert releases.core_install_path(p"bin/report.xsh-helper.xsh").display() == "core/bin/report.xsh-helper"
-  assert releases.core_install_path(p"lib/auth.xsh").display() == "core/lib/auth.xsh"
+  assert releases.core_install_path(p"bin/hello.xsh") == "core/bin/hello"
+  assert releases.core_install_path(p"top.xsh") == "core/top"
+  assert releases.core_install_path(p"system-report.xsh") == "core/system-report"
+  assert releases.core_install_path(p"bin/report.xsh-helper.xsh") == "core/bin/report.xsh-helper"
+  assert releases.core_install_path(p"lib/auth.xsh") == "core/lib/auth.xsh"
 }
 
 test test_core_archive_stages_command_and_library_paths { |ctx|
@@ -130,8 +130,8 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   assert members.len() == 2
   assert "core/bin/report.xsh-helper" in members
   assert "core/lib/report.xsh-helper.xsh" in members
-  assert (entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
-  assert (entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
+  assert (entries |> where .path == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
+  assert (entries |> where .path == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
   let extracted = fp"{root}/extracted"
   archive.tar_extract(archive_path, extracted)?
   assert fp"{extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
@@ -180,7 +180,7 @@ test test_core_archive_contains_current_system_report { |ctx|
   releases.package_core(release_ctx, "fixture")?
   let archive_path = fp"{artifact_dir}/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
-  let installed = entries |> where .path.display() == "core/system-report"
+  let installed = entries |> where .path == "core/system-report"
   assert installed.len() == 1
   assert installed[0].mode.bit_and(0o777) == 0o755
   let extracted = fp"{artifact_dir}/extracted"
@@ -238,8 +238,8 @@ test test_unsupported_target_remains_a_structured_error {
 }
 
 test test_context_paths_and_missing_tools_have_named_failures {
-  assert lifecycle.repo_path(/repo, "target/custom").display() == "/repo/target/custom"
-  assert lifecycle.repo_path(/repo, "/tmp/custom").display() == "/tmp/custom"
+  assert lifecycle.repo_path(/repo, "target/custom") == "/repo/target/custom"
+  assert lifecycle.repo_path(/repo, "/tmp/custom") == "/tmp/custom"
 
   match stages.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
     Ok(_) => test.fail("missing tool unexpectedly resolved")?
@@ -362,7 +362,8 @@ test test_dev_main_target_override_reaches_context { |ctx|
   let root = fs.cwd()?
   let output = test.temp_path(ctx, name: "dev-target.stdout")
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- system-report-check --target \
+    x86_64-unknown-linux-musl > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic

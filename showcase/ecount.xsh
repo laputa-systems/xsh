@@ -11,7 +11,7 @@ var path_arg = ""
 for arg in argv {
   match arg {
     "-s" | "--size" => show_size = true
-    _ => path_arg = arg
+    else => path_arg = arg
   }
 }
 

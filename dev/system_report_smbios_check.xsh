@@ -56,7 +56,7 @@ export type SmbiosComparison = {
 type SmbiosFieldSpec = {name: Str, offset: Int, width: Int, unit: Str}
 
 ## Reads only the kernel-exported DMI structure table within the collector's bound.
-export proc read_smbios_reference(root: FsRoot) [fs, error] -> Result[SmbiosSourceReference] {
+export proc read_smbios_reference(root: FsRoot) [fs, error] -> Result[SmbiosSourceReference, Error] {
   let source = root.read_result(p"sys/firmware/dmi/tables/DMI", max_bytes: 1048576)?
   return Ok({data: null, complete: true, absent: true}) when source.state == "absent"
 
@@ -290,16 +290,14 @@ pure smbios_reference_fields(
   for spec in specs {
     continue when spec.offset + spec.width > formatted_length
     continue when spec.name == "extended_size_raw" and bytes.unpack_le(data, 2, offset + 12)? != 32767
-    fields = fields.push(
-      {name: spec.name, value: bytes.unpack_le(data, spec.width, offset + spec.offset)?, unit: spec.unit},
-    )
+    fields += [{name: spec.name, value: bytes.unpack_le(data, spec.width, offset + spec.offset)?, unit: spec.unit}]
   }
 
   fields
 }
 
 ## Independently walks bounded SMBIOS structures by their length and double-null terminator.
-export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
+export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference, Error] {
   var records: List[SmbiosRecordReference] = []
   var invalid_indices: List[Str] = []
   if data.len() > 1048576 {
@@ -342,9 +340,9 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       if string_end > string_start {
         let raw = data[string_start..string_end]
         if let Ok(value) = raw.utf8() {
-          strings = strings.push({state: "observed", value: value, raw_bytes_base64: null})
+          strings += [{state: "observed", value: value, raw_bytes_base64: null}]
         } else {
-          strings = strings.push({state: "malformed", value: null, raw_bytes_base64: raw.base64()})
+          strings += [{state: "malformed", value: null, raw_bytes_base64: raw.base64()}]
         }
       }
 
@@ -353,17 +351,19 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
 
     for field in fields {
       if field.unit == "string_index" and field.value > strings.len() {
-        invalid_indices = invalid_indices.push(f"{record_type}:{handle}.{field.name}")
+        invalid_indices += [f"{record_type}:{handle}.{field.name}"]
       }
     }
 
-    records = records.push({
-      record_type: record_type,
-      handle: handle,
-      formatted_length: length,
-      fields: fields,
-      strings: strings,
-    })
+    records += [
+      {
+        record_type: record_type,
+        handle: handle,
+        formatted_length: length,
+        fields: fields,
+        strings: strings,
+      },
+    ]
     cursor = terminator + 2
     if record_type == 127 {
       saw_end = true
@@ -375,7 +375,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
 }
 
 ## Compares every stable raw SMBIOS record, including unknown types and string bytes.
-export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> Result[SmbiosComparison] {
+export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> Result[SmbiosComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["firmware"])?.require(CandidateSmbiosSection)?
   let reference = parse_smbios_reference(before)?
@@ -396,7 +396,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   }
 
   for invalid in reference.invalid_indices {
-    unstable_fields = unstable_fields.push(f"{invalid}.string_index")
+    unstable_fields += [f"{invalid}.string_index"]
   }
 
   var reference_by_key: Map[Int] = {}
@@ -433,7 +433,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
       matched_count += 1
       let actual = section.records[candidate_by_key.get(key)?]
       if actual.formatted_length != item.formatted_length {
-        field_mismatches = field_mismatches.push(f"{key}.formatted_length")
+        field_mismatches += [f"{key}.formatted_length"]
       }
 
       var actual_fields: Map[Int] = {}
@@ -448,24 +448,24 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
 
       for field in item.fields {
         if field.name not in actual_fields {
-          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+          field_mismatches += [f"{key}.field.{field.name}"]
         } else if actual.fields[actual_fields.get(field.name)?] != field {
-          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+          field_mismatches += [f"{key}.field.{field.name}"]
         }
       }
 
       for field in actual.fields {
         if ! (item.fields |> any .name == field.name) {
-          field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+          field_mismatches += [f"{key}.field.{field.name}"]
         }
       }
 
       if actual.strings.len() != item.strings.len() {
-        field_mismatches = field_mismatches.push(f"{key}.strings")
+        field_mismatches += [f"{key}.strings"]
       } else {
         for string_index in range(item.strings.len()) {
           if actual.strings[string_index] != item.strings[string_index] {
-            field_mismatches = field_mismatches.push(f"{key}.string.{string_index + 1}")
+            field_mismatches += [f"{key}.string.{string_index + 1}"]
           }
         }
       }
@@ -528,11 +528,11 @@ type ValidatedSmbiosBundle = {
 export type SmbiosCaptureSummary = {origin: Str, captured_unix_ms: Int, stable: Bool, scoreable: Bool}
 
 type SmbiosCollector = module {
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record, Error]
 }
 
 type SmbiosReportEncoder = module {
-  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
+  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error]
 }
 
 ## Saves one bounded kernel-exported DMI table and an independently parsed reference.
@@ -540,7 +540,7 @@ export proc capture_smbios_bundle(
   source: FsRoot,
   bundle: FsRoot,
   origin: Str,
-) [fs, time, error] -> Result[SmbiosCaptureSummary] {
+) [fs, time, error] -> Result[SmbiosCaptureSummary, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(smbios_check_failure("SMBIOS capture origin must identify a fixture or live capture"))
   }
@@ -676,7 +676,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
 }
 
 ## Checks saved raw bytes, capture metadata, and the independent SMBIOS oracle.
-export proc validate_smbios_bundle(bundle: FsRoot) [fs, error] -> Result[SmbiosReference] {
+export proc validate_smbios_bundle(bundle: FsRoot) [fs, error] -> Result[SmbiosReference, Error] {
   validate_smbios_bundle_data(bundle)?.reference
 }
 
@@ -692,7 +692,7 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
 }
 
 ## Places a captured DMI table at the offset expected by dmidecode's saved-dump reader.
-export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Bytes] {
+export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Bytes, Error] {
   if entry_point.len() > 32 or table.len() == 0 or table.len() > 1048576 {
     return Err(smbios_check_failure("SMBIOS dump inputs exceed their bounds or lack a table"))
   }
@@ -808,7 +808,7 @@ pure dmidecode_record_from_output(
 }
 
 ## Parses bounded hexadecimal rows without trusting human-readable field labels.
-export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexRecord]] {
+export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexRecord], Error] {
   if output.count_chars() > 8388608 {
     return Err(smbios_check_failure("dmidecode output exceeds the 8 MiB bound"))
   }
@@ -837,9 +837,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
       }
 
       if record_type >= 0 {
-        records = records.push(
-          dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?,
-        )
+        records += [dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?]
       }
 
       if records.len() >= 4096 {
@@ -908,7 +906,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         continue
       }
 
-      formatted_octets = formatted_octets.extend(dmidecode_hex_row(trimmed)?)
+      formatted_octets += dmidecode_hex_row(trimmed)?
       if formatted_octets.len() > length {
         return Err(smbios_check_failure("dmidecode formatted data exceeds its declared length"))
       }
@@ -922,13 +920,13 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         continue
       }
 
-      pending_string = pending_string.extend(dmidecode_hex_row(trimmed)?)
+      pending_string += dmidecode_hex_row(trimmed)?
       if pending_string.len() > 1048576 {
         return Err(smbios_check_failure("dmidecode string exceeds its bound"))
       }
 
       if pending_string[pending_string.len() - 1] == 0 {
-        strings = strings.push(bytes.from_ints(pending_string |> take(pending_string.len() - 1))?)
+        strings += [bytes.from_ints(pending_string |> take(pending_string.len() - 1))?]
         pending_string = []
         expect_display = true
       }
@@ -940,9 +938,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
   }
 
   if record_type >= 0 {
-    records = records.push(
-      dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?,
-    )
+    records += [dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?]
   }
 
   if records.len() == 0 {
@@ -953,7 +949,10 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
 }
 
 ## Corroborates exact raw fields and string bytes with a separate SMBIOS decoder.
-export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str) -> Result[DmidecodeComparison] {
+export pure compare_dmidecode_hex_output(
+  reference: SmbiosReference,
+  output: Str,
+) -> Result[DmidecodeComparison, Error] {
   if ! reference.complete or reference.invalid_indices.len() > 0 {
     return Err(smbios_check_failure("incomplete raw SMBIOS tables cannot be corroborated"))
   }
@@ -995,7 +994,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     matched_count += 1
     let actual = decoded[decoded_by_key.get(key)?]
     if actual.formatted.len() != item.formatted_length {
-      field_mismatches = field_mismatches.push(f"{key}.formatted_length")
+      field_mismatches += [f"{key}.formatted_length"]
       continue
     }
 
@@ -1003,18 +1002,18 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     for field in item.fields {
       let matches = actual_fields |> where .name == field.name
       if matches.len() != 1 or matches[0] != field {
-        field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+        field_mismatches += [f"{key}.field.{field.name}"]
       }
     }
 
     for field in actual_fields {
       if ! (item.fields |> any .name == field.name) {
-        field_mismatches = field_mismatches.push(f"{key}.field.{field.name}")
+        field_mismatches += [f"{key}.field.{field.name}"]
       }
     }
 
     if actual.strings.len() != item.strings.len() {
-      field_mismatches = field_mismatches.push(f"{key}.strings")
+      field_mismatches += [f"{key}.strings"]
     } else {
       for string_index in range(item.strings.len()) {
         let raw = actual.strings[string_index]
@@ -1024,7 +1023,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
           {state: "malformed", value: null, raw_bytes_base64: raw.base64()}
         }
         if observed != item.strings[string_index] {
-          field_mismatches = field_mismatches.push(f"{key}.string.{string_index + 1}")
+          field_mismatches += [f"{key}.string.{string_index + 1}"]
         }
       }
     }
@@ -1109,7 +1108,7 @@ export type DmidecodeCorroboration = {
 export proc corroborate_smbios_bundle(
   bundle: FsRoot,
   executable: Str,
-) [fs, process, time, error] -> Result[DmidecodeCorroboration] {
+) [fs, process, time, error] -> Result[DmidecodeCorroboration, Error] {
   guard executable.starts_with("/") else {
     return Err(smbios_check_failure("dmidecode executable must be an absolute path"))
   }
@@ -1260,7 +1259,7 @@ export proc corroborate_smbios_bundle(
 }
 
 ## Re-runs the production firmware collector on the saved raw table.
-export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosComparison] {
+export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosComparison, Error] {
   let validated = validate_smbios_bundle_data(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SmbiosCollector)?
   let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "firmware", true)?
@@ -1291,7 +1290,10 @@ pure smbios_require_live_report(candidate_json: Str) -> Result[Unit] {
 }
 
 ## Brackets the kernel-exported DMI table around a sensitive firmware report.
-export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, error, io] -> Result[SmbiosLiveOutcome] {
+export proc compare_live_smbios(
+  xsh_bin: Str,
+  script: Str,
+) [fs, process, time, error, io] -> Result[SmbiosLiveOutcome, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
     return Err(smbios_check_failure("--xsh-bin and --script must be absolute paths"))
   }

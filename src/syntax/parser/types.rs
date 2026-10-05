@@ -55,6 +55,16 @@ impl<'a> Parser<'a> {
                 let end = self.previous_end();
                 arena.push_result_type_expr(ok, err, self.span(start, end))
             }
+            "Union" => {
+                self.expect(TokenKindMatch::LBracket, "expected `[` after `Union`");
+                let mut members = vec![self.parse_type_expr(arena)?];
+                while self.consume(TokenKindMatch::Comma).is_some() {
+                    members.push(self.parse_type_expr(arena)?);
+                }
+                self.expect(TokenKindMatch::RBracket, "expected `]` after union members");
+                let end = self.previous_end();
+                arena.push_union_type_expr(&members, self.span(start, end))
+            }
             _ => {
                 if self.consume(TokenKindMatch::Dot).is_some() {
                     let ty_name = self.expect_ident("expected type name after `.`")?;

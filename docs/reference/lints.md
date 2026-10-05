@@ -35,7 +35,11 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.needless-annotation` | Remove a type annotation that the initializer or checked constraints already fix |
 | `lint.organize-top-level-consts` | Group safe immutable top-level constants after imports and before functions |
 | `lint.path-constructor` | Prefer a `p` string literal or path interpolation over `Path(...)` |
+| `lint.path-display-equality` | Compare a Path with a string literal directly instead of through `.display()` |
+| `lint.path-display-sink` | Pass a Path itself to an argv, environment, or bytes sink instead of its display text |
+| `lint.path-text-query` | Test a Path for a root component instead of testing its display text for a leading `/` |
 | `lint.pattern-conditional` | Use `if let` for a two-arm match with a complementary pattern |
+| `lint.positional-error-arguments` | Name error constructor arguments that follow a named one or fill fields a single value fits two of |
 | `lint.prefer-bare-field-label` | Write identifier-shaped record field labels without quotes |
 | `lint.prefer-block-string` | Use a block string for a constant multiline string concatenation |
 | `lint.prefer-callable-alias` | Use an immutable alias for a callable that exactly forwards to another |
@@ -45,10 +49,12 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-defer-block` | Replace a single-use literal cleanup helper with a `defer` block |
 | `lint.prefer-empty-map-literal` | Use `{}` for an empty map in map-typed contexts |
 | `lint.prefer-env-string` | Read an environment variable with a literal identifier name as `e"NAME"` |
+| `lint.prefer-exit` | Write a deliberate exit as the statement `exit STATUS` instead of `abort(STATUS)` |
 | `lint.prefer-file-lines` | Use `path.lines()?` instead of `read_text()?.lines()` in a loop |
 | `lint.prefer-fs-files` | Use `fs.files()` instead of `fs.walk()` filtered to `kind == file` |
 | `lint.prefer-generic-record-constructor` | Let a constructor infer its concrete schema from the supplied fields |
 | `lint.prefer-guard` | Use `guard` instead of a single-action `if` |
+| `lint.prefer-implicit-message` | Declare a variant whose only payload is `message: Str` without a payload and pass its message positionally |
 | `lint.prefer-in` | Use `in` or `not in` instead of a membership method call |
 | `lint.prefer-inferred-private-effects` | Drop a private proc or stream effect clause that names exactly its inferred effects |
 | `lint.prefer-inferred-pure-return` | Drop a private pure return type when it is inferred exactly |
@@ -63,24 +69,34 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-map-comp` | Use a map comprehension instead of a for loop that only builds a map |
 | `lint.prefer-map-entry-iteration` | Iterate map entries instead of looping over keys and looking each value up |
 | `lint.prefer-map-literal` | Construct a fresh Map with one literal instead of incremental insertion |
+| `lint.prefer-match-else` | Write a last `_ =>` match arm as the catch-all `else =>` |
 | `lint.prefer-method` | Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)` |
 | `lint.prefer-named-argument-pun` | Use the named-argument shorthand when the argument repeats its value name |
 | `lint.prefer-named-argument-spread` | Forward record fields with a named argument spread such as `...record` |
 | `lint.prefer-nested-record-update` | Use disjoint static field paths instead of nested record spreads |
+| `lint.prefer-optional-binding` | Use `guard let` instead of an exiting null test followed by a binding that names the optional again |
 | `lint.prefer-optional-postfix` | Use a guarded postfix and `??` instead of an explicit null branch |
 | `lint.prefer-positional-constructor` | Pass leading schema constructor fields positionally when no two of them can hold the same value |
+| `lint.prefer-propagation` | Use `?` instead of a `match` whose `Err` arm only returns the same error |
+| `lint.prefer-read-lines` | Read a file's lines with `Path.read_lines()?` instead of `read_text()?.lines()` |
 | `lint.prefer-record-constructor` | Use the named schema constructor for a record literal of a schema type |
 | `lint.prefer-record-destructuring` | Bind adjacent fields of one record together with a destructuring `let` |
 | `lint.prefer-regex-literal` | Prepare a static regex pattern with an `rx` literal instead of a call |
+| `lint.prefer-repeat` | Use `repeat N times` instead of `for _ in range(N)` |
 | `lint.prefer-scalar-iteration` | Iterate a Str by scalars or bytes without a split List or unused offsets |
+| `lint.prefer-run-argv` | Run a command vector with `run.status @argv ?` instead of rebuilding it with `process.command_argv(argv[0], argv)` |
 | `lint.prefer-signature-cli` | Declare a literal CLI schema as a `cli main(...)` entry signature |
+| `lint.prefer-size-literal` | Write a byte count that is a product of literals and powers of 1024 as a size literal |
 | `lint.prefer-slice` | Use half-open slicing where offset/count method bounds are equivalent |
 | `lint.prefer-stream-producer` | Suggest a `stream` producer with `yield` for a proc that builds a list item by item |
 | `lint.prefer-string-concat` | Use `+` instead of joining literal pieces with an empty separator |
 | `lint.prefer-tempdir-scope` | Use a `tempdir NAME { ... }` scope for a temporary directory used only through its path |
+| `lint.prefer-tempdir` | Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit |
 | `lint.prefer-try-capture` | Replace a single-use closed helper with a local `try` block capture |
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
+| `lint.prefer-write-lines` | Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline |
 | `lint.prefer-yield-delegation` | Replace a transparent forwarding loop with `yield @iterable` |
+| `lint.public-result-error` | Spell the error type of each Result in an exported signature or module contract |
 | `lint.redundant-bare-return` | Remove a bare `return` at the end of a `Result[Unit]` function |
 | `lint.redundant-command-fmt` | Use command value syntax directly for a single-value command f-string |
 | `lint.redundant-command-interpolation` | Use expression syntax directly for a single interpolation in command args |
@@ -96,8 +112,10 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.redundant-path-interpolation` | Remove a single-value path interpolation that wraps one value |
 | `lint.redundant-path-parse` | Remove a Path display then parse round trip on a value already a Path |
 | `lint.redundant-pipeline-stage` | Remove no-op `where true` and `map .` pipeline stages |
+| `lint.redundant-propagation` | Remove `?` from a statement-position `Result[Unit]` call, which already propagates |
 | `lint.redundant-require` | Remove a schema `require` on an expression that already has the required type |
 | `lint.redundant-result-unit` | Remove a `Result[Unit]` return annotation that a proc without a value tail infers |
+| `lint.redundant-scope-propagation` | Remove `?` from a statement-position `cd`, `env`, `try`, or `retry` block, which already propagates |
 | `lint.redundant-string-interpolation` | Remove a string interpolation containing only a single value |
 | `lint.redundant-tail-return-binding` | Return the initializer implicitly instead of binding it and returning at the tail |
 | `lint.redundant-tail-return` | Use the tail value implicitly instead of a final `return` |
@@ -112,6 +130,9 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.unused-callable` | Flag an unexported callable not reachable from a bundle entry point |
 | `lint.unused-local` | Flag a local variable that is never read |
 | `lint.unused-type` | Flag a type declaration that is never referenced |
+| `lint.prefer-inferred-proc-return` | Drop a private proc return type when it is inferred exactly |
+| `lint.redundant-use-alias` | Drop a `use` alias that repeats the last path segment, as in `use a.b as b` |
+| `lint.list-any-union` | Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

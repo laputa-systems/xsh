@@ -33,7 +33,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
 test test_nominal_error_payload_and_facet_patterns {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok {text}")?
-    Err(FsError.NotFound {file: file}) => assert file.display() == "missing"
+    Err(FsError.NotFound {file: file}) => assert file == "missing"
     Err(is PermissionDenied) => test.fail("unexpected permission facet")?
     Err(error) => test.fail(error.message)?
   }
@@ -108,8 +108,8 @@ test test_ergonomic_sugar_pass_forms { |ctx|
     printed_path = item.path.display()
   }
 
-  let jobs = env.Str.XSH_ERGONOMIC_SUGAR_MISSING ?? "1"
-  let ok = Ok("set") ?? env.Str.XSH_ERGONOMIC_SUGAR_MISSING?
+  let jobs = e"XSH_ERGONOMIC_SUGAR_MISSING" ?? "1"
+  let ok = Ok("set") ?? e"XSH_ERGONOMIC_SUGAR_MISSING"?
   json.write(fp"{root}/meta.json", {name, version, jobs, ok})?
   let metadata = json.read(fp"{root}/meta.json")?
   fs.remove(fp"{root}/missing", missing_ok: true)?

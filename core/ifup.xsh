@@ -227,7 +227,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
       "mapping" | "allow-auto" | "allow-hotplug" => return Err(
         IfupError.Config(f"{path_value}: unsupported ifupdown directive {fields[0]}"),
       )
-      _ => {}
+      else => {}
     }
   }
 
@@ -312,7 +312,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
       IF_GATEWAY: stanza.gateway,
     }
 
-    let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
+    let status = process.run(process.command_argv(entry.path, [entry.path], env: env_record))?
 
     return Err(IfupError.Hook(f"{entry.path} failed for {physical}")) unless status.ok
   }
@@ -394,15 +394,15 @@ proc dhcp_packet(
   server_id: List[Int],
 ) [error] -> Result[Bytes] {
   var chunks = []
-  chunks = chunks.push(bytes.from_ints([1, 1, 6, 0])?)
-  chunks = chunks.push(bytes.pack_be(xid, 4)?)
-  chunks = chunks.push(bytes.from_ints([0, 0])?)
-  chunks = chunks.push(bytes.from_ints([128, 0])?)
-  chunks = chunks.push(bytes.zero(16)?)
-  chunks = chunks.push(bytes.from_ints(mac)?)
-  chunks = chunks.push(bytes.zero(16 - mac.len())?)
-  chunks = chunks.push(bytes.zero(192)?)
-  chunks = chunks.push(bytes.from_ints(DHCP_MAGIC)?)
+  chunks += [bytes.from_ints([1, 1, 6, 0])?]
+  chunks += [bytes.pack_be(xid, 4)?]
+  chunks += [bytes.from_ints([0, 0])?]
+  chunks += [bytes.from_ints([128, 0])?]
+  chunks += [bytes.zero(16)?]
+  chunks += [bytes.from_ints(mac)?]
+  chunks += [bytes.zero(16 - mac.len())?]
+  chunks += [bytes.zero(192)?]
+  chunks += [bytes.from_ints(DHCP_MAGIC)?]
   var options = [53, 1, msg_type, 61, 7, 1].extend(mac)
 
   if requested_ip.len() == 4 {
@@ -414,7 +414,7 @@ proc dhcp_packet(
   }
 
   options = options.extend([55, 5, 1, 3, 6, 15, 28]).push(255)
-  chunks = chunks.push(bytes.from_ints(options)?)
+  chunks += [bytes.from_ints(options)?]
   bytes.concat(chunks)
 }
 
@@ -459,7 +459,7 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
       var offset = 0
 
       while offset + 4 <= len {
-        dns_servers = dns_servers.push(ints_to_ip(read_ip_octets(packet, value + offset)?))
+        dns_servers += [ints_to_ip(read_ip_octets(packet, value + offset)?)]
         offset = offset + 4
       }
     }
@@ -603,7 +603,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
     "loopback" | "manual" => linux.link_up(physical)?
     "static" => configure_static(physical, stanza)?
     "dhcp" => configure_dhcp(physical)?
-    _ => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
+    else => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.up {

@@ -354,9 +354,14 @@ impl TypeConstraints {
                     self.resolve_depth(field, depth + 1)?;
                 }
             }
+            Type::Union(members) => {
+                for member in members {
+                    self.resolve_depth(member, depth + 1)?;
+                }
+            }
             // Module contracts are shared; copy one only when it must be rewritten.
             Type::Module(exports) if module_has_inference(exports, depth)? => {
-                for export in Arc::make_mut(exports).values_mut() {
+                for export in Arc::make_mut(exports).exports.values_mut() {
                     match export {
                         ModuleExportType::Value { ty, .. } => self.resolve_depth(ty, depth + 1)?,
                         ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
@@ -431,6 +436,7 @@ impl TypeConstraints {
                     pending.push((error, depth + 1));
                 }
                 Type::Record(fields) => pending.extend(fields.values().map(|ty| (ty, depth + 1))),
+                Type::Union(members) => pending.extend(members.iter().map(|ty| (ty, depth + 1))),
                 Type::Module(exports) => {
                     for export in exports.values() {
                         match export {
@@ -517,6 +523,7 @@ fn has_anchor(ty: &Type, annotation: bool) -> bool {
                 }
                 pending.extend(fields.values().map(|ty| (ty, depth + 1)));
             }
+            Type::Union(members) => pending.extend(members.iter().map(|ty| (ty, depth + 1))),
             Type::Module(exports) => {
                 for export in exports.values() {
                     match export {
@@ -555,6 +562,14 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
         Type::Record(fields) => {
             for field in fields.values() {
                 if has_inference(field, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            false
+        }
+        Type::Union(members) => {
+            for member in members {
+                if has_inference(member, depth + 1)? {
                     return Ok(true);
                 }
             }

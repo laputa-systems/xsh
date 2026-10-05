@@ -1061,6 +1061,31 @@ impl FullProgram {
         Ok(self.store.driver_steps[step].tag == FullDriverTag::Defer)
     }
 
+    /// Whether a deferred driver step is an `errdefer`, which runs only when
+    /// the script or module leaves its top level with an error.
+    ///
+    /// A deferred step's payload is its action, this flag, and its span; the
+    /// verifier has checked that the flag is a boolean.
+    pub(in crate::runtime::eval) fn driver_step_defers_on_error(
+        &self,
+        index: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let steps = self.driver_root_steps()?;
+        let step = steps
+            .start
+            .checked_add(index)
+            .filter(|step| *step < steps.end)
+            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        let step = self.store.driver_steps[step];
+        if step.tag != FullDriverTag::Defer {
+            return Err(IrVerifyError::new("driver step is not a deferred action"));
+        }
+        match self.store.payload(step.data.range())? {
+            [_, flag, ..] => Ok(*flag == 1),
+            _ => Err(IrVerifyError::new("deferred driver step has no trigger")),
+        }
+    }
+
     fn driver_root_steps(&self) -> Result<std::ops::Range<usize>, IrVerifyError> {
         let root = self
             .store
@@ -1074,7 +1099,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
-    fn verify_driver(&self) -> Result<(), IrVerifyError> {
+    fn verify_driver(&self, owned_blocks: &FxHashMap<u32, usize>) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(());
         }
@@ -1084,6 +1109,7 @@ impl FullProgram {
             self.store.driver_root,
             &mut program_states,
             &mut step_states,
+            owned_blocks,
         )?;
         if program_states.iter().any(|state| *state != 2)
             || step_states.iter().any(|state| *state != 2)
@@ -1100,6 +1126,7 @@ impl FullProgram {
         raw: u32,
         program_states: &mut [u8],
         step_states: &mut [u8],
+        owned_blocks: &FxHashMap<u32, usize>,
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -1131,7 +1158,7 @@ impl FullProgram {
                 }
                 _ => unreachable!("driver step state is bounded"),
             }
-            self.verify_driver_step(step_index, program_states, step_states)?;
+            self.verify_driver_step(step_index, program_states, step_states, owned_blocks)?;
             step_states[step_index] = 2;
         }
         program_states[index] = 2;
@@ -1143,16 +1170,18 @@ impl FullProgram {
         step_index: usize,
         program_states: &mut [u8],
         step_states: &mut [u8],
+        owned_blocks: &FxHashMap<u32, usize>,
     ) -> Result<(), IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         let instruction_range = self.store.driver_instruction_range(step_index)?;
+        let owner = driver_owner(step_index)
+            .map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
         let decoder = FullDecoder {
             store: &self.store,
-            owner: driver_owner(step_index)
-                .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
+            owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
             instruction_range,
-            block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
+            block_states: Some(OwnedBlockStates::new(owner, owned_blocks)),
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             verified: false,
@@ -1186,7 +1215,7 @@ impl FullProgram {
                 Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
                 let child = payload.raw()?;
                 Span::verify(&decoder, &mut payload)?;
-                self.verify_driver_program(child, program_states, step_states)?;
+                self.verify_driver_program(child, program_states, step_states, owned_blocks)?;
             }
             FullDriverTag::Let => {
                 Name::verify(&decoder, &mut payload)?;
@@ -1217,6 +1246,7 @@ impl FullProgram {
             FullDriverTag::Expr => BuildExprRow::verify(&decoder, &mut payload)?,
             FullDriverTag::Defer => {
                 BuildExprRow::verify(&decoder, &mut payload)?;
+                bool::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::SignalHook => {
@@ -2343,8 +2373,13 @@ impl FullBuilder {
                 value.encode(self, &mut payload)?;
                 FullDriverTag::Expr
             }
-            Some(BuildTopKind::Defer { value, span }) => {
+            Some(BuildTopKind::Defer {
+                value,
+                on_error,
+                span,
+            }) => {
                 value.encode(self, &mut payload)?;
+                on_error.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Defer
             }
@@ -2871,6 +2906,7 @@ fn executable_type(ty: &Type) -> Type {
         ),
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
+        Type::Union(members) => Type::Union(members.iter().map(executable_type).collect()),
         Type::Result(ok, error) => Type::Result(
             Box::new(executable_type(ok)),
             Box::new(executable_type(error)),
@@ -2881,8 +2917,9 @@ fn executable_type(ty: &Type) -> Type {
                 .map(|(name, ty)| (*name, executable_type(ty)))
                 .collect(),
         ),
-        Type::Module(exports) => Type::Module(
-            exports
+        Type::Module(module) => Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
+            exact: module.exact,
+            exports: module
                 .iter()
                 .map(|(name, export)| {
                     let export = match export {
@@ -2901,9 +2938,8 @@ fn executable_type(ty: &Type) -> Type {
                     };
                     (*name, export)
                 })
-                .collect::<BTreeMap<_, _>>()
-                .into(),
-        ),
+                .collect::<BTreeMap<_, _>>(),
+        })),
         ty => ty.clone(),
     }
 }
@@ -2955,7 +2991,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Map(_, _) => LoweredType::Map,
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
-        Type::Null | Type::Optional(_) => LoweredType::Any,
+        Type::Null | Type::Optional(_) | Type::Union(_) => LoweredType::Any,
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
@@ -3396,10 +3432,40 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     owner: u32,
     instruction_range: std::ops::Range<usize>,
     instruction_states: Option<RefCell<Vec<u8>>>,
-    block_states: Option<RefCell<Vec<u8>>>,
+    block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
     verified: bool,
+}
+
+/// The blocks one owner's verification entered. Tracking only those keeps
+/// verifying a body proportional to the body, not to the whole program.
+struct OwnedBlockStates {
+    /// 1 while a block is open and 2 once it is finished.
+    states: RefCell<FxHashMap<usize, u8>>,
+    /// Finished blocks that the store assigns to this owner.
+    finished_owned: Cell<usize>,
+    /// Blocks that the store assigns to this owner.
+    owned: usize,
+}
+
+impl OwnedBlockStates {
+    fn new(owner: u32, owned_blocks: &FxHashMap<u32, usize>) -> Self {
+        Self {
+            states: RefCell::default(),
+            finished_owned: Cell::new(0),
+            owned: owned_blocks.get(&owner).copied().unwrap_or(0),
+        }
+    }
+}
+
+/// How many blocks the store assigns to each function or driver step.
+fn owned_block_counts(store: &FullStore) -> FxHashMap<u32, usize> {
+    let mut counts = FxHashMap::default();
+    for block in &store.blocks {
+        *counts.entry(block.owner).or_default() += 1;
+    }
+    counts
 }
 
 impl<'a> FullDecoder<'a> {
@@ -3569,9 +3635,11 @@ impl<'a> FullDecoder<'a> {
         if block.owner != IR_NONE
             && let Some(states) = &self.block_states
         {
-            let state = states.borrow()[id.index()];
-            match state {
-                0 => states.borrow_mut()[id.index()] = 1,
+            let mut states = states.states.borrow_mut();
+            match states.get(&id.index()).copied().unwrap_or(0) {
+                0 => {
+                    states.insert(id.index(), 1);
+                }
                 1 => {
                     return Err(IrVerifyError::new("full IR block graph contains a cycle"));
                 }
@@ -3587,10 +3655,13 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_block(&self, id: IrBlockId) {
-        if self.store.blocks[id.index()].owner != IR_NONE
+        let owner = self.store.blocks[id.index()].owner;
+        if owner != IR_NONE
             && let Some(states) = &self.block_states
+            && states.states.borrow_mut().insert(id.index(), 2) != Some(2)
+            && owner == self.owner
         {
-            states.borrow_mut()[id.index()] = 2;
+            states.finished_owned.set(states.finished_owned.get() + 1);
         }
     }
 
@@ -3694,6 +3765,23 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
+    /// An optional guard fails on `null`, which carries no error, so it has
+    /// no slot to bind one to. Executing such a row would leave that slot
+    /// holding whatever an earlier statement stored there.
+    fn verify_guard_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        LoweredCompTarget::decode(self, &mut payload)?;
+        payload.raw()?;
+        let else_param_slot = Option::<usize>::decode(self, &mut payload)?;
+        payload.raw()?;
+        Span::decode(self, &mut payload)?;
+        if bool::decode(self, &mut payload)? && else_param_slot.is_some() {
+            return Err(IrVerifyError::new(
+                "optional guard cannot bind a failure parameter",
+            ));
+        }
+        Ok(())
+    }
+
     fn finish_instruction(&self, index: usize) {
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
@@ -3705,13 +3793,10 @@ impl<'a> FullDecoder<'a> {
             .instruction_states
             .as_ref()
             .is_none_or(|states| states.borrow().iter().all(|state| *state == 2));
-        let blocks_complete = self.block_states.as_ref().is_none_or(|states| {
-            self.store
-                .blocks
-                .iter()
-                .zip(states.borrow().iter())
-                .all(|(block, state)| block.owner != self.owner || *state == 2)
-        });
+        let blocks_complete = self
+            .block_states
+            .as_ref()
+            .is_none_or(|states| states.finished_owned.get() == states.owned);
         if instructions_complete && blocks_complete {
             Ok(())
         } else {
@@ -4152,6 +4237,7 @@ impl FullVerifier {
             }
             previous_cold_param = Some(cold.param);
         }
+        let owned_blocks = owned_block_counts(store);
         for (index, function) in store.functions.iter().enumerate() {
             store.string(function.name)?;
             let metadata = store.function_metadata[index];
@@ -4196,14 +4282,15 @@ impl FullVerifier {
                 }
             }
             let instruction_len = instructions.len();
+            let owner = IrFunctionId::new(index)
+                .map_err(|_| IrVerifyError::new("function id is invalid"))?
+                .raw();
             let decoder = FullDecoder {
                 store,
-                owner: IrFunctionId::new(index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
-                    .raw(),
+                owner,
                 instruction_range: instructions,
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
-                block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
+                block_states: Some(OwnedBlockStates::new(owner, &owned_blocks)),
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
@@ -4517,7 +4604,7 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.verify_driver()?;
+            program.verify_driver(&owned_blocks)?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
@@ -6015,6 +6102,10 @@ macro_rules! impl_node_codec {
                 if tag == FullTag::ExprRetry {
                     let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
                     decoder.verify_retry_selection(payload)?;
+                }
+                if tag == FullTag::StmtGuard {
+                    let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
+                    decoder.verify_guard_shape(payload)?;
                 }
                 decoder.finish_instruction(instruction);
                 Ok(())
@@ -8236,18 +8327,21 @@ impl_node_codec! {
             else_param_slot,
             else_body,
             span,
+            optional,
         } => StmtGuard {
             target: LoweredCompTarget,
             value: BuildExprId,
             else_param_slot: Option<usize>,
             else_body: Vec<BuildStmtId>,
             span: Span,
+            optional: bool,
         } => BuildStmtRow::Guard {
             target,
             value,
             else_param_slot,
             else_body,
             span,
+            optional,
         },
         BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span } => StmtWith {
             bindings: Vec<(usize, BuildExprId)>,
@@ -8584,9 +8678,10 @@ impl_node_codec! {
             value: BuildExprId,
         } => BuildStmtRow::BreakValue { value },
         BuildStmtRow::Continue => StmtContinue {} => BuildStmtRow::Continue,
-        BuildStmtRow::Defer { value } => StmtDefer {
+        BuildStmtRow::Defer { value, on_error } => StmtDefer {
             value: BuildExprId,
-        } => BuildStmtRow::Defer { value },
+            on_error: bool,
+        } => BuildStmtRow::Defer { value, on_error },
     }
 }
 
@@ -9782,6 +9877,72 @@ pure selected() -> Str {
             "{}",
             error.message
         );
+    }
+
+    /// A deferred action carries whether it is an `errdefer` as one boolean
+    /// word, in a function body and at the top level alike. Any other value
+    /// would be read as one of the two, so the verifier rejects it.
+    #[test]
+    fn verifier_rejects_a_deferred_action_whose_trigger_is_not_a_boolean() {
+        let program = fixture(
+            "indexed-errdefer.xsh",
+            "proc step() -> Int {\n  errdefer { print \"undo\" }\n  defer { print \"done\" }\n  1\n}\n\nerrdefer { print \"undo\" }\ndefer { print \"done\" }\nprint $step()\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        // In a function body the payload is the action and the trigger.
+        let statement_triggers = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| **tag == FullTag::StmtDefer)
+            .map(|(instruction, _)| {
+                let payload = program.store.data[instruction]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap();
+                assert_eq!(payload.len(), 2);
+                payload.start + 1
+            })
+            .collect::<Vec<_>>();
+        let mut written = statement_triggers
+            .iter()
+            .map(|word| program.store.extra[*word])
+            .collect::<Vec<_>>();
+        written.sort_unstable();
+        assert_eq!(written, [0, 1], "one `defer` and one `errdefer`");
+
+        // At the top level it is the action, the trigger, and the span.
+        let driver_triggers = program
+            .store
+            .driver_steps
+            .iter()
+            .filter(|step| step.tag == FullDriverTag::Defer)
+            .map(|step| {
+                step.data
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap()
+                    .start
+                    + 1
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(driver_triggers.len(), 2);
+        assert!(program.driver_step_defers_on_error(0).is_err());
+        assert_eq!(program.driver_step_defers_on_error(1).ok(), Some(true));
+        assert_eq!(program.driver_step_defers_on_error(2).ok(), Some(false));
+
+        for word in statement_triggers.into_iter().chain(driver_triggers) {
+            let mut corrupt = program.clone();
+            corrupt.store.extra[word] = 2;
+            let error = FullVerifier::verify(&corrupt).unwrap_err();
+            assert!(
+                error.message.contains("boolean payload"),
+                "{}",
+                error.message
+            );
+        }
     }
 
     #[test]
@@ -11006,6 +11167,9 @@ proc configured() [] -> Int {
                     PreparedSchema::List(schema)
                     | PreparedSchema::Map(_, schema)
                     | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    PreparedSchema::Union(_, members) => members
+                        .iter_mut()
+                        .any(|schema| change_mapping(Arc::make_mut(schema))),
                     PreparedSchema::Validate(_) => false,
                 }
             }
@@ -11078,6 +11242,116 @@ proc configured() [] -> Int {
                     .expect("wire enum function exists");
                 assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
             }
+        });
+    }
+
+    // A union reaches the verified program as a type-pool row and, where a
+    // member converts wire strings, as a prepared schema that tries the
+    // member schemas in the order written. Corrupting either is rejected.
+    #[test]
+    fn union_types_and_schemas_reject_corruption_in_a_lowered_program() {
+        use super::super::super::require::PreparedSchema;
+        run_with_large_stack(|| {
+            let source = r#"enum UnionMode: Str { Fast = "fast", Slow = "slow" }
+type UnionTask = {tool: Str, args: List[Union[Str, Path]], level: Union[Int, UnionMode]}
+
+pure union_task(source: Str) -> Result[Str] {
+  let task = json.decode(source)?.require(UnionTask)?
+  let level = match task.level {
+    count is Int => f"{count}",
+    _ is UnionMode => "mode",
+  }
+  return Ok(f"{task.tool} {level} {task.args.len()}")
+}
+"#;
+            let program = Arc::new(fixture("union-types.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            for (raw, expected) in [
+                ("{\"tool\":\"make\",\"args\":[\"all\"],\"level\":3}", "make 3 1"),
+                ("{\"tool\":\"make\",\"args\":[],\"level\":\"fast\"}", "make mode 0"),
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "union_task")),
+                        LoweredFunctionKind::Pure,
+                        &[Value::Str(Arc::from(raw))],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("union function exists");
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
+            }
+
+            let mut one_member = (*program).clone();
+            assert!(one_member.store.semantic.truncate_first_union_for_test());
+            assert!(
+                FullVerifier::verify(&one_member)
+                    .unwrap_err()
+                    .message
+                    .contains("fewer than two members")
+            );
+
+            fn union_schema(schema: &mut PreparedSchema) -> Option<&mut PreparedSchema> {
+                match schema {
+                    PreparedSchema::Union(..) => Some(schema),
+                    PreparedSchema::Record(fields) => fields
+                        .iter_mut()
+                        .find_map(|(_, schema)| union_schema(Arc::make_mut(schema))),
+                    _ => None,
+                }
+            }
+            let record = program
+                .store
+                .prepared_schemas
+                .iter()
+                .position(|schema| matches!(schema.as_ref(), PreparedSchema::Record(_)))
+                .expect("the record schema with a converting union slot");
+
+            // The member schemas no longer line up with the members.
+            let mut reordered = (*program).clone();
+            let Some(PreparedSchema::Union(_, members)) =
+                union_schema(Arc::make_mut(&mut reordered.store.prepared_schemas[record]))
+            else {
+                panic!("the level slot is a converting union");
+            };
+            members.reverse();
+            assert!(
+                FullVerifier::verify(&reordered)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            // The schema claims a member order the checked type does not have.
+            let mut retyped = (*program).clone();
+            let Some(PreparedSchema::Union(ty, members)) =
+                union_schema(Arc::make_mut(&mut retyped.store.prepared_schemas[record]))
+            else {
+                panic!("the level slot is a converting union");
+            };
+            let Type::Union(listed) = ty else {
+                panic!("a union schema carries its union type");
+            };
+            listed.reverse();
+            members.reverse();
+            assert!(
+                FullVerifier::verify(&retyped)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            let mut dropped = (*program).clone();
+            let Some(PreparedSchema::Union(_, members)) =
+                union_schema(Arc::make_mut(&mut dropped.store.prepared_schemas[record]))
+            else {
+                panic!("the level slot is a converting union");
+            };
+            members.pop();
+            assert!(FullVerifier::verify(&dropped).is_err());
         });
     }
 
@@ -11662,5 +11936,51 @@ proc scoped() [io, error] -> Int {
                 .message
                 .contains("non-rest defaulted parameter entry")
         );
+    }
+
+    #[test]
+    fn verifier_rejects_optional_guard_with_failure_parameter() {
+        run_with_large_stack(|| {
+            let guard_payload = |program: &FullProgram| {
+                let guard = program
+                    .store
+                    .tags
+                    .iter()
+                    .position(|tag| *tag == FullTag::StmtGuard)
+                    .unwrap();
+                program.store.data[guard]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap()
+            };
+
+            // The checker's optional-binding fact reaches the row.
+            let optional = fixture(
+                "optional-guard.xsh",
+                "pure label(name: Str?) -> Str { guard let found = name else { return \"none\" }; found }\n",
+            );
+            FullVerifier::verify(&optional).unwrap();
+            assert_eq!(optional.store.extra[guard_payload(&optional).end - 1], 1);
+
+            // A Result guard binds its failure; marking it optional claims a
+            // failure with no error for that slot.
+            let result = fixture(
+                "result-guard.xsh",
+                "pure parse(text: Str) -> Result[Int] { text.parse_int() }\npure value(text: Str) -> Int { guard let number = parse(text) else { |failure| return failure.message.count_chars() }; number }\n",
+            );
+            FullVerifier::verify(&result).unwrap();
+            let flag = guard_payload(&result).end - 1;
+            assert_eq!(result.store.extra[flag], 0);
+            let mut invalid = result.clone();
+            invalid.store.extra[flag] = 1;
+            let error = FullVerifier::verify(&invalid).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("optional guard cannot bind a failure parameter"),
+                "{}",
+                error.message
+            );
+        });
     }
 }

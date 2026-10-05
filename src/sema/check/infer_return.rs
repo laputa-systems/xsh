@@ -16,82 +16,18 @@ struct ReturnDeclaration {
     parameters: FxHashSet<Name>,
 }
 
-impl Checker {
-    /// Infer definitions in dependency order before checking their callers.
-    /// An annotation fixes a callable boundary, but every recursive component
-    /// still requires its unannotated pure members to declare that boundary.
-    /// Unannotated procs whose body may produce a value are probed here too;
-    /// their bodies are still checked in source order with the inferred return.
-    pub(super) fn infer_local_pure_returns(
-        &mut self,
-        program: &ArenaProgram,
-        source: &str,
-        statements: &[StmtId],
-    ) {
-        let mut declarations = Vec::new();
-        for &statement in statements {
-            let (statement, exported) = match program.arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => (inner, true),
-                _ => (statement, false),
-            };
-            let stmt = program.arena.stmt(statement);
-            match stmt.kind {
-                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function)
-                    if !program.arena.function_def(function).test_declaration =>
-                {
-                    let def = program.arena.function_def(function);
-                    declarations.push(ReturnDeclaration {
-                        name: def.name,
-                        names: vec![def.name],
-                        span: stmt.span,
-                        function: Some(function),
-                        proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)),
-                        statement,
-                        exported,
-                        parameters: program
-                            .arena
-                            .params(def.params)
-                            .iter()
-                            .map(|param| param.name)
-                            .collect(),
-                    });
-                }
-                ArenaStmtKind::Let { target, .. }
-                | ArenaStmtKind::Const { target, .. }
-                | ArenaStmtKind::Var { target, .. } => {
-                    let names = binding_names(program, target)
-                        .into_iter()
-                        .filter(|name| *name != "_")
-                        .collect::<Vec<_>>();
-                    if let Some(&name) = names.first() {
-                        declarations.push(ReturnDeclaration {
-                            name,
-                            names,
-                            span: stmt.span,
-                            function: None,
-                            proc_def: false,
-                            statement,
-                            exported,
-                            parameters: FxHashSet::default(),
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-        if !declarations.iter().any(|decl| {
-            decl.function.is_some_and(|id| {
-                let def = program.arena.function_def(id);
-                def.return_ty_defaulted && (!decl.proc_def || proc_may_return_value(program, def))
-            })
-        }) {
-            return;
-        }
-        let indices: FxHashMap<_, _> = declarations
-            .iter()
-            .enumerate()
-            .flat_map(|(index, decl)| decl.names.iter().map(move |name| (*name, index)))
-            .collect();
+/// Where the program reads and rebinds names. Dependency ordering consults
+/// it for every module, so it is collected once per checked program rather
+/// than once per module.
+pub(super) struct ReturnInferenceIndex {
+    /// The source ranges in which a local binding hides each name.
+    shadows: FxHashMap<Name, Vec<Span>>,
+    /// Every name read, in source order, and whether it is a call's callee.
+    references: Vec<(Span, Name, bool)>,
+}
+
+impl ReturnInferenceIndex {
+    fn collect(program: &ArenaProgram) -> Self {
         let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
         let mut add_shadow = |target, span| {
             for name in binding_names(program, target) {
@@ -101,7 +37,7 @@ impl Checker {
         for block in &program.arena.blocks {
             let block_span = program.arena.span(block.span);
             for id in program.arena.stmt_ids(block.statements) {
-                let stmt = program.arena.stmt(id);
+                let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
                 match stmt.kind {
                     ArenaStmtKind::Let { target, .. }
                     | ArenaStmtKind::Const { target, .. }
@@ -261,6 +197,101 @@ impl Checker {
             }
         }
         references.sort_unstable_by_key(|(span, _, _)| (span.source_id, span.start()));
+        Self {
+            shadows,
+            references,
+        }
+    }
+}
+
+impl Checker {
+    /// Infer definitions in dependency order before checking their callers.
+    /// An annotation fixes a callable boundary, but every recursive component
+    /// still requires its unannotated pure members to declare that boundary.
+    /// Unannotated procs whose body may produce a value are probed here too;
+    /// their bodies are still checked in source order with the inferred return.
+    pub(super) fn infer_local_pure_returns(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        statements: &[StmtId],
+    ) {
+        let mut declarations = Vec::new();
+        for &statement in statements {
+            let (statement, exported) = match program.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => (inner, true),
+                _ => (statement, false),
+            };
+            let stmt = program.arena.stmt(statement);
+            match stmt.kind {
+                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function)
+                    if !program.arena.function_def(function).test_declaration =>
+                {
+                    let def = program.arena.function_def(function);
+                    declarations.push(ReturnDeclaration {
+                        name: def.name,
+                        names: vec![def.name],
+                        span: stmt.span,
+                        function: Some(function),
+                        proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)),
+                        statement,
+                        exported,
+                        parameters: program
+                            .arena
+                            .params(def.params)
+                            .iter()
+                            .map(|param| param.name)
+                            .collect(),
+                    });
+                }
+                ArenaStmtKind::Let { target, .. }
+                | ArenaStmtKind::Const { target, .. }
+                | ArenaStmtKind::Var { target, .. } => {
+                    let names = binding_names(program, target)
+                        .into_iter()
+                        .filter(|name| *name != "_")
+                        .collect::<Vec<_>>();
+                    if let Some(&name) = names.first() {
+                        declarations.push(ReturnDeclaration {
+                            name,
+                            names,
+                            span: stmt.span,
+                            function: None,
+                            proc_def: false,
+                            statement,
+                            exported,
+                            parameters: FxHashSet::default(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !declarations.iter().any(|decl| {
+            decl.function.is_some_and(|id| {
+                let def = program.arena.function_def(id);
+                def.return_ty_defaulted && (!decl.proc_def || proc_may_return_value(program, def))
+            })
+        }) {
+            return;
+        }
+        let indices: FxHashMap<_, _> = declarations
+            .iter()
+            .enumerate()
+            .flat_map(|(index, decl)| decl.names.iter().map(move |name| (*name, index)))
+            .collect();
+        let index = match &self.return_inference_index {
+            Some(index) => index.clone(),
+            None => {
+                let index = std::sync::Arc::new(ReturnInferenceIndex::collect(program));
+                self.return_inference_index = Some(index.clone());
+                index
+            }
+        };
+        let ReturnInferenceIndex {
+            shadows,
+            references,
+        } = &*index;
         let mut edges = vec![Vec::new(); declarations.len()];
         for (index, decl) in declarations.iter().enumerate() {
             // Binding target spellings are declarations, not dependencies.
@@ -457,7 +488,7 @@ impl Checker {
                         ty = Type::Invalid;
                     }
                     _ => {
-                        self.error(span, "`?` requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
+                        self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
                         ty = Type::Invalid;
                     }
                 }
@@ -626,7 +657,7 @@ fn proc_may_return_value(
     program: &ArenaProgram,
     def: &crate::syntax::arena::ArenaFunctionDef,
 ) -> bool {
-    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(tail).kind {
+    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(program.arena.core_stmt_id(tail)).kind {
         ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. } => true,
         ArenaStmtKind::Command(command) => matches!(program.arena.command_stmt(command).command,
             crate::syntax::arena::ArenaCommand::Run(run) if super::command::run_capture_result_type_arena(program, run).is_some()),

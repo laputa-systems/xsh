@@ -26,7 +26,7 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
-                if self.check_embedded_bodies || program.module_statements(module).any(|id| {
+                if self.options.embedded_bodies || program.module_statements(module).any(|id| {
                     let kind = match program.arena.stmt(id).kind {
                         ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                         other => other,
@@ -42,7 +42,7 @@ impl Checker {
                 continue;
             }
             let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
-            self.user_modules.insert(module.key.clone(), sig);
+            Arc::make_mut(&mut self.user_modules).insert(module.key.clone(), sig);
         }
     }
 
@@ -349,6 +349,7 @@ impl Checker {
         self.check_test_declaration_names_arena(program, &stmt_ids, true);
         if !module.internal {
             self.check_public_docs(program, module.statements, &stmt_ids);
+            self.check_public_result_types(program, &stmt_ids);
         }
         for statement in &stmt_ids {
             if matches!(
@@ -814,7 +815,9 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
             },
         );
     }
-    Type::Module(exports.into())
+    // The checker has every export of a statically imported module, so its
+    // type is the module's whole surface.
+    Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(exports)))
 }
 
 #[allow(dead_code)]
@@ -848,15 +851,15 @@ impl Checker {
         binding.static_namespace = true;
         self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
-            self.qualified_procs
+            Arc::make_mut(&mut self.qualified_procs)
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
         for (name, sig) in &module.pures {
-            self.qualified_pures
+            Arc::make_mut(&mut self.qualified_pures)
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
         for (name, sig) in &module.streams {
-            self.qualified_streams
+            Arc::make_mut(&mut self.qualified_streams)
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
     }
@@ -1050,8 +1053,9 @@ fn type_def_body_arena(
                 })
                 .collect(),
         ),
-        ArenaTypeDefBody::ModuleContract(entries) => TypeDefBody::ModuleContract(
-            program
+        ArenaTypeDefBody::ModuleContract { entries, exact } => TypeDefBody::ModuleContract {
+            exact,
+            entries: program
                 .arena
                 .module_contract_entries(entries)
                 .iter()
@@ -1081,7 +1085,7 @@ fn type_def_body_arena(
                     },
                 })
                 .collect(),
-        ),
+        },
         ArenaTypeDefBody::TagUnion(variants) => TypeDefBody::TagUnion(
             program
                 .arena
@@ -1192,7 +1196,7 @@ impl Checker {
                     || standard_record_type(&parameter.as_str()).is_some()
                     || matches!(
                         parameter.as_str().as_str(),
-                        "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown"
+                        "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown" | "Union"
                     )
                 {
                     self.error(
@@ -1296,7 +1300,7 @@ impl Checker {
                     );
                 }
             }
-            ArenaTypeDefBody::ModuleContract(entries) => {
+            ArenaTypeDefBody::ModuleContract { entries, .. } => {
                 let entry_list = arena.arena.module_contract_entries(*entries);
                 let mut names = FxHashSet::default();
                 for entry in entry_list {
@@ -1405,12 +1409,12 @@ impl Checker {
                 .error_fields(variant.fields)
                 .iter()
                 .map(|field| (field.name, self.type_from_arena(arena, field.ty)))
-                .collect();
+                .collect::<Vec<_>>();
             let facets: Vec<Name> = arena.arena.names(variant.facets).collect();
             for facet in &facets {
                 self.error_facets.insert(*facet);
             }
-            variants.insert(variant.name, ErrorVariantInfo { fields, facets });
+            variants.insert(variant.name, ErrorVariantInfo::declared(fields, facets));
         }
         self.error_families
             .insert(def.name, ErrorFamilyInfo { variants });

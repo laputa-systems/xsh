@@ -176,6 +176,7 @@ impl<'a> Parser<'a> {
                     }
                     env = arena.finish_env_assignments();
                 }
+                self.accept_line_continuations();
                 let id = self.parse_block_arena_only(arena)?;
                 block = Some(id);
             }
@@ -369,6 +370,7 @@ impl<'a> Parser<'a> {
         let mut cpu_max_id = None;
         let mut accept_id = None;
         loop {
+            self.accept_line_continuations();
             let save = self.index;
             if !(self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus)) {
                 break;
@@ -459,6 +461,7 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        self.accept_line_continuations();
         if self.current_tag() != TokenTag::Ident {
             return None;
         }

@@ -5,10 +5,23 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use xsh::process::cancellation_requested_signal;
 
-pub const CONFIG_FILE_NAME: &str = "xsht-config.ini";
+pub const CONFIG_FILE_NAME: &str = xsh::frontend::load::PROJECT_CONFIG_FILE_NAME;
 
 pub fn collect_xsh_files(
     root: &Path,
+    excludes: &[String],
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    collect_xsh_files_below(root, root, excludes, files)
+}
+
+/// Collects the scripts under `root`. `excludes` are the patterns of the
+/// config in `config_dir` and name paths below that directory, so a walk
+/// that starts deeper in the project excludes exactly what a walk from the
+/// config's directory excludes there.
+pub fn collect_xsh_files_below(
+    root: &Path,
+    config_dir: &Path,
     excludes: &[String],
     files: &mut Vec<PathBuf>,
 ) -> Result<(), String> {
@@ -19,7 +32,7 @@ pub fn collect_xsh_files(
         }
         return Ok(());
     }
-    let mut discovered = collect_xsh_files_parallel(root, excludes)?;
+    let mut discovered = collect_xsh_files_parallel(root, config_dir, excludes)?;
     files.append(&mut discovered);
     files.sort_unstable();
     files.dedup();
@@ -59,7 +72,7 @@ pub(crate) fn collect_configured_or_explicit_xsh_files(
         for path in paths {
             let path = Path::new(path);
             if path.is_dir() {
-                collect_xsh_files(path, &config.exclude, &mut files)?;
+                collect_xsh_files_below(path, root, &config.exclude, &mut files)?;
             } else {
                 files.push(path.to_path_buf());
             }
@@ -80,8 +93,13 @@ fn configured_include_path(root: &Path, include: &str) -> PathBuf {
 }
 
 #[allow(clippy::single_call_fn)]
-fn collect_xsh_files_parallel(root: &Path, excludes: &[String]) -> Result<Vec<PathBuf>, String> {
+fn collect_xsh_files_parallel(
+    root: &Path,
+    config_dir: &Path,
+    excludes: &[String],
+) -> Result<Vec<PathBuf>, String> {
     let root = root.to_path_buf();
+    let config_dir = config_dir.to_path_buf();
     let excludes = excludes.to_vec();
     let workers = thread::available_parallelism()
         .map(|count| count.get())
@@ -102,7 +120,7 @@ fn collect_xsh_files_parallel(root: &Path, excludes: &[String]) -> Result<Vec<Pa
     let walker = builder.build_parallel();
     walker.run(|| {
         let tx = tx.clone();
-        let root = root.clone();
+        let config_dir = config_dir.clone();
         let excludes = excludes.clone();
         Box::new(move |result| {
             if let Err(error) = check_cancellation() {
@@ -121,7 +139,7 @@ fn collect_xsh_files_parallel(root: &Path, excludes: &[String]) -> Result<Vec<Pa
                 .file_type()
                 .is_some_and(|file_type| file_type.is_file())
                 && path.extension().is_some_and(|extension| extension == "xsh")
-                && !is_path_excluded(&root, path, &excludes)
+                && !is_path_excluded(&config_dir, path, &excludes)
                 && tx.send(Ok(path.to_path_buf())).is_err()
             {
                 return ignore::WalkState::Quit;
@@ -161,6 +179,15 @@ pub(crate) fn is_path_excluded(root: &Path, path: &Path, excludes: &[String]) ->
     if excludes.iter().any(|pat| glob_matches(pat, normalized)) {
         return true;
     }
+    // A config found above the current directory has an absolute root; a
+    // relative path is then made absolute the same way before the two meet.
+    let absolute;
+    let path = if root.is_absolute() && path.is_relative() {
+        absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+        absolute.as_path()
+    } else {
+        path
+    };
     let Ok(stripped) = path.strip_prefix(root) else {
         return false;
     };
@@ -181,6 +208,8 @@ pub struct LintConfig {
     pub prefer_tempdir_scope: bool,
     pub prefer_inferred_variants: bool,
     pub prefer_positional_constructors: bool,
+    pub prefer_implicit_messages: bool,
+    pub prefer_inferred_proc_returns: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -194,6 +223,8 @@ impl Default for LintConfig {
             prefer_tempdir_scope: true,
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
+            prefer_implicit_messages: false,
+            prefer_inferred_proc_returns: false,
             runless_except: Vec::new(),
         }
     }
@@ -247,16 +278,12 @@ pub struct XshConfig {
     pub coverage: CoverageConfig,
 }
 
-fn default_module_path() -> Vec<String> {
-    vec![".".to_string()]
-}
-
 impl Default for XshConfig {
     fn default() -> Self {
         Self {
             include: Vec::new(),
             exclude: Vec::new(),
-            module_path: default_module_path(),
+            module_path: xsh::frontend::load::default_module_path(),
             test_roots: Vec::new(),
             check: CheckConfig::default(),
             format: FormatConfig::default(),
@@ -272,63 +299,26 @@ pub fn load_config() -> Result<XshConfig, String> {
 }
 
 pub fn load_config_from(path: &Path) -> Result<XshConfig, String> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(XshConfig::default()),
-        Err(error) => {
-            return Err(format!(
-                "failed to read {} '{}': {error}",
-                CONFIG_FILE_NAME,
-                path.display()
-            ));
-        }
-    };
-    let span = xsh::frontend::source::Span::new(xsh::frontend::source::SourceId::new(0), 0, 0);
-    let value = xsh::host::ini::decode(&text, span).map_err(|error| {
-        format!(
-            "invalid {} '{}': {}",
-            CONFIG_FILE_NAME,
-            path.display(),
-            error.message
-        )
-    })?;
-    parse_config_ini(&value)
+    // The library locates and decodes the file and owns `module_path`, so
+    // the tools and the runner agree on a project's module roots.
+    match xsh::frontend::load::read_project_config(path)? {
+        Some(fields) => parse_config_ini(&fields),
+        None => Ok(XshConfig::default()),
+    }
 }
 
 pub(crate) fn nearest_config_for_file(file: &Path) -> Result<Option<(PathBuf, XshConfig)>, String> {
-    let parent = file.parent().unwrap_or_else(|| Path::new("."));
-    for ancestor in parent.ancestors() {
-        let dir = if ancestor.as_os_str().is_empty() {
-            PathBuf::from(".")
-        } else {
-            ancestor.to_path_buf()
-        };
-        let candidate = dir.join(CONFIG_FILE_NAME);
-        if candidate.is_file() {
-            return load_config_from(&candidate).map(|config| Some((dir, config)));
-        }
-    }
-    Ok(None)
-}
-
-pub(crate) fn resolve_config_path(config_dir: &Path, raw: String) -> PathBuf {
-    let path = PathBuf::from(raw);
-    if path.is_absolute() {
-        path
-    } else {
-        config_dir.join(path)
-    }
-}
-
-fn parse_config_ini(value: &xsh::execution::value::Value) -> Result<XshConfig, String> {
-    let fields = match value {
-        xsh::execution::value::Value::Record(fields) => fields,
-        _ => return Err(format!("{CONFIG_FILE_NAME} must decode to a record")),
+    let Some(dir) = xsh::frontend::load::nearest_project_config_dir(file) else {
+        return Ok(None);
     };
+    load_config_from(&dir.join(CONFIG_FILE_NAME)).map(|config| Some((dir, config)))
+}
+
+fn parse_config_ini(fields: &xsh::execution::value::RecordMap) -> Result<XshConfig, String> {
     Ok(XshConfig {
         include: ini_string_list(fields, "include").unwrap_or_default(),
         exclude: ini_string_list(fields, "exclude").unwrap_or_default(),
-        module_path: ini_string_list(fields, "module_path").unwrap_or_else(default_module_path),
+        module_path: xsh::frontend::load::configured_module_path(fields)?,
         test_roots: ini_string_list(fields, "test_roots").unwrap_or_default(),
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,
@@ -365,6 +355,10 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_inferred_variants: ini_string(lint, "prefer-inferred-variants")
             .is_some_and(|value| value == "true"),
         prefer_positional_constructors: ini_string(lint, "prefer-positional-constructors")
+            .is_some_and(|value| value == "true"),
+        prefer_implicit_messages: ini_string(lint, "prefer-implicit-messages")
+            .is_some_and(|value| value == "true"),
+        prefer_inferred_proc_returns: ini_string(lint, "prefer-inferred-proc-returns")
             .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
@@ -623,6 +617,17 @@ mod tests {
         fs::write(&path, "[lint]\n").unwrap();
         let lint = load_config_from(&path).unwrap().lint;
         assert!(!lint.prefer_inferred_variants && !lint.prefer_positional_constructors);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn implicit_message_lint_is_explicit_opt_in() {
+        let root = temp_root("implicit-message-lint-config");
+        let path = root.join("xsht-config.ini");
+        fs::write(&path, "[lint]\nprefer-implicit-messages = true\n").unwrap();
+        assert!(load_config_from(&path).unwrap().lint.prefer_implicit_messages);
+        fs::write(&path, "[lint]\n").unwrap();
+        assert!(!load_config_from(&path).unwrap().lint.prefer_implicit_messages);
         let _ = fs::remove_dir_all(root);
     }
 

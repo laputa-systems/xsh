@@ -4,7 +4,7 @@ use stage as stages
 use targets
 
 ## Returns the user's installation bin directory without mutating parent environment state.
-export proc bin_dir() [fs, env, error] -> Result[Path] {
+export proc bin_dir() [fs, env, error] -> Result[Path, Error] {
   let configured_home = env.get_or("HOME", "")?.trim()
   let home = if configured_home == "" { user.current()?.home } else { fp"{configured_home}" }
   let destination = fp"{home}/usr/bin"
@@ -13,7 +13,7 @@ export proc bin_dir() [fs, env, error] -> Result[Path] {
 }
 
 ## Installs signed Darwin release products and tolerates only a missing quarantine attribute.
-export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   guard ctx.target.triple == "aarch64-apple-darwin" else {
     return Err(
       stages.StageError.Failed(
@@ -110,7 +110,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
 }
 
 ## Stages one Linux CRT object after stripping debug metadata with LLVM tooling.
-export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, error, io] -> Result[Unit] {
+export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, error, io] -> Result[Unit, Error] {
   let crt_dir = fp"{ctx.target_dir}/llvm-crt"
   stages.ensure_dir(crt_dir)?
   stages.execute(
@@ -126,7 +126,7 @@ export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, erro
 }
 
 ## Installs Linux products with the existing clang, llvm-ar, and lld contract.
-export proc linux_install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc linux_install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   if ctx.target.triple != "x86_64-unknown-linux-musl" and ctx.target.triple != "aarch64-unknown-linux-musl" {
     return Err(
       stages.StageError.Failed(
@@ -205,7 +205,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
 }
 
 ## Dispatches installation to the current supported host family.
-export proc install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   return darwin(ctx) when ctx.host_os == targets.Darwin
 
   return linux_install(ctx) when ctx.host_os == targets.Linux

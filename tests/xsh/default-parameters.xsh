@@ -183,7 +183,7 @@ pure choose(jobs = c.settings.jobs) -> Int { jobs }
 print ${choose()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == """6

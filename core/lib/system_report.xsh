@@ -33,7 +33,15 @@ export enum SectionState: Str {
 }
 
 ## Failures returned by report parsing, selection, and schema validation.
-export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | UnsupportedPlatform(message: Str)
+export error SystemReportError {
+    InvalidCpuList(message: Str)
+    InvalidSection(message: Str)
+    InvalidJson(message: Str)
+    UnsupportedSchema(version: Int, message: Str)
+    InvalidProcStat(message: Str)
+    InvalidExecutionUnits(message: Str)
+    UnsupportedPlatform(message: Str)
+}
 
 ## Identifies whether observations came from a live host or a replay source.
 export enum SourceMode: Str {
@@ -247,7 +255,7 @@ pure parse_cpu_list_integer(value: Str, decimal: Regex) -> Result[Int] {
 }
 
 ## Parses Linux cpulist syntax with sparse IDs and a bounded expanded size.
-export pure parse_cpu_list(text: Str) -> Result[List[Int]] {
+export pure parse_cpu_list(text: Str) -> Result[List[Int], Error] {
   if text == "" or text.trim() != text {
     return Err(cpu_list_error("CPU list is empty or contains surrounding whitespace"))
   }
@@ -836,7 +844,7 @@ pure report_section_name(section: ReportSection) -> Str {
 }
 
 ## Converts the command's section spelling into its closed report selector.
-export pure parse_report_section(value: Str) -> Result[ReportSection] {
+export pure parse_report_section(value: Str) -> Result[ReportSection, Error] {
   match value {
     "identity" => Ok(ReportIdentity)
     "cpu" => Ok(ReportCpu)
@@ -851,7 +859,7 @@ export pure parse_report_section(value: Str) -> Result[ReportSection] {
     "kernel" => Ok(ReportKernel)
     "processes" => Ok(ReportProcesses)
     "devices" => Ok(ReportDevices)
-    _ => Err(SystemReportError.InvalidSection(message: f"unknown report section '{value}'"))
+    else => Err(SystemReportError.InvalidSection(message: f"unknown report section '{value}'"))
   }
 }
 
@@ -1014,7 +1022,7 @@ pure select_report_domain(report: SystemReport, selected: ReportSection) -> Syst
 }
 
 ## Keeps identity and one named domain, marking every excluded domain.
-export pure select_report_section(report: Record, selected: Str) -> Result[Record] {
+export pure select_report_section(report: Record, selected: Str) -> Result[Record, Error] {
   let typed = report.require(SystemReport)?
   select_report_domain(typed, parse_report_section(selected)?)
 }
@@ -2305,12 +2313,12 @@ pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Boo
 }
 
 ## Validates a dynamic report at the JSON boundary and emits one document.
-export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str] {
+export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error] {
   encode_typed_report_json(report.require()?, sensitive, pretty)
 }
 
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
-export pure decode_report_json(text: Str) -> Result[SystemReport] {
+export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
   guard let raw = json.decode(text) else { |error|
     return Err(SystemReportError.InvalidJson(message: error.message))
   }
@@ -2838,11 +2846,9 @@ pure optional_text_display(value: Str?) -> Result[Str] {
 }
 
 pure byte_quantity(value: Int?) -> Str {
-  guard value != null else {
+  guard let amount = value else {
     return "unknown"
   }
-
-  let amount = value
   return "out of range" when amount < 0
 
   let divisor = 1073741824
@@ -2961,9 +2967,9 @@ pure grouped_policy_lines(policies: List[CpuFreqPolicy]) -> Result[List[Str]] {
     let first = policy_group.items[0]
     let driver = optional_text_display(first.driver)?
     let governor = optional_text_display(first.governor)?
-    lines = lines.push(
+    lines += [
       f"  {policy_group.items.len()} identical policy group on CPUs {cpu_id_texts.join(",")}: {driver}, {governor}, {optional_frequency(first.scaling_min_khz)}..{optional_frequency(first.scaling_max_khz)}",
-    )
+    ]
   }
 
   lines
@@ -3066,23 +3072,21 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
     if output_report.cpu.status.state != SectionNotRequested {
       lines += ["CPU caches:"]
       for cache in output_report.cpu.caches {
-        lines = lines.push(
+        lines += [
           f"  L{cache.level} {terminal_quote(cache.kind)?} cache on CPU {cache.owner_cpu_id} (sysfs index {cache.sysfs_index}): {byte_quantity(cache.size_bytes)}; shared CPUs {integer_list_display(cache.shared_cpus)}",
-        )
+        ]
       }
 
       lines += ["CPU idle states:"]
       for idle in output_report.cpu.idle_states {
-        lines = lines.push(
+        lines += [
           f"  CPU {optional_int_display(idle.cpu_id)} {terminal_quote(idle.name)?}: latency {optional_int_display(idle.latency_us)} us, residency {optional_int_display(idle.residency_us)} us",
-        )
+        ]
       }
 
       lines += ["CPU vulnerabilities:"]
       for vulnerability in output_report.cpu.vulnerabilities {
-        lines = lines.push(
-          f"  {terminal_quote(vulnerability.name)?}: {observation_display(vulnerability.description)?}",
-        )
+        lines += [f"  {terminal_quote(vulnerability.name)?}: {observation_display(vulnerability.description)?}"]
       }
     }
 
@@ -3091,9 +3095,9 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       for function in output_report.pci.functions {
         let address = optional_text_display(function.address)?
         let driver = optional_text_display(function.driver)?
-        lines = lines.push(
+        lines += [
           f"  {address} vendor={optional_int_display(function.vendor_id)} device={optional_int_display(function.device_id)} class={optional_int_display(function.class_code)} driver={driver}",
-        )
+        ]
       }
     }
 
@@ -3103,16 +3107,16 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
         let name = optional_text_display(device.sysfs_name)?
         let port = optional_text_display(device.port_path)?
         let serial = observation_display(device.serial)?
-        lines = lines.push(
+        lines += [
           f"  {name} port={port} id={optional_int_display(device.vendor_id)}:{optional_int_display(device.product_id)} serial={serial}",
-        )
-        lines = lines.push(
+        ]
+        lines += [
           f"    runtime={optional_text_display(device.runtime_status)?} control={optional_text_display(device.power_control)?} autosuspend={optional_int_display(device.autosuspend_delay_ms)} ms configuration={optional_int_display(device.active_configuration)}/{optional_int_display(device.configuration_count)}",
-        )
+        ]
         for interface in device.interfaces {
-          lines = lines.push(
+          lines += [
             f"    interface {interface.number} {optional_text_display(interface.name)?} driver={optional_text_display(interface.driver)?} alternate={optional_int_display(interface.active_alternate)}",
-          )
+          ]
         }
       }
     }
@@ -3122,21 +3126,21 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       for device in output_report.storage.devices {
         let name = optional_text_display(device.name)?
         let model = observation_display(device.model)?
-        lines = lines.push(
+        lines += [
           f"  {name} {optional_int_display(device.major)}:{optional_int_display(device.minor)} {byte_quantity(device.size_bytes)} model={model}",
-        )
-        lines = lines.push(
+        ]
+        lines += [
           f"    kind={terminal_quote(device.kind)?} block-parent={optional_int_display(device.parent_device_index)} pci-parent={optional_int_display(device.parent_pci_function_index)} holders={integer_list_display(device.holder_indices)} slaves={integer_list_display(device.slave_indices)} scheduler={optional_text_display(device.active_scheduler)?}",
-        )
+        ]
       }
 
       lines += ["Mounts:"]
       for mount in output_report.storage.mounts {
         let target = observation_display(mount.target)?
         let source = observation_display(mount.source)?
-        lines = lines.push(
+        lines += [
           f"  {target} type={terminal_quote(mount.filesystem)?} source={source} usage={byte_quantity(mount.usage_used_bytes)}/{byte_quantity(mount.usage_total_bytes)}",
-        )
+        ]
       }
     }
 
@@ -3145,53 +3149,53 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
       for link in output_report.network.links {
         let name = observation_display(link.name)?
         let mac = observation_display(link.mac)?
-        lines = lines.push(
+        lines += [
           f"  ifindex={link.ifindex} name={name} mtu={optional_int_display(link.mtu)} state={optional_text_display(link.operational_state)?} mac={mac}",
-        )
+        ]
         for address in link.addresses {
-          lines = lines.push(
+          lines += [
             f"    {terminal_quote(address.family)?} {observation_display(address.address)?}/{address.prefix_length}",
-          )
+          ]
         }
       }
 
       lines += ["Network routes:"]
       for route in output_report.network.routes {
-        lines = lines.push(
+        lines += [
           f"  {terminal_quote(route.family)?} {observation_display(route.destination)?}/{route.prefix_length} via {observation_display(route.gateway)?} table={route.table} metric={optional_int_display(route.metric)} output-ifindex={optional_int_display(route.output_ifindex)}",
-        )
+        ]
         for nexthop in route.nexthops {
-          lines = lines.push(
+          lines += [
             f"    nexthop ifindex={nexthop.ifindex} flags={nexthop.flags} hops={nexthop.hops} gateway={observation_display(nexthop.gateway)?}",
-          )
+          ]
         }
       }
 
       lines += ["Network policy rules:"]
       for rule in output_report.network.rules {
-        lines = lines.push(
+        lines += [
           f"  {terminal_quote(rule.family)?} priority={optional_int_display(rule.priority)} from {observation_display(rule.source)?} to {observation_display(rule.destination)?} table={optional_int_display(rule.table)} action={terminal_quote(rule.action)?}",
-        )
+        ]
       }
     }
 
     if output_report.sensors.status.state != SectionNotRequested {
       lines += ["Sensors:"]
       for channel in output_report.sensors.channels {
-        lines = lines.push(
+        lines += [
           f"  {terminal_quote(channel.chip)?}/{terminal_quote(channel.channel)?} {observation_display(channel.label)?}={optional_int_display(channel.value)} {terminal_quote(channel.unit)?}",
-        )
+        ]
       }
 
       lines += ["Thermal zones:"]
       for zone in output_report.sensors.thermal_zones {
-        lines = lines.push(
+        lines += [
           f"  zone {zone.id} kind={optional_text_display(zone.kind)?} temperature={optional_int_display(zone.temperature_millidegrees)} millidegrees Celsius",
-        )
+        ]
         for trip in zone.trips {
-          lines = lines.push(
+          lines += [
             f"    trip {optional_int_display(trip.index)} {terminal_quote(trip.kind)?} temperature={optional_int_display(trip.temperature_millidegrees)} hysteresis={optional_int_display(trip.hysteresis_millidegrees)} millidegrees Celsius",
-          )
+          ]
         }
       }
     }
@@ -3199,18 +3203,18 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
     if output_report.power.status.state != SectionNotRequested {
       lines += ["Power supplies:"]
       for supply in output_report.power.supplies {
-        lines = lines.push(
+        lines += [
           f"  {terminal_quote(supply.name)?} kind={optional_text_display(supply.kind)?} status={optional_text_display(supply.status)?} capacity={optional_int_display(supply.capacity_percent)}%",
-        )
+        ]
       }
 
       lines += ["Power limits:"]
       for zone in output_report.power.cap_zones {
-        lines = lines.push(f"  {terminal_quote(zone.name)?} energy={optional_int_display(zone.energy_uj)} uJ")
+        lines += [f"  {terminal_quote(zone.name)?} energy={optional_int_display(zone.energy_uj)} uJ"]
         for constraint in zone.constraints {
-          lines = lines.push(
+          lines += [
             f"    constraint {constraint.index} {optional_text_display(constraint.name)?} limit={optional_int_display(constraint.power_limit_uw)} uW window={optional_int_display(constraint.time_window_us)} us",
-          )
+          ]
         }
       }
     }
@@ -3218,55 +3222,55 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
     if output_report.kernel.status.state != SectionNotRequested {
       lines += ["Kernel modules:"]
       for kernel_module in output_report.kernel.modules {
-        lines = lines.push(
+        lines += [
           f"  {terminal_quote(kernel_module.name)?} size={kernel_module.size_bytes} bytes users={optional_int_display(kernel_module.users)} state={terminal_quote(kernel_module.state)?}",
-        )
+        ]
       }
 
-      lines = lines.push(f"Kernel command line: {observation_display(output_report.kernel.command_line)?}")
+      lines += [f"Kernel command line: {observation_display(output_report.kernel.command_line)?}"]
       lines += ["Kernel parameters:"]
       for parameter in output_report.kernel.parameters {
-        lines = lines.push(f"  {terminal_quote(parameter.name)?}={observation_display(parameter.value)?}")
+        lines += [f"  {terminal_quote(parameter.name)?}={observation_display(parameter.value)?}"]
       }
 
       lines += ["Selected sysctls:"]
       for parameter in output_report.kernel.sysctls {
-        lines = lines.push(f"  {terminal_quote(parameter.name)?}={observation_display(parameter.value)?}")
+        lines += [f"  {terminal_quote(parameter.name)?}={observation_display(parameter.value)?}"]
       }
     }
 
     if output_report.processes.status.state != SectionNotRequested {
       lines += ["Visible processes:"]
       for process_item in output_report.processes.processes {
-        lines = lines.push(
+        lines += [
           f"  pid={process_item.pid} ppid={process_item.parent_pid} state={terminal_quote(process_item.state)?} threads={optional_int_display(process_item.thread_count)} rss={byte_quantity(process_item.resident_bytes)} virtual={byte_quantity(process_item.virtual_bytes)} command={observation_display(process_item.command)?}",
-        )
+        ]
       }
     }
 
     if output_report.firmware.status.state != SectionNotRequested {
       lines += ["Firmware records:"]
       for firmware_item in output_report.firmware.records {
-        lines = lines.push(
+        lines += [
           f"  type={firmware_item.record_type} handle={firmware_item.handle} formatted-length={firmware_item.formatted_length} string-count={firmware_item.strings.len()}",
-        )
+        ]
       }
     }
 
     if output_report.devices.status.state != SectionNotRequested {
       lines += ["Device classes:"]
       for device in output_report.devices.devices {
-        lines = lines.push(
+        lines += [
           f"  {terminal_quote(device.class)?} name={observation_display(device.name)?} driver={optional_text_display(device.driver)?} pci-parent={optional_int_display(device.parent_pci_function_index)} usb-parent={optional_int_display(device.parent_usb_device_index)}",
-        )
+        ]
       }
     }
 
     lines += ["Collection issues:"]
     for issue in output_report.issues {
-      lines = lines.push(
+      lines += [
         f"  {terminal_quote(issue.section)?}.{terminal_quote(issue.field)?}: {observation_state_json(issue.state)} {observation_display(issue.detail)?}",
-      )
+      ]
     }
   }
 
@@ -3275,7 +3279,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
 }
 
 ## Validates a dynamic report and renders terminal-safe text.
-export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str] {
+export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str, Error] {
   render_typed_text(report.require()?, full, sensitive)
 }
 
@@ -3353,15 +3357,17 @@ pure redact_usb_section(section: UsbSection) -> UsbSection {
   var devices: List[UsbDevice] = []
   for device in section.devices {
     var interfaces: List[UsbInterface] = [{...interface, name: null} for interface in device.interfaces]
-    devices = devices.push({
-      ...device,
-      sysfs_name: null,
-      port_path: null,
-      bus_number: null,
-      device_number: null,
-      serial: redact_text_observation(device.serial),
-      interfaces: interfaces,
-    })
+    devices += [
+      {
+        ...device,
+        sysfs_name: null,
+        port_path: null,
+        bus_number: null,
+        device_number: null,
+        serial: redact_text_observation(device.serial),
+        interfaces: interfaces,
+      },
+    ]
   }
 
   {...section, devices: devices}
@@ -3421,7 +3427,7 @@ pure allowed_mount_value(key: Str, value: Str) -> Bool {
 
       true
     }
-    _ => false
+    else => false
   }
 }
 
@@ -3536,13 +3542,15 @@ pure redact_network_section(section: NetworkSection) -> NetworkSection {
       }
       for address in link.addresses
     ]
-    links = links.push({
-      ...link,
-      name: redact_text_observation(link.name),
-      mac: redact_text_observation(link.mac),
-      addresses: addresses,
-      attributes: redact_network_attributes(link.attributes),
-    })
+    links += [
+      {
+        ...link,
+        name: redact_text_observation(link.name),
+        mac: redact_text_observation(link.mac),
+        addresses: addresses,
+        attributes: redact_network_attributes(link.attributes),
+      },
+    ]
   }
 
   var routes: List[NetworkRoute] = []
@@ -3554,15 +3562,17 @@ pure redact_network_section(section: NetworkSection) -> NetworkSection {
       }
       for nexthop in route.nexthops
     ]
-    routes = routes.push({
-      ...route,
-      destination: redact_text_observation(route.destination),
-      source: redact_text_observation(route.source),
-      preferred_source: redact_text_observation(route.preferred_source),
-      gateway: redact_text_observation(route.gateway),
-      nexthops: nexthops,
-      attributes: redact_network_attributes(route.attributes),
-    })
+    routes += [
+      {
+        ...route,
+        destination: redact_text_observation(route.destination),
+        source: redact_text_observation(route.source),
+        preferred_source: redact_text_observation(route.preferred_source),
+        gateway: redact_text_observation(route.gateway),
+        nexthops: nexthops,
+        attributes: redact_network_attributes(route.attributes),
+      },
+    ]
   }
 
   var rules = [
@@ -3595,7 +3605,7 @@ pure redact_firmware_section(section: FirmwareSection) -> FirmwareSection {
   var records: List[FirmwareRecord] = []
   for firmware_item in section.records {
     var strings = [redact_text_observation(value) for value in firmware_item.strings]
-    records = records.push({...firmware_item, strings: strings})
+    records += [{...firmware_item, strings: strings}]
   }
 
   {
@@ -3649,11 +3659,13 @@ pure redact_device_section(section: DeviceSection) -> DeviceSection {
       }
       for attribute in device.attributes
     ]
-    devices = devices.push({
-      ...device,
-      name: redact_text_observation(device.name),
-      attributes: attributes,
-    })
+    devices += [
+      {
+        ...device,
+        name: redact_text_observation(device.name),
+        attributes: attributes,
+      },
+    ]
   }
 
   {...section, devices: devices}
@@ -3708,18 +3720,20 @@ export pure redact_report(report: SystemReport) -> SystemReport {
     for issue in report.issues
   ]
   if report.identity.kernel_build != null {
-    issues = issues.push({
-      section: "identity",
-      field: "kernel_build",
-      state: Redacted,
-      error_kind: null,
-      errno: null,
-      detail: {
+    issues += [
+      {
+        section: "identity",
+        field: "kernel_build",
         state: Redacted,
-        value: null,
-        raw_bytes_base64: null,
+        error_kind: null,
+        errno: null,
+        detail: {
+          state: Redacted,
+          value: null,
+          raw_bytes_base64: null,
+        },
       },
-    })
+    ]
   }
 
   {

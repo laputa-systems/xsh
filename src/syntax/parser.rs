@@ -19,7 +19,9 @@ pub(crate) mod expr;
 mod literals;
 mod pattern;
 mod stmt;
+mod sugar;
 mod types;
+mod without;
 
 pub(in crate::syntax::parser) use self::literals::{
     decode_bytes_literal_for, decode_interpolation_text_for,
@@ -47,6 +49,9 @@ pub struct Parser<'a> {
     token_table: TokenTable,
     index: usize,
     comma_is_terminator: bool,
+    /// The first token of the match arm body being parsed, when its `=>`
+    /// has been read and the body is not a braced block.
+    arm_body_start: Option<usize>,
     pipe_is_boundary: bool,
     trailing_statement_try: bool,
     command_arg_expr: bool,
@@ -54,6 +59,10 @@ pub struct Parser<'a> {
     block_depth: usize,
     parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
+    /// Offsets of the `\` line continuations no command has accepted yet.
+    /// The lexer reads a continuation as whitespace wherever it is written;
+    /// the ones left here when parsing ends were written outside a command.
+    stray_line_continuations: Vec<u32>,
 }
 
 /// The binary operator a token spells (with the keyword after it, for
@@ -71,6 +80,38 @@ fn binary_op_for_token(
             1 + usize::from(operator.second.is_some()),
         )
     })
+}
+
+/// Drops a literal diagnostic that repeats an earlier one. The lexer validates
+/// a literal it decodes, and the parser decodes the same text again for its
+/// value; the lexer's diagnostics come first, so its report is the one kept.
+/// The two decoders can end an escape's span at different offsets, so a
+/// repeat is the same code starting at the same offset.
+fn without_repeated_literal_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let literal_key = |diagnostic: &Diagnostic| {
+        let code = diagnostic.code.filter(|code| {
+            matches!(
+                code,
+                DiagnosticCode::LexInvalidEscape
+                    | DiagnosticCode::LexInvalidBytesEscape
+                    | DiagnosticCode::LexInvalidString
+            )
+        })?;
+        let label = diagnostic.labels.first()?;
+        Some((code, label.span.source_id, label.span.start()))
+    };
+    let mut seen = Vec::new();
+    diagnostics.retain(|diagnostic| {
+        let Some(key) = literal_key(diagnostic) else {
+            return true;
+        };
+        if seen.contains(&key) {
+            return false;
+        }
+        seen.push(key);
+        true
+    });
+    diagnostics
 }
 
 impl<'a> Parser<'a> {
@@ -98,7 +139,7 @@ impl<'a> Parser<'a> {
             ArenaParseOutput {
                 arena: program,
                 cst,
-                diagnostics: parser.diagnostics,
+                diagnostics: parser.finish_diagnostics(),
             }
         })
     }
@@ -122,12 +163,15 @@ impl<'a> Parser<'a> {
         source: &'a str,
         token_table: TokenTable,
     ) -> Self {
+        let stray_line_continuations = token_table.line_continuations().to_vec();
         Self {
             source_id,
             source,
             token_table,
+            stray_line_continuations,
             index: 0,
             comma_is_terminator: false,
+            arm_body_start: None,
             pipe_is_boundary: false,
             trailing_statement_try: true,
             command_arg_expr: false,
@@ -144,7 +188,7 @@ impl<'a> Parser<'a> {
         ArenaParseOutput {
             arena,
             cst,
-            diagnostics: self.diagnostics,
+            diagnostics: self.finish_diagnostics(),
         }
     }
 
@@ -166,7 +210,7 @@ impl<'a> Parser<'a> {
         ArenaParseFragment {
             statements,
             cst,
-            diagnostics: self.diagnostics,
+            diagnostics: self.finish_diagnostics(),
         }
     }
 
@@ -214,7 +258,60 @@ impl<'a> Parser<'a> {
             self.token_table.tag_at(first + 1),
             self.token_table.keyword_at(first + 1),
         )?;
+        // An arm body has no `=>` of its own, so `.Name ... =>` on the line
+        // after one is a mistaken arm head, not a member access. Leaving it
+        // for the arm parser lets it say that the head must be qualified.
+        if continuation == LineContinuation::Member
+            && self.line_has_top_level_fat_arrow(first)
+            && self.at_arm_body_top_level(first)
+        {
+            return None;
+        }
         Some((continuation, first))
+    }
+
+    /// Whether token `at` follows the current arm body with every bracket
+    /// the body opened closed again.
+    fn at_arm_body_top_level(&self, at: usize) -> bool {
+        let Some(start) = self.arm_body_start else {
+            return false;
+        };
+        let mut depth = 0usize;
+        for index in start..at {
+            match self.token_table.tag_at(index) {
+                Some(TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace) => {
+                    let Some(shallower) = depth.checked_sub(1) else {
+                        return false;
+                    };
+                    depth = shallower;
+                }
+                _ => {}
+            }
+        }
+        depth == 0
+    }
+
+    /// Whether the line starting at token `first` has `=>` outside brackets.
+    fn line_has_top_level_fat_arrow(&self, first: usize) -> bool {
+        let mut depth = 0usize;
+        let mut index = first;
+        loop {
+            match self.token_table.tag_at(index) {
+                Some(TokenTag::FatArrow) if depth == 0 => return true,
+                Some(TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace) => {
+                    let Some(shallower) = depth.checked_sub(1) else {
+                        return false;
+                    };
+                    depth = shallower;
+                }
+                Some(TokenTag::Newline) if depth == 0 => return false,
+                Some(TokenTag::Eof) | None => return false,
+                Some(_) => {}
+            }
+            index += 1;
+        }
     }
 
     /// If the current token is a newline/comment and the next line starts with
@@ -279,7 +376,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn at_command_end(&mut self, stop_before_block: bool) -> bool {
-        self.skip_comments();
+        self.skip_command_part_gap();
         self.at_terminator()
             || (self.comma_is_terminator && self.at(TokenKindMatch::Comma))
             || self.at(TokenKindMatch::Eof)
@@ -287,8 +384,60 @@ impl<'a> Parser<'a> {
             || (stop_before_block && self.at(TokenKindMatch::LBrace))
     }
 
+    /// Skips the comments before the next part of a command, and accepts the
+    /// `\` line continuations written in that gap when a part follows them.
+    /// One with only a comment or the end of the statement after it stays
+    /// stray: it continues nothing.
+    fn skip_command_part_gap(&mut self) {
+        let gap_start = self.previous_end();
+        // The comment that ends the command's line is left for the statement
+        // terminator, so the command's span stops before it as every other
+        // statement's does.
+        while self.current_tag() == TokenTag::Comment && !self.current_comment_is_line_terminator()
+        {
+            self.bump();
+        }
+        self.accept_line_continuations_since(gap_start);
+    }
+
+    /// Accepts the line continuations between the previous token and the
+    /// current one, which begins the next part of a command.
+    pub(in crate::syntax::parser) fn accept_line_continuations(&mut self) {
+        self.accept_line_continuations_since(self.previous_end());
+    }
+
+    fn accept_line_continuations_since(&mut self, gap_start: usize) {
+        if self.stray_line_continuations.is_empty()
+            || self.at_terminator()
+            || self.at(TokenKindMatch::Eof)
+        {
+            return;
+        }
+        let gap = gap_start..self.current_start();
+        self.stray_line_continuations
+            .retain(|offset| !gap.contains(&(*offset as usize)));
+    }
+
+    /// The parser's diagnostics once parsing is done, with one for each line
+    /// continuation that no command accepted.
+    pub(in crate::syntax::parser) fn finish_diagnostics(&mut self) -> Vec<Diagnostic> {
+        for offset in std::mem::take(&mut self.stray_line_continuations) {
+            let offset = offset as usize;
+            self.diagnostics.push(
+                Diagnostic::error("line continuation outside a command")
+                    .with_code(DiagnosticCode::ParseLineContinuation)
+                    .with_label(Label::primary(
+                        self.span(offset, offset + 1),
+                        "a `\\` joins lines only between the parts of a command, with more of the command on the next line",
+                    ))
+                    .with_note("an expression continues when the next line begins with an operator, `.name`, or `|>`, or inside an open bracket"),
+            );
+        }
+        without_repeated_literal_diagnostics(std::mem::take(&mut self.diagnostics))
+    }
+
     pub(in crate::syntax::parser) fn at_run_segment_end(&mut self) -> bool {
-        self.skip_comments();
+        self.skip_command_part_gap();
         self.at_terminator()
             || self.at(TokenKindMatch::Eof)
             || self.at(TokenKindMatch::Question)

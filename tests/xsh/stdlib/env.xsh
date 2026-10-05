@@ -239,7 +239,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
   fs.chmod(tool, 0o755)?
 
   env XSH_STDLIB_ENV=yes DESTDIR=/tmp/xsh-stdlib-env XSH_STDLIB_COUNT=7 XSH_STDLIB_BOOL=true XSH_STDLIB_PATH=$root {
-    assert env.get("XSH_STDLIB_ENV")? == "yes"
+    assert e"XSH_STDLIB_ENV"? == "yes"
     assert env.get_or("XSH_STDLIB_MISSING", "fallback")? == "fallback"
     assert env.bool("XSH_STDLIB_BOOL", false)? == true
     assert env.bool("XSH_STDLIB_MISSING_BOOL")? == false
@@ -257,7 +257,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     env.PATH.append(extra_dir)?
     assert env.PATH.pop()? == extra_dir
     assert env.Path.XSH_STDLIB_PATH? == root
-    assert env.Str.DESTDIR? == "/tmp/xsh-stdlib-env"
+    assert e"DESTDIR"? == "/tmp/xsh-stdlib-env"
     let output = run.text xsh-env-helper ?
     assert "yes|/tmp/xsh-stdlib-env|" in output
   } ?
@@ -285,7 +285,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
   assert root in env.PATH
 
   env XSH_ENV_SCOPE=block DESTDIR=/tmp/xsh-env-scope HOME=$root {
-    let dest = env.Str.DESTDIR?
+    let dest = e"DESTDIR"?
     let dest_path = env.path("DESTDIR")?
     let fallback = env.get_or("XSH_ENV_SCOPE_MISSING", "fallback")?
     let empty = env.get_or("XSH_ENV_SCOPE_MISSING_EMPTY")?
@@ -298,7 +298,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     let home = env.Path.HOME?
     let path_list = env.PathList.PATH?
     assert dest == "/tmp/xsh-env-scope"
-    assert dest_path.display() == "/tmp/xsh-env-scope"
+    assert dest_path == "/tmp/xsh-env-scope"
     assert empty == ""
     assert default_bool == false
     assert default_count == 0
@@ -332,7 +332,7 @@ test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
     COUNT: 3,
   }) {
     let home = env.Path.HOME?
-    let encoded = env.Str.ENCODED?
+    let encoded = e"ENCODED"?
     let decoded = encoded.base64_decode()?
 
     let lines = """ alpha
@@ -394,8 +394,8 @@ test test_env_string_reads_exactly_like_env_str {
     test.error_kind(e"XSH_ESTR_ABSENT", "env-missing")?
     assert str_failure(e"XSH_ESTR_ABSENT") == str_failure(env.get(absent_name))
     let described = match e"XSH_ESTR_ABSENT" {
-      Ok(value) => f"set to {value}"
-      Err(error) => error.message
+      Ok(value) => f"set to {value}",
+      Err(error) => error.message,
     }
     assert described == "environment value is unset"
 

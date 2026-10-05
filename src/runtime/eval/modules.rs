@@ -55,14 +55,14 @@ impl Evaluator {
                 )
                 .with_span(span));
             }
-            if value.contains('\0') {
+            if value.contains(&0) {
                 return Err(RuntimeError::new(
                     "env-value",
                     "environment values cannot contain NUL",
                 )
                 .with_span(span));
             }
-            env_overlay.insert(name.as_bytes().to_vec(), value.as_bytes().to_vec());
+            env_overlay.insert(name.as_bytes().to_vec(), value.clone());
         }
         env.extend(env_overlay.clone());
         let cwd = plan
@@ -309,6 +309,12 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         }
         Type::Optional(inner) => {
             matches!(value, Value::Null) || test_value_matches_type(value, inner)
+        }
+        Type::Union(members) => {
+            crate::sema::types::first_accepting_union_member(members, |member| {
+                test_value_matches_type(value, member)
+            })
+            .is_some()
         }
     }
 }

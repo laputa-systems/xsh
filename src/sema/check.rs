@@ -39,6 +39,8 @@ mod record_require;
 pub use expected::RequirementTarget;
 #[path = "check/inferred_variant.rs"]
 mod inferred_variant;
+#[path = "check/effect_bounds.rs"]
+mod effect_bounds;
 #[path = "check/infer_effects.rs"]
 mod infer_effects;
 #[path = "check/infer_param.rs"]
@@ -50,10 +52,13 @@ mod local_inference;
 #[path = "check/method.rs"]
 mod method;
 pub(crate) use method::nearest_name;
+#[path = "check/path_literal.rs"]
+mod path_literal;
 #[path = "check/pattern.rs"]
 mod pattern;
 #[path = "check/proof.rs"]
 mod proof;
+mod public_result;
 #[path = "check/stmt.rs"]
 mod stmt;
 #[path = "check/stream.rs"]
@@ -142,6 +147,11 @@ pub struct CheckOutput {
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
+    /// Expression statements whose `Result[Unit]` value propagates its failure
+    /// instead of becoming a body's value: every statement outside a tail, a
+    /// tail whose body yields `Unit`, and the direct tail of a `Result[Unit]`
+    /// function.
+    pub propagating_statements: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
@@ -155,12 +165,105 @@ pub struct CheckOutput {
     /// Leading-dot variants keyed by the constructing expression: the call for
     /// `.Name(args)`, the member expression for a bare `.Name`.
     pub inferred_variants: BTreeMap<Span, InferredVariant>,
+    /// String literals that took the `Path` type from their expected type;
+    /// lowering builds a `Path` constant for each.
+    pub path_literals: BTreeSet<Span>,
     /// Qualified variant constructors whose expected type selects the same
     /// variant, keyed by expression, with the qualifier span a leading dot replaces.
     pub redundant_variant_qualifiers: BTreeMap<Span, Span>,
     /// The schema field each record constructor argument supplies, in source
     /// order, keyed by call expression.
     pub record_constructor_fields: BTreeMap<Span, Vec<Name>>,
+    /// Constructor calls of error variants whose declared payload is exactly
+    /// `message: Str`, the field a variant without a payload already carries,
+    /// keyed by call expression.
+    pub message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    /// What each `.Name` pattern stands for, keyed by pattern.
+    pub inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
+    /// How each well-formed error constructor call binds its arguments, keyed
+    /// by call expression.
+    pub error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
+    /// Conditional bindings whose subject is an optional: the `guard let`
+    /// statement, or the `let pattern = subject` condition of an `if` or
+    /// `while`. A `null` subject takes the failure path and any other value is
+    /// bound; lowering reads this instead of deciding from the subject's type.
+    pub optional_binding_spans: BTreeSet<Span>,
+    /// Embedded implementation bodies were checked, so every body lowering
+    /// builds has published facts.
+    pub embedded_bodies_checked: bool,
+}
+
+/// The qualified pattern a target-typed `.Name` pattern was resolved to from
+/// the type of the value it matches, so later stages never resolve the bare
+/// name again.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferredVariantPattern {
+    /// An enum variant, by a constructor spelling visible where the pattern
+    /// is written: `Binary`, or `kinds.Binary` for an imported enum.
+    Tag { constructor: Name },
+    /// A variant of this error family, as `Type::ErrorFamily` names it.
+    Error { family: Name },
+}
+
+impl InferredVariantPattern {
+    /// The pattern the qualified spelling parses to, given the `.Name`
+    /// pattern as parsed.
+    pub fn qualify(
+        &self,
+        kind: &crate::syntax::arena::ArenaPatternKind,
+    ) -> crate::syntax::arena::ArenaPatternKind {
+        use crate::syntax::arena::ArenaPatternKind;
+        match (self, kind) {
+            (Self::Tag { constructor }, ArenaPatternKind::Constructor { arg, .. }) => {
+                ArenaPatternKind::Constructor {
+                    name: *constructor,
+                    arg: *arg,
+                }
+            }
+            (Self::Tag { constructor }, ArenaPatternKind::ErrorVariant { fields, .. }) => {
+                match constructor.as_str().split_once('.') {
+                    Some((namespace, variant)) => ArenaPatternKind::ErrorVariant {
+                        family: Name::intern(namespace),
+                        variant: Name::intern(variant),
+                        fields: *fields,
+                    },
+                    None => ArenaPatternKind::Binding(*constructor),
+                }
+            }
+            (
+                Self::Error { family },
+                ArenaPatternKind::ErrorVariant {
+                    variant, fields, ..
+                },
+            ) => ArenaPatternKind::ErrorVariant {
+                family: *family,
+                variant: *variant,
+                fields: *fields,
+            },
+            _ => kind.clone(),
+        }
+    }
+}
+
+/// The argument binding of one error constructor call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedErrorConstructor {
+    /// The payload field each argument supplies, in source order.
+    pub fields: Vec<Name>,
+    /// The call omitted the message of a variant declared without a payload;
+    /// the message is then the family and variant name.
+    pub default_message: bool,
+}
+
+/// One constructor call of a variant declared as `Variant(message: Str)`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessagePayloadConstructor {
+    /// The checked family name, as `Type::ErrorFamily` carries it.
+    pub family: Name,
+    pub variant: Name,
+    /// The `message: value` (or `message:`) argument and its value, when the
+    /// call names the field instead of passing it positionally.
+    pub named_message: Option<(Span, Span)>,
 }
 
 /// A leading-dot variant resolved against its expected type. It carries the
@@ -182,6 +285,10 @@ pub struct CheckOptions {
     pub interactive_commands: Option<fn(&str) -> bool>,
     pub reveal_types: bool,
     pub migration_diagnostics: bool,
+    /// Check every embedded implementation body. A check whose output feeds
+    /// lowering needs their facts; other checks only need the bodies whose
+    /// inferred returns shape a signature.
+    pub embedded_bodies: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -310,7 +417,10 @@ pub(super) enum TypeDefBody {
     Resolved(Type),
     Alias(TypeAnnRef),
     RecordSchema(Vec<SchemaField>),
-    ModuleContract(Vec<ModuleContractEntry>),
+    ModuleContract {
+        entries: Vec<ModuleContractEntry>,
+        exact: bool,
+    },
     TagUnion(Vec<TagVariant>),
 }
 
@@ -364,8 +474,96 @@ pub struct ErrorFamilyInfo {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorVariantInfo {
-    pub fields: BTreeMap<Name, Type>,
+    pub fields: ErrorPayloadFields,
     pub facets: Vec<Name>,
+    /// The variant was declared without a payload. `fields` is then the one
+    /// `message: Str` every error carries, and the constructor takes it as a
+    /// single optional positional argument instead of by name.
+    pub implicit_message: bool,
+}
+
+impl ErrorVariantInfo {
+    /// The facts of a variant from the payload fields its declaration wrote.
+    pub fn declared(
+        payload: impl IntoIterator<Item = (Name, Type)>,
+        facets: Vec<Name>,
+    ) -> Self {
+        let fields = ErrorPayloadFields::from_declared(payload);
+        if fields.is_empty() {
+            Self {
+                fields: ErrorPayloadFields::from_declared([(Name::intern("message"), Type::Str)]),
+                facets,
+                implicit_message: true,
+            }
+        } else {
+            Self {
+                fields,
+                facets,
+                implicit_message: false,
+            }
+        }
+    }
+}
+
+/// A variant's payload fields in the order the declaration wrote them, which
+/// is the order positional constructor arguments fill them. Names are unique.
+/// A name-sorted map here would make `V(path, owner)` bind by spelling.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ErrorPayloadFields(Vec<(Name, Type)>);
+
+impl ErrorPayloadFields {
+    /// Keeps the first field of each name; the declaration check reports the
+    /// duplicates.
+    pub fn from_declared(declared: impl IntoIterator<Item = (Name, Type)>) -> Self {
+        let mut fields: Vec<(Name, Type)> = Vec::new();
+        for (name, ty) in declared {
+            if fields.iter().all(|(existing, _)| *existing != name) {
+                fields.push((name, ty));
+            }
+        }
+        Self(fields)
+    }
+
+    pub fn get(&self, name: &Name) -> Option<&Type> {
+        self.0
+            .iter()
+            .find_map(|(field, ty)| (field == name).then_some(ty))
+    }
+
+    pub fn contains_key(&self, name: &Name) -> bool {
+        self.get(name).is_some()
+    }
+
+    /// Field names in declaration order.
+    pub fn keys(&self) -> impl Iterator<Item = &Name> {
+        self.0.iter().map(|(name, _)| name)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Type> {
+        self.0.iter().map(|(_, ty)| ty)
+    }
+
+    /// The first two of the leading `count` fields that some value fits both
+    /// of, so exchanging positional arguments between them could still check.
+    pub fn positional_conflict(&self, count: usize) -> Option<(Name, Name)> {
+        let filled = &self.0[..count.min(self.0.len())];
+        filled.iter().enumerate().find_map(|(index, (left, left_ty))| {
+            filled[index + 1..]
+                .iter()
+                .find(|(_, right_ty)| {
+                    crate::sema::constants::types_may_share_a_value(left_ty, right_ty)
+                })
+                .map(|(right, _)| (*left, *right))
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -456,16 +654,19 @@ pub struct Checker {
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,
     streams: FxHashMap<Name, FunctionSig>,
-    qualified_procs: FxHashMap<QualifiedName, FunctionSig>,
-    qualified_pures: FxHashMap<QualifiedName, FunctionSig>,
-    qualified_streams: FxHashMap<QualifiedName, FunctionSig>,
+    // Imported signatures and module contracts change only while
+    // declarations are collected. Sharing them lets the speculative copy made
+    // for each inferred body skip every signature in the program.
+    qualified_procs: Arc<FxHashMap<QualifiedName, FunctionSig>>,
+    qualified_pures: Arc<FxHashMap<QualifiedName, FunctionSig>>,
+    qualified_streams: Arc<FxHashMap<QualifiedName, FunctionSig>>,
     type_defs: FxHashMap<Name, TypeDefBody>,
     type_namespaces: FxHashMap<Name, BTreeMap<Name, Type>>,
     tag_variants: FxHashMap<Name, TagVariantInfo>,
     error_families: FxHashMap<Name, ErrorFamilyInfo>,
     error_facets: FxHashSet<Name>,
     resolving_types: Vec<Name>,
-    user_modules: FxHashMap<String, UserModuleSig>,
+    user_modules: Arc<FxHashMap<String, UserModuleSig>>,
     diagnostics: Vec<Diagnostic>,
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
@@ -477,6 +678,7 @@ pub struct Checker {
     terminating_call_spans: BTreeSet<Span>,
     assertion_effect_spans: BTreeSet<Span>,
     statement_expression_spans: BTreeSet<Span>,
+    propagating_statements: BTreeSet<Span>,
     membership_migration_spans: BTreeSet<Span>,
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
@@ -485,15 +687,19 @@ pub struct Checker {
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
     inferred_variants: BTreeMap<Span, InferredVariant>,
+    path_literals: BTreeSet<Span>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
-    /// Lowering needs facts for embedded implementation bodies; other checks
-    /// only need the bodies whose inferred returns shape a signature.
-    check_embedded_bodies: bool,
+    message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
+    optional_binding_spans: BTreeSet<Span>,
+    inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
     pipeline_hole_types: BTreeMap<Span, Type>,
+    /// Collected on first use; a checker checks one program.
+    return_inference_index: Option<Arc<infer_return::ReturnInferenceIndex>>,
     inferred_returns: Option<Vec<(Type, Span)>>,
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
@@ -505,6 +711,8 @@ pub struct Checker {
     current_yield: Option<Type>,
     in_pure: bool,
     current_effects: Option<Vec<Effect>>,
+    // The effects enclosing `without` regions exclude, outermost first.
+    excluded_effects: Vec<effect_bounds::ExcludedEffect>,
     collecting_effects: bool,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
@@ -517,6 +725,12 @@ pub struct Checker {
     item_frames: Vec<ItemFrame>,
     loop_depth: usize,
     block_depth: usize,
+    /// The last statement of the function body being checked, when that body
+    /// returns `Result[Unit]` or has its return inferred.
+    /// A `Result[Unit]` there is the function's result and a statement at
+    /// once: it propagates from that tail rather than being handed back as a
+    /// value, so its failure is reported from inside the function.
+    result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
     retry_attempt_depth: usize,
     /// `retry` attempt blocks being checked (a subset of the error
     /// boundaries counted by `retry_attempt_depth`).
@@ -568,15 +782,6 @@ impl Checker {
         )
     }
 
-    /// Check a program whose bodies will be lowered, including embedded
-    /// implementation modules, so every lowered body has published facts.
-    pub(super) fn check_arena_for_lowering(
-        program: &ArenaProgram,
-        options: CheckOptions,
-    ) -> CheckOutput {
-        Self::check_arena_impl(program, "", options, Arc::new(program.clone()), true)
-    }
-
     /// Check a mutable view of an arena-backed bundle while reusing an owned
     /// program for type references. Tooling can change the root statement
     /// range and module list between checks without cloning the full arena.
@@ -586,29 +791,17 @@ impl Checker {
         options: CheckOptions,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
-        Self::check_arena_impl(program, source, options, type_program, false)
-    }
-
-    fn check_arena_impl(
-        program: &ArenaProgram,
-        source: &str,
-        options: CheckOptions,
-        type_program: Arc<ArenaProgram>,
-        check_embedded_bodies: bool,
-    ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
             let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
                 let mut probe = Self::new(options);
                 probe.collecting_effects = true;
-                probe.check_embedded_bodies = check_embedded_bodies;
                 probe.effect_summaries = summaries;
                 probe.check_program_arena_with_type_program(program, source, type_program.clone());
                 probe
             });
             let mut checker = Self::new(options);
-            checker.check_embedded_bodies = check_embedded_bodies;
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
@@ -635,6 +828,7 @@ impl Checker {
                 terminating_call_spans: checker.terminating_call_spans,
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
+                propagating_statements: checker.propagating_statements,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -643,8 +837,14 @@ impl Checker {
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
                 inferred_variants: checker.inferred_variants,
+                path_literals: checker.path_literals,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
+                message_payload_constructors: checker.message_payload_constructors,
+                error_constructors: checker.error_constructors,
+                optional_binding_spans: checker.optional_binding_spans,
+                inferred_variant_patterns: checker.inferred_variant_patterns,
+                embedded_bodies_checked: options.embedded_bodies,
             }
         })
     }
@@ -688,6 +888,7 @@ impl Checker {
                 interactive_commands: Some(interactive_commands),
                 reveal_types: false,
                 migration_diagnostics: false,
+                embedded_bodies: false,
             },
         )
     }
@@ -798,6 +999,7 @@ impl Checker {
                 terminating_call_spans: checker.terminating_call_spans,
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
+                propagating_statements: checker.propagating_statements,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -806,8 +1008,14 @@ impl Checker {
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
                 inferred_variants: checker.inferred_variants,
+                path_literals: checker.path_literals,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
+                message_payload_constructors: checker.message_payload_constructors,
+                error_constructors: checker.error_constructors,
+                optional_binding_spans: checker.optional_binding_spans,
+                inferred_variant_patterns: checker.inferred_variant_patterns,
+                embedded_bodies_checked: false,
             }
         })
     }
@@ -821,9 +1029,9 @@ impl Checker {
             procs: FxHashMap::default(),
             pures: FxHashMap::default(),
             streams: FxHashMap::default(),
-            qualified_procs: FxHashMap::default(),
-            qualified_pures: FxHashMap::default(),
-            qualified_streams: FxHashMap::default(),
+            qualified_procs: Arc::default(),
+            qualified_pures: Arc::default(),
+            qualified_streams: Arc::default(),
             type_defs: FxHashMap::default(),
             local_inference: local_inference::LocalInference::default(),
             type_constraints: super::constraints::TypeConstraints::default(),
@@ -850,7 +1058,7 @@ impl Checker {
             error_families: FxHashMap::default(),
             error_facets: FxHashSet::default(),
             resolving_types: Vec::new(),
-            user_modules: FxHashMap::default(),
+            user_modules: Arc::default(),
             diagnostics: Vec::new(),
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
@@ -862,6 +1070,7 @@ impl Checker {
             terminating_call_spans: BTreeSet::new(),
             assertion_effect_spans: BTreeSet::new(),
             statement_expression_spans: BTreeSet::new(),
+            propagating_statements: BTreeSet::new(),
             membership_migration_spans: BTreeSet::new(),
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
@@ -870,13 +1079,18 @@ impl Checker {
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),
             inferred_variants: BTreeMap::new(),
+            path_literals: BTreeSet::new(),
             redundant_variant_qualifiers: BTreeMap::new(),
             record_constructor_fields: BTreeMap::new(),
-            check_embedded_bodies: false,
+            message_payload_constructors: BTreeMap::new(),
+            error_constructors: BTreeMap::new(),
+            optional_binding_spans: BTreeSet::new(),
+            inferred_variant_patterns: BTreeMap::new(),
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),
             pipeline_hole_types: BTreeMap::new(),
+            return_inference_index: None,
             inferred_returns: None,
             inferred_propagations: Vec::new(),
             return_conflicts: None,
@@ -886,6 +1100,7 @@ impl Checker {
             current_yield: None,
             in_pure: false,
             current_effects: None,
+            excluded_effects: Vec::new(),
             collecting_effects: false,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
@@ -895,6 +1110,7 @@ impl Checker {
             item_frames: Vec::new(),
             loop_depth: 0,
             block_depth: 0,
+            result_unit_function_tail: None,
             retry_attempt_depth: 0,
             retry_block_depth: 0,
             error_boundary_errors: Vec::new(),
@@ -928,19 +1144,19 @@ impl Checker {
                         crate::modules::signature::convert_type(&field.ty),
                     )
                 })
-                .collect::<BTreeMap<_, _>>();
+                .collect::<Vec<_>>();
             let mut variants = BTreeMap::new();
             for variant in family.variants {
                 variants.insert(
                     Name::intern(variant.name),
-                    ErrorVariantInfo {
-                        fields: fields.clone(),
-                        facets: variant
+                    ErrorVariantInfo::declared(
+                        fields.clone(),
+                        variant
                             .facets
                             .iter()
                             .map(|facet| Name::intern(facet.name()))
                             .collect(),
-                    },
+                    ),
                 );
             }
             let family_name = if family.name == "ProcessError" {
@@ -1052,6 +1268,7 @@ impl Checker {
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
+        self.check_public_result_types(program, &statements);
         self.exit_status_statement = None;
         self.resolve_checked_types();
         let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
@@ -1160,10 +1377,10 @@ impl Checker {
         for (name, sig) in &self.streams {
             effects.insert(name.to_string(), sig.effects.clone());
         }
-        for (name, sig) in &self.qualified_procs {
+        for (name, sig) in self.qualified_procs.iter() {
             effects.insert(name.to_string(), sig.effects.clone());
         }
-        for (name, sig) in &self.qualified_streams {
+        for (name, sig) in self.qualified_streams.iter() {
             effects.insert(name.to_string(), sig.effects.clone());
         }
         effects

@@ -11,5 +11,5 @@ export type CommandSpec = {
 
 ## The one static-module substitution seam for process execution.
 export type StageRunner = module {
-  export proc execute(spec: CommandSpec) [process, error, io] -> Result[Unit]
+  export proc execute(spec: CommandSpec) [process, error, io] -> Result[Unit, Error]
 }

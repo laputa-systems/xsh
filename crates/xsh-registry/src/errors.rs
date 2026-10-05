@@ -17,6 +17,9 @@ pub enum ErrorFacet {
     InvalidData,
     HostIo,
     ProcessFailure,
+    MissingExport,
+    MismatchedExport,
+    UnexpectedExport,
 }
 
 impl ErrorFacet {
@@ -31,6 +34,9 @@ impl ErrorFacet {
         Self::InvalidData,
         Self::HostIo,
         Self::ProcessFailure,
+        Self::MissingExport,
+        Self::MismatchedExport,
+        Self::UnexpectedExport,
     ];
 
     /// The source spelling in `is Facet` patterns and `error` declarations.
@@ -46,6 +52,9 @@ impl ErrorFacet {
             Self::InvalidData => "InvalidData",
             Self::HostIo => "HostIo",
             Self::ProcessFailure => "ProcessFailure",
+            Self::MissingExport => "MissingExport",
+            Self::MismatchedExport => "MismatchedExport",
+            Self::UnexpectedExport => "UnexpectedExport",
         }
     }
 
@@ -68,6 +77,28 @@ impl ErrorFacet {
             }
             Self::HostIo => "Any other host I/O failure.",
             Self::ProcessFailure => "A process could not be spawned, executed, or completed.",
+            Self::MissingExport => "A module lacks an export its contract requires.",
+            Self::MismatchedExport => {
+                "A module export has another kind or signature than its contract declares."
+            }
+            Self::UnexpectedExport => "A module has an export its exact contract does not list.",
+        }
+    }
+
+    /// The module-contract check that raises the facet, for facets no
+    /// built-in family variant or host OS error implements.
+    pub const fn contract_check_source(self) -> Option<&'static str> {
+        match self {
+            Self::MissingExport => {
+                Some("a failed `.require(Contract)` on a module without a required export")
+            }
+            Self::MismatchedExport => Some(
+                "a failed `.require(Contract)` on a module whose export differs from the contract",
+            ),
+            Self::UnexpectedExport => Some(
+                "a failed `.require(Contract)` on a module with an export outside an `exact module` contract",
+            ),
+            _ => None,
         }
     }
 
@@ -253,8 +284,11 @@ mod tests {
                     .any(|variant| variant.facets.contains(facet))
             });
             let by_host = *facet == ErrorFacet::HostIo || facet.host_io_kinds().next().is_some();
+            // A failed module contract check raises a plain `Error`, not a
+            // family variant, so its facets name that check as their source.
+            let by_contract_check = facet.contract_check_source().is_some();
             assert!(
-                by_variant || by_host,
+                by_variant || by_host || by_contract_check,
                 "{} has no built-in source",
                 facet.name()
             );

@@ -276,6 +276,10 @@ pub struct TokenTableData {
     tags: Vec<TokenTag>,
     starts: TokenStarts,
     payloads: Vec<TokenPayloadEntry>,
+    /// The offset of each `\` that joins its line to the next one, in source
+    /// order. A line continuation is whitespace, so it has no token; the
+    /// parser reads this list to reject one written outside a command.
+    line_continuations: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -283,6 +287,7 @@ pub struct TokenTableBuilder {
     tags: Vec<TokenTag>,
     starts: TokenStarts,
     payloads: Vec<TokenPayloadEntry>,
+    line_continuations: Vec<u32>,
 }
 
 impl TokenTableBuilder {
@@ -294,7 +299,14 @@ impl TokenTableBuilder {
             // capacity avoids most of the growth reallocations without
             // over-committing for punctuation-heavy sources.
             payloads: Vec::with_capacity(capacity / 2),
+            line_continuations: Vec::new(),
         }
+    }
+
+    /// Records the `\` at `offset` that joins its line to the next one.
+    pub fn push_line_continuation(&mut self, offset: usize) {
+        self.line_continuations
+            .push(u32::try_from(offset).expect("source offset exceeded u32"));
     }
 
     pub fn push_kind(&mut self, kind: &TokenKind, start: usize) -> TokenId {
@@ -321,6 +333,7 @@ impl TokenTableBuilder {
                 tags: self.tags,
                 starts: self.starts,
                 payloads: self.payloads,
+                line_continuations: self.line_continuations,
             }),
         }
     }
@@ -333,6 +346,11 @@ impl TokenTable {
 
     pub fn is_empty(&self) -> bool {
         self.data.tags.is_empty()
+    }
+
+    /// The offset of each `\` line continuation, in source order.
+    pub fn line_continuations(&self) -> &[u32] {
+        &self.data.line_continuations
     }
 
     pub fn tag(&self, id: TokenId) -> TokenTag {
@@ -479,7 +497,9 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
             let offset = start.saturating_add(2);
             scan_until(source, offset, is_ident_continue)
         }
-        TokenTag::Int | TokenTag::Float | TokenTag::Duration => scan_number_end(source, start),
+        TokenTag::Int | TokenTag::Float | TokenTag::Duration => {
+            scan_number_end(source, start, tag)
+        }
         TokenTag::String
         | TokenTag::PathString
         | TokenTag::GlobString
@@ -500,7 +520,11 @@ fn fixed_width(tag: TokenTag) -> usize {
     tag.fixed_text().map_or(1, str::len)
 }
 
-fn scan_number_end(source: &str, start: usize) -> usize {
+/// Where the number token of kind `tag` that starts at `start` ends. Only
+/// the lexer knows which unit it accepted, and the tag records it: a duration
+/// ends with its unit, an integer with a size unit if one follows, and a
+/// float takes none.
+fn scan_number_end(source: &str, start: usize, tag: TokenTag) -> usize {
     let bytes = source.as_bytes();
     let mut offset = start;
     if bytes.get(offset) == Some(&b'0') && bytes.get(offset + 1) == Some(&b'o') {
@@ -539,7 +563,12 @@ fn scan_number_end(source: &str, start: usize) -> usize {
             offset += 1;
         }
     }
-    offset + crate::syntax::grammar::duration_suffix_at(bytes, offset).map_or(0, str::len)
+    let suffix = match tag {
+        TokenTag::Duration => crate::syntax::grammar::duration_suffix_at(bytes, offset),
+        TokenTag::Int => crate::syntax::grammar::size_suffix_at(bytes, offset),
+        _ => None,
+    };
+    offset + suffix.map_or(0, str::len)
 }
 
 fn scan_until(source: &str, start: usize, keep_going: impl Fn(u8) -> bool) -> usize {
@@ -743,6 +772,7 @@ pub enum Keyword {
     Defer,
     Else,
     Enum,
+    Errdefer,
     Export,
     False,
     For,
@@ -777,7 +807,7 @@ pub enum Keyword {
 }
 
 impl Keyword {
-    pub const ALL: [Keyword; 38] = [
+    pub const ALL: [Keyword; 39] = [
         Keyword::And,
         Keyword::Assert,
         Keyword::Break,
@@ -785,6 +815,7 @@ impl Keyword {
         Keyword::Defer,
         Keyword::Else,
         Keyword::Enum,
+        Keyword::Errdefer,
         Keyword::Export,
         Keyword::False,
         Keyword::For,
@@ -827,6 +858,7 @@ impl Keyword {
             value if value == Self::Defer as u32 => Self::Defer,
             value if value == Self::Else as u32 => Self::Else,
             value if value == Self::Enum as u32 => Self::Enum,
+            value if value == Self::Errdefer as u32 => Self::Errdefer,
             value if value == Self::Export as u32 => Self::Export,
             value if value == Self::False as u32 => Self::False,
             value if value == Self::For as u32 => Self::For,
@@ -871,6 +903,7 @@ impl Keyword {
             "defer" => Self::Defer,
             "else" => Self::Else,
             "enum" => Self::Enum,
+            "errdefer" => Self::Errdefer,
             "export" => Self::Export,
             "false" => Self::False,
             "for" => Self::For,
@@ -915,6 +948,7 @@ impl Keyword {
             Self::Defer => "defer",
             Self::Else => "else",
             Self::Enum => "enum",
+            Self::Errdefer => "errdefer",
             Self::Export => "export",
             Self::False => "false",
             Self::For => "for",

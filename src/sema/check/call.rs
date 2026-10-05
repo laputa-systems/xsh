@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use super::expr::is_path_like_arena_expr;
+use super::expr::is_path_like_type;
 use super::{
     ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
@@ -17,6 +17,32 @@ fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
 }
 
 #[allow(dead_code)]
+/// A positional error-constructor argument and the field it fills.
+struct PositionalErrorArgument {
+    span: Span,
+    field: Name,
+    /// The argument is the bare name of its field, so naming it is a pun.
+    names_field: bool,
+}
+
+impl PositionalErrorArgument {
+    /// Names the field this argument fills. The edit is built from the span
+    /// and the field alone: the argument may sit in an imported module, whose
+    /// text the checker of the importing program does not hold.
+    fn named_fix(&self) -> super::FixHint {
+        let message = format!("pass `{}` by name", self.field);
+        if self.names_field {
+            super::FixHint::replacement(self.span, message, format!("{}:", self.field))
+        } else {
+            super::FixHint::replacement(
+                Span::new(self.span.source_id, self.span.start(), self.span.start()),
+                message,
+                format!("{}: ", self.field),
+            )
+        }
+    }
+}
+
 impl Checker {
     pub(super) fn warn_flattened_error_handler_arena(
         &mut self,
@@ -64,7 +90,7 @@ impl Checker {
         if statements.next().is_some() {
             return None;
         }
-        match arena.arena.stmt(statement).kind {
+        match arena.arena.stmt(arena.arena.core_stmt_id(statement)).kind {
             ArenaStmtKind::Expr(value)
             | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(value),
             _ => None,
@@ -544,75 +570,13 @@ impl Checker {
                 return Type::Unknown;
             }
 
-            if let Type::Module(exports) = &base_ty
-                && let Some(export) = exports.get(&name)
-            {
-                match export {
-                    ModuleExportType::Proc { sig, .. } => {
-                        if self.collecting_effects {
-                            self.provisional_effects_read.set(true);
-                        }
-                        self.record_effect_contract(&sig.effects, &name.as_str());
-                        if self.in_pure {
-                            self.error(
-                                span,
-                                "effectful proc is not allowed in pure functions",
-                                DiagnosticCode::CheckPureEffect,
-                            );
-                        } else if let Some(caller_effs) = self.current_effects.clone() {
-                            self.check_module_callable_effects(
-                                &caller_effs,
-                                &sig.effects,
-                                &name.as_str(),
-                                span,
-                            );
-                        }
-                        self.check_module_callable_arg_list_arena(
-                            arena,
-                            source,
-                            args,
-                            &sig.params,
-                            span,
-                        );
-                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                        return sig.return_ty.as_ref().clone();
-                    }
-                    ModuleExportType::Pure { sig, .. } => {
-                        self.check_module_callable_arg_list_arena(
-                            arena,
-                            source,
-                            args,
-                            &sig.params,
-                            span,
-                        );
-                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                        return sig.return_ty.as_ref().clone();
-                    }
-                    ModuleExportType::Value { .. } => {}
-                }
-            }
-            let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
-                let callee_span = arena.arena.expr(callee).span;
-                self.removed_compatibility_name(
-                    Span::new(
-                        callee_span.source_id,
-                        callee_span.end() - "count_bytes".len(),
-                        callee_span.end(),
-                    ),
-                    "count_bytes",
-                    "byte_len",
-                    true,
-                );
-                Name::intern("byte_len")
-            } else {
-                name
-            };
-            return self.check_method_dispatch_arena(
+            return self.check_receiver_method_call_arena(
                 arena,
                 source,
+                callee,
                 base,
                 base_ty,
-                &canonical_name.as_str(),
+                name,
                 args,
                 span,
                 expected_context,
@@ -643,22 +607,6 @@ impl Checker {
                 );
                 return Type::Unknown;
             }
-            let canonical_name = if inner_ty == Type::Str && name == "count_bytes" {
-                let callee_span = arena.arena.expr(callee).span;
-                self.removed_compatibility_name(
-                    Span::new(
-                        callee_span.source_id,
-                        callee_span.end() - "count_bytes".len(),
-                        callee_span.end(),
-                    ),
-                    "count_bytes",
-                    "byte_len",
-                    true,
-                );
-                Name::intern("byte_len")
-            } else {
-                name
-            };
             let method_expected = if wrap_optional {
                 expected_context.and_then(|ty| {
                     if let Type::Optional(inner) = ty {
@@ -670,12 +618,13 @@ impl Checker {
             } else {
                 expected_context
             };
-            let return_ty = self.check_method_dispatch_arena(
+            let return_ty = self.check_receiver_method_call_arena(
                 arena,
                 source,
+                callee,
                 base,
                 inner_ty,
-                &canonical_name.as_str(),
+                name,
                 args,
                 span,
                 method_expected,
@@ -694,6 +643,99 @@ impl Checker {
             DiagnosticCode::CheckCallTarget,
         );
         Type::Unknown
+    }
+
+    /// Checks `receiver.name(args)` once the receiver's type is known: a call
+    /// to a module contract's callable export, or a registered method. `.` and
+    /// `?.` calls both end here, so a receiver reached through propagation
+    /// resolves exactly as one bound to a name first.
+    #[allow(clippy::too_many_arguments)]
+    fn check_receiver_method_call_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        base: ExprId,
+        base_ty: Type,
+        name: Name,
+        args: &[ArenaCallArg],
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Type {
+        if let Type::Module(exports) = &base_ty
+            && let Some(export) = exports.get(&name)
+        {
+            match export {
+                ModuleExportType::Proc { sig, .. } => {
+                    if self.collecting_effects {
+                        self.provisional_effects_read.set(true);
+                    }
+                    self.record_effect_contract(&sig.effects, &name.as_str());
+                    if self.in_pure {
+                        self.error(
+                            span,
+                            "effectful proc is not allowed in pure functions",
+                            DiagnosticCode::CheckPureEffect,
+                        );
+                    } else if let Some(caller_effs) = self.current_effects.clone() {
+                        self.check_module_callable_effects(
+                            &caller_effs,
+                            &sig.effects,
+                            &name.as_str(),
+                            span,
+                        );
+                    }
+                    self.check_callee_not_excluded(&sig.effects, &[], &name.as_str(), span);
+                    self.check_module_callable_arg_list_arena(
+                        arena,
+                        source,
+                        args,
+                        &sig.params,
+                        span,
+                    );
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                    return sig.return_ty.as_ref().clone();
+                }
+                ModuleExportType::Pure { sig, .. } => {
+                    self.check_module_callable_arg_list_arena(
+                        arena,
+                        source,
+                        args,
+                        &sig.params,
+                        span,
+                    );
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                    return sig.return_ty.as_ref().clone();
+                }
+                ModuleExportType::Value { .. } => {}
+            }
+        }
+        let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
+            let callee_span = arena.arena.expr(callee).span;
+            self.removed_compatibility_name(
+                Span::new(
+                    callee_span.source_id,
+                    callee_span.end() - "count_bytes".len(),
+                    callee_span.end(),
+                ),
+                "count_bytes",
+                "byte_len",
+                true,
+            );
+            Name::intern("byte_len")
+        } else {
+            name
+        };
+        self.check_method_dispatch_arena(
+            arena,
+            source,
+            base,
+            base_ty,
+            &canonical_name.as_str(),
+            args,
+            span,
+            expected,
+        )
     }
 
     fn check_reveal_type_call_arena(
@@ -1505,9 +1547,37 @@ impl Checker {
         let mut seen = FxHashSet::default();
         let field_names: Vec<_> = info.fields.keys().copied().collect();
         let mut positional_index = 0usize;
+        // The binding lowering consumes; it is published only for a call in
+        // which every argument fills one distinct field.
+        let mut arg_fields = Vec::with_capacity(args.len());
+        let mut well_formed = true;
+        let mut named_seen = false;
+        // Positional arguments before any named one, and those after.
+        let mut leading = Vec::new();
+        let mut trailing = Vec::new();
         for arg in args {
+            well_formed &= matches!(
+                arg.kind,
+                ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Positional(_)
+            );
             let (name, expected) = match &arg.kind {
+                // The message of a variant without a payload has one spelling,
+                // so a declaration that later gains a payload cannot silently
+                // rebind a `message:` argument.
+                ArenaCallArgKind::Named { .. } if info.implicit_message => {
+                    self.error(
+                        call_arg_span_arena(arena, &arg.kind),
+                        &format!(
+                            "variant `{variant}` declares no payload; pass its message positionally: `{variant}(\"...\")`"
+                        ),
+                        DiagnosticCode::CheckErrorConstructor,
+                    );
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    well_formed = false;
+                    continue;
+                }
                 ArenaCallArgKind::Named { name, .. } => {
+                    named_seen = true;
                     let Some(expected) = info.fields.get(name) else {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
@@ -1515,6 +1585,7 @@ impl Checker {
                             DiagnosticCode::CheckErrorConstructor,
                         );
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
+                        well_formed = false;
                         continue;
                     };
                     (*name, expected.clone())
@@ -1527,9 +1598,26 @@ impl Checker {
                             DiagnosticCode::CheckArity,
                         );
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
+                        well_formed = false;
                         continue;
                     };
                     positional_index += 1;
+                    let span = call_arg_span_arena(arena, &arg.kind);
+                    let argument = PositionalErrorArgument {
+                        span,
+                        field: name,
+                        names_field: matches!(
+                            &arg.kind,
+                            ArenaCallArgKind::Positional(value)
+                                if matches!(arena.arena.expr(*value).kind, ArenaExprKind::Ident(ident) if ident == name)
+                                    && span.end() - span.start() == name.as_str().len()
+                        ),
+                    };
+                    if named_seen {
+                        trailing.push(argument);
+                    } else {
+                        leading.push(argument);
+                    }
                     let expected = info.fields.get(&name).cloned().unwrap_or(Type::Unknown);
                     (name, expected)
                 }
@@ -1549,17 +1637,91 @@ impl Checker {
                     "duplicate error payload field",
                     DiagnosticCode::CheckErrorConstructor,
                 );
+                well_formed = false;
             }
+            arg_fields.push(name);
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
-        for name in info.fields.keys() {
-            if !seen.contains(name) {
-                self.error(
+        let default_message = info.implicit_message && seen.is_empty();
+        well_formed &= default_message || field_names.iter().all(|name| seen.contains(name));
+        if well_formed {
+            self.error_constructors.insert(
+                span,
+                super::CheckedErrorConstructor {
+                    fields: arg_fields,
+                    default_message,
+                },
+            );
+        } else {
+            self.error_constructors.remove(&span);
+        }
+        // The rules record constructors follow: a swapped pair of positional
+        // arguments must be a type error, and positional arguments lead.
+        if let Some((left, right)) = info.fields.positional_conflict(leading.len()) {
+            let mut diagnostic = Diagnostic::warning(format!(
+                "fields `{left}` and `{right}` can hold the same value, so they must be passed by name"
+            ))
+            .with_code(DiagnosticCode::CheckPositionalErrorArguments)
+            .with_label(Label::primary(span, "positional arguments could be swapped unnoticed"))
+            .with_note(format!(
+                "write `{left}: ...` and `{right}: ...`; positional payload fields must have types no single value fits both of"
+            ));
+            for argument in &leading {
+                diagnostic = diagnostic.with_fix_hint(argument.named_fix());
+            }
+            self.diagnostics.push(diagnostic);
+        }
+        for argument in &trailing {
+            let diagnostic = Diagnostic::warning(
+                "positional error constructor arguments must come before named ones",
+            )
+            .with_code(DiagnosticCode::CheckPositionalErrorArguments)
+            .with_label(Label::primary(
+                argument.span,
+                format!("this fills `{}`", argument.field),
+            ))
+            .with_fix_hint(argument.named_fix());
+            self.diagnostics.push(diagnostic);
+        }
+        self.message_payload_constructors.remove(&span);
+        let message = Name::intern("message");
+        if !info.implicit_message
+            && info.fields.len() == 1
+            && info.fields.get(&message) == Some(&Type::Str)
+            && let [arg] = args
+            && !xsh_registry::errors::builtin_error_families()
+                .iter()
+                .any(|builtin| family == builtin.name)
+        {
+            let named_message = match &arg.kind {
+                ArenaCallArgKind::Named { name, value, .. } if *name == message => Some((
+                    call_arg_span_arena(arena, &arg.kind),
+                    arena.arena.expr(*value).span,
+                )),
+                _ => None,
+            };
+            if named_message.is_some() || matches!(arg.kind, ArenaCallArgKind::Positional(_)) {
+                self.message_payload_constructors.insert(
                     span,
-                    "missing error payload field",
-                    DiagnosticCode::CheckErrorConstructor,
+                    super::MessagePayloadConstructor {
+                        family,
+                        variant,
+                        named_message,
+                    },
                 );
+            }
+        }
+        // An omitted implicit message defaults to the family and variant name.
+        if !info.implicit_message {
+            for name in info.fields.keys() {
+                if !seen.contains(name) {
+                    self.error(
+                        span,
+                        "missing error payload field",
+                        DiagnosticCode::CheckErrorConstructor,
+                    );
+                }
             }
         }
         Type::ErrorVariant { family, variant }
@@ -2072,9 +2234,7 @@ impl Checker {
             crate::sema::arguments::bind_hash_verify_file_arguments(args).unwrap_or([0, 1]);
         let (path_arg, checksum_arg) = (&args[path_index], &args[checksum_index]);
         let path_ty = self.check_call_arg_arena(arena, source, &path_arg.kind, Some(&Type::Path));
-        let path_expr_id = call_arg_expr_id_arena(&path_arg.kind);
-        let path_kind = arena.arena.expr(path_expr_id).kind;
-        if !is_path_like_arena_expr(&path_kind, &path_ty) {
+        if !is_path_like_type(&path_ty) {
             self.expect_type(
                 &Type::Path,
                 &path_ty,
@@ -2166,9 +2326,7 @@ impl Checker {
                 self.check_named_arg_arena(arena, &args[1].kind, "value");
                 let path_ty =
                     self.check_call_arg_arena(arena, source, &args[0].kind, Some(&Type::Path));
-                let path_expr_id = call_arg_expr_id_arena(&args[0].kind);
-                let path_kind = arena.arena.expr(path_expr_id).kind;
-                if !is_path_like_arena_expr(&path_kind, &path_ty) {
+                if !is_path_like_type(&path_ty) {
                     self.expect_type(
                         &Type::Path,
                         &path_ty,
@@ -2197,9 +2355,7 @@ impl Checker {
                 self.check_named_arg_arena(arena, &args[1].kind, "values");
                 let path_ty =
                     self.check_call_arg_arena(arena, source, &args[0].kind, Some(&Type::Path));
-                let path_expr_id = call_arg_expr_id_arena(&args[0].kind);
-                let path_kind = arena.arena.expr(path_expr_id).kind;
-                if !is_path_like_arena_expr(&path_kind, &path_ty) {
+                if !is_path_like_type(&path_ty) {
                     self.expect_type(
                         &Type::Path,
                         &path_ty,
@@ -2269,6 +2425,65 @@ impl Checker {
                 "unexpected named parameter",
                 DiagnosticCode::CheckNamedArg,
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod error_constructor_tests {
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    /// The published binding of each error constructor call, in source order.
+    fn bindings(source: &str) -> Vec<(Vec<String>, bool)> {
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        program.symbol_owner().with_current(|| {
+            Checker::check_arena(&program, source)
+                .error_constructors
+                .values()
+                .map(|constructor| {
+                    (
+                        constructor.fields.iter().map(ToString::to_string).collect(),
+                        constructor.default_message,
+                    )
+                })
+                .collect()
+        })
+    }
+
+    #[test]
+    fn checker_publishes_the_field_each_error_argument_fills() {
+        let published = bindings(
+            "error E = Triple(zulu: Int, mike: Str, alpha: Bool) | Usage\n\
+             let a = E.Triple(1, alpha: true, mike: \"m\")\n\
+             let b = E.Usage()\n\
+             let c = E.Usage(\"x\")\n",
+        );
+        let names = |fields: &[&str]| fields.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            published,
+            vec![
+                (names(&["zulu", "alpha", "mike"]), false),
+                (names(&[]), true),
+                (names(&["message"]), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_error_constructors_publish_no_binding() {
+        for call in [
+            "E.Triple(1)",
+            "E.Triple(1, \"m\", true, 4)",
+            "E.Triple(1, zulu: 2, mike: \"m\", alpha: true)",
+            "E.Triple(1, \"m\", other: true)",
+            "E.Usage(message: \"x\")",
+        ] {
+            let source = format!(
+                "error E = Triple(zulu: Int, mike: Str, alpha: Bool) | Usage\nlet a = {call}\n"
+            );
+            assert!(bindings(&source).is_empty(), "{call} published a binding");
         }
     }
 }

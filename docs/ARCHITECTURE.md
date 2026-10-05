@@ -40,6 +40,7 @@ First-party consumers import the root library only through these modules:
 | Concern | Path | Owner |
 |---|---|---|
 | loading, syntax, checking | `xsh::frontend::{load, syntax, check, source}` | `src/frontend.rs` over `src/loader.rs`, `src/syntax`, `src/sema`, `src/source.rs` |
+| project module roots | `xsh::frontend::load::project_module_roots` and the config pieces beside it | `src/project.rs` |
 | diagnostics | `xsh::diagnostic` | `src/diagnostic.rs` |
 | script execution | `xsh::execution::script` | `src/execution.rs` over `src/runner.rs` |
 | evaluator and values | `xsh::execution::{evaluator, value}` | `src/runtime/eval.rs`, `src/runtime/value.rs` |
@@ -56,6 +57,13 @@ private. Trace data belongs to `libxsh`; trace presentation belongs to
 a separate core crate without a concrete consumer. `tests/libxsh_api.rs` guards
 the façade.
 
+Module resolution has one owner. `loader::resolve_module_path_candidates`
+fixes the search order (beside the importing file, `XSH_MODULE_PATH`, project
+module roots), and `src/project.rs` finds a project's `xsht-config.ini` and
+reads its `module_path`. The runner, `xshi`, and `xsht` all get project roots
+there; `xsht` reads the rest of the file itself, and `xsh` never learns the
+tool configuration.
+
 ## Pipeline
 
 | Stage | Primary objects | Owner |
@@ -64,7 +72,7 @@ the façade.
 | lex | `Lexer::lex_compact`, `TokenTable` | `src/syntax/lexer.rs`, `src/syntax/token.rs` |
 | source structure | `SyntaxTree::from_token_table` (CST), `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` |
 | load | `CompactFileUnit`, `CompactModuleGraph`, `CheckedEntry` | `src/loader.rs` |
-| check | `Checker`, `Checker::check_compact_declarations`, `CheckOutput`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
+| check | `Checker`, `CheckOptions`, `CheckOutput`, `Checker::compact_declarations`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
 | publish facts | `CompactBodyFacts`, `CheckedApiCall`, `CheckedArguments`, `PreparedConstants` | `src/sema/check/compact.rs`, `src/sema/constants.rs` |
 | lower | `FullBuilder::build_compact`, `BuildScratch` | `src/runtime/eval/lower.rs` |
 | verify | `FullVerifier::verify`, `FullStore`, `FullProgram` | `src/runtime/eval/indexed/full.rs` |
@@ -90,11 +98,36 @@ source-preserving edits and is never executed. Do not add a recursive AST or a
 CST-to-AST bridge for convenience. The parser decides language shape; later
 stages do not recover from ambiguous trees the parser could have represented.
 
+A surface form that is sugar (`docs/DESIGN.md`) is one statement row,
+`ArenaStmtKind::Sugar { form, operands, expansion }`, that carries two views of
+the same nodes. `operands` are the parts the user wrote, as `ArenaSugarOperand`
+ids into the ordinary tables, in the order they run (source order, except
+that a postfix `when`/`unless` condition comes before the statement it
+guards). `expansion` is a core statement
+that the form's function in `src/syntax/parser/sugar.rs` builds, once, from
+those same ids plus the nodes it adds; that function is the only definition of
+the form's meaning, and no later pass rewrites anything.
+`ArenaProgramBuilder::push_sugar` records the rows an expansion adds, so
+`AstArena::expr_is_synthetic` (and the statement and block equivalents) lets a
+whole-table scan leave them out. Semantic code reads the expansion: a match
+that recurses has one arm that delegates to it, and code that classifies a
+statement by kind resolves it with `AstArena::core_stmt_id` first. Source
+tools read the operands: a walker that only recurses has one arm over
+`AstArena::sugar_operands`, and only a consumer that prints or matches a
+particular form switches on `AstArena::sugar`. Lint has both kinds of walker:
+a rule that looks for a spelling walks operands, and an analysis of meaning
+(`stmt_flow`) follows the expansion. The mechanism is statement-level; an
+expression-level form would use the same shape on `ArenaExprKind` when the
+first one is scheduled.
+
 **Checking.** `Checker` owns lexical scopes, signatures, imports, return and
 purity context, and stream item context. Focused rules live beside it:
 `src/sema/constraints.rs::TypeConstraints` (bounded monomorphic inference),
 `src/sema/check/infer_return.rs` (private return inference),
-`src/sema/check/infer_effects.rs` (effect inference over the whole module bundle), `src/sema/check/proof.rs` (narrowing provenance),
+`src/sema/check/infer_effects.rs` (effect inference over the whole module bundle),
+`src/sema/check/effect_bounds.rs` (`without` regions: a block's bound lives in
+`AstArena::block_effect_bound`, the block itself stays an ordinary lexical
+block for every other stage), `src/sema/check/proof.rs` (narrowing provenance),
 `src/sema/check/stream.rs` (pipeline stage facts), and `src/sema/arguments.rs`
 (static argument binding). Registry signatures from `crates/xsh-registry` are
 adapted to semantic types in `src/modules/signature.rs`. The checker reports a
@@ -107,7 +140,11 @@ registered call (`CheckedApiCall`), argument bindings for user calls and stages
 (`CheckedArguments`), statement positions, function return and effect facts,
 prepared constants, and terminating calls. `CompactBodyFacts` re-keys them by
 arena identity. Lowering, lint, and annotation all consume these facts instead
-of re-deriving them.
+of re-deriving them. A program is checked once: the runner, `xsht check`, and
+`xsht test` check with `CheckOptions::embedded_bodies`, render that check's
+diagnostics, and pass its output to `Checker::compact_declarations`.
+`Checker::check_compact_declarations` runs the same check for programs prepared
+without an entry check (embedded modules, loaded modules, tests).
 
 **Lowering and verification.** `FullBuilder::build_compact` reserves function
 identities, lowers each checked body into short-lived construction scratch,
@@ -194,7 +231,10 @@ annotated ones, and `xsht test` in the project.
    argument binding, narrowing, inference, effects, constants) is made once, by
    the checker. Two routes that must agree (full and compact checking, the
    recursive and frame evaluators) share one implementation or are pinned by a
-   parity test.
+   parity test. Which member of a `Union[...]` a value belongs to is one such
+   decision: the checker, the runtime type test, and schema decoding all ask
+   `sema::types::first_accepting_union_member`, and `union_member_error` is
+   the one definition of a well-formed union for both type resolvers.
 3. **Lowering consumes checker facts.** Lowering never checks a body again,
    selects an overload, or binds arguments. A call without a checked plan lowers
    only its positional arguments.
@@ -215,6 +255,24 @@ annotated ones, and `xsht test` in the project.
 8. **No speculative machinery.** No JIT, green threads, async task runtime, or
    bytecode VM. Reconsider only with measured bottlenecks and only if every
    observability and OS contract stays exact.
+9. **Sugar has one meaning and two readers.** A sugar form reaches the checker,
+   lowering, and execution only as its expansion; syntax tools read only its
+   operands. The expansion references each operand exactly once and in the
+   order listed, its root carries the surface statement's span and is never a
+   declaration or binding, and every other node it adds has a span of its own
+   inside the surface statement, because checker facts are keyed by span. The
+   one static rule a form may add to its expansion is that a block must leave
+   the enclosing continuation (`ArenaProgramBuilder::require_block_exit`, read
+   by the checker as `AstArena::block_must_exit` on whichever `if` owns the
+   block); `guard cond else` uses it, and no checker code names a form.
+   `every_form_keeps_the_expansion_rules` checks this for every `SugarForm`,
+   and `every_form_expands_to_its_stated_core_program` holds each expansion to
+   a hand-written core program and to the text `xsht desugar` prints, which
+   is what the SPEC shows (`crates/xsht/src/sugar_expansion_tests.rs`). A
+   semantic walker that matches statement kinds with a wildcard arm can still
+   skip a sugar node; `the_desugared_corpus_checks_and_tests_like_the_corpus`
+   (`crates/xsht/tests/desugar.rs`) catches that by requiring the native test
+   corpus to check and run the same once desugared.
 
 ## Adding a language feature
 
@@ -239,6 +297,39 @@ annotated ones, and `xsht test` in the project.
 7. Add native tests (see `docs/TESTING.md`) plus a verifier unit test for new
    instruction shapes, and update `tools/xsh-ir-coverage.xsh` if coverage
    accounting changes.
+
+## Adding a sugar form
+
+A form qualifies when `docs/DESIGN.md` says it desugars trivially. It then
+needs nothing in the checker, lowering, the verifier, or the executor. If the
+core form does not already give the behavior the surface form needs (a
+narrowing, a tail rule), improve the core rule so both spellings get it; do
+not special-case the form. A form that binds a name in the enclosing block
+cannot be sugar, because declaration scans do not look inside a surface form:
+`guard let` is a core statement for that reason.
+
+1. Specify it in `docs/templates/SPEC.md` by its expansion: one snippet in
+   `docs/snippets/spec/` shown as written (`{{.spec.NAME.source}}`) and as
+   `xsht desugar` prints it (`{{.spec.NAME.desugared}}`).
+2. Add its productions and any keyword or contextual-word rows to
+   `src/syntax/grammar.rs`, a `SugarForm` variant with its `ArenaSugar` view in
+   `src/syntax/arena.rs`, and one function in `src/syntax/parser/sugar.rs` that
+   parses the operands and builds the expansion inside
+   `ArenaProgramBuilder::push_sugar`. Give each node the expansion adds a span
+   on the keyword or operand a diagnostic about it should point at. Bind a
+   value the expansion needs twice to one local whose name no identifier can
+   spell, as the embedded standard library does for its namespaces.
+3. Print it in `crates/xsht/src/format.rs` and paint its contextual words in
+   `src/syntax/highlight.rs`. A form whose operands bind names also states
+   their scope in the `Sugar` arm of `Linter::lint_stmt`.
+4. Add its snippet and at least one hand-written core program to `cases` in
+   `crates/xsht/src/sugar_expansion_tests.rs`, native tests under `tests/xsh/`,
+   and the migration lint with its autofix in its own `lint_*.rs` file.
+   `xsht desugar` needs nothing: it prints any form's expansion, and gives a
+   local bound under an unspellable name a fresh legal one.
+5. Read the diagnostics a user sees for a wrong operand and a wrong body. They
+   carry the core form's wording; change a synthetic span, not the checker, if
+   one lands in the wrong place.
 
 Change frame layouts, token/arena storage, or instruction encodings only with
 retained-memory, RSS, latency, or stack-depth evidence from

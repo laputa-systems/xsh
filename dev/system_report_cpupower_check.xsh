@@ -60,7 +60,7 @@ pure one_prefixed_line(output: Str, prefix: Str) -> Result[Str] {
   for line in output.lines() {
     let trimmed = line.trim()
     if trimmed.starts_with(prefix) {
-      values = values.push(trimmed.byte_slice(prefix.byte_len()).trim())
+      values += [trimmed.byte_slice(prefix.byte_len()).trim()]
     }
   }
 
@@ -102,7 +102,7 @@ pure decimal_khz(value: Str) -> Result[Int] {
 }
 
 ## Parses the explicit `frequency-info --driver` and `--hwlimits` forms.
-export pure parse_cpupower_frequency(driver_output: Str, limits_output: Str) -> Result[CpupowerFrequency] {
+export pure parse_cpupower_frequency(driver_output: Str, limits_output: Str) -> Result[CpupowerFrequency, Error] {
   let driver = one_prefixed_line(driver_output, "driver:")?
   var limits = []
   for line in limits_output.lines() {
@@ -126,7 +126,7 @@ export pure parse_cpupower_frequency(driver_output: Str, limits_output: Str) -> 
 }
 
 ## Parses the driver, governor, and advertised names without using usage counters.
-export pure parse_cpupower_idle(output: Str) -> Result[CpupowerIdle] {
+export pure parse_cpupower_idle(output: Str) -> Result[CpupowerIdle, Error] {
   let driver = one_prefixed_line(output, "CPUidle driver:")?
   let governor = one_prefixed_line(output, "CPUidle governor:")?
   let names = one_prefixed_line(output, "Available idle states:")?.split(" ") |> where . != ""
@@ -139,7 +139,7 @@ export pure parse_cpupower_idle(output: Str) -> Result[CpupowerIdle] {
 }
 
 ## Finds CPU 0 by policy membership because kernel policy directory indexes can be sparse.
-export pure compare_cpupower(candidate_json: Str, reference: CpupowerReference) -> Result[CpupowerComparison] {
+export pure compare_cpupower(candidate_json: Str, reference: CpupowerReference) -> Result[CpupowerComparison, Error] {
   let report = json.decode(candidate_json)?.require(CandidateReport)?
   var mismatches = []
   var partial = []
@@ -241,7 +241,7 @@ export proc compare_live_cpupower(
   xsh_bin: Str,
   script: Str,
   executable: Str,
-) [fs, process, time, error] -> Result[CpupowerRun] {
+) [fs, process, time, error] -> Result[CpupowerRun, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") or ! executable.starts_with("/") {
     return Err(cpupower_failure("cpupower comparison requires absolute paths"))
   }

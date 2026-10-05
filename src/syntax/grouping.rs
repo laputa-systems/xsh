@@ -1196,10 +1196,15 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::Return(Some(_))
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::YieldDelegate(_)
-            | ArenaStmtKind::Defer(_)
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::Defer(..)
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Break { value: Some(_) }
-            | ArenaStmtKind::GuardedStmt { .. }
+            | ArenaStmtKind::Sugar {
+                form: crate::syntax::arena::SugarForm::When
+                    | crate::syntax::arena::SugarForm::Unless,
+                ..
+            }
             | ArenaStmtKind::Export(_)
     )
 }
@@ -1237,6 +1242,11 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
     let mut diagnostics = Vec::new();
     for (index, tag) in arena.expr_tags.iter().enumerate() {
         use crate::syntax::arena::ArenaExprTag as Tag;
+        // An expansion's own expressions are not spelled in the source, so
+        // they hold nothing and no source text follows them.
+        if arena.expr_is_synthetic(ExprId::from_index(index)) {
+            continue;
+        }
         let logical = matches!(
             tag,
             Tag::BinaryResultFallback | Tag::BinaryOr | Tag::BinaryAnd
@@ -1340,7 +1350,7 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
             | ArenaStmtKind::Assign { value, .. }
             | ArenaStmtKind::Return(Some(value))
             | ArenaStmtKind::Yield(value)
-            | ArenaStmtKind::Defer(value) = arena
+            | ArenaStmtKind::Defer(value, _) = arena
                 .stmt(crate::syntax::arena::StmtId::from_index(index))
                 .kind
                 && let crate::syntax::arena::ArenaExprOrRun::Expr(expr) = value

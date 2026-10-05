@@ -16,7 +16,7 @@ pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
-    _ => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
+    else => raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?
   }
 }
 
@@ -41,18 +41,18 @@ proc main(...argv: List[Str]) [fs, error] {
           "J" => compression = "xz"
           "f" => archive_path = fp"{token.value}"
           "C" => root = fp"{token.value}"
-          _ => return Err(reject_unsupported("tar", f"-{token.name}"))
+          else => return Err(reject_unsupported("tar", f"-{token.name}"))
         }
       }
       "long" => {
         match token.name {
           "overwrite" => overwrite = true
           "strip-components" => strip = common_int(token.value, "strip components")?
-          _ => return Err(reject_unsupported("tar", f"--{token.name}"))
+          else => return Err(reject_unsupported("tar", f"--{token.name}"))
         }
       }
-      "operand" => operands = operands.push(fp"{token.name}")
-      _ => {}
+      "operand" => operands += [fp"{token.name}"]
+      else => {}
     }
   }
 

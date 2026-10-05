@@ -645,6 +645,10 @@ pub fn find_matches_in_program(
     let t = &program.arena;
     for index in 0..t.expr_tags.len() {
         let id = ExprId::from_index(index);
+        // A pattern matches what the user wrote, never a sugar expansion.
+        if t.expr_is_synthetic(id) {
+            continue;
+        }
         let mut bindings = FxHashMap::default();
         if match_expr(p, pattern.root, t, id, source, &mut bindings) {
             matches.push(Match {

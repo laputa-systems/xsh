@@ -3,6 +3,8 @@
 use super::{Diagnostic, EscapeIssueKind, InterpolationChunk, Label, Lexer, Parser, Span, literal};
 use crate::diagnostic::{DiagnosticCode, FixHint};
 use crate::syntax::arena::{ArenaProgramBuilder, ArenaRange, ExprId};
+use crate::syntax::lexer;
+use crate::syntax::literal::EscapeIssue;
 use crate::syntax::literal::FmtIssueKind;
 use crate::syntax::node::{FormatSpec, FormatSpecKind};
 use crate::syntax::token::TokenTag;
@@ -270,6 +272,14 @@ impl<'a> Parser<'a> {
     }
 }
 
+fn escape_issue_diagnostic(source_id: crate::source::SourceId, issue: EscapeIssue) -> Diagnostic {
+    let span = Span::new(source_id, issue.start, issue.end.max(issue.start + 1));
+    match issue.kind {
+        EscapeIssueKind::Invalid => lexer::invalid_escape_diagnostic(span),
+        EscapeIssueKind::BytesUnicode => lexer::bytes_unicode_escape_diagnostic(span),
+    }
+}
+
 pub(in crate::syntax::parser) fn decode_interpolation_text_for(
     source_id: crate::source::SourceId,
     raw: &str,
@@ -279,31 +289,12 @@ pub(in crate::syntax::parser) fn decode_interpolation_text_for(
     let mut diagnostics = Vec::new();
     let decoded = literal::decode_string_text(raw, offset, true);
     for issue in decoded.issues {
-        let message = match issue.kind {
-            EscapeIssueKind::Invalid => "invalid escape sequence",
-            EscapeIssueKind::BytesUnicode => "unicode escapes are not valid in bytes literals",
-        };
-        let label = match issue.kind {
-            EscapeIssueKind::Invalid => "unsupported string escape",
-            EscapeIssueKind::BytesUnicode => "bytes literals use byte escapes only",
-        };
-        diagnostics.push(
-            Diagnostic::error(message)
-                .with_code(DiagnosticCode::ParseInvalidStringEscape)
-                .with_label(Label::primary(
-                    Span::new(source_id, issue.start, issue.end.max(issue.start + 1)),
-                    label,
-                )),
-        );
+        diagnostics.push(escape_issue_diagnostic(source_id, issue));
     }
     let value = match String::from_utf8(decoded.bytes) {
         Ok(value) => value,
         Err(err) => {
-            diagnostics.push(
-                Diagnostic::error("string literal is not valid UTF-8")
-                    .with_code(DiagnosticCode::ParseInvalidString)
-                    .with_label(Label::primary(span, "invalid string literal")),
-            );
+            diagnostics.push(lexer::invalid_utf8_string_diagnostic(span));
             String::from_utf8_lossy(err.as_bytes()).into_owned()
         }
     };
@@ -318,22 +309,7 @@ pub(in crate::syntax::parser) fn decode_bytes_literal_for(
     let mut diagnostics = Vec::new();
     let decoded = literal::decode_string_text(raw, offset, false);
     for issue in decoded.issues {
-        let message = match issue.kind {
-            EscapeIssueKind::Invalid => "invalid escape sequence",
-            EscapeIssueKind::BytesUnicode => "unicode escapes are not valid in bytes literals",
-        };
-        let label = match issue.kind {
-            EscapeIssueKind::Invalid => "unsupported string escape",
-            EscapeIssueKind::BytesUnicode => "bytes literals use byte escapes only",
-        };
-        diagnostics.push(
-            Diagnostic::error(message)
-                .with_code(DiagnosticCode::ParseInvalidStringEscape)
-                .with_label(Label::primary(
-                    Span::new(source_id, issue.start, issue.end.max(issue.start + 1)),
-                    label,
-                )),
-        );
+        diagnostics.push(escape_issue_diagnostic(source_id, issue));
     }
     (Arc::from(decoded.bytes), diagnostics)
 }
@@ -353,7 +329,8 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
         let expr_id = parser.parse_expr_id_arena_only(arena);
         arena.shift_spans_since(marks, offset);
         let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
-        for diagnostic in &mut parser.diagnostics {
+        let mut diagnostics = parser.finish_diagnostics();
+        for diagnostic in &mut diagnostics {
             diagnostic.span = diagnostic.span.map(shift);
             for label in &mut diagnostic.labels {
                 label.span = shift(label.span);
@@ -362,7 +339,7 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
                 hint.span = hint.span.map(shift);
             }
         }
-        (expr_id, parser.diagnostics)
+        (expr_id, diagnostics)
     })
 }
 
@@ -426,7 +403,7 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
                     .is_none_or(|span| span.start() < expression_end)
             })
             .collect();
-        diagnostics.append(&mut parser.diagnostics);
+        diagnostics.append(&mut parser.finish_diagnostics());
         arena.shift_spans_since(marks, offset);
         let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
         for diagnostic in &mut diagnostics {

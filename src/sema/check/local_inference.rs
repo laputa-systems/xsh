@@ -4,6 +4,7 @@ use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
     ArenaStmtKind, BindingTargetId, StmtId,
 };
+use std::sync::Arc;
 
 #[derive(Clone, Default)]
 pub(super) struct LocalInference {
@@ -119,9 +120,9 @@ impl Checker {
             .values_mut()
             .chain(self.pures.values_mut())
             .chain(self.streams.values_mut())
-            .chain(self.qualified_procs.values_mut())
-            .chain(self.qualified_pures.values_mut())
-            .chain(self.qualified_streams.values_mut())
+            .chain(Arc::make_mut(&mut self.qualified_procs).values_mut())
+            .chain(Arc::make_mut(&mut self.qualified_pures).values_mut())
+            .chain(Arc::make_mut(&mut self.qualified_streams).values_mut())
         {
             for parameter in &mut signature.params {
                 finalize_type(
@@ -140,7 +141,7 @@ impl Checker {
                 diagnostics,
             );
         }
-        for module in self.user_modules.values_mut() {
+        for module in Arc::make_mut(&mut self.user_modules).values_mut() {
             for ty in module
                 .values
                 .values_mut()
@@ -327,6 +328,7 @@ impl Checker {
         let terminating_call_spans = std::mem::take(&mut self.terminating_call_spans);
         let assertion_effect_spans = std::mem::take(&mut self.assertion_effect_spans);
         let statement_expression_spans = std::mem::take(&mut self.statement_expression_spans);
+        let propagating_statements = std::mem::take(&mut self.propagating_statements);
         let membership_migration_spans = std::mem::take(&mut self.membership_migration_spans);
         let standard_call_spans = std::mem::take(&mut self.standard_call_spans);
         let statically_resolved_call_spans =
@@ -355,6 +357,7 @@ impl Checker {
         self.terminating_call_spans = terminating_call_spans;
         self.assertion_effect_spans = assertion_effect_spans;
         self.statement_expression_spans = statement_expression_spans;
+        self.propagating_statements = propagating_statements;
         self.membership_migration_spans = membership_migration_spans;
         self.standard_call_spans = standard_call_spans;
         self.statically_resolved_call_spans = statically_resolved_call_spans;

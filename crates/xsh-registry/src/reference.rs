@@ -257,6 +257,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "block-strings",
     "print",
     "abort",
+    "exit",
 ];
 use crate::api_docs::ApiDocs;
 use crate::errors::{ErrorFacet, builtin_error_families};
@@ -343,6 +344,9 @@ fn facet_doc(facet: ErrorFacet) -> ReferenceDoc {
         sources.push("host OS errors of every kind without a more specific facet".to_string());
     } else if !host_kinds.is_empty() {
         sources.push(format!("host OS errors of kind {}", host_kinds.join(", ")));
+    }
+    if let Some(source) = facet.contract_check_source() {
+        sources.push(source.to_string());
     }
     let name = facet.name();
     reference_doc_full(
@@ -859,7 +863,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "defer" => (
             "Registers lexical cleanup actions without executing them.",
-            "`defer { statements }` reads captures at cleanup time; use immutable let snapshots for earlier values. Actions run LIFO at their registering scope exit, including return, failure, loop control and cancellation. Bool statements assert and Result[Unit] failures stop that action; remaining actions still run. An existing failure stays primary and secondary cleanup failures are source-attributed. Cleanup cannot return, yield, or transfer to an outer loop; local loops and nested defers are allowed. Effects are checked normally. Expression and run forms remain supported; forced abort skips cleanup.",
+            "`defer { statements }` reads captures at cleanup time; use immutable let snapshots for earlier values. Actions run LIFO at their registering scope exit, including return, failure, loop control and cancellation. Bool statements assert and Result[Unit] failures stop that action; remaining actions still run. An existing failure stays primary and secondary cleanup failures are source-attributed. Cleanup cannot return, yield, or transfer to an outer loop; local loops and nested defers are allowed. Effects are checked normally. Expression and run forms remain supported; forced abort skips cleanup. `errdefer` registers the same way, in the same order, and its action runs only when the scope leaves with an error: a propagating failure, a function returning an Err, a non-forced abort or cancellation, or a failed later cleanup.",
         ),
         "error-context" => (
             "Adds operation descriptions to outbound lexical failures.",
@@ -1054,10 +1058,19 @@ fn core_doc(item: &str) -> ReferenceDoc {
         }
         "abort" => {
             return reference_doc_full(
-                "Terminates the script with an explicit exit status.",
-                "`abort(status)` is a deliberate process exit, not Result error propagation: it produces the requested status without a runtime traceback on stderr. Deferred cleanup runs unless `force: true` is supplied.",
+                "Terminates the script with an explicit exit status; the older spelling of `exit`.",
+                "`abort(status)` means `exit status`: a deliberate process exit, not Result error propagation, that produces the requested status without a runtime traceback on stderr. Deferred cleanup runs unless `force: true` is supplied; a forced abort exits without unwinding.",
                 &["language", "abort", "exit-status", "validation", "builtin"],
                 "abort(status: Int, force: Bool = false)",
+                &[],
+            );
+        }
+        "exit" => {
+            return reference_doc_full(
+                "Terminates the script with an explicit exit status.",
+                "`exit STATUS` is a deliberate process exit, not Result error propagation: it produces the requested status, an Int from 0 to 255, without a runtime traceback on stderr, and `try` does not capture it. Deferred cleanup runs while the script unwinds. The statement never completes, so a block that ends with it leaves its continuation, and it accepts a postfix `when` or `unless`. `exit` is a contextual word that begins the statement where a command would be read.",
+                &["language", "exit", "exit-status", "validation", "statement"],
+                "exit STATUS",
                 &[],
             );
         }

@@ -34,7 +34,7 @@ test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   }
 
   let parent = test.temp_dir(ctx, name: "file-audit-byte-paths")?
-  let prefix = bytes.from_text(parent.display())
+  let prefix = parent.bytes()
   let root_bytes = bytes.concat([prefix, b"/", b"\xff"])
   let outside_bytes = bytes.concat([prefix, b"/", b"\xfe"])
   let root = Path.parse_bytes(root_bytes)?

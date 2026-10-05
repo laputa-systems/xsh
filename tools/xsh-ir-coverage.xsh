@@ -362,19 +362,30 @@ pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
 
 pure error_variant_names(source: Str) -> List[Str] {
   var names = []
+  # Inside `error Name {`, where each line up to the closing `}` is one variant.
+  var in_braces = false
 
   for raw in source.lines() {
     let line = raw.trim().replace("export error ", "error ")
+    var variants = []
 
-    if line.starts_with("error ") and "=" in line {
-      let variants = (line.split("=").get(1) ?? "").split("|")
+    if in_braces {
+      if line.starts_with("}") {
+        in_braces = false
+      } else if ! line.starts_with("#") {
+        variants = [line]
+      }
+    } else if line.starts_with("error ") and "=" in line {
+      variants = (line.split("=").get(1) ?? "").split("|")
+    } else if line.starts_with("error ") and line.ends_with("{") {
+      in_braces = true
+    }
 
-      for raw_variant in variants {
-        let name = raw_variant.trim().replace("(", " ").fields().get(0) ?? ""
+    for raw_variant in variants {
+      let name = raw_variant.trim().replace("(", " ").fields().get(0) ?? ""
 
-        if name != "" and ! (name in names) {
-          names += [name]
-        }
+      if name != "" and ! (name in names) {
+        names += [name]
       }
     }
   }
@@ -733,7 +744,7 @@ proc scan_pures_in_file(
         body = if seen_body { line } else { "" }
 
         if seen_body and depth <= 0 {
-          scans = scans.push(
+          scans += [
             pure_scan(
               path_text,
               start_line,
@@ -744,7 +755,7 @@ proc scan_pures_in_file(
               error_variants,
               pure_functions,
             ),
-          )
+          ]
 
           in_pure = false
         }
@@ -772,9 +783,9 @@ proc scan_pures_in_file(
     depth += line_scan.brace_delta
 
     if seen_body and depth <= 0 {
-      scans = scans.push(
+      scans += [
         pure_scan(path_text, start_line, signature, body, lowered_methods, record_types, error_variants, pure_functions),
-      )
+      ]
 
       in_pure = false
     }
@@ -837,7 +848,7 @@ proc scan_procs_in_file(
         body = if seen_body { line } else { "" }
 
         if seen_body and depth <= 0 {
-          scans = scans.push(
+          scans += [
             proc_scan(
               path_text,
               start_line,
@@ -848,7 +859,7 @@ proc scan_procs_in_file(
               error_variants,
               lowerable_functions,
             ),
-          )
+          ]
 
           in_proc = false
         }
@@ -876,7 +887,7 @@ proc scan_procs_in_file(
     depth += line_scan.brace_delta
 
     if seen_body and depth <= 0 {
-      scans = scans.push(
+      scans += [
         proc_scan(
           path_text,
           start_line,
@@ -887,7 +898,7 @@ proc scan_procs_in_file(
           error_variants,
           lowerable_functions,
         ),
-      )
+      ]
 
       in_proc = false
     }
@@ -1195,16 +1206,14 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
   }
 
   for file in files {
-    scans = scans.extend(
-      scan_pures_in_file(
-        display_root,
-        file,
-        lowered_methods,
-        corpus_record_types,
-        corpus_error_variants,
-        corpus_pure_functions,
-      )?,
-    )
+    scans += scan_pures_in_file(
+      display_root,
+      file,
+      lowered_methods,
+      corpus_record_types,
+      corpus_error_variants,
+      corpus_pure_functions,
+    )?
   }
 
   corpus_report(roots, scans)
@@ -1253,16 +1262,14 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
   }
 
   for file in files {
-    scans = scans.extend(
-      scan_procs_in_file(
-        display_root,
-        file,
-        lowered_methods,
-        corpus_record_types,
-        corpus_error_variants,
-        corpus_lowerable_functions,
-      )?,
-    )
+    scans += scan_procs_in_file(
+      display_root,
+      file,
+      lowered_methods,
+      corpus_record_types,
+      corpus_error_variants,
+      corpus_lowerable_functions,
+    )?
   }
 
   proc_report(roots, scans)
@@ -1351,9 +1358,9 @@ proc scan_script_statements_in_file(
         corpus_pure_functions,
       )
 
-      scans = scans.push(
+      scans += [
         {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.len() == 0, reasons: reasons},
-      )
+      ]
 
       pending_text = ""
       pending_shape = ""
@@ -1395,9 +1402,9 @@ proc scan_script_statements_in_file(
       corpus_pure_functions,
     )
 
-    scans = scans.push(
+    scans += [
       {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.len() == 0, reasons: reasons},
-    )
+    ]
   }
 
   scans
@@ -1432,9 +1439,13 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
   }
 
   for file in files {
-    scans = scans.extend(
-      scan_script_statements_in_file(display_root, file, lowered_methods, corpus_error_variants, corpus_pure_functions)?,
-    )
+    scans += scan_script_statements_in_file(
+      display_root,
+      file,
+      lowered_methods,
+      corpus_error_variants,
+      corpus_pure_functions,
+    )?
   }
 
   script_report(roots, scans)
@@ -1442,12 +1453,12 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
 
 pure render_row(row: CoverageRow) -> List[Str] {
   var lines = [f"{row.name}: {row.covered}/{row.total} ({row.percent}%)"]
-  lines = lines.push(f"  supported: {row.supported.join(", ")}")
+  lines += [f"  supported: {row.supported.join(", ")}"]
 
   if row.unsupported.len() == 0 {
     lines += ["  unsupported: none"]
   } else {
-    lines = lines.push(f"  unsupported: {row.unsupported.join(", ")}")
+    lines += [f"  unsupported: {row.unsupported.join(", ")}"]
   }
 
   lines
@@ -1461,7 +1472,7 @@ pure render_reason_groups(groups: List[ReasonGroup]) -> List[Str] {
   lines += ["  fallback groups:"]
 
   for bucket in groups {
-    lines = lines.push(f"    {bucket.group}: {bucket.total}")
+    lines += [f"    {bucket.group}: {bucket.total}"]
   }
 
   lines
@@ -1476,17 +1487,17 @@ pure render_report(report: CoverageReport) -> Str {
   }
 
   lines += ["lowered IR nodes"]
-  lines = lines.push(f"  statements: {report.lowered_nodes.statements}")
-  lines = lines.push(f"  expressions: {report.lowered_nodes.expressions}")
-  lines = lines.push(f"  pipeline stages: {report.lowered_nodes.pipeline_stages}")
-  lines = lines.push(f"  types: {report.lowered_nodes.types}")
+  lines += [f"  statements: {report.lowered_nodes.statements}"]
+  lines += [f"  expressions: {report.lowered_nodes.expressions}"]
+  lines += [f"  pipeline stages: {report.lowered_nodes.pipeline_stages}"]
+  lines += [f"  types: {report.lowered_nodes.types}"]
   lines += [""]
-  lines = lines.push(f"lowered method whitelist: {report.lowered_methods.len()}")
-  lines = lines.push(f"  {report.lowered_methods.join(", ")}")
+  lines += [f"lowered method whitelist: {report.lowered_methods.len()}"]
+  lines += [f"  {report.lowered_methods.join(", ")}"]
   lines += [""]
   lines += ["corpus pure-function lowerability"]
-  lines = lines.push(f"  roots: {report.corpus.roots.join(", ")}")
-  lines = lines.push(f"  lowerable: {report.corpus.lowerable}/{report.corpus.total} ({report.corpus.percent}%)")
+  lines += [f"  roots: {report.corpus.roots.join(", ")}"]
+  lines += [f"  lowerable: {report.corpus.lowerable}/{report.corpus.total} ({report.corpus.percent}%)"]
 
   if report.corpus.reasons.len() == 0 {
     lines += ["  fallback reasons: none"]
@@ -1494,7 +1505,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  fallback reasons:"]
 
     for row in report.corpus.reasons {
-      lines = lines.push(f"    {row.reason}: {row.count}")
+      lines += [f"    {row.reason}: {row.count}"]
     }
   }
 
@@ -1504,14 +1515,14 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.corpus.samples {
-      lines = lines.push(f"    {scan.path}:{scan.line} {scan.name} -> {scan.reasons.join(", ")}")
+      lines += [f"    {scan.path}:{scan.line} {scan.name} -> {scan.reasons.join(", ")}"]
     }
   }
 
   lines += [""]
   lines += ["corpus effect-free proc-body lowerability"]
-  lines = lines.push(f"  roots: {report.procs.roots.join(", ")}")
-  lines = lines.push(f"  lowerable: {report.procs.lowerable}/{report.procs.total} ({report.procs.percent}%)")
+  lines += [f"  roots: {report.procs.roots.join(", ")}"]
+  lines += [f"  lowerable: {report.procs.lowerable}/{report.procs.total} ({report.procs.percent}%)"]
 
   if report.procs.reasons.len() == 0 {
     lines += ["  fallback reasons: none"]
@@ -1519,7 +1530,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  fallback reasons:"]
 
     for row in report.procs.reasons {
-      lines = lines.push(f"    {row.reason}: {row.count}")
+      lines += [f"    {row.reason}: {row.count}"]
     }
   }
 
@@ -1529,16 +1540,14 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.procs.samples {
-      lines = lines.push(
-        f"    {scan.path}:{scan.line} {scan.name} [{scan.effects.join(", ")}] -> {scan.reasons.join(", ")}",
-      )
+      lines += [f"    {scan.path}:{scan.line} {scan.name} [{scan.effects.join(", ")}] -> {scan.reasons.join(", ")}"]
     }
   }
 
   lines += [""]
   lines += ["corpus top-level script lowerability"]
-  lines = lines.push(f"  roots: {report.script.roots.join(", ")}")
-  lines = lines.push(f"  lowerable: {report.script.lowerable}/{report.script.total} ({report.script.percent}%)")
+  lines += [f"  roots: {report.script.roots.join(", ")}"]
+  lines += [f"  lowerable: {report.script.lowerable}/{report.script.total} ({report.script.percent}%)"]
 
   if report.script.reasons.len() == 0 {
     lines += ["  fallback reasons: none"]
@@ -1546,7 +1555,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  fallback reasons:"]
 
     for row in report.script.reasons {
-      lines = lines.push(f"    {row.reason}: {row.count}")
+      lines += [f"    {row.reason}: {row.count}"]
     }
   }
 
@@ -1556,7 +1565,7 @@ pure render_report(report: CoverageReport) -> Str {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.script.samples {
-      lines = lines.push(f"    {scan.path}:{scan.line} {scan.shape} -> {scan.reasons.join(", ")}")
+      lines += [f"    {scan.path}:{scan.line} {scan.shape} -> {scan.reasons.join(", ")}"]
     }
   }
 

@@ -35,6 +35,7 @@ Start here:
   Improve source     xsht lint [FILE...]
   Inspect syntax     xsht ast SCRIPT
   Highlight source   xsht highlight SCRIPT
+  Expand sugar       xsht desugar SCRIPT
   Read the grammar   xsht grammar 
   Run with tracing   xsht trace SCRIPT [ARGS...]
   Query the API      xsht api [QUERY...]
@@ -103,6 +104,20 @@ Usage:
   KINDs: plain, comment, doc-comment, keyword, constant, type, function,
     property, variable, string, path, regex, number, operator, punctuation,
     interpolation.
+```
+
+### `xsht desugar`
+
+```text
+xsht desugar — Print a script with every sugar form expanded
+
+Usage:
+  xsht desugar SCRIPT
+
+  Each sugar statement, such as `repeat N times { ... }` or `return x when c`,
+    is replaced by the core statements that define it, with its comments.
+  The output is formatted XSH on stdout. SCRIPT is not modified and not
+    checked: the output checks when SCRIPT does.
 ```
 
 ### `xsht grammar`

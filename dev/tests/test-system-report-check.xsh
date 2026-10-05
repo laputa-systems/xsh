@@ -1072,7 +1072,8 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "power-supply-replay.stdout")
   let stderr = test.temp_path(ctx, name: "power-supply-replay.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-power-supply-bundle $bundle_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+    --replay-power-supply-bundle $bundle_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -1889,7 +1890,8 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
   let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "pci-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "pci-unavailable.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-pci-bundle $bundle_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+    --replay-pci-bundle $bundle_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -2070,7 +2072,8 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "usb-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "usb-unavailable.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-usb-bundle $bundle_path > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+    --replay-usb-bundle $bundle_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
@@ -2650,7 +2653,8 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   let executable = fp"{tool_root_path}/dmidecode"
   let output = test.temp_path(ctx, name: "system-report-dmidecode.stdout")
   let stderr = test.temp_path(ctx, name: "system-report-dmidecode.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle_path --dmidecode-bin $executable > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+    --corroborate-smbios-bundle $bundle_path --dmidecode-bin $executable > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic

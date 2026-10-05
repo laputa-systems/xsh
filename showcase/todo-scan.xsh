@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, error] {
           let tag = caps[1]
           continue when opts.tag != "" and tag != opts.tag
           let body = caps[2].trim()
-          file_hits = file_hits.push({file: rel, line: item.index + 1, tag: tag, text: body})
+          file_hits += [{file: rel, line: item.index + 1, tag: tag, text: body}]
         }
       }
 

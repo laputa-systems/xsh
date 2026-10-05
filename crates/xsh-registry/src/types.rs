@@ -116,6 +116,10 @@ pub enum Type {
     FsRoot,
     Unit,
     Optional(Box<Type>),
+    /// A closed union of member types, in the order a dynamic value is
+    /// tried against them. A signature lists at least two members, none of
+    /// which accepts another's values.
+    Union(Vec<Type>),
 }
 
 /// The full CLI outcome always contains this envelope, independently of the

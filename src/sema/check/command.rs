@@ -98,6 +98,9 @@ impl Checker {
     }
 
     pub(super) fn field_type_for_value(&mut self, base_ty: Type, name: &str, span: Span) -> Type {
+        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+            return Type::Unknown;
+        }
         match base_ty {
             Type::Record(fields) => fields
                 .get(&Name::intern(name))
@@ -132,6 +135,9 @@ impl Checker {
     }
 
     pub(super) fn index_type_for_value(&mut self, base_ty: Type, span: Span) -> Type {
+        if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
+            return Type::Unknown;
+        }
         match base_ty {
             Type::List(item) => *item,
             Type::Any => Type::Any,
@@ -291,6 +297,11 @@ impl Checker {
                         DiagnosticCode::CheckEffectViolation,
                     );
                 }
+                self.check_effect_not_excluded(
+                    &Effect::Process,
+                    arena.arena.span(arena.arena.run_form(*run_id).span),
+                    "`run`",
+                );
                 self.check_run_arena(arena, source, *run_id)
             }
         }
@@ -428,6 +439,11 @@ impl Checker {
         failure: &str,
         code: DiagnosticCode,
     ) {
+        // A union converts only when every member does, and then it never
+        // reaches here; otherwise the member decides, so it is narrowed first.
+        if self.reject_unnarrowed_union(ty, "this conversion", span) {
+            return;
+        }
         let mut diagnostic = Diagnostic::error(format!("value of type `{ty}` {failure}"))
             .with_code(code)
             .with_label(Label::primary(span, format!("this value is `{ty}`")));
@@ -788,18 +804,21 @@ impl Checker {
             );
             self.check_static_accepted_exit_codes(arena, accept);
         }
-        if matches!(
-            segment.target.kind,
-            ArenaCommandArgKind::SpliceName(_) | ArenaCommandArgKind::SpliceExpr(_)
-        ) {
-            let target_span = arena.arena.span(segment.target.span);
+        // A spliced target is the whole command vector, and its first
+        // element is the program. An empty list literal can never name one;
+        // a computed list is checked when the command runs.
+        if let ArenaCommandArgKind::SpliceExpr(list) = segment.target.kind
+            && let ArenaExprKind::List(items) = arena.arena.expr(list).kind
+            && items.is_empty()
+        {
             self.error(
-                target_span,
-                "run target must be one argv item",
+                arena.arena.span(segment.target.span),
+                "spliced command is empty: its first element names the program to run",
                 DiagnosticCode::CheckRunTarget,
             );
+        } else {
+            self.check_external_arg_arena(arena, source, &segment.target);
         }
-        self.check_external_arg_arena(arena, source, &segment.target);
         for assignment in arena.arena.env_assignments(segment.env) {
             self.check_env_assignment_arena(arena, source, assignment);
         }

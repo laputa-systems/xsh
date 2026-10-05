@@ -392,6 +392,7 @@ impl Checker {
                 DiagnosticCode::CheckEffectViolation,
             );
         }
+        self.check_effect_not_excluded(&effect, span, subject);
     }
 
     pub(super) fn check_resolved_callable_effects(
@@ -427,6 +428,19 @@ impl Checker {
                 self.check_callee_effects(&caller, &sig.effects, name, span);
             }
         }
+        let unknown_chain = if sig.effects.is_none() && sig.inferred_effects {
+            let mut chain = vec![name.to_string()];
+            if let Some(summary) = sig
+                .effect_declaration
+                .and_then(|declaration| self.effect_summaries.get(&declaration))
+            {
+                chain.extend(summary.unknown_chain.clone());
+            }
+            chain
+        } else {
+            Vec::new()
+        };
+        self.check_callee_not_excluded(&sig.effects, &unknown_chain, name, span);
     }
 
     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
@@ -454,5 +468,6 @@ impl Checker {
         if let Some(caller) = self.current_effects.clone() {
             self.check_callee_effects(&caller, &None, name, span);
         }
+        self.check_callee_not_excluded(&None, &[], name, span);
     }
 }

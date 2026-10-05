@@ -127,11 +127,18 @@ struct Token {
     end: usize,
 }
 
-fn lex(source: &str) -> Vec<Token> {
+/// The tokens of `source`, and the offset of each `\` that continues a
+/// command onto the next line: the lexer reads those as whitespace.
+fn lex(source: &str) -> (Vec<Token>, Vec<usize>) {
     let table = Lexer::new(SourceId::new(0), source)
         .lex_compact()
         .token_table;
-    (0..table.len())
+    let continuations = table
+        .line_continuations()
+        .iter()
+        .map(|offset| *offset as usize)
+        .collect();
+    let tokens = (0..table.len())
         .filter_map(|index| {
             let tag = table.tag_at(index)?;
             let span = table.span_at(index, SourceId::new(0), source)?;
@@ -141,7 +148,8 @@ fn lex(source: &str) -> Vec<Token> {
                 end: span.end(),
             })
         })
-        .collect()
+        .collect();
+    (tokens, continuations)
 }
 
 fn fill(kinds: &mut [Kind], base: usize, start: usize, end: usize, kind: Kind) {
@@ -151,7 +159,10 @@ fn fill(kinds: &mut [Kind], base: usize, start: usize, end: usize, kind: Kind) {
 /// Paints the kinds of `source`, which sits at `base` in the whole text, into
 /// `kinds`. An f-string interpolation recurses with its expression's offset.
 fn paint(source: &str, base: usize, kinds: &mut [Kind]) {
-    let tokens = lex(source);
+    let (tokens, continuations) = lex(source);
+    for offset in continuations {
+        fill(kinds, base, offset, offset + 1, Kind::Punctuation);
+    }
     // Where a bare path literal or `@name` splice ends, so the tokens inside
     // are not classified on their own.
     let mut skip_until = 0;
@@ -388,6 +399,51 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     {
         return Kind::Keyword;
     }
+    // `repeat` and `times` are ordinary names except in the head of a
+    // `repeat COUNT times {` statement.
+    if matches!(text, "repeat" | "times") && repeat_head_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
+    // `exit` is an ordinary name except where it begins `exit STATUS`: first
+    // in a statement, with the status after a space on the same line.
+    if text == "exit"
+        && statement_start(previous, source)
+        && next.is_some_and(|next| {
+            next.start > token.end
+                && !matches!(
+                    next.tag,
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Equals
+                        | TokenTag::PipeGt
+                        | TokenTag::Plus
+                        | TokenTag::Star
+                        | TokenTag::Slash
+                        | TokenTag::Percent
+                        | TokenTag::EqEq
+                        | TokenTag::BangEq
+                        | TokenTag::Lt
+                        | TokenTag::Le
+                        | TokenTag::Gt
+                        | TokenTag::Ge
+                        | TokenTag::QuestionQuestion
+                )
+        })
+    {
+        return Kind::Keyword;
+    }
+    // `without` is an ordinary name except where it opens a
+    // `without EFFECT, ... {` statement.
+    if text == "without" && without_head_word(source, tokens, at, previous) {
+        return Kind::Keyword;
+    }
+    // `tempdir` and `at` are ordinary names except in the head of a
+    // `tempdir NAME at PATH {` statement.
+    if matches!(text, "tempdir" | "at") && tempdir_head_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
     // `print` is a statement form, not a reserved word, so only a bare use
     // reads as one.
     if text == "print" && !after_dot && !called {
@@ -444,6 +500,76 @@ fn is_binding_name(before: &[Token], source: &str) -> bool {
     before.last().is_some_and(|last| {
         last.tag == TokenTag::Keyword && matches!(&source[last.start..last.end], "let" | "var" | "const")
     })
+}
+
+/// Whether `tokens[at]` is the `repeat` or the `times` of a statement head
+/// `repeat COUNT times {` written on one line.
+fn repeat_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let line_start = tokens[..at]
+        .iter()
+        .rposition(|token| matches!(token.tag, TokenTag::Newline | TokenTag::Semicolon))
+        .map_or(0, |separator| separator + 1);
+    let Some(first) = (line_start..=at).find(|&index| {
+        text(&tokens[index]) == "repeat"
+            && statement_start(index.checked_sub(1).map(|before| tokens[before]), source)
+    }) else {
+        return false;
+    };
+    let times = tokens[first + 1..]
+        .iter()
+        .take_while(|token| token.tag != TokenTag::Newline)
+        .position(|token| token.tag == TokenTag::Ident && text(token) == "times")
+        .map(|offset| first + 1 + offset)
+        .filter(|&times| {
+            times > first + 1
+                && tokens
+                    .get(times + 1)
+                    .is_some_and(|next| next.tag == TokenTag::LBrace)
+        });
+    times.is_some_and(|times| at == first || at == times)
+}
+
+/// Whether `tokens[at]` is the `without` of a statement head
+/// `without EFFECT, ... {` written on one line.
+fn without_head_word(source: &str, tokens: &[Token], at: usize, previous: Option<Token>) -> bool {
+    use std::str::FromStr;
+    if !statement_start(previous, source) {
+        return false;
+    }
+    let mut index = at + 1;
+    loop {
+        let is_effect = tokens.get(index).is_some_and(|token| {
+            token.tag == TokenTag::Ident
+                && crate::syntax::node::Effect::from_str(&source[token.start..token.end]).is_ok()
+        });
+        if !is_effect {
+            return false;
+        }
+        match tokens.get(index + 1).map(|token| token.tag) {
+            Some(TokenTag::Comma) => index += 2,
+            Some(TokenTag::LBrace) => return true,
+            _ => return false,
+        }
+    }
+}
+
+/// Whether `tokens[at]` is the `tempdir` or the `at` of a statement that
+/// begins `tempdir NAME at`.
+fn tempdir_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let is_head = |first: usize| {
+        statement_start(first.checked_sub(1).map(|before| tokens[before]), source)
+            && matches!(
+                tokens.get(first..first + 3),
+                Some([keyword, name, word])
+                    if text(keyword) == "tempdir"
+                        && name.tag == TokenTag::Ident
+                        && word.tag == TokenTag::Ident
+                        && text(word) == "at"
+            )
+    };
+    is_head(at) || at.checked_sub(2).is_some_and(is_head)
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -549,7 +675,7 @@ fn paint_interpolations(source: &str, base: usize, token: Token, kinds: &mut [Ki
 /// outside every bracket, since an expression never has a bare one.
 fn spec_start(expression: &str) -> Option<usize> {
     let mut depth = 0usize;
-    for token in lex(expression) {
+    for token in lex(expression).0 {
         match token.tag {
             TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace | TokenTag::DollarLBrace => {
                 depth += 1;
@@ -657,6 +783,22 @@ mod tests {
     }
 
     #[test]
+    fn continued_command_lines_keep_command_kinds() {
+        let source = "run.text --timeout=5s \\\n  grep -c \\\n  $pattern \\\n  | run sort ?\nprint done\n";
+        assert_eq!(kind_of(source, "\\"), Kind::Punctuation);
+        assert_eq!(kind_of(source, "grep"), Kind::Function);
+        // A word on a continued line is an argument, not the start of a
+        // statement.
+        assert_eq!(kind_of(source, "sort"), Kind::Function);
+        assert_eq!(kind_of(source, "$pattern"), Kind::Variable);
+        assert_eq!(kind_of(source, "print"), kind_of("print done\n", "print"));
+        assert_eq!(
+            kind_of("print one \\\n  two\n", "two"),
+            kind_of("print one two\n", "two")
+        );
+    }
+
+    #[test]
     fn kind_names_are_unique() {
         let mut names: Vec<_> = Kind::ALL.iter().map(|kind| kind.name()).collect();
         names.sort_unstable();
@@ -704,6 +846,35 @@ mod tests {
         assert_eq!(kind_of(source, "it_works"), Kind::Function);
         assert_eq!(kind_of(source, "error"), Kind::Keyword);
         assert_eq!(kind_of(source, "x"), Kind::Plain);
+    }
+
+    #[test]
+    fn without_is_a_keyword_only_in_a_without_statement_head() {
+        let source = "without net, fs {\n}\nlet without = [net]\nwithout = []\nprint ${without.len()}\n";
+        assert_eq!(kind_of(source, "without net"), Kind::Keyword);
+        assert_eq!(kind_of(source, "without = [net]"), Kind::Plain);
+        assert_eq!(kind_of(source, "without = []"), Kind::Plain);
+        assert_eq!(kind_of(source, "without.len"), Kind::Plain);
+    }
+
+    #[test]
+    fn repeat_head_words_are_keywords_only_in_a_repeat_statement() {
+        let source = "repeat n times {\n}\nlet times = xs |> repeat(count: 2)\nlet repeat = times\n";
+        assert_eq!(kind_of(source, "repeat n"), Kind::Keyword);
+        assert_eq!(kind_of(source, "times {"), Kind::Keyword);
+        assert_eq!(kind_of(source, "times ="), Kind::Plain);
+        assert_eq!(kind_of(source, "repeat(count"), Kind::Function);
+        assert_eq!(kind_of(source, "repeat = times"), Kind::Plain);
+    }
+
+    #[test]
+    fn tempdir_head_words_are_keywords_only_in_a_tempdir_statement() {
+        let source = "tempdir at at tempdir {\n}\nlet tempdir = at\nlet at = fs.tempdir()\n";
+        assert_eq!(kind_of(source, "tempdir at"), Kind::Keyword);
+        assert_eq!(kind_of(source, "at tempdir"), Kind::Keyword);
+        assert_eq!(kind_of(source, "tempdir {"), Kind::Plain);
+        assert_eq!(kind_of(source, "tempdir ="), Kind::Plain);
+        assert_eq!(kind_of(source, "at = fs"), Kind::Plain);
     }
 
     #[test]

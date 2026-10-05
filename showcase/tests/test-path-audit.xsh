@@ -52,8 +52,8 @@ test test_path_audit_distinguishes_non_utf8_command_names { |ctx|
   let bin2 = fp"{root}/bin2"
   bin1.mkdir()?
   bin2.mkdir()?
-  let first = Path.parse_bytes(bytes.concat([bytes.from_text(bin1.display()), b"/tool-\xff"]))?
-  let second = Path.parse_bytes(bytes.concat([bytes.from_text(bin2.display()), b"/tool-\xfe"]))?
+  let first = Path.parse_bytes(bytes.concat([bin1.bytes(), b"/tool-\xff"]))?
+  let second = Path.parse_bytes(bytes.concat([bin2.bytes(), b"/tool-\xfe"]))?
   first.write("""#!/bin/sh
 """)?
   second.write("""#!/bin/sh

@@ -53,10 +53,19 @@ type NumericRead = {
   error_kind: Str?,
 }
 
-error SystemReportSourceError = InvalidPciAddress(message: Str) | InvalidPciId(message: Str) | InvalidUsbDescriptor(message: Str) | InvalidThpPolicy(message: Str) | InvalidCgroupMount(message: Str) | InvalidCpuFreqMembers(message: Str) | InvalidCacheSharing(message: Str) | InvalidIdleStateIndex(message: Str)
+error SystemReportSourceError {
+    InvalidPciAddress(message: Str)
+    InvalidPciId(message: Str)
+    InvalidUsbDescriptor(message: Str)
+    InvalidThpPolicy(message: Str)
+    InvalidCgroupMount(message: Str)
+    InvalidCpuFreqMembers(message: Str)
+    InvalidCacheSharing(message: Str)
+    InvalidIdleStateIndex(message: Str)
+}
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
-export pure parse_idle_state_index(name: Str) -> Result[Int] {
+export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
   guard name.starts_with("state") else {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
   }
@@ -93,7 +102,7 @@ export pure parse_idle_state_index(name: Str) -> Result[Int] {
 }
 
 ## Requires an unambiguous CPU list before a cache can claim shared ownership.
-export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int]] {
+export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error] {
   if let Ok(ids) = report.parse_cpu_list(value) {
     Ok(ids)
   } else {
@@ -102,7 +111,7 @@ export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int]] {
 }
 
 ## Parses the space-separated CPU identifiers exported by CPUFreq policy membership files.
-export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
+export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   if value == "" or value.trim() != value {
     return Err(
       SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty or has surrounding whitespace"),
@@ -199,7 +208,7 @@ pure parse_hex_component(value: Str) -> Result[Int] {
 }
 
 ## Parses the complete domain:bus:device.function sysfs identity.
-export pure parse_pci_address(value: Str) -> Result[PciAddress] {
+export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
   let parts = value.split(":")
   if parts.len() != 3 or ! is_hex_component(parts[0], 4) or ! is_hex_component(parts[1], 2) {
     return Err(SystemReportSourceError.InvalidPciAddress(message: "PCI address has invalid domain or bus syntax"))
@@ -225,7 +234,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress] {
 }
 
 ## Parses one hexadecimal PCI sysfs identifier without converting it to text labels.
-export pure parse_pci_hex_value(value: Str) -> Result[Int] {
+export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
   let text = value.trim()
   let digits = if text.starts_with("0x") or text.starts_with("0X") {
     text.split("") |> drop(2).join("")
@@ -246,7 +255,7 @@ export pure parse_pci_hex_value(value: Str) -> Result[Int] {
 }
 
 ## Parses a nonnegative PCI decimal attribute within JSON's exact integer range.
-export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
+export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error] {
   if value == "" {
     return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is empty"))
   }
@@ -268,7 +277,7 @@ export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
 }
 
 ## Parses USB descriptor framing while preserving unknown descriptor payloads.
-export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord]] {
+export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord], Error] {
   let max_bytes = 1048576
   let max_descriptors = 65536
   if data.len() > max_bytes {
@@ -303,12 +312,14 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
       )
     }
 
-    descriptors = descriptors.push({
-      offset: offset,
-      length: length,
-      descriptor_type: descriptor_type,
-      raw: data[offset..offset + length],
-    })
+    descriptors += [
+      {
+        offset: offset,
+        length: length,
+        descriptor_type: descriptor_type,
+        raw: data[offset..offset + length],
+      },
+    ]
     offset += length
   }
 
@@ -322,7 +333,7 @@ pure source_observation_state(state: Str, truncated: Bool) -> report.Observation
     "observed" => report.Observed
     "absent" => report.Absent
     "permission_denied" => report.PermissionDenied
-    _ => report.ReadFailure
+    else => report.ReadFailure
   }
 }
 
@@ -427,7 +438,7 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
 }
 
 ## Chooses the most specific visible cgroup mount whose root contains the membership path.
-export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?] {
+export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?, Error] {
   guard group_path.starts_with("/") else {
     return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup membership path is not absolute"))
   }
@@ -464,7 +475,7 @@ export pure valid_psi_average(value: Str) -> Bool {
 }
 
 ## Parses the bracketed selected value without assuming a fixed policy vocabulary.
-export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy] {
+export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Error] {
   guard value.lines().len() == 1 else {
     return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy must contain one line"))
   }
@@ -714,9 +725,9 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   }
 
   let parsed = bounded_number({...source, observation: {...observed, value: number_text}}, true)
-  return parsed when parsed.value == null
-
-  let number = parsed.value
+  guard let number = parsed.value else {
+    return parsed
+  }
   if number > maximum {
     return {value: null, state: report.RangeFailure, error_kind: "json_integer_out_of_range", errno: null}
   }
@@ -861,7 +872,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
 
   if listing.state != "complete" {
     let state = source_observation_state(listing.state, false)
-    issues = issues.push(
+    issues += [
       source_issue(
         "pci",
         "functions",
@@ -869,7 +880,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
         listing.errno,
         listing.error_kind,
       ),
-    )
+    ]
   }
 
   for device_path in listing.children {
@@ -877,7 +888,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let address_result = parse_pci_address(address_text)
     let valid_address = address_result is Ok(_)
     if ! valid_address {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}",
@@ -885,7 +896,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           null,
           "invalid_pci_address",
         ),
-      )
+      ]
       continue
     }
 
@@ -898,19 +909,19 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let revision = read_numeric_attribute(root, fp"{device_path}/revision", true)
 
     if vendor.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.vendor_id", vendor.state, vendor.errno, vendor.error_kind),
-      )
+      ]
     }
 
     if device.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.device_id", device.state, device.errno, device.error_kind),
-      )
+      ]
     }
 
     if subsystem_vendor.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.subsystem_vendor_id",
@@ -918,11 +929,11 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           subsystem_vendor.errno,
           subsystem_vendor.error_kind,
         ),
-      )
+      ]
     }
 
     if subsystem_device.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.subsystem_device_id",
@@ -930,19 +941,19 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           subsystem_device.errno,
           subsystem_device.error_kind,
         ),
-      )
+      ]
     }
 
     if class.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.class_code", class.state, class.errno, class.error_kind),
-      )
+      ]
     }
 
     if revision.state != report.Observed {
-      issues = issues.push(
+      issues += [
         source_issue("pci", f"functions.{address_text}.revision", revision.state, revision.errno, revision.error_kind),
-      )
+      ]
     }
 
     let driver = optional_link_name(root, fp"{device_path}/driver")
@@ -951,11 +962,17 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     if parent_source.state == "observed" and parent_source.target != null {
       parent_target = pci_parent_address(parent_source.target, address_text)
     } else if parent_source.state == "observed" {
-      issues = issues.push(
-        source_issue("pci", f"functions.{address_text}.parent_function_index", report.Malformed, null, "invalid_parent_target"),
-      )
+      issues += [
+        source_issue(
+          "pci",
+          f"functions.{address_text}.parent_function_index",
+          report.Malformed,
+          null,
+          "invalid_parent_target",
+        ),
+      ]
     } else {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.parent_function_index",
@@ -963,7 +980,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           parent_source.errno,
           parent_source.error_kind,
         ),
-      )
+      ]
     }
 
     let numa = read_numeric_attribute(root, fp"{device_path}/numa_node", false, allow_unknown_numa: true)
@@ -973,19 +990,23 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let maximum_link_speed = read_source_text(root, fp"{device_path}/max_link_speed", max_bytes: 4096)
     let maximum_link_width = read_numeric_attribute(root, fp"{device_path}/max_link_width", false)
     if numa.state != report.Observed and numa.state != report.Absent and numa.state != report.Disappeared {
-      issues = issues.push(
-        source_issue("pci", f"functions.{address_text}.numa_node", numa.state, numa.errno, numa.error_kind),
-      )
+      issues += [source_issue("pci", f"functions.{address_text}.numa_node", numa.state, numa.errno, numa.error_kind)]
     }
 
     if driver.observation.state != report.Observed and driver.observation.state != report.Absent {
-      issues = issues.push(
-        source_issue("pci", f"functions.{address_text}.driver", driver.observation.state, driver.errno, driver.error_kind),
-      )
+      issues += [
+        source_issue(
+          "pci",
+          f"functions.{address_text}.driver",
+          driver.observation.state,
+          driver.errno,
+          driver.error_kind,
+        ),
+      ]
     }
 
     if iommu_group.observation.state != report.Observed and iommu_group.observation.state != report.Absent {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.iommu_group",
@@ -993,11 +1014,11 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           iommu_group.errno,
           iommu_group.error_kind,
         ),
-      )
+      ]
     }
 
     if current_link_speed.observation.state != report.Observed and current_link_speed.observation.state != report.Absent {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.current_link_speed",
@@ -1005,11 +1026,11 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           current_link_speed.errno,
           current_link_speed.error_kind,
         ),
-      )
+      ]
     }
 
     if current_link_width.state != report.Observed and current_link_width.state != report.Disappeared {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.current_link_width",
@@ -1017,11 +1038,11 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           current_link_width.errno,
           current_link_width.error_kind,
         ),
-      )
+      ]
     }
 
     if maximum_link_speed.observation.state != report.Observed and maximum_link_speed.observation.state != report.Absent {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.maximum_link_speed",
@@ -1029,11 +1050,11 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           maximum_link_speed.errno,
           maximum_link_speed.error_kind,
         ),
-      )
+      ]
     }
 
     if maximum_link_width.state != report.Observed and maximum_link_width.state != report.Disappeared {
-      issues = issues.push(
+      issues += [
         source_issue(
           "pci",
           f"functions.{address_text}.maximum_link_width",
@@ -1041,7 +1062,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
           maximum_link_width.errno,
           maximum_link_width.error_kind,
         ),
-      )
+      ]
     }
 
     var numa_node: Int? = null
@@ -1049,7 +1070,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       numa_node = numa.value
     }
 
-    functions = functions.push(
+    functions += [
       {
         address: address_text,
         domain: address.domain,
@@ -1079,7 +1100,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
         },
         maximum_link_width: maximum_link_width.value,
       },
-    )
+    ]
     parent_addresses += [parent_target]
   }
 
@@ -1104,10 +1125,12 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       }
     }
 
-    linked_functions = linked_functions.push({
-      ...functions[function_index],
-      parent_function_index: parent_index,
-    })
+    linked_functions += [
+      {
+        ...functions[function_index],
+        parent_function_index: parent_index,
+      },
+    ]
     function_index += 1
   }
 

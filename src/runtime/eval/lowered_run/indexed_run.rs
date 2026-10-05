@@ -36,7 +36,7 @@ use super::{
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type, new_temp_fs_root,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
-    read_host_path_bytes, read_host_path_bytes_vec, run_pipeline_inherit_with_policy,
+    read_host_path_bytes, read_host_path_text, run_pipeline_inherit_with_policy,
     runtime_error_from_value, splice_to_argv, structured_error_constructor,
     value_matches_static_type, value_to_argv_bytes,
 };
@@ -63,6 +63,73 @@ mod serial_pipeline;
 use serial_pipeline::IndexedPipelineItems;
 
 use xsh_registry::stream_parameters::DEFAULT_PAR_MAP_WORKERS;
+
+/// The executable of a run form and the arguments its target contributes
+/// after it. A spliced target, `run @argv`, is a whole command vector: its
+/// first element is the executable and the rest lead the arguments. An empty
+/// vector names no program, which fails as `ProcessError.InvalidTarget`
+/// before anything starts. Any other target is one argv item.
+fn run_target_and_leading_argv(
+    target: &RunArg,
+    mut items: Vec<Vec<u8>>,
+) -> Result<(Vec<u8>, Vec<Vec<u8>>), RuntimeError> {
+    if target.mode == RUN_ARG_SPLICE {
+        if items.is_empty() {
+            let error = RunError::new(
+                "empty-command",
+                "spliced command is empty: its first element names the program to run",
+            )
+            .with_span(target.span);
+            let mut failure = runtime_error_from_value(Value::RunError(Box::new(error)), target.span);
+            failure.propagated = true;
+            return Err(failure);
+        }
+        let executable = items.remove(0);
+        return Ok((executable, items));
+    }
+    let [executable]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
+        RuntimeError::new("argv-conversion", "run target must produce one argv item")
+            .with_span(target.span)
+    })?;
+    Ok((executable, Vec::new()))
+}
+
+/// The `RunArg::mode` of an explicit `@` splice.
+const RUN_ARG_SPLICE: u32 = 2;
+
+/// A deferred action a scope registered: the expression to run, and whether
+/// it is an `errdefer`.
+///
+/// Both are packed into the one word a frame's defer list already stored per
+/// action, so registering a `defer` costs what it did.
+#[derive(Clone, Copy)]
+pub(super) struct RegisteredDefer(u32);
+
+impl RegisteredDefer {
+    const ON_ERROR: u32 = 1 << 31;
+
+    fn new(value: u32, on_error: bool) -> Self {
+        // An expression is an index into a program's instructions, which a
+        // verified program keeps far below this bit.
+        assert!(
+            value & Self::ON_ERROR == 0,
+            "deferred expression index overflows its word"
+        );
+        Self(if on_error {
+            value | Self::ON_ERROR
+        } else {
+            value
+        })
+    }
+
+    fn value(self) -> u32 {
+        self.0 & !Self::ON_ERROR
+    }
+
+    fn on_error(self) -> bool {
+        self.0 & Self::ON_ERROR != 0
+    }
+}
 
 #[derive(Clone)]
 struct RunArg {
@@ -1865,7 +1932,7 @@ impl Evaluator {
                     value, arg.span,
                 )?])),
             },
-            2 => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
+            RUN_ARG_SPLICE => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
             _ => unreachable!("indexed run argument tag was checked"),
         }
     }
@@ -2003,11 +2070,7 @@ impl Evaluator {
             ControlFlow::Continue(items) => items,
             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
-        let [target_value]: [Vec<u8>; 1] = target_items.try_into().map_err(|_| {
-            RuntimeError::new("argv-conversion", "run target must produce one argv item")
-                .with_span(target.span)
-        })?;
-        let mut argv = Vec::new();
+        let (target_value, mut argv) = run_target_and_leading_argv(target, target_items)?;
         for arg in args {
             match self.eval_indexed_run_arg(execution, arg, slots, span)? {
                 ControlFlow::Continue(items) => argv.extend(items),
@@ -2894,6 +2957,9 @@ impl Evaluator {
                 }
                 FullDriverTag::Defer => {
                     let value = indexed_raw(&mut payload, call_span)?;
+                    // Whether the action runs at all is the driver's decision,
+                    // made before it reaches this step.
+                    indexed_decode::<bool>(&mut payload, &execution, call_span)?;
                     let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                     indexed_finish(payload, call_span)?;
                     self.eval_indexed_deferred_expr(&execution, value, &mut slots, span)?;
@@ -6876,24 +6942,10 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let value = if tag == FullTag::ExprPathReadText {
-                    match read_host_path_bytes_vec(&self.host_path(&path), span) {
-                        Ok(bytes) => match String::from_utf8(bytes) {
-                            Ok(text) => {
-                                LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
-                            }
-                            Err(error) => {
-                                LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                                    RuntimeError::new(
-                                        "invalid-utf8",
-                                        format!(
-                                            "file is not valid UTF-8 at byte {}",
-                                            error.utf8_error().valid_up_to()
-                                        ),
-                                    )
-                                    .with_span(span),
-                                ))))
-                            }
-                        },
+                    match read_host_path_text(&self.host_path(&path), span) {
+                        Ok(text) => {
+                            LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
+                        }
                         Err(error) => {
                             LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
                         }
@@ -7310,15 +7362,8 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                            let [target_value]: [Vec<u8>; 1] =
-                                target_items.try_into().map_err(|_| {
-                                    RuntimeError::new(
-                                        "argv-conversion",
-                                        "run target must produce one argv item",
-                                    )
-                                    .with_span(target.span)
-                                })?;
-                            let mut argv = Vec::new();
+                            let (target_value, mut argv) =
+                                run_target_and_leading_argv(&target, target_items)?;
                             for arg in &args {
                                 match self.eval_indexed_run_arg(execution, arg, slots, span)? {
                                     ControlFlow::Continue(items) => argv.extend(items),
@@ -7337,10 +7382,7 @@ impl Evaluator {
                             };
                             let mut run_env = BTreeMap::new();
                             for (name, value) in env_overlay {
-                                run_env.insert(
-                                    String::from_utf8_lossy(&name).into_owned(),
-                                    String::from_utf8_lossy(&value).into_owned(),
-                                );
+                                run_env.insert(String::from_utf8_lossy(&name).into_owned(), value);
                             }
                             let run_timeout = match self.eval_indexed_optional_expr(
                                 execution,
@@ -8324,19 +8366,31 @@ impl Evaluator {
         }
     }
 
+    /// Runs a scope's deferred actions, last registered first.
+    ///
+    /// `leaves_with_error` says whether the scope is leaving with an error,
+    /// which is when its `errdefer` actions run. A failing action makes that
+    /// true for the actions registered before it: from there on the scope
+    /// leaves with that failure.
     pub(super) fn run_indexed_defers(
         &mut self,
         execution: &FullExecution<'_>,
-        defers: &[u32],
+        defers: &[RegisteredDefer],
+        mut leaves_with_error: bool,
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<(), RuntimeError> {
         let primary_traceback = self.pending_traceback.take();
         let mut first_error = None;
         let mut first_traceback = None;
-        for value in defers.iter().rev().copied() {
-            if let Err(error) = self.eval_indexed_deferred_expr(execution, value, slots, call_span)
+        for deferred in defers.iter().rev().copied() {
+            if deferred.on_error() && !leaves_with_error {
+                continue;
+            }
+            if let Err(error) =
+                self.eval_indexed_deferred_expr(execution, deferred.value(), slots, call_span)
             {
+                leaves_with_error = true;
                 if error.abort.as_ref().is_some_and(|signal| signal.force) {
                     self.pending_traceback = primary_traceback;
                     return Err(error);

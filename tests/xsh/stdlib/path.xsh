@@ -25,7 +25,7 @@ test test_path_methods { |ctx|
   assert file.dirname().display() == fp"{root}/dir".display()
   assert p"/".basename() == "/"
   assert p".".basename() == "."
-  assert p"a/.".dirname().display() == "a"
+  assert p"a/.".dirname() == "a"
   assert p"a/".basename() == "a"
   assert p".profile".ext_or("none") == "none"
   assert p"file.".ext_or("none") == ""
@@ -33,7 +33,7 @@ test test_path_methods { |ctx|
   assert file.with_ext("log").name() == "file.log"
   assert fp"{root}/dir/../dir/file.txt".normalize() == file
   assert file.strip_prefix(root)?.display() == "dir/file.txt"
-  assert file.relative_to(root).display() == "dir/file.txt"
+  assert file.relative_to(root) == "dir/file.txt"
   assert file.resolve()?.display().ends_with("file.txt")
   assert file.exists()?
   assert ! file.executable()?
@@ -66,7 +66,7 @@ test test_path_methods { |ctx|
   touched.remove(missing_ok: true)?
   let relative_text = "relative/path"
   let parsed = fp"{relative_text}"
-  assert parsed.display() == "relative/path"
+  assert parsed == "relative/path"
   assert Path.parse_bytes(b"byte/path")?.display() == "byte/path"
 }
 

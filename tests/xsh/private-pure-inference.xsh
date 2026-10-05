@@ -193,7 +193,7 @@ export pure enabled() -> Bool { private_enabled(Included) }
 print inferred_tags.enabled()
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
     b"",
     "inferred-tag-capture.xsh",
   )?

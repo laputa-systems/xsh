@@ -39,23 +39,23 @@ proc main(...argv: List[Str]) [process, env, error] {
   var cols = []
 
   if all or parsed.sys {
-    cols = cols.push(u.sysname)
+    cols += [u.sysname]
   }
 
   if all or parsed.node {
-    cols = cols.push(u.nodename)
+    cols += [u.nodename]
   }
 
   if all or parsed.release {
-    cols = cols.push(u.release)
+    cols += [u.release]
   }
 
   if all or parsed.version {
-    cols = cols.push(u.version)
+    cols += [u.version]
   }
 
   if all or parsed.machine {
-    cols = cols.push(u.machine)
+    cols += [u.machine]
   }
 
   print cols.join(" ")

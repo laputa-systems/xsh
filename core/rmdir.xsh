@@ -35,7 +35,7 @@ proc main(...argv: List[Str]) [fs, error] {
     if parents {
       var parent = current.parent()
 
-      while parent.display() != "" and parent.display() != "." and parent.display() != "/" {
+      while parent != "" and parent != "." and parent != "/" {
         match parent.remove_dir() {
           Ok(_) => parent = parent.parent()
           Err(_) => break

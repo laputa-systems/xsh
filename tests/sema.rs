@@ -1782,7 +1782,9 @@ pure bad(flag: Bool) -> Int {
 }
 "#,
     );
-    assert!(has_code(&ambiguous, "check.if-value-else"));
+    // No branch ends in a value, so the `if` is a statement and the body
+    // can fall through, exactly as `return 1 when flag` does.
+    assert!(has_code(&ambiguous, "check.missing-return"));
 }
 
 #[test]
@@ -3011,6 +3013,7 @@ reveal_type(names)
             interactive_commands: None,
             reveal_types: true,
             migration_diagnostics: false,
+            embedded_bodies: false,
         },
     );
 
@@ -3105,6 +3108,7 @@ fn check_with_migration(source: &str) -> Vec<Option<String>> {
             interactive_commands: None,
             reveal_types: false,
             migration_diagnostics: true,
+            embedded_bodies: false,
         },
     )
     .diagnostics
@@ -3123,6 +3127,7 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
             interactive_commands: None,
             reveal_types: true,
             migration_diagnostics: false,
+            embedded_bodies: false,
         },
     );
     RevealCheckOutput {
@@ -3787,7 +3792,7 @@ pure cached(value: Str?) -> Str {
     assert!(
         invalid_condition
             .iter()
-            .any(|code| code.as_deref() == Some("check.guarded-stmt-condition")),
+            .any(|code| code.as_deref() == Some("check.if-condition")),
         "{invalid_condition:?}"
     );
 }

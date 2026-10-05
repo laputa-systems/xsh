@@ -270,7 +270,7 @@ test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
     break
   }
 
-  for _ in range(64) {
+  repeat 64 times {
     let _ = net.start({
       method: "GET",
       url: "https://example.test/loop-cleanup",

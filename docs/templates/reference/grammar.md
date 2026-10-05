@@ -15,6 +15,9 @@ The productions read the lexer's tokens after three adjustments:
 - Comments are dropped.
 - A line break followed (after any blank or comment lines) by a
   [continuation token](#line-continuation) is removed, joining the two lines.
+- A `\` that follows whitespace and ends its line is whitespace, together
+  with its line break. It is accepted only between the parts of a command
+  (SPEC 2.5); the productions never see it.
 - Every other run of line breaks is one `NEWLINE`.
 
 A newline or `;` ends a statement. A compound statement (one that ends with

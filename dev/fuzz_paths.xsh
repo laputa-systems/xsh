@@ -1,7 +1,7 @@
 ##! Failure storage for fuzz campaigns, addressed by the implementation under test.
 
 ## Selects the executable Cargo actually built, including custom target directories.
-export proc built_binary(messages: Str) [error] -> Result[Path] {
+export proc built_binary(messages: Str) [error] -> Result[Path, Error] {
   var binaries = []
   for line in messages.lines() {
     let message = json.decode(line)?
@@ -13,14 +13,16 @@ export proc built_binary(messages: Str) [error] -> Result[Path] {
     let executable = json.get(message, ["executable"])?.require(Str?)?
     if executable != null { binaries += [fp"{executable}"] }
   }
+
   if binaries.len() != 1 {
     error.fail(f"expected one xsh-fuzz binary artifact, found {binaries.len()}")?
   }
+
   Ok(binaries[0])
 }
 
 ## Keeps reproducers from different tested binaries in separate directories.
-export proc failure_dir(binary: Path) [fs, error] -> Result[Path] {
+export proc failure_dir(binary: Path) [fs, error] -> Result[Path, Error] {
   let digest = hash.sha256(binary)?.hex()
   Ok(fp"target/fuzz/{digest}/failures")
 }

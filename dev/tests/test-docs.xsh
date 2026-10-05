@@ -101,6 +101,59 @@ let total = double(20) + offset
   docs.check(root, tools(ctx))?
 }
 
+test test_docs_show_a_snippet_as_xsht_desugar_prints_it { |ctx|
+  let root = docs_tree(
+    ctx,
+    """```xsh
+{{.spec.early.source}}
+```
+
+means
+
+```xsh
+{{.spec.early.desugared}}
+```
+""",
+  )?
+  fp"{root}/docs/snippets/spec/03-early.xsh".write("""pure first(cached: Str?) -> Str {
+  # begin example
+  # A hit needs no lookup.
+  return cached when cached != null
+  # end example
+  "miss"
+}
+
+print first("hit")
+""")?
+
+  docs.generate(root, tools(ctx))?
+  let page = fp"{root}/docs/page.md".read_text()?
+  assert """```xsh
+# A hit needs no lookup.
+return cached when cached != null
+```
+
+means
+
+```xsh
+# A hit needs no lookup.
+if cached != null { return cached }
+```""" in page, page
+  docs.check(root, tools(ctx))?
+}
+
+test test_docs_refuse_the_desugared_form_of_an_unknown_snippet { |ctx|
+  let root = docs_tree(
+    ctx,
+    """{{.spec.absent.desugared}}
+""",
+  )?
+  match docs.generate(root, tools(ctx)) {
+    Ok(_) => assert false, "an unknown snippet has no desugared form"
+    Err(error) => assert "a template shows the desugared form of unknown snippet spec.absent" in error.message, error.message
+  }
+}
+
 test test_docs_check_requires_exactly_the_annotated_diagnostics { |ctx|
   let root = docs_tree(ctx, "")?
   docs.generate(root, tools(ctx))?

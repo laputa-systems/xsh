@@ -1,5 +1,6 @@
+use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files_below,
     is_path_excluded, load_config, nearest_config_for_file, text_bytes,
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
 use xsh::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Label, Severity,
 };
@@ -30,6 +32,17 @@ pub fn lint_files(
     fix: bool,
     runless: bool,
     only: Option<Vec<DiagnosticCode>>,
+) -> CliOutput {
+    lint_files_timed(files, fix, runless, only, &StageTimings::start())
+}
+
+/// `xsht lint` over files or directories, recording stage times in `timings`.
+pub fn lint_files_timed(
+    files: &[String],
+    fix: bool,
+    runless: bool,
+    only: Option<Vec<DiagnosticCode>>,
+    timings: &StageTimings,
 ) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
@@ -51,7 +64,8 @@ pub fn lint_files(
         }
     };
 
-    let mut discovered = match discover_lint_files(files, &cwd_config) {
+    let discovery = timings.time(Stage::Discover, || discover_lint_files(files, &cwd_config));
+    let mut discovered = match discovery {
         Ok(discovered) => discovered,
         Err(message) => {
             if let Some(output) = cancellation_output() {
@@ -69,10 +83,18 @@ pub fn lint_files(
 
     discovered.only = only;
     let config_cache = ConfigCache::default();
-    let mut results = lint_workspace(&discovered, fix, runless, &cwd_config, &config_cache);
+    let mut results = lint_workspace(
+        &discovered,
+        fix,
+        runless,
+        &cwd_config,
+        &config_cache,
+        timings,
+    );
     if let Some(output) = cancellation_output() {
         return output;
     }
+    timings.set_files(discovered.files.len());
     results.sort_unstable_by_key(|result| result.index);
     let mut seen_diagnostics = FxHashSet::default();
     let mut written_files = FxHashSet::default();
@@ -178,8 +200,13 @@ fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDisco
         for file in files {
             let path = Path::new(file);
             if path.is_dir() {
-                let dir_config = config_for_dir(path, config)?.config;
-                collect_xsh_files(path, &dir_config.exclude, &mut paths)?;
+                let dir_config = config_for_dir(path, config)?;
+                collect_xsh_files_below(
+                    path,
+                    &dir_config.config_dir,
+                    &dir_config.config.exclude,
+                    &mut paths,
+                )?;
             } else {
                 paths.push(path.to_path_buf());
                 explicit_roots.insert(module_key(path));
@@ -496,11 +523,20 @@ fn lint_workspace(
     runless: bool,
     cwd_config: &XshConfig,
     config_cache: &ConfigCache,
+    timings: &StageTimings,
 ) -> Vec<LintResult> {
     let available = thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1);
-    lint_workspace_with_parallelism(discovery, fix, runless, cwd_config, config_cache, available)
+    lint_workspace_with_parallelism(
+        discovery,
+        fix,
+        runless,
+        cwd_config,
+        config_cache,
+        available,
+        timings,
+    )
 }
 
 fn lint_workspace_with_parallelism(
@@ -510,7 +546,9 @@ fn lint_workspace_with_parallelism(
     cwd_config: &XshConfig,
     config_cache: &ConfigCache,
     available: usize,
+    timings: &StageTimings,
 ) -> Vec<LintResult> {
+    let load_started = Instant::now();
     let mut loader = WorkspaceLoader::new();
     let mut input_errors = Vec::new();
     let mut candidate_keys = Vec::new();
@@ -559,6 +597,7 @@ fn lint_workspace_with_parallelism(
     let roots = select_lint_roots(&candidate_keys, &modules, &explicit_roots);
     program.modules.shrink_to_fit();
     let mut workspace = LintWorkspace::new(sources, program, modules, roots, input_errors);
+    timings.record(Stage::Load, load_started.elapsed());
 
     let mut results = Vec::new();
     let mut index = 0usize;
@@ -583,8 +622,10 @@ fn lint_workspace_with_parallelism(
                 .name("xsht-lint".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
                 .spawn_scoped(scope, move || {
-                    let mut bundle = workspace.program.clone();
-                    let type_program = workspace.type_program();
+                    // Each worker checks through its own copy of the program.
+                    let (mut bundle, type_program) = timings.time(Stage::Load, || {
+                        (workspace.program.clone(), workspace.type_program())
+                    });
                     loop {
                         if cancellation_output().is_some() {
                             break;
@@ -600,6 +641,7 @@ fn lint_workspace_with_parallelism(
                             &mut bundle,
                             linted_modules,
                             &type_program,
+                            timings,
                         );
                         if tx.send((root_index, root_results)).is_err() {
                             break;
@@ -672,6 +714,7 @@ fn set_checked_lint_facts_for_source(
     options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
     options.statement_expression_spans =
         source_checked_set(&checked.statement_expression_spans, source_id);
+    options.propagating_statements = source_checked_set(&checked.propagating_statements, source_id);
     options.membership_migration_spans =
         source_checked_set(&checked.membership_migration_spans, source_id);
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
@@ -693,6 +736,7 @@ fn lint_workspace_root(
     bundle: &mut ArenaProgram,
     linted_modules: &Mutex<FxHashSet<String>>,
     type_program: &Arc<ArenaProgram>,
+    timings: &StageTimings,
 ) -> Vec<LintResult> {
     let reachable = workspace.reachable_modules(root);
     let Some(root_module) = workspace.modules.get(root) else {
@@ -721,13 +765,15 @@ fn lint_workspace_root(
         }];
     }
 
-    let checked = SymbolOwner::new().with_current(|| {
-        xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
-            bundle,
-            &root_module.text,
-            CheckOptions::default(),
-            type_program.clone(),
-        )
+    let checked = timings.time(Stage::Check, || {
+        SymbolOwner::new().with_current(|| {
+            xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
+                bundle,
+                &root_module.text,
+                CheckOptions::default(),
+                type_program.clone(),
+            )
+        })
     });
     let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic| {
         migration_lint_code(diagnostic.code).is_none()
@@ -761,13 +807,15 @@ fn lint_workspace_root(
                     .is_some_and(|code| lint_code_selected(only, Some(code)))
             })
     {
-        return migrate_workspace_syntax(
-            workspace,
-            root,
-            &reachable,
-            linted_modules,
-            &checked.diagnostics,
-        );
+        return timings.time(Stage::Fix, || {
+            migrate_workspace_syntax(
+                workspace,
+                root,
+                &reachable,
+                linted_modules,
+                &checked.diagnostics,
+            )
+        });
     }
 
     let mut keys = reachable
@@ -797,6 +845,7 @@ fn lint_workspace_root(
         }
         let mut options = module.config.lint_options.clone();
         set_checked_lint_facts_for_source(&mut options, &checked, module.source_id);
+        let lint_started = Instant::now();
         let mut linted = if key == root {
             Linter::lint(bundle, &module.text, options)
         } else {
@@ -832,6 +881,7 @@ fn lint_workspace_root(
         } else {
             grouping_diagnostics(bundle, &module.text)
         };
+        timings.record(Stage::Lint, lint_started.elapsed());
         if !fix {
             linted.diagnostics.extend(
                 checked
@@ -857,14 +907,16 @@ fn lint_workspace_root(
             .cloned()
             .collect::<Vec<_>>();
         let result = if fix {
-            lint_workspace_node_with_fixes(
-                results.len(),
-                module,
-                &linted.diagnostics,
-                &check_diagnostics,
-                &workspace.sources,
-                key != root,
-            )
+            timings.time(Stage::Fix, || {
+                lint_workspace_node_with_fixes(
+                    results.len(),
+                    module,
+                    &linted.diagnostics,
+                    &check_diagnostics,
+                    &workspace.sources,
+                    key != root,
+                )
+            })
         } else if linted.diagnostics.is_empty() {
             LintResult {
                 index: results.len(),
@@ -1388,10 +1440,10 @@ fn lint_config_for_file(
     cwd_config: &XshConfig,
     config_cache: &ConfigCache,
 ) -> Result<ResolvedLintConfig, String> {
-    let (config_dir, config) = config_cache
-        .nearest_config_for_file(Path::new(file))?
-        .unwrap_or_else(|| (PathBuf::from("."), cwd_config.clone()));
-    let tool_config = FileToolConfig { config_dir, config };
+    let tool_config = FileToolConfig::new(
+        config_cache.nearest_config_for_file(Path::new(file))?,
+        cwd_config,
+    );
     let line_width = tool_config.line_width();
     let module_roots = tool_config.module_roots();
     let configured_return_annotations = tool_config
@@ -1428,6 +1480,15 @@ fn lint_config_for_file(
         prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
         prefer_inferred_variants: tool_config.config.lint.prefer_inferred_variants,
         prefer_positional_constructors: tool_config.config.lint.prefer_positional_constructors,
+        prefer_implicit_messages: tool_config.config.lint.prefer_implicit_messages,
+        // A project that asks `xsht check --annotate` to write returns does
+        // not also want them removed.
+        prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
+            && !configured_return_annotations,
+        return_proof: Some(crate::xsht::lint::ReturnProofContext {
+            file: file.to_string(),
+            module_roots: module_roots.clone(),
+        }),
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
@@ -1443,6 +1504,7 @@ fn lint_config_for_file(
         terminating_call_spans: Default::default(),
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
+        propagating_statements: Default::default(),
         membership_migration_spans: Default::default(),
         standard_call_spans: Default::default(),
         statically_resolved_call_spans: Default::default(),
@@ -1520,6 +1582,7 @@ fn lint_one_file_with_fixes(
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
+    lint_options.propagating_statements = checked.propagating_statements.clone();
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
@@ -1788,6 +1851,7 @@ fn apply_cst_fixes(
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
+        options.propagating_statements = checked.propagating_statements.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
@@ -1980,6 +2044,7 @@ mod tests {
         apply_cst_fixes, collect_fix_spans, discover_lint_files, lint_config_for_file,
         lint_one_file_with_fixes, lint_workspace,
     };
+    use crate::xsht::cli::timing::StageTimings;
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
     use crate::xsht::lint::LintOptions;
     use std::fs;
@@ -2090,6 +2155,7 @@ mod tests {
                 &config,
                 &ConfigCache::default(),
                 available,
+                &StageTimings::start(),
             );
             let mut output = Vec::new();
             for result in results {
@@ -2134,6 +2200,7 @@ mod tests {
             xsh::frontend::check::StatementPosition::Statement,
         );
         checked.proven_nonnull_fallback_receivers.insert(local_span);
+        checked.propagating_statements.insert(local_span);
         for offset in 0..100 {
             let span = Span::new(foreign, offset, offset + 1);
             checked
@@ -2143,6 +2210,7 @@ mod tests {
                 .statement_positions
                 .insert(span, xsh::frontend::check::StatementPosition::Value);
             checked.proven_nonnull_fallback_receivers.insert(span);
+            checked.propagating_statements.insert(span);
         }
         let mut options = LintOptions::default();
         super::set_checked_lint_facts_for_source(&mut options, &checked, local);
@@ -2153,6 +2221,8 @@ mod tests {
         );
         assert_eq!(options.statement_positions.len(), 1);
         assert_eq!(options.proven_nonnull_fallback_receivers.len(), 1);
+        assert!(options.propagating_statements.contains(&local_span));
+        assert_eq!(options.propagating_statements.len(), 1);
         assert!(options.function_effect_facts_checked);
     }
 
@@ -2336,7 +2406,14 @@ print ${name}
             let config = crate::xsht::cli::XshConfig::default();
             let discovery = discover_lint_files(&[entry.to_string_lossy().into_owned()], &config)
                 .expect("discover entry");
-            let results = lint_workspace(&discovery, true, false, &config, &ConfigCache::default());
+            let results = lint_workspace(
+            &discovery,
+            true,
+            false,
+            &config,
+            &ConfigCache::default(),
+            &StageTimings::start(),
+        );
             if let Some(expected_error) = expected_error {
                 assert!(
                     results
@@ -2535,8 +2612,14 @@ print ${name}
             let config = crate::xsht::cli::XshConfig::default();
             let discovery =
                 discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
-            let results =
-                lint_workspace(&discovery, false, false, &config, &ConfigCache::default());
+            let results = lint_workspace(
+            &discovery,
+            false,
+            false,
+            &config,
+            &ConfigCache::default(),
+            &StageTimings::start(),
+        );
             let errors = results
                 .iter()
                 .filter_map(|result| match &result.kind {
@@ -2566,7 +2649,14 @@ print ${name}
         let config = crate::xsht::cli::XshConfig::default();
         let discovery =
             discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
-        let results = lint_workspace(&discovery, true, false, &config, &ConfigCache::default());
+        let results = lint_workspace(
+            &discovery,
+            true,
+            false,
+            &config,
+            &ConfigCache::default(),
+            &StageTimings::start(),
+        );
         let fixed = results
             .into_iter()
             .find_map(|result| match result.kind {
@@ -2617,7 +2707,14 @@ print ${name}
         let config = crate::xsht::cli::XshConfig::default();
         let discovery =
             discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
-        let results = lint_workspace(&discovery, false, false, &config, &ConfigCache::default());
+        let results = lint_workspace(
+            &discovery,
+            false,
+            false,
+            &config,
+            &ConfigCache::default(),
+            &StageTimings::start(),
+        );
         assert!(results.iter().any(|result| matches!(&result.kind,
             LintResultKind::Diagnostics { status: 2, diagnostics }
             if diagnostics.iter().any(|diagnostic| diagnostic.text.contains("check.type-mismatch")))));

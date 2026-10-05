@@ -150,13 +150,13 @@ test test_linux_fake_text_values_and_log { |ctx|
   # appends one line naming its operation to the log file.
   test.linux_fake(ctx, {log: log})?
   let memory = linux.meminfo()?
-  assert memory.total == 1024 * 1024 * 1024
-  assert memory.free == 256 * 1024 * 1024
-  assert memory.available == 512 * 1024 * 1024
-  assert memory.buffers == 64 * 1024 * 1024
-  assert memory.cached == 128 * 1024 * 1024
-  assert memory.swap_total == 512 * 1024 * 1024
-  assert memory.swap_free == 384 * 1024 * 1024
+  assert memory.total == 1GiB
+  assert memory.free == 256MiB
+  assert memory.available == 512MiB
+  assert memory.buffers == 64MiB
+  assert memory.cached == 128MiB
+  assert memory.swap_total == 512MiB
+  assert memory.swap_free == 384MiB
 
   let modules = linux.modules()?.collect()
   assert modules.len() == 1

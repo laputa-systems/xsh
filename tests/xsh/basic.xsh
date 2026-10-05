@@ -255,3 +255,42 @@ test test_net_mock { |ctx|
   let calls = test.calls(ctx, "net.request")
   assert calls[0].args.get("method")?.require(Str)? == "GET"
 }
+
+test test_invalid_escape_is_reported_once_by_one_code { |ctx|
+  # The lexer validates a plain literal and the parser decodes the text of an
+  # interpolating one. They used to name the same mistake with two codes, and
+  # a plain literal was reported by both.
+  let cases = [
+    {name: "plain", source: "let text = \"a\\qb\"\n"},
+    {name: "interpolated", source: "let n = 1\nlet text = f\"a\\qb{n}\"\n"},
+    {name: "bytes", source: "let data = b\"a\\qb\"\n"},
+    {name: "path", source: "let n = 1\nlet file = fp\"a\\q{n}\"\n"},
+    {name: "command_word", source: "run printf \"a\\qb\"\n"},
+  ]
+  for item in cases {
+    let name = item.name
+    let output = test.run_script(ctx, item.source)?
+    assert ! output.success, name
+    assert output.stderr.split("err[lex.invalid-escape]").len() == 2, f"{name}: {output.stderr}"
+    assert "err[parse." not in output.stderr, f"{name}: {output.stderr}"
+  }
+
+  let unicode_in_bytes = test.run_script(ctx, "let data = b\"\\u{41}\"\n")?
+  assert ! unicode_in_bytes.success
+  assert unicode_in_bytes.stderr.split("err[lex.invalid-bytes-escape]").len() == 2, unicode_in_bytes.stderr
+  assert "err[parse." not in unicode_in_bytes.stderr, unicode_in_bytes.stderr
+}
+
+test test_invalid_utf8_string_is_reported_by_one_code { |ctx|
+  let cases = [
+    {name: "plain", source: "let text = \"a\\xffb\"\n"},
+    {name: "interpolated", source: "let n = 1\nlet text = f\"a\\xffb{n}\"\n"},
+  ]
+  for item in cases {
+    let name = item.name
+    let output = test.run_script(ctx, item.source)?
+    assert ! output.success, name
+    assert output.stderr.split("err[lex.invalid-string]").len() == 2, f"{name}: {output.stderr}"
+    assert "err[parse." not in output.stderr, f"{name}: {output.stderr}"
+  }
+}

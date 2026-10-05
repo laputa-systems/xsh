@@ -14,15 +14,17 @@ pub mod check {
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
         CompactTypeDefInfo, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
-        FunctionEffectFact, ProjectionOperation, RequirementTarget, StatementPosition,
-        StaticCallableAlias, TagVariantInfo,
+        FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RequirementTarget,
+        StatementPosition, StaticCallableAlias, TagVariantInfo,
     };
     pub use crate::sema::constants::{
         CheckedRecordConstructor, LiteralConstant, PreparedConstants, RecordConstructors,
         SchemaComponent, SchemaExpectation, SchemaInstance, SchemaTypeError,
     };
     pub use crate::sema::records::record_schemas;
-    pub use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
+    pub use crate::sema::types::{
+        CallableParamType, CallableType, ModuleExportType, ModuleType, Type, union_member_error,
+    };
 }
 
 pub mod load {
@@ -35,6 +37,11 @@ pub mod load {
         parse_load_entry_source_arena_only_with_linkage, parse_load_entry_source_compact_file_unit,
         parse_load_entry_source_shared_arena_only, parse_script, parse_script_with_module_roots,
         prepare_stdlib_catalog_module, resolve_user_module,
+    };
+    pub use crate::project::{
+        PROJECT_CONFIG_FILE_NAME, configured_module_path, default_module_path, module_roots,
+        nearest_project_config_dir, project_module_roots, read_project_config,
+        resolve_project_path,
     };
 }
 

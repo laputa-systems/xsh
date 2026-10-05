@@ -147,7 +147,7 @@ print ${direct.value + value.value[1]}
 print ${value.owner.name.upper()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed

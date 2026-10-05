@@ -26,7 +26,7 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
 
   var visited = []
   for entry in fs.files(root) {
-    visited = visited.push(entry.name)
+    visited += [entry.name]
     break when visited.len() >= 2
   }
 
@@ -179,7 +179,7 @@ test test_fs_tree_metadata_install_and_locking { |ctx|
   assert fs.filesystem_stats(root)?.blocks_1k > 0
   let mounts = fs.mounts()?.collect()
   assert mounts.len() > 0
-  assert mounts |> any .mounted_on.display() == "/"
+  assert mounts |> any .mounted_on == "/"
   let root_mount = fs.mount_for(root)?
   assert root_mount.blocks_1k > 0
   assert root_mount.available_1k >= 0
@@ -672,7 +672,7 @@ test test_filesystem_path_and_install_apis { |ctx|
   assert renamed.name == "note.log"
   assert renamed.ext == "log"
   assert note.parent().name() == root.name()
-  assert stripped.display() == "note.txt"
+  assert stripped == "note.txt"
   assert usage >= 6
   assert resolved.name() == root.name()
 

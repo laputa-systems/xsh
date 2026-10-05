@@ -99,9 +99,9 @@ proc build_command(text: Str, opts: Opts) [] -> Command {
 # baseline: reported always, and subtracted per-run under --subtract-startup.
 proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
   let exe = applet.current_exe()?
-  let probe = process.command_argv(exe.display(), [exe.display(), "--startup"])
+  let probe = process.command_argv(exe, [exe, "--startup"])
 
-  for _ in range(3) {
+  repeat 3 times {
     let _ = time.measure(probe, quiet: true)?
   }
 
@@ -110,7 +110,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
   var system_total = 0
   let n = 10
 
-  for _ in range(n) {
+  repeat n times {
     let result = time.measure(probe, quiet: true)?
     wall_total += result.wall_ns
     user_total += result.user_ns
@@ -123,7 +123,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
 proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Summary] {
   let command = build_command(text, opts)
 
-  for _ in range(opts.warmup) {
+  repeat opts.warmup times {
     let _ = time.measure(command, quiet: true)?
   }
 
@@ -132,14 +132,14 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
   var system_total = 0
   var failures = 0
 
-  for _ in range(opts.runs) {
+  repeat opts.runs times {
     let result = time.measure(command, quiet: true)?
 
     if ! result.status.exited_with(0) {
       failures += 1
     }
 
-    times_ns = times_ns.push(floor0(result.wall_ns - baseline.wall_ns))
+    times_ns += [floor0(result.wall_ns - baseline.wall_ns)]
     user_total += floor0(result.user_ns - baseline.user_ns)
     system_total += floor0(result.system_ns - baseline.system_ns)
   }
@@ -208,17 +208,19 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
   for result in results {
     var times_s = [t / 1000.0 for t in result.times_ms]
 
-    entries = entries.push({
-      command: result.name,
-      mean: result.mean_ms / 1000.0,
-      stddev: result.stddev_ms / 1000.0,
-      median: result.median_ms / 1000.0,
-      user: result.user_ms / 1000.0,
-      system: result.system_ms / 1000.0,
-      min: result.min_ms / 1000.0,
-      max: result.max_ms / 1000.0,
-      times: times_s,
-    })
+    entries += [
+      {
+        command: result.name,
+        mean: result.mean_ms / 1000.0,
+        stddev: result.stddev_ms / 1000.0,
+        median: result.median_ms / 1000.0,
+        user: result.user_ms / 1000.0,
+        system: result.system_ms / 1000.0,
+        min: result.min_ms / 1000.0,
+        max: result.max_ms / 1000.0,
+        times: times_s,
+      },
+    ]
   }
 
   let encoded = json.encode({results: entries}, pretty: true)?

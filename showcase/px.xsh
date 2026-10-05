@@ -550,7 +550,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
     if ! opts.show_threads and process_matches_any(proc_row, query_items, opts.full, own_pid) {
       matched_rows += [row]
     } else if opts.show_threads and process_matches_any(proc_row, query_items, opts.full, own_pid) {
-      matched_owner_pids = matched_owner_pids.push(row.pid)
+      matched_owner_pids += [row.pid]
     }
   }
 
@@ -579,7 +579,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
         let key = f"{row.owner_pid}"
 
         if key not in matched_threads_by_pid {
-          matched_owner_pids = matched_owner_pids.push(row.owner_pid)
+          matched_owner_pids += [row.owner_pid]
         }
 
         matched_threads_by_pid = matched_threads_by_pid.push(key, row)

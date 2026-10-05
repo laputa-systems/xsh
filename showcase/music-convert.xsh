@@ -45,7 +45,7 @@ pure ext_default_kbps(ext: Str) -> Int {
     "flac" | "wav" | "aiff" | "alac" => 256
     "ogg" => 192
     "opus" => 128
-    _ => 192
+    else => 192
   }
 }
 
@@ -117,7 +117,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     }
 
     if opts.dry_run {
-      results = results.push({source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: true})
+      results += [{source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: true}]
       continue
     }
 
@@ -129,22 +129,20 @@ proc main(...argv: List[Str]) [fs, process, error] {
       [
         "ffmpeg",
         "-i",
-        src.display(),
+        src,
         "-c:a",
         "aac_at",
         "-b:a",
         f"{aac_kbps}k",
         "-vn",
         "-y",
-        dest.display(),
+        dest,
       ],
     )
 
     let status = process.run(cmd)?
 
-    results = results.push(
-      {source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: status.exited_with(0)},
-    )
+    results += [{source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: status.exited_with(0)}]
   }
 
   print ""

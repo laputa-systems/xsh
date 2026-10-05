@@ -104,7 +104,9 @@ test test_uint_valid_updates_preserve_current_root_and_aliases {
   rows[0] += if true {
     rows = [10, 20]
     3
-  } else { 0 }
+  } else {
+    0
+  }
   rows += [0, 255]
   let expected_rows = uint_expected_rows([13, 20, 0, 255])
   let expected_alias = uint_expected_rows([1, 2])
@@ -453,7 +455,7 @@ export error CountError = Bad(count: UInt)
       """use counts as c
 """ + body + "\n",
       [],
-      {XSH_MODULE_PATH: root.display()},
+      {XSH_MODULE_PATH: root},
     )?
     assert output.success == false
     assert "type-error" in output.stderr

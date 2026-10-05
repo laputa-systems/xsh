@@ -17,7 +17,7 @@ guard ready else { return }
 ```
 
 `when`, `unless`, and `guard ... else` each read aloud the way the program
-behaves; the planned `tempdir scratch at PATH { ... }` follows the same rule.
+behaves; `tempdir scratch at PATH { ... }` follows the same rule.
 A reader who has never seen the form can guess it, and a reader who has can
 grep for it.
 
@@ -26,7 +26,17 @@ expansion into forms the language already has, with the same evaluation
 order, effects, and failures. `return x when c` is `if c { return x }`;
 a fixed-path `tempdir` is remove, create, a deferred remove, and the body.
 If explaining a form needs a new runtime concept, it is not sugar and must
-justify itself as a feature.
+justify itself as a feature. The implementation takes this literally: the
+parser builds a sugar form's expansion beside its operands, the checker and
+runtime see only the expansion, and a test compares it with the expansion the
+SPEC states (`docs/ARCHITECTURE.md`, "Adding a sugar form"). Postfix `when`
+and `unless`, `guard cond else`, and `repeat` are built this way.
+
+`guard let NAME = EXPR else { ... }` reads like the others but is not sugar.
+It puts a binding in the enclosing block, and the only core statements that
+bind there are `let` and `var`, which have no failure branch; the nearest
+spelling, `let NAME = EXPR else { ... }`, would be `guard let` under another
+name. It stays a core form with its own checking and lowering.
 
 ## One name per concept, no overloaded sigils
 

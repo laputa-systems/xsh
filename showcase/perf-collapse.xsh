@@ -55,7 +55,7 @@ pure stack_key(stack: List[Str], leaf_first: Bool) -> Result[Str] {
   var i = stack.len() - 1
 
   while i >= 0 {
-    out = out.push(stack[i])
+    out += [stack[i]]
     i -= 1
   }
 
@@ -102,7 +102,7 @@ pure parse_options(argv: List[Str]) -> Result[Options] {
   )?
   let input = parsed.operands.get(0) ?? ""
 
-  return Err(ScriptError.Failed("usage", usage())) when parsed.operands.len() != 1
+  return Err(ScriptError.Failed(kind: "usage", message: usage())) when parsed.operands.len() != 1
 
   {
     input: fp"{input}",

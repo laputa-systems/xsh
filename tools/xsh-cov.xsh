@@ -39,7 +39,7 @@ proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
 }
 
 proc xsht_path(root: Path) [env] -> Path {
-  let configured = (env.get("XSHT") ?? "").trim()
+  let configured = (e"XSHT" ?? "").trim()
 
   return repo_path(root, configured) when configured != ""
 
@@ -71,7 +71,7 @@ proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
 
   if fp"{core}/tests".exists()? {
     seen[core.display()] = true
-    suites = suites.push({name: "core", path: core})
+    suites += [{name: "core", path: core}]
   }
 
   let prototypes = fp"{root}/prototypes"
@@ -84,7 +84,7 @@ proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
 
       if ! (seen.get(parent.display()) ?? false) {
         seen[parent.display()] = true
-        suites = suites.push({name: relative_display(root, parent)?, path: parent})
+        suites += [{name: relative_display(root, parent)?, path: parent}]
       }
     }
   }
@@ -120,12 +120,12 @@ proc run_suites(
     }
 
     if suite_json.exists()? {
-      outputs = outputs.push({name: suite.name, path: relative_display(root, suite_json)?})
+      outputs += [{name: suite.name, path: relative_display(root, suite_json)?}]
     }
   }
 
   if failed {
-    return Err(ScriptError.Failed("coverage", "one or more coverage suites failed"))
+    return Err(ScriptError.Failed(kind: "coverage", message: "one or more coverage suites failed"))
   }
 
   outputs
@@ -184,7 +184,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[C
     let total = hits.tests + hits.examples
 
     if total > 0 {
-      covered_rows = covered_rows.push({api_id: api_id, tests: hits.tests, examples: hits.examples, total: total})
+      covered_rows += [{api_id: api_id, tests: hits.tests, examples: hits.examples, total: total}]
     }
   }
 
@@ -204,7 +204,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
 
   for row in totals {
     let {group: group_name, covered, total, ..} = row
-    lines = lines.push(f"{group_name}: {covered}/{total}")
+    lines += [f"{group_name}: {covered}/{total}"]
   }
 
   lines += ["", "uncovered standard APIs"]
@@ -217,7 +217,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
 
     for api_id in uncovered {
       if count < 80 {
-        lines = lines.push(f"  {api_id}")
+        lines += [f"  {api_id}"]
       }
 
       count += 1
@@ -236,7 +236,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
   } else {
     for row in covered_rows {
       let {api_id, total, ..} = row
-      lines = lines.push(f"  {api_id}: {total}")
+      lines += [f"  {api_id}: {total}"]
     }
   }
 

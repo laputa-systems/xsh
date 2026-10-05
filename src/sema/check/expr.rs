@@ -16,10 +16,12 @@ pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
 
-/// Arena-native mirror of [`is_path_like_expr`] for expressions that have not
-/// been raised to the old AST.
-pub(super) fn is_path_like_arena_expr(kind: &ArenaExprKind, ty: &Type) -> bool {
-    matches!(ty, Type::Path | Type::Any | Type::Unknown) || matches!(kind, ArenaExprKind::Str(_))
+/// Whether a checked argument can stand where a `Path` is required: a
+/// `Path`, or a dynamic or recovery type whose own diagnostics apply. A string
+/// literal qualifies only by having taken the `Path` type from its expected
+/// type; a `Str` never does.
+pub(super) fn is_path_like_type(ty: &Type) -> bool {
+    matches!(ty, Type::Path | Type::Any | Type::Unknown)
 }
 
 /// Arena-native span helper for expression-or-run values.
@@ -305,6 +307,7 @@ impl Checker {
                 DiagnosticCode::CheckEffectViolation,
             );
         }
+        self.check_effect_not_excluded(&Effect::Process, span, form);
     }
 }
 
@@ -446,14 +449,27 @@ impl Checker {
             ArenaExprKind::Null => Type::Null,
             ArenaExprKind::Bool(_) => Type::Bool,
             ArenaExprKind::Int(value) => {
-                if arena.arena.int_literal(*value).value().is_none() {
-                    self.error(
-                        expr.span,
-                        "integer literal is outside the 64-bit signed range",
-                        DiagnosticCode::CheckIntLiteral,
-                    );
+                let literal = arena.arena.int_literal(*value);
+                // A size literal counts bytes, so it is never negative.
+                if literal.is_size() {
+                    if literal.value().is_none() {
+                        self.error(
+                            expr.span,
+                            "size literal exceeds 9223372036854775807 bytes",
+                            DiagnosticCode::CheckSizeLiteral,
+                        );
+                    }
+                    Type::UInt
+                } else {
+                    if literal.value().is_none() {
+                        self.error(
+                            expr.span,
+                            "integer literal is outside the 64-bit signed range",
+                            DiagnosticCode::CheckIntLiteral,
+                        );
+                    }
+                    Type::Int
                 }
-                Type::Int
             }
             ArenaExprKind::Float(_) => Type::Float,
             ArenaExprKind::Duration(value) => {
@@ -468,7 +484,9 @@ impl Checker {
                 }
                 Type::Duration
             }
-            ArenaExprKind::Str(_) => Type::Str,
+            ArenaExprKind::Str(value) => {
+                self.check_string_literal(arena, expr.span, *value, expected)
+            }
             ArenaExprKind::Regex(_) => Type::Regex,
             ArenaExprKind::PathStr(_) => Type::Path,
             ArenaExprKind::GlobStr(_) => {
@@ -857,21 +875,37 @@ impl Checker {
             ArenaExprKind::PatternCondition { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
-                if super::stmt::patterns_are_exhaustive_arena(
+                let cannot_fail = super::stmt::patterns_are_exhaustive_arena(
                     arena,
                     &value_ty,
                     std::iter::once(pattern),
                     &self.type_defs,
                     &self.tag_variants,
-                ) {
-                    self.error(
-                        expr.span,
-                        "pattern condition cannot fail; bind the subject with `let` instead",
-                        DiagnosticCode::CheckIrrefutablePatternCondition,
-                    );
-                }
+                    &self.pattern_test_types,
+                );
+                // A pattern that cannot fail on its own still has a failure
+                // case over an optional subject: `null`. That is optional
+                // binding, and the pattern then sees the non-null value. The
+                // fact is rewritten on every check of this condition.
+                self.optional_binding_spans.remove(&expr.span);
+                let subject_ty = match value_ty {
+                    Type::Optional(present) if cannot_fail => {
+                        self.optional_binding_spans.insert(expr.span);
+                        *present
+                    }
+                    value_ty => {
+                        if cannot_fail {
+                            self.error(
+                                expr.span,
+                                "pattern condition cannot fail; bind the subject with `let` instead",
+                                DiagnosticCode::CheckIrrefutablePatternCondition,
+                            );
+                        }
+                        value_ty
+                    }
+                };
                 self.push_scope();
-                self.check_pattern_arena(arena, source, pattern, &value_ty);
+                self.check_pattern_arena(arena, source, pattern, &subject_ty);
                 self.pop_scope();
                 Type::Bool
             }
@@ -1230,8 +1264,8 @@ impl Checker {
                     );
                     continue;
                 }
-                ArenaRecordFieldKind::Named { value, span, .. } => (
-                    Type::Str,
+                ArenaRecordFieldKind::Named { name, value, span } => (
+                    self.map_label_key_type(name, expected_key, arena.arena.span(span)),
                     self.check_schema_child_expr_arena(
                         arena,
                         source,
@@ -1706,7 +1740,7 @@ impl Checker {
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
-                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else {
+                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
                             self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
@@ -1894,6 +1928,7 @@ impl Checker {
                     DiagnosticCode::CheckEffectViolation,
                 );
             }
+            self.check_effect_not_excluded(&Effect::Time, span, "`retry` with delays");
         }
 
         self.push_scope();
@@ -1971,6 +2006,7 @@ impl Checker {
                 DiagnosticCode::CheckEffectViolation,
             );
         }
+        self.check_effect_not_excluded(&Effect::Process, run_span, "`run`");
         self.check_run_arena(arena, source, run_id)
     }
 
@@ -2136,7 +2172,7 @@ impl Checker {
             &value_ty,
             unguarded.iter().map(|(pattern, _)| *pattern),
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);
@@ -2435,9 +2471,21 @@ impl Checker {
                     let right_ty = self.check_expr_arena(arena, source, right, None);
                     let left_ty = self.check_expr_arena(arena, source, left, Some(&right_ty));
                     (left_ty, right_ty)
+                } else if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_))
+                    && !matches!(arena.arena.expr(right).kind, ArenaExprKind::Str(_))
+                {
+                    // A literal on the left takes its type from the right
+                    // operand, as one on the right does from the left.
+                    let right_ty = self.check_expr_arena(arena, source, right, None);
+                    let expected = self.path_literal_expectation(arena, left, &right_ty);
+                    let left_ty = self.check_expr_arena(arena, source, left, expected.as_ref());
+                    (left_ty, right_ty)
                 } else {
                     let left_ty = self.check_expr_arena(arena, source, left, None);
-                    let expected = self.is_inferred_variant_expr(arena, right).then_some(&left_ty);
+                    let literal = self.path_literal_expectation(arena, right, &left_ty);
+                    let expected = literal
+                        .as_ref()
+                        .or_else(|| self.is_inferred_variant_expr(arena, right).then_some(&left_ty));
                     let right_ty = self.check_expr_arena(arena, source, right, expected);
                     (left_ty, right_ty)
                 };
@@ -2482,6 +2530,9 @@ impl Checker {
                     }
                     return Type::Bool;
                 }
+                if self.reject_unnarrowed_union(&left_ty, "an ordering comparison", left_span) {
+                    return Type::Bool;
+                }
                 if !ordered(&left_ty) && !left_ty.is_recovery() {
                     self.error(
                         left_span,
@@ -2493,8 +2544,26 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
-                let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_arena(arena, source, right, None);
+                // A literal member takes its type from the keys or items it
+                // is looked up among, so the container is checked first;
+                // evaluation order is unchanged. A Path container keeps a
+                // literal as text: that membership is text containment.
+                let (left_ty, right_ty) =
+                    if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_)) {
+                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        let expected = match &right_ty {
+                            Type::Map(member, _) | Type::List(member) => {
+                                self.path_literal_expectation(arena, left, member)
+                            }
+                            _ => None,
+                        };
+                        let left_ty = self.check_expr_arena(arena, source, left, expected.as_ref());
+                        (left_ty, right_ty)
+                    } else {
+                        let left_ty = self.check_expr_arena(arena, source, left, None);
+                        let right_ty = self.check_expr_arena(arena, source, right, None);
+                        (left_ty, right_ty)
+                    };
                 if left_ty == Type::Any && matches!(right_ty, Type::Path | Type::Any) {
                     self.reject_dynamic_use("a membership operand", None, left_span);
                 }
@@ -2764,6 +2833,9 @@ impl Checker {
             return Type::Unknown;
         }
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+            return Type::Unknown;
+        }
         match base_ty {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
@@ -2887,6 +2959,9 @@ impl Checker {
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+            return Type::Unknown;
+        }
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
@@ -3024,6 +3099,9 @@ impl Checker {
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         let index_span = arena.arena.expr(index).span;
+        if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
+            return Type::Unknown;
+        }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
             Type::Map(key, item) => {
@@ -3103,6 +3181,9 @@ impl Checker {
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if self.reject_unnarrowed_union(&base_ty, "slicing", span) {
+            return Type::Unknown;
+        }
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {
             let ty = self.check_expr_with_schema_arena(

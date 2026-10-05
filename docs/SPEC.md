@@ -78,24 +78,26 @@ error.
 Reserved keywords:
 
 ```text
-and assert break const continue defer else enum export false for guard if in
-let loop match not null or proc pure retry return run spawn stream true try
-type unless use var wait when while with yield
+and assert break const continue defer else enum errdefer export false for
+guard if in let loop match not null or proc pure retry return run spawn stream
+true try type unless use var wait when while with yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `tempdir`, `test`, the core commands `print`, `eprint`, `cd`, and `env`,
-and builder entries such as `run` inside a builder block.
+`on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
+statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
+the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
+as `run` inside a builder block.
 
 Builtin type and constructor names:
 
 ```text
 Any Bool Bytes Command Digest Duration Err Error Float Int List Map Module Null
 Ok Path ProcessError ProcessHandle Proc Pure Record Regex Result Status Str
-Stream UInt Unit
+Stream UInt Union Unit
 ```
 
 ### 2.4 Identifiers and reserved names
@@ -146,6 +148,39 @@ let files = fs.files(p"src")?
 let ready = config.enabled
   and target.exists()?
 ```
+
+**Command continuation.** A command, and only a command, also continues when
+a line ends with `\`. The backslash follows whitespace and is the last
+character of its line; it and the line break then read as the whitespace
+between two parts of the command, so the next line supplies more of it:
+arguments, `run` options and environment assignments, redirections, the `|`
+of a byte pipeline, the block of `cd` or `env`, or the trailing `?`. The first
+word of the command (`print`, `run`, `run.capture --text`) stays on the first
+line.
+
+```xsh
+run muon setup \
+  -Ddefault_library=shared \
+  -Dtests=false \
+  build ?
+
+run make "ARCH=arm64" -j${jobs} Image \
+  > $log ?
+```
+
+A comment runs to the end of its line, so only the last line of a continued
+command can carry one. Every other backslash outside a string is an error:
+
+- A `\` followed by anything but the line break, including a space or a
+  comment, or written directly after a word, is `lex.unexpected-character`.
+  A continuation never joins two halves of one word.
+- A `\` with nothing of the command after it (a blank line, a comment line,
+  `}`, or the end of the file), inside an expression (including a
+  parenthesized typed argument), or after anything that is not a command is
+  `parse.line-continuation`. Expressions continue only by the rules above.
+
+Inside a quoted word a backslash begins an escape (2.6), never a
+continuation; `"a\` at the end of a line is `lex.invalid-escape`.
 
 ### 2.6 Literals
 
@@ -224,7 +259,9 @@ let out = ./target/build
 
 **Globs.** `g"..."` expands against the current directory and produces
 `List[Path]`. Globbing is a filesystem effect and is not allowed in pure
-functions. Nothing else globs.
+functions. A glob literal and the methods `Path.glob` and `Path.rglob` (15)
+are the only things that glob; every other string, word, and path is taken
+literally.
 
 **Environment strings.** `e"NAME"` reads the environment variable `NAME` as
 `Result[Str]` (10.5), and `e"NAME" = value` sets it. The contents are one
@@ -241,6 +278,13 @@ exponent: `1.0`, `0.25`, `1.5e6`, `10e-3`.
 **Durations.** A decimal integer followed immediately by `ms`, `s`, `m`, or
 `h`: `250ms`, `30s`, `2h`.
 
+**Sizes.** A decimal integer followed immediately by `KiB`, `MiB`, `GiB`,
+`KB`, `MB`, or `GB` is an integer literal that counts bytes: `4KiB` is `4096`
+and `64MB` is `64000000`. Binary units are powers of 1024 and decimal units
+powers of 1000. Like a duration, a size has no fractional form (write
+`1536KiB`, not `1.5MiB`) and no space before its unit, and a unit that runs
+on into more letters is not one (`1KBps`). The literal has type `UInt` (4.2).
+
 ## 3. Programs And Modules
 
 ### 3.1 Scripts
@@ -255,7 +299,7 @@ of a script or module; inside a callable body or any block they are
 A script's exit status is chosen as follows:
 
 - A final top-level `Int` or `UInt` value in `0..=255` becomes the exit status.
-- `abort(status)` exits immediately with `status` (see 8.9).
+- `exit status` exits immediately with `status` (see 8.9).
 - A top-level `?` on `Err`, or any uncaught runtime failure, prints a traceback
   and exits `3`.
 - Otherwise the script exits `0`.
@@ -311,12 +355,29 @@ traceback.
 ### 3.3 Modules
 
 `use name` imports a module and binds exactly one namespace, `name`;
-`use name as alias` binds `alias`. Standard modules are always available
+`use name as alias` binds `alias`. A dotted `use a.b` binds its last segment,
+`b`, so `use a.b as b` repeats itself (`lint.redundant-use-alias`). Standard modules are always available
 without `use` and cannot be aliased; they are namespaces, not values, so a
 member must be called rather than used as a value (`check.module-member`).
 User modules resolve relative to the
 importing file, then through each directory in `XSH_MODULE_PATH` (separated by
-the platform's path-list separator). Dotted paths name subdirectories.
+the platform's path-list separator), then through each project module root.
+Dotted paths name subdirectories.
+
+The project module roots are the `module_path` entries of the nearest
+`xsht-config.ini`: the one in the entry script's directory, or else in the
+closest directory above it, up to the filesystem root. The search starts from
+the script's absolute location (a relative path joined onto the current
+directory, without resolving symbolic links), so it does not depend on where
+the command was started. Entries are relative to the config's directory, and
+a config without `module_path` names its own directory. Every module of a
+program resolves through the entry script's roots, including the imports of a
+module loaded with `module.load`. A program whose entry script has no config
+above it has no project roots; the current directory is never one. A config
+that cannot be read or decoded, or whose `module_path` is not text, is an
+error before anything runs. `xsh`, `xshi`, and every `xsht` command share this
+resolution, each file `xsht` is given being its own entry, so a `use` that
+checks is a `use` that loads.
 
 A module's top level may contain only `use`, `const`, `let`, `proc`, `pure`,
 `stream`, `type`, `enum`, and `error` declarations, optionally exported. It may
@@ -361,6 +422,7 @@ literal configuration data (`lint.prefer-const`).
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
+| `Union[A, B, ...]` | a value of one of the listed member types (4.12) |
 | `Result[T, E]` | `Ok(T)` or `Err(E)`; `Result[T]` is `Result[T, Error]` |
 | `Error`, error families | structured errors |
 | `Status`, `ProcessError`, `ProcessHandle`, `Command` | process values |
@@ -385,6 +447,23 @@ keys and values, arguments, defaults, returns, and stream items as they are
 produced. A negative value fails at that point with `type-error`, leaves the
 target unchanged, and runs ordinary cleanup; `try` does not turn it into data.
 Use `value.require(UInt)?` to validate untrusted integers recoverably.
+
+A size literal (2.6) is a `UInt` number of bytes, not a separate type: it
+displays, compares, and computes as the integer it stands for, so
+`f"{64MiB}"` is `67108864` and `limit / 1MiB` is an `Int`. A size literal
+whose byte count exceeds `9223372036854775807` is a check error
+(`check.size-literal`).
+
+```xsh
+const chunk = 64KiB
+const reserve = 256MiB
+
+pure fits(needed: UInt, free: UInt) -> Bool {
+  needed + reserve <= free
+}
+
+print f"{size / 1MiB} MiB in {size / chunk} chunks; fits in 8GiB: {fits(size, 8GiB)}"
+```
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
@@ -431,10 +510,64 @@ the explicit lossy conversion where a `Str` is required (a `Str` parameter or
 binding, JSON). Path
 construction never joins, normalizes, expands, globs, or checks the filesystem:
 separators and `..` stay exactly as written. `Path(text)` converts trusted
-text and `Path.parse_bytes(bytes)` converts bytes with a `Result`. A string
-literal is accepted where a `Path` is statically expected (a typed parameter,
-binding, or redirection target); a runtime `Str` always needs explicit
-conversion.
+text and `Path.parse_bytes(bytes)` converts bytes with a `Result`.
+
+A string literal takes the `Path` type wherever the expected type is `Path`,
+and is then the value `p"..."` with the same text is. That covers a typed
+binding, constant, parameter, default, return value, or record field; a
+`Path` parameter of a standard function or method; an operand of `==` or `!=`
+whose other operand is a `Path`; the left operand of `in` over a list or map
+of paths; a literal pattern matched against a `Path`; a key of a `Path`-keyed
+map; and a redirection target. An optional `Path` expects a `Path`.
+
+```xsh
+let fallback: Path = "/etc/xsh/config.ini"
+install("build/xsh")? # a user parameter
+let relative = config.strip_prefix("/etc")? # a standard method parameter
+let default_config = config == "/etc/xsh/config.ini"
+let repeated = "/etc/hosts" in seen
+let kind = match relative {
+  "hosts" | "resolv.conf" => "network",
+  else => "other",
+}
+```
+
+Only a literal converts, because only its bytes are the ones the author
+wrote: a `Str` value, an f-string, and a name bound to text always need
+`Path(text)` or `fp"..."`. A literal stays `Str` where no single type is
+expected: `Any`, an unannotated binding, and a standard function whose
+overloads disagree about the parameter (`hash.sha256` takes `Bytes` or a
+`Path`, so a file is `hash.sha256(p"image.bin")`). `"text" in path` stays
+display-text containment. `env.PATH` requires a spelled path for `append`,
+`prepend`, and `in`. A literal that contains NUL cannot be a `Path` and is
+rejected where one is expected.
+
+Questions about a path's spelling are `Path` methods, so they need no
+`.display()` and lose no bytes. `p.starts_with(prefix)` and
+`p.ends_with(suffix)` compare whole components, not bytes: the argument's
+components must be a leading or trailing run of the receiver's. `/usr/lib`
+starts with `/usr` and not with `/us`; `a/b.txt` ends with `b.txt` and not
+with `txt`; an absolute suffix matches only an equal path;
+`p.starts_with(p"/")` holds exactly for absolute paths. Both are lexical and never touch the
+filesystem. Components are read as `strip_prefix` reads them (repeated
+separators, a trailing separator, and a `.` after the first component do not
+count; `..` is compared as written), and `p.starts_with(q)` is true exactly
+when `p.strip_prefix(q)` succeeds. `p.components()` is that same reading as
+a `List[Path]`, one path per component with its native bytes: `/usr//lib/`
+gives `/`, `usr`, `lib`, and the empty path gives an empty list. `name()`,
+`ext()`, and `parent()` answer the remaining component questions.
+`p.bytes()` is the path's native `Bytes`, lossless where
+`bytes.from_text(p.display())` is not: `Path.parse_bytes(p.bytes())` is `p`. A text test on `.display()` is a different
+question, one about bytes: `p.display().starts_with("/us")` is true for
+`/usr/lib`, and `p.display().split("/")` yields text with an empty piece for
+the root and for each repeated separator.
+
+```xsh
+let library = relative.starts_with(p"lib") # lib/x.xsh, not libexec/x
+let static_library = relative.ends_with(p"out/libc.a") # whole trailing components
+let rooted = relative.starts_with(/) # an absolute path
+let depth = relative.components().len() # lib/x.xsh has two
+```
 
 ### 4.5 Lists, maps, and records
 
@@ -575,7 +708,7 @@ strings. Ordinary enums cannot be JSON-encoded.
 type BuildPlugin = module {
   export let name: Str
   export optional let description: Str
-  export proc build(root: Path) [fs, process, error] -> Result[Unit]
+  export proc build(root: Path) [fs, process, error] -> Result[Unit, Error]
   export pure label(name: Str) -> Str
 }
 
@@ -593,6 +726,54 @@ not contract members. Loading the same file again returns the same exports
 while the module and its imports are unchanged on disk, and reloads it once
 they change.
 
+A failed `.require(Contract)` on a module reports every violation in one
+error, not only the first. Its message names each missing required export
+with the signature the contract expects, and each mismatched export with the
+expected signature, the found signature, and what differs (the kind, the value
+type, the parameter count, one parameter, the effects, or the return type).
+The error implements `MissingExport` when a required export is absent and
+`MismatchedExport` when an export has another kind or signature; one failure
+implements both when both occur.
+
+```xsh
+match module.load(plugin_path)?.require(BuildPlugin) {
+  Ok(plugin) => plugin.build(root)?
+  Err(is MissingExport) => print "the plugin lacks a required export"
+  Err(is MismatchedExport) => print "a plugin export has another signature"
+  Err(error) => return Err(error)
+}
+```
+
+`exact module { ... }` declares a closed contract: the module's exports are
+no larger than the contract. `.require(Contract)` on an exact contract also
+rejects every export the contract does not list, naming each one with its
+signature, and the error then implements `UnexpectedExport`. `optional`
+entries may still be absent. Exactness is about the callable and value
+surface a module value carries; exported types, error families, and streams
+are not contract members and are not counted.
+
+```xsh
+type Service = exact module {
+  export let name: Str
+  export optional let description: Str
+  export proc start() [process, error] -> Result[Unit, Error]
+  export proc stop() [process, error] -> Result[Unit, Error]
+}
+match module.load(service_path)?.require(Service) {
+  Ok(service) => {
+    service.stop()?
+    service.start()?
+  }
+  Err(is UnexpectedExport) => print "the service exports more than its contract allows"
+  Err(error) => return Err(error)
+}
+```
+
+A statically imported module satisfies an exact contract only when it
+exports nothing else. A value typed by an open contract does not satisfy an
+exact one, because its type does not say what else the module exports; check
+it with `.require(Exact)`.
+
 ### 4.10 Errors
 
 `Error` is the common structured error. Programs declare nominal error
@@ -601,19 +782,73 @@ families whose variants carry fixed payloads and may implement facets:
 ```xsh
 error ConfigError = Missing(file: Path) : NotFound | Invalid(file: Path, message: Str)
 
+error FetchError {
+    Usage
+    Offline : Timeout
+    Rejected(url: Str, status: Int)
+}
+
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
   return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
 }
+
+pure parse_url(url: Str) -> Result[Str, FetchError] {
+  return Err(FetchError.Usage(f"not a URL: {url}")) unless url.starts_with("https://")
+  Ok(url)
+}
 ```
+
+A family is written on one line with `=` and `|`, or in braces with one
+variant per line and no separator. The two forms declare the same family, and
+in both a variant's facets follow it after `:`. `xsht fmt` keeps the `=` form
+while the declaration fits the line width and writes the brace form once it
+does not; a family written in braces stays in braces.
 
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
+A constructor takes payload fields by name (with puns) or positionally:
+positional arguments fill the leading fields in the order the variant
+declares them, the order record constructors use (4.7). Arguments evaluate
+once in source order, and the error is the same value whether a field was
+passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
 diagnostics only.
+
+A variant declared without a payload carries only its message, as the one
+field `message: Str`. Its constructor takes the message as a single optional
+positional argument and takes no named argument (`check.error-constructor`):
+
+```xsh
+print FetchError.Usage("not a URL").message
+print FetchError.Usage().message
+print describe(FetchError.Usage("not a URL"))
+print describe(FetchError.Offline("no route"))
+print FetchError.Rejected("https://example.test", 503).message
+```
+
+```text
+not a URL
+FetchError.Usage
+usage: not a URL
+offline
+FetchError.Rejected
+```
+
+Constructed without the argument, the message is the family and variant name,
+`FetchError.Usage`. The pattern `FetchError.Usage` matches every `Usage` error
+whatever its message, and `FetchError.Usage {message}` binds it. A variant with
+a declared payload is unchanged: its `.message` is its `message: Str` field
+when it declares one and its family and variant name otherwise, and its
+constructor takes exactly the declared fields.
+
+```xsh
+let named = FetchError.Usage(message: "not a URL")  # error: check.error-constructor
+let extra = FetchError.Usage("not a URL", "again")  # error: check.arity
+```
 
 `error.fail(message)` builds a `Result[Unit, Error]` validation failure; it is
 the shortest way to report an expected failure from a fallible function.
@@ -635,12 +870,15 @@ implement only the facets below (`xsht api language:facet`);
 | `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`. |
 | `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, host OS errors of every kind without a more specific facet. |
 | `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, host OS errors of kind `InvalidData`. |
+| `MismatchedExport` | A module export has another kind or signature than its contract declares. | Implemented by a failed `.require(Contract)` on a module whose export differs from the contract. |
+| `MissingExport` | A module lacks an export its contract requires. | Implemented by a failed `.require(Contract)` on a module without a required export. |
 | `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
 | `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, host OS errors of kind `NotFound`. |
 | `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, host OS errors of kind `PermissionDenied`. |
 | `ProcessFailure` | A process could not be spawned, executed, or completed. | Implemented by `ProcessError.UnexpectedExit`, `ProcessError.PipelineFailure`, `ProcessError.ExecFailure`, `ProcessError.Spawn`. |
 | `Signal` | A process was terminated by a signal. | Implemented by `ProcessError.Signal`. |
 | `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, host OS errors of kind `TimedOut`. |
+| `UnexpectedExport` | A module has an export its exact contract does not list. | Implemented by a failed `.require(Contract)` on a module with an export outside an `exact module` contract. |
 
 ```xsh
 match process.run(command) {
@@ -675,6 +913,120 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
 Handles are values that alias one live host resource; see 11.8 for ownership.
 
+### 4.12 Union types
+
+`Union[A, B, ...]` is the type of a value that is one of the listed member
+types, for a boundary whose values are a small closed set of types rather
+than `Any`. It is a type, not a runtime wrapper: a `Union[Str, Path]` that
+holds a `Path` is that `Path` value.
+
+```xsh
+type Word = Union[Str, Path]
+
+type Task = {tool: Str, args: List[Word]}
+
+pure describe(word: Word) -> Str {
+  match word {
+    text is Str => f"text {text}"
+    file is Path => f"file {file.name()}"
+  }
+}
+
+proc build(root: Path) [process, error] {
+  let task = Task(tool: "make", args: ["-C", root, "all"])
+  run $task.tool @(task.args) ?
+
+  for word in task.args {
+    if word is Path {
+      print f"in {word}"
+      continue
+    }
+
+    print f"word {word}"
+  }
+}
+```
+
+A union is kept exactly as written. The checker never flattens, reorders,
+deduplicates, or widens one, so each shape that would need such a rewrite is
+`check.union-type` instead:
+
+- fewer than two members;
+- a member that fits another member, which covers a repeated member, `Int`
+  with `UInt`, an error family with `Error`, and a record with a schema it
+  satisfies;
+- `Any` (it already accepts every value), `Null` or `T?` (write
+  `Union[A, B]?`), another union, including one reached through an alias (list
+  its members), or a `Stream` (a type test cannot inspect a stream's items).
+
+```xsh
+type Word = Union[Str, Path]
+
+type Count = Union[Int, UInt] # error: check.union-type
+type Loose = Union[Str, Any] # error: check.union-type
+type Maybe = Union[Str, Int?] # error: check.union-type
+type Nested = Union[Word, Int] # error: check.union-type
+
+let count: Union[Int, Float] = 1
+print ${count == 1}
+```
+
+A value fits a union only when it fits a member (5.2). A union gives its value
+no expected type: the value is typed on its own and then must fit a member, so
+a string literal in a `Union[Str, Path]` slot is a `Str`. Inference never
+produces a union; branches of different types stay the error they are without
+an annotation, and an annotated union accepts them.
+
+Without narrowing, a union value may only:
+
+- flow where that union, a union listing a fitting member for each of its
+  members, `Any`, or the optional form of one of those is expected;
+- be compared with `==` or `!=` against a value that fits the union, and
+  tested with `in`/`not in` against a `List` of it;
+- be a command word or an `@` splice element when every member is an argv
+  type (11.4), which converts the member the value is;
+- be validated by `.require(T)`, tested with `is`, or matched by type
+  patterns.
+
+Every operation that reads the value as one type is `check.union-narrow`: a
+method call, a field, an index or slice, iteration, an ordering comparison,
+interpolation, and a command word when some member is not an argv type. A
+union where a single member is expected (an arithmetic operand, a typed
+binding, parameter, or return) is `check.type-mismatch`. Narrow first (5.4):
+
+```xsh
+type Word = Union[Str, Path]
+
+pure label(word: Word, words: List[Str]) -> Str {
+  let argv: List[Word] = words # error: check.type-mismatch
+  let text: Str = word # error: check.type-mismatch
+  let shown = f"{word}" # error: check.union-narrow
+  let name = word.name() # error: check.union-narrow
+  if word is Int { # error: check.pattern-type
+    return "never"
+  }
+
+  match word { # error: check.match-value-exhaustive
+    file is Path => file.name()
+  }
+}
+
+print ${label("a", [])}
+```
+
+At run time a value belongs to the first member, in the order written, that
+accepts it. `value is Union[A, B]` on an `Any`, `.require(Union[A, B])`, and a
+union slot inside a schema given to `.require` all ask members in that order.
+The order matters only where a member converts: a Str-backed enum listed
+after `Str` never converts a string, because `Str` accepts it first. The
+checker uses the same order to say which member a statically typed value
+fits.
+
+`xsht lint` reports a `List[Any]` binding whose every write is a list literal
+of a few concrete scalar or collection types and names its union
+(`lint.list-any-union`). It offers no fix: the union changes the binding's
+type, so uses that expect `List[Any]` have to change with it.
+
 ## 5. Typing
 
 ### 5.1 Inference and annotations
@@ -700,6 +1052,12 @@ is expected. Incompatible contributions are errors; inference never widens to
 - `List`, `Map`, and `Stream` are invariant in their parameters: `List[Str]` is
   not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`.
 - `null` and `T` both fit `T?`.
+- A value fits `Union[A, B, ...]` when it fits a member. A union fits another
+  union when each of its members fits one of the other's, whatever the order.
+  A union never fits one of its own members; narrow it first (5.4).
+  Invariance is unchanged: `List[Str]` is not `List[Union[Str, Path]]`. A list
+  literal or comprehension written where the union list is expected has that
+  element type.
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
@@ -780,7 +1138,13 @@ Narrowing is local and lexical. A fact holds inside the branch, guarded
 continuation, loop body, or match arm where a condition proved it.
 
 - `x != null` (or `x == null` on the false side) narrows `T?` to `T`.
+- An optional binding (8.6), `guard let y = x else { ... }`, `if let y = x`,
+  or `while let y = x` over `x: T?`, binds `y` as `T` and narrows `x` the same
+  way.
 - `x is Pattern` narrows a stable binding to the pattern's type.
+- `x is T` on a `Union` narrows to `T` where the test passes and to the
+  remaining members where it fails: the one member left, or the smaller union.
+  `x is (T | U)` narrows to those members.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
@@ -821,7 +1185,7 @@ const linked: Kind? = .Symlink
 
 Where the expected type of an expression is known, a leading-dot name selects
 a variant of that type: `.Symlink` is a payload-free variant and
-`.Failed(kind, message)` constructs a payload variant with the arguments the
+`.Missing(file:)` constructs a payload variant with the arguments the
 qualified constructor takes. The expected type comes from an annotated binding
 or constant, a parameter, a declared return type (through `return`, a tail,
 and `Ok` or `Err`), a field of a known record schema or constructor, an element
@@ -834,7 +1198,7 @@ from its family. The checker never chooses among candidates: `.Name` with no
 expected type (an unannotated `let`, an inferred return type), with `Error` or
 a facet (which name no single family, as in `Result[T]`), with a type that has
 no such variant, or with an enum whose variants are not visible in the module
-is `check.inferred-variant`. Patterns keep the qualified spellings.
+is `check.inferred-variant`.
 
 `.` is the current item inside a stream stage block (13.1) and an implicit
 one-item callback (6.9), so there `.name` reads the item's field and a variant
@@ -849,7 +1213,75 @@ proc check(present: Bool) -> Result[Unit] {
   return Err(.Failed("missing")) when ! present  # error: check.inferred-variant
 }
 
+match check(false) {
+  Err(.Failed {message}) => print $message  # error: check.inferred-variant
+  Err(ProofError.Failed {message}) => print $message
+  _ => print "present"
+}
+
 let tools = [{name: "xsh", kind: Binary}] |> where .kind == .Binary  # error: check.unknown-field
+```
+
+A pattern selects a variant the same way, from the type of the value it
+matches: `.Name`, `.Name(p, ...)` for an enum payload, and `.Name {field, ..}`
+for an error variant's fields are exactly the qualified patterns.
+
+```xsh
+enum Kind { File, Binary, Tree(Int) }
+
+error ProofError {
+    Usage
+    Missing(file: Path)
+}
+
+pure classify(file: Path) -> Result[Kind, ProofError] {
+  return Err(.Usage("no file named")) when file == p""
+  return Err(.Missing(file:)) when file == p"gone"
+  return Ok(.Tree(2)) when file == p"usr"
+  Ok(.Binary)
+}
+
+pure describe(file: Path) -> Str {
+  match classify(file) {
+    Ok(.Tree(depth)) => f"a tree {depth} deep"
+    Ok(.File | .Binary) => "a leaf"
+    Err(.Usage {message}) => f"usage: {message}"
+    Err(.Missing {file: missing}) => f"{missing} is missing"
+    else => "unknown"
+  }
+}
+
+let kind = classify(p"usr/bin/xsh") ?? .File
+print describe(p"usr")
+print describe(p"gone")
+print describe(p"")
+print (kind is .Binary)
+```
+
+```text
+a tree 2 deep
+gone is missing
+usage: no file named
+true
+```
+
+A `.Name` pattern is written only where it cannot begin a line: inside a
+constructor, list, or record pattern (`Err(.Usage {message})`), after `is` or
+`if let`, and as a later alternative (`kinds.File | .Binary`). The head of a
+`match` arm keeps its qualified spelling, because a line beginning with
+`.name` continues the line before it (2.5); an arm that begins with `.Name` is
+`parse.inferred-variant-arm`. The matched value's type must name one enum or
+error family: a `Result[T]` error is the broad `Error`, so `Err(.Name)` there is
+`check.inferred-variant` and the pattern stays qualified. A union (4.12) gives
+no member priority either: test the member first (`value is Family`), and the
+narrowed value selects the variant.
+
+```xsh
+let kind: Kind = .Binary
+let label = match kind {
+  File => "file"
+  .Binary => "binary"  # error: parse.inferred-variant-arm
+}
 ```
 
 ## 6. Expressions
@@ -1036,7 +1468,10 @@ layers separately, as in `(text?.parse_int() ?? Ok(0))?`.
 needs an `else`; a value `match` must be exhaustive without relying on guards.
 Branches may contain statements followed by a tail value, and all reachable
 branch values must have one type. A branch that returns, breaks, or fails
-contributes no value.
+contributes no value. An `if` statement none of whose branches ends in a value
+(each ends in a control transfer, a binding, or nothing) is a statement even
+as the last statement of a block: it needs no `else` and gives the block no
+value, so `if done { return x }` may end a block.
 
 ```xsh
 let mode = if release { "release" } else { "debug" }
@@ -1048,6 +1483,40 @@ let label = match level {
 ```
 
 A `match` with no matching arm fails with `match-no-arm`.
+
+The last arm of a `match` statement or expression may be `else => ...`, the
+catch-all: it runs for any subject no earlier arm selected, and binds nothing.
+
+```xsh
+if let Fault(reason) = level {
+  print f"fault: {reason}"
+} else {
+  print "fine"
+}
+
+let urgent = level is Fault(_)
+```
+
+`else` is an arm head, not a pattern. It takes no guard, because a guarded
+catch-all does not catch everything: there is no `else if cond =>`, and the
+guarded form stays `_ if cond =>`. It is the last arm, because an arm after it
+could never run. Both mistakes are `parse.match-else-arm`:
+
+```xsh
+match level {
+  Info => print "info"
+  else if quiet => print "quiet"  # error: parse.match-else-arm
+}
+
+match level {
+  else => print "other"
+  Info => print "info"  # error: parse.match-else-arm
+}
+```
+
+Inside a pattern the wildcard is still `_` (6.10): `Fault(_) =>`, `[_, ..] =>`.
+An arm whose whole unguarded pattern is `_` means exactly what `else` means;
+`lint.prefer-match-else` rewrites it, so the catch-all has one spelling.
 
 ### 6.9 Blocks
 
@@ -1090,11 +1559,12 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 
 | Pattern | Matches |
 |---|---|
-| `_` | anything |
+| `_` | anything; as a whole `match` arm it is written `else` (6.8) |
 | `name` | anything, binding it (or a payload-free variant of that name); a capitalized name that is no known variant is an error (`check.pattern-capitalized-binding`) rather than a binding |
 | literal | an equal value |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |
 | `Family.Variant { field, .. }` | an error variant, binding payload fields |
+| `.Variant`, `.Variant(p, ...)`, `.Variant { field, .. }` | the variant of the matched value's enum or error family (5.5); not at the head of a `match` arm |
 | `is Facet` | any error implementing a facet |
 | `{field: p, other, ..}` | records with those fields |
 | `[a, b]`, `[head, ..tail]`, `[..]` | lists of exact length, or a prefix with a rest |
@@ -1108,14 +1578,19 @@ names with the same types; `as` binds tighter than `|`. A guard `if cond` runs
 after the pattern matches, and a false guard moves to the next arm. Guarded
 arms never count toward exhaustiveness. List patterns check the length before
 touching elements and apply only to `List` values. Type patterns apply only to
-`Any` and erased `Record`; for a known shape use `.require(T)?`.
+`Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. On a
+union the tested type must be one of its members (`check.pattern-type`), and
+unguarded type patterns that cover every member make the `match` exhaustive.
+A statement `match` that misses a member warns
+(`check.non-exhaustive-match`); a value `match` names the missing members in
+its `check.match-value-exhaustive` error.
 
 ```xsh
 match json.decode(input)? {
   i is Int => print i.float()
   f is Float => print ${f}
   _ is Null => print "null"
-  _ => print "other"
+  else => print "other"
 }
 ```
 
@@ -1225,14 +1700,23 @@ guard (5.4).
 | a proc returning a non-`Result` type | the call itself fails; the failure keeps unwinding through callers until a `try`, `retry`, or the top level captures it |
 | top level | the script prints a traceback and exits `3` |
 
-A pure function whose return type is not a `Result` cannot use `?`
-(`check.try-context`). Error handler blocks, `if`, `match`, loops, and bare
+A pure function whose return type is not a `Result` cannot use `?`, and a
+statement-position `Result[Unit]` cannot propagate there either
+(`check.try-context`): outside a `try` or `retry`, neither has anywhere to go
+but the function's `Result`. Error handler blocks, `if`, `match`, loops, and bare
 blocks are not boundaries. In a restricted proc, `?` that can leave the proc
 requires the `error` effect.
 
 `expr ?` with a space is the same operator in expression context. In a command
 argument, a separated `?` belongs to the whole command or run form: write
 `expr?` or `(expr?)` to propagate inside one argument.
+
+A statement-position `Result[Unit]` propagates without `?` (8.1), so
+`fs.mkdir(tmp)?` as a statement says it twice. The statement form has no `?`:
+`lint.redundant-propagation` removes it from a call, and
+`lint.redundant-scope-propagation` from a `cd`, `env`, `try`, or `retry` block.
+Both leave a `?` whose operand would otherwise be the value of its body, such
+as the tail of a `try` block that is bound.
 
 ### 8.4 Fallback with `??`
 
@@ -1284,7 +1768,32 @@ change the iteration. A pipeline as the source is consumed item by item (see
 expression with that value. `break` and `continue` target the nearest loop and
 are not allowed inside stream stage blocks.
 
-`return`, `break`, `continue`, and `yield` accept a postfix guard:
+`repeat count times { ... }` runs its block once per item of `range(count)`.
+It is sugar, defined by its expansion:
+
+```xsh
+repeat attempts times {
+  print "poll"
+}
+```
+
+means exactly
+
+```xsh
+for _ in range(attempts) {
+  print "poll"
+}
+```
+
+So the count is an `Int` evaluated once before the first iteration, `break`
+and `continue` target the `repeat`, a count of zero runs the block no times,
+and a negative count runs it `-count` times because `range` then counts down
+from zero. Diagnostics about the count are those of the `range` argument. A
+statement is a `repeat` statement when it begins with the word `repeat` and,
+on the same line, its count is followed by the word `times` directly before
+`{`; neither word is reserved.
+
+`return`, `break`, `continue`, `yield`, and `exit` accept a postfix guard:
 
 ```xsh
 return cached when cached != null
@@ -1292,25 +1801,121 @@ continue unless entry.kind == "file"
 yield row when row.size > 0
 ```
 
-The condition runs first and the payload runs only if selected. A guarded
-statement can fall through, so it does not end a block, but when its payload
-leaves the block the following statements may rely on the opposite of the
-condition. Group a run payload: `return (run.status make) when ready`; without
-parentheses `when ready` would become argv words.
+Both are sugar, defined by their expansions. `statement when cond`:
+
+```xsh
+return cached when cached != null
+```
+
+means exactly
+
+```xsh
+if cached != null { return cached }
+```
+
+and `statement unless cond`:
+
+```xsh
+continue unless entry.kind == "file"
+```
+
+means exactly
+
+```xsh
+if entry.kind == "file" {} else {
+  continue
+}
+```
+
+So the condition runs first and the payload runs only if selected, the
+condition is a `Bool` or a `Status` and is never negated, and its diagnostics
+are those of an `if` condition (`check.if-condition`). A guarded statement can
+fall through, so it does not end a block, but when its payload leaves the
+block the following statements may rely on the opposite of the condition, as
+after the `if`. Group a run payload: `return (run.status make) when ready`;
+without parentheses `when ready` would become argv words.
 
 `guard cond else { ... }` continues when `cond` holds and otherwise runs the
-block, which must leave the enclosing continuation on every path (by `return`,
-`break`, `continue`, or a terminating call such as `abort`). A fallible call is
-not termination. The block takes no parameter and creates no boundary.
+block. It is sugar too:
 
-`guard let target = expr else { |failure| ... }` binds the `Ok` payload of a
-`Result` (with an optional type annotation) and otherwise runs the block with
-the error. Inside a loop the block may `break` or `continue`.
+```xsh
+guard name != null else {
+  return "anonymous"
+}
+```
+
+means exactly
+
+```xsh
+if name != null {} else {
+  return "anonymous"
+}
+```
+
+with one rule the `if` does not have: the block must leave the enclosing
+continuation on every path (by `return`, `break`, `continue`, `exit`, or a
+terminating call such as `abort`), or the checker reports `check.guard-fallthrough`. A
+fallible call is not termination. The block takes no parameter and creates no
+boundary.
+
+`guard let target = expr else { ... }` binds `target` (with an optional type
+annotation) when `expr` succeeds and otherwise runs the block. `expr`
+evaluates once, and its type selects the form:
+
+- `Result[T, E]`: `Ok` binds its payload as `T`. `Err` runs the block, which
+  may name the error: `else { |failure| ... }`.
+- `T?`: any value but `null` is bound as `T`. `null` runs the block. A null
+  value carries no error, so the block takes no parameter
+  (`check.block-params`), and like the block of `guard cond` it must leave the
+  enclosing continuation (`check.guard-fallthrough`).
+
+```xsh
+pure executor_name(context: Context) -> Str {
+  guard let executor = context.executor else {
+    return "none"
+  }
+
+  executor.name
+}
+
+pure attempts(context: Context) -> Int {
+  if let retries = context.retries { retries + 1 } else { 1 }
+}
+```
+
+Any other type is `check.guard-binding`. The outermost type decides: a
+`Result[T?]` is a Result binding whose target is still `T?`, so `Ok(null)`
+binds `null` and only `Err` runs the block; a `Result[T]?` is an optional
+binding, where only `null` runs the block and the target is the `Result[T]`.
+Inside a loop the block may `break` or `continue`. `guard let` is a core
+form, not sugar: its binding belongs to the enclosing block, and no other
+statement binds a name there from inside a branch.
+
+```xsh
+pure label(name: Str?) -> Str {
+  guard let found = name else { |failure|  # error: check.block-params
+    return "none"
+  }
+
+  found
+}
+```
 
 `if let pattern = subject` and `while let pattern = subject` test a pattern.
-They do not unwrap `Result` or optional values implicitly: write
-`if let Ok(value) = result`. Captures are immutable and visible only in the
-selected branch or iteration. Irrefutable patterns are rejected.
+They do not unwrap a `Result` implicitly: write `if let Ok(value) = result`.
+Captures are immutable and visible only in the selected branch or iteration.
+A pattern that cannot fail is rejected
+(`check.irrefutable-pattern-condition`), except over an optional subject,
+where it is an optional binding: `if let name = subject` with `subject: T?`
+takes the `else` branch (and `while let` ends the loop) on `null`, and
+otherwise matches the pattern against the value as a `T`. A pattern that can
+fail on its own is matched against an optional subject as it is, with no
+unwrapping.
+
+An optional binding also narrows its subject (5.4): after
+`guard let name = subject else { ... }`, and inside the branch or body selected
+by `if let name = subject` or `while let name = subject`, a `subject` that is
+a binding or a known field path has type `T`, as after `subject != null`.
 
 `with` binds several fallible values with one error handler:
 
@@ -1347,6 +1952,88 @@ locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
 the block's defers run (11.8). `abort(status, force: true)` skips cleanup.
 
+`errdefer action` or `errdefer { ... }` registers cleanup that runs only when
+control leaves the enclosing block with an error:
+
+```xsh
+proc publish(output: Path) {
+  let partial = fp"{output}.partial"
+  errdefer fs.remove(partial, missing_ok: true)
+  render(partial)?
+  fs.rename(partial, output)
+}
+```
+
+It is registered, ordered, and checked exactly like `defer`: `defer` and
+`errdefer` actions of one block share one last-in, first-out order, and an
+`errdefer` action that is not due is skipped in its place. A block leaves with
+an error when
+
+- a failure propagates out of it: `?` on an `Err`, a failed
+  statement-position `Result[Unit]`, a failed plain `run`, a failed `assert`,
+  or a runtime failure, whether the failure then leaves the function or stops
+  at an enclosing `try` or `retry`;
+- the function returns an `Err` through it, by `return` or as the function's
+  tail value;
+- `abort` without `force`, or cancellation, unwinds through it; or
+- one of its own deferred actions, registered later, fails.
+
+It leaves without an error on normal completion, on `break` and `continue`,
+and when the function returns any other value. An `Err` that is the tail of a
+value block is that block's value, not a failure. A block inside `try` that the captured failure passes through leaves with an
+error; the block that contains the `try` does not. Each `retry` attempt is a
+block, so a failed attempt runs its `errdefer` actions before the next
+attempt. A stream producer that its consumer stops early leaves without an
+error. A failing `errdefer` action is a cleanup failure like any other: the
+failure that triggered it stays primary, the other actions still run, and the
+cleanup failure is reported with its location. At the top level, the scope is
+the script, and it leaves with an error when the script fails or aborts.
+
+`tempdir name at path { ... }` runs its block with a scratch directory at a
+path the program chooses. It is sugar, defined by its expansion:
+
+```xsh
+tempdir scratch at fp"{root}/stage" {
+  fp"{scratch}/stamp".write("staged\n")?
+  fp"{scratch}/stamp".read_text()?
+}
+```
+
+means exactly
+
+```xsh
+{
+  let scratch: Path = fp"{root}/stage"
+  fs.remove(scratch, missing_ok: true)
+  fs.mkdir(scratch)
+  defer fs.remove(scratch, missing_ok: true)
+  {
+    fp"{scratch}/stamp".write("staged\n")?
+    fp"{scratch}/stamp".read_text()?
+  }
+}
+```
+
+So the path is a `Path` evaluated once and bound to the immutable `name`,
+which is in scope for the body only. Both removals are `fs.remove` with
+`missing_ok: true`: whatever is at the path, a file, a symlink (itself, never
+its target), or a directory with everything below it, is removed, and nothing
+being there is not an error. A failure to remove what is there or to create
+the directory propagates before the body runs. The deferred removal runs
+however control leaves the statement, after the body's own defers, and follows
+the `defer` rules above: when it fails, the body's failure stays primary, and
+if the body succeeded the removal's failure is the statement's failure. The
+statement needs the `fs` effect, and the `error` effect where a failure can
+leave a restricted proc. The body is a block (6.9): as the tail of a body that
+produces a value it produces its own tail, computed before the directory is
+removed. The expansion names the standard `fs` module, so the statement is
+rejected where a local binding named `fs` hides it. A statement is a `tempdir`
+statement when it begins with the word `tempdir`, a name, and the word `at`
+on one line; neither word is reserved, and the path is a head expression like
+the source of a `for`.
+`fs.tempdir()` (15) is the other scratch directory: a private one at a path
+the runtime chooses, owned through its handle.
+
 ### 8.8 `try`, `retry`, and `ctx`
 
 `try { ... }` evaluates a block once and captures its failures as data:
@@ -1364,7 +2051,7 @@ Normal completion yields `Ok(tail)`; an empty body yields `Ok(Unit)`. A
 failed assertions, and failed plain `run` statements inside the block become
 `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime
-type failures, `abort`, and cancellation are not captured. The tail value is
+type failures, `exit`, and cancellation are not captured. The tail value is
 computed before the block's defers run; a cleanup failure becomes the `Err`
 when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
@@ -1408,11 +2095,36 @@ and `ctx` remains an ordinary identifier outside this form. Use `ctx` to add
 context to the same failure, and `Err(new, cause: old)` to translate into a
 different one.
 
-### 8.9 `abort`
+### 8.9 `exit`
 
-`abort(status: Int, force: Bool = false)` ends the script with `status` as a
-deliberate exit. It is not an error: no traceback is printed and `try` does not
-capture it. Deferred cleanup runs while unwinding unless `force` is true.
+`exit status` ends the script with `status` as a deliberate exit. It is not an
+error: no traceback is printed and `try` does not capture it. Deferred cleanup
+runs while unwinding, and the status is an `Int` expression from 0 to 255
+(12.3), evaluated once.
+
+```xsh
+if uid != 0 {
+  eprint "must run as root"
+  exit 77
+}
+```
+
+`exit` never completes, so a block that ends with it leaves its continuation:
+`guard ready else { exit 1 }` satisfies the guard, and the other branch of
+`if ok { value } else { exit 1 }` decides the value. It accepts a postfix
+guard (8.6): `exit 1 unless ready`.
+
+`exit` is not a reserved word. A statement is an `exit` statement when it
+begins with the word `exit` followed, on the same line, by its status, in the
+position where a command named `exit` would otherwise be read (10.1);
+`exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
+call of a binding named `exit`.
+
+`abort(status: Int, force: Bool = false)` is the older built-in call.
+`abort(status)` means `exit status`, and `lint.prefer-exit` rewrites it.
+`abort(status, force: true)` exits without unwinding: no deferred action
+runs, including the ones still pending when it is called from a deferred
+action or a signal hook, and scoped processes are not cleaned up.
 
 ## 9. Functions
 
@@ -1484,6 +2196,13 @@ A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
 
+An annotation on a private function is never required where inference
+succeeds. The opt-in `lint.prefer-inferred-proc-return` removes a private
+proc's annotation only when the file checks clean without it and no checked
+type in the file changes; `lint.redundant-result-unit` removes a broad
+`Result[Unit]` that a statement body already means, and leaves
+`Result[Unit, Family]` alone.
+
 ### 9.4 Callable aliases
 
 An unannotated `let` that names a checked function or a module export keeps
@@ -1554,6 +2273,52 @@ that must never reach the network. `lint.prefer-inferred-private-effects`
 reports a clause on a private proc or stream that names exactly its inferred
 effects.
 
+`without EFFECT, ... { BODY }` narrows the bound for one lexical region. It is
+a lexical block (same scope, same cleanup, same value rules), and the checker
+holds everything in it, including nested blocks and callbacks written there,
+to the enclosing bound minus the listed effects:
+
+```xsh
+proc build(index: Str, staged: Path) [fs, net, process, error] {
+  fetch_sources(index, staged)?
+
+  # Everything after the fetch is offline, and the checker holds it to that.
+  without net {
+    build_from_staged_sources(staged)?
+  }
+}
+```
+
+The listed effects are `fs`, `net`, `process`, `env`, `time`, and `io`;
+`error` is not a host effect and is bounded with `try` instead
+(`check.without-effect`). Inside the region, an operation or callee that
+requires a listed effect is a `check.effect-violation`, reported like a
+clause violation and pointing at the `without` head as well. A callee that
+requires `io` is excluded by `without fs`, `net`, `process`, or `env`, because
+`io` implies each of them; `without io` excludes only `io` itself. A callee
+with an unknown or unrestricted contract cannot be called in the region, even
+from code that is otherwise unrestricted. Nested regions add up. The bound
+does not change the effects inferred for, or declared by, the enclosing proc.
+
+```xsh
+proc fetch(url: Str) [net, error] -> Result[Int] {
+  net.request({method: "GET", url: url})?.status
+}
+
+proc refresh(url: Str, cache: Path) [fs, net, error] {
+  without net {
+    let status = fetch(url)? # error: check.effect-violation
+    cache.write(f"{status}")?
+  }
+}
+```
+
+This is a claim the checker proves about XSH code. It does not sandbox a
+spawned process or say what an external program does: `without net` still
+allows `run curl ...` where `process` is permitted. `without` is a word only
+at the start of such a statement, written on one line up to `{`; elsewhere it
+is an ordinary name.
+
 ## 10. Commands And Scopes
 
 ### 10.1 Command statements
@@ -1596,6 +2361,10 @@ Each command argument is one of:
 A name or field path passes its value as `$name` or `$record.field`; plain
 `record.field` is a word. `(name)` and `(record.field)` mean the same as the
 `$` forms, and `xsht lint` reports them as redundant (`lint.command-value`).
+
+A long argument list continues on the next line after a trailing `\` (2.5):
+the line break separates two arguments exactly as a space does, and the
+arguments are the same list either way.
 
 A standalone interpolation that evaluates to a `List` splices its elements,
 as `@` does. Interpolation inside a larger word uses display conversion and
@@ -1728,7 +2497,8 @@ env LC_ALL=C {
 - Reads and assignments need the `env` effect and are rejected in `pure`
   functions.
 - `env.PATH` is a scoped mutable view with `prepend(path)`, `append(path)`,
-  `pop()`, and `in`/`not in`. Its operands must be `Path` values.
+  `pop()`, and `in`/`not in`. Its operands must be `Path` values. Its methods
+  assign the environment, so they need the `env` effect like any assignment.
 
 ## 11. Processes
 
@@ -1757,6 +2527,31 @@ The target is resolved as follows: a bare word with no `/` is looked up in
 `PATH`; a target containing `/` is a relative or absolute path; a `Path` value
 uses its native bytes; a `Str` value is UTF-8 and may not contain NUL. Failure
 to find, access, or execute the target is a distinct `ProcessError` variant.
+
+A spliced target, `run @argv` or `run @(expr)`, is a whole command vector: its
+first element is the target, resolved by the rules above exactly as a target
+written in its place; the remaining elements lead the arguments, ahead of any
+written after the splice. Every run form accepts it, as do the segments of a byte
+pipeline, `spawn run`, and the `run` entry of `process.command`.
+
+```xsh
+let compile = ["cc", "-O2", "-c", "main.c"]
+run @compile @extra ?
+
+let status = run.status @compile -fsyntax-only
+let version = run.text @(["cc", "--version"]) ?
+let job = spawn run @compile ?
+let plan = process.command {
+  cwd = p"build"
+  run @compile
+}
+```
+
+An empty vector names no program. The run form fails with
+`ProcessError.InvalidTarget` before anything starts, in value position too,
+and an empty list literal in target position is a check error
+(`check.run-target`). A standalone interpolation in target position
+(`run $program`) is still exactly one argv item.
 
 A grouped body may span lines when `(` is followed by a newline:
 
@@ -1828,6 +2623,7 @@ Every argv item is a byte string without NUL. Conversions:
 | `Int`, `UInt` | decimal |
 | `Bool` | `true` / `false` |
 | `List[T]` | only via `@` or a standalone interpolation, one item per element |
+| `Union[...]` of the scalar types above | as the member the value is |
 
 `Null`, `Bytes`, records, maps, `Result`, `Status`, errors, handles, callables,
 and `Unit` are rejected at check time where the type is known and at runtime
@@ -1835,6 +2631,13 @@ otherwise. Convert explicitly (`.utf8()?`, `.pid`); a `Path` needs no
 `.display()`, which would only replace its non-UTF-8 bytes. There is no
 word splitting at any point: `run rm $file` passes exactly one argument
 whatever `file` contains.
+
+Every place that hands bytes to the operating system converts this way, so a
+`Path` goes there as itself: an item of `process.command_argv`'s `argv` and
+its `target`, a value of an `env` scope overlay, and a value of the `env` of a
+command plan (`process.command`, `process.command_argv`) or of a native test
+run (`test.run_script`, `test.run_xsh`, `test.run_xsht_trace`). `.display()`
+before such a sink only replaces the bytes that are not UTF-8.
 
 ### 11.5 Capture
 
@@ -1949,7 +2752,9 @@ block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `accept`, `detach`, `new_session`, `ignore_hup`, and exactly one `run` or
 `run.status` entry. Missing or multiple run entries are rejected with
 `check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
-`argv` includes `argv[0]`. `process.run(plan)` returns `Ok(Status)` for any
+`argv` includes `argv[0]`. When the executable is `argv[0]`, the vector alone is
+the command (`run @argv`, 11.1); `command_argv` is for an executable that
+intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
 Pipelines, captures, propagation, and redirection syntax are not plan inputs;
 use the builder fields for redirections.
@@ -1978,7 +2783,7 @@ An entry script may declare one hook per signal at its top level:
 ```xsh
 on SIGINT --pre-cancel=150ms [fs, process, error] {
   p"/tmp/build.interrupted".write("interrupted\n")?
-  abort(130)
+  exit 130
 }
 ```
 
@@ -2002,7 +2807,7 @@ on SIGINT --pre-cancel=150ms [fs, process, error] {
   the hook itself starts is not sent the primary signal, so a hook can run
   orderly handoff commands, but it is killed on escalation.
 
-Hook exit status: `abort(status)` in the hook commits `status`, still
+Hook exit status: `exit status` in the hook commits `status`, still
 cancelling owned children (`force: true` also skips defers). A hook that
 finishes normally exits `3` for `INT` and `TERM` and `128 + signal` for other
 signals. A hook that fails exits `3` with a traceback.
@@ -2012,7 +2817,7 @@ signals. A hook that fails exits `3` with a traceback.
 | Status | Meaning |
 |---|---|
 | `0` | success |
-| script-chosen `0..=255` | a final top-level `Int`/`UInt`, or `abort(status)` |
+| script-chosen `0..=255` | a final top-level `Int`/`UInt`, or `exit status` |
 | `1` | `xsht lint` findings, `xsht fmt --check` mismatch, or `xsht test` failure |
 | `2` | usage error, or a source, parse, or check failure (including invalid arguments to `cli main`) |
 | `3` | runtime failure, top-level propagated `Err`, cancellation, or a failed hook |
@@ -2190,8 +2995,8 @@ that fit decode as `Int` and other finite numbers as `Float`.
 
 JSON-compatible values are `Null`, `Bool`, representable `Int`, finite
 `Float`, `Str`, lists, `Str`-keyed maps and records of compatible values,
-optional values (absent as `null`), and Str-backed enums (as their wire
-strings). Everything else needs explicit conversion: `Path` (`.display()`),
+optional values (absent as `null`), unions of compatible members, and
+Str-backed enums (as their wire strings). Everything else needs explicit conversion: `Path` (`.display()`),
 `Bytes` (`.base64()`), `Digest` (`.hex()`), `Duration`, `Status`, `Result`,
 errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.
@@ -2219,7 +3024,7 @@ pure scalar_label(v: Any) -> Result[Str, JsonShape] {
     i is Int => f"integer {i}"
     f is Float => f"float {f}"
     s is Str => f"string of {s.count_chars()} characters"
-    _ => Err(JsonShape.NotScalar(message: "expected a scalar"))
+    else => Err(JsonShape.NotScalar(message: "expected a scalar"))
   }
 }
 ```
@@ -2274,6 +3079,40 @@ Contracts worth knowing without consulting the reference:
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).
   With `stat: false`, metadata fields are unavailable and reading one fails
   with `metadata-unavailable` instead of returning a placeholder.
+- `root.glob(pattern)` expands a relative pattern below `root` and returns
+  `Result[List[Path]]`: each match is `root` joined with the components that
+  matched, in byte order, without duplicates. `root.rglob(pattern)` is
+  `root.glob("**/" + pattern)`, a match at any depth. Both use the matcher of
+  `g"..."`: `*`, `?`, and `[...]` match inside one component and never match
+  a leading `.` unless the pattern component starts with one; `**` as a whole
+  component matches any depth of directories, hidden ones included, and does
+  not follow a symbolic link to a directory. So `p"src".glob("*.xsh")` is
+  `g"src/*.xsh"`, with two differences: the receiver is never read as a
+  pattern, and the pattern is an ordinary `Str` computed at run time. A root
+  that is missing or is not a directory matches nothing. An empty pattern, an
+  absolute pattern, and a directory that cannot be read are errors.
+  `fs.walk`, `fs.files`, and `fs.dirs` answer a different question: they
+  stream `FsEntry` records lazily in traversal order and skip hidden and
+  git-ignored entries by default, while a glob is eager, sorted, returns paths
+  alone, and never reads `.gitignore`.
+
+```xsh
+let manifests = package.glob("*.toml")? # directly inside package
+let tests = package.rglob(f"*_test.{suffix}")? # at any depth
+let nested = package.glob("src/**/*.xsh")? # the same pattern as g"..."
+```
+
+- `Path.write_lines(lines)` writes each element of a `List[Str]` followed by
+  `\n`, so every line is terminated and an empty list writes an empty file.
+  Creating, replacing, the file mode, and failures are those of `Path.write`.
+  It is not `p.write(lines.join("\n") + "\n")`, which writes one newline for
+  an empty list.
+- `Path.read_lines()` is its partner and is exactly `p.read_text()?.lines()`:
+  it reads the whole file, fails as `read_text` fails (including on bytes that
+  are not UTF-8), and returns a `List[Str]` without line terminators. It is
+  eager, so every failure happens at the call; `Path.lines()` is the lazy
+  stream for a file read once, line by line. `read_lines` returns what
+  `write_lines` wrote when no element contains `\n` or ends with `\r`.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process.
@@ -2358,6 +3197,7 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] SCRIPT ARGS...` | run with tracing |
 | `xsht api [QUERY...]` | query language and standard-library reference data |
 | `xsht ast SCRIPT` | print the parse tree |
+| `xsht desugar SCRIPT` | print the script with every sugar statement replaced by its expansion |
 | `xsht grep PATTERN [FILE...]`, `xsht refactor PATTERN REPLACEMENT [FILE...]` | structural search and rewrite |
 
 `xsht help [COMMAND]` and `COMMAND --help` print generated usage, collected in
@@ -2369,7 +3209,8 @@ Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
 file under the current directory plus `include` entries from the nearest
 `xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
 nearest config among its ancestors (for `module_path`, `[format] line-width`
-(default 120), lint options, and `[check] annotate`). `xsht fmt` discovery also
+(default 120), lint options, and `[check] annotate`); a file with no config
+above it has no project module roots (3.3). `xsht fmt` discovery also
 skips the discovery root's `[format] exclude` patterns.
 
 `xsht check` runs exactly the checks that execution runs before evaluating
@@ -2425,6 +3266,9 @@ re-propagates directly with `?` keeps the span and call path of the `?` that
 first propagated it. Once a caller handles the `Err` instead (matches, binds,
 tests, or replaces it with `??`), the next statement, call, or `?` operand
 discards that record, and a later failure reports its own span and call path.
+A record is kept only for the error it was made for: an `Err` that replaces a
+handled one inside the same operand or statement, as in
+`(f() ?? Err(other))?`, starts its traceback at the `?` that propagates it.
 
 ## 17. Native Tests
 

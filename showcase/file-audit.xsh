@@ -45,7 +45,7 @@ proc main(...argv: List[Str]) [fs, error] {
     if entry.kind == "symlink" {
       let target = entry.path.readlink()?
 
-      if target.display().starts_with("/") {
+      if target.starts_with(/) {
         findings = add_finding(findings, 2, "absolute-symlink", shown, target.display())
       }
 

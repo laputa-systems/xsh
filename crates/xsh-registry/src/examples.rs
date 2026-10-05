@@ -54,6 +54,16 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "module.module.load" => include_str!("../../../docs/snippets/api/module-load.xsh"),
         "module.patch.apply" => include_str!("../../../docs/snippets/api/patch-apply.xsh"),
         "method.Path.resolve" => include_str!("../../../docs/snippets/api/path-resolve.xsh"),
+        "method.Path.bytes" => include_str!("../../../docs/snippets/api/path-bytes.xsh"),
+        "method.Path.glob" | "method.Path.rglob" => {
+            include_str!("../../../docs/snippets/api/path-glob.xsh")
+        }
+        "method.Path.read_lines" => {
+            include_str!("../../../docs/snippets/api/path-read-lines.xsh")
+        }
+        "method.Path.write_lines" => {
+            include_str!("../../../docs/snippets/api/path-write-lines.xsh")
+        }
         "method.Bytes.base64" => {
             include_str!("../../../docs/snippets/api/bytes-base64.xsh")
         }
@@ -161,6 +171,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/core-print.xsh")
         }
         "language.core.abort" => include_str!("../../../docs/snippets/api/core-abort.xsh"),
+        "language.core.exit" => include_str!("../../../docs/snippets/api/core-exit.xsh"),
         _ => return None,
     };
     Some(source.trim_end().to_string())

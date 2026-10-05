@@ -65,7 +65,10 @@ pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
     ),
     ("LABEL", "an identifier or keyword used as a field label"),
     ("MEMBER", "a label or a hyphenated name after `.`"),
-    ("INT", "a decimal or `0o` octal integer"),
+    (
+        "INT",
+        "a decimal or `0o` octal integer, or a decimal byte count with a size unit (`64MiB`)",
+    ),
     ("FLOAT", "a decimal number with a fraction or exponent"),
     ("DURATION", "an integer followed by a duration suffix"),
     (

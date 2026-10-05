@@ -47,13 +47,8 @@ pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId
 #[allow(dead_code)]
 pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> bool {
     match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),
         ArenaStmtKind::Return(_) => true,
-        ArenaStmtKind::BooleanGuard {
-            condition,
-            else_block,
-        } if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(false)) => {
-            block_always_returns_arena(arena, else_block)
-        }
         ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
             ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
             _ => false,
@@ -67,6 +62,13 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
                 .arena
                 .if_branches(branches)
                 .iter()
+                // A branch whose condition is the literal `false` never runs.
+                .filter(|branch| {
+                    !matches!(
+                        arena.arena.expr(branch.condition).kind,
+                        ArenaExprKind::Bool(false)
+                    )
+                })
                 .all(|branch| block_always_returns_arena(arena, branch.block))
                 && block_always_returns_arena(arena, else_block)
         }
@@ -82,6 +84,43 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         }
         _ => false,
     }
+}
+
+/// Whether a tail `if` can supply its block's value: some branch ends in a
+/// statement that has one. An `if` whose branches all end in a control
+/// transfer, a binding, or nothing completes as a statement wherever it
+/// stands, so `if done { return x }` may end a block that has no value.
+pub(super) fn if_stmt_may_produce_value(arena: &ArenaProgram, id: StmtId) -> bool {
+    let ArenaStmtKind::If {
+        branches,
+        else_block,
+    } = arena.arena.stmt(id).kind
+    else {
+        return false;
+    };
+    let ends_in_value = |block: BlockId| {
+        arena
+            .arena
+            .stmt_ids(arena.arena.block(block).statements)
+            .last()
+            .is_some_and(|tail| {
+                let tail = arena.arena.core_stmt_id(tail);
+                match arena.arena.stmt(tail).kind {
+                    ArenaStmtKind::Expr(_)
+                    | ArenaStmtKind::Command(_)
+                    | ArenaStmtKind::TailBareIdent(_)
+                    | ArenaStmtKind::Match { .. } => true,
+                    ArenaStmtKind::If { .. } => if_stmt_may_produce_value(arena, tail),
+                    _ => false,
+                }
+            })
+    };
+    arena
+        .arena
+        .if_branches(branches)
+        .iter()
+        .any(|branch| ends_in_value(branch.block))
+        || else_block.is_some_and(ends_in_value)
 }
 
 /// Returns true if the block contains any `break` or `return` statement that
@@ -128,15 +167,12 @@ pub(super) fn stmt_has_exit_point_arena(arena: &ArenaProgram, id: StmtId) -> boo
             block_has_exit_point_arena(arena, *body)
                 || block_has_exit_point_arena(arena, *else_block)
         }
-        ArenaStmtKind::Guard { else_block, .. }
-        | ArenaStmtKind::BooleanGuard { else_block, .. } => {
-            block_has_exit_point_arena(arena, *else_block)
-        }
+        ArenaStmtKind::Guard { else_block, .. } => block_has_exit_point_arena(arena, *else_block),
         ArenaStmtKind::Expr(expr) => match arena.arena.expr(*expr).kind {
             ArenaExprKind::ErrorContext { block, .. } => block_has_exit_point_arena(arena, block),
             _ => false,
         },
-        ArenaStmtKind::GuardedStmt { stmt: inner, .. } => stmt_has_exit_point_arena(arena, *inner),
+        ArenaStmtKind::Sugar { expansion, .. } => stmt_has_exit_point_arena(arena, *expansion),
         _ => false,
     }
 }
@@ -151,6 +187,7 @@ fn match_is_exhaustive_arena(
     arms: &[crate::syntax::arena::ArenaMatchArm],
     type_defs: &FxHashMap<Name, TypeDefBody>,
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
+    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
 ) -> bool {
     patterns_are_exhaustive_arena(
         arena,
@@ -160,7 +197,33 @@ fn match_is_exhaustive_arena(
             .map(|arm| arm.pattern),
         type_defs,
         tag_variants,
+        pattern_types,
     )
+}
+
+/// The types the type tests of a pattern check for, over every alternative.
+/// `pattern_types` holds the checked type of each type-test pattern.
+pub(super) fn collect_tested_types_arena(
+    arena: &ArenaProgram,
+    pattern: crate::syntax::arena::PatternId,
+    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
+    tested: &mut Vec<Type>,
+) {
+    use crate::syntax::arena::ArenaPatternKind;
+    match arena.arena.pattern(pattern).kind {
+        ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
+            collect_tested_types_arena(arena, child, pattern_types, tested)
+        }
+        ArenaPatternKind::Alternation(items) => {
+            for item in arena.arena.pattern_ids(items) {
+                collect_tested_types_arena(arena, item, pattern_types, tested);
+            }
+        }
+        ArenaPatternKind::TestName { .. } | ArenaPatternKind::Type { .. } => {
+            tested.extend(pattern_types.get(&pattern).cloned());
+        }
+        _ => {}
+    }
 }
 
 pub(super) fn patterns_are_exhaustive_arena(
@@ -169,6 +232,7 @@ pub(super) fn patterns_are_exhaustive_arena(
     patterns: impl Iterator<Item = crate::syntax::arena::PatternId>,
     type_defs: &FxHashMap<Name, TypeDefBody>,
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
+    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
 ) -> bool {
     use crate::syntax::arena::ArenaPatternKind;
     fn irrefutable(
@@ -244,7 +308,11 @@ pub(super) fn patterns_are_exhaustive_arena(
     let mut booleans = [false; 2];
     let mut empty_list = false;
     let mut nonempty_list = false;
+    let mut tested = Vec::new();
     for pattern in patterns {
+        if matches!(value_ty, Type::Union(_)) {
+            collect_tested_types_arena(arena, pattern, pattern_types, &mut tested);
+        }
         if covered(
             arena,
             pattern,
@@ -269,6 +337,10 @@ pub(super) fn patterns_are_exhaustive_arena(
     match value_ty {
         Type::List(_) => empty_list && nonempty_list,
         Type::Bool => booleans.iter().all(|value| *value),
+        // A union is covered when each member has a type test that accepts it.
+        Type::Union(members) => members
+            .iter()
+            .all(|member| tested.iter().any(|tested| member.matches_expected(tested))),
         Type::Result(_, _) => constructors.contains(&Name::intern("Ok")) && constructors.contains(&Name::intern("Err")),
         Type::Tag(name) => match type_defs.get(name).or_else(|| type_defs.values().find(|body|
             matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *name)))) {
@@ -592,6 +664,9 @@ impl Checker {
         } else if ty.is_result() {
             diagnostic =
                 diagnostic.with_note("unwrap the Result with `?` or `??`, then compare its value");
+        } else if matches!(ty, Type::Union(_)) {
+            diagnostic = diagnostic
+                .with_note("narrow the union with `value is Member` before using it as a condition");
         }
         self.diagnostics.push(diagnostic);
     }
@@ -621,29 +696,8 @@ impl Checker {
             );
         }
         match stmt.kind {
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                let narrowings = self.check_condition_arena(
-                    arena,
-                    source,
-                    condition,
-                    DiagnosticCode::CheckGuardCondition,
-                );
-                let success_scopes = self.scopes.clone();
-                self.push_scope();
-                self.apply_narrowings(&narrowings.when_false);
-                self.check_block_arena(arena, source, else_block);
-                self.pop_scope();
-                if !self
-                    .definitely_exiting_block_spans
-                    .contains(&arena.arena.span(arena.arena.block(else_block).span))
-                {
-                    self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", DiagnosticCode::CheckGuardFallthrough);
-                }
-                self.scopes = success_scopes;
-                self.apply_narrowings(&narrowings.when_true);
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.check_stmt_arena(arena, source, expansion);
             }
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = arena.arena.use_stmt(use_id);
@@ -726,10 +780,14 @@ impl Checker {
             ArenaStmtKind::YieldDelegate(value) => {
                 self.check_yield_delegation_arena(arena, source, value, stmt.span);
             }
+            ArenaStmtKind::Exit(status) => {
+                let actual = self.check_expr_arena(arena, source, status, Some(&Type::Int));
+                self.expect_type(&Type::Int, &actual, arena.arena.expr(status).span);
+            }
             ArenaStmtKind::Yield(value) => {
                 self.check_yield_arena(arena, source, value, stmt.span);
             }
-            ArenaStmtKind::Defer(value) => {
+            ArenaStmtKind::Defer(value, _) => {
                 self.check_defer_arena(arena, source, value, stmt.span);
             }
             ArenaStmtKind::Break { value } => {
@@ -831,6 +889,7 @@ impl Checker {
             ArenaStmtKind::Expr(expr_id) => {
                 self.statement_expression_spans
                     .insert(arena.arena.expr(expr_id).span);
+                self.propagating_statements.insert(stmt.span);
                 let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
                     self.check_block_arena(arena, source, block);
                     self.expr_types
@@ -906,40 +965,6 @@ impl Checker {
                     stmt.span,
                 );
             }
-            ArenaStmtKind::GuardedStmt {
-                stmt: inner,
-                negate,
-                condition,
-            } => {
-                let narrowings = self.check_condition_arena(
-                    arena,
-                    source,
-                    condition,
-                    DiagnosticCode::CheckGuardedStmtCondition,
-                );
-                let continuing_scopes = self
-                    .stmt_definitely_exits_arena(arena, inner)
-                    .then(|| self.scopes.clone());
-                self.push_scope();
-                if negate {
-                    self.apply_narrowings(&narrowings.when_false);
-                } else {
-                    self.apply_narrowings(&narrowings.when_true);
-                }
-                self.check_stmt_arena(arena, source, inner);
-                self.pop_scope();
-                if let Some(scopes) = continuing_scopes {
-                    // An exiting payload cannot mutate bindings on the path
-                    // that skips it. That continuation retains the opposite
-                    // condition proof against the original lexical bindings.
-                    self.scopes = scopes;
-                    self.apply_narrowings(if negate {
-                        &narrowings.when_true
-                    } else {
-                        &narrowings.when_false
-                    });
-                }
-            }
             ArenaStmtKind::Match { value, arms } => {
                 self.check_match_arena(arena, source, value, arms);
             }
@@ -968,6 +993,17 @@ impl Checker {
                 .get(&arena.arena.expr(value).span)
                 .cloned()
                 .unwrap_or(Type::Unknown);
+            // An optional binding's pattern sees the non-null value.
+            let ty = match ty {
+                Type::Optional(present)
+                    if self
+                        .optional_binding_spans
+                        .contains(&arena.arena.expr(condition).span) =>
+                {
+                    *present
+                }
+                ty => ty,
+            };
             self.check_pattern_arena(
                 arena,
                 source,
@@ -1128,6 +1164,40 @@ impl Checker {
                     return ConditionNarrowings::default();
                 };
                 let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
+                // An optional binding succeeds exactly when the subject is
+                // not null, so its branch may also use the subject itself.
+                if let Type::Optional(present) = &subject_ty
+                    && self
+                        .optional_binding_spans
+                        .contains(&arena.arena.expr(condition).span)
+                {
+                    return ConditionNarrowings {
+                        when_true: vec![binding.proof.fact(name, path, (**present).clone())],
+                        when_false: Vec::new(),
+                    };
+                }
+                // A type test splits a union's members: the ones it accepts
+                // remain when it passes, the others when it fails.
+                if let Type::Union(members) = &subject_ty {
+                    let Some(tested) = self.pattern_test_member_types(arena, pattern) else {
+                        return ConditionNarrowings::default();
+                    };
+                    let (accepted, rest): (Vec<_>, Vec<_>) = members.iter().cloned().partition(
+                        |member| tested.iter().any(|tested| member.matches_expected(tested)),
+                    );
+                    let fact = |mut side: Vec<Type>| {
+                        let ty = match side.len() {
+                            0 => return Vec::new(),
+                            1 => side.pop().expect("one member"),
+                            _ => Type::Union(side),
+                        };
+                        vec![binding.proof.fact(name, path.clone(), ty)]
+                    };
+                    return ConditionNarrowings {
+                        when_true: fact(accepted),
+                        when_false: fact(rest),
+                    };
+                }
                 let ty = self.pattern_test_narrowed_type(arena, pattern);
                 // A facet filters a nominal error without changing its family or
                 // variant. Keep that precision when no intersection type is available.
@@ -1277,6 +1347,7 @@ impl Checker {
         self.apply_narrowings(&previous_failure);
         if let Some(block) = else_block {
             self.check_block_arena(arena, source, block);
+            self.check_required_block_exit(arena, block);
             if !self
                 .definitely_exiting_block_spans
                 .contains(&arena.arena.span(arena.arena.block(block).span))
@@ -1357,6 +1428,19 @@ impl Checker {
         self.apply_narrowings(&facts);
     }
 
+    /// Reports a block that an expansion requires to leave the enclosing
+    /// continuation (the failure block of `guard ... else`) when some path
+    /// through it falls through. Call it once the block has been checked.
+    fn check_required_block_exit(&mut self, arena: &ArenaProgram, block: BlockId) {
+        if arena.arena.block_must_exit(block) && !self.block_definitely_exits_arena(arena, block) {
+            self.error(
+                arena.arena.span(arena.arena.block(block).span),
+                "guard failure branch must leave the enclosing continuation on every reachable path",
+                DiagnosticCode::CheckGuardFallthrough,
+            );
+        }
+    }
+
     fn check_while_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1398,6 +1482,10 @@ impl Checker {
             .unwrap_or_else(|| match iter_ty {
                 Type::Any => Type::Any,
                 Type::Unknown => Type::Unknown,
+                ref union @ Type::Union(_) => {
+                    self.reject_unnarrowed_union(union, "iteration", arena.arena.expr(iter).span);
+                    Type::Unknown
+                }
                 _ => {
                     self.error(
                         arena.arena.expr(iter).span,
@@ -1553,13 +1641,32 @@ impl Checker {
             expected.as_ref(),
             schema,
         );
+        // The outermost type selects the form, so `Result[T?]` stays a Result
+        // binding and `Result[T]?` binds the Result itself. The fact is
+        // rewritten on every check of this statement, because inference may
+        // check a body more than once with a sharper subject type.
+        self.optional_binding_spans.remove(&span);
+        if let Type::Optional(present) = init_ty {
+            self.optional_binding_spans.insert(span);
+            self.check_optional_guard_arena(
+                arena,
+                source,
+                target,
+                ty,
+                initializer,
+                else_block,
+                *present,
+                span,
+            );
+            return;
+        }
         let (ok_ty, error_ty) = match init_ty {
             Type::Result(ok, error) => (*ok, *error),
             Type::Unknown => (Type::Unknown, Type::Unknown),
             other => {
                 self.error(
                     span,
-                    "`guard let` binding must produce a Result value",
+                    "`guard let` binding must produce a Result or an optional value",
                     DiagnosticCode::CheckGuardBinding,
                 );
                 (other, Type::Error)
@@ -1580,6 +1687,78 @@ impl Checker {
             ok_ty
         };
         self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
+        self.define_binding_target_arena(arena, target, &bind_ty, false, span);
+    }
+
+    /// `guard let target = subject else { ... }` over an optional subject:
+    /// `null` runs the block, any other value is bound as `present`.
+    ///
+    /// A null value carries no error, so the block is an ordinary guard
+    /// failure block: it takes no parameter and must leave the continuation.
+    /// A subject that is a stable binding or field path is narrowed for the
+    /// following statements exactly as `guard subject != null` narrows it, so
+    /// code that kept using the subject after a null test still checks.
+    #[allow(clippy::too_many_arguments)]
+    fn check_optional_guard_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        target: BindingTargetId,
+        ty: Option<TypeExprId>,
+        initializer: ArenaExprOrRun,
+        else_block: BlockId,
+        present: Type,
+        span: Span,
+    ) {
+        if record_target_requires_schema_check(arena, target, &present) {
+            self.error(
+                span,
+                "record destructuring of Any requires an explicit schema check",
+                DiagnosticCode::CheckDestructureType,
+            );
+        }
+        let bind_ty = if let Some(ty_id) = ty {
+            let ann = self.type_from_arena(arena, ty_id);
+            self.expect_type(&ann, &present, span);
+            ann
+        } else {
+            present.clone()
+        };
+        let else_span = arena.arena.span(arena.arena.block(else_block).span);
+        let success_scopes = self.scopes.clone();
+        if let Some(param) = arena
+            .arena
+            .block_params(arena.arena.block(else_block).params)
+            .first()
+        {
+            self.error(
+                arena.arena.span(param.span),
+                "an optional `guard let` has no error to bind: a null subject carries none, so its `else` block takes no parameter",
+                DiagnosticCode::CheckBlockParams,
+            );
+            // Check the body with the name defined so its uses do not add
+            // unknown-name errors to the one above.
+            self.check_error_handler_block_arena(arena, source, else_block, &Type::Unknown);
+        } else {
+            self.push_scope();
+            self.check_block_arena(arena, source, else_block);
+            self.pop_scope();
+            if !self.definitely_exiting_block_spans.contains(&else_span) {
+                self.error(
+                    else_span,
+                    "guard failure branch must leave the enclosing continuation on every reachable path",
+                    DiagnosticCode::CheckGuardFallthrough,
+                );
+            }
+        }
+        self.scopes = success_scopes;
+        if let ArenaExprOrRun::Expr(subject) = initializer
+            && let Some((name, path, Type::Optional(_))) = self.proof_subject_arena(arena, subject)
+            && let Some(binding) = self.lookup(name)
+        {
+            let fact = binding.proof.fact(name, path, present);
+            self.apply_narrowings(&[fact]);
+        }
         self.define_binding_target_arena(arena, target, &bind_ty, false, span);
     }
 
@@ -1643,23 +1822,40 @@ impl Checker {
         block_id: BlockId,
         expected: &Type,
     ) {
+        let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
+        self.check_value_block_statements_arena(arena, source, block_id, expected);
+        self.leave_block_effect_bound(enclosing_bound);
+    }
+
+    fn check_value_block_statements_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expected: &Type,
+    ) {
         let block = arena.arena.block(block_id);
         self.push_scope();
         self.block_depth += 1;
-        let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
+        let stmt_ids: Vec<StmtId> = arena
+            .arena
+            .stmt_ids(block.statements)
+            .map(|id| arena.arena.core_stmt_id(id))
+            .collect();
         let block_span = arena.arena.span(block.span);
         if let Some((&tail, non_tail)) = stmt_ids.split_last() {
-            let tail_producing = matches!(
-                arena.arena.stmt(tail).kind,
+            let tail_producing = match arena.arena.stmt(tail).kind {
                 ArenaStmtKind::Expr(_)
-                    | ArenaStmtKind::Command(_)
-                    | ArenaStmtKind::TailBareIdent(_)
-                    | ArenaStmtKind::Match { .. }
-                    | ArenaStmtKind::If { .. }
-                    | ArenaStmtKind::Return(_)
-                    | ArenaStmtKind::Break { .. }
-                    | ArenaStmtKind::Continue
-            );
+                | ArenaStmtKind::Command(_)
+                | ArenaStmtKind::TailBareIdent(_)
+                | ArenaStmtKind::Match { .. }
+                | ArenaStmtKind::Return(_)
+                | ArenaStmtKind::Exit(_)
+                | ArenaStmtKind::Break { .. }
+                | ArenaStmtKind::Continue => true,
+                ArenaStmtKind::If { .. } => if_stmt_may_produce_value(arena, tail),
+                _ => false,
+            };
             let checked_stmts: &[StmtId] = if tail_producing { non_tail } else { &stmt_ids };
             for &stmt_id in checked_stmts {
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
@@ -1862,8 +2058,15 @@ impl Checker {
             binding.schema_expectation = schema;
             self.define(name, binding, span);
         }
+        let body_tail = arena
+            .arena
+            .stmt_ids(arena.arena.block(def.body).statements)
+            .last()
+            .map(|tail| arena.arena.core_stmt_id(tail));
         if inferring {
+            let enclosing_tail = std::mem::replace(&mut self.result_unit_function_tail, body_tail);
             let tail = self.check_tail_block_arena(arena, source, def.body, None);
+            self.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
                 self.inferred_returns
                     .as_mut()
@@ -1871,6 +2074,10 @@ impl Checker {
                     .push((tail, body_span));
             }
         } else {
+            let enclosing_tail = std::mem::replace(
+                &mut self.result_unit_function_tail,
+                body_tail.filter(|_| return_ty.is_result_unit()),
+            );
             if def.test_declaration {
                 if !cfg!(feature = "native-tests") {
                     self.error(body_span, "test declarations require native-test support; use an xsht build with the native-tests feature", DiagnosticCode::CheckTestFeatureDisabled);
@@ -1879,6 +2086,7 @@ impl Checker {
             } else {
                 self.check_value_block_arena(arena, source, def.body, &return_ty);
             }
+            self.result_unit_function_tail = enclosing_tail;
         }
         if !pure
             && self.current_exported
@@ -2530,7 +2738,11 @@ impl Checker {
             ArenaAssignTargetKind::Index { base, index } => {
                 let base_ty =
                     self.assignment_target_type_arena(arena, source, *base, root_ty, span);
-                let index_ty = self.check_expr_arena(arena, source, *index, None);
+                let literal_key = match &base_ty {
+                    Type::Map(key_ty, _) => self.path_literal_expectation(arena, *index, key_ty),
+                    _ => None,
+                };
+                let index_ty = self.check_expr_arena(arena, source, *index, literal_key.as_ref());
                 match base_ty {
                     Type::Map(key_ty, item_ty) => {
                         let index_span = arena.arena.expr(*index).span;
@@ -2802,6 +3014,7 @@ impl Checker {
             self.push_scope();
             self.block_depth += 1;
             for statement in arena.arena.stmt_ids(body.statements) {
+                let statement = arena.arena.core_stmt_id(statement);
                 self.check_non_tail_stmt_arena(arena, source, statement);
                 if let ArenaStmtKind::TailBareIdent(name) = arena.arena.stmt(statement).kind {
                     let ty = self
@@ -2869,6 +3082,17 @@ impl Checker {
         source: &str,
         block_id: BlockId,
     ) {
+        let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
+        self.check_statement_block_statements_arena(arena, source, block_id);
+        self.leave_block_effect_bound(enclosing_bound);
+    }
+
+    fn check_statement_block_statements_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+    ) {
         let block = arena.arena.block(block_id);
         self.block_depth += 1;
         let previous_reachable = self.inference_reachable;
@@ -2904,7 +3128,11 @@ impl Checker {
 
     fn stmt_definitely_exits_arena(&self, arena: &ArenaProgram, statement: StmtId) -> bool {
         match arena.arena.stmt(statement).kind {
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.stmt_definitely_exits_arena(arena, expansion)
+            }
             ArenaStmtKind::Return(_) => self.current_return.is_some(),
+            ArenaStmtKind::Exit(_) => true,
             ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => self.loop_depth > 0,
             ArenaStmtKind::Expr(expr) => self.expr_definitely_exits_arena(arena, expr),
             ArenaStmtKind::Let {
@@ -2947,7 +3175,7 @@ impl Checker {
                     .get(&arena.arena.expr(value).span)
                     .cloned()
                     .unwrap_or(Type::Unknown);
-                match_is_exhaustive_arena(arena, &ty, arms, &self.type_defs, &self.tag_variants)
+                match_is_exhaustive_arena(arena, &ty, arms, &self.type_defs, &self.tag_variants, &self.pattern_test_types)
                     && arms
                         .iter()
                         .all(|arm| self.block_definitely_exits_arena(arena, arm.block))
@@ -2957,12 +3185,6 @@ impl Checker {
             } => {
                 self.block_definitely_exits_arena(arena, body)
                     && self.block_definitely_exits_arena(arena, else_block)
-            }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(false)) => {
-                self.block_definitely_exits_arena(arena, else_block)
             }
             ArenaStmtKind::Loop { block } => !block_has_exit_point_arena(arena, block),
             ArenaStmtKind::While { condition, block }
@@ -3013,22 +3235,43 @@ impl Checker {
         block_id: BlockId,
         expected: Option<&Type>,
     ) -> Type {
+        let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
+        let ty = self.check_tail_block_statements_arena(arena, source, block_id, expected);
+        self.leave_block_effect_bound(enclosing_bound);
+        ty
+    }
+
+    fn check_tail_block_statements_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expected: Option<&Type>,
+    ) -> Type {
         let block = arena.arena.block(block_id);
         self.block_depth += 1;
-        let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
+        let stmt_ids: Vec<StmtId> = arena
+            .arena
+            .stmt_ids(block.statements)
+            .map(|id| arena.arena.core_stmt_id(id))
+            .collect();
         let previous_reachable = self.inference_reachable;
         let result = if let Some((&tail, non_tail)) = stmt_ids.split_last() {
-            let tail_producing = matches!(
-                arena.arena.stmt(tail).kind,
-                ArenaStmtKind::Expr(_)
-                    | ArenaStmtKind::Command(_)
-                    | ArenaStmtKind::TailBareIdent(_)
-                    | ArenaStmtKind::Match { .. }
-                    | ArenaStmtKind::If { .. }
-                    | ArenaStmtKind::Return(_)
-                    | ArenaStmtKind::Break { .. }
-                    | ArenaStmtKind::Continue
-            );
+            let valueless_if = matches!(arena.arena.stmt(tail).kind, ArenaStmtKind::If { .. })
+                && !if_stmt_may_produce_value(arena, tail);
+            let tail_producing = !valueless_if
+                && matches!(
+                    arena.arena.stmt(tail).kind,
+                    ArenaStmtKind::Expr(_)
+                        | ArenaStmtKind::Command(_)
+                        | ArenaStmtKind::TailBareIdent(_)
+                        | ArenaStmtKind::Match { .. }
+                        | ArenaStmtKind::If { .. }
+                        | ArenaStmtKind::Return(_)
+                        | ArenaStmtKind::Exit(_)
+                        | ArenaStmtKind::Break { .. }
+                        | ArenaStmtKind::Continue
+                );
             for &stmt_id in non_tail {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
@@ -3048,6 +3291,8 @@ impl Checker {
                     }
                 }
                 ty
+            } else if valueless_if {
+                self.check_valueless_tail_if_arena(arena, source, tail)
             } else {
                 self.check_stmt_arena(arena, source, tail);
                 Type::Unit
@@ -3102,6 +3347,9 @@ impl Checker {
 
     fn return_inference_stmt_returns(&self, arena: &ArenaProgram, id: StmtId) -> bool {
         match arena.arena.stmt(id).kind {
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.return_inference_stmt_returns(arena, expansion)
+            }
             ArenaStmtKind::Return(_) => true,
             ArenaStmtKind::With {
                 body, else_block, ..
@@ -3138,7 +3386,7 @@ impl Checker {
                         .filter(|arm| arm.guard.is_none())
                         .map(|arm| arm.pattern),
                     &self.type_defs,
-                    &self.tag_variants,
+                    &self.tag_variants, &self.pattern_test_types,
                 ) && arms
                     .iter()
                     .all(|arm| self.return_inference_block_returns(arena, arm.block))
@@ -3148,12 +3396,14 @@ impl Checker {
     }
 
     fn check_non_tail_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
+        let id = arena.arena.core_stmt_id(id);
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             self.statement_expression_spans
                 .insert(arena.arena.expr(expr_id).span);
+            self.propagating_statements.insert(stmt.span);
             let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
                 self.check_block_arena(arena, source, block);
                 self.expr_types
@@ -3192,9 +3442,34 @@ impl Checker {
         id: StmtId,
         expected: Option<&Type>,
     ) -> Type {
+        let id = arena.arena.core_stmt_id(id);
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Value);
+        // A `Unit` body leaves a `Result[Unit]` tail nothing to become, and
+        // the direct tail of a `Result[Unit]` function propagates as that
+        // function's result. Against any other result type, or none, the tail
+        // is the body's value, as is a tail that builds or captures a
+        // `Result`. The question is asked of the operand under a `?`, which
+        // is what remains when the `?` is redundant.
+        let propagating = match stmt.kind {
+            ArenaStmtKind::Expr(expr) => {
+                let operand = match arena.arena.expr(expr).kind {
+                    ArenaExprKind::Try(operand) => operand,
+                    _ => expr,
+                };
+                expected == Some(&Type::Unit)
+                    || (expected.is_some_and(Type::is_result_unit)
+                        && self.result_unit_function_tail == Some(id)
+                        && !tail_expr_uses_result_context_arena(arena, operand))
+            }
+            _ => false,
+        };
+        if propagating {
+            self.propagating_statements.insert(stmt.span);
+        } else {
+            self.propagating_statements.remove(&stmt.span);
+        }
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit())
             && !(expected.is_some_and(Type::is_result_unit)
                 && tail_stmt_uses_result_context_arena(arena, id))
@@ -3232,6 +3507,16 @@ impl Checker {
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() {
                     if expected.is_some_and(Type::is_result_unit) {
+                        // The type stays the function's result, so its error
+                        // is still checked against the declared one and no
+                        // `error` effect is asked of a proc that only hands
+                        // its callee's result back.
+                        if expr_ty_auto_propagates(&actual)
+                            && self.propagating_statements.contains(&stmt.span)
+                        {
+                            self.statement_positions
+                                .insert(stmt.span, super::StatementPosition::Statement);
+                        }
                         return actual;
                     }
                     if expr_ty_auto_propagates(&actual) {
@@ -3301,7 +3586,21 @@ impl Checker {
                     schema,
                 );
                 self.context_scope_tail_value = previous;
-                self.resolve_local_tail_type(ty, expected, stmt.span)
+                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
+                // An inferred return takes this tail's `Result[Unit]` as the
+                // function's result, which makes it the propagating tail of a
+                // `Result[Unit]` body. A constructed `Ok()` or `Err(..)` is
+                // the value itself.
+                if expected.is_none()
+                    && expr_ty_auto_propagates(&ty)
+                    && self.result_unit_function_tail == Some(id)
+                    && !tail_stmt_uses_result_context_arena(arena, id)
+                {
+                    self.statement_positions
+                        .insert(stmt.span, super::StatementPosition::Statement);
+                    self.propagating_statements.insert(stmt.span);
+                }
+                ty
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
@@ -3348,6 +3647,9 @@ impl Checker {
                 branches,
                 else_block,
             } => {
+                if !if_stmt_may_produce_value(arena, id) {
+                    return self.check_valueless_tail_if_arena(arena, source, id);
+                }
                 let infer_branches = self.inferred_returns.is_some() && expected.is_none();
                 let mut inferred = None;
                 for branch in arena.arena.if_branches(branches) {
@@ -3408,6 +3710,7 @@ impl Checker {
                             expected.or(inferred.as_ref())
                         },
                     );
+                    self.check_required_block_exit(arena, block);
                     self.pop_scope();
                     if !infer_branches {
                         self.check_unit_branch_completion(
@@ -3438,7 +3741,10 @@ impl Checker {
             ArenaStmtKind::Match { value, arms } => {
                 self.check_tail_match_arena(arena, source, value, arms, expected)
             }
-            ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => {
+            ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_) => {
                 self.check_stmt_arena(arena, source, id);
                 Type::Unknown
             }
@@ -3446,6 +3752,27 @@ impl Checker {
                 self.check_stmt_arena(arena, source, id);
                 Type::Unit
             }
+        }
+    }
+
+    /// Checks a tail `if` none of whose branches ends in a value. It runs as
+    /// a statement; the block it ends has no value when every path through
+    /// the `if` leaves, and completes with Unit otherwise.
+    fn check_valueless_tail_if_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        id: StmtId,
+    ) -> Type {
+        self.statement_positions.insert(
+            arena.arena.stmt(id).span,
+            super::StatementPosition::Statement,
+        );
+        self.check_stmt_arena(arena, source, id);
+        if self.stmt_definitely_exits_arena(arena, id) {
+            Type::Unknown
+        } else {
+            Type::Unit
         }
     }
 
@@ -3464,7 +3791,7 @@ impl Checker {
             &value_ty,
             arm_list,
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) && arm_list
             .iter()
             .all(|arm| block_always_returns_arena(arena, arm.block));
@@ -3530,7 +3857,7 @@ impl Checker {
             &value_ty,
             arm_list,
             &self.type_defs,
-            &self.tag_variants,
+            &self.tag_variants, &self.pattern_test_types,
         ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             let unguarded = arm_list
@@ -3675,6 +4002,9 @@ fn tail_stmt_uses_result_context_arena(arena: &ArenaProgram, stmt: StmtId) -> bo
             .is_some_and(|tail| tail_stmt_uses_result_context_arena(arena, tail))
     };
     match arena.arena.stmt(stmt).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => {
+            tail_stmt_uses_result_context_arena(arena, expansion)
+        }
         ArenaStmtKind::Expr(expr) => tail_expr_uses_result_context_arena(arena, expr),
         ArenaStmtKind::Match { arms, .. } => arena
             .arena
