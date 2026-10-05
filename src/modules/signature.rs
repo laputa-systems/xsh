@@ -480,7 +480,9 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
             | RuntimeOp::FsChmod
             | RuntimeOp::FsHardlink
             | RuntimeOp::FsUnlink
-            | RuntimeOp::FsReadlink => Some(Effect::Fs),
+            | RuntimeOp::FsReadlink
+            | RuntimeOp::FsGlob
+            | RuntimeOp::FsRglob => Some(Effect::Fs),
             _ => None,
         },
         MethodReceiver::ProcessHandle => Some(Effect::Process),

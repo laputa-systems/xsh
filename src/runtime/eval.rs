@@ -2922,6 +2922,8 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "ends_with",
     "write_lines",
     "read_lines",
+    "glob",
+    "rglob",
     "wait",
     "cancel",
     "context",
@@ -6768,23 +6770,64 @@ fn assign_op_runtime_text(op: AssignOp) -> &'static str {
     }
 }
 
-fn expand_glob_pattern(
-    cwd: &std::path::Path,
-    pattern: &str,
-    span: Span,
-) -> Result<Vec<Vec<u8>>, RuntimeError> {
+/// The `/`-separated components of a glob pattern, without empty ones.
+fn glob_pattern_components(pattern: &str, span: Span) -> Result<Vec<Vec<u8>>, RuntimeError> {
     if pattern.contains('\0') {
         return Err(
             RuntimeError::new("glob-pattern", "glob patterns cannot contain NUL").with_span(span),
         );
     }
-    let absolute = pattern.as_bytes().starts_with(b"/");
-    let components = pattern
+    Ok(pattern
         .as_bytes()
         .split(|byte| *byte == b'/')
         .filter(|component| !component.is_empty())
         .map(|component| component.to_vec())
-        .collect::<Vec<_>>();
+        .collect())
+}
+
+/// `Path.glob` and `Path.rglob`: `pattern` expanded below `root` by the walk
+/// that expands a glob literal below the working directory, so the two can
+/// never match differently. `host_root` is `root` as the host resolves it;
+/// every match is spelled as `root` followed by the components that matched.
+/// `recursive` matches the pattern at any depth, as a leading `**` component
+/// does.
+fn expand_glob_below(
+    host_root: &std::path::Path,
+    root: &PathValue,
+    pattern: &str,
+    recursive: bool,
+    span: Span,
+) -> Result<Vec<Vec<u8>>, RuntimeError> {
+    let mut components = glob_pattern_components(pattern, span)?;
+    // A pattern that names its own root would silently ignore the receiver,
+    // and one with no components names nothing to match.
+    if pattern.starts_with('/') {
+        return Err(RuntimeError::new(
+            "glob-pattern",
+            "glob pattern must be relative to the receiver",
+        )
+        .with_span(span));
+    }
+    if components.is_empty() {
+        return Err(RuntimeError::new("glob-pattern", "glob pattern is empty").with_span(span));
+    }
+    if recursive {
+        components.insert(0, b"**".to_vec());
+    }
+    let mut matches = Vec::new();
+    expand_glob_components(host_root, &root.bytes, &components, 0, span, &mut matches)?;
+    matches.sort_unstable();
+    matches.dedup();
+    Ok(matches)
+}
+
+fn expand_glob_pattern(
+    cwd: &std::path::Path,
+    pattern: &str,
+    span: Span,
+) -> Result<Vec<Vec<u8>>, RuntimeError> {
+    let components = glob_pattern_components(pattern, span)?;
+    let absolute = pattern.as_bytes().starts_with(b"/");
     if components.is_empty() {
         return Ok(Vec::new());
     }

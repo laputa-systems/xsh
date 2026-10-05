@@ -215,7 +215,9 @@ contains no whitespace or delimiters is also a path literal:
 
 **Globs.** `g"..."` expands against the current directory and produces
 `List[Path]`. Globbing is a filesystem effect and is not allowed in pure
-functions. Nothing else globs.
+functions. A glob literal and the methods `Path.glob` and `Path.rglob` (15)
+are the only things that glob; every other string, word, and path is taken
+literally.
 
 **Environment strings.** `e"NAME"` reads the environment variable `NAME` as
 `Result[Str]` (10.5), and `e"NAME" = value` sets it. The contents are one
@@ -2090,6 +2092,27 @@ Contracts worth knowing without consulting the reference:
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).
   With `stat: false`, metadata fields are unavailable and reading one fails
   with `metadata-unavailable` instead of returning a placeholder.
+- `root.glob(pattern)` expands a relative pattern below `root` and returns
+  `Result[List[Path]]`: each match is `root` joined with the components that
+  matched, in byte order, without duplicates. `root.rglob(pattern)` is
+  `root.glob("**/" + pattern)`, a match at any depth. Both use the matcher of
+  `g"..."`: `*`, `?`, and `[...]` match inside one component and never match
+  a leading `.` unless the pattern component starts with one; `**` as a whole
+  component matches any depth of directories, hidden ones included, and does
+  not follow a symbolic link to a directory. So `p"src".glob("*.xsh")` is
+  `g"src/*.xsh"`, with two differences: the receiver is never read as a
+  pattern, and the pattern is an ordinary `Str` computed at run time. A root
+  that is missing or is not a directory matches nothing. An empty pattern, an
+  absolute pattern, and a directory that cannot be read are errors.
+  `fs.walk`, `fs.files`, and `fs.dirs` answer a different question: they
+  stream `FsEntry` records lazily in traversal order and skip hidden and
+  git-ignored entries by default, while a glob is eager, sorted, returns paths
+  alone, and never reads `.gitignore`.
+
+```xsh
+{{.spec.path_glob.source}}
+```
+
 - `Path.write_lines(lines)` writes each element of a `List[Str]` followed by
   `\n`, so every line is terminated and an empty list writes an empty file.
   Creating, replacing, the file mode, and failures are those of `Path.write`.

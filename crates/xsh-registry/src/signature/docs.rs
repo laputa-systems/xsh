@@ -1458,6 +1458,16 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Every element is terminated, so an empty list writes an empty file; elements are written as given. Creating, replacing, the file mode, and failures are those of write.",
             &["path", "filesystem", "write", "lines"],
         )),
+        ("Path", "glob") => Some((
+            "Expands a relative glob pattern below a path.",
+            "Each match is the receiver joined with the matched components, in byte order without duplicates, using the matcher of glob literals; the receiver is never read as a pattern. A missing root matches nothing; an empty or absolute pattern and an unreadable directory are errors.",
+            &["path", "filesystem", "glob", "pattern"],
+        )),
+        ("Path", "rglob") => Some((
+            "Expands a relative glob pattern at any depth below a path.",
+            "Exactly glob with `**/` before the pattern: hidden directories are entered and symbolic links to directories are not followed.",
+            &["path", "filesystem", "glob", "pattern", "recursive"],
+        )),
         ("Path", "copy") => Some((
             "Copies a path to an explicit destination.",
             "Overwrite behavior is explicit and filesystem failures remain errors.",

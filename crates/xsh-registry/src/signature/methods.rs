@@ -328,6 +328,20 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     false,
                     RuntimeOp::FsReadlink,
                 ),
+                method(
+                    "glob",
+                    vec![param("pattern", Type::Str)],
+                    result(Type::List(Box::new(Type::Path))),
+                    false,
+                    RuntimeOp::FsGlob,
+                ),
+                method(
+                    "rglob",
+                    vec![param("pattern", Type::Str)],
+                    result(Type::List(Box::new(Type::Path))),
+                    false,
+                    RuntimeOp::FsRglob,
+                ),
             ]),
         },
         MethodReceiverSig {

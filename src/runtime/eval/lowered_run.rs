@@ -11055,6 +11055,37 @@ impl Evaluator {
             let value = lowered_runtime_value(result, *span)?;
             return Ok(ControlFlow::Continue(value));
         }
+        if let LoweredValue::Path(root) = &receiver
+            && (name == "glob" || name == "rglob")
+            && values.len() == 1
+        {
+            let Some(pattern) = lowered_str_value(&values[0]) else {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("{name} expected Str, found {}", values[0].type_name()),
+                )
+                .with_span(*span));
+            };
+            let found = super::expand_glob_below(
+                &self.host_path(root),
+                root,
+                pattern,
+                name == "rglob",
+                *span,
+            )
+            .and_then(|matches| {
+                matches
+                    .into_iter()
+                    .map(|bytes| PathValue::new(bytes).map(LoweredValue::Path))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.with_span(*span))
+            });
+            let value = match found {
+                Ok(paths) => lowered_result_ok(LoweredValue::List(paths)),
+                Err(error) => lowered_result_err_value(error),
+            };
+            return Ok(ControlFlow::Continue(value));
+        }
         if let LoweredValue::Path(path) = &receiver
             && name == "read_lines"
             && values.is_empty()

@@ -149,6 +149,8 @@ pub enum RuntimeOp {
     FsWriteAtomic,
     FsWriteLines,
     FsReadLines,
+    FsGlob,
+    FsRglob,
     FsExists,
     FsExecutable,
     FsWorldWritable,
