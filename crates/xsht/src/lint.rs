@@ -47,6 +47,10 @@ mod lint_path_text_query;
 #[path = "lint_path_display_equality.rs"]
 mod lint_path_display_equality;
 
+#[cfg(test)]
+#[path = "lint_needless_annotation_tests.rs"]
+mod lint_needless_annotation_tests;
+
 #[path = "lint_path_display_sink.rs"]
 mod lint_path_display_sink;
 
@@ -3498,6 +3502,18 @@ impl<'a> Linter<'a> {
             return false;
         }
         if self.expression_depends_on_expected_type(initializer, true) {
+            return false;
+        }
+        // A function's name is a callable with a checked signature. It is
+        // the dynamic `Proc` or `Pure` only because the annotation asks for
+        // one, so without it a later `.call` is checked against the
+        // signature and the binding no longer takes another function.
+        if matches!(annotation, Type::Proc | Type::Pure)
+            && matches!(
+                init.kind,
+                ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
+            )
+        {
             return false;
         }
         let Some(actual) = self.expr_types.get(&init.span) else {
