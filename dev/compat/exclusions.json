@@ -12,6 +12,12 @@
       "utility": "basename",
       "category": "uutils-extension",
       "reason": "The test also runs `-V`, a version alias uutils adds; GNU basename has only --version and XSH follows GNU. --version is covered by core/tests/test-basename.xsh."
+    },
+    {
+      "id": "test_tee::test_short_help_is_long_help",
+      "utility": "tee",
+      "category": "uutils-extension",
+      "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
     }
   ]
 }

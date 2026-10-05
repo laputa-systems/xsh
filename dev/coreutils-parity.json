@@ -9,8 +9,8 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 54,
-    "present_in_scope": 54,
+    "present": 55,
+    "present_in_scope": 55,
     "missing_in_scope": [
       "b2sum",
       "base32",
@@ -54,7 +54,6 @@
       "stty",
       "sum",
       "sync",
-      "tac",
       "timeout",
       "truncate",
       "tsort",
@@ -170,8 +169,8 @@
       "native_tests": "core/tests/test-cat.xsh",
       "uutils_test_count": 54,
       "uutils_integration": {
-        "pass": 10,
-        "fail": 43,
+        "pass": 42,
+        "fail": 11,
         "skip": 0,
         "excluded": 0
       },
@@ -638,8 +637,8 @@
       "native_tests": "core/tests/test-head.xsh",
       "uutils_test_count": 73,
       "uutils_integration": {
-        "pass": 9,
-        "fail": 64,
+        "pass": 58,
+        "fail": 15,
         "skip": 0,
         "excluded": 0
       },
@@ -1173,13 +1172,13 @@
     {
       "utility": "tac",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/tac.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tac.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 31,
+        "pass": 21,
+        "fail": 12,
         "skip": 0,
         "excluded": 0
       },
@@ -1196,8 +1195,8 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 14,
-        "fail": 153,
+        "pass": 96,
+        "fail": 71,
         "skip": 0,
         "excluded": 0
       },
@@ -1214,14 +1213,16 @@
       "native_tests": "core/tests/test-tee.xsh",
       "uutils_test_count": 35,
       "uutils_integration": {
-        "pass": 8,
-        "fail": 27,
+        "pass": 23,
+        "fail": 11,
         "skip": 0,
-        "excluded": 0
+        "excluded": 1
       },
       "gnu_differential": null,
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_tee::test_short_help_is_long_help"
+      ],
       "known_semantic_gaps": []
     },
     {
