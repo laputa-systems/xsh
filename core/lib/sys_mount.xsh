@@ -7,8 +7,8 @@
 ##! host-path redaction is a renderer decision (`system-report` applies its own),
 ##! never a collector decision. Optional capacity comes from the same rooted view
 ##! and is queried only for mounts proven not to be shadowed or automounted.
-use system_report as report
 use sys_source as src
+use system_report as report
 
 ## Describes one mountinfo row, including its optional capacity observation.
 export type MountEntry = {
@@ -104,12 +104,14 @@ pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
 
     by_id = by_id.set(mount_id, if mount_id in by_id { -1 } else { rows.len() })
     target_counts = target_counts.set(target, (target_counts.get(target) ?? 0) + 1)
-    rows = rows.push({
-      mount_id: mount_id,
-      parent_id: parent_id,
-      target: target,
-      filesystem: fields[separator + 1],
-    })
+    rows += [
+      {
+        mount_id: mount_id,
+        parent_id: parent_id,
+        target: target,
+        filesystem: fields[separator + 1],
+      },
+    ]
   }
 
   {rows: rows, by_id: by_id, target_counts: target_counts, valid_graph: valid_graph}
@@ -156,9 +158,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
   let mount_source = src.read_source_text(root, p"proc/self/mountinfo", max_bytes: 4194304)
   var mounts: List[MountEntry] = []
   if mount_source.observation.state != report.Observed or mount_source.observation.value == null {
-    issues = issues.push(
-      src.issue("mounts", mount_source.observation.state, mount_source.error_kind, mount_source.errno),
-    )
+    issues += [src.issue("mounts", mount_source.observation.state, mount_source.error_kind, mount_source.errno)]
   } else {
     let usage_index = mount_usage_index(mount_source.observation.value)
     for line_item in mount_source.observation.value.lines() |> enumerate() {
@@ -170,9 +170,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
       }
 
       if separator < 6 or separator + 3 >= fields.len() {
-        issues = issues.push(
-          src.issue(f"mounts.line.{line_index}", report.Malformed, "invalid_mountinfo_row", null),
-        )
+        issues += [src.issue(f"mounts.line.{line_index}", report.Malformed, "invalid_mountinfo_row", null)]
         continue
       }
 
@@ -182,23 +180,21 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
       let major = src.parse_integer(device_ids.get(0) ?? "") ?? -1
       let minor = src.parse_integer(device_ids.get(1) ?? "") ?? -1
       if ids < 0 or parent_id < 0 or major < 0 or minor < 0 {
-        issues = issues.push(
-          src.issue(f"mounts.line.{line_index}", report.Malformed, "invalid_mount_identity", null),
-        )
+        issues += [src.issue(f"mounts.line.{line_index}", report.Malformed, "invalid_mount_identity", null)]
         continue
       }
 
       if ids > 9007199254740991 or parent_id > 9007199254740991 or major > 9007199254740991 or minor > 9007199254740991 {
-        issues = issues.push(
+        issues += [
           src.issue(f"mounts.line.{line_index}", report.RangeFailure, "mount_identity_out_of_json_range", null),
-        )
+        ]
         continue
       }
 
       var optional_fields: List[Str] = []
       var index = 6
       while index < separator {
-        optional_fields = optional_fields.push(decode_mount_field(fields[index]))
+        optional_fields += [decode_mount_field(fields[index])]
         index += 1
       }
 
@@ -211,7 +207,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
       if include_usage and mount_usage_safe(usage_index, ids) {
         if ! target.starts_with("/") {
           usage_state = report.Malformed
-          issues = issues.push(
+          issues += [
             src.issue_with_detail(
               f"mounts.{ids}.usage",
               usage_state,
@@ -219,7 +215,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
               null,
               "The mount target was not absolute.",
             ),
-          )
+          ]
         } else {
           var usage_path: Path? = null
           if target == "/" {
@@ -234,7 +230,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
 
           if usage_path == null {
             usage_state = report.Malformed
-            issues = issues.push(
+            issues += [
               src.issue_with_detail(
                 f"mounts.{ids}.usage",
                 usage_state,
@@ -242,44 +238,53 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
                 null,
                 "The mount target could not be made relative to the observation root.",
               ),
-            )
+            ]
           } else {
             let usage = root.filesystem_stats(usage_path)?
-            usage_state = match usage.state { "observed" => report.Observed, "absent" => report.Disappeared, "permission_denied" => report.PermissionDenied, "malformed" => report.Malformed, "range_failure" => report.RangeFailure, _ => report.ReadFailure }
+            usage_state = match usage.state {
+              "observed" => report.Observed,
+              "absent" => report.Disappeared,
+              "permission_denied" => report.PermissionDenied,
+              "malformed" => report.Malformed,
+              "range_failure" => report.RangeFailure,
+              else => report.ReadFailure,
+            }
             usage_total_bytes = usage.total_bytes
             usage_used_bytes = usage.used_bytes
             usage_available_bytes = usage.available_bytes
             if usage.state != "observed" {
-              issues = issues.push(
+              issues += [
                 src.issue(
                   f"mounts.{ids}.usage",
                   usage_state,
                   usage.error_kind,
                   usage.errno,
                 ),
-              )
+              ]
             }
           }
         }
       }
 
-      mounts = mounts.push({
-        mount_id: ids,
-        parent_id: parent_id,
-        major: major,
-        minor: minor,
-        root: decode_mount_field(fields[3]),
-        target: target,
-        mount_options: src.split_csv(fields[5]),
-        optional_fields: optional_fields,
-        filesystem: fields[separator + 1],
-        source: source,
-        super_options: src.split_csv(fields[separator + 3]),
-        usage_state: usage_state,
-        usage_total_bytes: usage_total_bytes,
-        usage_used_bytes: usage_used_bytes,
-        usage_available_bytes: usage_available_bytes,
-      })
+      mounts += [
+        {
+          mount_id: ids,
+          parent_id: parent_id,
+          major: major,
+          minor: minor,
+          root: decode_mount_field(fields[3]),
+          target: target,
+          mount_options: src.split_csv(fields[5]),
+          optional_fields: optional_fields,
+          filesystem: fields[separator + 1],
+          source: source,
+          super_options: src.split_csv(fields[separator + 3]),
+          usage_state: usage_state,
+          usage_total_bytes: usage_total_bytes,
+          usage_used_bytes: usage_used_bytes,
+          usage_available_bytes: usage_available_bytes,
+        },
+      ]
     }
   }
 

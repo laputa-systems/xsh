@@ -23,14 +23,20 @@ type RevOptions = {zero: Bool, help: Bool, version: Bool, files: List[Str]}
 # byte stays a character of its own.
 pure char_width(data: Bytes, at: Int) -> Int {
   let lead = data.byte_at(at) ?? 0
-  let width = if lead >= 240 and lead <= 244 { 4 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 194 and lead <= 223 { 2 } else { 1 }
+  let width = if lead >= 240 and lead <= 244 {
+    4
+  } else if lead >= 224 and lead <= 239 {
+    3
+  } else if lead >= 194 and lead <= 223 {
+    2
+  } else {
+    1
+  }
 
   for offset in range(1, width) {
     let next = data.byte_at(at + offset) ?? 0
 
-    if next < 128 or next > 191 {
-      return 1
-    }
+    return 1 when next < 128 or next > 191
   }
 
   width
@@ -47,7 +53,7 @@ pure reverse_line(content: Bytes) -> Bytes {
 
   while at < content.len() {
     let width = char_width(content, at)
-    pieces = [content[at..at + width]] + pieces
+    pieces = [content[at..at + width], @pieces]
     at += width
   }
 
@@ -69,13 +75,13 @@ pure reverse_lines(data: Bytes, zero: Bool, final: Bool) -> Reversed {
   let rest = data[start..]
 
   if final and rest.len() > 0 {
-    return {out: bytes.concat(pieces + [reverse_line(rest)]), rest: b""}
+    return {out: bytes.concat([@pieces, reverse_line(rest)]), rest: b""}
   }
 
   {out: bytes.concat(pieces), rest: rest}
 }
 
-proc main(...argv: List[Str]) [fs, process, env, io, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: RevOptions = cli.applet(
     argv,
     {
@@ -132,6 +138,6 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   }
 
   if failed {
-    abort(1)
+    exit 1
   }
 }

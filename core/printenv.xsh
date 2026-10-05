@@ -18,7 +18,7 @@ type PrintenvOptions = {null: Bool, help: Bool, version: Bool, names: List[Str]}
 
 # Exit statuses: 0 when every named variable is set, 1 when any is not, 2 for
 # a usage error.
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: PrintenvOptions = cli.applet(
     argv,
     {

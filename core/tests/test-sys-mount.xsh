@@ -1,9 +1,9 @@
 use core.lib.sys_mount as mounts
 use core.lib.system_report as report
 
-proc write_mountinfo(root: FsRoot, text: Str) [fs, error] -> Result[Unit] {
-  root.mkdir(p"proc/self", parents: true)?
-  root.write(p"proc/self/mountinfo", text)?
+proc write_mountinfo(root: FsRoot, text: Str) [fs, error] {
+  root.mkdir(p"proc/self", parents: true)
+  root.write(p"proc/self/mountinfo", text)
 }
 
 test test_sys_mount_collect_keeps_typed_identity_and_raw_option_text {
@@ -14,7 +14,7 @@ test test_sys_mount_collect_keeps_typed_identity_and_raw_option_text {
     """12 1 8:1 / /mnt/a\\040b rw,relatime shared:3 master:4 - ext4 /dev/sda1 rw,errors=remount-ro,password=private-secret
 13 12 259:7 /sub /mnt/alias rw - btrfs /dev/nvme0n1p7 rw
 """,
-  )?
+  )
 
   let table = mounts.collect(root)
   assert table.source_state == report.Observed
@@ -48,7 +48,7 @@ not enough fields
 99999999999999999999 1 8:3 / /big rw - ext4 /dev/sda3 rw
 24 1 8:4 / /also-good rw - xfs /dev/sda4 rw
 """,
-  )?
+  )
 
   let table = mounts.collect(root)
   assert [entry.mount_id for entry in table.mounts] == [22, 24]
@@ -78,10 +78,15 @@ test test_sys_mount_usage_is_opt_in_and_skips_shadowed_or_remote_mounts {
 3 1 8:2 / /dup rw - ext4 /dev/sda2 rw
 4 1 8:3 / /dup rw - ext4 /dev/sda3 rw
 """,
-  )?
+  )
 
   let plain = mounts.collect(root)
-  assert [entry.usage_state for entry in plain.mounts] == [report.NotRequested, report.NotRequested, report.NotRequested, report.NotRequested]
+  assert [entry.usage_state for entry in plain.mounts] == [
+    report.NotRequested,
+    report.NotRequested,
+    report.NotRequested,
+    report.NotRequested,
+  ]
 
   let measured = mounts.collect(root, include_usage: true)
   let root_mount = measured.mounts[0]

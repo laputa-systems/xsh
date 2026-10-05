@@ -284,7 +284,7 @@ export proc try_help() [process, env] -> Unit {
 export proc usage_error(message: Str, status = 1) [process, env] -> Unit {
   error(message)
   try_help()
-  abort(status)
+  exit status
 }
 
 ## End the script with a `missing operand` usage error.
@@ -312,11 +312,11 @@ export pure version_text(name: Str) -> Str {
 ## any other failure prints `PROG: write error: STRERROR` and exits 1.
 export proc write_failed(failure: Error) [process, env] -> Unit {
   if errno(failure) == 32 {
-    abort(141)
+    exit 141
   }
 
   error(f"write error: {strerror(failure)}")
-  abort(1)
+  exit 1
 }
 
 ## Write text to stdout, ending the applet on a write failure.
@@ -345,7 +345,7 @@ export proc help(text: Str) [process, env, io] -> Unit {
 
 ## Read one operand's bytes; `-` reads stdin. Callers report a failure with
 ## `name_error`, `cannot_open`, or `error_reading`.
-export proc read_operand(name: Str) [fs, error, io] -> Result[Bytes] {
+export proc read_operand(name: Str) [fs, error, io] -> Result[Bytes, Error] {
   return io.stdin_bytes() when name == "-"
 
   fp"{name}".read_bytes()

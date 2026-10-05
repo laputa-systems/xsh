@@ -1,11 +1,11 @@
 ##! Collects a bounded, process-visible Linux report from one rooted source tree.
-use system_report as report
-use system_report_collect as collectors
 use sys_block
 use sys_mount
 use sys_pci
 use sys_source as src
 use sys_usb
+use system_report as report
+use system_report_collect as collectors
 
 error SystemReportUsbDescriptorError = Invalid(message: Str)
 
@@ -513,7 +513,6 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
 ## Retains the configuration that owns each parsed USB interface setting.
 export type UsbDescriptorAlternate = sys_usb.DescriptorAlternate
 
-
 type CollectedDevices[T] = {
   status: report.SectionStatus,
   devices: List[T],
@@ -557,10 +556,8 @@ export type NetworkCollection = {
 ## Separates a USB bus entry's controller relation from source-read failures.
 export type UsbControllerObservation = sys_usb.ControllerObservation
 
-
 ## Keeps a class device's parent target and source failure state together.
 export type ClassParentObservation = src.ClassParentObservation
-
 
 type NetworkLinkTarget = {
   target: Path?,
@@ -968,22 +965,24 @@ proc collect_sensors(
         }
       }
 
-      channels = channels.push({
-        chip: chip,
-        chip_entry_name: chip_path.name(),
-        channel: channel_name,
-        label: label.observation,
-        kind: sensor_kind_name,
-        value: measured.value,
-        unit: sensor_unit(sensor_kind_name),
-        minimum: minimum_number.value,
-        maximum: maximum_number.value,
-        critical: critical_number.value,
-        alarm: alarm_value,
-        parent_device_class_index: null,
-        parent_pci_function_index: sys_pci.function_index(pci_indices, parent_pci_address),
-        parent_usb_device_index: parent_usb_index,
-      })
+      channels += [
+        {
+          chip: chip,
+          chip_entry_name: chip_path.name(),
+          channel: channel_name,
+          label: label.observation,
+          kind: sensor_kind_name,
+          value: measured.value,
+          unit: sensor_unit(sensor_kind_name),
+          minimum: minimum_number.value,
+          maximum: maximum_number.value,
+          critical: critical_number.value,
+          alarm: alarm_value,
+          parent_device_class_index: null,
+          parent_pci_function_index: sys_pci.function_index(pci_indices, parent_pci_address),
+          parent_usb_device_index: parent_usb_index,
+        },
+      ]
     }
   }
 
@@ -1887,22 +1886,12 @@ proc collect_device_classes(
             raw_bytes_base64: null,
           },
           parent_device_class_index: null,
-          parent_pci_function_index: pci_function_index(pci_indices, parent_pci_address),
+          parent_pci_function_index: sys_pci.function_index(pci_indices, parent_pci_address),
           parent_usb_device_index: parent_usb_device_index,
           driver: observed_source_text(driver_link),
           attributes: attributes,
         },
-        name: {
-          state: report.Observed,
-          value: name,
-          raw_bytes_base64: null,
-        },
-        parent_device_class_index: null,
-        parent_pci_function_index: sys_pci.function_index(pci_indices, parent_pci_address),
-        parent_usb_device_index: parent_usb_device_index,
-        driver: observed_source_text(driver_link),
-        attributes: attributes,
-      })
+      ]
     }
   }
 
@@ -2275,8 +2264,14 @@ pure usb_device_indices(devices: List[report.UsbDevice]) -> Map[Int] {
 ## Resolves USB parent indexes after every device has been enumerated.
 export pure link_usb_parents(devices: List[report.UsbDevice]) -> List[report.UsbDevice] {
   let parents = sys_usb.parent_indices(
-    [device.sysfs_name for device in devices],
-    [device.bus_number for device in devices],
+    [
+      device.sysfs_name
+      for device in devices
+    ],
+    [
+      device.bus_number
+      for device in devices
+    ],
   )
   [{...devices[index], parent_device_index: parents[index]} for index in range(devices.len())]
 }
@@ -2311,7 +2306,7 @@ export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] ->
 }
 
 ## Parses interface settings and endpoints without joining identical numbers across configurations.
-export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate]] {
+export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate], Error] {
   match sys_usb.parse_alternates(data) {
     Ok(alternates) => Ok(alternates)
     Err(error) => Err(SystemReportUsbDescriptorError.Invalid(message: error.message), cause: error)

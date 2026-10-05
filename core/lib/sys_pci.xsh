@@ -7,8 +7,8 @@
 ##! bridge that contains it. Names come from a label database that callers own.
 ##! The collector applies no redaction and no formatting; `system-report`,
 ##! `lspci`, and other renderers decide that.
-use system_report as report
 use sys_source as src
+use system_report as report
 
 ## Stores the four components of a PCI function address.
 export type PciAddress = {
@@ -80,7 +80,7 @@ pure parse_hex_component(value: Str) -> Result[Int] {
 }
 
 ## Parses the complete domain:bus:device.function sysfs identity.
-export pure parse_address(value: Str) -> Result[PciAddress] {
+export pure parse_address(value: Str) -> Result[PciAddress, Error] {
   let parts = value.split(":")
   if parts.len() != 3 or ! is_hex_component(parts[0], 4) or ! is_hex_component(parts[1], 2) {
     return Err(SysPciError.InvalidAddress(message: "PCI address has invalid domain or bus syntax"))
@@ -106,7 +106,7 @@ export pure parse_address(value: Str) -> Result[PciAddress] {
 }
 
 ## Parses one hexadecimal PCI sysfs identifier without converting it to text labels.
-export pure parse_hex_value(value: Str) -> Result[Int] {
+export pure parse_hex_value(value: Str) -> Result[Int, Error] {
   let text = value.trim()
   let digits = if text.starts_with("0x") or text.starts_with("0X") {
     text.split("") |> drop(2).join("")
@@ -127,7 +127,7 @@ export pure parse_hex_value(value: Str) -> Result[Int] {
 }
 
 ## Parses a nonnegative PCI decimal attribute within JSON's exact integer range.
-export pure parse_decimal_value(value: Str) -> Result[Int] {
+export pure parse_decimal_value(value: Str) -> Result[Int, Error] {
   if value == "" {
     return Err(SysPciError.InvalidId(message: "PCI decimal attribute is empty"))
   }
@@ -265,9 +265,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
 
   if listing.state != "complete" {
     let state = src.source_state(listing.state, false)
-    issues = issues.push(
-      src.issue("functions", state, listing.error_kind, listing.errno),
-    )
+    issues += [src.issue("functions", state, listing.error_kind, listing.errno)]
   }
 
   for device_path in listing.children {
@@ -275,9 +273,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     let address_result = parse_address(address_text)
     let valid_address = address_result is Ok(_)
     if ! valid_address {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}", report.Malformed, "invalid_pci_address", null),
-      )
+      issues += [src.issue(f"functions.{address_text}", report.Malformed, "invalid_pci_address", null)]
       continue
     }
 
@@ -290,39 +286,41 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     let revision = read_numeric_attribute(root, fp"{device_path}/revision", true)
 
     if vendor.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.vendor_id", vendor.state, vendor.error_kind, vendor.errno),
-      )
+      issues += [src.issue(f"functions.{address_text}.vendor_id", vendor.state, vendor.error_kind, vendor.errno)]
     }
 
     if device.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.device_id", device.state, device.error_kind, device.errno),
-      )
+      issues += [src.issue(f"functions.{address_text}.device_id", device.state, device.error_kind, device.errno)]
     }
 
     if subsystem_vendor.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.subsystem_vendor_id", subsystem_vendor.state, subsystem_vendor.error_kind, subsystem_vendor.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.subsystem_vendor_id",
+          subsystem_vendor.state,
+          subsystem_vendor.error_kind,
+          subsystem_vendor.errno,
+        ),
+      ]
     }
 
     if subsystem_device.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.subsystem_device_id", subsystem_device.state, subsystem_device.error_kind, subsystem_device.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.subsystem_device_id",
+          subsystem_device.state,
+          subsystem_device.error_kind,
+          subsystem_device.errno,
+        ),
+      ]
     }
 
     if class.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.class_code", class.state, class.error_kind, class.errno),
-      )
+      issues += [src.issue(f"functions.{address_text}.class_code", class.state, class.error_kind, class.errno)]
     }
 
     if revision.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.revision", revision.state, revision.error_kind, revision.errno),
-      )
+      issues += [src.issue(f"functions.{address_text}.revision", revision.state, revision.error_kind, revision.errno)]
     }
 
     let driver = optional_link_name(root, fp"{device_path}/driver")
@@ -331,13 +329,18 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     if parent_source.state == "observed" and parent_source.target != null {
       parent_target = parent_bridge_address(parent_source.target, address_text)
     } else if parent_source.state == "observed" {
-      issues = issues.push(
+      issues += [
         src.issue(f"functions.{address_text}.parent_function_index", report.Malformed, "invalid_parent_target", null),
-      )
+      ]
     } else {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.parent_function_index", src.source_state(parent_source.state, false), parent_source.error_kind, parent_source.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.parent_function_index",
+          src.source_state(parent_source.state, false),
+          parent_source.error_kind,
+          parent_source.errno,
+        ),
+      ]
     }
 
     let numa = read_numeric_attribute(root, fp"{device_path}/numa_node", false, allow_unknown_numa: true)
@@ -347,45 +350,68 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     let maximum_link_speed = src.read_source_text(root, fp"{device_path}/max_link_speed", max_bytes: 4096)
     let maximum_link_width = read_numeric_attribute(root, fp"{device_path}/max_link_width", false)
     if numa.state != report.Observed and numa.state != report.Absent and numa.state != report.Disappeared {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.numa_node", numa.state, numa.error_kind, numa.errno),
-      )
+      issues += [src.issue(f"functions.{address_text}.numa_node", numa.state, numa.error_kind, numa.errno)]
     }
 
     if driver.observation.state != report.Observed and driver.observation.state != report.Absent {
-      issues = issues.push(
+      issues += [
         src.issue(f"functions.{address_text}.driver", driver.observation.state, driver.error_kind, driver.errno),
-      )
+      ]
     }
 
     if iommu_group.observation.state != report.Observed and iommu_group.observation.state != report.Absent {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.iommu_group", iommu_group.observation.state, iommu_group.error_kind, iommu_group.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.iommu_group",
+          iommu_group.observation.state,
+          iommu_group.error_kind,
+          iommu_group.errno,
+        ),
+      ]
     }
 
     if current_link_speed.observation.state != report.Observed and current_link_speed.observation.state != report.Absent {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.current_link_speed", current_link_speed.observation.state, current_link_speed.error_kind, current_link_speed.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.current_link_speed",
+          current_link_speed.observation.state,
+          current_link_speed.error_kind,
+          current_link_speed.errno,
+        ),
+      ]
     }
 
     if current_link_width.state != report.Observed and current_link_width.state != report.Disappeared {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.current_link_width", current_link_width.state, current_link_width.error_kind, current_link_width.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.current_link_width",
+          current_link_width.state,
+          current_link_width.error_kind,
+          current_link_width.errno,
+        ),
+      ]
     }
 
     if maximum_link_speed.observation.state != report.Observed and maximum_link_speed.observation.state != report.Absent {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.maximum_link_speed", maximum_link_speed.observation.state, maximum_link_speed.error_kind, maximum_link_speed.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.maximum_link_speed",
+          maximum_link_speed.observation.state,
+          maximum_link_speed.error_kind,
+          maximum_link_speed.errno,
+        ),
+      ]
     }
 
     if maximum_link_width.state != report.Observed and maximum_link_width.state != report.Disappeared {
-      issues = issues.push(
-        src.issue(f"functions.{address_text}.maximum_link_width", maximum_link_width.state, maximum_link_width.error_kind, maximum_link_width.errno),
-      )
+      issues += [
+        src.issue(
+          f"functions.{address_text}.maximum_link_width",
+          maximum_link_width.state,
+          maximum_link_width.error_kind,
+          maximum_link_width.errno,
+        ),
+      ]
     }
 
     var numa_node: Int? = null
@@ -393,7 +419,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       numa_node = numa.value
     }
 
-    functions = functions.push(
+    functions += [
       {
         address: address_text,
         domain: address.domain,
@@ -423,7 +449,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
         },
         maximum_link_width: maximum_link_width.value,
       },
-    )
+    ]
     parent_addresses += [parent_target]
   }
 
@@ -438,9 +464,9 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
   }
 
   var linked_functions: List[report.PciFunction] = []
-  var function_index = 0
-  while function_index < functions.len() {
-    let parent_address = parent_addresses[function_index]
+  var position = 0
+  while position < functions.len() {
+    let parent_address = parent_addresses[position]
     var parent_index: Int? = null
     if parent_address != null {
       if parent_address in function_index_by_address {
@@ -448,11 +474,13 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       }
     }
 
-    linked_functions = linked_functions.push({
-      ...functions[function_index],
-      parent_function_index: parent_index,
-    })
-    function_index += 1
+    linked_functions += [
+      {
+        ...functions[position],
+        parent_function_index: parent_index,
+      },
+    ]
+    position += 1
   }
 
   {

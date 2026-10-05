@@ -11,7 +11,7 @@ Same as id -un.
 
 type WhoamiOptions = {help: Bool, version: Bool}
 
-proc main(...argv: List[Str]) [process, env, io, fs, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: WhoamiOptions = cli.applet(
     argv,
     {
@@ -35,7 +35,7 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
 
   guard let account = user.by_uid(uid) else {
     gnu.error(f"cannot find name for user ID {uid}")
-    abort(1)
+    exit 1
   }
 
   gnu.write_text(f"{account.name}\n")

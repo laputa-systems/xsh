@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/head.xsh by its real path inside `root`, capturing both streams.
-proc head_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc head_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display()].extend(args)
@@ -13,7 +13,7 @@ proc head_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"")
 test test_head_lines_bytes_and_obsolete_counts { |ctx|
   let root = test.temp_dir(ctx, name: "head")?
   let twenty = bytes.concat([bytes.from_text(f"{n}\n") for n in range(1, 21)])
-  fp"{root}/n20".write(twenty)?
+  fp"{root}/n20".write(twenty)
 
   assert head_run(ctx, root, ["n20"])?.stdout == bytes.concat([bytes.from_text(f"{n}\n") for n in range(1, 11)])
   assert head_run(ctx, root, ["-n2", "n20"])?.stdout == b"1\n2\n"
@@ -75,9 +75,9 @@ test test_head_keeps_non_utf8_bytes_and_crlf { |ctx|
 
 test test_head_headers_quote_names_and_follow_the_open_result { |ctx|
   let root = test.temp_dir(ctx, name: "head")?
-  fp"{root}/plain".write(b"p\n")?
-  fp"{root}/two words".write(b"w\n")?
-  fp"{root}/dir".mkdir()?
+  fp"{root}/plain".write(b"p\n")
+  fp"{root}/two words".write(b"w\n")
+  fp"{root}/dir".mkdir()
 
   assert head_run(ctx, root, ["-n1", "plain", "two words"])?.stdout == b"==> plain <==\np\n\n==> 'two words' <==\nw\n"
   assert head_run(ctx, root, ["-q", "plain", "plain"])?.stdout == b"p\np\n"
@@ -93,7 +93,7 @@ test test_head_headers_quote_names_and_follow_the_open_result { |ctx|
 
 test test_head_zero_count_reads_nothing { |ctx|
   let root = test.temp_dir(ctx, name: "head")?
-  fp"{root}/dir".mkdir()?
+  fp"{root}/dir".mkdir()
 
   assert head_run(ctx, root, ["-c", "0", "dir"])?.status == 0
   assert head_run(ctx, root, ["-n", "0", "dir"])?.stdout == b""

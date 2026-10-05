@@ -89,6 +89,31 @@ type Integer = {ok: Bool, negative: Bool, digits: Str}
 
 type Identity = {euid: Int, egid: Int, groups: List[Int]}
 
+const UNARY_OPS = [
+  "-b",
+  "-c",
+  "-d",
+  "-e",
+  "-f",
+  "-g",
+  "-G",
+  "-h",
+  "-k",
+  "-L",
+  "-n",
+  "-N",
+  "-O",
+  "-p",
+  "-r",
+  "-s",
+  "-S",
+  "-t",
+  "-u",
+  "-w",
+  "-x",
+  "-z",
+]
+
 const INTEGER_OPS = ["-eq", "-ne", "-lt", "-le", "-gt", "-ge"]
 const FILE_OPS = ["-nt", "-ot", "-ef"]
 const STRING_OPS = ["=", "==", "!=", "<", ">"]
@@ -99,7 +124,7 @@ pure is_binop(word: Str) -> Bool {
 
 proc syntax_error(message: Str) [process, env] -> Unit {
   gnu.error(message)
-  abort(2)
+  exit 2
 }
 
 # `missing argument after LAST-WORD`, the error for running out of words.
@@ -108,7 +133,7 @@ proc beyond(argv: List[Str]) [process, env] -> Unit {
 }
 
 pure blank(text: Str) -> Bool {
-  text == " " or text == "\t" or text == "\n" or text == "\x0b" or text == "\x0c" or text == "\r"
+  text == " " or text == "\t" or text == "\n" or text == "\u{b}" or text == "\u{c}" or text == "\r"
 }
 
 # An integer operand as GNU reads it: surrounding blanks, an optional sign,
@@ -257,8 +282,6 @@ proc unary(op: Str, operand: Str) [fs, process, env, error] -> Result[Bool] {
   permitted(entry, 1)
 }
 
-const UNARY_OPS = ["-b", "-c", "-d", "-e", "-f", "-g", "-G", "-h", "-k", "-L", "-n", "-N", "-O", "-p", "-r", "-s", "-S", "-t", "-u", "-w", "-x", "-z"]
-
 # The unary test at `at`, selected by the second character of the word like
 # GNU does: an unknown operator is a syntax error even without an operand, and
 # a known one needs the next word.
@@ -303,9 +326,7 @@ proc file_compare(op: Str, left: Str, right: Str) [fs, process, env, error] -> R
     right_time = entry.modified
   }
 
-  if op == "-nt" {
-    return Ok(left_found and (! right_found or left_time > right_time))
-  }
+  return Ok(left_found and (! right_found or left_time > right_time)) when op == "-nt"
 
   Ok(right_found and (! left_found or left_time < right_time))
 }
@@ -327,7 +348,19 @@ proc binary(argv: List[Str], at: Int, length_left: Bool) [fs, process, env, erro
     let left_number = integer_value(left, length_left)
     let right_number = integer_value(if length_right { argv[op_at + 2] } else { right }, length_right)
     let order = compare_integers(left_number, right_number)
-    let held = if op == "-eq" { order == 0 } else if op == "-ne" { order != 0 } else if op == "-lt" { order < 0 } else if op == "-le" { order <= 0 } else if op == "-gt" { order > 0 } else { order >= 0 }
+    let held = if op == "-eq" {
+      order == 0
+    } else if op == "-ne" {
+      order != 0
+    } else if op == "-lt" {
+      order < 0
+    } else if op == "-le" {
+      order <= 0
+    } else if op == "-gt" {
+      order > 0
+    } else {
+      order >= 0
+    }
 
     return Ok({value: held, pos: next})
   }
@@ -340,38 +373,26 @@ proc binary(argv: List[Str], at: Int, length_left: Bool) [fs, process, env, erro
     return Ok({value: file_compare(op, left, right)?, pos: next})
   }
 
-  if op == "=" or op == "==" {
-    return Ok({value: left == right, pos: next})
-  }
+  return Ok({value: left == right, pos: next}) when op == "=" or op == "=="
 
-  if op == "!=" {
-    return Ok({value: left != right, pos: next})
-  }
+  return Ok({value: left != right, pos: next}) when op == "!="
 
-  if op == "<" {
-    return Ok({value: left < right, pos: next})
-  }
+  return Ok({value: left < right, pos: next}) when op == "<"
 
   Ok({value: left > right, pos: next})
 }
 
 proc two_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval] {
-  if argv[at] == "!" {
-    return Ok({value: argv[at + 1] == "", pos: at + 2})
-  }
+  return Ok({value: argv[at + 1] == "", pos: at + 2}) when argv[at] == "!"
 
-  if is_switch(argv[at]) {
-    return unary_at(argv, at)
-  }
+  return unary_at(argv, at) when is_switch(argv[at])
 
   beyond(argv)
   Ok({value: false, pos: at})
 }
 
 proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval] {
-  if is_binop(argv[at + 1]) {
-    return binary(argv, at, false)
-  }
+  return binary(argv, at, false) when is_binop(argv[at + 1])
 
   if argv[at] == "!" {
     let inner = two_arguments(argv, at + 1)?
@@ -383,9 +404,7 @@ proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Resu
     return Ok({value: argv[at + 1] != "", pos: at + 3})
   }
 
-  if argv[at + 1] == "-a" or argv[at + 1] == "-o" {
-    return expression(argv, at)
-  }
+  return expression(argv, at) when argv[at + 1] == "-a" or argv[at + 1] == "-o"
 
   syntax_error(f"{gnu.quote(argv[at + 1])}: binary operator expected")
   Ok({value: false, pos: at})
@@ -394,17 +413,11 @@ proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Resu
 # GNU classifies the words by count: one to four words never reach the
 # general parser unless they contain a boolean operator.
 proc posixtest(argv: List[Str], at: Int, count: Int) [fs, process, env, error] -> Result[Eval] {
-  if count == 1 {
-    return Ok({value: argv[at] != "", pos: at + 1})
-  }
+  return Ok({value: argv[at] != "", pos: at + 1}) when count == 1
 
-  if count == 2 {
-    return two_arguments(argv, at)
-  }
+  return two_arguments(argv, at) when count == 2
 
-  if count == 3 {
-    return three_arguments(argv, at)
-  }
+  return three_arguments(argv, at) when count == 3
 
   if count == 4 {
     if argv[at] == "!" {
@@ -526,7 +539,7 @@ proc expression(argv: List[Str], start: Int) [fs, process, env, error] -> Result
 
 ## Evaluate the words of a `test` command line. Ends the applet with the
 ## exit status: 0 true, 1 false, 2 for a syntax error.
-export proc evaluate(argv: List[Str]) [fs, process, env, io, error] -> Unit {
+export proc evaluate(argv: List[Str]) [fs, process, env, error, io] -> Unit {
   let bracket = gnu.prog() == "["
   var words = argv
 
@@ -549,7 +562,7 @@ export proc evaluate(argv: List[Str]) [fs, process, env, io, error] -> Unit {
   }
 
   if words.len() == 0 {
-    abort(1)
+    exit 1
   }
 
   let outcome = posixtest(words, 0, words.len())?
@@ -559,6 +572,6 @@ export proc evaluate(argv: List[Str]) [fs, process, env, io, error] -> Unit {
   }
 
   if ! outcome.value {
-    abort(1)
+    exit 1
   }
 }

@@ -19,7 +19,7 @@ const DECIMAL = rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?"
 const HEXADECIMAL = rx"^0[xX](?:([0-9a-fA-F]+)(?:\.([0-9a-fA-F]*))?|\.([0-9a-fA-F]+))(?:[pP]([+-]?[0-9]+))?"
 
 pure is_space(text: Str) -> Bool {
-  text == " " or text == "\t" or text == "\n" or text == "\x0b" or text == "\x0c" or text == "\r"
+  text == " " or text == "\t" or text == "\n" or text == "\u{b}" or text == "\u{c}" or text == "\r"
 }
 
 # `inf` and `nan` as the parser spells them.
@@ -105,7 +105,7 @@ pure interval_seconds(text: Str) -> Float? {
   null
 }
 
-proc main(...argv: List[Str]) [process, env, io, time, error] {
+proc main(...argv: List[Str]) [process, env, time, error, io] {
   let opts: SleepOptions = cli.applet(
     argv,
     {
@@ -146,7 +146,7 @@ proc main(...argv: List[Str]) [process, env, io, time, error] {
 
   if ! valid {
     gnu.try_help()
-    abort(1)
+    exit 1
   }
 
   var remaining = total * 1000.0
@@ -154,7 +154,7 @@ proc main(...argv: List[Str]) [process, env, io, time, error] {
   while remaining > 0.0 {
     let chunk = if remaining > 3600000.0 { 3600000.0 } else { remaining }
 
-    time.sleep(time.millis(chunk.ceil()?))?
+    time.sleep(time.millis(chunk.ceil()?))
     remaining -= chunk
   }
 }

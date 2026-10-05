@@ -2,7 +2,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/whoami.xsh by its real path (so the invoked name is whoami and
 # `lib.gnu` resolves beside it), capturing both streams.
-proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}, stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc applet_run(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C"},
+  stdin = b"",
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "whoami")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"

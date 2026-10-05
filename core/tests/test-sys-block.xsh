@@ -3,28 +3,31 @@ use core.lib.system_report as report
 
 # Creates a class entry for a device whose real directory lives at `device_path`.
 # Partitions expose holders but no slaves directory of their own.
-proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors: Str, slaves: Bool = true) [fs, error] -> Result[Unit] {
-  root.mkdir(fp"sys/devices/{device_path}/holders", parents: true)?
+proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors: Str, slaves: Bool = true) [fs, error] {
+  root.mkdir(fp"sys/devices/{device_path}/holders", parents: true)
   if slaves {
-    root.mkdir(fp"sys/devices/{device_path}/slaves", parents: true)?
+    root.mkdir(fp"sys/devices/{device_path}/slaves", parents: true)
   }
 
-  root.mkdir(fp"sys/devices/{device_path}/queue", parents: true)?
-  root.write(fp"sys/devices/{device_path}/dev", f"{number}\n")?
-  root.write(fp"sys/devices/{device_path}/size", f"{sectors}\n")?
-  root.write(fp"sys/devices/{device_path}/queue/logical_block_size", "512\n")?
-  root.write(fp"sys/devices/{device_path}/queue/physical_block_size", "4096\n")?
-  root.write(fp"sys/devices/{device_path}/queue/rotational", "0\n")?
-  root.write(fp"sys/devices/{device_path}/removable", "0\n")?
-  root.write(fp"sys/devices/{device_path}/ro", "1\n")?
-  root.symlink(fp"../../devices/{device_path}", fp"sys/class/block/{name}")?
+  root.mkdir(fp"sys/devices/{device_path}/queue", parents: true)
+  root.write(fp"sys/devices/{device_path}/dev", f"{number}\n")
+  root.write(fp"sys/devices/{device_path}/size", f"{sectors}\n")
+  root.write(fp"sys/devices/{device_path}/queue/logical_block_size", "512\n")
+  root.write(fp"sys/devices/{device_path}/queue/physical_block_size", "4096\n")
+  root.write(fp"sys/devices/{device_path}/queue/rotational", "0\n")
+  root.write(fp"sys/devices/{device_path}/removable", "0\n")
+  root.write(fp"sys/devices/{device_path}/ro", "1\n")
+  root.symlink(fp"../../devices/{device_path}", fp"sys/class/block/{name}")
 }
 
 test test_sys_block_scheduler_parser_requires_exactly_one_selected_choice {
   let selected = block.parse_scheduler("none [mq-deadline] kyber").require(block.BlockScheduler)?
   assert selected.active == "mq-deadline"
   assert selected.available == ["none", "mq-deadline", "kyber"]
-  assert block.parse_scheduler("[none]\tfixture-scheduler").require(block.BlockScheduler)?.available == ["none", "fixture-scheduler"]
+  assert block.parse_scheduler("[none]\tfixture-scheduler").require(block.BlockScheduler)?.available == [
+    "none",
+    "fixture-scheduler",
+  ]
   for invalid in ["", "none kyber", "[none] [kyber]", "[none] none", "[]", "a\nb"] {
     assert block.parse_scheduler(invalid) == null, invalid
   }
@@ -33,19 +36,19 @@ test test_sys_block_scheduler_parser_requires_exactly_one_selected_choice {
 test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let root = fs.tempdir()?
   defer root.close()?
-  root.mkdir(p"sys/class/block", parents: true)?
+  root.mkdir(p"sys/class/block", parents: true)
   let disk = "pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1"
-  add_device(root, "nvme0n1", disk, "259:0", "2048")?
-  add_device(root, "nvme0n1p2", f"{disk}/nvme0n1p2", "259:2", "1024", slaves: false)?
-  root.write(fp"sys/devices/{disk}/nvme0n1p2/partition", "2\n")?
-  root.mkdir(fp"sys/devices/{disk}/device", parents: true)?
-  root.write(fp"sys/devices/{disk}/device/model", "Fixture NVMe\n")?
-  root.write(fp"sys/devices/{disk}/device/rev", "REV9\n")?
-  root.write(fp"sys/devices/{disk}/queue/scheduler", "[none] mq-deadline\n")?
-  root.write(fp"sys/devices/{disk}/stat", "1 2 3 4 5 6 7 8 9 10 11\n")?
-  add_device(root, "dm-0", "virtual/block/dm-0", "253:0", "512")?
-  root.symlink(p"../../../../../../../../virtual/block/dm-0", fp"sys/devices/{disk}/nvme0n1p2/holders/dm-0")?
-  root.symlink(fp"../../../../{disk}/nvme0n1p2", p"sys/devices/virtual/block/dm-0/slaves/nvme0n1p2")?
+  add_device(root, "nvme0n1", disk, "259:0", "2048")
+  add_device(root, "nvme0n1p2", f"{disk}/nvme0n1p2", "259:2", "1024", slaves: false)
+  root.write(fp"sys/devices/{disk}/nvme0n1p2/partition", "2\n")
+  root.mkdir(fp"sys/devices/{disk}/device", parents: true)
+  root.write(fp"sys/devices/{disk}/device/model", "Fixture NVMe\n")
+  root.write(fp"sys/devices/{disk}/device/rev", "REV9\n")
+  root.write(fp"sys/devices/{disk}/queue/scheduler", "[none] mq-deadline\n")
+  root.write(fp"sys/devices/{disk}/stat", "1 2 3 4 5 6 7 8 9 10 11\n")
+  add_device(root, "dm-0", "virtual/block/dm-0", "253:0", "512")
+  root.symlink(../../../../../../../../virtual/block/dm-0, fp"sys/devices/{disk}/nvme0n1p2/holders/dm-0")
+  root.symlink(fp"../../../../{disk}/nvme0n1p2", p"sys/devices/virtual/block/dm-0/slaves/nvme0n1p2")
 
   let inventory = block.collect(root)
   assert inventory.listing_state == "complete"
@@ -83,12 +86,12 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
 test test_sys_block_collect_keeps_a_device_with_missing_or_invalid_fields {
   let root = fs.tempdir()?
   defer root.close()?
-  root.mkdir(p"sys/class/block", parents: true)?
-  add_device(root, "sda", "pci0000:00/0000:00:1f.2/ata1/block/sda", "8:0", "16")?
-  add_device(root, "sdb", "pci0000:00/0000:00:1f.2/ata2/block/sdb", "8:16", "16")?
-  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/ata2/block/sdb/dev", "eight\n")?
-  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/ata2/block/sdb/removable", "2\n")?
-  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/ata2/block/sdb/queue/scheduler", "none kyber\n")?
+  root.mkdir(p"sys/class/block", parents: true)
+  add_device(root, "sda", "pci0000:00/0000:00:1f.2/ata1/block/sda", "8:0", "16")
+  add_device(root, "sdb", "pci0000:00/0000:00:1f.2/ata2/block/sdb", "8:16", "16")
+  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/ata2/block/sdb/dev", "eight\n")
+  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/ata2/block/sdb/removable", "2\n")
+  root.write(p"sys/devices/pci0000:00/0000:00:1f.2/ata2/block/sdb/queue/scheduler", "none kyber\n")
 
   let inventory = block.collect(root)
   assert inventory.devices.len() == 2

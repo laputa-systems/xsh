@@ -36,9 +36,7 @@ type TeeOptions = {
 
 # GNU `argmatch`: an exact name wins, otherwise a unique prefix.
 proc resolve_mode(text: Str) [process, env] -> Str {
-  if text in MODES {
-    return text
-  }
+  return text when text in MODES
 
   let found = [mode for mode in MODES if mode.starts_with(text)]
 
@@ -53,8 +51,7 @@ proc resolve_mode(text: Str) [process, env] -> Str {
   }
 
   gnu.try_help()
-  abort(1)
-  text
+  exit 1
 }
 
 # Write `data` to one output. An existing regular file is extended in place
@@ -73,20 +70,52 @@ proc write_output(name: Str, data: Bytes, append: Bool) [fs, error] {
     }
   }
 
-  target.write(data)?
+  target.write(data)
 }
 
-proc main(...argv: List[Str]) [fs, process, env, io, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: TeeOptions = cli.applet(
     argv,
     {
-      gnu: {status: 1, unsupported: {"-i": "interrupts cannot be ignored", "--ignore-interrupts": "interrupts cannot be ignored"}},
-      append: {form: "-a --append", default: false},
-      pipe: {form: "-p", default: false, conflicts: ["output_error"]},
-      output_error: {form: "--output-error[=MODE]", default: "", optional_default: "warn-nopipe", conflicts: ["pipe"]},
-      help: {form: "--help", default: false, stop: true},
-      version: {form: "--version", default: false, stop: true},
-      files: {form: "...FILE"},
+      gnu: {
+        status: 1,
+        unsupported: {
+          "-i": "interrupts cannot be ignored",
+          "--ignore-interrupts": "interrupts cannot be ignored",
+        },
+      },
+      append: {
+        form: "-a --append",
+        default: false,
+      },
+      pipe: {
+        form: "-p",
+        default: false,
+        conflicts: [
+          "output_error",
+        ],
+      },
+      output_error: {
+        form: "--output-error[=MODE]",
+        default: "",
+        optional_default: "warn-nopipe",
+        conflicts: [
+          "pipe",
+        ],
+      },
+      help: {
+        form: "--help",
+        default: false,
+        stop: true,
+      },
+      version: {
+        form: "--version",
+        default: false,
+        stop: true,
+      },
+      files: {
+        form: "...FILE",
+      },
     },
   )?
 
@@ -100,11 +129,17 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     return
   }
 
-  let mode = if opts.pipe { "warn-nopipe" } else if opts.output_error == "" { "" } else { resolve_mode(opts.output_error) }
+  let mode = if opts.pipe {
+    "warn-nopipe"
+  } else if opts.output_error == "" {
+    ""
+  } else {
+    resolve_mode(opts.output_error)
+  }
 
   guard let data = io.stdin_bytes() else { |failure|
     gnu.error(f"read error: {gnu.strerror(failure)}")
-    abort(1)
+    exit 1
   }
 
   gnu.write_bytes(data)
@@ -120,12 +155,12 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
       }
 
       if mode.starts_with("exit") and ! ignored {
-        abort(1)
+        exit 1
       }
     }
   }
 
   if failed {
-    abort(1)
+    exit 1
   }
 }

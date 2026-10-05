@@ -26,7 +26,7 @@ type Count = {saturated: Bool, value: Int}
 type Leading = {count: Count, rest: Str}
 
 pure is_space(text: Str) -> Bool {
-  text == " " or text == "\t" or text == "\n" or text == "\x0b" or text == "\x0c" or text == "\r"
+  text == " " or text == "\t" or text == "\n" or text == "\u{b}" or text == "\u{c}" or text == "\r"
 }
 
 pure count_of(digits: Str) -> Count {
@@ -73,7 +73,7 @@ pure smaller(left: Count, right: Count) -> Count {
   if left.value < right.value { left } else { right }
 }
 
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: NprocOptions = cli.applet(
     argv,
     {
@@ -104,7 +104,7 @@ proc main(...argv: List[Str]) [process, env, io, error] {
 
     if parsed == null or parsed.rest != "" {
       gnu.error(f"invalid number: {gnu.quote(given)}")
-      abort(1)
+      exit 1
     }
 
     ignore = parsed.count

@@ -10,7 +10,7 @@ Print machine architecture.
 
 type ArchOptions = {help: Bool, version: Bool}
 
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: ArchOptions = cli.applet(
     argv,
     {

@@ -40,7 +40,7 @@ type UnameOptions = {
 # Processor and hardware platform are never determined, so like GNU the
 # applet prints `unknown` for them only when asked explicitly and omits them
 # from -a and -A. The operating system is GNU's fixed `GNU/Linux`.
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: UnameOptions = cli.applet(
     argv,
     {
@@ -108,7 +108,7 @@ proc main(...argv: List[Str]) [process, env, io, error] {
   }
 
   if opts.all_labeled {
-    gnu.write_text(f"{[f"{field.label}: {field.text}\n" for field in fields].join("")}")
+    gnu.write_text([f"{field.label}: {field.text}\n" for field in fields].join(""))
   } else {
     gnu.write_text(f"{[field.text for field in fields].join(" ")}\n")
   }

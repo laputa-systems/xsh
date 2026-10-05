@@ -11,24 +11,84 @@ const GNU = {
   gnu: {
     prog: "demo",
     status: 2,
-    unsupported: {"--selinux": "SELinux is not available", "-Z": "contexts are not available"},
+    unsupported: {
+      "--selinux": "SELinux is not available",
+      "-Z": "contexts are not available",
+    },
   },
-  all: {form: "-a --all", default: false},
-  almost_all: {form: "-A --almost-all", default: false},
-  human: {form: "-h --human-readable", default: false},
-  verbose: {form: "-v --verbose", default: false},
-  oneline: {form: "-1", default: false, conflicts: ["long_format"]},
-  long_format: {form: "-l", default: false, conflicts: ["oneline"]},
-  time: {form: "-t --time", default: false},
-  time_style: {form: "--time-style STYLE"},
-  lines: {form: "-n --lines N", kind: "Int", default: 10, numeric: true},
-  size: {form: "-s --size SIZE"},
-  color: {form: "--color --colour[=WHEN]", default: "never", optional_default: "always"},
-  extra: {form: "-x", optional_value: true, optional_default: "dflt"},
-  ignore: {form: "-I --ignore PATTERN", repeated: true},
-  help: {form: "--help", default: false, stop: true},
-  version: {form: "--version", default: false, stop: true},
-  paths: {form: "...FILE"},
+  all: {
+    form: "-a --all",
+    default: false,
+  },
+  almost_all: {
+    form: "-A --almost-all",
+    default: false,
+  },
+  human: {
+    form: "-h --human-readable",
+    default: false,
+  },
+  verbose: {
+    form: "-v --verbose",
+    default: false,
+  },
+  oneline: {
+    form: "-1",
+    default: false,
+    conflicts: [
+      "long_format",
+    ],
+  },
+  long_format: {
+    form: "-l",
+    default: false,
+    conflicts: [
+      "oneline",
+    ],
+  },
+  time: {
+    form: "-t --time",
+    default: false,
+  },
+  time_style: {
+    form: "--time-style STYLE",
+  },
+  lines: {
+    form: "-n --lines N",
+    kind: "Int",
+    default: 10,
+    numeric: true,
+  },
+  size: {
+    form: "-s --size SIZE",
+  },
+  color: {
+    form: "--color --colour[=WHEN]",
+    default: "never",
+    optional_default: "always",
+  },
+  extra: {
+    form: "-x",
+    optional_value: true,
+    optional_default: "dflt",
+  },
+  ignore: {
+    form: "-I --ignore PATTERN",
+    repeated: true,
+  },
+  help: {
+    form: "--help",
+    default: false,
+    stop: true,
+  },
+  version: {
+    form: "--version",
+    default: false,
+    stop: true,
+  },
+  paths: {
+    form: "...FILE",
+  },
 }
 
 const SCHEMA_SOURCE = """{
@@ -214,36 +274,41 @@ test test_cli_gnu_stop_options_end_parsing_successfully {
 }
 
 test test_cli_gnu_diagnoses_like_getopt { |ctx|
-  assert_diagnostic(ctx, ["-q"], "invalid option -- 'q'", 2)?
-  assert_diagnostic(ctx, ["-aq"], "invalid option -- 'q'", 2)?
-  assert_diagnostic(ctx, ["--foo"], "unrecognized option '--foo'", 2)?
-  assert_diagnostic(ctx, ["--foo=bar"], "unrecognized option '--foo=bar'", 2)?
-  assert_diagnostic(ctx, ["-n"], "option requires an argument -- 'n'", 2)?
-  assert_diagnostic(ctx, ["-an"], "option requires an argument -- 'n'", 2)?
-  assert_diagnostic(ctx, ["--lines"], "option '--lines' requires an argument", 2)?
-  assert_diagnostic(ctx, ["--li"], "option '--lines' requires an argument", 2)?
-  assert_diagnostic(ctx, ["--all=1"], "option '--all' doesn't allow an argument", 2)?
-  assert_diagnostic(ctx, ["--al"], "option '--al' is ambiguous; possibilities: '--all' '--almost-all'", 2)?
-  assert_diagnostic(ctx, ["--al=3"], "option '--al=3' is ambiguous; possibilities: '--all' '--almost-all'", 2)?
-  assert_diagnostic(ctx, ["--lines=abc"], "invalid argument 'abc' for '--lines'", 2)?
-  assert_diagnostic(ctx, ["-nabc"], "invalid argument 'abc' for '--lines'", 2)?
+  assert_diagnostic(ctx, ["-q"], "invalid option -- 'q'", 2)
+  assert_diagnostic(ctx, ["-aq"], "invalid option -- 'q'", 2)
+  assert_diagnostic(ctx, ["--foo"], "unrecognized option '--foo'", 2)
+  assert_diagnostic(ctx, ["--foo=bar"], "unrecognized option '--foo=bar'", 2)
+  assert_diagnostic(ctx, ["-n"], "option requires an argument -- 'n'", 2)
+  assert_diagnostic(ctx, ["-an"], "option requires an argument -- 'n'", 2)
+  assert_diagnostic(ctx, ["--lines"], "option '--lines' requires an argument", 2)
+  assert_diagnostic(ctx, ["--li"], "option '--lines' requires an argument", 2)
+  assert_diagnostic(ctx, ["--all=1"], "option '--all' doesn't allow an argument", 2)
+  assert_diagnostic(ctx, ["--al"], "option '--al' is ambiguous; possibilities: '--all' '--almost-all'", 2)
+  assert_diagnostic(ctx, ["--al=3"], "option '--al=3' is ambiguous; possibilities: '--all' '--almost-all'", 2)
+  assert_diagnostic(ctx, ["--lines=abc"], "invalid argument 'abc' for '--lines'", 2)
+  assert_diagnostic(ctx, ["-nabc"], "invalid argument 'abc' for '--lines'", 2)
 
   # The first problem in command-line order is the one reported, and an
   # earlier stop option hides everything after it.
-  assert_diagnostic(ctx, ["-q", "--bogus"], "invalid option -- 'q'", 2)?
-  assert_diagnostic(ctx, ["--bogus", "-q"], "unrecognized option '--bogus'", 2)?
-  assert_diagnostic(ctx, ["--lines=x", "--bogus"], "invalid argument 'x' for '--lines'", 2)?
-  assert_diagnostic(ctx, ["-q", "--help"], "invalid option -- 'q'", 2)?
+  assert_diagnostic(ctx, ["-q", "--bogus"], "invalid option -- 'q'", 2)
+  assert_diagnostic(ctx, ["--bogus", "-q"], "unrecognized option '--bogus'", 2)
+  assert_diagnostic(ctx, ["--lines=x", "--bogus"], "invalid argument 'x' for '--lines'", 2)
+  assert_diagnostic(ctx, ["-q", "--help"], "invalid option -- 'q'", 2)
   let help = run_applet(ctx, SCHEMA_SOURCE, ["--help", "-q"], {})?
   assert help.status == 0 and help.stderr == ""
 }
 
 test test_cli_gnu_unsupported_options_fail_by_name { |ctx|
-  assert_diagnostic(ctx, ["--selinux"], "option '--selinux' is not supported: SELinux is not available", 2)?
-  assert_diagnostic(ctx, ["--selin"], "option '--selinux' is not supported: SELinux is not available", 2)?
-  assert_diagnostic(ctx, ["--selinux=x"], "option '--selinux' is not supported: SELinux is not available", 2)?
-  assert_diagnostic(ctx, ["-vZ"], "option '-Z' is not supported: contexts are not available", 2)?
-  assert_diagnostic(ctx, ["-a", "--selinux", "--bogus"], "option '--selinux' is not supported: SELinux is not available", 2)?
+  assert_diagnostic(ctx, ["--selinux"], "option '--selinux' is not supported: SELinux is not available", 2)
+  assert_diagnostic(ctx, ["--selin"], "option '--selinux' is not supported: SELinux is not available", 2)
+  assert_diagnostic(ctx, ["--selinux=x"], "option '--selinux' is not supported: SELinux is not available", 2)
+  assert_diagnostic(ctx, ["-vZ"], "option '-Z' is not supported: contexts are not available", 2)
+  assert_diagnostic(
+    ctx,
+    ["-a", "--selinux", "--bogus"],
+    "option '--selinux' is not supported: SELinux is not available",
+    2,
+  )
 }
 
 test test_cli_gnu_reports_operand_errors_with_the_configured_status { |ctx|
@@ -283,8 +348,8 @@ test test_cli_gnu_program_defaults_to_the_invoked_name { |ctx|
 proc main(...argv: List[Str]) [io, error] {
   let _ = cli.applet(argv, {gnu: {}, verbose: {form: "-v", default: false}})?
 }
-""")?
-  fs.symlink(fp"{root}/real.xsh", fp"{root}/dir")?
+""")
+  fs.symlink(fp"{root}/real.xsh", fp"{root}/dir")
   let link = fp"{root}/dir"
   let output = run.capture --text --accept=[1] "xsh" $link "-z" ?
   assert output.status.exited_with(1)
@@ -301,6 +366,7 @@ test test_cli_gnu_has_no_automatic_help { |ctx|
     assert ran.stdout == ""
     assert "usage" not in ran.stderr
   }
+
   let unrecognized = run_applet(ctx, small, ["--help"], {XSH_EXECUTION_PHRASE: ""})?
   assert unrecognized.stderr == """demo: unrecognized option '--help'
 Try 'demo --help' for more information.
@@ -330,8 +396,12 @@ test test_cli_gnu_prepared_and_dynamic_schemas_agree {
 
 test test_cli_gnu_rejects_malformed_configuration {
   assert "unknown `gnu` field `bogus`" in failure_message(cli.applet([], dynamic_cli_schema({gnu: {bogus: 1}})))
-  assert "`gnu` field `status` has an invalid Int value" in failure_message(cli.applet([], dynamic_cli_schema({gnu: {status: 256}})))
+  assert "`gnu` field `status` has an invalid Int value" in failure_message(
+    cli.applet([], dynamic_cli_schema({gnu: {status: 256}})),
+  )
   assert "`gnu` must be Record" in failure_message(cli.applet([], dynamic_cli_schema({gnu: true})))
-  assert "must be `--long` or `-s`" in failure_message(cli.applet([], dynamic_cli_schema({gnu: {unsupported: {selinux: "x"}}})))
+  assert "must be `--long` or `-s`" in failure_message(
+    cli.applet([], dynamic_cli_schema({gnu: {unsupported: {selinux: "x"}}})),
+  )
   assert "must be Str" in failure_message(cli.applet([], dynamic_cli_schema({gnu: {unsupported: {"--x": 1}}})))
 }

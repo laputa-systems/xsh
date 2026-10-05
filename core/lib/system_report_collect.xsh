@@ -1,8 +1,8 @@
 ##! Parses bounded Linux inventory source records for system-report.
-use system_report as report
 use sys_block
 use sys_pci
 use sys_source as src
+use system_report as report
 
 ## Retains one bounded USB descriptor after validating its framing.
 export type UsbDescriptorRecord = {
@@ -24,13 +24,6 @@ export type TransparentHugePagePolicy = {selected: Str, available: List[Str]}
 ## Keeps the active block scheduler with every scheduler offered by the device.
 export type BlockScheduler = sys_block.BlockScheduler
 
-type NumericRead = {
-  value: Int?,
-  state: report.ObservationState,
-  errno: Int?,
-  error_kind: Str?,
-}
-
 ## Stores the four components of a PCI function address.
 export type PciAddress = sys_pci.PciAddress
 
@@ -47,7 +40,16 @@ export type SourceRead = src.SourceRead
 ## Retains a bounded integer or the source, syntax, or range state that withheld it.
 export type BoundedNumber = src.BoundedNumber
 
-error SystemReportSourceError = InvalidPciAddress(message: Str) | InvalidPciId(message: Str) | InvalidUsbDescriptor(message: Str) | InvalidThpPolicy(message: Str) | InvalidCgroupMount(message: Str) | InvalidCpuFreqMembers(message: Str) | InvalidCacheSharing(message: Str) | InvalidIdleStateIndex(message: Str)
+error SystemReportSourceError {
+    InvalidPciAddress(message: Str)
+    InvalidPciId(message: Str)
+    InvalidUsbDescriptor(message: Str)
+    InvalidThpPolicy(message: Str)
+    InvalidCgroupMount(message: Str)
+    InvalidCpuFreqMembers(message: Str)
+    InvalidCacheSharing(message: Str)
+    InvalidIdleStateIndex(message: Str)
+}
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
 export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
@@ -460,9 +462,9 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   }
 
   let parsed = src.bounded_number({...source, observation: {...observed, value: number_text}}, true)
-  return parsed when parsed.value == null
-
-  let number = parsed.value
+  guard let number = parsed.value else {
+    return parsed
+  }
   if number > maximum {
     return {value: null, state: report.RangeFailure, error_kind: "json_integer_out_of_range", errno: null}
   }
@@ -471,7 +473,7 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
 }
 
 ## Parses the complete domain:bus:device.function sysfs identity.
-export pure parse_pci_address(value: Str) -> Result[PciAddress] {
+export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
   match sys_pci.parse_address(value) {
     Ok(address) => Ok(address)
     Err(error) => Err(SystemReportSourceError.InvalidPciAddress(message: error.message), cause: error)
@@ -479,7 +481,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress] {
 }
 
 ## Parses one hexadecimal PCI sysfs identifier without converting it to text labels.
-export pure parse_pci_hex_value(value: Str) -> Result[Int] {
+export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
   match sys_pci.parse_hex_value(value) {
     Ok(parsed) => Ok(parsed)
     Err(error) => Err(SystemReportSourceError.InvalidPciId(message: error.message), cause: error)
@@ -487,7 +489,7 @@ export pure parse_pci_hex_value(value: Str) -> Result[Int] {
 }
 
 ## Parses a nonnegative PCI decimal attribute within JSON's exact integer range.
-export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
+export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error] {
   match sys_pci.parse_decimal_value(value) {
     Ok(parsed) => Ok(parsed)
     Err(error) => Err(SystemReportSourceError.InvalidPciId(message: error.message), cause: error)

@@ -2,7 +2,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/echo.xsh by its real path (so the invoked name is echo and
 # `lib.gnu` resolves beside it), capturing both streams.
-proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}, stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc applet_run(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C"},
+  stdin = b"",
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "echo")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -41,9 +46,9 @@ test test_echo_numeric_and_hex_escapes_write_bytes { |ctx|
   assert applet_run(ctx, ["-e", "\\0501"])?.bytes == b"A\n", "octal values wrap to one byte"
   assert applet_run(ctx, ["-e", "\\777"])?.bytes == b"\xff\n"
   assert applet_run(ctx, ["-e", "\\xff"])?.bytes == b"\xff\n"
-  assert applet_run(ctx, ["-e", "\\xf0\\x9f\\x98\\x82"])?.stdout == "\u{1F602}\n"
-  assert applet_run(ctx, ["-e", "a\\0 b"])?.bytes == b"a\x00 b\n"
-  assert applet_run(ctx, ["-e", "\\08"])?.bytes == b"\x008\n"
+  assert applet_run(ctx, ["-e", "\\xf0\\x9f\\x98\\x82"])?.stdout == "😂\n"
+  assert applet_run(ctx, ["-e", "a\\0 b"])?.bytes == b"a\0 b\n"
+  assert applet_run(ctx, ["-e", "\\08"])?.bytes == b"\08\n"
 }
 
 test test_echo_unrecognized_escapes_keep_the_backslash { |ctx|

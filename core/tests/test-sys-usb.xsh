@@ -3,13 +3,13 @@ use core.lib.system_report as report
 
 # Device descriptor, one configuration, one HID interface, and one interrupt endpoint.
 pure hid_descriptors() -> Bytes {
-  b"\x12\x01\x00\x02\x00\x00\x00\x40\x6d\x04\x2b\xc5\x00\x01\x01\x02\x03\x01\x09\x02\x19\x00\x01\x01\x00\xa0\x32\x09\x04\x00\x00\x01\x03\x01\x01\x00\x07\x05\x81\x03\x08\x00\x0a"
+  b"\x12\x01\0\x02\0\0\0@m\x04+\xc5\0\x01\x01\x02\x03\x01\t\x02\x19\0\x01\x01\0\xa02\t\x04\0\0\x01\x03\x01\x01\0\x07\x05\x81\x03\x08\0\n"
 }
 
 # Writes one device's identity attributes under `sys/devices/LOCATION` and links it
 # from the bus listing; the caller creates `sys/bus/usb/devices` once.
-proc add_device(root: FsRoot, name: Str, location: Str, vendor: Str, product: Str, number: Int) [fs, error] -> Result[Unit] {
-  root.mkdir(fp"sys/devices/{location}/power", parents: true)?
+proc add_device(root: FsRoot, name: Str, location: Str, vendor: Str, product: Str, number: Int) [fs, error] {
+  root.mkdir(fp"sys/devices/{location}/power", parents: true)
   for item in [
     {file: "idVendor", value: vendor},
     {file: "idProduct", value: product},
@@ -28,10 +28,10 @@ proc add_device(root: FsRoot, name: Str, location: Str, vendor: Str, product: St
     {file: "power/autosuspend_delay_ms", value: "2000"},
     {file: "power/runtime_status", value: "active"},
   ] {
-    root.write(fp"sys/devices/{location}/{item.file}", f"{item.value}\n")?
+    root.write(fp"sys/devices/{location}/{item.file}", f"{item.value}\n")
   }
 
-  root.symlink(fp"../../../devices/{location}", fp"sys/bus/usb/devices/{name}")?
+  root.symlink(fp"../../../devices/{location}", fp"sys/bus/usb/devices/{name}")
 }
 
 test test_sys_usb_descriptor_stream_keeps_framing_and_unknown_payloads {
@@ -41,7 +41,7 @@ test test_sys_usb_descriptor_stream_keeps_framing_and_unknown_payloads {
   assert records[0].raw == b"\x03\x99B"
   assert records[1].offset == 3 and records[1].descriptor_type == 254
   for bad in [b"\x01\x02", b"\x04\x01x", b"\t", b"\x02"] {
-    test.error_kind(usb.parse_descriptor_stream(bad), "SysUsbError.InvalidStream")?
+    test.error_kind(usb.parse_descriptor_stream(bad), "SysUsbError.InvalidStream")
   }
 }
 
@@ -65,24 +65,24 @@ test test_sys_usb_alternates_keep_configuration_and_endpoint_ownership {
     b"\t\x02\x08\0\x01\x01\0\x802",
     b"\t\x02\xff\xff\x01\x01\0\x802",
   ] {
-    test.error_kind(usb.parse_alternates(bad), "SysUsbError.InvalidDescriptor")?
+    test.error_kind(usb.parse_alternates(bad), "SysUsbError.InvalidDescriptor")
   }
 }
 
 test test_sys_usb_collect_links_hub_children_controller_and_interfaces {
   let root = fs.tempdir()?
   defer root.close()?
-  root.mkdir(p"sys/bus/usb/devices", parents: true)?
+  root.mkdir(p"sys/bus/usb/devices", parents: true)
   let controller = "pci0000:00/0000:00:14.0"
-  add_device(root, "usb1", f"{controller}/usb1", "1d6b", "0002", 1)?
-  add_device(root, "1-1", f"{controller}/usb1/1-1", "05e3", "0610", 2)?
-  add_device(root, "1-1.2", f"{controller}/usb1/1-1/1-1.2", "046d", "c52b", 3)?
+  add_device(root, "usb1", f"{controller}/usb1", "1d6b", "0002", 1)
+  add_device(root, "1-1", f"{controller}/usb1/1-1", "05e3", "0610", 2)
+  add_device(root, "1-1.2", f"{controller}/usb1/1-1/1-1.2", "046d", "c52b", 3)
   let interface_path = f"{controller}/usb1/1-1/1-1.2/1-1.2:1.0"
-  root.mkdir(fp"sys/devices/{interface_path}", parents: true)?
-  root.write(fp"sys/devices/{interface_path}/bAlternateSetting", "0\n")?
-  root.symlink(p"../../../../../../../../../bus/usb/drivers/usbhid", fp"sys/devices/{interface_path}/driver")?
-  root.symlink(fp"../../../devices/{interface_path}", p"sys/bus/usb/devices/1-1.2:1.0")?
-  root.write(fp"sys/devices/{controller}/usb1/1-1/1-1.2/descriptors", hid_descriptors())?
+  root.mkdir(fp"sys/devices/{interface_path}", parents: true)
+  root.write(fp"sys/devices/{interface_path}/bAlternateSetting", "0\n")
+  root.symlink(../../../../../../../../../bus/usb/drivers/usbhid, fp"sys/devices/{interface_path}/driver")
+  root.symlink(fp"../../../devices/{interface_path}", p"sys/bus/usb/devices/1-1.2:1.0")
+  root.write(fp"sys/devices/{controller}/usb1/1-1/1-1.2/descriptors", hid_descriptors())
 
   let inventory = usb.collect(root)
   assert inventory.listing_state == "complete"
@@ -114,10 +114,10 @@ test test_sys_usb_collect_links_hub_children_controller_and_interfaces {
 test test_sys_usb_collect_keeps_a_device_with_invalid_identity_and_reports_it {
   let root = fs.tempdir()?
   defer root.close()?
-  root.mkdir(p"sys/bus/usb/devices", parents: true)?
-  add_device(root, "1-1", "pci0000:00/0000:00:14.0/usb1/1-1", "zz", "0610", 2)?
-  add_device(root, "1-2", "pci0000:00/0000:00:14.0/usb1/1-2", "046d", "c52b", 3)?
-  root.write(p"sys/devices/pci0000:00/0000:00:14.0/usb1/1-2/descriptors", b"\x02\x02\x00")?
+  root.mkdir(p"sys/bus/usb/devices", parents: true)
+  add_device(root, "1-1", "pci0000:00/0000:00:14.0/usb1/1-1", "zz", "0610", 2)
+  add_device(root, "1-2", "pci0000:00/0000:00:14.0/usb1/1-2", "046d", "c52b", 3)
+  root.write(p"sys/devices/pci0000:00/0000:00:14.0/usb1/1-2/descriptors", b"\x02\x02\0")
 
   let inventory = usb.collect(root)
   assert inventory.devices.len() == 2
@@ -155,10 +155,10 @@ test test_sys_usb_parent_names_and_indexes_follow_sysfs_naming {
 test test_sys_usb_controller_address_distinguishes_links_directories_and_absence {
   let root = fs.tempdir()?
   defer root.close()?
-  root.mkdir(p"sys/devices/pci0000:00/0000:00:14.0/usb1", parents: true)?
-  root.mkdir(p"sys/bus/usb/devices", parents: true)?
-  root.symlink(p"../../../devices/pci0000:00/0000:00:14.0/usb1", p"sys/bus/usb/devices/usb1")?
-  root.mkdir(p"sys/bus/usb/devices/plain")?
+  root.mkdir(p"sys/devices/pci0000:00/0000:00:14.0/usb1", parents: true)
+  root.mkdir(p"sys/bus/usb/devices", parents: true)
+  root.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")
+  root.mkdir(p"sys/bus/usb/devices/plain")
 
   let linked = usb.controller_address(root, p"sys/bus/usb/devices/usb1")
   assert linked.address == "0000:00:14.0" and linked.state == report.Observed

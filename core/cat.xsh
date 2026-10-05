@@ -116,7 +116,7 @@ pure convert(content: Bytes, style: Style) -> Bytes {
 
   return content when start == 0
 
-  bytes.concat(pieces + [content[start..]])
+  bytes.concat([@pieces, content[start..]])
 }
 
 # Render the complete lines of `data` (the unfinished last line is kept in
@@ -169,7 +169,7 @@ pure render(data: Bytes, final: Bool, style: Style, state: State) -> Rendered {
   {out: bytes.concat(pieces), state: {pending: pending, line: line, blank: blank}}
 }
 
-proc main(...argv: List[Str]) [fs, process, env, io, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: CatOptions = cli.applet(
     argv,
     {
@@ -251,6 +251,6 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   }
 
   if failed {
-    abort(1)
+    exit 1
   }
 }

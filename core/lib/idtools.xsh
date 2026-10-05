@@ -13,10 +13,16 @@ use gnu
 export type Process = {ruid: Int, euid: Int, rgid: Int, egid: Int, groups: List[Int]}
 
 ## The ids of the calling process.
-export proc process_ids() [process, error] -> Result[Process] {
+export proc process_ids() [process, error] -> Result[Process, Error] {
   let me = unix.id()?
 
-  Ok({ruid: me.uid, euid: me.euid, rgid: me.gid, egid: me.egid, groups: [entry.gid for entry in me.groups if entry.gid != me.egid]})
+  Ok({
+    ruid: me.uid,
+    euid: me.euid,
+    rgid: me.gid,
+    egid: me.egid,
+    groups: [entry.gid for entry in me.groups if entry.gid != me.egid],
+  })
 }
 
 ## The name of user ID `uid`, or null without a database entry.
@@ -39,7 +45,7 @@ export proc group_name(gid: Int) [fs] -> Str? {
 
 ## Print the name or number of user ID `uid`. Returns false after reporting a
 ## missing name under `use_name`.
-export proc print_user(uid: Int, use_name: Bool) [process, env, io, fs] -> Bool {
+export proc print_user(uid: Int, use_name: Bool) [fs, process, env, io] -> Bool {
   let name = if use_name { user_name(uid) } else { null }
 
   if use_name and name == null {
@@ -53,7 +59,7 @@ export proc print_user(uid: Int, use_name: Bool) [process, env, io, fs] -> Bool 
 
 ## Print the name or number of group ID `gid`. Returns false after reporting a
 ## missing name under `use_name`.
-export proc print_group(gid: Int, use_name: Bool) [process, env, io, fs] -> Bool {
+export proc print_group(gid: Int, use_name: Bool) [fs, process, env, io] -> Bool {
   let name = if use_name { group_name(gid) } else { null }
 
   if use_name and name == null {
@@ -67,7 +73,7 @@ export proc print_group(gid: Int, use_name: Bool) [process, env, io, fs] -> Bool
 
 ## Print the distinct groups of the calling process separated by `delimiter`:
 ## real gid, effective gid, then the supplementary groups.
-export proc print_group_list(who: Process, use_names: Bool, delimiter: Str) [process, env, io, fs] -> Bool {
+export proc print_group_list(who: Process, use_names: Bool, delimiter: Str) [fs, process, env, io] -> Bool {
   var ok = print_group(who.rgid, use_names)
 
   if who.egid != who.rgid {
@@ -89,5 +95,5 @@ export proc print_group_list(who: Process, use_names: Bool, delimiter: Str) [pro
 ## which no typed API exposes (request: `user.groups`).
 export proc unsupported_user_groups(name: Str) [process, env] -> Unit {
   gnu.error(f"cannot list the groups of {gnu.quote(name)}: not supported yet (no getgrouplist API)")
-  abort(1)
+  exit 1
 }

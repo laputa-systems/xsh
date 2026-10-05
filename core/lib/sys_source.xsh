@@ -42,7 +42,7 @@ export pure source_state(state: Str, truncated: Bool) -> report.ObservationState
     "observed" => report.Observed
     "absent" => report.Absent
     "permission_denied" => report.PermissionDenied
-    _ => report.ReadFailure
+    else => report.ReadFailure
   }
 }
 
@@ -90,17 +90,14 @@ export pure append_text_issue(issues: List[Issue], field: Str, source: SourceRea
 
 ## Attaches a report section name to collector issues.
 export pure with_section(section: Str, issues: List[Issue]) -> List[report.CollectionIssue] {
-  [
-    {
-      section: section,
-      field: item.field,
-      state: item.state,
-      error_kind: item.error_kind,
-      errno: item.errno,
-      detail: item.detail,
-    }
-    for item in issues
-  ]
+  [{
+    section: section,
+    field: item.field,
+    state: item.state,
+    error_kind: item.error_kind,
+    errno: item.errno,
+    detail: item.detail,
+  } for item in issues]
 }
 
 ## Reads bounded text without treating absence or invalid UTF-8 as an empty value.

@@ -123,13 +123,12 @@ proc expand(text: Str) [error] -> Result[Expanded] {
 
 # GNU echo's own option scan: leading arguments made only of n, e, and E after
 # one dash are options; the first other argument and everything after it is text.
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   var posix = false
 
   if let Ok(_) = env.get("POSIXLY_CORRECT") {
     posix = true
   }
-
 
   if argv.len() == 1 and ! posix {
     if argv[0] == "--help" {

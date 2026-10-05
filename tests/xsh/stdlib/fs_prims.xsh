@@ -2,7 +2,7 @@ test test_failed_host_operations_carry_errno { |ctx|
   let root = test.temp_dir(ctx, name: "fs-errno")?
   let missing = fp"{root}/missing"
   let source = fp"{root}/source"
-  source.write("x")?
+  source.write("x")
 
   let read = fs.read_text(missing)
   assert read is Err(is NotFound)
@@ -32,7 +32,7 @@ test test_failed_host_operations_carry_errno { |ctx|
 test test_stat_reports_every_lstat_field { |ctx|
   let root = test.temp_dir(ctx, name: "fs-stat")?
   let file = fp"{root}/file"
-  file.write("hello")?
+  file.write("hello")
   let st = fs.stat(file)?
   assert st.kind == "file"
   assert st.size == 5
@@ -48,7 +48,7 @@ test test_stat_reports_every_lstat_field { |ctx|
   assert (st.birth_ns ?? st.mtime_ns) > 0
 
   assert fs.stat(root)?.kind == "dir"
-  assert fs.stat(p"/dev/null")?.kind == "char"
+  assert fs.stat(/dev/null)?.kind == "char"
 }
 
 test test_stat_follows_symlinks_only_when_asked { |ctx|
@@ -56,9 +56,9 @@ test test_stat_follows_symlinks_only_when_asked { |ctx|
   let file = fp"{root}/file"
   let link = fp"{root}/link"
   let dangling = fp"{root}/dangling"
-  file.write("hello")?
-  fs.symlink(p"file", link)?
-  fs.symlink(p"nowhere", dangling)?
+  file.write("hello")
+  fs.symlink(p"file", link)
+  fs.symlink(p"nowhere", dangling)
 
   let lstat = fs.stat(link)?
   assert lstat.kind == "symlink"
@@ -81,8 +81,8 @@ test test_stat_names_fifo_socket_and_hard_link_identity { |ctx|
   let root = test.temp_dir(ctx, name: "fs-stat-kinds")?
   let file = fp"{root}/file"
   let hard = fp"{root}/hard"
-  file.write("x")?
-  fs.link(file, hard)?
+  file.write("x")
+  fs.link(file, hard)
   let first = fs.stat(file)?
   let second = fs.stat(hard)?
   assert first.dev == second.dev
@@ -90,66 +90,66 @@ test test_stat_names_fifo_socket_and_hard_link_identity { |ctx|
   assert first.nlink == 2
   assert second.nlink == 2
 
-  fs.mkfifo(fp"{root}/fifo", 0o600)?
+  fs.mkfifo(fp"{root}/fifo", 0o600)
   assert fs.stat(fp"{root}/fifo")?.kind == "fifo"
-  fs.mknod(fp"{root}/socket", "socket", 0o600)?
+  fs.mknod(fp"{root}/socket", "socket", 0o600)
   assert fs.stat(fp"{root}/socket")?.kind == "socket"
 }
 
 test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-times")?
   let file = fp"{root}/file"
-  file.write("x")?
+  file.write("x")
 
-  fs.set_times(file, atime_ns: 1700000000123456789, mtime_ns: 1600000000987654321)?
+  fs.set_times(file, atime_ns: 1700000000123456789, mtime_ns: 1600000000987654321)
   let both = fs.stat(file)?
   assert both.atime_ns == 1700000000123456789
   assert both.mtime_ns == 1600000000987654321
 
-  fs.set_times(file, mtime_ns: 1500000000000000001)?
+  fs.set_times(file, mtime_ns: 1500000000000000001)
   let mtime_only = fs.stat(file)?
   assert mtime_only.atime_ns == 1700000000123456789
   assert mtime_only.mtime_ns == 1500000000000000001
 
-  fs.set_times(file)?
+  fs.set_times(file)
   assert fs.stat(file)?.mtime_ns == 1500000000000000001
 
-  fs.set_times(file, mtime_ns: -1500000000)?
+  fs.set_times(file, mtime_ns: -1500000000)
   assert fs.stat(file)?.mtime_ns == -1500000000
 }
 
 test test_set_times_now_uses_the_kernel_clock { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-times-now")?
   let file = fp"{root}/file"
-  file.write("x")?
-  fs.set_times(file, atime_ns: 1000000000, mtime_ns: 2000000000)?
+  file.write("x")
+  fs.set_times(file, atime_ns: 1000000000, mtime_ns: 2000000000)
 
-  fs.set_times(file, mtime_now: true)?
+  fs.set_times(file, mtime_now: true)
   let touched = fs.stat(file)?
   assert touched.atime_ns == 1000000000
   assert touched.mtime_ns > 1600000000000000000
 
-  fs.set_times(file, atime_now: true)?
+  fs.set_times(file, atime_now: true)
   assert fs.stat(file)?.atime_ns > 1600000000000000000
 
   let both = fs.set_times(file, atime_ns: 1, atime_now: true)
   assert both is Err(_)
-  test.error_kind(both, "fs-set-times")?
+  test.error_kind(both, "fs-set-times")
 }
 
 test test_set_times_nofollow_changes_the_link_not_its_target { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-times-link")?
   let file = fp"{root}/file"
   let link = fp"{root}/link"
-  file.write("x")?
-  fs.symlink(p"file", link)?
-  fs.set_times(file, atime_ns: 1000000000, mtime_ns: 1000000000)?
+  file.write("x")
+  fs.symlink(p"file", link)
+  fs.set_times(file, atime_ns: 1000000000, mtime_ns: 1000000000)
 
-  fs.set_times(link, atime_ns: 3000000000, mtime_ns: 3000000000)?
+  fs.set_times(link, atime_ns: 3000000000, mtime_ns: 3000000000)
   assert fs.stat(link)?.mtime_ns == 3000000000
   assert fs.stat(file)?.mtime_ns == 1000000000
 
-  fs.set_times(link, mtime_ns: 4000000000, follow_symlinks: true)?
+  fs.set_times(link, mtime_ns: 4000000000, follow_symlinks: true)
   assert fs.stat(file)?.mtime_ns == 4000000000
   assert fs.stat(link)?.mtime_ns == 3000000000
 }
@@ -158,29 +158,29 @@ test test_set_owner_changes_both_ids_and_leaves_null_alone { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-owner")?
   let file = fp"{root}/file"
   let link = fp"{root}/link"
-  file.write("x")?
-  fs.symlink(p"file", link)?
+  file.write("x")
+  fs.symlink(p"file", link)
   let before = fs.stat(file)?
 
-  fs.set_owner(file)?
-  fs.set_owner(file, uid: before.uid, gid: before.gid)?
+  fs.set_owner(file)
+  fs.set_owner(file, uid: before.uid, gid: before.gid)
   assert fs.stat(file)?.uid == before.uid
 
   if applet.current_euid() == 0 {
-    fs.set_owner(file, uid: 12345, gid: 54321)?
+    fs.set_owner(file, uid: 12345, gid: 54321)
     let changed = fs.stat(file)?
     assert changed.uid == 12345
     assert changed.gid == 54321
 
-    fs.set_owner(file, gid: 777)?
+    fs.set_owner(file, gid: 777)
     assert fs.stat(file)?.uid == 12345
     assert fs.stat(file)?.gid == 777
 
-    fs.set_owner(link, uid: 4242)?
+    fs.set_owner(link, uid: 4242)
     assert fs.stat(link)?.uid == 4242
     assert fs.stat(file)?.uid == 12345
 
-    fs.set_owner(link, uid: 4343, follow_symlinks: true)?
+    fs.set_owner(link, uid: 4343, follow_symlinks: true)
     assert fs.stat(file)?.uid == 4343
     assert fs.stat(link)?.uid == 4242
   } else {
@@ -195,7 +195,7 @@ test test_set_owner_changes_both_ids_and_leaves_null_alone { |ctx|
 test test_set_owner_rejects_ids_the_kernel_reads_as_unchanged { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-owner-range")?
   let file = fp"{root}/file"
-  file.write("x")?
+  file.write("x")
   assert fs.set_owner(file, uid: -1) is Err(_)
   assert fs.set_owner(file, gid: 4294967295) is Err(_)
   assert fs.set_owner(file, uid: 4294967296) is Err(_)
@@ -205,14 +205,14 @@ test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
   let root = test.temp_dir(ctx, name: "fs-chmod-link")?
   let file = fp"{root}/file"
   let link = fp"{root}/link"
-  file.write("x")?
-  fs.symlink(p"file", link)?
-  fs.chmod(file, 0o600)?
+  file.write("x")
+  fs.symlink(p"file", link)
+  fs.chmod(file, 0o600)
 
-  fs.chmod(file, 0o640, follow_symlinks: false)?
+  fs.chmod(file, 0o640, follow_symlinks: false)
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
 
-  fs.chmod(link, 0o604)?
+  fs.chmod(link, 0o604)
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o604
 
   if system.uname()?.sysname == "Linux" {
@@ -221,8 +221,10 @@ test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
     if let Err(failure) = refused {
       assert failure.errno != null
     }
+
     assert fs.stat(file)?.mode.bit_and(0o7777) == 0o604
   }
+
   assert fs.chmod(file, 0o10000) is Err(_)
 }
 
@@ -231,12 +233,12 @@ test test_mknod_creates_nodes_under_the_umask { |ctx|
   let mask = fs.umask()?
   assert mask >= 0 and mask <= 0o777
 
-  fs.mknod(fp"{root}/fifo", "fifo", 0o666)?
+  fs.mknod(fp"{root}/fifo", "fifo", 0o666)
   let fifo = fs.stat(fp"{root}/fifo")?
   assert fifo.kind == "fifo"
   assert fifo.mode.bit_and(0o777) == 0o666.clear_bits(mask)
 
-  fs.mknod(fp"{root}/regular", "file", 0o640)?
+  fs.mknod(fp"{root}/regular", "file", 0o640)
   let regular = fs.stat(fp"{root}/regular")?
   assert regular.kind == "file"
   assert regular.size == 0
@@ -275,7 +277,7 @@ test test_mknod_device_nodes_need_privilege_and_carry_device_numbers { |ctx|
   }
 }
 
-test test_device_numbers_round_trip_extended_encodings { |ctx|
+test test_device_numbers_round_trip_extended_encodings {
   assert fs.dev_major(fs.makedev(1, 3)) == 1
   assert fs.dev_minor(fs.makedev(1, 3)) == 3
   assert fs.dev_major(fs.makedev(1234, 567890)) == 1234
@@ -286,14 +288,14 @@ test test_link_follows_a_source_symlink_only_when_asked { |ctx|
   let root = test.temp_dir(ctx, name: "fs-link")?
   let file = fp"{root}/file"
   let link = fp"{root}/link"
-  file.write("x")?
-  fs.symlink(p"file", link)?
+  file.write("x")
+  fs.symlink(p"file", link)
 
-  fs.link(link, fp"{root}/to-link")?
+  fs.link(link, fp"{root}/to-link")
   assert fs.stat(fp"{root}/to-link")?.kind == "symlink"
   assert fs.stat(fp"{root}/to-link")?.ino == fs.stat(link)?.ino
 
-  fs.link(link, fp"{root}/to-file", follow_symlinks: true)?
+  fs.link(link, fp"{root}/to-file", follow_symlinks: true)
   assert fs.stat(fp"{root}/to-file")?.kind == "file"
   assert fs.stat(fp"{root}/to-file")?.ino == fs.stat(file)?.ino
   assert fs.stat(file)?.nlink == 2
@@ -329,8 +331,8 @@ test test_rename_noreplace_never_replaces_an_existing_destination { |ctx|
   let source = fp"{root}/source"
   let taken = fp"{root}/taken"
   let free = fp"{root}/free"
-  source.write("source")?
-  taken.write("taken")?
+  source.write("source")
+  taken.write("taken")
 
   let refused = fs.rename_noreplace(source, taken)
   assert refused is Err(_)
@@ -339,12 +341,14 @@ test test_rename_noreplace_never_replaces_an_existing_destination { |ctx|
       test.skip("the filesystem lacks RENAME_NOREPLACE")
       return
     }
+
     assert failure.errno == 17
   }
+
   assert source.read_text()? == "source"
   assert taken.read_text()? == "taken"
 
-  fs.rename_noreplace(source, free)?
+  fs.rename_noreplace(source, free)
   assert ! source.exists()?
   assert free.read_text()? == "source"
 
@@ -369,10 +373,12 @@ test test_data_ranges_lists_allocated_runs_of_a_sparse_file { |ctx|
   for range in ranges {
     covered = covered + range.length
   }
+
   if ranges.len() == 1 {
     test.skip("the filesystem reports no holes")
     return
   }
+
   assert ranges.len() == 2
   assert covered < size
   assert fs.data_ranges(fp"{root}/never-created") is Err(is NotFound)
@@ -382,8 +388,8 @@ test test_data_ranges_of_empty_and_dense_files { |ctx|
   let root = test.temp_dir(ctx, name: "fs-data-ranges-dense")?
   let empty = fp"{root}/empty"
   let dense = fp"{root}/dense"
-  empty.write("")?
-  dense.write("0123456789")?
+  empty.write("")
+  dense.write("0123456789")
   assert fs.data_ranges(empty)?.len() == 0
   let ranges = fs.data_ranges(dense)?
   assert ranges.len() == 1
@@ -395,8 +401,8 @@ test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |
   let root = test.temp_dir(ctx, name: "fs-copy-file")?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("hello world")?
-  fs.chmod(source, 0o640)?
+  source.write("hello world")
+  fs.chmod(source, 0o640)
 
   let copied = fs.copy_file(source, dest)?
   assert copied.bytes == 11
@@ -412,7 +418,7 @@ test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |
 
   let empty = fp"{root}/empty"
   let empty_copy = fp"{root}/empty-copy"
-  empty.write("")?
+  empty.write("")
   assert fs.copy_file(empty, empty_copy)?.bytes == 0
   assert fs.stat(empty_copy)?.size == 0
 }
@@ -421,14 +427,15 @@ test test_copy_file_overwrite_truncates_and_exclusive_refuses { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-file-overwrite")?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("new")?
-  dest.write("a much longer previous content")?
+  source.write("new")
+  dest.write("a much longer previous content")
 
   let refused = fs.copy_file(source, dest, overwrite: false)
   assert refused is Err(_)
   if let Err(failure) = refused {
     assert failure.errno == 17
   }
+
   assert dest.read_text()? == "a much longer previous content"
 
   let _ = fs.copy_file(source, dest)?
@@ -439,8 +446,8 @@ test test_copy_file_refuses_the_same_file_and_non_regular_sources { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-file-refuse")?
   let source = fp"{root}/source"
   let alias = fp"{root}/alias"
-  source.write("keep")?
-  fs.link(source, alias)?
+  source.write("keep")
+  fs.link(source, alias)
 
   assert fs.copy_file(source, source) is Err(_)
   assert fs.copy_file(source, alias) is Err(_)
@@ -490,7 +497,7 @@ test test_copy_file_sparse_always_turns_zero_blocks_into_holes { |ctx|
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
   let zeros = bytes.zero(1048576)?
-  source.write(bytes.concat([zeros, b"data", zeros]))?
+  source.write(bytes.concat([zeros, b"data", zeros]))
   assert fs.stat(source)?.blocks_512 * 512 >= 2097152
 
   let report = fs.copy_file(source, dest, sparse: "always")?
@@ -502,6 +509,7 @@ test test_copy_file_sparse_always_turns_zero_blocks_into_holes { |ctx|
     test.skip("the filesystem does not keep holes")
     return
   }
+
   assert kept.len() == 1
   assert kept[0].offset >= 1048576 - 4096
   assert fs.stat(dest)?.blocks_512 * 512 < 1048576
@@ -512,7 +520,7 @@ test test_copy_file_reflink_clones_or_fails_with_an_errno { |ctx|
   let source = fp"{root}/source"
   let auto = fp"{root}/auto"
   let strict = fp"{root}/strict"
-  source.write("reflink me")?
+  source.write("reflink me")
 
   let fallback = fs.copy_file(source, auto, reflink: "auto")?
   assert auto.read_text()? == "reflink me"
@@ -532,7 +540,7 @@ test test_copy_file_reflink_clones_or_fails_with_an_errno { |ctx|
 test test_copy_file_never_clones_by_default { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-file-never")?
   let source = fp"{root}/source"
-  source.write("data")?
+  source.write("data")
   assert fs.copy_file(source, fp"{root}/dest")?.method != "clone"
   assert fs.copy_file(source, fp"{root}/dest2", reflink: "never")?.method != "clone"
 }

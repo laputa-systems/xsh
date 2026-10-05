@@ -4,8 +4,8 @@ test test_script_path_is_the_script_as_invoked { |ctx|
   script.write("""proc main(...argv: List[Str]) [error, io, process] -> Result[Unit] {
   print process.script_path()?.display()
 }
-""")?
-  fs.symlink(p"probe.xsh", fp"{root}/alias")?
+""")
+  fs.symlink(p"probe.xsh", fp"{root}/alias")
 
   let plain = run.text ${ctx.xsh_bin} $script ?
   assert plain == f"{script}\n"

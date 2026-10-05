@@ -13,7 +13,7 @@ type LognameOptions = {help: Bool, version: Bool}
 # POSIX requires getlogin() and forbids fallbacks such as the environment, but
 # no typed API exposes it yet (request: user.login_name). Until then the
 # applet reports what GNU reports when the process has no login session.
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: LognameOptions = cli.applet(
     argv,
     {
@@ -34,5 +34,5 @@ proc main(...argv: List[Str]) [process, env, io, error] {
   }
 
   gnu.error("no login name")
-  abort(1)
+  exit 1
 }

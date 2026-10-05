@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/cat.xsh by its real path inside `root`, capturing both streams.
-proc cat_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc cat_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/cat.xsh".display()].extend(args)
@@ -12,7 +12,7 @@ proc cat_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") 
 
 test test_cat_file_and_stdin { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
-  fp"{root}/in.txt".write(b"file\n")?
+  fp"{root}/in.txt".write(b"file\n")
 
   assert cat_run(ctx, root, ["in.txt"])?.stdout == b"file\n"
   assert cat_run(ctx, root, [], b"stdin\n")?.stdout == b"stdin\n"
@@ -23,7 +23,7 @@ test test_cat_preserves_non_utf8_bytes_across_chunks { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
   let block = b"\0\xff\xfe\nabc\r\n"
   let big = bytes.concat([block for _ in range(20000)])
-  fp"{root}/big.bin".write(big)?
+  fp"{root}/big.bin".write(big)
 
   assert cat_run(ctx, root, ["big.bin"])?.stdout == big
   assert cat_run(ctx, root, [], big)?.stdout == big
@@ -31,8 +31,8 @@ test test_cat_preserves_non_utf8_bytes_across_chunks { |ctx|
 
 test test_cat_numbers_squeezes_and_continues_across_files { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
-  fp"{root}/a".write(b"a\n\n")?
-  fp"{root}/b".write(b"\n\nb")?
+  fp"{root}/a".write(b"a\n\n")
+  fp"{root}/b".write(b"\n\nb")
 
   assert cat_run(ctx, root, ["-s", "a", "b"])?.stdout == b"a\n\nb"
   assert cat_run(ctx, root, ["-n", "a", "b"])?.stdout == b"     1\ta\n     2\t\n     3\t\n     4\t\n     5\tb"
@@ -62,8 +62,8 @@ test test_cat_keeps_carriage_returns_unless_shown { |ctx|
 
 test test_cat_reports_each_failure_and_exits_one { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
-  fp"{root}/dir".mkdir()?
-  fp"{root}/ok".write(b"ok\n")?
+  fp"{root}/dir".mkdir()
+  fp"{root}/ok".write(b"ok\n")
 
   let result = cat_run(ctx, root, ["missing", "dir", "ok", "two words"])?
   assert result.status == 1
@@ -73,7 +73,7 @@ test test_cat_reports_each_failure_and_exits_one { |ctx|
 
 test test_cat_refuses_to_copy_a_file_onto_itself { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
-  fp"{root}/loop".write(b"data\n")?
+  fp"{root}/loop".write(b"data\n")
   let script = fp"{ctx.core_dir}/cat.xsh"
   let err = fp"{root}/.err"
 

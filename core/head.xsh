@@ -55,7 +55,7 @@ pure modernize(argv: List[Str]) -> List[Str] {
   let unit = if flags.find("c") != null { "-c" } else { "-n" }
   let extra = [f"-{letter}" for letter in ["q", "v", "z"] if flags.find(letter) != null]
 
-  [unit, parts[1]] + extra + argv[1..]
+  [unit, parts[1], @extra, @argv[1..]]
 }
 
 proc parse_count(text: Str, what: Str) [process, env] -> Count {
@@ -65,13 +65,13 @@ proc parse_count(text: Str, what: Str) [process, env] -> Count {
 
   if value == null {
     gnu.error(f"invalid number of {what}: {gnu.quote(digits)}")
-    abort(1)
+    exit 1
   }
 
-  {value: value ?? 0, elide: elide}
+  {value: value, elide: elide}
 }
 
-proc main(...argv: List[Str]) [fs, process, env, io, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: HeadOptions = cli.applet(
     modernize(tio.without_presume_pipe(argv)),
     {
@@ -98,7 +98,11 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   }
 
   let by_bytes = opts.bytes != ""
-  let spec = if by_bytes { parse_count(opts.bytes, "bytes") } else { parse_count(if opts.lines == "" { "10" } else { opts.lines }, "lines") }
+  let spec = if by_bytes {
+    parse_count(opts.bytes, "bytes")
+  } else {
+    parse_count(if opts.lines == "" { "10" } else { opts.lines }, "lines")
+  }
   let elide = spec.elide and spec.value > 0
   let total = if spec.elide and spec.value == 0 { tio.MAX_COUNT } else { spec.value }
   let wants = elide or total > 0
@@ -192,6 +196,6 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   }
 
   if failed {
-    abort(1)
+    exit 1
   }
 }

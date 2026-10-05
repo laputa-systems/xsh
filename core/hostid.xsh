@@ -29,7 +29,7 @@ pure hex8(value: Int) -> Str {
   var out = ""
   var rest = value % 4294967296
 
-  for _ in range(8) {
+  repeat 8 times {
     out = f"{"0123456789abcdef".byte_slice(rest % 16, length: 1)}{out}"
     rest = rest / 16
   }
@@ -37,7 +37,7 @@ pure hex8(value: Int) -> Str {
   out
 }
 
-proc main(...argv: List[Str]) [process, env, io, fs, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: HostidOptions = cli.applet(
     argv,
     {

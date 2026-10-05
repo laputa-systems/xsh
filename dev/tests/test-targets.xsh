@@ -158,14 +158,16 @@ type ManifestShape = {
 
 test test_applet_manifest_lists_applets_aliases_and_libraries { |ctx|
   let root = test.temp_dir(ctx, name: "applet-manifest")?
-  fp"{root}/core/lib".mkdir(parents: true)?
-  fp"{root}/core/tests".mkdir()?
-  fp"{root}/dev/compat".mkdir(parents: true)?
-  fp"{root}/core/ls.xsh".write("print \"ls\"\n")?
-  fp"{root}/core/basename.xsh".write("print \"basename\"\n")?
-  fp"{root}/core/lib/gnu.xsh".write("##! gnu\n")?
-  fp"{root}/core/tests/test-ls.xsh".write("print \"test\"\n")?
-  fp"{root}/dev/compat/aliases.json".write("""{"comment": "x", "aliases": [{"name": "vdir", "target": "ls"}, {"name": "dir", "target": "ls"}]}\n""")?
+  fp"{root}/core/lib".mkdir()
+  fp"{root}/core/tests".mkdir()
+  fp"{root}/dev/compat".mkdir()
+  fp"{root}/core/ls.xsh".write("print \"ls\"\n")
+  fp"{root}/core/basename.xsh".write("print \"basename\"\n")
+  fp"{root}/core/lib/gnu.xsh".write("##! gnu\n")
+  fp"{root}/core/tests/test-ls.xsh".write("print \"test\"\n")
+  fp"{root}/dev/compat/aliases.json".write(
+    """{"comment": "x", "aliases": [{"name": "vdir", "target": "ls"}, {"name": "dir", "target": "ls"}]}\n""",
+  )
   let release_ctx = fixtures.linux_context(root, "dev")?
   let text = releases.applet_manifest(release_ctx)?
   assert text.ends_with("\n")
@@ -181,8 +183,8 @@ test test_applet_manifest_lists_applets_aliases_and_libraries { |ctx|
 
 test test_applet_manifest_without_alias_table_has_no_aliases { |ctx|
   let root = test.temp_dir(ctx, name: "applet-manifest-no-aliases")?
-  fp"{root}/core".mkdir()?
-  fp"{root}/core/cat.xsh".write("print \"cat\"\n")?
+  fp"{root}/core".mkdir()
+  fp"{root}/core/cat.xsh".write("print \"cat\"\n")
   let release_ctx = fixtures.linux_context(root, "dev")?
   let manifest = json.decode(releases.applet_manifest(release_ctx)?)?.require(ManifestShape)?
   assert manifest.aliases.len() == 0
@@ -191,24 +193,24 @@ test test_applet_manifest_without_alias_table_has_no_aliases { |ctx|
 
 test test_applet_manifest_rejects_dangling_and_colliding_aliases { |ctx|
   let root = test.temp_dir(ctx, name: "applet-manifest-bad-aliases")?
-  fp"{root}/core".mkdir()?
-  fp"{root}/dev/compat".mkdir(parents: true)?
-  fp"{root}/core/ls.xsh".write("print \"ls\"\n")?
-  fp"{root}/core/cat.xsh".write("print \"cat\"\n")?
+  fp"{root}/core".mkdir()
+  fp"{root}/dev/compat".mkdir()
+  fp"{root}/core/ls.xsh".write("print \"ls\"\n")
+  fp"{root}/core/cat.xsh".write("print \"cat\"\n")
   let release_ctx = fixtures.linux_context(root, "dev")?
 
-  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "dir", "target": "missing"}]}""")?
+  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "dir", "target": "missing"}]}""")
   match releases.applet_manifest(release_ctx) {
-    Ok(_) => test.fail("dangling alias was accepted")?
+    Ok(_) => test.fail("dangling alias was accepted")
     Err(stages.StageError.Failed {detail, ..}) => assert detail == "alias dir targets missing applet missing"
-    Err(error) => test.fail(error.message)?
+    Err(error) => test.fail(error.message)
   }
 
-  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "cat", "target": "ls"}]}""")?
+  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "cat", "target": "ls"}]}""")
   match releases.applet_manifest(release_ctx) {
-    Ok(_) => test.fail("colliding alias was accepted")?
+    Ok(_) => test.fail("colliding alias was accepted")
     Err(stages.StageError.Failed {detail, ..}) => assert detail == "alias cat collides with applet core/cat.xsh"
-    Err(error) => test.fail(error.message)?
+    Err(error) => test.fail(error.message)
   }
 }
 

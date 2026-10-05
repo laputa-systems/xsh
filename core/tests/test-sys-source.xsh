@@ -4,9 +4,9 @@ use core.lib.system_report as report
 test test_sys_source_read_withholds_values_it_cannot_prove_complete {
   let root = fs.tempdir()?
   defer root.close()?
-  root.write(p"text", "  value \n")?
-  root.write(p"binary", b"\xff\xfe")?
-  root.write(p"long", "0123456789")?
+  root.write(p"text", "  value \n")
+  root.write(p"binary", b"\xff\xfe")
+  root.write(p"long", "0123456789")
 
   let trimmed = src.read_source_text(root, p"text")
   assert trimmed.observation.state == report.Observed and trimmed.observation.value == "value"
@@ -34,7 +34,7 @@ test test_sys_source_numbers_reject_prefixes_signs_and_json_unsafe_values {
     {file: "plus", value: "+1"},
     {file: "huge", value: "9007199254740992"},
   ] {
-    root.write(fp"{item.file}", f"{item.value}\n")?
+    root.write(fp"{item.file}", f"{item.value}\n")
   }
 
   assert src.bounded_number(src.read_source_text(root, p"ok"), true).value == 42
@@ -53,10 +53,10 @@ test test_sys_source_numbers_reject_prefixes_signs_and_json_unsafe_values {
 test test_sys_source_links_separate_unbound_failed_and_present_states {
   let root = fs.tempdir()?
   defer root.close()?
-  root.mkdir(p"dev/real/driver_target", parents: true)?
-  root.symlink(p"driver_target", p"dev/real/driver")?
-  root.mkdir(p"class/entry", parents: true)?
-  root.symlink(p"../dev/real", p"class/entry/device")?
+  root.mkdir(p"dev/real/driver_target", parents: true)
+  root.symlink(p"driver_target", p"dev/real/driver")
+  root.mkdir(p"class/entry", parents: true)
+  root.symlink(../dev/real, p"class/entry/device")
 
   assert src.driver_name(root, p"dev/real/driver").observation.value == "driver_target"
   assert src.driver_name(root, p"dev/real/unbound").observation.state == report.Absent

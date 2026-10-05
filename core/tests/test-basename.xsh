@@ -2,7 +2,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 
 # Runs core/basename.xsh by its real path (so the invoked name is `basename` and
 # `lib.gnu` resolves beside it), capturing both streams to files.
-proc basename_run(ctx: TestContext, args: List[Str], phrase: Str = "") [fs, process, error] -> Result[Ran] {
+proc basename_run(ctx: TestContext, args: List[Str], phrase = "") [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "basename")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"

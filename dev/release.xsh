@@ -89,7 +89,7 @@ type AppletManifest = {
 ## is an extra executable name for one applet, so a consumer can materialize
 ## links from this file instead of a hand-maintained list. An alias that names a
 ## missing applet, or collides with an applet, fails the release.
-export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str] {
+export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str, Error] {
   let sources = core_sources(ctx)?
   var applets: List[AppletEntry] = []
   var libraries: List[Str] = []
@@ -203,11 +203,11 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     archive_entries += [installed]
   }
 
-  stages.ensure_dir(fp"{stage}/core")?
-  fp"{stage}/core/applets.json".write(applet_manifest(ctx)?)?
+  stages.ensure_dir(fp"{stage}/core")
+  fp"{stage}/core/applets.json".write(applet_manifest(ctx)?)
   archive_entries += [p"core/applets.json"]
 
-  archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)?
+  archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)
 
   if core_archive.metadata()?.size == 0 {
     return Err(

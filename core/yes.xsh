@@ -32,7 +32,7 @@ pure repeated(line: Str, count: Int) -> Str {
   out + out.byte_slice(0, length: (count - copies) * line.byte_len())
 }
 
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: YesOptions = cli.applet(
     argv,
     {

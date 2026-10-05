@@ -69,7 +69,7 @@ pure literal_cuts(data: Bytes, separator: Bytes) -> Cuts {
   let count = starts.len()
   let ascending = [starts[count - 1 - step] for step in range(count)]
 
-  {starts: ascending, ends: [at + width for at in ascending]}
+  {starts: ascending, ends: [start + width for start in ascending]}
 }
 
 proc regex_cuts(data: Bytes, pattern: Str) [error] -> Result[Cuts] {
@@ -99,7 +99,7 @@ pure reverse_records(data: Bytes, cuts: Cuts, before: Bool) -> Bytes {
   bytes.concat(pieces)
 }
 
-proc main(...argv: List[Str]) [fs, process, env, io, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: TacOptions = cli.applet(
     argv,
     {
@@ -125,7 +125,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
 
   if opts.separator == "" {
     gnu.error("separator cannot be empty")
-    abort(1)
+    exit 1
   }
 
   let separator = bytes.from_text(opts.separator)
@@ -157,9 +157,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
 
     let data = bytes.concat(chunks)
 
-    if data.len() == 0 {
-      continue
-    }
+    continue when data.len() == 0
 
     let cuts = if opts.regex {
       guard let found = regex_cuts(data, opts.separator) else { |failure|
@@ -179,6 +177,6 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   }
 
   if failed {
-    abort(1)
+    exit 1
   }
 }

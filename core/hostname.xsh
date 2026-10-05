@@ -45,7 +45,7 @@ proc canonical_name(name: Str) [net, error] -> Str {
   name
 }
 
-proc main(...argv: List[Str]) [process, env, io, net, error] {
+proc main(...argv: List[Str]) [net, process, env, error, io] {
   let opts: HostnameOptions = cli.applet(
     argv,
     {
@@ -80,8 +80,14 @@ proc main(...argv: List[Str]) [process, env, io, net, error] {
     }
 
     if let Err(failure) = unix.set_hostname(opts.names[0]) {
-      gnu.error(if gnu.errno(failure) == 1 { "you must be root to change the host name" } else { gnu.strerror(failure) })
-      abort(1)
+      gnu.error(
+        if gnu.errno(failure) == 1 {
+          "you must be root to change the host name"
+        } else {
+          gnu.strerror(failure)
+        },
+      )
+      exit 1
     }
 
     return

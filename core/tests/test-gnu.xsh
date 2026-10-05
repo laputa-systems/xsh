@@ -90,10 +90,10 @@ proc probe(
 ) [fs, process, error] -> Result[ProbeResult] {
   let root = test.temp_dir(ctx, name: "gnu")?.resolve()?
   let script = fp"{root}/real.xsh"
-  script.write(probe_source())?
+  script.write(probe_source())
   let entry = fp"{root}/{invoked}"
   if invoked != "real.xsh" {
-    fs.symlink(p"real.xsh", entry)?
+    fs.symlink(p"real.xsh", entry)
   }
 
   let out = fp"{root}/stdout"
@@ -232,13 +232,13 @@ ls: cannot remove '{missing}': No such file or directory
 
 test test_gnu_permission_denied_reads_as_strerror { |ctx|
   if applet.current_euid() == 0 {
-    test.skip("root bypasses file permissions")?
+    test.skip("root bypasses file permissions")
   }
 
   let root = test.temp_dir(ctx, name: "gnu-denied")?.resolve()?
   let secret = fp"{root}/secret"
-  secret.write("x")?
-  secret.chmod(0o000)?
+  secret.write("x")
+  secret.chmod(0o000)
   let result = probe(ctx, ["strerror", secret.display()])?
   assert result.stdout == "13|Permission denied\n"
 }
@@ -310,7 +310,7 @@ test test_gnu_write_failure_ends_quietly_on_a_closed_pipe { |ctx|
 test test_gnu_read_operand_reads_bytes_from_files_and_stdin { |ctx|
   let root = test.temp_dir(ctx, name: "gnu-read")?.resolve()?
   let file = fp"{root}/data"
-  file.write(b"\xffbinary\0")?
+  file.write(b"\xffbinary\0")
 
   let from_file = probe(ctx, ["read", file.display()])?
   assert from_file.stdout_bytes == b"\xffbinary\0"

@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/tail.xsh by its real path inside `root`, capturing both streams.
-proc tail_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc tail_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display()].extend(args)
@@ -16,7 +16,7 @@ proc numbers(from: Int, to: Int) -> Bytes {
 
 test test_tail_last_lines_of_files_and_stdin { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
-  fp"{root}/n20".write(numbers(1, 20))?
+  fp"{root}/n20".write(numbers(1, 20))
 
   assert tail_run(ctx, root, ["n20"])?.stdout == numbers(11, 20)
   assert tail_run(ctx, root, [], numbers(1, 20))?.stdout == numbers(11, 20)
@@ -31,7 +31,7 @@ test test_tail_last_lines_of_files_and_stdin { |ctx|
 test test_tail_last_lines_of_a_large_file_seek_backward_across_chunks { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
   let big = numbers(1, 30000)
-  fp"{root}/big".write(big)?
+  fp"{root}/big".write(big)
 
   assert tail_run(ctx, root, ["-n", "12000", "big"])?.stdout == numbers(18001, 30000)
   assert tail_run(ctx, root, ["-c", "100000", "big"])?.stdout == big[big.len() - 100000..]
@@ -41,7 +41,7 @@ test test_tail_last_lines_of_a_large_file_seek_backward_across_chunks { |ctx|
 
 test test_tail_from_start_counts { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
-  fp"{root}/n20".write(numbers(1, 20))?
+  fp"{root}/n20".write(numbers(1, 20))
 
   assert tail_run(ctx, root, ["-n", "+19", "n20"])?.stdout == numbers(19, 20)
   assert tail_run(ctx, root, ["-n", "+0"], b"a\nb\n")?.stdout == b"a\nb\n"
@@ -99,9 +99,9 @@ test test_tail_zero_terminated_lines_and_non_utf8_bytes { |ctx|
 
 test test_tail_headers_and_open_errors { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
-  fp"{root}/one".write(b"1\n")?
-  fp"{root}/two words".write(b"2\n")?
-  fp"{root}/dir".mkdir()?
+  fp"{root}/one".write(b"1\n")
+  fp"{root}/two words".write(b"2\n")
+  fp"{root}/dir".mkdir()
 
   assert tail_run(ctx, root, ["one", "two words"])?.stdout == b"==> one <==\n1\n\n==> 'two words' <==\n2\n"
   assert tail_run(ctx, root, ["-q", "one", "one"])?.stdout == b"1\n1\n"
@@ -122,7 +122,7 @@ test test_tail_zero_count_does_not_read { |ctx|
 
 test test_tail_follow_of_untailable_inputs_matches_gnu { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
-  fp"{root}/dir".mkdir()?
+  fp"{root}/dir".mkdir()
 
   let piped = tail_run(ctx, root, ["-f"], b"foo\n")?
   assert piped.status == 0
@@ -143,7 +143,7 @@ test test_tail_follow_of_untailable_inputs_matches_gnu { |ctx|
 
 test test_tail_follow_of_a_live_file_is_rejected_unless_the_pid_is_gone { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
-  fp"{root}/log".write(b"1\n2\n")?
+  fp"{root}/log".write(b"1\n2\n")
 
   let live = tail_run(ctx, root, ["-f", "log"])?
   assert live.status == 1
@@ -165,7 +165,9 @@ test test_tail_validates_follow_options { |ctx|
 
   let hint = tail_run(ctx, root, ["--follow=x", "-"])?
   assert hint.status == 1
-  assert hint.stderr.starts_with("tail: invalid argument 'x' for '--follow'\nValid arguments are:\n  - 'descriptor'\n  - 'name'\n")
+  assert hint.stderr.starts_with(
+    "tail: invalid argument 'x' for '--follow'\nValid arguments are:\n  - 'descriptor'\n  - 'name'\n",
+  )
 
   let warned = tail_run(ctx, root, ["--retry", "--pid=1", "-"], b"a\n")?
   assert warned.stdout == b"a\n"

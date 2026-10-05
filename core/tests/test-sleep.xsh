@@ -2,7 +2,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/sleep.xsh by its real path (so the invoked name is sleep and
 # `lib.gnu` resolves beside it), capturing both streams.
-proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}, stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc applet_run(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C"},
+  stdin = b"",
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "sleep")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -17,7 +22,7 @@ proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"},
 
 test test_sleep_waits_for_the_sum_of_its_intervals { |ctx|
   let script = fp"{ctx.core_dir}/sleep.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "0.1s", "0.05"])
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "0.1s", "0.05"])
   let timing = time.measure(plan)?
 
   assert timing.status.exited_with(0)
@@ -25,7 +30,22 @@ test test_sleep_waits_for_the_sum_of_its_intervals { |ctx|
 }
 
 test test_sleep_accepts_suffixes_hexadecimal_and_leading_blanks { |ctx|
-  for interval in ["0", "0s", "0m", "0h", "0d", "0x0", "0x0s", "0x0.1", "0x1.0p-4s", "1e-3", " 0.01s", "+0", "0x0h", "0.0001d"] {
+  for interval in [
+    "0",
+    "0s",
+    "0m",
+    "0h",
+    "0d",
+    "0x0",
+    "0x0s",
+    "0x0.1",
+    "0x1.0p-4s",
+    "1e-3",
+    " 0.01s",
+    "+0",
+    "0x0h",
+    "0.0001d",
+  ] {
     let result = applet_run(ctx, [interval])?
     assert result.status == 0, interval
     assert result.stderr == "", interval

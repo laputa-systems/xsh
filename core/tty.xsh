@@ -13,7 +13,7 @@ Print the file name of the terminal connected to standard input.
 type TtyOptions = {silent: Bool, help: Bool, version: Bool}
 
 # Exit statuses: 0 on a terminal, 1 not a terminal, 2 usage, 3 ttyname error.
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: TtyOptions = cli.applet(
     argv,
     {
@@ -37,7 +37,7 @@ proc main(...argv: List[Str]) [process, env, io, error] {
   let terminal = if let Ok(_) = unix.tty_attrs(0) { true } else { false }
 
   if opts.silent {
-    abort(if terminal { 0 } else { 1 })
+    exit if terminal { 0 } else { 1 }
   }
 
   match unix.tty() {
@@ -45,11 +45,11 @@ proc main(...argv: List[Str]) [process, env, io, error] {
     Err(failure) => {
       if terminal {
         gnu.error(f"ttyname error: {gnu.strerror(failure)}")
-        abort(3)
+        exit 3
       }
 
       gnu.write_text("not a tty\n")
-      abort(1)
+      exit 1
     }
   }
 }

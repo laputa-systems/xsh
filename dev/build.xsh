@@ -69,7 +69,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
 ## `core/*.xsh`, no applet reading /proc or /sys outside the typed domain APIs,
 ## only per-test explained exclusions, and a parity manifest that matches the repository and the pinned denominator. The manifest check runs offline unless `UUTILS_ROOT` is
 ## set, so `make check` needs no uutils checkout.
-export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Unit] {
+export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "check-compat-ignored-options",
@@ -79,7 +79,7 @@ export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Un
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-compat-kernel-reads",
@@ -89,7 +89,7 @@ export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Un
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-compat-exclusions",
@@ -99,7 +99,7 @@ export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Un
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-compat-parity",
@@ -109,7 +109,7 @@ export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Un
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Compiles the release lint gate before measuring read-only lint on the configured repository corpus,
@@ -136,10 +136,10 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
       ctx.root,
       {},
     ),
-  )?
-  check_compat(ctx)?
-  documentation.build_release(ctx)?
-  check_docs(ctx, documentation.release_tools(ctx))?
+  )
+  check_compat(ctx)
+  documentation.build_release(ctx)
+  check_docs(ctx, documentation.release_tools(ctx))
 }
 
 ## Fails on stale generated docs, failing tour snippets, or failing tour project tests.
@@ -239,10 +239,10 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
-  check_compat(ctx)?
-  check_docs(ctx, documentation.release_tools(ctx))?
-  check_libxsh_imports(ctx)?
+  )
+  check_compat(ctx)
+  check_docs(ctx, documentation.release_tools(ctx))
+  check_libxsh_imports(ctx)
   stages.execute(
     stages.command(
       "check-diff",

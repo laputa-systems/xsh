@@ -11,7 +11,7 @@ the current process (which may differ if the groups database has changed).
 
 type GroupsOptions = {help: Bool, version: Bool, users: List[Str]}
 
-proc main(...argv: List[Str]) [process, env, io, fs, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: GroupsOptions = cli.applet(
     argv,
     {
@@ -39,7 +39,7 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
     gnu.write_text("\n")
 
     if ! ok {
-      abort(1)
+      exit 1
     }
 
     return
@@ -57,6 +57,6 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
   }
 
   if ! ok {
-    abort(1)
+    exit 1
   }
 }

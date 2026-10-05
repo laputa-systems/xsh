@@ -24,5 +24,5 @@ proc main(...argv: List[Str]) [process, env, io] {
     }
   }
 
-  abort(1)
+  exit 1
 }

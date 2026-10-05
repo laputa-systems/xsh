@@ -2,15 +2,20 @@ type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/id.xsh by its real path (so the invoked name is id and
 # `lib.gnu` resolves beside it), capturing both streams.
-proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}, stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc applet_run(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C"},
+  stdin = b"",
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "id")?
-  let out = fp"{root}/stdout"
+  let stdout_path = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/id.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, stdin, out, err)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, stdin, stdout_path, err)
   let status = process.run(plan)?
-  let raw = out.read_bytes()?
+  let raw = stdout_path.read_bytes()?
 
   Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
 }

@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/tac.xsh by its real path inside `root`, capturing both streams.
-proc tac_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc tac_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tac.xsh".display()].extend(args)
@@ -12,7 +12,7 @@ proc tac_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") 
 
 test test_tac_reverses_lines_and_keeps_the_unterminated_record_first { |ctx|
   let root = test.temp_dir(ctx, name: "tac")?
-  fp"{root}/in".write(b"1\n2\n3")?
+  fp"{root}/in".write(b"1\n2\n3")
 
   assert tac_run(ctx, root, ["in"])?.stdout == b"32\n1\n"
   assert tac_run(ctx, root, [], b"100\n200\n300\n400\n500")?.stdout == b"500400\n300\n200\n100\n"
@@ -66,8 +66,8 @@ test test_tac_empty_separator_is_a_usage_error { |ctx|
 
 test test_tac_reports_open_and_read_errors { |ctx|
   let root = test.temp_dir(ctx, name: "tac")?
-  fp"{root}/dir".mkdir()?
-  fp"{root}/ok".write(b"1\n2\n")?
+  fp"{root}/dir".mkdir()
+  fp"{root}/ok".write(b"1\n2\n")
 
   let result = tac_run(ctx, root, ["missing", "dir", "ok"])?
   assert result.status == 1

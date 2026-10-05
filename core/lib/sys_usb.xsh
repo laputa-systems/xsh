@@ -8,9 +8,9 @@
 ##! resolve by sysfs name to indexes into `devices`. Descriptor parsing is
 ##! strict about framing yet preserves unknown descriptor types. The collector
 ##! applies no redaction and no formatting.
-use system_report as report
 use sys_pci
 use sys_source as src
+use system_report as report
 
 ## Describes one endpoint of an interface alternate setting.
 export type UsbEndpoint = report.UsbEndpoint
@@ -84,7 +84,7 @@ export type DescriptorAlternate = {
 }
 
 ## Parses USB descriptor framing while preserving unknown descriptor payloads.
-export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord]] {
+export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord], Error] {
   let max_bytes = 1048576
   let max_descriptors = 65536
   if data.len() > max_bytes {
@@ -119,12 +119,14 @@ export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord
       )
     }
 
-    descriptors = descriptors.push({
-      offset: offset,
-      length: length,
-      descriptor_type: descriptor_type,
-      raw: data[offset..offset + length],
-    })
+    descriptors += [
+      {
+        offset: offset,
+        length: length,
+        descriptor_type: descriptor_type,
+        raw: data[offset..offset + length],
+      },
+    ]
     offset += length
   }
 
@@ -132,7 +134,7 @@ export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord
 }
 
 ## Parses interface settings and endpoints without joining identical numbers across configurations.
-export proc parse_alternates(data: Bytes) [error] -> Result[List[DescriptorAlternate]] {
+export proc parse_alternates(data: Bytes) [error] -> Result[List[DescriptorAlternate], Error] {
   let records = parse_descriptor_stream(data)?
   var alternates: List[DescriptorAlternate] = []
   var current_configuration: Int? = null
@@ -244,7 +246,7 @@ export proc parse_alternates(data: Bytes) [error] -> Result[List[DescriptorAlter
       0 => "control",
       1 => "isochronous",
       2 => "bulk",
-      _ => "interrupt",
+      else => "interrupt",
     }
     let endpoint: report.UsbEndpoint = report.UsbEndpoint(
       address:,
@@ -326,7 +328,7 @@ export pure parent_indices(names: List[Str?], bus_numbers: List[Int?]) -> List[I
       }
     }
 
-    parents = parents.push(parent_index)
+    parents += [parent_index]
   }
 
   parents
@@ -388,9 +390,9 @@ pure hex_optional(value: Str?, width: Int) -> Int? {
 
 pure decimal_optional(value: Str?, minimum: Int) -> Int? {
   let parsed = src.parse_integer(value)
-  return null when parsed == null
-
-  let number = parsed
+  guard let number = parsed else {
+    return null
+  }
   return null when number < minimum or number > 9007199254740991
 
   parsed
@@ -403,9 +405,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
   var devices: List[UsbDevice] = []
   var issues: List[src.Issue] = []
   if listing.state != "complete" {
-    issues = issues.push(
-      src.issue("devices", src.source_state(listing.state, false), listing.error_kind, listing.errno),
-    )
+    issues += [src.issue("devices", src.source_state(listing.state, false), listing.error_kind, listing.errno)]
   }
 
   for device_path in listing.children {
@@ -415,23 +415,26 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
     let vendor_id = hex_optional(src.observed_text(vendor), 4)
     let product_id = hex_optional(src.observed_text(product), 4)
     if vendor.observation.state != report.Observed {
-      issues = issues.push(
+      issues += [
         src.issue(f"devices.{device_path.name()}.vendor_id", vendor.observation.state, vendor.error_kind, vendor.errno),
-      )
+      ]
     } else if vendor_id == null {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.vendor_id", report.Malformed, "invalid_usb_vendor_id", null),
-      )
+      issues += [src.issue(f"devices.{device_path.name()}.vendor_id", report.Malformed, "invalid_usb_vendor_id", null)]
     }
 
     if product.observation.state != report.Observed {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.product_id", product.observation.state, product.error_kind, product.errno),
-      )
+      issues += [
+        src.issue(
+          f"devices.{device_path.name()}.product_id",
+          product.observation.state,
+          product.error_kind,
+          product.errno,
+        ),
+      ]
     } else if product_id == null {
-      issues = issues.push(
+      issues += [
         src.issue(f"devices.{device_path.name()}.product_id", report.Malformed, "invalid_usb_product_id", null),
-      )
+      ]
     }
 
     let bus = src.read_source_text(root, fp"{device_path}/busnum", max_bytes: 4096)
@@ -477,9 +480,9 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       },
     ] {
       if named_value.source.observation.state == report.Observed and named_value.value == null {
-        issues = issues.push(
+        issues += [
           src.issue(f"devices.{device_path.name()}.{named_value.name}", report.Malformed, "invalid_usb_hex_value", null),
-        )
+        ]
       }
     }
 
@@ -533,67 +536,79 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
         source: active_configuration,
       },
     ] {
-      issues = src.append_text_issue(issues, f"devices.{device_path.name()}.{named_source.name}",
+      issues = src.append_text_issue(
+        issues,
+        f"devices.{device_path.name()}.{named_source.name}",
         named_source.source,
       )
     }
 
     if power_control.observation.state != report.Observed and power_control.observation.state != report.Absent {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.power_control",
+      issues += [
+        src.issue(
+          f"devices.{device_path.name()}.power_control",
           power_control.observation.state,
           power_control.error_kind,
           power_control.errno,
         ),
-      )
+      ]
     }
 
     if autosuspend.observation.state != report.Observed and autosuspend.observation.state != report.Absent {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.autosuspend_delay_ms",
+      issues += [
+        src.issue(
+          f"devices.{device_path.name()}.autosuspend_delay_ms",
           autosuspend.observation.state,
           autosuspend.error_kind,
           autosuspend.errno,
         ),
-      )
+      ]
     }
 
     if runtime_status.observation.state != report.Observed and runtime_status.observation.state != report.Absent {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.runtime_status",
+      issues += [
+        src.issue(
+          f"devices.{device_path.name()}.runtime_status",
           runtime_status.observation.state,
           runtime_status.error_kind,
           runtime_status.errno,
         ),
-      )
+      ]
     }
 
     let raw_descriptors = root.read_result(fp"{device_path}/descriptors", max_bytes: 1048576)?
     var descriptor_alternates: List[DescriptorAlternate] = []
     if raw_descriptors.truncated {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.descriptors",
+      issues += [
+        src.issue(
+          f"devices.{device_path.name()}.descriptors",
           report.Truncated,
           "descriptor_input_limit",
           raw_descriptors.errno,
         ),
-      )
+      ]
     } else if raw_descriptors.state == "observed" and raw_descriptors.data != null {
       if let Ok(alternates) = parse_alternates(raw_descriptors.data) {
         descriptor_alternates = alternates
       } else {
-        issues = issues.push(
-          src.issue(f"devices.{device_path.name()}.descriptors", report.Malformed, "invalid_usb_descriptor_stream", null),
-        )
+        issues += [
+          src.issue(
+            f"devices.{device_path.name()}.descriptors",
+            report.Malformed,
+            "invalid_usb_descriptor_stream",
+            null,
+          ),
+        ]
       }
     } else if raw_descriptors.state == "read_failure" or raw_descriptors.state == "permission_denied" {
-      issues = issues.push(
-        src.issue(f"devices.{device_path.name()}.descriptors",
+      issues += [
+        src.issue(
+          f"devices.{device_path.name()}.descriptors",
           src.source_state(raw_descriptors.state, raw_descriptors.truncated),
           raw_descriptors.error_kind,
           raw_descriptors.errno,
         ),
-      )
+      ]
     }
 
     var interfaces: List[report.UsbInterface] = []
@@ -603,39 +618,44 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       let interface_number_text = (interface_name.split(":").get(1) ?? "").split(".").get(1) ?? ""
       let interface_number = src.parse_integer(interface_number_text) ?? -1
       if interface_number < 0 {
-        issues = issues.push(
-          src.issue(f"devices.{device_path.name()}.interfaces.{interface_name}",
+        issues += [
+          src.issue(
+            f"devices.{device_path.name()}.interfaces.{interface_name}",
             report.Malformed,
             "invalid_interface_name",
             null,
           ),
-        )
+        ]
         continue
       }
 
       let driver_link = src.driver_name(root, fp"{interface_path}/driver")
       if driver_link.observation.state != report.Observed and driver_link.observation.state != report.Absent {
-        issues = issues.push(
-          src.issue(f"devices.{device_path.name()}.interfaces.{interface_name}.driver",
+        issues += [
+          src.issue(
+            f"devices.{device_path.name()}.interfaces.{interface_name}.driver",
             driver_link.observation.state,
             driver_link.error_kind,
             driver_link.errno,
           ),
-        )
+        ]
       }
 
       let active = src.read_source_text(root, fp"{interface_path}/bAlternateSetting", max_bytes: 4096)
       let active_alternate = decimal_optional(src.observed_text(active), 0)
       if active.observation.state == report.Observed and active_alternate == null {
-        issues = issues.push(
-          src.issue(f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
+        issues += [
+          src.issue(
+            f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
             report.Malformed,
             "invalid_usb_alternate",
             null,
           ),
-        )
+        ]
       } else if active.observation.state != report.Observed and active.observation.state != report.Absent {
-        issues = src.append_text_issue(issues, f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
+        issues = src.append_text_issue(
+          issues,
+          f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
           active,
         )
       }
@@ -652,13 +672,15 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
         for alternate in descriptor_alternates
         if alternate.interface_number == interface_number
       ]
-      interfaces = interfaces.push({
-        number: interface_number,
-        name: interface_name,
-        driver: src.observed_text(driver_link),
-        active_alternate: active_alternate,
-        alternate_settings: alternate_settings,
-      })
+      interfaces += [
+        {
+          number: interface_number,
+          name: interface_name,
+          driver: src.observed_text(driver_link),
+          active_alternate: active_alternate,
+          alternate_settings: alternate_settings,
+        },
+      ]
     }
 
     let bus_number = decimal_optional(src.observed_text(bus), 1)
@@ -694,44 +716,46 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       },
     ] {
       if named_number.source.observation.state == report.Observed and named_number.value == null {
-        issues = issues.push(
+        issues += [
           src.issue(f"devices.{device_path.name()}.{named_number.name}", report.Malformed, "invalid_usb_number", null),
-        )
+        ]
       }
     }
 
     let controller = controller_address(root, device_path)
     if controller.state != report.Observed {
-      issues = issues.push(
+      issues += [
         src.issue(f"devices.{device_path.name()}.controller", controller.state, controller.error_kind, controller.errno),
-      )
+      ]
     }
 
-    devices = devices.push({
-      sysfs_name: device_path.name(),
-      parent_device_index: null,
-      controller_pci_address: controller.address,
-      port_path: port_path(device_path.name()),
-      bus_number: bus_number,
-      device_number: device_number,
-      vendor_id: vendor_id,
-      product_id: product_id,
-      device_version: version_value,
-      class_code: class_code,
-      subclass: subclass_code,
-      protocol: protocol_code,
-      manufacturer: manufacturer.observation,
-      product: product_text.observation,
-      serial: serial.observation,
-      speed_mbps: src.observed_text(speed),
-      configuration_count: configuration_count,
-      active_configuration: active_configuration_number,
-      power_control: src.observed_text(power_control),
-      autosuspend_delay_ms: autosuspend_delay,
-      runtime_status: src.observed_text(runtime_status),
-      is_root_hub: device_path.name().starts_with("usb"),
-      interfaces: interfaces,
-    })
+    devices += [
+      {
+        sysfs_name: device_path.name(),
+        parent_device_index: null,
+        controller_pci_address: controller.address,
+        port_path: port_path(device_path.name()),
+        bus_number: bus_number,
+        device_number: device_number,
+        vendor_id: vendor_id,
+        product_id: product_id,
+        device_version: version_value,
+        class_code: class_code,
+        subclass: subclass_code,
+        protocol: protocol_code,
+        manufacturer: manufacturer.observation,
+        product: product_text.observation,
+        serial: serial.observation,
+        speed_mbps: src.observed_text(speed),
+        configuration_count: configuration_count,
+        active_configuration: active_configuration_number,
+        power_control: src.observed_text(power_control),
+        autosuspend_delay_ms: autosuspend_delay,
+        runtime_status: src.observed_text(runtime_status),
+        is_root_hub: device_path.name().starts_with("usb"),
+        interfaces: interfaces,
+      },
+    ]
   }
 
   {

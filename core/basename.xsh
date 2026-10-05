@@ -41,7 +41,7 @@ pure basename_value(name: Str, suffix: Str) -> Str {
   base.byte_slice(0, length: base.byte_len() - suffix.byte_len())
 }
 
-proc main(...argv: List[Str]) [process, env, io, error] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: BasenameOptions = cli.applet(
     argv,
     {

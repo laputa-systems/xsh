@@ -109,7 +109,7 @@ match build.check_lint(ctx) {{
 test test_check_compat_runs_every_ratchet_and_stops_at_the_first_failure { |ctx|
   let root = test.temp_dir(ctx, name: "check-compat")?
   let tools = fp"{root}/tools"
-  tools.mkdir()?
+  tools.mkdir()
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
   let log = fp"{root}/python-argv"
@@ -119,9 +119,9 @@ test test_check_compat_runs_every_ratchet_and_stops_at_the_first_failure { |ctx|
     f"""let previous = if p"{log}".exists()? {{ p"{log}".read_text()? }} else {{ "" }}
 p"{log}".write(previous + args.join("|") + "\\n")?
 if "parity.py" in args.join("|") {{
-  abort(7)
+  exit 7
 }}""",
-  )?
+  )
   let result = test.run_script(
     ctx,
     f"""
@@ -131,12 +131,12 @@ use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match build.check_compat(ctx) {{
-  Ok(_) => abort(1)
+  Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
+    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout

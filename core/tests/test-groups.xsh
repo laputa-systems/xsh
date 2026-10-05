@@ -2,7 +2,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/groups.xsh by its real path (so the invoked name is groups and
 # `lib.gnu` resolves beside it), capturing both streams.
-proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}, stdin: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc applet_run(
+  ctx: TestContext,
+  args: List[Str],
+  vars: Record = {LC_ALL: "C"},
+  stdin = b"",
+) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "groups")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -15,11 +20,11 @@ proc applet_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"},
   Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
 }
 
-proc current_groups() [process, fs, error] -> Result[Str] {
+proc current_groups() [fs, process, error] -> Result[Str] {
   let me = unix.id()?
   let names = [entry.name for entry in me.groups if entry.gid != me.gid]
 
-  Ok(([group.by_gid(me.gid)?.name] + names).join(" "))
+  Ok([group.by_gid(me.gid)?.name, @names].join(" "))
 }
 
 test test_groups_lists_the_current_process_groups { |ctx|

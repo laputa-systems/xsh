@@ -79,7 +79,7 @@ pure modernize(argv: List[Str]) -> List[Str] {
   let option = if unit == "b" or unit == "c" { "-c" } else { "-n" }
   let count = if unit == "b" { f"{sign}{digits}b" } else { f"{sign}{digits}" }
 
-  [option, count] + (if parts[4] == "f" { ["-f"] } else { [] }) + argv[1..]
+  [option, count, @if parts[4] == "f" { ["-f"] } else { [] }, @argv[1..]]
 }
 
 proc parse_spec(text: Str, by_bytes: Bool) [process, env] -> Spec {
@@ -88,19 +88,19 @@ proc parse_spec(text: Str, by_bytes: Bool) [process, env] -> Spec {
   let value = tio.parse_count(digits)
 
   if value == null {
-    gnu.error(f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote(if from_start { text } else { digits })}")
-    abort(1)
+    gnu.error(
+      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote(if from_start { text } else { digits })}",
+    )
+    exit 1
   }
 
-  {value: value ?? 0, from_start: from_start, bytes: by_bytes}
+  {value: value, from_start: from_start, bytes: by_bytes}
 }
 
 # GNU `argmatch` for an option argument: an exact name wins, otherwise a unique
 # prefix.
 proc match_choice(text: Str, choices: List[Str], option: Str) [process, env] -> Str {
-  if text in choices {
-    return text
-  }
+  return text when text in choices
 
   let found = [choice for choice in choices if choice.starts_with(text)]
 
@@ -115,8 +115,7 @@ proc match_choice(text: Str, choices: List[Str], option: Str) [process, env] -> 
   }
 
   gnu.try_help()
-  abort(1)
-  text
+  exit 1
 }
 
 # The offset where the last `count` lines of a chunked file start, scanning
@@ -131,9 +130,7 @@ proc last_lines_start(source: tio.Source, count: Int, zero: Bool) [fs, error, io
     let low = if high > tio.CHUNK { high - tio.CHUNK } else { 0 }
     let ends = tio.line_ends(bytes.read_at(source.path, low, high - low)?, zero)
 
-    if ends.len() >= need {
-      return Ok(low + ends[ends.len() - need])
-    }
+    return Ok(low + ends[ends.len() - need]) when ends.len() >= need
 
     need -= ends.len()
     high = low
@@ -149,7 +146,13 @@ pure data_start(data: Bytes, spec: Spec, zero: Bool) -> Int {
   if spec.bytes {
     let skip = if spec.value > 0 { spec.value - 1 } else { 0 }
 
-    return if spec.from_start { if skip > size { size } else { skip } } else if spec.value > size { 0 } else { size - spec.value }
+    return if spec.from_start {
+      if skip > size { size } else { skip }
+    } else if spec.value > size {
+      0
+    } else {
+      size - spec.value
+    }
   }
 
   let ends = tio.line_ends(data, zero)
@@ -172,10 +175,18 @@ pure data_start(data: Bytes, spec: Spec, zero: Bool) -> Int {
 # errors that `open_source` cannot see (an unreadable file).
 proc file_start(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Result[Int] {
   if spec.bytes {
-    let probe = bytes.read_at(source.path, 0, 1)?
+    let _ = bytes.read_at(source.path, 0, 1)?
     let skip = if spec.value > 0 { spec.value - 1 } else { 0 }
 
-    return Ok(if spec.from_start { if skip > source.size { source.size } else { skip } } else if spec.value > source.size { 0 } else { source.size - spec.value })
+    return Ok(
+      if spec.from_start {
+        if skip > source.size { source.size } else { skip }
+      } else if spec.value > source.size {
+        0
+      } else {
+        source.size - spec.value
+      },
+    )
   }
 
   if spec.from_start {
@@ -186,9 +197,7 @@ proc file_start(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> R
       let chunk = tio.read_chunk(source, offset)?
       let ends = tio.line_ends(chunk, zero)
 
-      if ends.len() >= skip {
-        return Ok(offset + ends[skip - 1])
-      }
+      return Ok(offset + ends[skip - 1]) when ends.len() >= skip
 
       skip -= ends.len()
       offset += chunk.len()
@@ -222,7 +231,7 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
   Ok({data: data, start: data_start(data, spec, zero)})
 }
 
-proc main(...argv: List[Str]) [fs, process, env, io, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let args = modernize(tio.without_presume_pipe(argv))
 
   if args.len() > 0 and rx"^-[0-9]".matches(args[0]) {
@@ -260,19 +269,29 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     return
   }
 
-  let spec = if opts.bytes != "" { parse_spec(opts.bytes, true) } else { parse_spec(if opts.lines == "" { "10" } else { opts.lines }, false) }
-  let follow_mode = if opts.big_f { "name" } else if opts.follow == "" { "" } else { match_choice(opts.follow, FOLLOW_MODES, "follow") }
+  let spec = if opts.bytes != "" {
+    parse_spec(opts.bytes, true)
+  } else {
+    parse_spec(if opts.lines == "" { "10" } else { opts.lines }, false)
+  }
+  let follow_mode = if opts.big_f {
+    "name"
+  } else if opts.follow == "" {
+    ""
+  } else {
+    match_choice(opts.follow, FOLLOW_MODES, "follow")
+  }
   let following = follow_mode != ""
   let retrying = opts.retry or opts.big_f
 
   if opts.max_unchanged != "" and ! rx"^[0-9]+$".matches(opts.max_unchanged) {
     gnu.error(f"invalid maximum number of unchanged stats between opens: {gnu.quote(opts.max_unchanged)}")
-    abort(1)
+    exit 1
   }
 
   if opts.sleep != "" and ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(opts.sleep) {
     gnu.error(f"invalid number of seconds: {gnu.quote(opts.sleep)}")
-    abort(1)
+    exit 1
   }
 
   var pid = 0
@@ -282,7 +301,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
 
     if parsed < 0 or parsed > 2147483647 {
       gnu.error(f"invalid PID: {gnu.quote(opts.pid)}")
-      abort(1)
+      exit 1
     }
 
     pid = parsed
@@ -300,12 +319,10 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
 
   if follow_mode == "name" and "-" in operands {
     gnu.error("cannot follow '-' by name")
-    abort(1)
+    exit 1
   }
 
-  if ! following and spec.value == 0 and ! spec.from_start {
-    return
-  }
+  return when ! following and spec.value == 0 and ! spec.from_start
 
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var first = true
@@ -376,14 +393,16 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     let alive = pid > 0 and running.len() > 0
 
     if pid == 0 or alive {
-      gnu.error(f"cannot follow {gnu.quote(growing[0])}: following a growing file is not supported because output is not flushed incrementally")
-      abort(1)
+      gnu.error(
+        f"cannot follow {gnu.quote(growing[0])}: following a growing file is not supported because output is not flushed incrementally",
+      )
+      exit 1
     }
   } else if following and failed {
     gnu.error("no files remaining")
   }
 
   if failed {
-    abort(1)
+    exit 1
   }
 }

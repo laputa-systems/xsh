@@ -63,7 +63,7 @@ proc find_user(spec: Str) [fs] -> Found? {
   {uid: found.uid, gid: found.gid, name: found.name}
 }
 
-proc main(...argv: List[Str]) [process, env, io, fs, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: IdOptions = cli.applet(
     argv,
     {
@@ -94,26 +94,26 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
 
   if opts.context {
     gnu.error("--context (-Z) works only on an SELinux-enabled kernel")
-    abort(1)
+    exit 1
   }
 
   let chosen = (if opts.user { 1 } else { 0 }) + (if opts.group { 1 } else { 0 }) + (if opts.groups { 1 } else { 0 })
 
   if chosen > 1 {
     gnu.error("cannot print \"only\" of more than one choice")
-    abort(1)
+    exit 1
   }
 
   let default_format = chosen == 0
 
   if default_format and (opts.real or opts.name) {
     gnu.error("printing only names or real IDs requires -u, -g, or -G")
-    abort(1)
+    exit 1
   }
 
   if default_format and opts.zero {
     gnu.error("option --zero not permitted in default format")
-    abort(1)
+    exit 1
   }
 
   let separator = if opts.zero { "\0" } else { " " }
@@ -177,7 +177,7 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
 
       var listed: List[Str] = []
 
-      for gid in [who.egid] + who.groups {
+      for gid in [who.egid, @who.groups] {
         let label = idtools.group_name(gid)
 
         listed += [if label == null { f"{gid}" } else { f"{gid}({label})" }]
@@ -194,6 +194,6 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
   }
 
   if ! ok {
-    abort(1)
+    exit 1
   }
 }

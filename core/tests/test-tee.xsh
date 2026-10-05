@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/tee.xsh by its real path inside `root`, capturing both streams.
-proc tee_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc tee_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tee.xsh".display()].extend(args)
@@ -23,8 +23,8 @@ test test_tee_copies_stdin_to_stdout_and_every_file { |ctx|
 
 test test_tee_truncates_by_default_and_appends_with_a { |ctx|
   let root = test.temp_dir(ctx, name: "tee")?
-  fp"{root}/log1".write(b"old1\n")?
-  fp"{root}/log2".write(b"old2\n")?
+  fp"{root}/log1".write(b"old1\n")
+  fp"{root}/log2".write(b"old2\n")
 
   let _ = tee_run(ctx, root, ["log1"], b"new\n")?
   assert fp"{root}/log1".read_bytes()? == b"new\n"
@@ -46,7 +46,7 @@ test test_tee_without_input_creates_empty_files { |ctx|
 
 test test_tee_write_errors_follow_the_output_error_mode { |ctx|
   let root = test.temp_dir(ctx, name: "tee")?
-  fp"{root}/dir".mkdir()?
+  fp"{root}/dir".mkdir()
 
   let default = tee_run(ctx, root, ["dir", "good"], b"data")?
   assert default.status == 1

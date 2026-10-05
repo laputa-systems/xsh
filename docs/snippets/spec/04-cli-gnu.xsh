@@ -1,5 +1,5 @@
 ## An applet with GNU getopt_long grammar.
-proc main(...argv: List[Str]) [io, error] {
+proc main(...argv: List[Str]) [error, io] {
   let opts = cli.applet(
     argv,
     {

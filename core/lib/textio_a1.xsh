@@ -9,6 +9,9 @@
 
 use gnu
 
+## The largest count GNU `head` and `tail` clamp an overflowing number to.
+export const MAX_COUNT = 9223372036854775807
+
 ## The size of one chunked read.
 export const CHUNK = 65536
 
@@ -30,8 +33,8 @@ export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
 
 ## Open an operand: resolve symlinks and classify the file. A failure is the
 ## operating-system error of the missing, looping, or unreachable name.
-export proc open_source(name: Str) [fs, error] -> Result[Source] {
-  return Ok({name: name, path: p"/dev/stdin", mode: "stdin", kind: 0, size: 0}) when name == "-"
+export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
+  return Ok({name: name, path: /dev/stdin, mode: "stdin", kind: 0, size: 0}) when name == "-"
 
   let target = fp"{name}".resolve()?
   let entry = target.metadata()?
@@ -49,10 +52,8 @@ export proc open_source(name: Str) [fs, error] -> Result[Source] {
 
 ## The bytes of `source` from `offset`, at most `count` for chunked sources
 ## and everything for the others. An empty result is the end of the input.
-export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, io] -> Result[Bytes] {
-  if source.mode == "stdin" {
-    return if offset == 0 { io.stdin_bytes() } else { Ok(b"") }
-  }
+export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, io] -> Result[Bytes, Error] {
+  return if offset == 0 { io.stdin_bytes() } else { Ok(b"") } when source.mode == "stdin"
 
   if source.mode == "whole" {
     return if offset == 0 { source.path.read_bytes() } else { Ok(b"") }
@@ -84,7 +85,7 @@ export pure is_directory(failure: Error) -> Bool {
 proc fd_info(fd: Int) [fs, error] -> Result[Fd] {
   var info = {pos: 0, append: false, ino: 0, mnt: 0}
 
-  for line in fp"/proc/self/fdinfo/{fd}".read_text()?.lines() {
+  for line in fp"/proc/self/fdinfo/{fd}".lines()? {
     let parts = line.split(":")
     let name = parts.get(0) ?? ""
     let text = (parts.get(1) ?? "").trim()
@@ -127,7 +128,7 @@ export proc standard_file(fd: Int) [fs, error] -> Str {
 ## offsets come from `/proc/self/fdinfo`; a file operand starts at offset 0 and
 ## `written` counts the bytes buffered for output so far. `out` is
 ## `standard_file(1)`.
-export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, error] -> Result[Bool] {
+export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, error] -> Result[Bool, Error] {
   return Ok(false) when out == "" or (source.mode != "file" and source.mode != "stdin")
 
   guard let output = fd_info(1) else {
@@ -151,9 +152,6 @@ export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, err
 
   Ok(if output.append { position < size } else { position < output.pos + written })
 }
-
-## The largest count GNU `head` and `tail` clamp an overflowing number to.
-export const MAX_COUNT = 9223372036854775807
 
 ## Parse an unsigned count with a GNU size suffix (`b`, `K`, `KiB`, `kB`, `M`,
 ## ..., `Q`); an overflowing value clamps to `MAX_COUNT`. Returns null for
@@ -182,7 +180,7 @@ export pure parse_count(text: Str) -> Int? {
 
     return MAX_COUNT when number > 0 and exponent > 6
 
-    for _ in range(exponent) {
+    repeat exponent times {
       factor *= base
     }
   }

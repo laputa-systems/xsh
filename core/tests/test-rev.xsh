@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/rev.xsh by its real path inside `root`, capturing both streams.
-proc rev_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc rev_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/rev.xsh".display()].extend(args)
@@ -12,7 +12,7 @@ proc rev_run(ctx: TestContext, root: Path, args: List[Str], input: Bytes = b"") 
 
 test test_rev_reverses_characters_of_files_and_stdin { |ctx|
   let root = test.temp_dir(ctx, name: "rev")?
-  fp"{root}/in".write(b"abc\ncaf\xc3\xa9")?
+  fp"{root}/in".write(b"abc\ncaf\xc3\xa9")
 
   assert rev_run(ctx, root, ["in"])?.stdout == b"cba\n\xc3\xa9fac"
   assert rev_run(ctx, root, [], b"one\ntwo\n")?.stdout == b"eno\nowt\n"
@@ -38,7 +38,7 @@ test test_rev_zero_option_uses_nul_lines { |ctx|
 
 test test_rev_reports_unreadable_operands_and_continues { |ctx|
   let root = test.temp_dir(ctx, name: "rev")?
-  fp"{root}/ok".write(b"ab\n")?
+  fp"{root}/ok".write(b"ab\n")
 
   let result = rev_run(ctx, root, ["missing", "ok"])?
   assert result.status == 1
