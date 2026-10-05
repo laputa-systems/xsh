@@ -93,8 +93,9 @@ Duration suffixes: `ms` `s` `m` `h`.
 
 From tightest to loosest. Postfix forms (`.name`, `?.name`, `[i]`, `?[i]`,
 calls, `?`) bind tighter than every operator; prefix `!` and `-` bind at
-level 7; `is` shares the equality level; `|>` is
-looser than every operator.
+level 8; the conversion `value as TYPE` binds at
+level 7 and chains to the left; `is` shares
+the equality level; `|>` is looser than every operator.
 
 | Level | Operators | Associativity | Family |
 |---|---|---|---|
@@ -266,7 +267,9 @@ equality_operand = membership | additive ;
 ordering = additive ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+ ;
 membership = additive ( ( "in" | "not" "in" ) NEWLINE* additive )+ ;
 additive = multiplicative ( ( "+" | "-" ) NEWLINE* multiplicative )* ;
-multiplicative = unary ( ( "*" | "/" | "%" ) NEWLINE* unary )* ;
+multiplicative = conversion ( ( "*" | "/" | "%" ) NEWLINE* conversion )* ;
+conversion = unary conversion_tail ;
+conversion_tail = ( "as" type_expr )* ;
 unary = ( "!" | "-" ) unary | primary postfix* ;
 postfix = ~"." member_access
         | ~"?" ~"." member_access
@@ -360,7 +363,7 @@ builder_entry = binding
               | NAME !"=" command_argument* ;
 item_expression = "." ( MEMBER | !( MEMBER | "." | ~"/" ) ) ;
 bare_path = ( "/" | "." ~"/" | "." ~"." ~"/" ) ~PATH_PART* !~PATH_PART ;
-multiplicative_tail = ( ( "*" | "/" | "%" ) NEWLINE* unary )* ;
+multiplicative_tail = conversion_tail ( ( "*" | "/" | "%" ) NEWLINE* conversion )* ;
 additive_tail = multiplicative_tail ( ( "+" | "-" ) NEWLINE* multiplicative )* ;
 stage_end = &( NEWLINE | ";" | "}" | "|>" | ")" | "]" | "," ) ;
 condition_expression = condition_logical ( "|>" condition_pipe_stage )* ;
@@ -407,6 +410,7 @@ primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
                 | DURATION
                 | STRING
                 | BYTES
+                | FMT_STRING
                 | list_pattern
                 | record_pattern ;
 list_pattern = "[" NEWLINE* ( ( pattern ( NEWLINE* "," NEWLINE* pattern )* ( NEWLINE* "," NEWLINE* list_rest )? | list_rest ) ( NEWLINE* "," )? )? NEWLINE* "]" ;
@@ -431,6 +435,7 @@ condition_primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
                           | DURATION
                           | STRING
                           | BYTES
+                          | FMT_STRING
                           | list_pattern
                           | record_pattern ;
 condition_payload = "{" NEWLINE* ( "." ~"." | IDENT ":" pattern ) ( NEWLINE* "," NEWLINE* record_pattern_field )* ( NEWLINE* "," )? NEWLINE* "}" ;

@@ -470,7 +470,7 @@ postgresql.conf in /etc/postgresql (.conf)
 data=/srv/db-01/data replicas=db-02,db-03
 cpu=2 owner=nobody</code></pre></figure>
 <p>Every value has a type, and the checker infers most of them: <code>Str</code>, <code>Int</code>, <code>Float</code>, <code>Duration</code>, <code>Path</code>, <code>List[Str]</code>, a record <code>{cpu: Int, memory_mb: Int}</code>, and an optional <code>Str?</code>. <code>const</code> is data fixed when the script is checked, <code>let</code> is an immutable runtime binding, and <code>var</code> is mutable. <code>f"..."</code> interpolates <code>{expr}</code>; plain <code>"..."</code> never interpolates.</p>
-<p>There are no implicit conversions. <code>"8080" + 1</code> is a check error, and <code>"8080".parse_int()</code> returns <code>Result[Int]</code> because parsing can fail. You will see that pattern everywhere: anything that can fail says so in its type.</p>
+<p>There are no implicit conversions. <code>"8080" + 1</code> is a check error, and <code>"8080".parse_int()</code> returns <code>Result[Int]</code> because parsing can fail. You will see that pattern everywhere: anything that can fail says so in its type. <code>"8080" as Int</code> is the same parse with the failure propagated, for the usual case where bad input should stop the function.</p>
 </section>
 <section class="chapter">
 <h2 id="commands-and-argv"><a class="anchor" href="#commands-and-argv">Commands and argv</a></h2>
@@ -620,7 +620,7 @@ not a port: eighty</code></pre></figure>
 <span class="hl-punctuation">}</span>
 
 <span class="hl-comment"># Text reads never decode bytes lossily; path reads keep them.</span>
-<span class="hl-keyword">let</span> data <span class="hl-operator">=</span> <span class="hl-type">Path</span><span class="hl-punctuation">.</span><span class="hl-function">parse_bytes</span><span class="hl-punctuation">(</span><span class="hl-string">b"/srv/caf\xe9"</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span>
+<span class="hl-keyword">let</span> data <span class="hl-operator">=</span> <span class="hl-string">b"/srv/caf\xe9"</span> as <span class="hl-type">Path</span>
 <span class="hl-function">env</span> <span class="hl-punctuation">({</span><span class="hl-type">DATA_DIR</span><span class="hl-punctuation">:</span> data<span class="hl-punctuation">})</span> <span class="hl-punctuation">{</span>
   <span class="hl-keyword">match</span> <span class="hl-variable">e"DATA_DIR"</span> <span class="hl-punctuation">{</span>
     <span class="hl-type">Ok</span><span class="hl-punctuation">(</span>text<span class="hl-punctuation">)</span> <span class="hl-operator">=&gt;</span> <span class="hl-keyword">print</span> <span class="hl-string">f"text: </span><span class="hl-interpolation">{</span>text<span class="hl-interpolation">}</span><span class="hl-string">"</span>
@@ -750,8 +750,8 @@ deploy web-2 with 1 flag(s)</code></pre></figure>
         <span class="hl-property">client</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">1</span><span class="hl-punctuation">],</span>
         <span class="hl-property">method</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">2</span><span class="hl-punctuation">],</span>
         <span class="hl-property">url</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">3</span><span class="hl-punctuation">],</span>
-        <span class="hl-property">status</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">4</span><span class="hl-punctuation">].</span><span class="hl-function">parse_int</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span><span class="hl-punctuation">,</span>
-        <span class="hl-property">size</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">5</span><span class="hl-punctuation">].</span><span class="hl-function">parse_int</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span><span class="hl-punctuation">,</span>
+        <span class="hl-property">status</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">4</span><span class="hl-punctuation">]</span> as <span class="hl-type">Int</span><span class="hl-punctuation">,</span>
+        <span class="hl-property">size</span><span class="hl-punctuation">:</span> fields<span class="hl-punctuation">[</span><span class="hl-number">5</span><span class="hl-punctuation">]</span> as <span class="hl-type">Int</span><span class="hl-punctuation">,</span>
       <span class="hl-punctuation">)</span>
     <span class="hl-punctuation">}</span>
   <span class="hl-punctuation">}</span>
@@ -933,7 +933,7 @@ rejected: schema check failed at port: expected Int, found Str
 <p>Every proc has a set of effects: the kinds of host state it can touch. The checker infers them from the body and everything it calls, so you rarely write them down. <code>disk_used_kb</code> runs a process and can fail, so its effects are <code>process</code> and <code>error</code>, and every caller inherits them:</p>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">proc</span> <span class="hl-function">disk_used_kb</span><span class="hl-punctuation">(</span><span class="hl-property">root</span><span class="hl-punctuation">:</span> <span class="hl-type">Path</span><span class="hl-punctuation">)</span> <span class="hl-operator">-&gt;</span> <span class="hl-type">Result</span><span class="hl-punctuation">[</span><span class="hl-type">Int</span><span class="hl-punctuation">]</span> <span class="hl-punctuation">{</span>
   <span class="hl-keyword">let</span> out <span class="hl-operator">=</span> <span class="hl-keyword">run</span><span class="hl-punctuation">.</span><span class="hl-property">text</span> <span class="hl-function">du</span> <span class="hl-operator">-</span>sk <span class="hl-variable">$root</span> <span class="hl-operator">?</span>
-  out<span class="hl-punctuation">.</span><span class="hl-function">fields</span><span class="hl-punctuation">()[</span><span class="hl-number">0</span><span class="hl-punctuation">].</span><span class="hl-function">parse_int</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
+  out<span class="hl-punctuation">.</span><span class="hl-function">fields</span><span class="hl-punctuation">()[</span><span class="hl-number">0</span><span class="hl-punctuation">]</span> as <span class="hl-type">Int</span>
 <span class="hl-punctuation">}</span>
 
 <span class="hl-keyword">pure</span> <span class="hl-function">percent</span><span class="hl-punctuation">(</span><span class="hl-property">part</span><span class="hl-punctuation">:</span> <span class="hl-type">Int</span><span class="hl-punctuation">,</span> <span class="hl-property">whole</span><span class="hl-punctuation">:</span> <span class="hl-type">Int</span><span class="hl-punctuation">)</span> <span class="hl-operator">-&gt;</span> <span class="hl-type">Int</span> <span class="hl-punctuation">{</span>
@@ -1173,14 +1173,14 @@ sshd_config: PermitRootLogin is already no</code></pre></figure>
 <span class="hl-punctuation">}</span></code></pre></figure>
 <figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>timed out; process group killed</code></pre></figure>
 <p><code>retry</code> re-runs a block after each delay until it succeeds, and returns the last error when the delays run out. <code>on (...)</code> restricts retries to errors worth retrying:</p>
-<figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">error</span> <span class="hl-type">FetchError</span> <span class="hl-operator">=</span> <span class="hl-type">Transient</span><span class="hl-punctuation">(</span><span class="hl-property">message</span><span class="hl-punctuation">:</span> <span class="hl-type">Str</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">:</span> <span class="hl-type">Transient</span> <span class="hl-operator">|</span> <span class="hl-type">Fatal</span><span class="hl-punctuation">(</span><span class="hl-property">message</span><span class="hl-punctuation">:</span> <span class="hl-type">Str</span><span class="hl-punctuation">)</span>
+<figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">error</span> <span class="hl-type">FetchError</span> <span class="hl-operator">=</span> <span class="hl-type">Transient</span> <span class="hl-punctuation">:</span> <span class="hl-type">Transient</span> <span class="hl-operator">|</span> <span class="hl-type">Fatal</span>
 
 <span class="hl-keyword">var</span> attempts <span class="hl-operator">=</span> <span class="hl-number">0</span>
 
 <span class="hl-keyword">proc</span> <span class="hl-function">fetch_index</span><span class="hl-punctuation">()</span> <span class="hl-punctuation">[</span>error<span class="hl-punctuation">]</span> <span class="hl-operator">-&gt;</span> <span class="hl-type">Result</span><span class="hl-punctuation">[</span><span class="hl-type">Str</span><span class="hl-punctuation">]</span> <span class="hl-punctuation">{</span>
   attempts <span class="hl-operator">+=</span> <span class="hl-number">1</span>
   <span class="hl-keyword">if</span> attempts <span class="hl-operator">&lt;</span> <span class="hl-number">3</span> <span class="hl-punctuation">{</span>
-    <span class="hl-keyword">return</span> <span class="hl-type">Err</span><span class="hl-punctuation">(</span><span class="hl-type">FetchError</span><span class="hl-punctuation">.</span><span class="hl-type">Transient</span><span class="hl-punctuation">(</span><span class="hl-property">message</span><span class="hl-punctuation">:</span> <span class="hl-string">f"attempt </span><span class="hl-interpolation">{</span>attempts<span class="hl-interpolation">}</span><span class="hl-string">: connection reset"</span><span class="hl-punctuation">))</span>
+    <span class="hl-keyword">return</span> <span class="hl-type">Err</span><span class="hl-punctuation">(</span><span class="hl-type">FetchError</span><span class="hl-punctuation">.</span><span class="hl-type">Transient</span><span class="hl-punctuation">(</span><span class="hl-string">f"attempt </span><span class="hl-interpolation">{</span>attempts<span class="hl-interpolation">}</span><span class="hl-string">: connection reset"</span><span class="hl-punctuation">))</span>
   <span class="hl-punctuation">}</span>
 
   <span class="hl-string">"index-v42"</span>

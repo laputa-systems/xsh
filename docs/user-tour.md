@@ -183,6 +183,8 @@ interpolates `{expr}`; plain `"..."` never interpolates.
 There are no implicit conversions. `"8080" + 1` is a check error, and
 `"8080".parse_int()` returns `Result[Int]` because parsing can fail. You will
 see that pattern everywhere: anything that can fail says so in its type.
+`"8080" as Int` is the same parse with the failure propagated, for the usual
+case where bad input should stop the function.
 
 ## Commands and argv
 
@@ -437,7 +439,7 @@ env JOBS=8 VERBOSE=yes PREFIX=/opt/app {
 }
 
 # Text reads never decode bytes lossily; path reads keep them.
-let data = Path.parse_bytes(b"/srv/caf\xe9")?
+let data = b"/srv/caf\xe9" as Path
 env ({DATA_DIR: data}) {
   match e"DATA_DIR" {
     Ok(text) => print f"text: {text}"
@@ -649,8 +651,8 @@ stream hits(file: Path) [fs, error] -> Stream[Hit] {
         client: fields[1],
         method: fields[2],
         url: fields[3],
-        status: fields[4].parse_int()?,
-        size: fields[5].parse_int()?,
+        status: fields[4] as Int,
+        size: fields[5] as Int,
       )
     }
   }
@@ -924,7 +926,7 @@ them down. `disk_used_kb` runs a process and can fail, so its effects are
 ```xsh
 proc disk_used_kb(root: Path) -> Result[Int] {
   let out = run.text du -sk $root ?
-  out.fields()[0].parse_int()?
+  out.fields()[0] as Int
 }
 
 pure percent(part: Int, whole: Int) -> Int {
@@ -1286,14 +1288,14 @@ last error when the delays run out. `on (...)` restricts retries to errors
 worth retrying:
 
 ```xsh
-error FetchError = Transient(message: Str) : Transient | Fatal(message: Str)
+error FetchError = Transient : Transient | Fatal
 
 var attempts = 0
 
 proc fetch_index() [error] -> Result[Str] {
   attempts += 1
   if attempts < 3 {
-    return Err(FetchError.Transient(message: f"attempt {attempts}: connection reset"))
+    return Err(FetchError.Transient(f"attempt {attempts}: connection reset"))
   }
 
   "index-v42"

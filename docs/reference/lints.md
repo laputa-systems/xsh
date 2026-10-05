@@ -148,6 +148,9 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-is-empty` | Use `is_empty()` instead of comparing a length with zero |
 | `lint.prefer-negative-index` | Use `list[-N]` instead of `list[list.len() - N]` |
 | `lint.prefer-non-empty-argv` | Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot |
+| `lint.prefer-as-conversion` | Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names |
+| `lint.prefer-text-pattern` | Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in) |
+| `lint.prefer-rel-path` | Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

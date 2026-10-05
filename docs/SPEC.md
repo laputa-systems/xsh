@@ -35,7 +35,8 @@ composition model and replaces its semantics.
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   leaves a function only through a form that is visible at the site: the `?`
-  operator; an `assert`, a `fail`, or a plain `run` whose command fails; and
+  operator; an `assert`, a `fail`, or a plain `run` whose command fails; a
+  conversion `value as T` that fails; and
   a `Result` in a control position, where it cannot be a value, which is a
   statement-position `Result[Unit]` or a `Result[Bool]` condition. Nothing
   else propagates: a `Result` in a binding, an argument, an operand, or a
@@ -107,6 +108,7 @@ statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
 and the `as` that ends its destination (8.7),
+`as` between a value and a type, where it is the conversion operator (6.11),
 `within` before the duration and block of a `within` scope (10.4),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
@@ -437,6 +439,7 @@ literal configuration data (`lint.prefer-const`).
 | `Str` | valid UTF-8 text |
 | `Bytes` | arbitrary bytes |
 | `Path` | native path bytes without NUL |
+| `RelPath` | a `Path` that is not absolute and never climbs above where it starts (4.13) |
 | `Regex`, `Digest` | compiled regex; typed hash digest |
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
 | `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
@@ -593,6 +596,10 @@ let rooted = relative.starts_with(/) # an absolute path
 let depth = relative.components().len() # lib/x.xsh has two
 ```
 
+A path that must stay beneath some root, such as an entry of a package
+manifest or an archive, has the type `RelPath` (4.13): a `Path` known not to
+be absolute and not to climb out with `..`.
+
 ### 4.5 Lists, maps, and records
 
 `List[T]` is an ordered, homogeneous sequence. `+` concatenates two lists;
@@ -633,7 +640,7 @@ a fallback, `?.`/`?[...]` to guard an operation, or a null test to narrow (see
 ```xsh
 type BuildOptions = {root: Path, jobs: UInt = 4, flags: List[Str] = []}
 
-let opts = BuildOptions(root: p"src")
+let opts = BuildOptions(p"src")
 let wide = BuildOptions(root:, jobs: 16)
 ```
 
@@ -646,7 +653,7 @@ type Entry = {path: Path, kind: Kind, mode: Int = 0o644}
 
 let tool = Entry(p"usr/bin/xsh", Binary, mode: 0o755)
 let config = Entry(p"etc/xsh.conf", File)
-let link = Entry(path: p"usr/bin/sh", kind: Symlink)
+let link = Entry(p"usr/bin/sh", Symlink)
 ```
 
 Positional arguments are accepted only when no single value fits two of the
@@ -815,11 +822,11 @@ error FetchError {
 }
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
-  return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
+  fail .Invalid(file:, message: "empty") when text == ""
 }
 
 pure parse_url(url: Str) -> Result[Str, FetchError] {
-  return Err(FetchError.Usage(f"not a URL: {url}")) unless url.starts_with("https://")
+  fail .Usage(f"not a URL: {url}") unless url.starts_with("https://")
   Ok(url)
 }
 ```
@@ -977,7 +984,7 @@ pure describe(word: Word) -> Str {
 }
 
 proc build(root: Path) [process, error] {
-  let task = Task(tool: "make", args: ["-C", root, "all"])
+  let task = Task("make", ["-C", root, "all"])
   run $task.tool @(task.args) ?
 
   for word in task.args {
@@ -1106,6 +1113,46 @@ proc launch(extra: List[Str]) [process, error] {
 }
 ```
 
+`RelPath` is the validated type over `Path` whose values stay beneath where
+they start. The rule is lexical and exact, on the path's native bytes:
+
+- the path is not empty and does not begin with `/`;
+- reading its components left to right, a name goes one level down, `..`
+  goes one level up, and no `..` is reached at the starting level.
+
+A `.` component and an empty component (a repeated or trailing `/`) change
+nothing, so `a/./b`, `a//b`, and `a/b/` are `RelPath`s, as is `.`, the path
+of the starting directory itself. `a/../b` is one; `..`, `a/../..`, and
+`/a` are not. The rule reads no filesystem and says nothing about symlinks:
+a `RelPath` that passes through a symlink can still leave the root, and
+refusing that stays the job of the rooted operation that resolves it
+(`FsRoot`, archive extraction).
+
+```xsh
+type Entry = {rel: RelPath, mode: Int}
+
+proc install(root: FsRoot, entry: Entry, data: Str) [fs, error] {
+  # `parent()` of a RelPath is a RelPath; the parent of one name is `.`.
+  root.mkdir(entry.rel.parent(), parents: true)
+  root.write(entry.rel, data)
+  root.chmod(entry.rel, entry.mode)
+}
+
+proc stage(root: FsRoot, tree: Path, file: Path) [fs, error] {
+  # A literal is checked where it is written.
+  let config: RelPath = "etc/app/config.toml"
+  install(root, {rel: config, mode: 0o644}, "debug = false\n")
+
+  # Interpolated RelPaths set off by `/` join into a RelPath.
+  let backup: RelPath = fp"{config.parent()}/backup/{config}"
+  install(root, {rel: backup, mode: 0o600}, "debug = false\n")
+
+  # Any other path is validated once, at an explicit boundary.
+  let rel = file.strip_prefix(tree)?.require(RelPath)?
+  install(root, {rel, mode: 0o644}, file.read_text()?)
+}
+```
+
 A value gets a validated type in exactly three ways:
 
 - **A literal the checker can judge.** A list literal written where a
@@ -1115,7 +1162,16 @@ A value gets a validated type in exactly three ways:
   `check.validated-literal`. The same holds for constants and field defaults,
   whose values are known. Without that expectation a list literal is a
   `List[T]`, as before: inference never produces a validated type from a
-  literal.
+  literal. A path literal (`"..."`, `p"..."`) written where a `RelPath` is
+  expected has that type when its text passes the rule, and is
+  `check.validated-literal` when it does not. An interpolating literal
+  `fp"..."` written there is how `RelPath`s are joined: it has the type when
+  every interpolation is a `RelPath` without a format specification, each
+  one has `/` or an end of the literal on both sides, and the written text
+  passes the rule with each interpolation read as `.`. So
+  `fp"{dir}/{name}"` and `fp"{dir}/cache/{name}"` are `RelPath`s for
+  `RelPath` values, and `fp"{dir}/.."`, `fp"/{dir}"`, `fp"{dir}{name}"`,
+  and a literal that interpolates text or a plain `Path` are not.
 - **One validation at an explicit boundary.** `value.require(NonEmpty[T])`
   (5.3) tests the value once and returns `Result[NonEmpty[T]]`; `.require()`
   takes the target from an expectation as usual. A slot of the type inside a
@@ -1128,14 +1184,25 @@ A value gets a validated type in exactly three ways:
   when either operand is `NonEmpty`, `+=` on a `NonEmpty` variable, and a
   list comprehension with a single `for` clause over a `NonEmpty` list and no
   `if` clause. Replacing an element (`names[0] = value`) keeps the type of the
-  variable.
+  variable. For `RelPath` these are `.parent()`, which is `.` for a single
+  component, and `.normalize()`, which is `.` when nothing is left.
 
 Every other operation reads the value as its base type and returns what the
 base returns: indexing, slicing, `.get`, `.len`, `.join`, `.collect`,
 iteration, `in`, list patterns, a `@` splice, a pipeline source, and a
 comprehension with a filter or more than one `for` clause all see a
 `List[T]`, and those that produce a list produce a `List[T]`. Validate again
-to get the type back.
+to get the type back. A `RelPath` is likewise read as a `Path` by every
+other path method, by display and interpolation, by a command argument, and
+by a comparison: `.with_ext`, `.strip_prefix`, `.relative_to`, and
+`.components` return plain paths, and an `fp"..."` literal written where no
+`RelPath` is expected is a `Path`.
+
+`p.strip_prefix(root)` returns a `Path`, not a `RelPath`: its result is the
+whole of `p` when `root` is empty, and keeps any `..` that `p` has after the
+prefix (`/a/b/../../etc` without `/a` is `b/../../etc`). When `p` equals
+`root` the result is `.`. Validate the result where a `RelPath` is wanted:
+`p.strip_prefix(root)?.require(RelPath)?`.
 
 The operations the property guarantees exist only on the validated type.
 `NonEmpty[T]` has `first()` and `last()`, which return `T` and cannot fail; a
@@ -1169,7 +1236,30 @@ value of the wrong type is. `first()` and `last()` on a dynamic (`Any`)
 receiver fail with `index-out-of-bounds` on an empty list.
 
 A rest parameter collects zero or more arguments, so it is a `List[T]` and
-cannot be declared `NonEmpty[T]`. `cli main` parameters do not take the type.
+cannot be declared `NonEmpty[T]`. `cli main` parameters do not take a
+validated type. A validated type is not a map key type
+(`check.map-key-type`); key the map by the base, which a validated value
+fits. JSON has no path, so a `RelPath` field in a schema given to `.require`
+decodes as a `Path` field does.
+
+```xsh
+pure beneath(root: Path, rel: RelPath) -> Path {
+  fp"{root}/{rel}"
+}
+
+let name = "notes.txt"
+let computed = Path(name)
+let dir: RelPath = "srv/data"
+let absolute: RelPath = "/etc/passwd" # error: check.validated-literal
+let escaping: RelPath = "a/../../b" # error: check.validated-literal
+let text: RelPath = fp"{dir}/{name}" # error: check.validated-literal
+let glued: RelPath = fp"{dir}-old" # error: check.validated-literal
+let above: RelPath = fp"{dir}/../.." # error: check.validated-literal
+let plain: RelPath = computed # error: check.type-mismatch
+let widened: RelPath = dir.with_ext("bak") # error: check.type-mismatch
+print ${beneath(p"/", computed)} # error: check.type-mismatch
+print $absolute $escaping $text $glued $above $plain $widened
+```
 
 ## 5. Typing
 
@@ -1208,7 +1298,9 @@ is expected. Incompatible contributions are errors; inference never widens to
   it. The element type stays invariant (`NonEmpty[Str]` is not
   `NonEmpty[Any]`), and as an element type the two differ:
   `List[NonEmpty[Str]]` is not `List[List[Str]]`. In a `Union`, a validated
-  type and its base cannot both be members.
+  type and its base cannot both be members. `RelPath` fits `Path`, so every
+  parameter that takes a path takes a `RelPath`; a `Path` fits `RelPath`
+  only through a judged literal, `.require(RelPath)`, or a type test.
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
@@ -1303,7 +1395,8 @@ continuation, loop body, or match arm where a condition proved it.
   remaining members where it fails: the one member left, or the smaller union.
   `x is (T | U)` narrows to those members.
 - `x is NonEmpty[T]` on a `List[T]` narrows to `NonEmpty[T]` where the test
-  passes (4.13). Where it fails, `x` stays a `List[T]`.
+  passes (4.13). Where it fails, `x` stays a `List[T]`. `x is RelPath` on a
+  `Path` does the same.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
@@ -1454,7 +1547,7 @@ The complete grammar is in the [grammar reference](reference/grammar.md).
 
 The [precedence table](reference/grammar.md#operator-precedence) lists every
 operator from tightest to loosest: postfix forms, then prefix `!` and `-`,
-multiplicative, additive, ordering and membership, equality and `is`, `and`,
+the conversion `as` (6.11), multiplicative, additive, ordering and membership, equality and `is`, `and`,
 and loosest `or` and the right-associative `??`. A `|>` pipeline is looser
 than every operator.
 
@@ -1472,7 +1565,7 @@ intended meaning at a glance:
   write `(if a { 1 } else { 2 }) + 3` or `(match x { ... }).name`. A whole
   initializer, argument, element, field value, arm body, or condition stays
   bare;
-- a pipeline that an operator, a prefix, or `is` applies to
+- a pipeline that an operator, a prefix, `is`, or `as` applies to
   (`check.ambiguous-grouping`): write `(xs |> count) > 3`.
 
 A suffix after a pipeline whose last stage is complete chains left to right
@@ -1487,7 +1580,10 @@ The fixes for `check.mixed-logical` and `check.ambiguous-grouping` insert the pa
 Parentheses are legal only where removing them would change the parse or break
 one of these grouping rules (`check.redundant-parens`, whose fix removes
 them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
-`(x?).name` (otherwise `?.`), `(-x).abs()`, a command form followed by more of
+`(x?).name` (otherwise `?.`), `(-x).abs()`, `-(text as Int)` and
+`(text as Int).float()` (a conversion is looser than a prefix and takes no
+suffix), a conversion of a name that begins a statement (`(count as UInt)`,
+which would otherwise be the command `count`), a command form followed by more of
 its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
 final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
@@ -1654,7 +1750,8 @@ Group the run form to say which is meant.
 ### 6.8 Conditional and match expressions
 
 `if` and `match` produce values when used in value position. A value `if`
-needs an `else`; a value `match` must be exhaustive without relying on guards.
+needs an `else`; a value `match` must be exhaustive without relying on guards
+or on text patterns (6.10).
 Branches may contain statements followed by a tail value, and all reachable
 branch values must have one type. A branch that returns, breaks, or fails
 contributes no value. An `if` statement none of whose branches ends in a value
@@ -1786,6 +1883,7 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 | `_` | anything; as a whole `match` arm it is written `else` (6.8) |
 | `name` | anything, binding it (or a payload-free variant of that name); a capitalized name that is no known variant is an error (`check.pattern-capitalized-binding`) rather than a binding |
 | literal | an equal value |
+| `f"text {name} {n:d}"` | a `Str` with that literal text, binding each hole (below) |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |
 | `Family.Variant { field, .. }` | an error variant, binding payload fields |
 | `.Variant`, `.Variant(p, ...)`, `.Variant { field, .. }` | the variant of the matched value's enum or error family (5.5); not at the head of a `match` arm |
@@ -1824,6 +1922,170 @@ match json.decode(input)? {
 names: write `outcome is Ok(_)`. Alternatives need grouping
 (`value is (P | Q)`), and negation is `!(value is P)`. Testing a `Result` never
 propagates. A true test narrows a stable binding in the selected branch.
+
+An f-string in pattern position is a text pattern. It matches a `Str` of
+that shape and binds each hole to the text the hole took:
+
+```xsh
+pure setting(line: Str) -> Setting? {
+  if let f"{key}={value}" = line {
+    return {key, value}
+  }
+
+  null
+}
+
+pure describe(line: Str) -> Str {
+  match line {
+    f"#define {name} {body}" => f"{name} is {body}"
+    f"#include <{header}>" => f"system header {header}"
+    f"{host}:{port:d}" => f"{host} on port {port}"
+    else => "other"
+  }
+}
+```
+
+The literal parts must occur in the text in order, and the whole text is
+matched. A hole is `{name}`, which binds a `Str`; `{_}`, which binds
+nothing; or `{name:LETTER}`, which converts what it took. The hole grammar
+is Python's format field read in reverse, as its `parse` library reads it,
+and a letter keeps the meaning Python gives it:
+
+| Spec | Binds | The text must be |
+|---|---|---|
+| none, `s` | `Str` | anything |
+| `d` | `Int` | decimal digits, with an optional sign |
+| `x`, `o`, `b` | `Int` | hexadecimal, octal, or binary digits, with an optional sign and an optional `0x`, `0o`, or `0b` |
+| `f`, `e`, `g` | `Float` | a finite decimal number, with an optional fraction and exponent |
+
+Each hole takes the shortest text that lets the rest of the pattern match.
+It ends at the first place the literal after it occurs; the literal that
+ends the pattern is matched at the end of the text, so the last hole takes
+the rest. `f"{key}={value}"` splits `a=b=c` into `a` and `b=c`, and
+`f"{stem}.txt"` takes `a.txt` from `a.txt.txt`. A hole may take the empty
+text, which is where this differs from `parse`: `f"{key}={value}"` matches
+`EMPTY=`. A typed hole takes its text the same way and then converts it.
+Text that is not a value of the type, or an integer outside `Int`, makes the
+pattern not match; no other split is tried. A pattern that does not match
+is an arm that is not selected, like any other.
+
+A text pattern is compiled when the program is checked, and three mistakes
+are `check.text-pattern`: a spec that is not one of the letters above,
+which includes every width, fill, alignment, sign, and precision; two holes
+with no text between them, because where the first ends would be a guess;
+and a subject that is not a `Str`. A hole binds and never evaluates, so one
+that is not a name is `parse.text-pattern-hole`; to compare with computed
+text, write `value == f"..."`. A name is bound once
+(`check.pattern-binding`), ` and ` are literal braces, and escapes are
+those of an f-string. In an `is` test every hole is `{_}`. A text pattern
+never counts toward exhaustiveness, so a `match` over text ends in `else`.
+
+```xsh
+match line {
+  f"{name}{rest}" => name + rest # error: check.text-pattern
+  f"{count:05d} items" => f"{count}" # error: check.text-pattern
+  else => line
+}
+```
+
+Taking text apart by position says less: `parts[1]` after a `split` fails at
+run time where a pattern would not match, and a `starts_with` test followed
+by a slice states the prefix twice. The opt-in `lint.prefer-text-pattern`
+notes both shapes and rewrites neither, because a pattern's last hole keeps
+any further separator where `split` makes another piece.
+
+### 6.11 Conversion
+
+`value as T` converts a value to another type, or fails. It is never a new
+operation: each pair of types it accepts names an operation the language
+already has, one that returns a `Result`, and the expression is that
+operation under `?`.
+
+| Value | `as` | Is exactly | Fails when |
+|---|---|---|---|
+| `Str` | `Int` | `text.parse_int()?` | the trimmed text is not an integer in `Int` range; a sign, a radix prefix, and `_` separators are read |
+| `Str` | `UInt` | `text.parse_uint()?` | the trimmed text is not a run of decimal digits in range |
+| `Str` | `Float` | `text.parse_float()?` | the trimmed text is not a number; exponents, `nan`, and `inf` are read |
+| `Str` | `Path` | `Path.parse_bytes(bytes.from_text(text))?` | the text contains NUL |
+| `Bytes` | `Str` | `data.utf8()?` | the bytes are not UTF-8 |
+| `Bytes` | `Path` | `Path.parse_bytes(data)?` | the bytes contain NUL |
+| `Int` | `UInt` | `n.require(UInt)?` | the value is negative |
+
+```xsh
+type Endpoint = {host: Str, port: UInt}
+
+pure endpoint(spec: Str) -> Result[Endpoint] {
+  let fields = spec.split(":")
+  Ok({host: fields[0], port: fields[1] as UInt})
+}
+
+let scale = "1.5" as Float
+let attempts = try { "many" as Int } ?? 3
+let offset = -("12" as Int)
+```
+
+The pair is the value's static type and the written type, matched exactly;
+every other pair is a check error (`check.conversion`), so no conversion
+loses information without saying so. A `Float` does not convert to `Int`,
+because the rounding is the author's choice (`.floor()`, `.ceil()`,
+`.round()`); an `Int` does not convert to `Float` (`.float()`), nor a `Path`
+to `Str` (`.display()` replaces bytes that are not UTF-8); an `Any` is
+validated with `.require(T)` (5.3); an optional or a `Result` is handled
+first; and a value that already has the type is not converted to it. The
+stricter parsers `parse_int_decimal` and `parse_uint_positive` have no `as`
+spelling. A propagated operation of the table has one spelling, the
+conversion: `lint.prefer-as-conversion` rewrites `text.parse_int()?` as
+`text as Int`, and likewise for each row.
+
+```xsh
+let whole = ratio as Int  # error: check.conversion
+let rounded = ratio.round()?
+```
+
+A failed conversion propagates as `?` on its operation would (8.3): it
+leaves the nearest propagation boundary with the operation's error, a `try`
+captures it, it needs the `error` effect in a restricted proc, and in a pure
+function whose return type is not a `Result` it is `check.try-context`. To
+keep the failure as a value, call the operation: `text.parse_int() ?? 0`.
+
+```xsh
+pure width(field: Str) -> Int {
+  let columns = field as Int  # error: check.try-context
+  columns * 2
+}
+
+pure width_or(field: Str, fallback: Int) -> Int {
+  field.parse_int() ?? fallback
+}
+```
+
+`as` binds tighter than every binary operator and looser than a prefix, and
+chains to the left: `a * b as Int` converts `b`, `text as Int + 1` adds one
+to the converted value, and `-n as UInt` converts `-n`, so negating a
+converted value is written `-(text as Int)`. A conversion takes no suffix,
+because its type reads a following `.`, `[`, or `?` as part of itself: write
+`(text as Int).float()`. `text as Int?` names the optional type and is
+rejected.
+
+`as` is a contextual word. Three other forms use it, and one position reads
+it as a plain word; each is decided by position before a conversion is
+considered:
+
+- `use M as N` renames a module (3.3). A `use` statement holds no
+  expression.
+- In a pattern, `PATTERN as NAME` binds the matched value (6.10). After `is`,
+  an `as` therefore belongs to the pattern, where a test rejects it
+  (`check.pattern-test-binding`); it never converts the test's result. The
+  subject of `is` and of `match` is an expression and may convert:
+  `match field as Int { ... }`, `field as Int is 0`.
+- In `atomically replace DEST as NAME { ... }` (8.7), the `as` that ends the
+  destination is the first one outside brackets that stands directly before
+  a name and `{`. Every earlier `as` is part of the destination, so
+  `atomically replace target as Path as tmp { ... }` converts `target`.
+- A statement that begins with a name or a `.name` chain followed by a word
+  is a command (10.1), and `as` is a word: `count as UInt` alone on a line
+  runs the command `count`. A conversion there is grouped, `(count as UInt)`;
+  in a binding, an argument, an operand, or a `return` it needs no grouping.
 
 ## 7. Bindings And Assignment
 
@@ -1938,6 +2200,10 @@ requires the `error` effect.
 
 `expr?.name`, `expr?.method(...)`, and `expr?[i]` on a `Result` are this
 operator followed by the access (6.7).
+
+A conversion `value as T` (6.11) is its operation followed by this operator,
+so every row of the table and every rule of this section applies to a failed
+conversion as it does to a `?`.
 
 `expr ?` with a space is the same operator in expression context. In a command
 argument, a separated `?` belongs to the whole command or run form: write
@@ -2489,14 +2755,15 @@ program already holds.
 
 ```xsh
 let parsed = try {
-  let n = text.parse_int()?
+  let n = text as Int
   n * 2
 }
 ```
 
 Normal completion yields `Ok(tail)`; an empty body yields `Ok(Unit)`. A
 `Result` tail stays nested (`try { op() }` is `Result[Result[T]]`; write
-`try { op()? }`). Explicit `?`, statement-position `Result[Unit]` failures,
+`try { op()? }`). Explicit `?`, failed conversions (`value as T`),
+statement-position `Result[Unit]` failures,
 failed assertions, and failed plain `run` statements inside the block become
 `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime
@@ -2723,7 +2990,7 @@ proc run_step(step: Step, root: Path) [fs, process, error] {
 
 let build: Builder = if debug { debug_build } else { release_build }
 build(workspace)
-run_step(Step(name: "release", build: release_build), workspace)
+run_step(Step("release", release_build), workspace)
 ```
 
 A value gets a callable type in one of two ways: a function is named where
@@ -3712,7 +3979,7 @@ Programs that operate on unknown JSON (formatters, filters, validators) branch
 on runtime shape with type patterns:
 
 ```xsh
-error JsonShape = NotScalar(message: Str)
+error JsonShape = NotScalar
 
 pure scalar_label(v: Any) -> Result[Str, JsonShape] {
   match v {
@@ -3721,7 +3988,7 @@ pure scalar_label(v: Any) -> Result[Str, JsonShape] {
     i is Int => f"integer {i}"
     f is Float => f"float {f}"
     s is Str => f"string of {s.count_chars()} characters"
-    else => Err(JsonShape.NotScalar(message: "expected a scalar"))
+    else => Err(.NotScalar("expected a scalar"))
   }
 }
 ```
@@ -3858,7 +4125,11 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   `write_lines` wrote when no element contains `\n` or ends with `\r`.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
-  path resolution, not the process.
+  path resolution, not the process. Their path parameters are `Path`, so they
+  take a `RelPath` (4.13), the type of a path already known to be relative
+  and free of an escaping `..`; a function that passes a path on to a root
+  should declare it `RelPath`. The handle still resolves every path it is
+  given, because only resolution sees a symlink.
 - Archive extraction and `patch.apply` reject absolute paths, parent
   traversal, symlink escapes, and overwrites unless asked.
 - `time` has no civil-time formatter; run `date` for locale-aware output.

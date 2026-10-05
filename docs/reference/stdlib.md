@@ -665,6 +665,11 @@ Process-scoped utility helpers.
 - `Regex.matches(text: Str) -> Bool` — Tests whether a regex matches text.
 - `Regex.replace(text: Str, replacement: Str) -> Str` — Replaces regex matches in text.
 
+### RelPath
+
+- `RelPath.normalize() -> RelPath` — Normalizes lexical path components, still a RelPath.
+- `RelPath.parent() -> RelPath` — Returns the lexical parent path, still a RelPath.
+
 ### Result
 
 - `Result[T, E].context(kind: Str, message: Str = default) -> Self` — Adds a domain-specific error context before propagation.
