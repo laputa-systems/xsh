@@ -1,5 +1,5 @@
 #!/bin/xsh
-use lib.text_input as text_input
+use lib.text_input
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {

@@ -1,5 +1,5 @@
 #!/bin/xsh
-use lib.text_input as text_input
+use lib.text_input
 
 error AppletError = Usage(message: Str) : Usage
 

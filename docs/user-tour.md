@@ -1618,18 +1618,24 @@ use checks.disk as usage  # the same module, bound as usage.*
 ```
 
 Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
-(colon-separated). That has two consequences worth knowing:
+(colon-separated), then each `module_path` root of the project's
+`xsht-config.ini`. That has two consequences worth knowing:
 
-- `xsh` itself does not read `xsht-config.ini`. Run entry scripts with
-  `XSH_MODULE_PATH=lib xsh bin/harden.xsh`, install modules next to the
-  scripts, or set the variable in the unit file or wrapper that launches them.
+- `xsh` reads `module_path`, and only that, from the nearest
+  `xsht-config.ini` above the entry script, exactly as `xsht` does:
+  `xsh bin/harden.xsh` finds `lib/sshd.xsh` with nothing else set. A script
+  installed away from its project has no config above it, so install its
+  modules next to it or set `XSH_MODULE_PATH` in the unit file or wrapper that
+  launches it.
 - File-relative lookup wins, so a test file named `tests/sshd.xsh` that says
   `use sshd` imports itself. Name test files `test-*.xsh`.
 
 ### `xsht-config.ini`
 
-`xsht` reads the nearest `xsht-config.ini` above each file. Relative paths
-resolve from the config's directory.
+`xsht` reads the nearest `xsht-config.ini` above each file; `xsh` reads its
+`module_path` for the entry script and ignores the rest. Relative paths
+resolve from the config's directory. A config that does not decode is an
+error for both.
 
 ```ini
 # Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.
@@ -1637,7 +1643,7 @@ include = tools
 # Glob patterns excluded from discovery.
 exclude = build/**/*.xsh
   vendor/**/*.xsh
-# Module search roots for checking, linting, and tests (default: .).
+# Module search roots for running, checking, linting, and tests (default: .).
 module_path = lib
 # Where `xsht test` looks for test declarations.
 test_roots = tests

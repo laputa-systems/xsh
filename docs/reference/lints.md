@@ -112,6 +112,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.unused-callable` | Flag an unexported callable not reachable from a bundle entry point |
 | `lint.unused-local` | Flag a local variable that is never read |
 | `lint.unused-type` | Flag a type declaration that is never referenced |
+| `lint.redundant-use-alias` | Drop a `use` alias that repeats the last path segment, as in `use a.b as b` |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

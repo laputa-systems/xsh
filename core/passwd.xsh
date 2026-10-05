@@ -1,5 +1,5 @@
 #!/bin/xsh
-use lib.auth as auth
+use lib.auth
 
 type PasswdOptions = {algorithm: Str, action: Str, user: Str}
 

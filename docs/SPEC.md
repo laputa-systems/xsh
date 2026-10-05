@@ -313,12 +313,26 @@ traceback.
 ### 3.3 Modules
 
 `use name` imports a module and binds exactly one namespace, `name`;
-`use name as alias` binds `alias`. Standard modules are always available
+`use name as alias` binds `alias`. A dotted `use a.b` binds its last segment,
+`b`, so `use a.b as b` repeats itself (`lint.redundant-use-alias`). Standard modules are always available
 without `use` and cannot be aliased; they are namespaces, not values, so a
 member must be called rather than used as a value (`check.module-member`).
 User modules resolve relative to the
 importing file, then through each directory in `XSH_MODULE_PATH` (separated by
-the platform's path-list separator). Dotted paths name subdirectories.
+the platform's path-list separator), then through each project module root.
+Dotted paths name subdirectories.
+
+The project module roots are the `module_path` entries of the nearest
+`xsht-config.ini`: the one in the entry script's directory, or else in the
+closest directory above it on the script's path as given (a relative path is
+searched up to the current directory). Entries are relative to the config's
+directory, and a config without `module_path` names its own directory. Every
+module of a program resolves through the entry script's roots, including the
+imports of a module loaded with `module.load`. A program whose entry script
+has no config above it has no project roots. A config that cannot be read or
+decoded, or whose `module_path` is not text, is an error before anything runs.
+`xsh`, `xshi`, and `xsht` share this resolution, so a `use` that checks is a
+`use` that loads.
 
 A module's top level may contain only `use`, `const`, `let`, `proc`, `pure`,
 `stream`, `type`, `enum`, and `error` declarations, optionally exported. It may
@@ -593,6 +607,24 @@ not contract members. Loading the same file again returns the same exports
 while the module and its imports are unchanged on disk, and reloads it once
 they change.
 
+A failed `.require(Contract)` on a module reports every violation in one
+error, not only the first. Its message names each missing required export
+with the signature the contract expects, and each mismatched export with the
+expected signature, the found signature, and what differs (the kind, the value
+type, the parameter count, one parameter, the effects, or the return type).
+The error implements `MissingExport` when a required export is absent and
+`MismatchedExport` when an export has another kind or signature; one failure
+implements both when both occur.
+
+```xsh
+match module.load(plugin_path)?.require(BuildPlugin) {
+  Ok(plugin) => plugin.build(root)?
+  Err(is MissingExport) => print "the plugin lacks a required export"
+  Err(is MismatchedExport) => print "a plugin export has another signature"
+  Err(error) => return Err(error)
+}
+```
+
 ### 4.10 Errors
 
 `Error` is the common structured error. Programs declare nominal error
@@ -635,6 +667,8 @@ implement only the facets below (`xsht api language:facet`);
 | `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`. |
 | `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, host OS errors of every kind without a more specific facet. |
 | `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, host OS errors of kind `InvalidData`. |
+| `MismatchedExport` | A module export has another kind or signature than its contract declares. | Implemented by a failed `.require(Contract)` on a module whose export differs from the contract. |
+| `MissingExport` | A module lacks an export its contract requires. | Implemented by a failed `.require(Contract)` on a module without a required export. |
 | `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
 | `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, host OS errors of kind `NotFound`. |
 | `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, host OS errors of kind `PermissionDenied`. |

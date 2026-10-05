@@ -1,5 +1,5 @@
 #!/bin/xsh
-use lib.text_input as text_input
+use lib.text_input
 
 pure selected_index(index: Int, spec: Str) -> Bool {
   let position = index + 1

@@ -1430,17 +1430,17 @@ test result: ok. 3 passed; 0 failed; 0 skipped</code></pre></figure>
 <figure class="code code-text"><figcaption><span class="lang">text</span></figcaption><pre><code>use sshd                  # lib/sshd.xsh, used as sshd.set_option(...)
 use checks.disk           # lib/checks/disk.xsh, used as disk.*
 use checks.disk as usage  # the same module, bound as usage.*</code></pre></figure>
-<p>Resolution is file-relative first, then each directory in <code>XSH_MODULE_PATH</code> (colon-separated). That has two consequences worth knowing:</p>
-<ul><li><code>xsh</code> itself does not read <code>xsht-config.ini</code>. Run entry scripts with <code>XSH_MODULE_PATH=lib xsh bin/harden.xsh</code>, install modules next to the scripts, or set the variable in the unit file or wrapper that launches them.</li>
+<p>Resolution is file-relative first, then each directory in <code>XSH_MODULE_PATH</code> (colon-separated), then each <code>module_path</code> root of the project's <code>xsht-config.ini</code>. That has two consequences worth knowing:</p>
+<ul><li><code>xsh</code> reads <code>module_path</code>, and only that, from the nearest <code>xsht-config.ini</code> above the entry script, exactly as <code>xsht</code> does: <code>xsh bin/harden.xsh</code> finds <code>lib/sshd.xsh</code> with nothing else set. A script installed away from its project has no config above it, so install its modules next to it or set <code>XSH_MODULE_PATH</code> in the unit file or wrapper that launches it.</li>
 <li>File-relative lookup wins, so a test file named <code>tests/sshd.xsh</code> that says <code>use sshd</code> imports itself. Name test files <code>test-*.xsh</code>.</li></ul>
 <h3 id="xsht-config-ini"><a class="anchor" href="#xsht-config-ini"><code>xsht-config.ini</code></a></h3>
-<p><code>xsht</code> reads the nearest <code>xsht-config.ini</code> above each file. Relative paths resolve from the config's directory.</p>
+<p><code>xsht</code> reads the nearest <code>xsht-config.ini</code> above each file; <code>xsh</code> reads its <code>module_path</code> for the entry script and ignores the rest. Relative paths resolve from the config's directory. A config that does not decode is an error for both.</p>
 <figure class="code code-ini"><figcaption><span class="lang">ini</span></figcaption><pre><code><span class="hl-comment"># Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.</span>
 <span class="hl-property">include</span><span class="hl-operator"> = </span>tools
 <span class="hl-comment"># Glob patterns excluded from discovery.</span>
 <span class="hl-property">exclude</span><span class="hl-operator"> = </span>build/**/*.xsh
   vendor/**/*.xsh
-<span class="hl-comment"># Module search roots for checking, linting, and tests (default: .).</span>
+<span class="hl-comment"># Module search roots for running, checking, linting, and tests (default: .).</span>
 <span class="hl-property">module_path</span><span class="hl-operator"> = </span>lib
 <span class="hl-comment"># Where `xsht test` looks for test declarations.</span>
 <span class="hl-property">test_roots</span><span class="hl-operator"> = </span>tests
