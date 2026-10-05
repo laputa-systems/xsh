@@ -1,14 +1,14 @@
-error SourceCauseError = Missing(message: Str) : NotFound
+error SourceCauseError = Missing : NotFound
 
 error BuildCauseError = CompileFailed(package: Str)
 
 pure translate_build_error(failure: SourceCauseError) -> Result[Str, BuildCauseError] {
-  Err(BuildCauseError.CompileFailed(package: "demo"), cause: failure)
+  Err(.CompileFailed(package: "demo"), cause: failure)
 }
 
-let translated = translate_build_error(SourceCauseError.Missing(message: "source missing"))
+let translated = translate_build_error(.Missing("source missing"))
 
-if let Err(BuildCauseError.CompileFailed {package: package}) = translated {
+if let Err(.CompileFailed {package: package}) = translated {
   print $package
 } else {
   print "unexpected success"

@@ -37,7 +37,7 @@ const empty_alias = empty_numbers
 
 type ConstantConfig = {name: Str = "default", values: List[Int] = empty_numbers}
 
-const protocol_config = ConstantConfig(name: "static")
+const protocol_config = ConstantConfig("static")
 
 enum ConstantEvent { Ready, Count(Int) }
 

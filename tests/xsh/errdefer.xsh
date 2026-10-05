@@ -1,5 +1,5 @@
 error StepError {
-    Failed(message: Str)
+    Failed
 }
 
 proc fails() {

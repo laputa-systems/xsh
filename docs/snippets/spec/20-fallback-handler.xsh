@@ -7,7 +7,7 @@ proc load_config(file: Path) [fs, error] -> Result[Config] {
 }
 
 pure default_config() -> Config {
-  Config(jobs: 1)
+  Config(1)
 }
 
 # begin example

@@ -6,14 +6,14 @@ const shorthand_hits: List[ShorthandHit] = [
   {url: "/a", size: 30},
 ]
 
-error ShorthandError = refused(message: Str)
+error ShorthandError = refused
 
 pure shorthand_budget(hit: ShorthandHit) -> Int {
   hit.url.byte_len() * 100
 }
 
 pure shorthand_refuse(reason: Str) -> Result[Int, ShorthandError] {
-  Err(ShorthandError.refused(message: reason))
+  Err(.refused(reason))
 }
 
 test test_implicit_item_reads_like_a_named_parameter {

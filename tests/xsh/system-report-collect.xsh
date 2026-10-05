@@ -31,7 +31,7 @@ test test_system_report_bounded_text_reader_withholds_truncated_prefix {
   )
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let read = parser.read_source_text(root, p"source", 4096, false)
-  assert read.observation.state == report_model.Truncated
+  assert read.observation.state == .Truncated
   assert read.observation.value == null
 }
 
@@ -73,7 +73,7 @@ test test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let observed = parser.parse_unified_cgroup_path("""0::/team:blue
 """)
-  assert observed.state == report_model.Observed
+  assert observed.state == .Observed
   assert observed.path == "/team:blue"
   assert observed.has_v1 == false
   let hybrid = parser.parse_unified_cgroup_path("""2:cpu:/legacy
@@ -98,13 +98,13 @@ test test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous
 """,
   ] {
     let parsed = parser.parse_unified_cgroup_path(malformed)
-    assert parsed.state == report_model.Malformed
+    assert parsed.state == .Malformed
     assert parsed.path == null
   }
 
   let v1 = parser.parse_unified_cgroup_path("""2:cpu:/legacy
 """)
-  assert v1.state == report_model.Unsupported
+  assert v1.state == .Unsupported
   assert v1.path == null
   assert v1.has_v1 == true
 }

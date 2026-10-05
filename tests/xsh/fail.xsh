@@ -197,8 +197,8 @@ proc fetch(url: Str) -> Result[Str, FetchError] {
 pure fetched(outcome: Result[Str, FetchError]) -> Str {
   match outcome {
     Ok(body) => body
-    Err(FetchError.RemoteFetch {message}) => f"remote: {message}"
-    Err(FetchError.Offline) => "offline"
+    Err(.RemoteFetch {message}) => f"remote: {message}"
+    Err(.Offline) => "offline"
     Err(other) => f"unexpected: {other.message}"
   }
 }

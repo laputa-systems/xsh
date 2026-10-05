@@ -1,6 +1,6 @@
 error ChildError = Owned(child: ProcessHandle)
 
-error WrapperError = Failed(message: Str)
+error WrapperError = Failed
 
 type CauseChildBundle = {attached: Result[Unit, WrapperError], pid: Int}
 
@@ -12,8 +12,8 @@ proc return_error_child() [process, error] {
 proc return_cause_child() [process, error] -> Result[CauseChildBundle] {
   let child = spawn run sh -c "sleep 10" ?
   CauseChildBundle(
-    attached: Err(WrapperError.Failed(message: "outer"), cause: ChildError.Owned(child:)),
-    pid: child.pid,
+    Err(.Failed("outer"), cause: ChildError.Owned(child:)),
+    child.pid,
   )
 }
 
@@ -261,7 +261,7 @@ test test_secondary_defer_failure_releases_its_child { |ctx|
   let marker = test.temp_path(ctx, name: "secondary-child-pid")
   let captured: Result[Unit] = try {
     defer cleanup_marked_error_child(marker)?
-    Err(WrapperError.Failed(message: "primary"))?
+    Err(WrapperError.Failed("primary"))?
   }
   match captured {
     Err(WrapperError.Failed {message: message}) => assert message == "primary"

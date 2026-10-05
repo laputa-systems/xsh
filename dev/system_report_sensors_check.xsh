@@ -1,10 +1,10 @@
 ##! Independent parser for the classic lm-sensors JSON reference format.
 use context
 
-error SensorsCheckError = Invalid(message: Str)
+error SensorsCheckError = Invalid
 
 pure sensors_check_failure(message: Str) -> SensorsCheckError {
-  SensorsCheckError.Invalid(message:)
+  .Invalid(message)
 }
 
 ## Keeps the bus-qualified chip key and raw subfeature name distinct from display labels.

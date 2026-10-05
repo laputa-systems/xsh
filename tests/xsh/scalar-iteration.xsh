@@ -45,7 +45,7 @@ test scalar_comprehensions_keep_types_nested_order_and_guards {
 error ScalarSourceFailure = Missing(source: Str) : NotFound
 
 proc missing_scalar_source() [error] -> Result[Str, ScalarSourceFailure] {
-  Err(ScalarSourceFailure.Missing(source: "text"))
+  Err(.Missing(source: "text"))
 }
 
 test scalar_result_iteration_keeps_error_identity_and_cleanup { |ctx|
@@ -73,7 +73,7 @@ ctx "iteration" {
       print "unreached"
     }
   }
-  if let Err(ScalarSourceFailure.Missing {source: source}) = actual {
+  if let Err(.Missing {source: source}) = actual {
     assert source == "text"
   } else {
     test.fail("expected unchanged source error")
@@ -139,7 +139,7 @@ test scalar_comprehension_errors_keep_nominal_payloads {
   let actual = try {
     [character for character in missing_scalar_source()]
   }
-  if let Err(ScalarSourceFailure.Missing {source: source}) = actual {
+  if let Err(.Missing {source: source}) = actual {
     assert source == "text"
   } else {
     test.fail("expected unchanged comprehension source error")

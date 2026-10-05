@@ -1,10 +1,10 @@
 type FallbackRecord = {message: Str}
 
-error FallbackError = invalid(message: Str)
+error FallbackError = invalid
 
 pure fallback_outcome(success: Bool) -> Result[Str] {
   return Ok("loaded") when success
-  Err(FallbackError.invalid(message: "invalid config"))
+  Err(FallbackError.invalid("invalid config"))
 }
 
 pure fallback_nominal_message(failure: FallbackError) -> Str {
@@ -25,7 +25,7 @@ test test_error_fallback_is_lazy_and_binds_exact_error {
   }
   assert recovered == "invalid config"
   assert calls == 1
-  let exact: Result[Str, FallbackError] = Err(FallbackError.invalid(message: "nominal"))
+  let exact: Result[Str, FallbackError] = Err(.invalid("nominal"))
   let message = exact ?? { |failure|
     fallback_nominal_message(failure)
   }
@@ -55,7 +55,7 @@ loaded fallback
 }
 
 test test_error_fallback_boolean_tail_is_a_value {
-  let outcome: Result[Bool, FallbackError] = Err(FallbackError.invalid(message: "invalid"))
+  let outcome: Result[Bool, FallbackError] = Err(.invalid("invalid"))
   let recovered = outcome ?? { |_|
     let answer = false
     answer
@@ -64,18 +64,18 @@ test test_error_fallback_boolean_tail_is_a_value {
 }
 
 test test_error_fallback_keeps_record_expression {
-  let outcome: Result[FallbackRecord, FallbackError] = Err(FallbackError.invalid(message: "invalid"))
+  let outcome: Result[FallbackRecord, FallbackError] = Err(.invalid("invalid"))
   let recovered = outcome ?? {message: "record"}
   assert recovered == {message: "record"}
 }
 
 test test_error_fallback_literal_error_and_right_associativity {
-  let direct = Err(FallbackError.invalid(message: "direct")) ?? { |failure|
+  let direct = Err(FallbackError.invalid("direct")) ?? { |failure|
     failure.message
   }
   assert direct.trim() == "direct"
   let first = Ok("first")
-  let second: Result[Str] = Err(FallbackError.invalid(message: "second"))
+  let second: Result[Str] = Err(FallbackError.invalid("second"))
   var reached = 0
   let skipped = first ?? second ?? { |failure|
     reached += 1
@@ -131,7 +131,7 @@ return cleanup
 test test_error_fallback_keeps_enclosing_loop_targets {
   var visited = 0
   for number in [1, 2, 3] {
-    let outcome: Result[Int] = Err(FallbackError.invalid(message: "failed"))
+    let outcome: Result[Int] = Err(FallbackError.invalid("failed"))
     let selected = outcome ?? { |_|
       continue when number == 2
       number
@@ -142,7 +142,7 @@ test test_error_fallback_keeps_enclosing_loop_targets {
   assert visited == 4
   visited = 0
   for number in [1, 2, 3] {
-    let outcome: Result[Int] = Err(FallbackError.invalid(message: "failed"))
+    let outcome: Result[Int] = Err(FallbackError.invalid("failed"))
     let selected = outcome ?? { |_|
       break when number == 2
       number

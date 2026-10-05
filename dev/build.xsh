@@ -6,7 +6,7 @@ use targets
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
 export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit, Error] {
-  return when ctx.host_os != targets.Linux or ! ctx.target.static_musl
+  return when ctx.host_os != .Linux or ! ctx.target.static_musl
 
   let libc = /usr/lib/libc.so
   let libgcc = /usr/lib/libgcc_s.so.1

@@ -54,30 +54,30 @@ type NumericRead = {
 }
 
 error SystemReportSourceError {
-    InvalidPciAddress(message: Str)
-    InvalidPciId(message: Str)
-    InvalidUsbDescriptor(message: Str)
-    InvalidThpPolicy(message: Str)
-    InvalidCgroupMount(message: Str)
-    InvalidCpuFreqMembers(message: Str)
-    InvalidCacheSharing(message: Str)
-    InvalidIdleStateIndex(message: Str)
+    InvalidPciAddress
+    InvalidPciId
+    InvalidUsbDescriptor
+    InvalidThpPolicy
+    InvalidCgroupMount
+    InvalidCpuFreqMembers
+    InvalidCacheSharing
+    InvalidIdleStateIndex
 }
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
 export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
   guard name.starts_with("state") else {
-    return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
+    return Err(SystemReportSourceError.InvalidIdleStateIndex("CPUIdle directory does not start with state"))
   }
 
   let suffix = name.split("") |> drop(5).join("")
   if suffix == "" {
-    return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is empty"))
+    return Err(SystemReportSourceError.InvalidIdleStateIndex("CPUIdle state index is empty"))
   }
 
   for digit in suffix {
     if digit not in "0123456789" {
-      return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is not decimal"))
+      return Err(SystemReportSourceError.InvalidIdleStateIndex("CPUIdle state index is not decimal"))
     }
   }
 
@@ -86,14 +86,14 @@ export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
     index = value
   } else {
     return Err(
-      SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is outside the supported integer range"),
+      SystemReportSourceError.InvalidIdleStateIndex("CPUIdle state index is outside the supported integer range"),
     )
   }
 
   if index > 9007199254740991 or f"state{index}" != name {
     return Err(
       SystemReportSourceError.InvalidIdleStateIndex(
-        message: "CPUIdle state index is noncanonical or outside the exact JSON range",
+        "CPUIdle state index is noncanonical or outside the exact JSON range",
       ),
     )
   }
@@ -106,7 +106,7 @@ export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error] {
   if let Ok(ids) = report.parse_cpu_list(value) {
     Ok(ids)
   } else {
-    Err(SystemReportSourceError.InvalidCacheSharing(message: "cache shared CPU list is malformed"))
+    Err(SystemReportSourceError.InvalidCacheSharing("cache shared CPU list is malformed"))
   }
 }
 
@@ -114,7 +114,7 @@ export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error] {
 export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   if value == "" or value.trim() != value {
     return Err(
-      SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty or has surrounding whitespace"),
+      SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership is empty or has surrounding whitespace"),
     )
   }
 
@@ -125,7 +125,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
     for character in word {
       if character not in "0123456789" {
         return Err(
-          SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership has a non-decimal CPU identifier"),
+          SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership has a non-decimal CPU identifier"),
         )
       }
     }
@@ -135,24 +135,24 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
     if let Ok(members) = parsed {
       guard members.len() == 1 else {
         return Err(
-          SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership must use individual CPU identifiers"),
+          SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership must use individual CPU identifiers"),
         )
       }
 
       cpu_id = members[0]
     } else {
       return Err(
-        SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership has a non-decimal CPU identifier"),
+        SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership has a non-decimal CPU identifier"),
       )
     }
 
     let key = f"{cpu_id}"
     if key in seen {
-      return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership repeats a CPU identifier"))
+      return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership repeats a CPU identifier"))
     }
 
     if ids.len() >= 65536 {
-      return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership exceeds 65536 CPUs"))
+      return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership exceeds 65536 CPUs"))
     }
 
     seen = set.add(seen, key)
@@ -160,7 +160,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   }
 
   if ids.is_empty() {
-    return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty"))
+    return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership is empty"))
   }
 
   ids |> sort-by .
@@ -211,7 +211,7 @@ pure parse_hex_component(value: Str) -> Result[Int] {
 export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
   let parts = value.split(":")
   if parts.len() != 3 or ! is_hex_component(parts[0], 4) or ! is_hex_component(parts[1], 2) {
-    return Err(SystemReportSourceError.InvalidPciAddress(message: "PCI address has invalid domain or bus syntax"))
+    return Err(SystemReportSourceError.InvalidPciAddress("PCI address has invalid domain or bus syntax"))
   }
 
   let device_function = parts[2].split(".")
@@ -219,7 +219,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
     device_function[1],
     1,
   ) {
-    return Err(SystemReportSourceError.InvalidPciAddress(message: "PCI address has invalid device or function syntax"))
+    return Err(SystemReportSourceError.InvalidPciAddress("PCI address has invalid device or function syntax"))
   }
 
   let domain = parse_hex_component(parts[0])?
@@ -227,7 +227,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
   let device = parse_hex_component(device_function[0])?
   let function = parse_hex_component(device_function[1])?
   if device > 31 or function > 7 {
-    return Err(SystemReportSourceError.InvalidPciAddress(message: "PCI device or function value exceeds its ABI range"))
+    return Err(SystemReportSourceError.InvalidPciAddress("PCI device or function value exceeds its ABI range"))
   }
 
   Ok({domain: domain, bus: bus, device: device, function: function})
@@ -243,12 +243,12 @@ export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
   }
 
   if digits == "" or ! is_hex_component(digits, digits.count_chars()) {
-    return Err(SystemReportSourceError.InvalidPciId(message: "PCI identifier is not hexadecimal"))
+    return Err(SystemReportSourceError.InvalidPciId("PCI identifier is not hexadecimal"))
   }
 
   let parsed = parse_hex_component(digits)?
   if parsed > 4294967295 {
-    return Err(SystemReportSourceError.InvalidPciId(message: "PCI identifier exceeds the supported unsigned range"))
+    return Err(SystemReportSourceError.InvalidPciId("PCI identifier exceeds the supported unsigned range"))
   }
 
   parsed
@@ -257,19 +257,19 @@ export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
 ## Parses a nonnegative PCI decimal attribute within JSON's exact integer range.
 export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error] {
   if value == "" {
-    return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is empty"))
+    return Err(SystemReportSourceError.InvalidPciId("PCI decimal attribute is empty"))
   }
 
   for digit in value {
     if digit not in "0123456789" {
-      return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is not unsigned decimal"))
+      return Err(SystemReportSourceError.InvalidPciId("PCI decimal attribute is not unsigned decimal"))
     }
   }
 
   let parsed = value as Int
   if parsed > 9007199254740991 {
     return Err(
-      SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute exceeds the exact JSON integer range"),
+      SystemReportSourceError.InvalidPciId("PCI decimal attribute exceeds the exact JSON integer range"),
     )
   }
 
@@ -281,7 +281,7 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
   let max_bytes = 1048576
   let max_descriptors = 65536
   if data.len() > max_bytes {
-    return Err(SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor input exceeds the 1 MiB limit"))
+    return Err(SystemReportSourceError.InvalidUsbDescriptor("USB descriptor input exceeds the 1 MiB limit"))
   }
 
   var descriptors: List[UsbDescriptorRecord] = []
@@ -289,26 +289,26 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
   while offset < data.len() {
     let remaining = data.len() - offset
     if remaining < 2 {
-      return Err(SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor header is truncated"))
+      return Err(SystemReportSourceError.InvalidUsbDescriptor("USB descriptor header is truncated"))
     }
 
     let length = bytes.unpack_le(data, 1, offset)?
     let descriptor_type = bytes.unpack_le(data, 1, offset + 1)?
     if length < 2 {
       return Err(
-        SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor length is smaller than its header"),
+        SystemReportSourceError.InvalidUsbDescriptor("USB descriptor length is smaller than its header"),
       )
     }
 
     if length > remaining {
       return Err(
-        SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor extends beyond the available bytes"),
+        SystemReportSourceError.InvalidUsbDescriptor("USB descriptor extends beyond the available bytes"),
       )
     }
 
     if descriptors.len() == max_descriptors {
       return Err(
-        SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor count exceeds the 65,536 descriptor limit"),
+        SystemReportSourceError.InvalidUsbDescriptor("USB descriptor count exceeds the 65,536 descriptor limit"),
       )
     }
 
@@ -356,17 +356,17 @@ export proc read_source_text(
     if let Ok(text) = data.utf8() {
       value = if preserve_whitespace { text } else { text.trim() }
     } else {
-      if state == report.Observed {
+      if state == .Observed {
         state = report.Malformed
       }
 
       raw_bytes_base64 = data.base64()
     }
-  } else if state == report.Observed {
+  } else if state == .Observed {
     state = report.Malformed
   }
 
-  if state != report.Observed {
+  if state != .Observed {
     value = null
   }
 
@@ -440,14 +440,14 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
 ## Chooses the most specific visible cgroup mount whose root contains the membership path.
 export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?, Error] {
   guard group_path.starts_with("/") else {
-    return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup membership path is not absolute"))
+    return Err(SystemReportSourceError.InvalidCgroupMount("cgroup membership path is not absolute"))
   }
 
   var selected: CgroupMount? = null
   var selected_root_length = -1
   for mount in mounts {
     if ! mount.root.starts_with("/") or ! mount.point.starts_with("/") {
-      return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup mount root or point is not absolute"))
+      return Err(SystemReportSourceError.InvalidCgroupMount("cgroup mount root or point is not absolute"))
     }
 
     let contains_group = mount.root == "/" or group_path == mount.root or group_path.starts_with(f"{mount.root}/")
@@ -477,7 +477,7 @@ export pure valid_psi_average(value: Str) -> Bool {
 ## Parses the bracketed selected value without assuming a fixed policy vocabulary.
 export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Error] {
   guard value.lines().len() == 1 else {
-    return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy must contain one line"))
+    return Err(SystemReportSourceError.InvalidThpPolicy("THP policy must contain one line"))
   }
 
   let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
@@ -487,7 +487,7 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
     var name = choice
     if choice.starts_with("[") and choice.ends_with("]") and choice.count_chars() >= 3 {
       guard selected == null else {
-        return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has multiple selected values"))
+        return Err(SystemReportSourceError.InvalidThpPolicy("THP policy has multiple selected values"))
       }
 
       name = choice.split("")
@@ -497,14 +497,14 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
     }
 
     if name == "" or name.split("[").len() != 1 or name.split("]").len() != 1 or name in available {
-      return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has an invalid or repeated value"))
+      return Err(SystemReportSourceError.InvalidThpPolicy("THP policy has an invalid or repeated value"))
     }
 
     available += [name]
   }
 
   if selected == null {
-    return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has no selected value"))
+    return Err(SystemReportSourceError.InvalidThpPolicy("THP policy has no selected value"))
   }
 
   Ok({selected: selected, available: available})
@@ -649,11 +649,11 @@ export pure decode_device_tree_strings(raw: Str) -> List[Str]? {
 ## Parses only complete source observations and keeps integers exact in JSON.
 export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumber {
   let observed = source.observation
-  if observed.state == report.Absent {
+  if observed.state == .Absent {
     return {value: null, state: null, error_kind: null, errno: null}
   }
 
-  if observed.state != report.Observed {
+  if observed.state != .Observed {
     return {value: null, state: observed.state, error_kind: source.error_kind, errno: source.errno}
   }
 
@@ -681,7 +681,7 @@ export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumb
 ## Parses the two complete decimal counters in /proc/uptime and retains exact whole seconds.
 export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
   let observed = source.observation
-  if observed.state != report.Observed {
+  if observed.state != .Observed {
     return {value: null, state: observed.state, error_kind: source.error_kind, errno: source.errno}
   }
 
@@ -704,7 +704,7 @@ export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
 ## Converts kernel size suffixes only after a complete read and bounds the byte value.
 export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   let observed = source.observation
-  return bounded_number(source, true) when observed.state != report.Observed
+  return bounded_number(source, true) when observed.state != .Observed
 
   let raw = observed.value ?? ""
   var number_text = raw
@@ -764,11 +764,11 @@ proc read_numeric_attribute(
 ) [fs, error] -> NumericRead {
   let source = read_source_text(root, source_path)
   var state = source.observation.state
-  if state == report.Absent {
+  if state == .Absent {
     state = report.Disappeared
   }
 
-  if state != report.Observed {
+  if state != .Observed {
     return {
       value: null,
       state: state,
@@ -828,7 +828,7 @@ export pure pci_parent_address(target: Path, child_address: Str) -> Str? {
 proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead {
   let source = root.readlink_result(source_path)?
   let state = source_observation_state(source.state, false)
-  if state != report.Observed {
+  if state != .Observed {
     return {
       observation: {
         state: state,
@@ -908,19 +908,19 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let class = read_numeric_attribute(root, fp"{device_path}/class", true)
     let revision = read_numeric_attribute(root, fp"{device_path}/revision", true)
 
-    if vendor.state != report.Observed {
+    if vendor.state != .Observed {
       issues += [
         source_issue("pci", f"functions.{address_text}.vendor_id", vendor.state, vendor.errno, vendor.error_kind),
       ]
     }
 
-    if device.state != report.Observed {
+    if device.state != .Observed {
       issues += [
         source_issue("pci", f"functions.{address_text}.device_id", device.state, device.errno, device.error_kind),
       ]
     }
 
-    if subsystem_vendor.state != report.Observed {
+    if subsystem_vendor.state != .Observed {
       issues += [
         source_issue(
           "pci",
@@ -932,7 +932,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if subsystem_device.state != report.Observed {
+    if subsystem_device.state != .Observed {
       issues += [
         source_issue(
           "pci",
@@ -944,13 +944,13 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if class.state != report.Observed {
+    if class.state != .Observed {
       issues += [
         source_issue("pci", f"functions.{address_text}.class_code", class.state, class.errno, class.error_kind),
       ]
     }
 
-    if revision.state != report.Observed {
+    if revision.state != .Observed {
       issues += [
         source_issue("pci", f"functions.{address_text}.revision", revision.state, revision.errno, revision.error_kind),
       ]
@@ -989,11 +989,11 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let current_link_width = read_numeric_attribute(root, fp"{device_path}/current_link_width", false)
     let maximum_link_speed = read_source_text(root, fp"{device_path}/max_link_speed", max_bytes: 4096)
     let maximum_link_width = read_numeric_attribute(root, fp"{device_path}/max_link_width", false)
-    if numa.state != report.Observed and numa.state != report.Absent and numa.state != report.Disappeared {
+    if numa.state != .Observed and numa.state != .Absent and numa.state != .Disappeared {
       issues += [source_issue("pci", f"functions.{address_text}.numa_node", numa.state, numa.errno, numa.error_kind)]
     }
 
-    if driver.observation.state != report.Observed and driver.observation.state != report.Absent {
+    if driver.observation.state != .Observed and driver.observation.state != .Absent {
       issues += [
         source_issue(
           "pci",
@@ -1005,7 +1005,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if iommu_group.observation.state != report.Observed and iommu_group.observation.state != report.Absent {
+    if iommu_group.observation.state != .Observed and iommu_group.observation.state != .Absent {
       issues += [
         source_issue(
           "pci",
@@ -1017,7 +1017,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if current_link_speed.observation.state != report.Observed and current_link_speed.observation.state != report.Absent {
+    if current_link_speed.observation.state != .Observed and current_link_speed.observation.state != .Absent {
       issues += [
         source_issue(
           "pci",
@@ -1029,7 +1029,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if current_link_width.state != report.Observed and current_link_width.state != report.Disappeared {
+    if current_link_width.state != .Observed and current_link_width.state != .Disappeared {
       issues += [
         source_issue(
           "pci",
@@ -1041,7 +1041,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if maximum_link_speed.observation.state != report.Observed and maximum_link_speed.observation.state != report.Absent {
+    if maximum_link_speed.observation.state != .Observed and maximum_link_speed.observation.state != .Absent {
       issues += [
         source_issue(
           "pci",
@@ -1053,7 +1053,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
       ]
     }
 
-    if maximum_link_width.state != report.Observed and maximum_link_width.state != report.Disappeared {
+    if maximum_link_width.state != .Observed and maximum_link_width.state != .Disappeared {
       issues += [
         source_issue(
           "pci",
@@ -1087,13 +1087,13 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
         parent_function_index: null,
         numa_node: numa_node,
         iommu_group: iommu_group.observation.value,
-        current_link_speed: if current_link_speed.observation.state == report.Observed {
+        current_link_speed: if current_link_speed.observation.state == .Observed {
           current_link_speed.observation.value
         } else {
           null
         },
         current_link_width: current_link_width.value,
-        maximum_link_speed: if maximum_link_speed.observation.state == report.Observed {
+        maximum_link_speed: if maximum_link_speed.observation.state == .Observed {
           maximum_link_speed.observation.value
         } else {
           null

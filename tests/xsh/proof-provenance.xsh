@@ -3,7 +3,7 @@ type ProofFirmware = {vendor: Str?}
 type ProofReport = {firmware: ProofFirmware}
 
 test test_record_projection_proof_through_boolean_alias {
-  let report = ProofReport(firmware: {vendor: " ready "})
+  let report = ProofReport({vendor: " ready "})
   let available = report.firmware.vendor != null
   let retained = available
   guard retained else {
@@ -16,7 +16,7 @@ test test_record_projection_proof_through_boolean_alias {
 type ProofPair = {left: Str?, right: Int}
 
 test test_record_projection_proofs_keep_disjoint_updates_and_snapshots {
-  var pair = ProofPair(left: "ready", right: 1)
+  var pair = ProofPair("ready", 1)
   let available = pair.left != null
   pair.right = 2
   guard available else {
@@ -25,7 +25,7 @@ test test_record_projection_proofs_keep_disjoint_updates_and_snapshots {
   pair.right = 3
   let left = proof_string(pair.left)
   assert left == "ready"
-  var original = ProofPair(left: "snapshot", right: 1)
+  var original = ProofPair("snapshot", 1)
   let snapshot = original
   let retained = snapshot.left != null
   original = {left: null, right: 2}
@@ -57,7 +57,7 @@ pure proof_early_exit(report: ProofReport) -> Str {
 }
 
 test test_record_projection_aliases_short_circuit_and_assert_success {
-  let report = ProofReport(firmware: {vendor: "ready"})
+  let report = ProofReport({vendor: "ready"})
   let available = report.firmware.vendor != null
   let accepted = available and proof_accept(report.firmware.vendor)
   assert accepted, "not accepted"
@@ -140,7 +140,7 @@ proc proof_joined(report: ProofReport, choose: Bool) [error] -> Str {
 }
 
 test test_record_projection_join_keeps_only_common_success_proofs { |ctx|
-  let report = ProofReport(firmware: {vendor: "ready"})
+  let report = ProofReport({vendor: "ready"})
   assert proof_joined(report, true) == "ready"
   assert proof_joined(report, false) == "ready"
   let rejected = test.run_script(
@@ -221,7 +221,7 @@ print $selected $checked
 }
 
 test test_record_projection_aliases_combine_presence_and_nullable_field_proofs {
-  let report = ProofReport(firmware: {vendor: "ready"})
+  let report = ProofReport({vendor: "ready"})
   let shape = "extra" in report.firmware
   let available = report.firmware.vendor != null
   if available and shape {
@@ -284,7 +284,7 @@ test test_record_projection_continue_keeps_success_proof {
 type ProofData = {payload: Any}
 
 test test_record_projection_type_and_presence_aliases {
-  let data = ProofData(payload: "ready")
+  let data = ProofData("ready")
   let text = data.payload is Str
   guard text else {
     return error.fail("not text")

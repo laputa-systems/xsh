@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.text_input
 
-error AppletError = Usage(message: Str) : Usage
+error AppletError = Usage : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
   f"usage: xsh applets/{applet_name}.xsh -- {summary}"

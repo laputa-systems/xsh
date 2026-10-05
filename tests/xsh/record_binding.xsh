@@ -3,7 +3,7 @@ type RecordBuild = {jobs: Int, target: Str}
 type RecordConfig = {root: Str, build: RecordBuild}
 
 test test_nested_renamed_record_binding_preserves_field_types {
-  let config = RecordConfig(root: "src", build: {jobs: 3, target: "native"})
+  let config = RecordConfig("src", {jobs: 3, target: "native"})
   let {root, build: {jobs, target: target_name, ..}, ..} = config
   assert root == "src"
   assert jobs + 1 == 4
@@ -11,7 +11,7 @@ test test_nested_renamed_record_binding_preserves_field_types {
 }
 
 test test_nested_record_var_values_preserve_source_aliases {
-  let config = RecordConfig(root: "src", build: {jobs: 3, target: "native"})
+  let config = RecordConfig("src", {jobs: 3, target: "native"})
   var {build: selected_build, root: _, ..} = config
   selected_build.jobs = 9
   assert config.build.jobs == 3

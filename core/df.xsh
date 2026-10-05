@@ -1,5 +1,5 @@
 #!/bin/xsh
-error AppletError = Usage(message: Str) : Usage
+error AppletError = Usage : Usage
 
 type DfOptions = {targets: List[Str]}
 

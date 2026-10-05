@@ -239,7 +239,7 @@ export pure frequency_policies_for_cpu(policies: List[CpuFreqPolicy], cpu_id: In
 }
 
 pure cpu_list_error(message: Str) -> SystemReportError {
-  SystemReportError.InvalidCpuList(message:)
+  .InvalidCpuList(message)
 }
 
 pure parse_cpu_list_integer(value: Str, decimal: Regex) -> Result[Int] {
@@ -859,7 +859,7 @@ export pure parse_report_section(value: Str) -> Result[ReportSection, Error] {
     "kernel" => Ok(ReportKernel)
     "processes" => Ok(ReportProcesses)
     "devices" => Ok(ReportDevices)
-    else => Err(SystemReportError.InvalidSection(message: f"unknown report section '{value}'"))
+    else => Err(SystemReportError.InvalidSection(f"unknown report section '{value}'"))
   }
 }
 
@@ -1456,7 +1456,7 @@ pure observation_state_xsh(value: Str) -> Result[ObservationState] {
   if let Ok(state) = value.require(ObservationState) {
     Ok(state)
   } else {
-    Err(SystemReportError.InvalidJson(message: f"unknown observation state '{value}'"))
+    Err(SystemReportError.InvalidJson(f"unknown observation state '{value}'"))
   }
 }
 
@@ -1480,7 +1480,7 @@ pure section_state_xsh(value: Str) -> Result[SectionState] {
   if let Ok(state) = value.require(SectionState) {
     Ok(state)
   } else {
-    Err(SystemReportError.InvalidJson(message: f"unknown section state '{value}'"))
+    Err(SystemReportError.InvalidJson(f"unknown section state '{value}'"))
   }
 }
 
@@ -1499,7 +1499,7 @@ pure source_mode_xsh(value: Str) -> Result[SourceMode] {
   if let Ok(state) = value.require(SourceMode) {
     Ok(state)
   } else {
-    Err(SystemReportError.InvalidJson(message: f"unknown source mode '{value}'"))
+    Err(SystemReportError.InvalidJson(f"unknown source mode '{value}'"))
   }
 }
 
@@ -1522,11 +1522,11 @@ pure section_status_json(value: SectionStatus) -> JsonSectionStatus {
 pure section_status_xsh(value: JsonSectionStatus) -> Result[SectionStatus] {
   let state = section_state_xsh(value.state)?
   if state == Complete and ! value.enumeration_succeeded {
-    return Err(SystemReportError.InvalidJson(message: "complete section has no successful enumeration"))
+    return Err(SystemReportError.InvalidJson("complete section has no successful enumeration"))
   }
 
   if (state == SectionNotRequested or state == SectionUnsupported) and value.enumeration_succeeded {
-    return Err(SystemReportError.InvalidJson(message: "unavailable section claims a successful enumeration"))
+    return Err(SystemReportError.InvalidJson("unavailable section claims a successful enumeration"))
   }
 
   {
@@ -2189,27 +2189,27 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
   var class_keys = set.empty()
   for device in report.devices.devices {
     if device.parent_device_class_index != null and ((device.parent_device_class_index ?? -1) < 0 or (device.parent_device_class_index ?? -1) >= report.devices.devices.len()) {
-      return Err(SystemReportError.InvalidJson(message: "device-class parent index is outside the report"))
+      return Err(SystemReportError.InvalidJson("device-class parent index is outside the report"))
     }
 
     if device.parent_pci_function_index != null and ((device.parent_pci_function_index ?? -1) < 0 or (device.parent_pci_function_index ?? -1) >= report.pci.functions.len()) {
-      return Err(SystemReportError.InvalidJson(message: "device-class PCI parent index is outside the report"))
+      return Err(SystemReportError.InvalidJson("device-class PCI parent index is outside the report"))
     }
 
     if device.parent_usb_device_index != null and ((device.parent_usb_device_index ?? -1) < 0 or (device.parent_usb_device_index ?? -1) >= report.usb.devices.len()) {
-      return Err(SystemReportError.InvalidJson(message: "device-class USB parent index is outside the report"))
+      return Err(SystemReportError.InvalidJson("device-class USB parent index is outside the report"))
     }
 
     if device.entry_name.state == Observed {
       let entry = device.entry_name.value ?? ""
       if entry == "" or entry == "." or entry == ".." or "/" in entry or "\0" in entry {
-        return Err(SystemReportError.InvalidJson(message: "device-class entry names must be nonempty path components"))
+        return Err(SystemReportError.InvalidJson("device-class entry names must be nonempty path components"))
       }
 
       let key = f"{device.class.byte_len()}:{device.class}{entry}"
       if key in class_keys {
         return Err(
-          SystemReportError.InvalidJson(message: "device-class entries must have unique class and entry names"),
+          SystemReportError.InvalidJson("device-class entries must have unique class and entry names"),
         )
       }
 
@@ -2220,23 +2220,23 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
   var sensor_keys = set.empty()
   for channel in report.sensors.channels {
     if channel.parent_pci_function_index != null and ((channel.parent_pci_function_index ?? -1) < 0 or (channel.parent_pci_function_index ?? -1) >= report.pci.functions.len()) {
-      return Err(SystemReportError.InvalidJson(message: "hwmon PCI parent index is outside the report"))
+      return Err(SystemReportError.InvalidJson("hwmon PCI parent index is outside the report"))
     }
 
     if channel.parent_usb_device_index != null and ((channel.parent_usb_device_index ?? -1) < 0 or (channel.parent_usb_device_index ?? -1) >= report.usb.devices.len()) {
-      return Err(SystemReportError.InvalidJson(message: "hwmon USB parent index is outside the report"))
+      return Err(SystemReportError.InvalidJson("hwmon USB parent index is outside the report"))
     }
 
     if channel.chip_entry_name != null {
       let entry = channel.chip_entry_name
       if entry == "" or entry == "." or entry == ".." or "/" in entry or "\0" in entry {
-        return Err(SystemReportError.InvalidJson(message: "hwmon chip entry names must be nonempty path components"))
+        return Err(SystemReportError.InvalidJson("hwmon chip entry names must be nonempty path components"))
       }
 
       let key = f"{entry.byte_len()}:{entry}{channel.channel}"
       if key in sensor_keys {
         return Err(
-          SystemReportError.InvalidJson(message: "hwmon channels must have unique chip entries and channel names"),
+          SystemReportError.InvalidJson("hwmon channels must have unique chip entries and channel names"),
         )
       }
 
@@ -2249,7 +2249,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
     for constraint in zone.constraints {
       if constraint.index <= previous_index or constraint.index > 9007199254740991 {
         return Err(
-          SystemReportError.InvalidJson(message: "powercap constraint indexes must be unique, ascending, and JSON-safe"),
+          SystemReportError.InvalidJson("powercap constraint indexes must be unique, ascending, and JSON-safe"),
         )
       }
 
@@ -2269,7 +2269,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
         let index = trip.index ?? -1
         if index <= previous_index or index > 9007199254740991 {
           return Err(
-            SystemReportError.InvalidJson(message: "thermal trip indexes must be unique, ascending, and JSON-safe"),
+            SystemReportError.InvalidJson("thermal trip indexes must be unique, ascending, and JSON-safe"),
           )
         }
 
@@ -2279,7 +2279,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
 
     if has_index and missing_index {
       return Err(
-        SystemReportError.InvalidJson(message: "thermal trip indexes cannot mix known and legacy-unknown values"),
+        SystemReportError.InvalidJson("thermal trip indexes cannot mix known and legacy-unknown values"),
       )
     }
   }
@@ -2289,13 +2289,13 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
     if state.state_index != null {
       let index = state.state_index ?? -1
       if index < 0 or index > 9007199254740991 {
-        return Err(SystemReportError.InvalidJson(message: "CPUIdle state indexes must be nonnegative and JSON-safe"))
+        return Err(SystemReportError.InvalidJson("CPUIdle state indexes must be nonnegative and JSON-safe"))
       }
 
       if state.cpu_id != null {
         let key = f"{state.cpu_id ?? -1}:{index}"
         if key in idle_keys {
-          return Err(SystemReportError.InvalidJson(message: "CPUIdle states must have unique CPU and state indexes"))
+          return Err(SystemReportError.InvalidJson("CPUIdle states must have unique CPU and state indexes"))
         }
 
         idle_keys = set.add(idle_keys, key)
@@ -2320,18 +2320,18 @@ export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) ->
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
 export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
   guard let raw = json.decode(text) else { |error|
-    return Err(SystemReportError.InvalidJson(message: error.message))
+    return Err(SystemReportError.InvalidJson(error.message))
   }
 
   var normalized = raw
   for field in ["uts_namespace", "ipc_namespace", "user_namespace", "time_namespace"] {
     if let Ok(value) = json.get(normalized, ["scope", field]) {
       guard value != null else {
-        return Err(SystemReportError.InvalidJson(message: f"scope.{field} cannot be null"))
+        return Err(SystemReportError.InvalidJson(f"scope.{field} cannot be null"))
       }
 
       guard let _ = value.require(JsonTextObservation) else { |error|
-        return Err(SystemReportError.InvalidJson(message: error.message))
+        return Err(SystemReportError.InvalidJson(error.message))
       }
     } else {
       guard let updated = json.set(
@@ -2343,7 +2343,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
           raw_bytes_base64: null,
         },
       ) else { |error|
-        return Err(SystemReportError.InvalidJson(message: error.message))
+        return Err(SystemReportError.InvalidJson(error.message))
       }
 
       normalized = updated
@@ -2352,7 +2352,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_states) = json.get(normalized, ["cpu", "idle_states"]) {
     guard let states = raw_states.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     for state_index in range(states.len()) {
@@ -2360,7 +2360,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
         Ok(_) => {}
         Err(_) => {
           guard let updated = json.set(normalized, ["cpu", "idle_states", state_index, "state_index"], null) else { |error|
-            return Err(SystemReportError.InvalidJson(message: error.message))
+            return Err(SystemReportError.InvalidJson(error.message))
           }
 
           normalized = updated
@@ -2371,7 +2371,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_policies) = json.get(normalized, ["cpu", "frequency_policies"]) {
     guard let policies = raw_policies.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     for policy_index in range(policies.len()) {
@@ -2380,7 +2380,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
       if let Ok(raw_legacy) = json.get(policies[policy_index], ["requested_current_khz"]) {
         has_legacy_current = true
         guard let value = raw_legacy.require(Int?) else { |error|
-          return Err(SystemReportError.InvalidJson(message: error.message))
+          return Err(SystemReportError.InvalidJson(error.message))
         }
 
         legacy_current = value
@@ -2388,12 +2388,12 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
       if let Ok(raw_current) = json.get(policies[policy_index], ["scaling_current_khz"]) {
         guard let value = raw_current.require(Int?) else { |error|
-          return Err(SystemReportError.InvalidJson(message: error.message))
+          return Err(SystemReportError.InvalidJson(error.message))
         }
 
         if has_legacy_current and value != legacy_current {
           return Err(
-            SystemReportError.InvalidJson(message: "CPUFreq current frequency has conflicting v1 field names"),
+            SystemReportError.InvalidJson("CPUFreq current frequency has conflicting v1 field names"),
           )
         }
       } else {
@@ -2403,7 +2403,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
           ["cpu", "frequency_policies", policy_index, "scaling_current_khz"],
           replacement,
         ) else { |error|
-          return Err(SystemReportError.InvalidJson(message: error.message))
+          return Err(SystemReportError.InvalidJson(error.message))
         }
 
         normalized = updated
@@ -2414,7 +2414,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
           normalized,
           ["cpu", "frequency_policies", policy_index, "requested_current_khz"],
         ) else { |error|
-          return Err(SystemReportError.InvalidJson(message: error.message))
+          return Err(SystemReportError.InvalidJson(error.message))
         }
 
         normalized = updated
@@ -2424,12 +2424,12 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_zones) = json.get(normalized, ["sensors", "thermal_zones"]) {
     guard let zones = raw_zones.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     for zone_index in range(zones.len()) {
       guard let trips = json.get(zones[zone_index], ["trips"])?.require(List[Any]) else { |error|
-        return Err(SystemReportError.InvalidJson(message: error.message))
+        return Err(SystemReportError.InvalidJson(error.message))
       }
 
       for trip_index in range(trips.len()) {
@@ -2441,7 +2441,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
               ["sensors", "thermal_zones", zone_index, "trips", trip_index, "index"],
               null,
             ) else { |error|
-              return Err(SystemReportError.InvalidJson(message: error.message))
+              return Err(SystemReportError.InvalidJson(error.message))
             }
 
             normalized = updated
@@ -2453,7 +2453,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_devices) = json.get(normalized, ["usb", "devices"]) {
     guard let devices = raw_devices.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     for device_index in range(devices.len()) {
@@ -2461,7 +2461,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
         Ok(_) => {}
         Err(_) => {
           guard let updated = json.set(normalized, ["usb", "devices", device_index, "runtime_status"], null) else { |error|
-            return Err(SystemReportError.InvalidJson(message: error.message))
+            return Err(SystemReportError.InvalidJson(error.message))
           }
 
           normalized = updated
@@ -2472,7 +2472,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_channels) = json.get(normalized, ["sensors", "channels"]) {
     guard let channels = raw_channels.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     for channel_index in range(channels.len()) {
@@ -2481,7 +2481,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
           Ok(_) => {}
           Err(_) => {
             guard let updated = json.set(normalized, ["sensors", "channels", channel_index, field], null) else { |error|
-              return Err(SystemReportError.InvalidJson(message: error.message))
+              return Err(SystemReportError.InvalidJson(error.message))
             }
 
             normalized = updated
@@ -2493,7 +2493,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_devices) = json.get(normalized, ["devices", "devices"]) {
     guard let devices = raw_devices.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     for device_index in range(devices.len()) {
@@ -2505,7 +2505,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
             ["devices", "devices", device_index, "entry_name"],
             {state: "unsupported", value: null, raw_bytes_base64: null},
           ) else { |error|
-            return Err(SystemReportError.InvalidJson(message: error.message))
+            return Err(SystemReportError.InvalidJson(error.message))
           }
 
           normalized = updated
@@ -2516,14 +2516,14 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
 
   if let Ok(raw_zones) = json.get(normalized, ["power", "cap_zones"]) {
     guard let zones = raw_zones.require(List[Any]) else { |error|
-      return Err(SystemReportError.InvalidJson(message: error.message))
+      return Err(SystemReportError.InvalidJson(error.message))
     }
 
     var zone_index = 0
     for raw_zone in zones {
       if json.get(raw_zone, ["entry_name"], null) == null {
         guard let legacy = raw_zone.require(LegacyPowerCapZone) else { |error|
-          return Err(SystemReportError.InvalidJson(message: error.message))
+          return Err(SystemReportError.InvalidJson(error.message))
         }
 
         var constraints: List[PowerCapConstraint] = []
@@ -2548,7 +2548,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
         )
         let wire_zone: Any = zone
         guard let updated = json.set(normalized, ["power", "cap_zones", zone_index], wire_zone) else { |error|
-          return Err(SystemReportError.InvalidJson(message: error.message))
+          return Err(SystemReportError.InvalidJson(error.message))
         }
 
         normalized = updated
@@ -2559,7 +2559,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
   }
 
   guard let wire = normalized.require(SystemReportJson) else { |error|
-    return Err(SystemReportError.InvalidJson(message: error.message))
+    return Err(SystemReportError.InvalidJson(error.message))
   }
 
   if wire.schema_version != 1 {

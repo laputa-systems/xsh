@@ -189,14 +189,14 @@ print ${ctx(4)}
   )?
   assert called.stdout == """5
 """
-  let original: Result[Unit, CtxFailure] = Err(CtxFailure.Failed(message: "base", code: 7))
+  let original: Result[Unit, CtxFailure] = Err(.Failed(message: "base", code: 7))
   let contextual = retry [] {
     ctx "nominal" {
       original?
     }
   }
   test.error_kind(contextual, "CtxFailure.Failed")
-  if let Err(CtxFailure.Failed {message: message, code: code}) = contextual {
+  if let Err(.Failed {message: message, code: code}) = contextual {
     assert message == "base"
     assert code == 7
   } else {

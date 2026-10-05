@@ -64,10 +64,10 @@ type RawStr = {raw: Str, pos: Int}
 # JSON parser: hand-written recursive descent over a codepoint list, threading a
 # cursor (`pos`). Scalars are handed to native json.decode for exact conversion.
 # ---------------------------------------------------------------------------
-error JqError = Jq(message: Str)
+error JqError = Jq
 
 pure jq_err(msg: Str) -> JqError {
-  JqError.Jq(message: msg)
+  .Jq(msg)
 }
 
 pure is_ws(c: Str) -> Bool {

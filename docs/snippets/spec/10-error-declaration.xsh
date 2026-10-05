@@ -7,10 +7,10 @@ error FetchError {
 }
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
-  return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
+  fail .Invalid(file:, message: "empty") when text == ""
 }
 
 pure parse_url(url: Str) -> Result[Str, FetchError] {
-  return Err(FetchError.Usage(f"not a URL: {url}")) unless url.starts_with("https://")
+  fail .Usage(f"not a URL: {url}") unless url.starts_with("https://")
   Ok(url)
 }

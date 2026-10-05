@@ -311,9 +311,9 @@ pure failure_label(failure: FetchError) -> Str {
 }
 
 test test_error_family_matches_covering_every_variant_run {
-  assert failure_label(FetchError.Usage("bad flag")) == "usage: bad flag"
-  assert failure_label(FetchError.Offline()) == "timeout"
-  assert failure_label(FetchError.Rejected(url: "u", status: 503)) == "rejected 503 u"
+  assert failure_label(.Usage("bad flag")) == "usage: bad flag"
+  assert failure_label(.Offline()) == "timeout"
+  assert failure_label(.Rejected(url: "u", status: 503)) == "rejected 503 u"
 }
 
 test test_statement_match_missing_an_error_variant_is_a_check_error { |ctx|

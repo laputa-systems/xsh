@@ -45,7 +45,7 @@ test test_require_uses_returns_branches_blocks_and_parameters {
   assert block.name == "ready"
   assert require_manifest_name(raw.require()?) == "ready"
   assert require_manifest_name(...{manifest: raw.require()?}) == "ready"
-  let constructed = RequirementEnvelope(manifest: raw.require()?)
+  let constructed = RequirementEnvelope(raw.require()?)
   let spread_constructed = RequirementEnvelope(...{manifest: raw.require()?})
   assert constructed.manifest.name == spread_constructed.manifest.name
   let wrapped: Result[RequirementManifest] = Ok(raw.require()?)

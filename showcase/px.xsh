@@ -3,7 +3,7 @@
 # Inspect matching processes with lineage, memory, threads, and listening ports.
 # Usage: xsh showcase/px.xsh -- [-f] [-t] [--kill[=SIGNAL]] [-p PORT] [PATTERN...]
 # Example: xsh showcase/px.xsh -- -f postgres
-error PxError = Usage(message: Str) : Usage
+error PxError = Usage : Usage
 
 type Process = {
   pid: Int,
@@ -520,7 +520,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   let kill_signal = opts.kill
 
   if kill_signal != null and opts.patterns.is_empty() and opts.port <= 0 {
-    return Err(PxError.Usage(message: "--kill requires at least one PATTERN or -p PORT"))
+    return Err(PxError.Usage("--kill requires at least one PATTERN or -p PORT"))
   }
 
   let own_pid = process.current_pid()?

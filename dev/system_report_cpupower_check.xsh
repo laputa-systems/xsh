@@ -1,8 +1,8 @@
 ##! Optional cpupower corroboration for CPU frequency and idle metadata.
-error CpupowerCheckError = Invalid(message: Str)
+error CpupowerCheckError = Invalid
 
 pure cpupower_failure(message: Str) -> CpupowerCheckError {
-  CpupowerCheckError.Invalid(message:)
+  .Invalid(message)
 }
 
 ## Holds only the stable fields exported by the selected cpupower commands.

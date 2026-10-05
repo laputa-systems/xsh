@@ -1,6 +1,6 @@
 type StringListResult = Result[List[Str]]
 
-error ReturnError = Failure(message: Str) : InvalidData
+error ReturnError = Failure : InvalidData
 
 proc build() [error] -> Result[List[Str]] {
   let built = ["ok"]

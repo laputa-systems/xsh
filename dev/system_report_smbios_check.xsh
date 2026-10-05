@@ -1,10 +1,10 @@
 ##! Independent bounded reference for the kernel-exported SMBIOS structure table.
 use context
 
-error SmbiosCheckError = Invalid(message: Str)
+error SmbiosCheckError = Invalid
 
 pure smbios_check_failure(message: Str) -> SmbiosCheckError {
-  SmbiosCheckError.Invalid(message:)
+  .Invalid(message)
 }
 
 type SmbiosSectionStatus = {state: Str, enumeration_succeeded: Bool}

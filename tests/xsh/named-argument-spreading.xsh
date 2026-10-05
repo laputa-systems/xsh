@@ -216,7 +216,7 @@ error SpreadPayload = Bad(message: Str, code: Int)
 
 test test_named_argument_spreads_support_static_error_payloads {
   let failure = SpreadPayload.Bad(...{code: 3, message: "supplied"})
-  if let SpreadPayload.Bad {code: code, message: message} = failure {
+  if let .Bad {code: code, message: message} = failure {
     assert code == 3
     assert message == "supplied"
   } else {

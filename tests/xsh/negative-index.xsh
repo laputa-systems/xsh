@@ -25,7 +25,7 @@ test test_negative_literal_index_counts_from_the_end {
   assert "a,b,c".split(",")[-1] == "c"
   assert depth_last(items, 4) == 11
 
-  let table = Table(rows: [[1], [2, 3]])
+  let table = Table([[1], [2, 3]])
   assert table.rows[-1][-2] == 2
   assert items[1..][-1] == 3
 }

@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.text_input
 
-error AppletError = Usage(message: Str) : Usage
+error AppletError = Usage : Usage
 
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   AppletError.Usage(f"{applet_name}: unsupported option '{flag}'")

@@ -22,8 +22,8 @@ test test_record_constructors_defaults_aliases_and_puns {
   assert config.names == ["initial"]
   assert config.options.is_empty()
   assert ConstructorConfig(name: "explicit", options: {}).options.is_empty()
-  var first = ConstructorConfig(name: "first")
-  let second = ConstructorConfig(name: "second")
+  var first = ConstructorConfig("first")
+  let second = ConstructorConfig("second")
   first.names += ["changed"]
   var options = first.options
   options["changed"] = "value"

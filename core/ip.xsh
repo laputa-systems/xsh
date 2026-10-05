@@ -1,5 +1,5 @@
 #!/bin/xsh
-error AppletError = Usage(message: Str) : Usage
+error AppletError = Usage : Usage
 
 proc print_addr(filter: Str) [process, error] {
   for iface in linux.interfaces()? |> sort-by .name {

@@ -219,14 +219,14 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
   for line in source.lines() {
     if line.trim() == region_begin {
       guard ! inside else {
-        return Err(DocsError.Layout(message: f"{name} opens an example region inside another"))
+        return Err(DocsError.Layout(f"{name} opens an example region inside another"))
       }
 
       inside = true
       region = []
     } else if line.trim() == region_end {
       guard inside and ! region.is_empty() else {
-        return Err(DocsError.Layout(message: f"{name} closes an example region that is not open or is empty"))
+        return Err(DocsError.Layout(f"{name} closes an example region that is not open or is empty"))
       }
 
       shown += dedent(trim_blank_edges(region))
@@ -238,7 +238,7 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
   }
 
   guard ! inside else {
-    return Err(DocsError.Layout(message: f"{name} leaves an example region open"))
+    return Err(DocsError.Layout(f"{name} leaves an example region open"))
   }
 
   if regions == 0 { body(source) } else { shown.join("\n") }
@@ -257,7 +257,7 @@ proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -
   let argv = ["-i", f"PATH={search_path}", xsh.display(), file.display()]
   let plan = process.command_argv(/usr/bin/env, argv, cwd: sandbox.host_path()?, stdout:, stderr:, timeout: 60s)
   guard process.run(plan)?.ok else {
-    return Err(DocsError.Snippet(message: f"{file.name()} failed: {stderr.read_text()?.trim()}"))
+    return Err(DocsError.Snippet(f"{file.name()} failed: {stderr.read_text()?.trim()}"))
   }
 
   body(stdout.read_text()?)
@@ -268,7 +268,7 @@ proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -
 proc desugared_source(xsht: Path, file: SnippetFile) [process, error] -> Result[Str] {
   let result = run.capture --text $xsht desugar $file.path ?
   guard result.status.ok else {
-    return Err(DocsError.Snippet(message: f"xsht desugar {file.name} failed: {result.stderr.trim()}"))
+    return Err(DocsError.Snippet(f"xsht desugar {file.name} failed: {result.stderr.trim()}"))
   }
 
   shown_source(file.name, result.stdout)
@@ -285,7 +285,7 @@ proc snippet_files(dir: Path) [fs, error] -> Result[List[SnippetFile]] {
       let key = parts[1].replace("-", "_")
       files += [SnippetFile(name: entry.name, key:, path: entry.path, rejected: parent == rejected_dir)]
     } else if numbered_name.matches(entry.name) or parent == rejected_dir {
-      return Err(DocsError.Layout(message: f"snippet {entry.name} is not named NN-name.xsh"))
+      return Err(DocsError.Layout(f"snippet {entry.name} is not named NN-name.xsh"))
     }
   }
 
@@ -306,9 +306,9 @@ proc snippets(
       let output: Str? = if file.key not in shown {
         null
       } else if platform != "any" {
-        return Err(DocsError.Snippet(message: f"a template shows the output of platform-specific {file.name}"))
+        return Err(DocsError.Snippet(f"a template shows the output of platform-specific {file.name}"))
       } else if file.rejected {
-        return Err(DocsError.Snippet(message: f"a template shows the output of rejected {file.name}"))
+        return Err(DocsError.Snippet(f"a template shows the output of rejected {file.name}"))
       } else {
         run_snippet(tools.xsh, file.path, search_path)?
       }
@@ -316,7 +316,7 @@ proc snippets(
       let desugared: Str? = if file.key not in expanded {
         null
       } else if file.rejected {
-        return Err(DocsError.Snippet(message: f"a template shows the desugared form of rejected {file.name}"))
+        return Err(DocsError.Snippet(f"a template shows the desugared form of rejected {file.name}"))
       } else {
         desugared_source(tools.xsht, file)?
       }
@@ -327,7 +327,7 @@ proc snippets(
   var table: Map[Str, Snippet] = {}
   for {name, snippet} in collected {
     guard name not in table else {
-      return Err(DocsError.Layout(message: f"two {dir.name()} snippets are named {name}"))
+      return Err(DocsError.Layout(f"two {dir.name()} snippets are named {name}"))
     }
 
     table[name] = snippet
@@ -335,14 +335,14 @@ proc snippets(
 
   for name in shown {
     guard name in table else {
-      return Err(DocsError.Layout(message: f"a template shows the output of unknown snippet {dir.name()}.{name}"))
+      return Err(DocsError.Layout(f"a template shows the output of unknown snippet {dir.name()}.{name}"))
     }
   }
 
   for name in expanded {
     guard name in table else {
       return Err(
-        DocsError.Layout(message: f"a template shows the desugared form of unknown snippet {dir.name()}.{name}"),
+        DocsError.Layout(f"a template shows the desugared form of unknown snippet {dir.name()}.{name}"),
       )
     }
   }
@@ -407,7 +407,7 @@ proc check_snippet_diagnostics(dir: Path, xsht: Path) [fs, process, error] {
 
   let problems = [failure for failure in failures if failure != ""]
   guard problems.is_empty() else {
-    return Err(DocsError.Snippet(message: f"snippet diagnostics differ: {problems.join("; ")}"))
+    return Err(DocsError.Snippet(f"snippet diagnostics differ: {problems.join("; ")}"))
   }
 }
 
@@ -497,7 +497,7 @@ proc cli_reference(tools: DocTools) [process, error] -> Result[Record] {
   let reference = line_index(lines, "Command reference:")
   let workflows = line_index(lines, "Common workflows:")
   guard 0 < reference < workflows else {
-    return Err(DocsError.Layout(message: "`xsht --help` lacks its command reference or workflows section"))
+    return Err(DocsError.Layout("`xsht --help` lacks its command reference or workflows section"))
   }
 
   var commands = []
@@ -606,7 +606,7 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
     if ! fp"{root}/docs/{doc.rel}".exists()? or fp"{root}/docs/{doc.rel}".read_text()? != doc.text
   ]
   guard stale.is_empty() else {
-    return Err(DocsError.Stale(message: f"stale generated docs: {stale.join(", ")}; run `make docs`"))
+    return Err(DocsError.Stale(f"stale generated docs: {stale.join(", ")}; run `make docs`"))
   }
 
   for collection in snippet_collections {

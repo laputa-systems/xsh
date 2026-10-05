@@ -547,10 +547,10 @@ pure take_fence(lines: List[Str], start: Int) -> Result[FenceText] {
   }
 
   guard index < lines.len() else {
-    return Err(TourHtmlError.Unsupported(message: f"unterminated code fence {lines[start]}"))
+    return Err(TourHtmlError.Unsupported(f"unterminated code fence {lines[start]}"))
   }
 
-  FenceText(source: body.join("\n"), next: index + 1)
+  FenceText(body.join("\n"), index + 1)
 }
 
 # The lines of one bullet list. A blank line stays inside the list only when
@@ -608,10 +608,10 @@ pure take_table(lines: List[Str], start: Int) -> Result[Taken] {
   }
 
   guard index - start >= 2 else {
-    return Err(TourHtmlError.Unsupported(message: f"table without a delimiter row: {lines[start]}"))
+    return Err(TourHtmlError.Unsupported(f"table without a delimiter row: {lines[start]}"))
   }
 
-  Taken(lines: lines[start..index], next: index)
+  Taken(lines[start..index], index)
 }
 
 pure take_paragraph(lines: List[Str], start: Int) -> Taken {
@@ -620,7 +620,7 @@ pure take_paragraph(lines: List[Str], start: Int) -> Taken {
     index += 1
   }
 
-  Taken(lines: lines[start..index], next: index)
+  Taken(lines[start..index], index)
 }
 
 pure parse_blocks(lines: List[Str]) -> Result[List[Block]] {
@@ -639,7 +639,7 @@ pure parse_blocks(lines: List[Str]) -> Result[List[Block]] {
     } else if fence_open.matches(line) {
       let lang = fence_open.captures(line)[1]
       guard lang in fence_labels else {
-        return Err(TourHtmlError.Unsupported(message: f"code fence language `{lang}` has no renderer"))
+        return Err(TourHtmlError.Unsupported(f"code fence language `{lang}` has no renderer"))
       }
 
       let fence = take_fence(lines, index)?
@@ -663,7 +663,7 @@ pure parse_blocks(lines: List[Str]) -> Result[List[Block]] {
         let cells = table_cells(row)
         guard cells.len() == header.len() else {
           return Err(
-            TourHtmlError.Unsupported(message: f"table row has {cells.len()} cells, header has {header.len()}: {row}"),
+            TourHtmlError.Unsupported(f"table row has {cells.len()} cells, header has {header.len()}: {row}"),
           )
         }
 
@@ -868,14 +868,14 @@ pure tour_title(first: Block) -> Result[HeadingBlock] {
     return heading when heading.level == 1
   }
 
-  Err(TourHtmlError.Unsupported(message: "the tour must start with a `#` title"))
+  Err(TourHtmlError.Unsupported("the tour must start with a `#` title"))
 }
 
 # The page body: contents list, title block, introduction, and one section per
 # `##` heading.
 proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Result[Str] {
   guard ! blocks.is_empty() else {
-    return Err(TourHtmlError.Unsupported(message: "the tour is empty"))
+    return Err(TourHtmlError.Unsupported("the tour is empty"))
   }
 
   let title = tour_title(blocks[0])?
@@ -888,7 +888,7 @@ proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Res
   for block in blocks[1..] {
     if let Head(heading) = block {
       guard heading.id not in seen else {
-        return Err(TourHtmlError.Unsupported(message: f"two headings produce the anchor #{heading.id}"))
+        return Err(TourHtmlError.Unsupported(f"two headings produce the anchor #{heading.id}"))
       }
 
       seen += [heading.id]

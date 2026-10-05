@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.text_input
 
-error AppletError = Usage(message: Str) : Usage
+error AppletError = Usage : Usage
 
 type HeadOptions = {count: Str, quiet: Bool, verbose: Bool, paths: List[Str]}
 

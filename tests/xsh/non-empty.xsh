@@ -47,7 +47,7 @@ test test_non_empty_literal_and_guaranteed_operations {
   assert SHELL.first() == "sh"
   assert Defaults(name: "noop").argv.first() == "true"
 
-  let step = Step(argv: ["make", "all"], name: "build")
+  let step = Step(["make", "all"], "build")
   assert step.argv.last() == "all"
   let nested: List[NonEmpty[Int]] = [[1], [2, 3]]
   var total = 0

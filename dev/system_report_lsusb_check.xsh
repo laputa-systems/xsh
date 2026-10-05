@@ -1,8 +1,8 @@
 ##! Optional usbutils corroboration of visible USB identity and descriptors.
-error LsusbCheckError = Invalid(message: Str)
+error LsusbCheckError = Invalid
 
 pure lsusb_failure(message: Str) -> LsusbCheckError {
-  LsusbCheckError.Invalid(message:)
+  .Invalid(message)
 }
 
 ## Retains numeric identity without depending on the installed USB ID database.

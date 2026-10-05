@@ -1,5 +1,5 @@
 #!/bin/xsh
-error EnvError = Usage(message: Str) : Usage | Failed(message: Str)
+error EnvError = Usage : Usage | Failed
 
 pure split_words(text: Str) -> List[Str] {
   text.split(" ") |> where . != ""

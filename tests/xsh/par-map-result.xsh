@@ -1,4 +1,4 @@
-error TestError = DivisionByZero(message: Str) : InvalidData
+error TestError = DivisionByZero : InvalidData
 
 proc safe_div(x: Int) [error] -> Result[Int] {
   return Err(TestError.DivisionByZero("division by zero")) when x == 0

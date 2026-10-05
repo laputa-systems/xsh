@@ -6,9 +6,9 @@ error FetchError {
 
 pure describe(error: FetchError) -> Str {
   match Err(error) {
-    Err(FetchError.Usage {message}) => f"usage: {message}"
-    Err(FetchError.Offline) => "offline"
-    Err(FetchError.Rejected {url, status}) => f"{url} answered {status}"
+    Err(.Usage {message}) => f"usage: {message}"
+    Err(.Offline) => "offline"
+    Err(.Rejected {url, status}) => f"{url} answered {status}"
     else => error.message
   }
 }

@@ -12,9 +12,9 @@ type Observation[T] = {value: T? = null, samples: List[T] = []}
 
 type CountObservation = Observation[Int]
 
-let count = Observation(value: 7)
+let count = Observation(7)
 let direct = Observation(value: "demo", samples: ["demo"])
-let absent: CountObservation = Observation(value: null)
+let absent: CountObservation = Observation(null)
 print ${count.value ?? 0}
 print direct.samples[0]
 print absent.samples.len()

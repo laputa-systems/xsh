@@ -3,7 +3,7 @@ type WireEntry = {type: Str, in: Int, match: Bool = true}
 error WireError = Invalid(type: Str, in: Int)
 
 test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
-  let entry = WireEntry(type: "file", in: 2)
+  let entry = WireEntry("file", 2)
   assert entry.type == "file"
   assert entry.in == 2
   assert entry.match
@@ -16,7 +16,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
   assert json.encode(quoted)? == json.encode(bare)?
   assert json.encode(entry)? == json.encode(bare)?
   let failure = WireError.Invalid(type: "bad", in: 3)
-  if let WireError.Invalid {type: error_kind, in: error_number} = failure {
+  if let .Invalid {type: error_kind, in: error_number} = failure {
     assert error_kind == "bad"
     assert error_number == 3
   } else {
@@ -42,7 +42,7 @@ type WireMeta = {type: Str, in: Int}
 type WireRow = {name: Str, meta: WireMeta}
 
 test test_keyword_field_labels_in_update_paths_and_constant_map_keys { |ctx|
-  let row = WireRow(name: "entry", meta: WireMeta(type: "file", in: 1))
+  let row = WireRow("entry", WireMeta("file", 1))
   let updated = {...row, meta.type: "directory", meta.in: 2}
   assert updated.meta.type == "directory"
   assert updated.meta.in == 2

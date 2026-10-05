@@ -1,4 +1,4 @@
-error OptionalPostfixError = Failed(message: Str) : InvalidData
+error OptionalPostfixError = Failed : InvalidData
 
 type OptionalPostfixServer = {host: Str?}
 

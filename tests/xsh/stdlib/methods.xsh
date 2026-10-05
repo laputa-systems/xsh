@@ -1,4 +1,4 @@
-error TestBaseError = Base(message: Str)
+error TestBaseError = Base
 
 test test_list_push_and_extend_preserve_older_values {
   let base = [1, 2]
@@ -262,7 +262,7 @@ beta""".find("z") == null
   assert status.exited_with(1)
   assert status.exit_code()? == 1
   test.error_kind(status.signal_number(), "status-kind")
-  let result: Result[Int] = Err(TestBaseError.Base(message: "base message"))
+  let result: Result[Int] = Err(TestBaseError.Base("base message"))
   test.error_kind(result.context("wrapped", "extra"), "TestBaseError.Base")
 }
 

@@ -14,7 +14,7 @@ pure find(names: List[Str], wanted: Str) -> Str? {
 
 pure lookup(table: Map[Str, Int], key: Str) -> Result[Int?, LookupError] {
   if key == "" {
-    Err(LookupError.Missing(key:))
+    Err(.Missing(key:))
   } else if key in table {
     Ok(table[key])
   } else {
@@ -30,7 +30,7 @@ pure parsed(text: Str?) -> Result[Int, LookupError]? {
   let outcome: Result[Int, LookupError] = if text == "12" {
     Ok(12)
   } else {
-    Err(LookupError.Missing(key: text))
+    Err(.Missing(key: text))
   }
   outcome
 }

@@ -33,7 +33,7 @@ export let maybe: Str? = null
 type ProjectionConfig = {workers: Int, value: Str?, if: Bool}
 
 test test_constant_key_projection_nullable_and_keyword_labels {
-  let config = ProjectionConfig(workers: 4, value: null, if: true)
+  let config = ProjectionConfig(4, null, true)
   const field = "workers"
   let workers = config.get(field)?
   let value = config.value
@@ -110,7 +110,7 @@ type ProjectionWide = {workers: Int, hidden: Bool}
 type ProjectionVisible = {workers: Int}
 
 test test_constant_key_projection_dynamic_and_hidden_fields_keep_validation {
-  let wide = ProjectionWide(workers: 4, hidden: true)
+  let wide = ProjectionWide(4, true)
   let visible: ProjectionVisible = wide
   var field = "workers"
   field = "hidden"

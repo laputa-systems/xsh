@@ -104,7 +104,7 @@ enum PredicateChoice { EmptyChoice, PayloadChoice(Int, Str) }
 
 enum OtherPredicateChoice { OtherChoice, AnotherOtherChoice }
 
-error PredicateError = Missing(message: Str) : NotFound | Broken(message: Str) : InvalidData
+error PredicateError = Missing : NotFound | Broken : InvalidData
 
 pure pattern_test_tag_value() -> Any {
   PayloadChoice(7, "payload")
@@ -117,15 +117,15 @@ test test_pattern_predicates_keep_nominal_tags_and_error_facets {
   let tag_value = pattern_test_tag_value()
   assert tag_value is PredicateChoice == true
   assert tag_value is OtherPredicateChoice == false
-  let missing: PredicateError = PredicateError.Missing(message: "missing")
-  assert missing is PredicateError.Missing == true
-  assert missing is PredicateError.Broken == false
-  assert missing is PredicateError.Missing {message: "missing"} == true
-  assert missing is PredicateError.Missing {message: "other"} == false
+  let missing: PredicateError = .Missing("missing")
+  assert missing is .Missing == true
+  assert missing is .Broken == false
+  assert missing is .Missing {message: "missing"} == true
+  assert missing is .Missing {message: "other"} == false
   assert missing is NotFound == true
   assert missing is InvalidData == false
   let failure = Err(missing)
-  assert failure is Err(PredicateError.Missing {message: "missing"}) == true
+  assert failure is Err(.Missing {message: "missing"}) == true
   assert failure is Err(is NotFound) == true
 }
 
@@ -393,28 +393,28 @@ print ${selected}
 }
 
 test test_pattern_predicates_leave_control_body_braces {
-  let missing: PredicateError = PredicateError.Missing(message: "missing")
+  let missing: PredicateError = .Missing("missing")
   var branches = 0
-  if missing is PredicateError.Missing {
+  if missing is .Missing {
     branches += 1
   }
 
-  if missing is PredicateError.Missing {message: "missing"} {
+  if missing is .Missing {message: "missing"} {
     branches += 1
   }
 
-  if missing is PredicateError.Missing {} else {
+  if missing is .Missing {} else {
     test.fail("matching empty branch was skipped")
   }
 
-  while missing is PredicateError.Broken {
+  while missing is .Broken {
     test.fail("nonmatching loop was entered")
   }
 
-  let matched = if missing is PredicateError.Missing { true } else { false }
+  let matched = if missing is .Missing { true } else { false }
   assert matched == true
   assert branches == 2
-  let label = match missing is PredicateError.Missing {
+  let label = match missing is .Missing {
     true => "missing",
     false => "other",
   }
@@ -422,17 +422,17 @@ test test_pattern_predicates_leave_control_body_braces {
 }
 
 test test_pattern_predicates_inside_a_condition_group_read_their_payload {
-  let failures: List[PredicateError] = [PredicateError.Missing(message: "missing")]
+  let failures: List[PredicateError] = [.Missing("missing")]
   var branches = 0
-  if failures |> any { |failure| failure is PredicateError.Missing } {
+  if failures |> any { |failure| failure is .Missing } {
     branches += 1
   }
 
-  if ! (failures[0] is PredicateError.Missing) {
+  if ! (failures[0] is .Missing) {
     test.fail("a grouped pattern test lost its payload")
   }
 
-  if [failures[0] is PredicateError.Missing] == [true] {
+  if [failures[0] is .Missing] == [true] {
     branches += 1
   }
 

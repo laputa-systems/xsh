@@ -206,9 +206,9 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
 
 ## Dispatches installation to the current supported host family.
 export proc install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  return darwin(ctx) when ctx.host_os == targets.Darwin
+  return darwin(ctx) when ctx.host_os == .Darwin
 
-  return linux_install(ctx) when ctx.host_os == targets.Linux
+  return linux_install(ctx) when ctx.host_os == .Linux
 
   return Err(
     stages.StageError.Failed(

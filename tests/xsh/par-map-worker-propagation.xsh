@@ -8,10 +8,10 @@
 
 const NAMES = ["good-1", "bad-1", "skip", "run-bad-1", "good-2", "bad-2"]
 
-error ProofError = Rejected(message: Str)
+error ProofError = Rejected
 
 proc check_payload(name: Str) [error] -> Result[Unit, ProofError] {
-  return Err(ProofError.Rejected(f"{name} rejected")) when name.starts_with("bad")
+  fail .Rejected(f"{name} rejected") when name.starts_with("bad")
 }
 
 proc prove(root: Path, name: Str) [fs, process, env, error] {

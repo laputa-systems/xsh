@@ -3,7 +3,7 @@ type ExtendedOptions = {
   arguments: List[Str] = [],
 }
 
-error ExtendedError = Missing(message: Str) : NotFound
+error ExtendedError = Missing : NotFound
 
 pure extended_command(command: List[Str]) {
   if let ["build", target, ..rest] = command {
@@ -43,7 +43,7 @@ test test_extended_map_iteration_keeps_typed_list_values {
 }
 
 test test_extended_error_fallback_binds_nominal_error {
-  let result: Result[Str, ExtendedError] = Err(ExtendedError.Missing(message: "absent"))
+  let result: Result[Str, ExtendedError] = Err(.Missing("absent"))
   let label = result ?? { |failure|
     let is_missing = failure is NotFound
     if is_missing {

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S xsh --
-error AppletError = Usage(message: Str) : Usage
+error AppletError = Usage : Usage
 
 type WebpOptions = {quality: Int, jobs: Int, apply: Bool, root: Path}
 
@@ -47,7 +47,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
 
   let results = entries
     |> par-map(jobs: opts.jobs) { |entry|
-      var out: WebpResult = WebpResult(converted: false)
+      var out: WebpResult = WebpResult(false)
       let rel = entry.path.relative_to(opts.root)
       let safe = rel.display().replace("/", "_")
       let webp_name = safe.replace(f".{entry.ext}", ".webp")

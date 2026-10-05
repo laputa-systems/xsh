@@ -1,5 +1,5 @@
 #!/bin/xsh
-error IfdownError = Usage(message: Str) : Usage | Config(message: Str) | Hook(message: Str) | State(message: Str)
+error IfdownError = Usage : Usage | Config | Hook | State
 
 type Interface = {
   logical: Str,

@@ -93,7 +93,7 @@ test test_map_iteration_nested_targets_and_qualifiers {
 error MapIterationError = Missing(code: Int)
 
 pure map_iteration_failed_source() -> Result[Map[Int], MapIterationError] {
-  Err(MapIterationError.Missing(code: 7))
+  Err(.Missing(code: 7))
 }
 
 proc map_iteration_collect_failure() [error] -> Result[List[Str], MapIterationError] {
@@ -117,13 +117,13 @@ pure map_iteration_success_source() -> Result[Map[Int], MapIterationError] {
 }
 
 test test_map_iteration_result_sources_preserve_nominal_errors {
-  if let Err(MapIterationError.Missing {code: code}) = map_iteration_collect_failure() {
+  if let Err(.Missing {code: code}) = map_iteration_collect_failure() {
     assert code == 7
   } else {
     test.fail("comprehension lost the source error")
   }
 
-  if let Err(MapIterationError.Missing {code: code}) = map_iteration_loop_failure() {
+  if let Err(.Missing {code: code}) = map_iteration_loop_failure() {
     assert code == 7
   } else {
     test.fail("loop lost the source error")
@@ -131,11 +131,11 @@ test test_map_iteration_result_sources_preserve_nominal_errors {
 
   let empty_values: Map[Result[Int, MapIterationError]] = {}
   let values = empty_values.set("alpha", map_iteration_success_value())
-    .set("beta", Err(MapIterationError.Missing(code: 9)))
+    .set("beta", Err(.Missing(code: 9)))
   for entry in values {
     match entry.value {
       Ok(value) => assert value == 3
-      Err(MapIterationError.Missing {code: code}) => assert code == 9
+      Err(.Missing {code: code}) => assert code == 9
     }
   }
 
@@ -334,9 +334,9 @@ test test_map_literals_expected_context_reaches_returns_arguments_and_nested_val
   assert map_literal_parameter({answer: 44}) == 44
   let nested = map_literal_nested([{answer: 45}, {answer: 46}])
   assert nested[1].get("answer")? == 46
-  let envelope = MapLiteralEnvelope(values: {answer: 47})
+  let envelope = MapLiteralEnvelope({answer: 47})
   assert envelope.values.get("answer")? == 47
-  let constructed = MapLiteralEnvelope(values: {answer: 50})
+  let constructed = MapLiteralEnvelope({answer: 50})
   assert constructed.values.get("answer")? == 50
   let empty_nested: Map[Map[Int]] = {}
   let set_nested = empty_nested.set("nested", {answer: 51})

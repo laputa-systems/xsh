@@ -1,10 +1,10 @@
 ##! Fixed-denominator coverage manifest validation and report generation.
 use context
 
-error SystemReportCheckError = Invalid(message: Str)
+error SystemReportCheckError = Invalid
 
 pure check_failure(message: Str) -> SystemReportCheckError {
-  SystemReportCheckError.Invalid(message:)
+  .Invalid(message)
 }
 
 proc capture_metadata_bytes(bundle: FsRoot, max_bytes: Int = 2097152) [fs, error] -> Result[Bytes] {

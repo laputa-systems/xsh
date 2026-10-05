@@ -37,7 +37,7 @@ export pure automatic_backend_for(
   cargo_available: Bool,
   linker_available: Bool,
 ) -> CoverageBackend {
-  let native_host = ctx.host_os == targets.Linux and ctx.host_arch == targets.X86_64
+  let native_host = ctx.host_os == .Linux and ctx.host_arch == .X86_64
   let prerequisites = alpine_linux and cargo_available and linker_available
 
   return NativeBackend when native_host and prerequisites
@@ -59,7 +59,7 @@ export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> 
     return selected
   }
 
-  return "aarch64-unknown-linux-musl" when host_arch == targets.Aarch64
+  return "aarch64-unknown-linux-musl" when host_arch == .Aarch64
 
   "x86_64-unknown-linux-musl"
 }

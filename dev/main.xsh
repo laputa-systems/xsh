@@ -233,7 +233,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         },
       )?
 
-      let options = TestOptions(kind: test_kind(parsed.kind)?, ci: parsed.ci)
+      let options = TestOptions(test_kind(parsed.kind)?, parsed.ci)
       match options.kind {
         Rust => return tests.rust(ctx)
         Xsh => return tests.xsh(ctx)
@@ -249,7 +249,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
     }
     "coverage" => {
       let parsed = cli.parse(args, {backend: {form: "--backend BACKEND", default: ""}})?
-      let options = CoverageOptions(backend: parsed.backend)
+      let options = CoverageOptions(parsed.backend)
       return coverage_workflow.coverage(ctx, coverage_workflow.parse_request(options.backend)?)
     }
     "bench" => {
