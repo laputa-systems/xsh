@@ -928,13 +928,15 @@ impl Checker {
         }
     }
 
-    /// A statement `match` over an enum must handle every variant or end in
-    /// a catch-all: an unmatched value would fail at run time, and a variant
-    /// added later must not slip past an old match unnoticed. A statement
-    /// `match` over a union that misses a member is still a warning.
+    /// A statement `match` over an enum or a declared error family must
+    /// handle every variant or end in a catch-all: an unmatched value would
+    /// fail at run time, and a variant added later must not slip past an old
+    /// match unnoticed. A statement `match` over a union that misses a member
+    /// is still a warning.
     /// A value-producing `match` reports the same gap through
     /// `check.match-value-exhaustive` instead, so it calls
-    /// `missing_tag_variants_arena` directly and never gets both.
+    /// `missing_tag_variants_arena` and `missing_error_variants_arena`
+    /// directly and never gets both.
     pub(super) fn check_tag_exhaustiveness_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -956,19 +958,23 @@ impl Checker {
             );
             return;
         }
-        let Some(missing_list) = self.missing_tag_variants_arena(arena, value_ty, &arm_patterns)
-        else {
-            return;
-        };
+        let (missing_list, label) =
+            match self.missing_tag_variants_arena(arena, value_ty, &arm_patterns) {
+                Some(missing) => (missing, "not every variant of this enum is handled"),
+                None => match self.missing_error_variants_arena(arena, value_ty, &arm_patterns) {
+                    Some(missing) => (
+                        missing,
+                        "not every variant of this error family is handled",
+                    ),
+                    None => return,
+                },
+            };
         self.diagnostics.push(
             Diagnostic::error(format!(
                 "non-exhaustive match: missing variant(s) `{missing_list}`"
             ))
             .with_code(DiagnosticCode::CheckNonExhaustiveMatch)
-            .with_label(crate::diagnostic::Label::primary(
-                span,
-                "not every variant of this enum is handled",
-            ))
+            .with_label(crate::diagnostic::Label::primary(span, label))
             .with_note(
                 "handle each missing variant, or end the match with `else =>` as the deliberate catch-all",
             ),
@@ -1010,6 +1016,45 @@ impl Checker {
         (!missing.is_empty()).then(|| missing.join(", "))
     }
 
+    /// The comma-separated variants of an error family subject that the
+    /// unguarded arms leave some value of unmatched, or `None` when the value
+    /// is not exactly one family whose declaration is visible here or the
+    /// arms cover it. The broad `Error`, a facet, and a `Result` name no
+    /// single family, so they are never enumerated. A variant is covered by
+    /// a pattern for it whose field patterns cannot fail, or by a test for a
+    /// facet it implements.
+    pub(super) fn missing_error_variants_arena(
+        &self,
+        arena: &ArenaProgram,
+        value_ty: &Type,
+        arm_patterns: &[(PatternId, Span)],
+    ) -> Option<String> {
+        let Type::ErrorFamily(family) = value_ty else {
+            return None;
+        };
+        let info = self.error_families.get(family)?;
+        let facts = self.exhaustiveness_facts();
+        if super::stmt::patterns_are_exhaustive_arena(
+            arena,
+            value_ty,
+            arm_patterns.iter().map(|(pattern, _)| *pattern),
+            &facts,
+        ) {
+            return None;
+        }
+        let mut coverage = super::stmt::VariantCoverage::default();
+        for (pattern, _) in arm_patterns {
+            super::stmt::collect_variant_coverage(arena, *pattern, &facts, &mut coverage);
+        }
+        let missing: Vec<String> = info
+            .variants
+            .iter()
+            .filter(|(name, variant)| !coverage.covers_error_variant(**name, variant))
+            .map(|(name, _)| name.to_string())
+            .collect();
+        (!missing.is_empty()).then(|| missing.join(", "))
+    }
+
     /// A value-producing `match` has no value for an uncovered case, so the
     /// gap is an error; it names the missing enum variants when it can.
     pub(super) fn report_value_match_not_exhaustive(
@@ -1024,7 +1069,10 @@ impl Checker {
         {
             format!("value-producing match must be exhaustive: missing member(s) `{missing}`")
         } else {
-            match self.missing_tag_variants_arena(arena, value_ty, arm_patterns) {
+            match self
+                .missing_tag_variants_arena(arena, value_ty, arm_patterns)
+                .or_else(|| self.missing_error_variants_arena(arena, value_ty, arm_patterns))
+            {
                 Some(missing) => {
                     format!(
                         "value-producing match must be exhaustive: missing variant(s) `{missing}`"

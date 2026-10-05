@@ -184,3 +184,110 @@ print "after"
   assert output.stdout == "before\n", output.stdout
   assert "match-no-arm" in output.stderr, output.stderr
 }
+
+error FetchError {
+    Usage
+    Offline : Timeout
+    Rejected(url: Str, status: Int)
+}
+
+# A value of one declared error family is closed the same way. `is Facet`
+# covers the variants that implement the facet.
+pure failure_label(failure: FetchError) -> Str {
+  let kind = match failure {
+    FetchError.Usage => "usage",
+    is Timeout => "timeout",
+    FetchError.Rejected {status, ..} => f"rejected {status}",
+  }
+  match failure {
+    FetchError.Usage {message} => return f"{kind}: {message}"
+    FetchError.Offline => return kind
+    FetchError.Rejected {url, ..} => return f"{kind} {url}"
+  }
+}
+
+test test_error_family_matches_covering_every_variant_run {
+  assert failure_label(FetchError.Usage("bad flag")) == "usage: bad flag"
+  assert failure_label(FetchError.Offline()) == "timeout"
+  assert failure_label(FetchError.Rejected(url: "u", status: 503)) == "rejected 503 u"
+}
+
+test test_statement_match_missing_an_error_variant_is_a_check_error { |ctx|
+  let stderr = check_errors(
+    ctx,
+    """error FetchError {
+    Usage
+    Offline : Timeout
+    Rejected(url: Str, status: Int)
+}
+
+proc report(failure: FetchError) [io] {
+  match failure {
+    FetchError.Usage => print "usage"
+    FetchError.Rejected {status: 503, ..} => print "busy"
+  }
+  match failure {
+    FetchError.Usage => print "usage"
+    is Timeout => print "timeout"
+  }
+  match failure {
+    FetchError.Usage => print "usage"
+    else => print "other"
+  }
+}
+
+report(FetchError.Offline())
+""",
+  )?
+  assert "non-exhaustive match: missing variant(s) `Offline, Rejected`" in stderr, stderr
+  assert "non-exhaustive match: missing variant(s) `Rejected`" in stderr, stderr
+  assert "not every variant of this error family is handled" in stderr, stderr
+  assert count(stderr, "err[check.non-exhaustive-match]") == 2, stderr
+  assert count(stderr, "err[") == 2, stderr
+  assert ":8:" in stderr, stderr
+  assert ":12:" in stderr, stderr
+}
+
+test test_value_match_over_an_error_family_names_its_missing_variants { |ctx|
+  let stderr = check_errors(
+    ctx,
+    """error FetchError = Usage | Offline : Timeout | Rejected(url: Str, status: Int)
+
+pure label(failure: FetchError) -> Str {
+  match failure {
+    FetchError.Usage => "usage"
+    FetchError.Offline => "offline"
+  }
+}
+
+print label(FetchError.Offline())
+""",
+  )?
+  assert "value-producing match must be exhaustive: missing variant(s) `Rejected`" in stderr, stderr
+  assert count(stderr, "err[") == 1, stderr
+}
+
+# `Error` and a `Result` name no single closed family, so a match over them
+# is not enumerated and an unmatched error is the run-time failure.
+test test_broad_errors_and_results_keep_the_run_time_failure { |ctx|
+  let output = test.run_script(
+    ctx,
+    """error FetchError = Usage | Offline : Timeout
+
+pure fetch(step: Int) -> Result[Int, FetchError] {
+  return Err(.Offline()) when step == 1
+  Ok(step)
+}
+
+for step in [0, 1] {
+  match fetch(step) {
+    Ok(value) => print \$value
+    Err(.Usage) => print "usage"
+  }
+}
+""",
+  )?
+  assert output.status != 0
+  assert output.stdout == "0\n", output.stdout
+  assert "match-no-arm" in output.stderr, output.stderr
+}

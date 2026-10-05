@@ -724,7 +724,8 @@ error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
-diagnostics only.
+diagnostics only. A `match` over a value of one declared family covers every
+variant or ends in a catch-all (6.8).
 
 A variant declared without a payload carries only its message, as the one
 field `message: Str`. Its constructor takes the message as a single optional
@@ -1239,20 +1240,26 @@ value, so `if done { return x }` may end a block.
 
 A `match` with no matching arm fails with `match-no-arm`.
 
-A statement `match` over an enum, ordinary or Str-backed, must be exhaustive
-as well: its unguarded arms cover every variant, or it ends in `else =>`. An
-arm covers a variant when it matches the variant whatever its payload is, so
-`Fault("disk") =>` does not cover `Fault`. A missing variant is
-`check.non-exhaustive-match`, so a variant added to an enum is reported at
-every `match` that has not said what to do with it:
+A statement `match` over an enum, ordinary or Str-backed, or over a value
+whose type is one declared error family must be exhaustive as well: its
+unguarded arms cover every variant, or it ends in `else =>`. An arm covers a
+variant when it matches the variant whatever its payload is, so
+`Fault("disk") =>` does not cover `Fault`; `is Facet` covers each error
+variant that implements the facet. A missing variant is
+`check.non-exhaustive-match`, so a variant added to a declaration is reported
+at every `match` that has not said what to do with it:
 
 ```xsh
 {{.spec.non_exhaustive_match.source}}
 ```
 
+A value `match` over an error family is exhaustive by the same rule, and
+names the missing variants in its `check.match-value-exhaustive` error.
+
 The checker enumerates no other subject of a statement `match` (a number, a
-string, a record, a `Result`, `Any`): there an unmatched value is still the
-run-time `match-no-arm`.
+string, a record, `Any`, the broad `Error`, a `Result`, even one whose error
+is a single family): there an unmatched value is still the run-time
+`match-no-arm`.
 
 The last arm of a `match` statement or expression may be `else => ...`, the
 catch-all: it runs for any subject no earlier arm selected, and binds nothing.
