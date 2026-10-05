@@ -44,3 +44,12 @@ test test_chgrp_failure_status_survives_successful_operand { |ctx|
   assert result.stdout == ""
   assert result.stderr == ""
 }
+
+test test_chgrp_empty_group_preserves_identity { |ctx|
+  let target = test.temp_file(ctx, name: "no-group-change", contents: b"x")?
+  let before = fs.stat(target)?
+  let result = perm_run(ctx, ["-v", "", target.display()])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(target)?.gid == before.gid
+  assert result.stdout == f"ownership of '{target}' retained\n"
+}

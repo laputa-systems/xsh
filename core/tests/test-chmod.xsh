@@ -124,3 +124,47 @@ test test_chmod_no_dereference_skips_symlink { |ctx|
   assert perm_run(ctx, ["--no-dereference", "000", link.display()])?.status == 0
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
 }
+
+test test_chmod_verbose_uses_four_octal_digits_and_relative_descendants { |ctx|
+  let root = test.temp_dir(ctx, name: "relative-mode")?
+  fp"{root}/dir".mkdir()
+  fp"{root}/dir/child".write("x")
+  fp"{root}/dir/child".chmod(0o644)
+  let output = fp"{root}/output"
+  cd $root {
+    let result = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chmod.xsh" -- -Rv 600 dir
+    output.write(result)
+  }
+  fp"{root}/dir".chmod(0o700)
+  assert output.read_text()?.find("mode of 'dir/child' changed from 0644 (rw-r--r--) to 0600 (rw-------)") != null
+}
+
+test test_chmod_verbose_missing_file_reports_access_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "missing-mode")?
+  let result = perm_run(ctx, ["-v", "755", f"{root}/missing"])?
+  assert result.status == 1
+  assert result.stdout.find("could not be accessed") != null
+}
+
+test test_chmod_multiple_option_modes_accumulate_actions { |ctx|
+  let target = test.temp_file(ctx, name: "mode-actions", contents: b"x")?
+  target.chmod(0o777)
+  let result = perm_run(ctx, ["-w", "-x", target.display()])?
+  assert fs.stat(target)?.mode.bit_and(0o7777) == 0o777.clear_bits(0o333.clear_bits(fs.umask()?))
+  assert result.status == (if fs.umask()?.bit_and(0o333) != 0 { 1 } else { 0 })
+}
+
+test test_chmod_traversal_is_independent_of_link_mutation { |ctx|
+  let root = test.temp_dir(ctx, name: "link-descent")?
+  let tree = fp"{root}/tree"
+  tree.mkdir()
+  let child = fp"{tree}/child"
+  child.write("x")
+  child.chmod(0o644)
+  let link = fp"{root}/link"
+  link.symlink(to: tree)
+  let directory_mode = fs.stat(tree)?.mode.bit_and(0o7777)
+  assert perm_run(ctx, ["-RL", "--no-dereference", "600", link.display()])?.status == 0
+  assert fs.stat(child)?.mode.bit_and(0o7777) == 0o600
+  assert fs.stat(tree)?.mode.bit_and(0o7777) == directory_mode
+}

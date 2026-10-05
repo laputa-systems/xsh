@@ -79,7 +79,7 @@ pure mode_for(spec: Str, current: Int, directory: Bool, umask: Int) -> Result[In
   mode
 }
 
-pure octal_text(mode: Int) -> Str { f"0{mode / 512 % 8}{mode / 64 % 8}{mode / 8 % 8}{mode % 8}" }
+pure octal_text(mode: Int) -> Str { f"{mode / 512 % 8}{mode / 64 % 8}{mode / 8 % 8}{mode % 8}" }
 
 pure symbolic_text(mode: Int) -> Str {
   var text = ""
@@ -94,22 +94,37 @@ pure symbolic_text(mode: Int) -> Str {
   text
 }
 
+proc failed_mode(target: Path, before: Int, after: Int, opts: perm.Options) [process, env, io] {
+  if opts.verbosity == "verbose" {
+    gnu.write_text(f"failed to change mode of {gnu.quote(f"{target}")} from {octal_text(before)} ({symbolic_text(before)}) to {octal_text(after)} ({symbolic_text(after)})\n")
+  }
+}
+
 proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: Bool, ancestors: List[Str], umask: Int) [fs, error, process, env, io] -> Bool {
   let link = fs.stat(target, follow_symlinks: false)
-  if let Err(failure) = link { if ! opts.quiet { gnu.cannot_access(f"{target}", failure) }; return false }
+  if let Err(failure) = link {
+    if ! opts.quiet { gnu.cannot_access(f"{target}", failure) }
+    if opts.verbosity == "verbose" { gnu.write_text(f"{gnu.quote(f"{target}")} could not be accessed\n") }
+    return false
+  }
   let is_link = link?.kind == "symlink"
   let traverse = opts.traversal == "L" or (top and opts.traversal == "H")
-  if is_link and ((opts.recursive and ! traverse) or ! opts.dereference) {
+  if is_link and opts.recursive and ! traverse {
     if opts.verbosity == "verbose" { gnu.write_text(f"neither symbolic link {gnu.quote(f"{target}")} nor referent has been changed\n") }
     return true
   }
-  let found = fs.stat(target, follow_symlinks: opts.dereference)
+  let found = fs.stat(target, follow_symlinks: opts.dereference or (opts.recursive and traverse))
   if let Err(failure) = found {
+    if is_link and ! opts.dereference {
+      if opts.verbosity == "verbose" { gnu.write_text(f"neither symbolic link {gnu.quote(f"{target}")} nor referent has been changed\n") }
+      return true
+    }
     if ! opts.quiet {
       if is_link and (failure.errno ?? gnu.errno(failure)) == 2 {
         gnu.error(f"cannot operate on dangling symlink {gnu.quote(f"{target}")}")
       } else { gnu.cannot_access(f"{target}", failure) }
     }
+    if opts.verbosity == "verbose" { gnu.write_text(f"{gnu.quote(f"{target}")} could not be accessed\n") }
     return false
   }
   let meta = found?
@@ -118,27 +133,33 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
   let after = if let bits = reference { bits } else { mode_for(spec, before, meta.kind == "dir", umask)? }
   if opts.recursive and meta.kind == "dir" {
     let key = f"{meta.dev}:{meta.ino}"
-    if key in ancestors { gnu.error(f"cycle detected at {gnu.quote(f"{target}")}"); return false }
     if opts.preserve_root {
       let root = fs.stat(p"/", follow_symlinks: true)?
-      if root.dev == meta.dev and root.ino == meta.ino { gnu.error(f"it is dangerous to operate recursively on {gnu.quote(f"{target}")}"); return false }
+      if root.dev == meta.dev and root.ino == meta.ino { perm.refuse_root(target); return false }
     }
+    # Logical traversal visits a link to an ancestor once, then stops descent.
+    if ! (key in ancestors) {
     # Grant requested access before descent, and defer removals until children
     # have been visited so the directory remains searchable throughout.
     let added = after.clear_bits(before).bit_and(0o777)
-    if added != 0 {
+    if added != 0 and ! (is_link and ! opts.dereference) {
       if let Err(failure) = target.chmod(before.bit_or(added)) {
         if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }
         return false
       }
     }
     match fs.children(target) {
-      Ok(children) => for child in children { if ! change(child.path, spec, reference, opts, false, ancestors + [key], umask) { success = false } }
+      Ok(children) => for child in children { if ! change(fp"{target}/{child.path.basename()}", spec, reference, opts, false, ancestors + [key], umask) { success = false } }
       Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
     }
+    }
+  }
+  if is_link and ! opts.dereference {
+    if opts.verbosity == "verbose" { gnu.write_text(f"neither symbolic link {gnu.quote(f"{target}")} nor referent has been changed\n") }
+    return success
   }
   match target.chmod(after, follow_symlinks: opts.dereference) {
-    Err(failure) => { if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }; return false }
+    Err(failure) => { if ! opts.quiet { gnu.error(f"changing permissions of {gnu.quote(f"{target}")}: {gnu.strerror(failure)}") }; failed_mode(target, before, after, opts); return false }
     Ok(_) => {}
   }
   if opts.verbosity == "verbose" or (opts.verbosity == "changes" and before != after) {
@@ -159,6 +180,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
   let opts = perm.options(argv, chmod: true)?
   if opts.help { gnu.help("Usage: chmod [OPTION]... MODE FILE...\n  -R, --recursive\n  -c, --changes\n  -v, --verbose\n  -f, --silent\n      --reference=RFILE\n      --preserve-root\n      --no-preserve-root\n      --help\n      --version"); return }
   if opts.version { gnu.version("chmod"); return }
+  if opts.reference != null and opts.option_like_mode { gnu.usage_error("cannot combine mode and --reference options") }
   if opts.operands.is_empty() { gnu.missing_operand() }
   var spec = ""
   var reference: Int? = null
@@ -167,7 +189,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
   if let file = opts.reference {
     match fs.stat(fp"{file}", follow_symlinks: true) {
       Ok(meta) => reference = meta.mode.bit_and(0o7777)
-      Err(failure) => { gnu.cannot("stat", file, failure); exit 1 }
+      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote(file)}: {gnu.strerror(failure)}"); exit 1 }
     }
   } else {
     spec = opts.operands[0]
@@ -177,5 +199,6 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
   }
   var success = true
   for target in targets { if ! change(fp"{target}", spec, reference, opts, true, [], umask) { success = false } }
+  if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

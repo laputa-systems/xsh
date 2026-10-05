@@ -83,3 +83,43 @@ test test_chown_dot_separator_uses_login_group_and_warns { |ctx|
   assert result.stderr.find("warning: '.' should be ':'") != null
   assert fs.stat(target)?.gid == current.gid
 }
+
+test test_chown_verbose_from_mismatch_reports_retained_owner { |ctx|
+  let target = test.temp_file(ctx, name: "retained-owner", contents: b"x")?
+  let before = fs.stat(target)?
+  let result = perm_run(ctx, ["-v", "--from=99999", f"{before.uid}", target.display()])?
+  assert result.status == 0
+  assert result.stdout.find("retained as") != null
+  assert fs.stat(target)?.uid == before.uid
+}
+
+test test_chown_verbose_missing_file_reports_stdout_write_failure { |ctx|
+  if ! (p"/dev/full".exists() ?? false) { test.skip("/dev/full is unavailable") }
+  let root = test.temp_dir(ctx, name: "failed-owner-output")?
+  let stderr = fp"{root}/stderr"
+  let uid = user.current()?.uid
+  let words = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/chown.xsh".display(), "--", "-v", f"{uid}", f"{root}/missing"]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", p"/dev/full", stderr))?
+  assert status.exit_code()? == 1
+  assert stderr.read_text()?.find("write error: No space left on device") != null, stderr.read_text()?
+}
+
+test test_chown_logical_cycle_visits_link_without_repeating_descendants { |ctx|
+  let root = test.temp_dir(ctx, name: "ownership-cycle")?
+  let child = fp"{root}/child"
+  child.mkdir()
+  fp"{child}/back".symlink(to: root)
+  let uid = user.current()?.uid
+  let result = perm_run(ctx, ["-vRL", f"{uid}", root.display()])?
+  assert result.status == 0
+  assert result.stdout.find(f"ownership of '{child}/back' retained as") != null
+  assert result.stdout.find(f"{child}/back/child") == null
+}
+
+test test_chown_numeric_id_allows_leading_space_and_forced_numeric_prefix { |ctx|
+  let target = test.temp_file(ctx, name: "numeric-owner", contents: b"x")?
+  let before = fs.stat(target)?
+  assert perm_run(ctx, [f"\t+{before.uid}", target.display()])?.status == 0
+  assert fs.stat(target)?.uid == before.uid
+  assert fs.stat(target)?.gid == before.gid
+}
