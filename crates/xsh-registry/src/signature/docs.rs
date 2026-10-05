@@ -771,7 +771,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "sync_path") => Some((
             "Synchronizes a file or its containing filesystem.",
-            "mode defaults to all (fsync); Linux also supports data (fdatasync) and filesystem (syncfs). The path opens nonblocking so FIFOs cannot wait for a writer; synchronization itself waits for writeback. Unsupported modes on other hosts fail with ENOTSUP.",
+            "mode defaults to all (fsync); Linux also supports data (fdatasync) and filesystem (syncfs). The path opens nonblocking so FIFOs cannot wait for a writer; an EACCES read-open failure retries write-only without truncation, while other open errors propagate. Synchronization itself waits for writeback. Unsupported modes on other hosts fail with ENOTSUP.",
             &["filesystem", "durability"],
         )),
         ("fs", "rename_exchange") => Some((
@@ -1728,7 +1728,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Path", "truncate") => Some((
             "Changes a file's length.",
-            "The requested size is explicit and truncation can discard data, so failures and size policy remain visible.",
+            "The requested size is explicit and truncation can discard data, so failures and size policy remain visible. Opening is nonblocking so a FIFO without a reader fails with ENXIO instead of waiting.",
             &["path", "filesystem", "destructive"],
         )),
         ("Path", "chmod") => Some((

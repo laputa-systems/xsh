@@ -1966,11 +1966,14 @@ pub(crate) fn truncate_path(path: PathBuf, size: i64, span: Span) -> Result<(), 
 }
 
 fn truncate_path_unnamed(path: PathBuf, size: i64, span: Span) -> Result<(), RuntimeError> {
+    use std::os::unix::fs::OpenOptionsExt;
     if size < 0 {
         return Err(RuntimeError::new("fs-truncate", "size cannot be negative").with_span(span));
     }
+    // Opening a FIFO must not wait for a reader before truncation can fail.
     let file = std::fs::OpenOptions::new()
         .write(true)
+        .custom_flags(libc::O_NONBLOCK)
         .open(path)
         .map_err(|error| RuntimeError::host("fs-truncate", &error).with_span(span))?;
     file.set_len(size as u64)

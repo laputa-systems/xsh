@@ -13,7 +13,14 @@ pub(crate) fn sync_path(path: PathBuf, mode: &str, span: Span) -> Result<(), Run
     }
     let shown = path.display().to_string();
     let result = (|| -> rustix::io::Result<()> {
-        let file = rfs::openat(CWD, &path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC, Mode::empty())?;
+        let common = OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let file = match rfs::openat(CWD, &path, OFlags::RDONLY | common, Mode::empty()) {
+            // Synchronization needs a descriptor, not read permission. Keep
+            // the directory-compatible read open first, then try a write
+            // descriptor only when access to the read descriptor was denied.
+            Err(rustix::io::Errno::ACCESS) => rfs::openat(CWD, &path, OFlags::WRONLY | common, Mode::empty()),
+            result => result,
+        }?;
         match mode {
             "all" => rfs::fsync(&file),
             #[cfg(target_os = "linux")]

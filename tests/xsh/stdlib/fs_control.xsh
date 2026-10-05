@@ -107,3 +107,47 @@ test test_access_follow_control_and_host_errors_remain_observable { |ctx|
     assert failure.errno == 20
   }
 }
+
+test test_truncate_does_not_wait_for_a_fifo_reader { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-truncate-fifo")?
+  let fifo = fp"{root}/fifo"
+  fs.mkfifo(fifo, 0o600)
+  let refused = fifo.truncate(0)
+  assert refused is Err(_)
+  if let Err(failure) = refused {
+    assert failure.errno == 6
+  }
+  assert fs.stat(fifo)?.kind == "fifo"
+  let file = fp"{root}/file"
+  file.write("abcdef")
+  file.truncate(3)
+  assert file.read_bytes()? == b"abc"
+  file.truncate(6)
+  assert file.read_bytes()? == b"abc\0\0\0"
+}
+
+test test_sync_path_retries_write_only_files_for_unprivileged_owners { |ctx|
+  if applet.current_euid() == 0 {
+    test.skip("requires an unprivileged owner to exercise the read-open denial")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "fs-sync-write-only")?
+  let file = fp"{root}/file"
+  file.write("payload", mode: 0o200)
+  assert ! fs.access(file, read: true)?
+  assert fs.access(file, write: true)?
+  fs.sync_path(file)
+  assert fs.stat(file)?.size == 7
+  assert fs.stat(file)?.mode.bit_and(0o777) == 0o200
+  let data = fs.sync_path(file, mode: "data")
+  if let Err(failure) = data {
+    assert failure.errno == 95 or failure.errno == 45
+  }
+  file.chmod(0o000)
+  let inaccessible = fs.sync_path(file)
+  assert inaccessible is Err(_)
+  if let Err(failure) = inaccessible {
+    assert failure.errno == 13
+  }
+  file.chmod(0o600)
+}
