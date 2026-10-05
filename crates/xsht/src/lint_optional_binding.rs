@@ -3,7 +3,8 @@ use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
-    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, ArenaTypeExprTag,
+    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, ArenaSugar,
+    ArenaTypeExprTag,
     AstArena, ExprId, StmtId,
 };
 use xsh::frontend::syntax::node::BinaryOp;
@@ -51,15 +52,18 @@ fn null_test_then_binding(
     let arena = linter.arena;
     let source = linter.source;
     let test = arena.stmt(test);
-    let (subject, failure) = match test.kind {
-        ArenaStmtKind::BooleanGuard {
+    let ArenaStmtKind::Sugar { form, operands, .. } = test.kind else {
+        return None;
+    };
+    let (subject, failure) = match arena.sugar(form, operands) {
+        ArenaSugar::Guard {
             condition,
             else_block,
         } => (
             null_comparison(arena, condition, BinaryOp::Ne)?,
             Failure::Block(arena.span(arena.block(else_block).span)),
         ),
-        ArenaStmtKind::GuardedStmt {
+        ArenaSugar::Guarded {
             stmt,
             negate,
             condition,
