@@ -64,3 +64,29 @@ see `check_exclusions.py`.
 - Point `tests/xsh/system-report*.xsh` at the `sys_*` modules, then delete the thin compatibility wrappers in `core/lib/system_report_*.xsh`.
 - Mention the `sys_*` modules in `core/README.md`.
 - Remaining collectors, in order: `devices`, `sensors`, `network`, `cpu`, `memory`, `kernel`, `processes`, `power`, `firmware`, `cgroups`.
+
+## From `ls` (merged; slice 17/231 -> 187/231, full suite 1000 -> 1169 with the aliases)
+
+- Done by the integrator: `dir` and `vdir` aliases to `ls`; the `ls` bucket removed from `ignored-options-baseline.json`.
+- Parser: the cli GNU mode should expose the ordered option list so `ls` can drop its own `getopt_long` loop (needed because conflicting options such as format and sort flags are last-wins by position).
+- Runtime: a lazy `fs.children` that keeps the directory open (`test_ls_proc_self_fd_no_errors` regressed against the old applet and is recorded in `gaps.json`); `unix.window_size` now exists, so `ls` can read the terminal width instead of `COLUMNS`/80; xattr/ACL reads for the `+`/`.` marker, `-Z` and `ca=` colors; a tz database for zone names and DST.
+- Exclusion candidates, none verified against GNU 9.12 source (GNU source is not fetched here): `-w=N`, `--long`, `--format=column(s)`: `test_ls_width`, `test_ls_across`, `test_ls_columns`, `test_ls_commas`, `test_ls_color`, `test_ls_color_does_not_make_quoted_names_align_as_unquoted`, `test_ls_align_unquoted`, `test_ls_long`, `test_ls_long_format`, `test_ls_long_total_size`; time-style wording: `test_invalid_value_time_style`, `test_time_style_empty_after_posix_prefix`, `test_time_style_ambiguous_and_invalid_prefixes`, `test_time_style_unambiguous_prefixes`, `test_ls_time_styles`; LS_COLORS normalization: `test_ls_color_clear_to_eol`, `test_ls_color_empty_style`, `test_ls_color_norm`, `test_ls_long_symlink_color`, `test_ls_hyperlink_symlink_target_handling`, `test_term_colorterm`; others: `test_ls_ignore_hide`, `diagnostics::*`, `test_localized_possible_values`, `test_version` for dir and vdir.
+- Not behavior: missing `dd`/`truncate` for `test_ls_allocation_size` and five block-size tests; root-dependent `test_ls_io_errors`, `test_ls_perm_io_errors`, `test_ls_capabilities`; stdout write errors (`test_write_error`, `test_dired_write_error`); `test_no_extra_stat_without_recursion`; the UTF-8 collation test; `test_ls_dired_normal_style_offsets` (extra reset before `total`, cause unknown).
+
+## From `native-proc-tty` (merged)
+
+- Done by the integrator: `make docs` (run as `target/release/xsh dev/main.xsh -- docs`; the `cargo dev` alias builds a debug `xsh` that overflows its stack on Linux).
+- `unix.exec` ignores plan redirections: `nohup` should use `process.run` with an ignored HUP and a `stdout` path.
+- No primitive for `kill -1` (signal every process) and no core-dump flag on `Status`.
+- Stdout stays buffered until exit or `io.flush_stdout()`; infinite writers such as `yes` must flush periodically. `process.set_signal_action("PIPE", "default")` gives SIGPIPE.
+- Never compiled on macOS: the `libc` termios flag names in `src/modules/unix/tty.rs` and the rustix `pty` calls are the risk; `unix.read_utmp` fails `unsupported` off Linux. The lane added rustix's `pty` feature to `Cargo.toml` and regenerated `tests/fixtures/modules/standard-api-surface.jsonl`.
+
+## From `tty-misc` (merged; slice 2/103 -> 95/103)
+
+- New applets `stty more uptime users who pinky`; real utmp support through `unix.read_utmp`; `pinky` reads `XSH_UTMP_FILE` instead of `/var/run/utmp` (document it).
+- Exclusion candidates (wording differs from GNU 9.4): `test_stty::save_and_all`, `test_stty::test_stdin_not_tty_fails`, `test_who::test_too_many_args`, `test_uptime::test_uptime_with_extra_argument` (clap wording), `test_who::test_piped_to_dev_full`, `test_who::test_short_list_piped_to_dev_full`. Not exclusions: `test_more::test_invalid_file_perms` (needs non-root), `test_more::test_more_non_utf8_paths` (non-UTF-8 argv).
+- Wanted APIs: unbuffered or timed stdin read (`more` takes commands per line), `gecos` in `user.lookup`, a local-time/timezone primitive (applets read `TZ` as UTC or a fixed offset only), `dns.canonical` (`pinky --lookup` fails explicitly for names), a boot time with sub-second precision.
+
+## From `proc-a` (partial merge: `kill` and `nice` only; kill+nice slice 58/63)
+
+- `nohup`, `timeout` and `stdbuf` were not started: the lane was killed by a worker restart. `core/kill.xsh` and `core/nice.xsh` merged with 20 and 13 native tests. Remaining kill/nice failures (5 of 63) were not triaged.

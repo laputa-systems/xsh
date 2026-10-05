@@ -11,9 +11,10 @@ already merged on `campaign-utils` is done.
 |---|---|---|
 | text-b2, text-b1 | 01Tqp2 | merged |
 | ls, native-proc-tty, tty-misc | 01C8j4 | merged |
-| cp | 01C8j4 and 01Tqp2 | running twice (01C8j4's started 05:55 UTC, deep in): whichever lane merges first wins; the other abandons without merging |
-| mv-ln, proc-a | 01C8j4 | running |
-| fs-misc, legacy-buckets, date, text-... lanes not above | 01C8j4 | next (01C8j4 takes fs-misc, legacy-buckets, date, then sed and awk) |
+| cp | 01Tqp2 | 01C8j4 released it (its lane never committed) |
+| proc-a (kill, nice) | 01C8j4 | merged; nohup, timeout, stdbuf unstarted and free |
+| mv-ln | 01C8j4 | released: nothing was committed, free |
+| fs-misc, legacy-buckets, date, sed, awk | 01C8j4 | released: 01C8j4 has wound down, free |
 | text-a2, cp, sort, fs-basic, printf-env | 01Tqp2 | running |
 | native-bytes-hash, bytes-enc, checksums, perm, stat-du-df | 01Tqp2 | next |
 
