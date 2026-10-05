@@ -23,7 +23,9 @@ use super::prefer_tempdir::{binds, expr_owns_nothing, text_end_of, tokens_spanni
 /// ```
 ///
 /// A statement list is reported when it binds a `Path`, clears it, and later
-/// renames it. Each call may carry a `?`, which says again what statement
+/// renames it with `overwrite: true`. A rename that refuses an existing
+/// destination is an immutable publication, not a replacement. Each call
+/// may carry a `?`, which says again what statement
 /// position already does. `block` is the block whose statements these are;
 /// the statements of a file have none and are never rewritten, because a
 /// binding moved into a block would stop being a top-level one.
@@ -126,7 +128,6 @@ struct Sequence {
 struct Rename {
     temporary: Name,
     dest: ExprId,
-    overwrite: bool,
 }
 
 /// The receiver and the arguments of `path.OPERATION(...)`, under an
@@ -199,7 +200,8 @@ fn deferred_removal(arena: &AstArena, stmt: StmtId) -> Option<Name> {
     }
 }
 
-/// A rename of a local to a destination, with or without `overwrite: true`.
+/// A rename of a local that explicitly replaces its destination.
+/// Leaving `overwrite` out refuses a collision, which replacement cannot preserve.
 fn renamed_path(arena: &AstArena, expr: ExprId) -> Option<Rename> {
     let (path, arguments) = path_operation(arena, expr, "rename")?;
     let temporary = local(arena, path)?;
@@ -210,15 +212,13 @@ fn renamed_path(arena: &AstArena, expr: ExprId) -> Option<Rename> {
         ArenaCallArgKind::Named { name, value, .. } if *name == "to" => Some(*value),
         _ => None,
     };
-    let (dest, overwrite) = match &arguments[..] {
-        [dest] => (destination(dest)?, false),
-        [dest, flag] if is_true_flag(arena, flag, "overwrite") => (destination(dest)?, true),
+    let dest = match &arguments[..] {
+        [dest, flag] if is_true_flag(arena, flag, "overwrite") => destination(dest)?,
         _ => return None,
     };
     Some(Rename {
         temporary,
         dest,
-        overwrite,
     })
 }
 
@@ -291,9 +291,6 @@ fn atomically_rewrite(
     let defer_index = sequence.clear + 1;
     if defer_index >= sequence.rename || deferred_removal(arena, stmts[defer_index]) != Some(name) {
         return Err(NOT_ADJACENT);
-    }
-    if !rename.overwrite {
-        return Err("the rename does not pass `overwrite: true`");
     }
     if sequence.rename + 1 != stmts.len() {
         return Err("statements follow the rename in its block");
@@ -743,11 +740,6 @@ mod tests {
                 ),
                 "two adjacent statements",
             ),
-            // The rename fails when the destination exists.
-            (
-                publish(opening, body, "  partial.rename(to: dest)\n"),
-                "does not pass `overwrite: true`",
-            ),
             (
                 publish(
                     opening,
@@ -850,6 +842,19 @@ mod tests {
         // At the top level of a file the binding stays where it is.
         let top_level = "let dest = p\"/tmp/never/dest\"\nlet partial = fp\"{dest}.tmp\"\npartial.remove(missing_ok: true)\ndefer partial.remove(missing_ok: true)\npartial.write(\"x\")\npartial.rename(to: dest, overwrite: true)\n";
         assert!(difference(top_level).contains("statements of a file"));
+    }
+
+    #[test]
+    fn no_clobber_publications_are_not_reported() {
+        for rename in [
+            "partial.rename(to: dest)",
+            "partial.rename(to: dest, overwrite: false)",
+        ] {
+            let source = format!(
+                "proc publish(source: Path, dest: Path) [fs, error] {{\n  let partial = fp\"{{dest}}.tmp\"\n  partial.remove(missing_ok: true)\n  defer partial.remove(missing_ok: true)\n  source.copy(to: partial)\n  {rename}\n}}\n"
+            );
+            assert!(published_files(&source).is_empty(), "{source}");
+        }
     }
 
     #[test]

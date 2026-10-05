@@ -531,6 +531,26 @@ print \${{fs.children(p"{root}")? |> count()}}
   assert after.stdout == before.stdout
 }
 
+# Refusing an existing destination is part of immutable publication.
+test test_atomically_lint_preserves_no_clobber_publication { |ctx|
+  for rename in [
+    "partial.rename(to: dest)",
+    "partial.rename(to: dest, overwrite: false)",
+  ] {
+    let source = """proc publish(source: Path, dest: Path) [fs, error] {
+  let partial = fp"{dest}.tmp"
+  partial.remove(missing_ok: true)
+  defer partial.remove(missing_ok: true)
+  source.copy(to: partial)
+  """ + rename + "\n}\n"
+    let candidate = test.temp_file(ctx, name: "atomically-no-clobber.xsh", contents: bytes.from_text(source))?
+    let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace $candidate
+    let report = linted.stdout + linted.stderr
+    assert linted.status.exited_with(0), report
+    assert "lint.prefer-atomically-replace" not in report, report
+  }
+}
+
 # A sequence the form does not mean exactly is reported with the difference
 # and left as written.
 test test_atomically_lint_explains_a_sequence_it_does_not_rewrite { |ctx|
@@ -538,7 +558,7 @@ test test_atomically_lint_explains_a_sequence_it_does_not_rewrite { |ctx|
   let partial = fp"{dest}.tmp"
   partial.remove(missing_ok: true)
   source.copy(to: partial)
-  partial.rename(to: dest)
+  partial.rename(to: dest, overwrite: true)
 }
 """
   let candidate = test.temp_file(ctx, name: "atomically-note.xsh", contents: bytes.from_text(source))?

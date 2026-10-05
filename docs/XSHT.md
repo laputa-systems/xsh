@@ -121,6 +121,13 @@ are all declined says so after its findings.
 A file with a check error is not linted, because its checked facts are
 incomplete; a check warning is reported beside the file's lint findings.
 
+`lint.prefer-atomically-replace` reports temporary-file publication only when
+its final rename explicitly passes `overwrite: true`. Renames that omit
+`overwrite` or pass `false` preserve immutable publication by refusing a
+collision; `atomically replace` would overwrite that destination and is not an
+equivalent suggestion. Other differences in replacement sequences still carry
+a note explaining why no automatic rewrite is offered.
+
 A code's table severity is `error`, `warning`, `note`, or `mixed`. A lint that
 has no safe fix is a `note`: advice that is printed, counted apart in the
 closing `xsht lint: N findings, M notes` line (printed only when a note was
