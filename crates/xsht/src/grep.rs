@@ -279,16 +279,18 @@ fn match_expr_structural(
         }
         (
             ArenaExprKind::Retry {
+                schedule: ps,
                 delays: pd,
                 pattern: pp,
                 block: pb,
             },
             ArenaExprKind::Retry {
+                schedule: ts,
                 delays: td,
                 pattern: tp,
                 block: tb,
             },
-        ) => {
+        ) if ps == ts => {
             let pd = p.expr_ids(*pd).collect::<Vec<_>>();
             let td = t.expr_ids(*td).collect::<Vec<_>>();
             let mut candidate = bindings.clone();

@@ -26,6 +26,8 @@ mod prefer_tempdir;
 mod prefer_atomically;
 #[path = "lint_prefer_within.rs"]
 mod prefer_within;
+#[path = "lint_prefer_wait_until.rs"]
+mod prefer_wait_until;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 
@@ -1252,6 +1254,7 @@ impl<'a> Linter<'a> {
         prefer_tempdir::lint_scratch_directories(self, statements, None);
         prefer_atomically::lint_published_files(self, statements, None);
         prefer_within::lint_repeated_timeouts(self, statements);
+        prefer_wait_until::lint_polling_loops(self, statements);
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
@@ -5682,6 +5685,7 @@ impl<'a> Linter<'a> {
             lint_prefer_text_pattern::lint_positional_text(self, &stmts);
         }
         prefer_within::lint_repeated_timeouts(self, &stmts);
+        prefer_wait_until::lint_polling_loops(self, &stmts);
         self.lint_statement_sequence(&stmts);
     }
 
@@ -13043,6 +13047,7 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Retry {
+                schedule: _,
                 delays,
                 pattern,
                 block,

@@ -2690,9 +2690,16 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         self.bump();
+        if self.current_tag() == TokenTag::Ident
+            && self
+                .current_name()
+                .is_some_and(|name| name == super::wait_until::BACKOFF_WORD)
+        {
+            return self.parse_retry_backoff_arena_only(start, arena);
+        }
         self.expect(
             TokenKindMatch::LBracket,
-            "expected `[` after `retry` for retry delays",
+            "expected `[` or `backoff` after `retry`",
         )?;
         self.skip_newlines();
         arena.begin_expr_ids();
@@ -2717,21 +2724,9 @@ impl<'a> Parser<'a> {
             arena.discard_expr_ids();
             return None;
         }
-        let pattern = if self.current_name().is_some_and(|name| name == "on") {
-            self.bump();
-            let parsed = (|| {
-                if !self.at(TokenKindMatch::LParen) {
-                    self.expect(TokenKindMatch::LParen, "expected `(` after retry `on`")?;
-                }
-                self.parse_pattern_test_arena_only(arena)
-            })();
-            let Some((pattern, _)) = parsed else {
-                arena.discard_expr_ids();
-                return None;
-            };
-            Some(pattern)
-        } else {
-            None
+        let Some(pattern) = self.parse_retry_selection_arena_only(arena) else {
+            arena.discard_expr_ids();
+            return None;
         };
         let Some(block_id) = self.parse_block_arena_only(arena) else {
             arena.discard_expr_ids();
@@ -2741,6 +2736,52 @@ impl<'a> Parser<'a> {
         let delays = arena.finish_expr_ids();
         Some(ArenaOnlyExpr {
             id: arena.push_retry_expr(delays, pattern, block_id, span),
+            span,
+            bare_ident: None,
+        })
+    }
+
+    /// The optional `on (PATTERN)` of a `retry`. The outer `None` is a parse
+    /// failure.
+    fn parse_retry_selection_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<Option<crate::syntax::arena::PatternId>> {
+        if !self.current_name().is_some_and(|name| name == "on") {
+            return Some(None);
+        }
+        self.bump();
+        if !self.at(TokenKindMatch::LParen) {
+            self.expect(TokenKindMatch::LParen, "expected `(` after retry `on`")?;
+        }
+        let (pattern, _) = self.parse_pattern_test_arena_only(arena)?;
+        Some(Some(pattern))
+    }
+
+    /// `backoff FIRST..CAP within LIMIT`, an optional `on (PATTERN)`, and the
+    /// block, after the `retry` word.
+    fn parse_retry_backoff_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        use super::wait_until::{BACKOFF_WORD, WITHIN_WORD};
+        self.bump();
+        let first = self.parse_duration_operand_arena_only(BACKOFF_WORD, arena)?;
+        self.expect_backoff_range()?;
+        let cap = self.parse_duration_operand_arena_only("..", arena)?;
+        self.expect_within_word("the intervals of `retry backoff`")?;
+        let limit = self.parse_duration_operand_arena_only(WITHIN_WORD, arena)?;
+        let pattern = self.parse_retry_selection_arena_only(arena)?;
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        let backoff = crate::syntax::arena::RetryBackoff {
+            first: first.expr,
+            cap: cap.expr,
+            limit: limit.expr,
+        };
+        Some(ArenaOnlyExpr {
+            id: arena.push_retry_backoff_expr(backoff, pattern, block, span),
             span,
             bare_ident: None,
         })
@@ -2775,6 +2816,13 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
+        if self.lookahead_is_wait_until() {
+            self.diagnostic_here(
+                "`wait until` is a statement and has no value; write it on a line of its own",
+                DiagnosticCode::ParseExpectedExpression,
+            );
+            return None;
+        }
         self.bump();
         let target = self.parse_postfix_operand_without_try_arena_only(arena)?;
         let span = self.span(start, target.span.end());

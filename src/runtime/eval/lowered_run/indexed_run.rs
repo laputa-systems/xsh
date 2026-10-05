@@ -6828,6 +6828,11 @@ impl Evaluator {
                 let pattern = indexed_optional_raw(&mut payload, call_span)?;
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                let schedule = indexed_decode::<crate::syntax::arena::RetrySchedule>(
+                    &mut payload,
+                    execution,
+                    call_span,
+                )?;
                 indexed_finish(payload, call_span)?;
                 let mut delay_values = Vec::with_capacity(delay_count);
                 for _ in 0..delay_count {
@@ -6852,12 +6857,28 @@ impl Evaluator {
                     }
                 }
                 indexed_finish(delays, span)?;
-                let max_attempts = delay_values.len() + 1;
+                let mut schedule = match (schedule, delay_values.as_slice()) {
+                    (crate::syntax::arena::RetrySchedule::Delays, _) => {
+                        super::LoweredRetryDelays::Listed(delay_values)
+                    }
+                    (crate::syntax::arena::RetrySchedule::Backoff, [first, cap, limit]) => {
+                        super::LoweredRetryDelays::backoff(first.millis, cap.millis, limit.millis)
+                    }
+                    (crate::syntax::arena::RetrySchedule::Backoff, _) => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "retry backoff expected a first interval, a cap, and a limit",
+                        )
+                        .with_span(span));
+                    }
+                };
+                let max_attempts = schedule.max_attempts();
                 let mut final_error = None;
                 let mut final_traceback = None;
-                for attempt_index in 0..max_attempts {
-                    if attempt_index > 0 {
-                        self.sleep_lowered_retry_delay(&delay_values[attempt_index - 1], span)?;
+                let mut pending_delay: Option<u64> = None;
+                for attempt_index in 0.. {
+                    if let Some(millis) = pending_delay.take() {
+                        self.sleep_lowered_retry_delay(&DurationValue { millis }, span)?;
                         if self.signal_state.shutdown_complete {
                             break;
                         }
@@ -6898,8 +6919,9 @@ impl Evaluator {
                             let next_delay = if selected == Some(false) {
                                 None
                             } else {
-                                delay_values.get(attempt_index).map(|delay| delay.millis)
+                                schedule.next_delay(attempt_index)
                             };
+                            pending_delay = next_delay;
                             let stop_reason = if selected == Some(false) {
                                 Some(crate::trace::RetryStopReason::Nonmatching)
                             } else if next_delay.is_none() {

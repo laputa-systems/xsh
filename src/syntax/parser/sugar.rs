@@ -809,6 +809,93 @@ mod tests {
         assert!(sentences > 100, "only {sentences} sentences");
     }
 
+    /// `wait until` is decided on its first two words, so every sentence of
+    /// the production must parse, as the sugar statement.
+    #[test]
+    fn every_wait_until_sentence_of_the_grammar_parses_as_a_wait_until_statement() {
+        let mut sentences = 0;
+        for (depth, seed, source) in sentences_of("wait_until_statement") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            assert!(
+                first_statement_is(&parsed.arena, SugarForm::WaitUntil),
+                "depth {depth} seed {seed} is not a wait until statement:\n{source}"
+            );
+        }
+        assert!(sentences > 100, "only {sentences} sentences");
+    }
+
+    /// A `retry` reads a delay list or a backoff, and every sentence of the
+    /// production parses as the expression.
+    #[test]
+    fn every_retry_sentence_of_the_grammar_parses_as_a_retry() {
+        use crate::syntax::arena::{ArenaExprKind, RetrySchedule};
+        let mut sentences = 0;
+        let mut backoffs = 0;
+        for (depth, seed, source) in sentences_of("retry_expression") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            let first = parsed.arena.statement_ids().next().expect("one statement");
+            let arena = &parsed.arena.arena;
+            let ArenaStmtKind::Expr(expr) = arena.stmt(first).kind else {
+                panic!("depth {depth} seed {seed} is not an expression:\n{source}");
+            };
+            let ArenaExprKind::Retry { schedule, delays, .. } = arena.expr(expr).kind else {
+                panic!("depth {depth} seed {seed} is not a retry:\n{source}");
+            };
+            if schedule == RetrySchedule::Backoff {
+                backoffs += 1;
+                assert_eq!(delays.len(), 3, "depth {depth} seed {seed}:\n{source}");
+            }
+        }
+        assert!(sentences > 100, "only {sentences} sentences");
+        assert!(backoffs > 20, "only {backoffs} backoffs");
+    }
+
+    /// The grammar and the parser read the same texts as a `wait until`
+    /// statement or a `retry backoff`, and reject the same ones.
+    #[test]
+    fn the_grammar_and_the_parser_agree_on_paced_heads() {
+        let recognizer = Recognizer::new(grammar());
+        let cases = [
+            ("wait until ready() within 5s\n", true),
+            ("wait until a or\nb within limits.short every 1ms\n", true),
+            ("wait until x is Thing as t within t.limit backoff a.b..c.d\n", true),
+            ("wait until until within within every every\n", true),
+            ("wait until until within within backoff backoff .. backoff\n", true),
+            ("let r = retry backoff 1ms..limit within limit on (is Timeout) { 1 }\n", true),
+            ("let r = retry backoff a.b .. 5s within 5s { 1 }\n", true),
+            ("wait (until)\n", true),
+            ("wait until.done\n", false),
+            ("wait until\n", false),
+            ("wait until ready()\n", false),
+            ("wait until ready() within (5s)\n", false),
+            ("wait until ready() within 5s every 1ms when x\n", false),
+            ("wait until ready() within 5s backoff 1ms. .5ms\n", false),
+            ("wait until ready() within 5s backoff 1ms.. 5ms every 1ms\n", false),
+            ("let x = wait until ready() within 5s\n", false),
+            ("let r = retry backoff 1ms..5ms { 1 }\n", false),
+            ("let r = retry backoff 1ms..5ms within 5s every 1ms { 1 }\n", false),
+            ("let r = retry backoff [1ms] { 1 }\n", false),
+        ];
+        for (source, sentence) in cases {
+            let tokens = lex_grammar_tokens(source).expect("lexes");
+            assert_eq!(recognizer.recognize(&tokens).is_ok(), sentence, "grammar: {source}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert_eq!(parsed.diagnostics.is_empty(), sentence, "parser: {source}");
+        }
+    }
+
     fn first_statement_is(program: &ArenaProgram, expected: SugarForm) -> bool {
         let first = program.statement_ids().next().expect("one statement");
         matches!(
@@ -1114,6 +1201,9 @@ mod tests {
             include_str!("../../../docs/snippets/spec/61-atomically.xsh"),
             include_str!("../../../tests/xsh/within.xsh"),
             include_str!("../../../docs/snippets/spec/63-within.xsh"),
+            include_str!("../../../tests/xsh/wait-until.xsh"),
+            include_str!("../../../docs/snippets/spec/72-wait-until.xsh"),
+            include_str!("../../../docs/snippets/spec/72-retry-backoff.xsh"),
         ]);
     }
 

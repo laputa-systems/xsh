@@ -452,6 +452,14 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if text == "within" && !after_dot && within_head(tokens, at) {
         return Kind::Keyword;
     }
+    // `until`, `within`, `every`, and `backoff` are ordinary names except in
+    // the head of a `wait until` statement or a `retry backoff`.
+    if matches!(text, "until" | "within" | "every" | "backoff")
+        && !after_dot
+        && paced_head_word(source, tokens, at)
+    {
+        return Kind::Keyword;
+    }
     // `tempdir NAME { ... }` opens a scope wherever an expression may start.
     if text == "tempdir"
         && !after_dot
@@ -701,6 +709,44 @@ fn atomically_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
         .map_or(0, |newline| newline + 1);
     // The destination sits between `replace` and this word.
     ends_head && at >= line_start + 3 && is_head(line_start)
+}
+
+/// Whether `tokens[at]` is a word of the head of `wait until CONDITION within
+/// LIMIT every INTERVAL` or of `retry backoff FIRST..CAP within LIMIT`:
+/// the word directly after `wait` or `retry`, or a later word of that line
+/// that a duration literal or a name follows.
+fn paced_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let begins = |first: usize| {
+        matches!(
+            tokens.get(first..first + 2),
+            Some([keyword, word])
+                if word.tag == TokenTag::Ident
+                    && matches!(
+                        (text(keyword), text(word)),
+                        ("wait", "until") | ("retry", "backoff")
+                    )
+        )
+    };
+    if at.checked_sub(1).is_some_and(begins) {
+        return true;
+    }
+    if !matches!(
+        tokens.get(at + 1).map(|token| token.tag),
+        Some(TokenTag::Duration | TokenTag::Ident)
+    ) {
+        return false;
+    }
+    let line_start = tokens[..at]
+        .iter()
+        .rposition(|token| token.tag == TokenTag::Newline)
+        .map_or(0, |newline| newline + 1);
+    let head = (line_start..at).rev().find(|first| begins(*first));
+    match head {
+        // `every` belongs to `wait until` only.
+        Some(first) => text(&tokens[at]) != "every" || text(&tokens[first]) == "wait",
+        None => false,
+    }
 }
 
 /// Whether `tokens[at]` is the `within` of `within DURATION {`.
@@ -1088,6 +1134,20 @@ mod tests {
         assert_eq!(kind_of(source, "LC_ALL"), Kind::Property);
         assert_eq!(kind_of(source, "env.get_or"), Kind::Plain);
         assert_eq!(kind_of(source, "get_or"), Kind::Function);
+    }
+
+    #[test]
+    fn the_words_of_a_paced_head_are_keywords_only_there() {
+        let source = "wait until ready() within 5s every cfg.step\nlet r = retry backoff 1s..5s within limit { 1 }\nlet until = every + backoff\nwait (until)\n";
+        assert_eq!(kind_of(source, "until ready"), Kind::Keyword);
+        assert_eq!(kind_of(source, "within 5s"), Kind::Keyword);
+        assert_eq!(kind_of(source, "every cfg"), Kind::Keyword);
+        assert_eq!(kind_of(source, "backoff 1s"), Kind::Keyword);
+        assert_eq!(kind_of(source, "within limit"), Kind::Keyword);
+        assert_eq!(kind_of(source, "until = every"), Kind::Plain);
+        assert_eq!(kind_of(source, "every + backoff"), Kind::Plain);
+        assert_eq!(kind_of(source, "backoff\nwait"), Kind::Plain);
+        assert_eq!(kind_of(source, "until)"), Kind::Plain);
     }
 
     #[test]

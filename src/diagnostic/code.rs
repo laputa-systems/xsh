@@ -664,6 +664,7 @@ diagnostic_codes! {
         LintPreferArgumentLabel = "lint.prefer-argument-label", warning, "Write the label of an argument whose parameter is registered with one (`src.copy(to: dest)`, `text.replace(\"a\", with: \"b\")`), and call `link.symlink(to: target)` instead of `fs.symlink(target, link)`";
         LintEmptySentinel = "lint.empty-sentinel", note, "Note an optional bound through `?? \"\"` whose binding is then tested for emptiness, which an optional binding keeps apart from an empty value";
         LintPreferSet = "lint.prefer-set", warning, "Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in)";
+        LintPreferWaitUntil = "lint.prefer-wait-until", note, "Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

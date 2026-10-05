@@ -3783,6 +3783,32 @@ impl<'a> ArenaProgramBuilder<'a> {
     ) -> ExprId {
         self.lowerer.push_expr_kind(
             ArenaExprKind::Retry {
+                schedule: RetrySchedule::Delays,
+                delays,
+                pattern,
+                block,
+            },
+            span,
+        )
+    }
+
+    /// `retry backoff FIRST..CAP within LIMIT ...`: the three durations are
+    /// stored where a written delay list is, in that order.
+    pub fn push_retry_backoff_expr(
+        &mut self,
+        backoff: RetryBackoff,
+        pattern: Option<PatternId>,
+        block: BlockId,
+        span: Span,
+    ) -> ExprId {
+        self.begin_expr_ids();
+        self.push_expr_id_input(backoff.first);
+        self.push_expr_id_input(backoff.cap);
+        self.push_expr_id_input(backoff.limit);
+        let delays = self.finish_expr_ids();
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::Retry {
+                schedule: RetrySchedule::Backoff,
                 delays,
                 pattern,
                 block,
@@ -4881,6 +4907,11 @@ impl AstArena {
             ArenaExprTag::Retry => {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::Retry {
+                    schedule: if raw[4] == 0 {
+                        RetrySchedule::Delays
+                    } else {
+                        RetrySchedule::Backoff
+                    },
                     delays: ArenaRange::new(raw[0] as usize, raw[1] as usize),
                     pattern: (raw[3] != ARENA_ABSENT).then(|| PatternId::new(raw[3] as usize)),
                     block: BlockId::new(raw[2] as usize),
@@ -5243,6 +5274,47 @@ impl AstArena {
             (SugarForm::GuardFail, operands) => {
                 unreachable!(
                     "a `guard` that fails has a condition and a `fail` statement, found {operands:?}"
+                )
+            }
+            (
+                SugarForm::WaitUntil,
+                &[
+                    ArenaSugarOperand::Expr(limit),
+                    ArenaSugarOperand::Expr(condition),
+                ],
+            ) => ArenaSugar::WaitUntil {
+                condition,
+                limit,
+                pace: WaitPace::Default,
+            },
+            (
+                SugarForm::WaitUntil,
+                &[
+                    ArenaSugarOperand::Expr(interval),
+                    ArenaSugarOperand::Expr(limit),
+                    ArenaSugarOperand::Expr(condition),
+                ],
+            ) => ArenaSugar::WaitUntil {
+                condition,
+                limit,
+                pace: WaitPace::Every(interval),
+            },
+            (
+                SugarForm::WaitUntil,
+                &[
+                    ArenaSugarOperand::Expr(first),
+                    ArenaSugarOperand::Expr(cap),
+                    ArenaSugarOperand::Expr(limit),
+                    ArenaSugarOperand::Expr(condition),
+                ],
+            ) => ArenaSugar::WaitUntil {
+                condition,
+                limit,
+                pace: WaitPace::Backoff { first, cap },
+            },
+            (SugarForm::WaitUntil, operands) => {
+                unreachable!(
+                    "`wait until` has a limit, a condition, and at most two intervals, found {operands:?}"
                 )
             }
         }
@@ -5925,10 +5997,15 @@ pub enum SugarForm {
     /// `guard CONDITION else fail FAILURE`: operands are the condition and
     /// the `fail` statement.
     GuardFail,
+    /// `wait until CONDITION within LIMIT`, alone or followed by
+    /// `every INTERVAL` or `backoff FIRST..CAP`: operands are the interval or
+    /// the first interval and the cap, when written, then the limit and the
+    /// condition. That is the order they are first read in.
+    WaitUntil,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
@@ -5937,13 +6014,14 @@ impl SugarForm {
         Self::Atomically,
         Self::ForIndex,
         Self::GuardFail,
+        Self::WaitUntil,
     ];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
             Self::Repeat | Self::Guard | Self::Atomically | Self::ForIndex => true,
-            Self::When | Self::Unless | Self::Fail | Self::GuardFail => false,
+            Self::When | Self::Unless | Self::Fail | Self::GuardFail | Self::WaitUntil => false,
         }
     }
 
@@ -5994,6 +6072,22 @@ pub enum ArenaSugar {
     },
     /// `guard condition else fail ...`, where `fail` is the `fail` statement.
     GuardFail { condition: ExprId, fail: StmtId },
+    WaitUntil {
+        condition: ExprId,
+        limit: ExprId,
+        pace: WaitPace,
+    },
+}
+
+/// How a `wait until` statement spaces its tests of the condition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WaitPace {
+    /// Nothing written: the default interval.
+    Default,
+    /// `every INTERVAL`.
+    Every(ExprId),
+    /// `backoff FIRST..CAP`.
+    Backoff { first: ExprId, cap: ExprId },
 }
 
 /// The table rows one sugar expansion added.
@@ -6470,6 +6564,25 @@ pub enum ContextScopeKind {
     Within,
 }
 
+/// How a `retry` spaces its attempts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RetrySchedule {
+    /// `retry [d1, d2, ...]`: one more attempt after each written delay.
+    Delays,
+    /// `retry backoff FIRST..CAP within LIMIT`: the delays double from the
+    /// first to the cap for as long as the limit allows. The expression's
+    /// delay range holds exactly the three durations, in that order.
+    Backoff,
+}
+
+/// The three durations of `retry backoff FIRST..CAP within LIMIT`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RetryBackoff {
+    pub first: ExprId,
+    pub cap: ExprId,
+    pub limit: ExprId,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaExprKind {
     Null,
@@ -6599,6 +6712,8 @@ pub enum ArenaExprKind {
         block: BlockId,
     },
     Retry {
+        schedule: RetrySchedule,
+        /// The written delays, or the three durations of a backoff.
         delays: ArenaRange,
         pattern: Option<PatternId>,
         block: BlockId,
@@ -7891,6 +8006,7 @@ impl ArenaLowerer<'_> {
                 ArenaExprData::new(raw_block_id(block), 0),
             ),
             ArenaExprKind::Retry {
+                schedule,
                 delays,
                 pattern,
                 block,
@@ -7900,6 +8016,10 @@ impl ArenaLowerer<'_> {
                     delays.len,
                     raw_block_id(block),
                     pattern.map(|id| id.index() as u32).unwrap_or(ARENA_ABSENT),
+                    match schedule {
+                        RetrySchedule::Delays => 0,
+                        RetrySchedule::Backoff => 1,
+                    },
                 ]);
                 (ArenaExprTag::Retry, data)
             }

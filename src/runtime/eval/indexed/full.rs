@@ -3920,8 +3920,17 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    fn verify_retry_selection(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
-        payload.raw()?;
+    /// A retry selects errors without binding them, and a backoff's delays
+    /// are its first interval, its cap, and its limit: the executor reads
+    /// exactly those three, so any other count would run a schedule nobody
+    /// wrote.
+    fn verify_retry_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        // The row's own fields are verified already, which settled who owns
+        // the delay block; this only reads its length.
+        let delays = IrBlockId::from_raw(payload.raw()?)
+            .and_then(|id| self.store.blocks.get(id.index()).copied())
+            .ok_or_else(|| IrVerifyError::new("retry delay block is invalid"))?;
+        let delays = self.cursor(self.store.payload(delays.instructions)?).raw()?;
         if bool::decode(self, &mut payload)?
             && !self
                 .pattern_capture_slots(payload.raw()? as usize)?
@@ -3929,6 +3938,14 @@ impl<'a> FullDecoder<'a> {
         {
             return Err(IrVerifyError::new(
                 "retry selection pattern cannot bind slots",
+            ));
+        }
+        payload.raw()?;
+        Span::decode(self, &mut payload)?;
+        let schedule = crate::syntax::arena::RetrySchedule::decode(self, &mut payload)?;
+        if schedule == crate::syntax::arena::RetrySchedule::Backoff && delays != 3 {
+            return Err(IrVerifyError::new(
+                "retry backoff must have a first interval, a cap, and a limit",
             ));
         }
         Ok(())
@@ -4819,6 +4836,18 @@ impl_word_codec!(
         1 => Ok(crate::syntax::arena::ContextScopeKind::Env),
         2 => Ok(crate::syntax::arena::ContextScopeKind::Within),
         _ => Err(IrVerifyError::new("context scope kind is invalid")),
+    })
+);
+impl_word_codec!(
+    crate::syntax::arena::RetrySchedule,
+    |value: &crate::syntax::arena::RetrySchedule| Ok(match value {
+        crate::syntax::arena::RetrySchedule::Delays => 0,
+        crate::syntax::arena::RetrySchedule::Backoff => 1,
+    }),
+    |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| match raw {
+        0 => Ok(crate::syntax::arena::RetrySchedule::Delays),
+        1 => Ok(crate::syntax::arena::RetrySchedule::Backoff),
+        _ => Err(IrVerifyError::new("retry schedule is invalid")),
     })
 );
 impl FullCodec for usize {
@@ -6339,7 +6368,7 @@ macro_rules! impl_node_codec {
                 payload.finish()?;
                 if tag == FullTag::ExprRetry {
                     let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
-                    decoder.verify_retry_selection(payload)?;
+                    decoder.verify_retry_shape(payload)?;
                 }
                 if tag == FullTag::StmtGuard {
                     let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
@@ -8312,12 +8341,13 @@ impl_node_codec! {
             body: Vec<BuildStmtId>,
             span: Span,
         } => BuildExprRow::Loop { body, span },
-        BuildExprRow::Retry { delays, pattern, body, span } => ExprRetry {
+        BuildExprRow::Retry { delays, pattern, body, span, schedule } => ExprRetry {
             delays: Vec<BuildExprId>,
             pattern: Option<BuildPatternId>,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => BuildExprRow::Retry { delays, pattern, body, span },
+            schedule: crate::syntax::arena::RetrySchedule,
+        } => BuildExprRow::Retry { delays, pattern, body, span, schedule },
         BuildExprRow::FsFiles {
             root,
             gitignore,
@@ -10603,6 +10633,65 @@ pure selected() -> Str {
         let mut missing = program.clone();
         missing.store.extra[payload.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
+    }
+
+    /// The executor reads a backoff's three durations by position, so a
+    /// backoff row over any other number of delays, or a row whose schedule
+    /// is no schedule, must not verify.
+    #[test]
+    fn verifier_rejects_a_retry_backoff_without_its_three_durations() {
+        let listed = fixture(
+            "retry-listed.xsh",
+            "let value = retry [1ms, 2ms] {\n  1\n}\n",
+        );
+        let backoff = fixture(
+            "retry-backoff.xsh",
+            "let value = retry backoff 1ms..2ms within 5ms {\n  1\n}\n",
+        );
+        FullVerifier::verify(&listed).unwrap();
+        FullVerifier::verify(&backoff).unwrap();
+        // The schedule is the row's last word, after the delays, the
+        // selection's presence, the body, and the span.
+        let schedule_word = |program: &FullProgram| {
+            let retry = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprRetry)
+                .unwrap();
+            let payload = program.store.data[retry]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
+            payload.end - 1
+        };
+
+        // Two written delays read as a backoff.
+        let mut short = listed.clone();
+        let word = schedule_word(&short);
+        assert_eq!(short.store.extra[word], 0);
+        short.store.extra[word] = 1;
+        assert!(
+            FullVerifier::verify(&short)
+                .unwrap_err()
+                .message
+                .contains("retry backoff must have a first interval, a cap, and a limit")
+        );
+
+        // A backoff's three durations are a valid written list, and no other
+        // schedule exists.
+        let mut relisted = backoff.clone();
+        let word = schedule_word(&relisted);
+        assert_eq!(relisted.store.extra[word], 1);
+        relisted.store.extra[word] = 0;
+        FullVerifier::verify(&relisted).unwrap();
+        relisted.store.extra[word] = 2;
+        assert!(
+            FullVerifier::verify(&relisted)
+                .unwrap_err()
+                .message
+                .contains("retry schedule is invalid")
+        );
     }
 
     #[test]

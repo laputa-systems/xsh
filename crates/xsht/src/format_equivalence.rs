@@ -1033,11 +1033,15 @@ impl CanonicalWriter<'_> {
                 self.block(*block);
             }
             ArenaExprKind::Retry {
+                schedule,
                 delays,
                 pattern,
                 block,
             } => {
-                self.put("retry;");
+                self.put(match schedule {
+                    xsh::frontend::syntax::arena::RetrySchedule::Delays => "retry;",
+                    xsh::frontend::syntax::arena::RetrySchedule::Backoff => "retry-backoff;",
+                });
                 for delay in self.arena.expr_ids(*delays).collect::<Vec<_>>() {
                     self.expr(delay);
                 }

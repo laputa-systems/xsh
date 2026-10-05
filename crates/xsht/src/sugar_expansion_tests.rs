@@ -156,6 +156,24 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 core: Core::Written("error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  if target != p\"/\" {\n  } else {\n    return Err(.Busy(), cause: cause)\n  }\n  if target.is_absolute() {\n  } else {\n    return Err(.Missing(path: target))\n  }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 100 {\n  } else {\n    return Err(error.failure(error))\n  }\n  match fail {\n    0 => {\n      if error == \"\" {\n      } else {\n        return Err(error.failure(\"zero\"))\n      }\n    }\n    _ => {}\n  }\n  Ok(fail)\n}\n"),
             },
         ],
+        SugarForm::WaitUntil => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/72-wait-until.xsh"),
+                core: Core::Desugared,
+            },
+            // With the default interval, a fixed one, and a backoff; nested
+            // in a loop and a match arm; with durations that are names. The
+            // locals are written under the names `xsht desugar` gives them.
+            Case {
+                sugar: "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nrepeat 2 times {\n  wait until n > 3 within limits.patience\n  match n {\n    0 => wait until { n += 1\n    n > 1 } within 5s every limits.step\n    _ => {\n      wait until n is Int within limits.patience backoff limits.step..limits.patience\n    }\n  }\n}\n",
+                core: Core::Written("let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  {\n    let delay_1: Duration = 100ms\n    (within limits.patience {\n      loop {\n        if n > 3 { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  match n {\n    0 => {\n      {\n        let delay_1: Duration = limits.step\n        (within 5s {\n          loop {\n            if { n += 1\n            n > 1 } { break }\n            time.sleep(delay_1)\n          }\n        })?\n      }\n    }\n    _ => {\n      {\n        var delay_1: Duration = limits.step\n        let cap_1: Duration = limits.patience\n        (within limits.patience {\n          loop {\n            if n is Int { break }\n            time.sleep(delay_1)\n            delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n          }\n        })?\n      }\n    }\n  }\n}\n"),
+            },
+            // The words stay names.
+            Case {
+                sugar: "proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  wait until until within within every every\n  wait until until within within backoff every..backoff\n}\n",
+                core: Core::Written("proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  {\n    let delay_1: Duration = every\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  {\n    var delay_1: Duration = every\n    let cap_1: Duration = backoff\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n        delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n      }\n    })?\n  }\n}\n"),
+            },
+        ],
     }
 }
 

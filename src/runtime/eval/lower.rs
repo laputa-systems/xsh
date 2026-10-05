@@ -8208,6 +8208,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             )),
             ArenaExprKind::Retry {
+                schedule,
                 delays,
                 pattern,
                 block,
@@ -8234,6 +8235,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         },
                         body: self.lower_retry_block(block, slots, current_function, item_slot)?,
                         span,
+                        schedule,
                     }
                 ))
             }

@@ -28,6 +28,9 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         let start = self.current_start();
+        if self.lookahead_is_wait_until() {
+            return self.parse_wait_until_arena_only(start, arena);
+        }
         if let Some(form) = self.current_keyword().and_then(grammar::statement_form) {
             return match form {
                 StatementForm::Binding => {

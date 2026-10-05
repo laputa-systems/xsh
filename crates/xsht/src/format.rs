@@ -908,6 +908,29 @@ impl<'a> Writer<'a> {
                         output.push_str(" else ");
                         self.write_fail(failure, cause, Follow::END, output);
                     }
+                    ArenaSugar::WaitUntil {
+                        condition,
+                        limit,
+                        pace,
+                    } => {
+                        output.push_str("wait until ");
+                        self.write_expr(condition, WORD, output);
+                        output.push_str(" within ");
+                        self.write_expr(limit, WORD, output);
+                        match pace {
+                            xsh::frontend::syntax::arena::WaitPace::Default => {}
+                            xsh::frontend::syntax::arena::WaitPace::Every(interval) => {
+                                output.push_str(" every ");
+                                self.write_expr(interval, WORD, output);
+                            }
+                            xsh::frontend::syntax::arena::WaitPace::Backoff { first, cap } => {
+                                output.push_str(" backoff ");
+                                self.write_expr(first, WORD, output);
+                                output.push_str("..");
+                                self.write_expr(cap, WORD, output);
+                            }
+                        }
+                    }
                 }
             }
             ArenaStmtKind::Guard {
@@ -2968,12 +2991,27 @@ impl<'a> Writer<'a> {
                 self.write_block(*block, 0, output);
             }
             ArenaExprKind::Retry {
+                schedule,
                 delays,
                 pattern,
                 block,
             } => {
                 output.push_str("retry ");
-                self.write_list_inline(*delays, output);
+                match schedule {
+                    xsh::frontend::syntax::arena::RetrySchedule::Delays => self.write_list_inline(*delays, output),
+                    xsh::frontend::syntax::arena::RetrySchedule::Backoff => {
+                        let durations: Vec<_> = self.arena.expr_ids(*delays).collect();
+                        let [first, cap, limit] = durations[..] else {
+                            unreachable!("a retry backoff has three durations")
+                        };
+                        output.push_str("backoff ");
+                        self.write_expr(first, WORD, output);
+                        output.push_str("..");
+                        self.write_expr(cap, WORD, output);
+                        output.push_str(" within ");
+                        self.write_expr(limit, WORD, output);
+                    }
+                }
                 if let Some(pattern) = pattern {
                     output.push_str(" on ");
                     if matches!(

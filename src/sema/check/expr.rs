@@ -1062,7 +1062,10 @@ impl Checker {
             ArenaExprKind::Capture(block) => {
                 self.check_capture_arena(arena, source, *block, expected, expr.span)
             }
+            // A backoff's three durations are checked as written delays are:
+            // each is a `Duration`, and the form needs the `time` effect.
             ArenaExprKind::Retry {
+                schedule: _,
                 delays,
                 pattern,
                 block,

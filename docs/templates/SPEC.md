@@ -109,6 +109,10 @@ operand (8.6),
 and the `as` that ends its destination (8.7),
 `as` between a value and a type, where it is the conversion operator (6.11),
 `within` before the duration and block of a `within` scope (10.4),
+`until` directly after `wait`, and `within`, `every`, and `backoff` in the
+head of a `wait until` statement (8.6),
+`backoff` directly after `retry` and the `within` that follows its intervals
+(8.8),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -2152,6 +2156,60 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
+`wait until condition within limit` tests a condition again and again until
+it holds, and fails when the limit passes first. It is sugar, defined by its
+expansion:
+
+```xsh
+{{.spec.wait_until.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.wait_until.desugared}}
+```
+
+So the statement is a `within` scope (10.4) around a loop, and everything
+about deadlines said there holds here. The condition is tested first, before
+any sleep, and a condition that holds ends the statement at once. When the
+limit passes, the statement fails with the `Error` a `within` scope returns,
+which implements `Timeout`; the failure propagates as a statement's does
+(8.3), so a `try` around the statement captures it. The deadline interrupts
+the sleep between two tests and is noticed between the statements of the
+condition's callees, so the statement ends at the limit, not at the next
+test, and the condition is not tested once more as the limit passes. The
+condition is in a control position (8.3): a `Result[Bool]` propagates without
+`?`, and its failure leaves the statement as it would leave an `if`. The
+statement needs the `time` effect, and the `error` effect in a restricted
+proc.
+
+`every interval` names the time slept between two tests; without it the
+interval is `100ms`. `backoff first..cap` sleeps `first` after the first test
+that fails and twice as long after each later one, never longer than `cap`:
+
+```xsh
+wait until ! lease.exists() within patience backoff 100ms..5s
+```
+
+Its expansion keeps the interval in a variable, so `xsht desugar` shows the
+doubling. Nothing is added to an interval at random. An interval of `0ms`
+tests again without sleeping, and a first interval of `0ms` never grows. The
+limit and each interval is a duration literal or a name with any `.field`s,
+read once when the statement starts; bind any other expression to a name
+first. The `..` of a backoff is two dots with nothing between them.
+
+`until` directly after `wait` always begins this statement, which has no
+value and takes no postfix guard. A process handle that is named `until` is
+waited for as `wait (until)` (11.7). `lint.prefer-wait-until` notes a `while`
+loop that sleeps with `time.sleep` and counts its rounds. It is a note,
+and `--fix` never applies it, because no such loop is this
+statement: the loop fails with the error it wrote and counts sleeps, and the
+statement fails with `Timeout` after elapsed time. It shows the statement
+for a plain loop that fails when it gives up, and shows none for a loop that
+falls through to the code after it, which would then no longer run on a
+timeout.
+
 `return`, `break`, `continue`, `yield`, `exit`, and `fail` accept a postfix
 guard:
 
@@ -2547,6 +2605,26 @@ rules; any other failure returns at once without consuming a delay. The result
 is `Ok(value)` from the first successful attempt or `Err` from the last failed
 one. A non-empty delay list requires the `time` effect. Each attempt emits a
 `retry.attempt` trace event.
+
+`retry backoff first..cap within limit { ... }` computes the delays in place
+of a written list:
+
+```xsh
+{{.spec.retry_backoff.source}}
+```
+
+The three durations are written as in a `wait until` statement (8.6) and
+evaluate once, in that order, before the first attempt. The delay after the
+first failed attempt is `first`, and each later delay is twice the one before
+it, never longer than `cap`. A delay is taken only if it would end within
+`limit`, measured from the start of the first attempt; otherwise the attempt
+that just failed was the last, and its `Err` is the result. So `limit` bounds
+when an attempt may start. It does not interrupt an attempt that is running,
+and the form never fails with `Timeout` of its own: put the `retry` in a
+`within` scope (10.4) for a deadline that stops the work. Every other rule is
+that of a written list, the optional `on (pattern)` included; the form always
+requires the `time` effect. The `max_attempts` of its `retry.attempt` events
+is the count the durations allow if no attempt took any time.
 
 `ctx description { ... }` labels failures that leave its body:
 
@@ -3058,6 +3136,10 @@ inside the one it belongs to without those scopes reporting it. An inner
 scope that times out returns its `Err` to the code around it, which goes on
 under the outer deadline.
 
+`wait until condition within limit` (8.6) is this scope around a polling
+loop, and `retry backoff first..cap within limit` (8.8) uses the word for a
+limit on its delays that interrupts nothing.
+
 ### 10.5 Environment access
 
 ```xsh
@@ -3335,6 +3417,8 @@ strings.
 - A handle exposes `pid`, `command`, `argv`, and `detached`, which stay
   readable after the child is gone. The first `wait` or `cancel` consumes the
   child, and later use of any alias fails with `ProcessError.Unknown`.
+- `wait until` begins the polling statement of 8.6, so the handle of a `wait`
+  cannot be the bare name `until`; write `wait (until)`.
 
 ### 11.8 Ownership of live resources
 

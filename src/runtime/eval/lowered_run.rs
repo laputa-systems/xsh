@@ -704,6 +704,94 @@ fn lowered_record_vec_append_or_replace_unsorted(
 }
 
 #[allow(clippy::large_enum_variant)]
+/// The delays a `retry` takes between its attempts.
+enum LoweredRetryDelays {
+    /// The written delays, one after each failed attempt but the last.
+    Listed(Vec<DurationValue>),
+    /// Delays that double from the first interval to the cap. Another delay
+    /// is taken only while it would end within the limit, measured from the
+    /// start of the first attempt.
+    Backoff {
+        next: u64,
+        cap: u64,
+        limit: Duration,
+        started: Instant,
+    },
+}
+
+impl LoweredRetryDelays {
+    fn backoff(first: u64, cap: u64, limit: u64) -> Self {
+        Self::Backoff {
+            next: first,
+            cap,
+            limit: Duration::from_millis(limit),
+            started: Instant::now(),
+        }
+    }
+
+    /// The delay after failed attempt `attempt_index` (from zero), or `None`
+    /// when that attempt was the last.
+    fn next_delay(&mut self, attempt_index: usize) -> Option<u64> {
+        match self {
+            Self::Listed(delays) => delays.get(attempt_index).map(|delay| delay.millis),
+            Self::Backoff {
+                next,
+                cap,
+                limit,
+                started,
+            } => {
+                let delay = *next;
+                let ends = started.elapsed().checked_add(Duration::from_millis(delay))?;
+                if ends > *limit {
+                    return None;
+                }
+                *next = backoff_step(delay, *cap);
+                Some(delay)
+            }
+        }
+    }
+
+    /// The most attempts the schedule allows: for a backoff, the count if
+    /// every attempt took no time.
+    fn max_attempts(&self) -> usize {
+        match self {
+            Self::Listed(delays) => delays.len() + 1,
+            Self::Backoff {
+                next, cap, limit, ..
+            } => {
+                let limit = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+                let mut delay = *next;
+                let mut waited = 0u64;
+                let mut attempts = 1usize;
+                loop {
+                    let Some(total) = waited.checked_add(delay).filter(|total| *total <= limit)
+                    else {
+                        return attempts;
+                    };
+                    let following = backoff_step(delay, *cap);
+                    if following == delay {
+                        // The delay no longer changes: the rest of the limit
+                        // divides into equal steps.
+                        let more = (limit - total).checked_div(delay).unwrap_or(u64::MAX);
+                        return attempts
+                            .saturating_add(1)
+                            .saturating_add(usize::try_from(more).unwrap_or(usize::MAX));
+                    }
+                    waited = total;
+                    attempts += 1;
+                    delay = following;
+                }
+            }
+        }
+    }
+}
+
+/// The delay after `delay` in a backoff: twice as long, and never above the
+/// cap. A first interval above the cap is taken as written, once.
+fn backoff_step(delay: u64, cap: u64) -> u64 {
+    if delay > cap / 2 { cap } else { delay * 2 }
+}
+
 enum LoweredRetryAttemptValue {
     Success(LoweredValue),
     Failed {

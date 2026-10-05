@@ -833,6 +833,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("guard_fail_statement"),
                 r("exit_statement"),
                 r("fail_statement"),
+                r("wait_until_statement"),
             ])),
         ),
         // Declarations.
@@ -1220,6 +1221,24 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     opt(seq([w("because"), r("expression")])),
                 ])),
                 opt(r("postfix_guard")),
+            ]),
+        ),
+        // `until` directly after `wait` always begins this statement. Its
+        // limit and intervals are durations as a `within` scope writes one,
+        // and the two dots of a backoff have nothing between them.
+        rule(
+            Statements,
+            "wait_until_statement",
+            seq([
+                kw(Keyword::Wait),
+                w("until"),
+                r("condition_expression"),
+                w("within"),
+                r("head_duration"),
+                opt(alt([
+                    seq([w("every"), r("head_duration")]),
+                    seq([w("backoff"), r("backoff_range")]),
+                ])),
             ]),
         ),
         rule(
@@ -1729,7 +1748,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         r("operand"),
                     ]),
                 ]),
-                seq([kw(Keyword::Wait), r("operand")]),
+                seq([
+                    kw(Keyword::Wait),
+                    not([vec![word_term("until", false)]]),
+                    r("operand"),
+                ]),
                 seq([w("ctx"), line(r("condition_expression")), block()]),
                 r("context_scope"),
                 r("tempdir_scope"),
@@ -1974,9 +1997,15 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "retry_expression",
             seq([
                 kw(Keyword::Retry),
-                t(T::LBracket),
-                list(r("expression")),
-                t(T::RBracket),
+                alt([
+                    seq([t(T::LBracket), list(r("expression")), t(T::RBracket)]),
+                    seq([
+                        w("backoff"),
+                        r("backoff_range"),
+                        w("within"),
+                        r("head_duration"),
+                    ]),
+                ]),
                 opt(seq([
                     w("on"),
                     t(T::LParen),
@@ -2039,6 +2068,21 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
                 block(),
             ]),
+        ),
+        // A duration in a head that words follow: nothing longer than a
+        // literal or a dotted name, so the next word is never part of it.
+        rule(
+            Expressions,
+            "head_duration",
+            alt([
+                t(T::Duration),
+                seq([ident(), star(seq([t(T::Dot), ident()]))]),
+            ]),
+        ),
+        rule(
+            Expressions,
+            "backoff_range",
+            seq([r("head_duration"), t(T::Dot), g(T::Dot), r("head_duration")]),
         ),
         // `tempdir` and `at` are contextual words: the scope is recognized by
         // `tempdir`, a name, and then `{` or `at`. The path after `at` ends

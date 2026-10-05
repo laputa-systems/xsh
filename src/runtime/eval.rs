@@ -1730,6 +1730,7 @@ enum BuildExprRow {
         pattern: Option<BuildPatternId>,
         body: Vec<BuildStmtId>,
         span: Span,
+        schedule: crate::syntax::arena::RetrySchedule,
     },
     FsFiles {
         root: BuildExprId,
