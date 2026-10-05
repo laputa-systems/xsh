@@ -52,7 +52,7 @@ print "unreachable"
   # the same error, and the same failing span.
   let written = bare.replace("exit {code}\"\n", with: "exit {code}\" ?\n").replace("exit 7\"\n", with: "exit 7\" ?\n")
   assert written.split(" ?\n").len() == 3, written
-  let ran = test.expect(ctx, bare, status: 3, stderr: ["`sh` exited 7", ":21:1-"])?
+  let ran = test.expect(ctx, bare, status: 3, stderr: ["`sh` exited 7", ":21:11-21:44"])?
   assert ran.stdout == "cleanup\ntrue\nafter\ncleanup\nout\ntrue\nfalse\ncaptured true\n2\n", ran.stdout
   let propagated = test.expect(ctx, written, status: 3)?
   assert propagated.stdout == ran.stdout
