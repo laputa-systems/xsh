@@ -176,20 +176,27 @@ fn format_files_parallel(files: &[String]) -> Vec<FormatResult> {
         for _ in 0..workers {
             let next = &next;
             let tx = tx.clone();
-            scope.spawn(move || {
-                loop {
-                    if cancellation_output().is_some() {
-                        break;
+            // The writer recurses once per level of source nesting, like the
+            // passes that prepare a script, and the platform's default worker
+            // stack does not hold the deepest source the parser accepts.
+            thread::Builder::new()
+                .name("xsht-fmt".to_string())
+                .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
+                .spawn_scoped(scope, move || {
+                    loop {
+                        if cancellation_output().is_some() {
+                            break;
+                        }
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(file) = files.get(index) else {
+                            break;
+                        };
+                        if tx.send(format_one_file(index, file)).is_err() {
+                            break;
+                        }
                     }
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(file) = files.get(index) else {
-                        break;
-                    };
-                    if tx.send(format_one_file(index, file)).is_err() {
-                        break;
-                    }
-                }
-            });
+                })
+                .expect("spawn a formatting worker");
         }
     });
     drop(tx);

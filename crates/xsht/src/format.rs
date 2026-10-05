@@ -1,6 +1,8 @@
 #![allow(clippy::single_call_fn, dead_code)]
 
+use std::cell::RefCell;
 use std::fmt::Write as _;
+use std::rc::Rc;
 use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::source::{SourceId, Span};
@@ -230,6 +232,90 @@ struct Writer<'a> {
     /// For a desugared print, the legal spelling of each local an expansion
     /// bound under a name no identifier can spell.
     hidden_names: Arc<Vec<(Name, String)>>,
+    /// For each byte offset of the source, how many `(`, `[`, and `{` come
+    /// before it.
+    brackets_before: Arc<[u32]>,
+    /// How many renderings that may be discarded enclose the text being
+    /// written: an inline measurement, a one-line attempt, a layout that is
+    /// retried broken.
+    speculation_depth: usize,
+    /// What speculative renderings have written for the statement being
+    /// written, shared by this writer and its inline writers.
+    renderings: Rc<RefCell<Renderings>>,
+}
+
+/// What a rendering writes, by the writer entry point that writes it.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum RenderNode {
+    /// `write_expr`.
+    Expr(ExprId, ContextKey),
+    /// `write_expr_safe_in`, which may break the expression across lines.
+    BreakableExpr(ExprId, ContextKey),
+    /// `write_stmt` at an indentation.
+    Stmt(StmtId, usize),
+}
+
+/// A grouping context as part of a site. `Context` compares but does not
+/// hash, so a site hashes the node without it and compares it here.
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct ContextKey(Context);
+
+impl std::hash::Hash for ContextKey {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+}
+
+/// The writer state, besides the line written so far, that a rendering reads
+/// and may change.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct RenderState {
+    force_collection_expanded: bool,
+    after_expression: bool,
+    arm_statement: bool,
+    /// The comments not yet written. An inline writer has none, and neither
+    /// has a writer that hides them for a one-line attempt.
+    pending_comments: usize,
+}
+
+/// Where something is rendered: everything its text depends on.
+#[derive(Eq, Hash, PartialEq)]
+struct RenderSite {
+    node: RenderNode,
+    inline_only: bool,
+    state: RenderState,
+    /// The line the text is appended to.
+    line: Box<str>,
+}
+
+/// What was written at a site.
+struct Rendering {
+    appended: Box<str>,
+    state_after: RenderState,
+}
+
+/// Finished renderings by site.
+///
+/// A construct is rendered inline to measure it and again broken when it does
+/// not fit, and each rendering renders the constructs inside it both ways
+/// too, so without this the work doubles with every level of nesting. The
+/// writer reads the text it appends to only through its last line, so a
+/// rendering can be reused wherever the site is the same.
+type Renderings = rustc_hash::FxHashMap<RenderSite, Rendering>;
+
+/// How many opening brackets a node's source holds for its rendering to be
+/// remembered. Every construct that is measured and then broken is
+/// bracketed, so a node with fewer nests too little for the doubling to cost
+/// more than the table, and ordinary code pays nothing for it.
+const REMEMBERED_BRACKETS: u32 = 8;
+
+/// The longest line a rendering may be appended to and still be remembered:
+/// the line is copied for each site, which a longer one would make quadratic
+/// in its length.
+const REMEMBERED_LINE_BYTES: usize = 16 * 1024;
+
+#[cfg(test)]
+thread_local! {
+    /// How many expressions and statements this thread's writers have rendered.
+    static NODES_RENDERED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -474,6 +560,14 @@ impl Formatter {
             sugar_ranges: Arc::default(),
             hidden_names: Arc::default(),
             binder_blocks: rustc_hash::FxHashSet::default(),
+            brackets_before: std::iter::once(0)
+                .chain(source.bytes().scan(0u32, |count, byte| {
+                    *count += u32::from(matches!(byte, b'(' | b'[' | b'{'));
+                    Some(*count)
+                }))
+                .collect(),
+            speculation_depth: 0,
+            renderings: Rc::default(),
         }
     }
 }
@@ -657,6 +751,22 @@ impl<'a> Writer<'a> {
     }
 
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
+        if self.speculation_depth == 0 {
+            // Renderings are reused within one statement; keeping them for
+            // the whole file would only hold memory.
+            self.renderings.borrow_mut().clear();
+        }
+        self.write_remembered(
+            RenderNode::Stmt(stmt_id, indent),
+            self.arena.stmt(stmt_id).span,
+            output,
+            |writer, output| writer.write_stmt_now(stmt_id, indent, output),
+        );
+    }
+
+    fn write_stmt_now(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
+        #[cfg(test)]
+        NODES_RENDERED.with(|count| count.set(count.get() + 1));
         let stmt = self.arena.stmt(stmt_id);
         let skip_formatting = self.write_comments_before(stmt.span.start(), indent, output)
             && !self.holds_sugar(stmt.span);
@@ -1964,7 +2074,9 @@ impl<'a> Writer<'a> {
         let prefix = line.len();
         let next_comment = self.next_comment;
         self.next_comment = self.comments.len();
+        self.speculation_depth += 1;
         write(self, &mut line);
+        self.speculation_depth -= 1;
         self.next_comment = next_comment;
         let first_line = line.split('\n').next().unwrap_or_default();
         if (!allow_break && line.contains('\n')) || first_line.chars().count() > self.line_width {
@@ -2602,7 +2714,87 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// How many opening brackets the source of `span` holds, which bounds
+    /// how deep the node written there nests.
+    fn brackets_in(&self, span: Span) -> u32 {
+        let before = |offset: usize| self.brackets_before.get(offset).copied();
+        match (before(span.start()), before(span.end())) {
+            (Some(start), Some(end)) => end.saturating_sub(start),
+            // A span outside this source says nothing about the node.
+            _ => u32::MAX,
+        }
+    }
+
+    fn render_state(&self) -> RenderState {
+        RenderState {
+            force_collection_expanded: self.force_collection_expanded,
+            after_expression: self.after_expression,
+            arm_statement: self.arm_statement,
+            pending_comments: self.comments.len() - self.next_comment,
+        }
+    }
+
+    /// Appends what `render` writes for `node`, whose source is `span`,
+    /// rendering it only the first time a speculative rendering asks for it
+    /// at this site.
+    fn write_remembered(
+        &mut self,
+        node: RenderNode,
+        span: Span,
+        output: &mut String,
+        render: impl FnOnce(&mut Self, &mut String),
+    ) {
+        let line_start = output.rfind('\n').map_or(0, |index| index + 1);
+        if self.speculation_depth == 0
+            || output.len() - line_start > REMEMBERED_LINE_BYTES
+            || self.brackets_in(span) < REMEMBERED_BRACKETS
+        {
+            return render(self, output);
+        }
+        let site = RenderSite {
+            node,
+            inline_only: self.inline_only,
+            state: self.render_state(),
+            line: Box::from(&output[line_start..]),
+        };
+        let remembered = self
+            .renderings
+            .borrow()
+            .get(&site)
+            .map(|rendering| (rendering.appended.clone(), rendering.state_after));
+        if let Some((appended, state)) = remembered {
+            output.push_str(&appended);
+            self.force_collection_expanded = state.force_collection_expanded;
+            self.after_expression = state.after_expression;
+            self.arm_statement = state.arm_statement;
+            self.next_comment = self.comments.len() - state.pending_comments;
+            return;
+        }
+        // Rendered onto a copy of the line, so that the text can depend on
+        // nothing the site leaves out.
+        let mut line = site.line.to_string();
+        render(self, &mut line);
+        let appended = &line[site.line.len()..];
+        output.push_str(appended);
+        let rendering = Rendering {
+            appended: Box::from(appended),
+            state_after: self.render_state(),
+        };
+        self.renderings.borrow_mut().insert(site, rendering);
+    }
+
     fn write_expr(&mut self, expr_id: ExprId, context: Context, output: &mut String) {
+        self.write_remembered(
+            RenderNode::Expr(expr_id, ContextKey(context)),
+            self.arena.expr(expr_id).span,
+            output,
+            |writer, output| writer.write_expr_now(expr_id, context, output),
+        );
+    }
+
+    fn write_expr_now(&mut self, expr_id: ExprId, context: Context, output: &mut String) {
+        #[cfg(test)]
+        NODES_RENDERED.with(|count| count.set(count.get() + 1));
         let parens = grouping::needs_parens(self.arena, &self.source, expr_id, context);
         let context = if parens { context.group() } else { context };
         if parens {
@@ -2732,7 +2924,10 @@ impl<'a> Writer<'a> {
                 let next_comment = self.next_comment;
                 let after_expression = self.after_expression;
                 let arm_statement = self.arm_statement;
-                if self.write_if_expr(*branches, *else_value, output) && !self.inline_only {
+                self.speculation_depth += 1;
+                let flat_branch_broke = self.write_if_expr(*branches, *else_value, output);
+                self.speculation_depth -= 1;
+                if flat_branch_broke && !self.inline_only {
                     output.truncate(start);
                     self.next_comment = next_comment;
                     self.after_expression = after_expression;
@@ -4483,6 +4678,23 @@ impl<'a> Writer<'a> {
         ) {
             return self.write_expr(expr_id, context, output);
         }
+        self.write_remembered(
+            RenderNode::BreakableExpr(expr_id, ContextKey(context)),
+            self.arena.expr(expr_id).span,
+            output,
+            |writer, output| writer.write_breakable_expr_now(expr_id, context, output),
+        );
+    }
+
+    fn write_breakable_expr_now(
+        &mut self,
+        expr_id: ExprId,
+        context: Context,
+        output: &mut String,
+    ) {
+        #[cfg(test)]
+        NODES_RENDERED.with(|count| count.set(count.get() + 1));
+        let kind = self.arena.expr(expr_id).kind;
         let parens = grouping::needs_parens(self.arena, &self.source, expr_id, context);
         let inner = if parens { context.group() } else { context };
         if parens {
@@ -4796,6 +5008,9 @@ impl<'a> Writer<'a> {
             expand_sugar: self.expand_sugar,
             sugar_ranges: Arc::clone(&self.sugar_ranges),
             hidden_names: Arc::clone(&self.hidden_names),
+            brackets_before: Arc::clone(&self.brackets_before),
+            speculation_depth: self.speculation_depth + 1,
+            renderings: Rc::clone(&self.renderings),
         };
         let mut output = String::new();
         f(&mut writer, &mut output);
@@ -5453,6 +5668,87 @@ mod tests {
         );
     }
 
+    /// Source that nests one construct `levels` deep, the deepest the parser
+    /// accepts for that construct.
+    fn nested_source(family: &str) -> String {
+        let nest = |levels: usize, open: &str, core: &str, close: &str| {
+            format!("let x = {}{core}{}\n", open.repeat(levels), close.repeat(levels))
+        };
+        match family {
+            "call" => nest(126, "f(", "1", ")"),
+            "named call" => nest(126, "f(v: ", "1", ")"),
+            "method argument" => nest(60, "\"a\".replace(\"b\", with: ", "\"c\"", ")"),
+            "call of a list" => nest(60, "f([", "1", "])"),
+            "list" => nest(126, "[", "1", "]"),
+            "record" => nest(126, "{a: ", "1", "}"),
+            "if value" => nest(62, "if true { ", "1", " } else { 0 }"),
+            "stage block" => nest(42, "[1] |> map { ", "1", " }"),
+            other => panic!("unknown family {other}"),
+        }
+    }
+
+    // Measuring a construct inline and then breaking it renders what it
+    // holds twice, so the writer once did work that doubled with each level:
+    // 60 nested calls took minutes. The work is counted, not timed, and the
+    // writer runs on the stack a formatting worker has.
+    #[test]
+    fn nesting_at_the_limit_is_formatted_and_desugared_without_doubling_work() {
+        for family in [
+            "call",
+            "named call",
+            "method argument",
+            "call of a list",
+            "list",
+            "record",
+            "if value",
+            "stage block",
+        ] {
+            let source = nested_source(family);
+            let (rendered, formatted, desugared) = std::thread::Builder::new()
+                .stack_size(super::super::cli::FRONTEND_WORKER_STACK_BYTES)
+                .spawn({
+                    let source = source.clone();
+                    move || {
+                        super::NODES_RENDERED.with(|count| count.set(0));
+                        let formatted = Formatter::new().format_source(SourceId::new(0), &source);
+                        let desugared = Formatter::new().desugar_source(SourceId::new(0), &source);
+                        let rendered = super::NODES_RENDERED.with(std::cell::Cell::get);
+                        (rendered, formatted, desugared)
+                    }
+                })
+                .expect("spawn the worker stand-in")
+                .join()
+                .unwrap_or_else(|_| panic!("{family}: the writer overflowed its stack"));
+            assert!(
+                formatted.diagnostics.is_empty(),
+                "{family}: {:?}",
+                formatted.diagnostics
+            );
+            assert!(
+                desugared.diagnostics.is_empty(),
+                "{family}: {:?}",
+                desugared.diagnostics
+            );
+            let before = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            let after = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
+            assert!(after.diagnostics.is_empty(), "{family}: {:?}", after.diagnostics);
+            assert_eq!(
+                format_equivalence::canonical(&before.arena, &source).text,
+                format_equivalence::canonical(&after.arena, &formatted.formatted).text,
+                "{family}"
+            );
+            // A node is rendered once per line it can start on, and nested
+            // one-line attempts give it a number of those that grows with the
+            // square of the depth: about ten million renderings for the
+            // conditionals, the worst family. A writer that doubled its work
+            // per level would need more than 2^40.
+            assert!(
+                rendered < 50_000_000,
+                "{family}: rendered {rendered} expressions and statements"
+            );
+        }
+    }
+
     /// A block that is an expression (`defer { }`, a bare block, `try { }`)
     /// and holds a comment is printed like any other block: at the
     /// indentation of the statement that owns it, with its comments in place.
@@ -5511,6 +5807,39 @@ mod tests {
             ),
         ] {
             assert_round_trip(source, expected.unwrap_or(source));
+        }
+    }
+
+    // A `?` ends a run form's words, so a run form that propagates needs no
+    // parentheses before an operator or a delimiter: the printed text is the
+    // same tree, which `assert_round_trip` checks. The run form alone does,
+    // because nothing else ends its words there.
+    #[test]
+    fn a_propagation_ends_a_run_form_where_parentheses_would() {
+        for (source, expected) in [
+            (
+                "assert (run.text echo hi ?) == \"hi\\n\"\n",
+                "assert run.text echo hi? == \"hi\\n\"\n",
+            ),
+            (
+                "assert (run.text echo hi) == \"hi\\n\"\n",
+                "assert (run.text echo hi) == \"hi\\n\"\n",
+            ),
+            (
+                "let both = [(run.text echo a ?), (run.text echo b)]\n",
+                "let both = [run.text echo a?, (run.text echo b)]\n",
+            ),
+            (
+                "let n = decode((run.text ip -j addr ?))?\n",
+                "let n = decode(run.text ip -j addr?)?\n",
+            ),
+            // A suffix would join the last word, so the group stays.
+            (
+                "let t = (run.text echo hi ?).trim()\n",
+                "let t = (run.text echo hi?).trim()\n",
+            ),
+        ] {
+            assert_round_trip(source, expected);
         }
     }
 
