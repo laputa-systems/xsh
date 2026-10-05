@@ -253,6 +253,7 @@ diagnostic_codes! {
         ParseUnsupportedIntegerDivision = "parse.unsupported-integer-division", error, "Reject a `//` or `div` integer-division operator; use `/` on Int operands";
         ParseUnsupportedThen = "parse.unsupported-then", error, "Reject the `then` keyword after an `if`, `while`, or `for` head";
         ParseUnterminatedInterpolation = "parse.unterminated-interpolation", error, "Reject a string interpolation or f-string `{` with no closing delimiter";
+        ParseForIndex = "parse.for-index", error, "Reject a destructured index in `for INDEX, ITEM in SOURCE`";
     }
     Check {
         CheckAcceptPolicy = "check.accept-policy", error, "Reject an invalid `accept` exit-code list: empty, outside 0..255, or with duplicates";
@@ -630,6 +631,7 @@ diagnostic_codes! {
         LintListAnyUnion = "lint.list-any-union", warning, "Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types";
         LintPreferEnvPathList = "lint.prefer-env-path-list", warning, "Write a search-path environment value as a `List[Path]` instead of formatting a `:`-separated string";
         LintPreferWriteMode = "lint.prefer-write-mode", warning, "Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)`";
+        LintPreferForIndex = "lint.prefer-for-index", warning, "Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

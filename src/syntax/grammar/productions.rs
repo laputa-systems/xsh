@@ -1218,6 +1218,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "for_statement",
             seq([
                 kw(Keyword::For),
+                // `INDEX,` binds each item's position before the item.
+                opt(seq([ident(), t(T::Comma)])),
                 r("binding_target"),
                 kw(Keyword::In),
                 r("condition_expression"),

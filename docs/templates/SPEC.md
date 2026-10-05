@@ -1516,6 +1516,37 @@ the loop sees a snapshot: reassigning the source inside the loop does not
 change the iteration. A pipeline as the source is consumed item by item (see
 13.2). The loop binding is immutable.
 
+`for index, item in source { ... }` also binds each item's position, counting
+from zero. It is sugar, defined by its expansion:
+
+```xsh
+{{.spec.for_index.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.for_index.desugared}}
+```
+
+So the source is a `List` or a `Stream`, the input of a structured pipeline
+(13.1), evaluated once and consumed item by item; the index is an `Int`; both
+bindings are immutable and in scope for the block only; and `break` and
+`continue` target the loop. Diagnostics about the source are those of the
+pipeline input (`check.stream-input`), so a `Map`, `Str`, or `Bytes` has no
+index form. The item takes any loop binding, including a record destructuring
+(`for i, {name, size} in entries`); the index is a name
+(`parse.for-index`):
+
+```xsh
+{{.spec.for_index_binding.source}}
+```
+
+A `var i = 0` counter that only walks a list (`while i < xs.len()`, with
+`let x = xs[i]` first and `i += 1` last) is this loop, or a plain `for` over
+the list or a slice of it when the body never reads the counter;
+`lint.prefer-for-index` rewrites it where the two are the same program.
+
 `loop { ... }` repeats until `break`; `break value` makes the loop an
 expression with that value. `break` and `continue` target the nearest loop and
 are not allowed inside stream stage blocks.

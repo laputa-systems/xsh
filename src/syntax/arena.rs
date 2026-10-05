@@ -4967,6 +4967,25 @@ impl AstArena {
                     "`atomically replace` has a destination, a name, and a body, found {operands:?}"
                 )
             }
+            (
+                SugarForm::ForIndex,
+                &[
+                    ArenaSugarOperand::BindingTarget(index),
+                    ArenaSugarOperand::BindingTarget(item),
+                    ArenaSugarOperand::Expr(source),
+                    ArenaSugarOperand::Block(body),
+                ],
+            ) => ArenaSugar::ForIndex {
+                index,
+                item,
+                source,
+                body,
+            },
+            (SugarForm::ForIndex, operands) => {
+                unreachable!(
+                    "an indexed `for` has an index, an item, a source, and a body, found {operands:?}"
+                )
+            }
         }
     }
 
@@ -5640,10 +5659,13 @@ pub enum SugarForm {
     /// destination expression, the binding that names the temporary path, and
     /// the body block.
     Atomically,
+    /// `for INDEX, ITEM in SOURCE { BODY }`: operands are the index binding,
+    /// the item binding, the source expression, and the body block.
+    ForIndex,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
@@ -5651,12 +5673,15 @@ impl SugarForm {
         Self::Tempdir,
         Self::Fail,
         Self::Atomically,
+        Self::ForIndex,
     ];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
-            Self::Repeat | Self::Guard | Self::Tempdir | Self::Atomically => true,
+            Self::Repeat | Self::Guard | Self::Tempdir | Self::Atomically | Self::ForIndex => {
+                true
+            }
             Self::When | Self::Unless | Self::Fail => false,
         }
     }
@@ -5703,6 +5728,12 @@ pub enum ArenaSugar {
     Atomically {
         dest: ExprId,
         name: BindingTargetId,
+        body: BlockId,
+    },
+    ForIndex {
+        index: BindingTargetId,
+        item: BindingTargetId,
+        source: ExprId,
         body: BlockId,
     },
 }

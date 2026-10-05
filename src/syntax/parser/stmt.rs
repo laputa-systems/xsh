@@ -1489,8 +1489,21 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
-        self.bump();
+        let keyword = self.bump();
+        let target_start = self.current_start();
+        let target_is_name = !self.at(TokenKindMatch::LBrace);
         let target = self.parse_binding_target_arena_only("expected loop binding name", arena)?;
+        if self.at(TokenKindMatch::Comma) {
+            let index_span = self.span(target_start, self.previous_end());
+            return self.parse_for_index_arena_only(
+                start,
+                keyword,
+                target,
+                index_span,
+                target_is_name,
+                arena,
+            );
+        }
         self.expect_keyword(Keyword::In, "expected `in` in for loop");
         let iter = self.parse_head_expr_arena_only(arena)?.id;
         let block_id = self.parse_block_arena_only(arena)?;

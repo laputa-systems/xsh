@@ -29,8 +29,9 @@
 //! every path. The checker enforces that on the block, not on the form.
 
 use super::{Keyword, Name, Parser, TokenTag};
-use crate::diagnostic::DiagnosticCode;
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Label, Severity};
 use crate::source::Span;
+use crate::syntax::node::StreamStageKind;
 use crate::syntax::arena::{
     ArenaCallArgInput, ArenaExprKind, ArenaExprOrRun, ArenaProgramBuilder, ArenaSugarOperand,
     BindingTargetId,
@@ -350,6 +351,112 @@ impl Parser<'_> {
         );
         Some(())
     }
+}
+
+impl Parser<'_> {
+    /// Parses `, ITEM in SOURCE { BODY }` after `for INDEX`, with the cursor
+    /// on the comma.
+    pub(super) fn parse_for_index_arena_only(
+        &mut self,
+        start: usize,
+        keyword: Span,
+        index: BindingTargetId,
+        index_span: Span,
+        index_is_name: bool,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        if !index_is_name {
+            self.diagnostics.push(
+                Diagnostic::new(Severity::Error, "the index of a `for` loop is a name")
+                    .with_code(DiagnosticCode::ParseForIndex)
+                    .with_label(Label::primary(
+                        index_span,
+                        "write `for index, item in source`; only the item may be destructured",
+                    )),
+            );
+        }
+        self.bump();
+        let item_start = self.current_start();
+        let item = self.parse_binding_target_arena_only("expected loop binding name", arena)?;
+        let item_span = self.span(item_start, self.previous_end());
+        self.expect_keyword(Keyword::In, "expected `in` in for loop");
+        let source = self.parse_head_expr_arena_only(arena)?.id;
+        let source_span = arena.expr_span(source);
+        let body = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        let operands = ForIndexOperands {
+            keyword,
+            index,
+            index_span,
+            item,
+            item_span,
+            source,
+            source_span,
+            body,
+        };
+        arena.push_sugar(
+            SugarForm::ForIndex,
+            &[
+                ArenaSugarOperand::BindingTarget(index),
+                ArenaSugarOperand::BindingTarget(item),
+                ArenaSugarOperand::Expr(source),
+                ArenaSugarOperand::Block(body),
+            ],
+            span,
+            |arena| expand_for_index(arena, operands, span),
+        );
+        Some(())
+    }
+}
+
+struct ForIndexOperands {
+    /// The `for` word.
+    keyword: Span,
+    index: BindingTargetId,
+    index_span: Span,
+    item: BindingTargetId,
+    item_span: Span,
+    source: ExprId,
+    source_span: Span,
+    body: BlockId,
+}
+
+/// `for INDEX, ITEM in SOURCE { BODY }` is
+/// `for {index: INDEX, value: ITEM} in SOURCE |> enumerate() { BODY }`.
+///
+/// The `enumerate` stage produces one `{index, value}` record per item, and
+/// the record target binds its two fields to the names the user wrote, so no
+/// hidden local is needed. The pipeline is the one expression the expansion
+/// adds; it spans the head `for INDEX, ITEM in SOURCE`, which no written
+/// expression can span. Its stage is the empty span where the source ends:
+/// a stage follows its input, as the stages of a written pipeline do, and no
+/// written stage is empty. A source that is not a list or a stream is
+/// reported on the source itself, as the input of the pipeline.
+fn expand_for_index(
+    arena: &mut ArenaProgramBuilder<'_>,
+    operands: ForIndexOperands,
+    span: Span,
+) -> StmtId {
+    let within = |start: usize, end: usize| Span::new(span.source_id, start, end);
+    arena.begin_destructure_fields();
+    arena.push_destructure_field(Name::intern("index"), operands.index, operands.index_span);
+    arena.push_destructure_field(Name::intern("value"), operands.item, operands.item_span);
+    let fields = arena.finish_destructure_fields();
+    let target = arena.push_binding_target_record(
+        fields,
+        false,
+        within(operands.index_span.start(), operands.item_span.end()),
+    );
+    arena.begin_call_args();
+    let args = arena.finish_call_args();
+    let stage_span = within(operands.source_span.end(), operands.source_span.end());
+    let stage = arena.build_stream_stage(StreamStageKind::Enumerate, None, args, stage_span);
+    let iter = arena.build_structured_pipeline_expr(
+        operands.source,
+        vec![stage],
+        within(operands.keyword.start(), operands.source_span.end()),
+    );
+    arena.push_for_id(target, iter, operands.body, span)
 }
 
 struct TempdirOperands {

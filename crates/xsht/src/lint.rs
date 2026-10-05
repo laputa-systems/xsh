@@ -70,6 +70,8 @@ mod lint_redundant_scope_propagation;
 
 #[path = "lint_prefer_propagation.rs"]
 mod lint_prefer_propagation;
+#[path = "lint_prefer_for_index.rs"]
+mod lint_prefer_for_index;
 
 #[path = "lint_env_path_list.rs"]
 mod lint_env_path_list;
@@ -1762,6 +1764,20 @@ impl<'a> Linter<'a> {
                     self.push_scope();
                     self.define_binding_target(name, stmt.span, false);
                     self.lint_block(body);
+                    self.pop_scope();
+                }
+            }
+            // Both names an indexed `for` binds are loop bindings, in scope
+            // for its body only.
+            ArenaStmtKind::Sugar { form: SugarForm::ForIndex, operands, .. } => {
+                if let ArenaSugar::ForIndex { index, item, source, body } =
+                    self.arena.sugar(SugarForm::ForIndex, operands)
+                {
+                    self.lint_expr(source);
+                    self.push_scope();
+                    self.define_binding_target(index, stmt.span, true);
+                    self.define_binding_target(item, stmt.span, true);
+                    self.lint_block_statements(body);
                     self.pop_scope();
                 }
             }
@@ -5315,6 +5331,7 @@ impl<'a> Linter<'a> {
         self.lint_list_comp_suggestions(&stmts);
         prefer_tempdir::lint_scratch_directories(self, &stmts, Some(block));
         prefer_atomically::lint_published_files(self, &stmts, Some(block));
+        lint_prefer_for_index::lint_counter_loops(self, &stmts, Some(block));
         self.lint_statement_sequence(&stmts);
     }
 
@@ -13616,6 +13633,19 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                         self.scan_expr(dest);
                         self.push_scope();
                         self.define_binding_target(name);
+                        self.scan_block(body);
+                        self.pop_scope();
+                    }
+                    ArenaSugar::ForIndex {
+                        index,
+                        item,
+                        source,
+                        body,
+                    } => {
+                        self.scan_expr(source);
+                        self.push_scope();
+                        self.define_binding_target(index);
+                        self.define_binding_target(item);
                         self.scan_block(body);
                         self.pop_scope();
                     }

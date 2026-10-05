@@ -140,6 +140,18 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 core: Core::Written("proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => {\n      {\n        let dest_1: Path = atomically\n        let as: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n        fs.remove(as, missing_ok: true)\n        defer fs.remove(as, missing_ok: true)\n        { print $as }\n        fs.rename(as, dest_1, overwrite: true)?\n      }\n    }\n    _ => {\n      {\n        let dest_1: Path = atomically\n        let replace: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n        fs.remove(replace, missing_ok: true)\n        defer fs.remove(replace, missing_ok: true)\n        {\n          print $replace\n        }\n        fs.rename(replace, dest_1, overwrite: true)?\n      }\n    }\n  }\n}\n"),
             },
         ],
+        SugarForm::ForIndex => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/50-for-index.xsh"),
+                core: Core::Desugared,
+            },
+            // Nested, with a destructured item, a pipeline as the source, an
+            // index named `index`, and a body that leaves early.
+            Case {
+                sugar: "type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for row, {name, size} in entries {\n    continue when name == \"\"\n    for index, part in name.split(\"/\") |> where { . != \"\" } {\n      break when index > row\n      yield size + part.len()\n    }\n  }\n}\n",
+                core: Core::Written("type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for {index: row, value: {name, size}} in entries |> enumerate() {\n    if name == \"\" {\n      continue\n    }\n    for {index, value: part} in (name.split(\"/\") |> where { . != \"\" }) |> enumerate() {\n      if index > row {\n        break\n      }\n      yield size + part.len()\n    }\n  }\n}\n"),
+            },
+        ],
     }
 }
 

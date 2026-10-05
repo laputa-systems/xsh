@@ -878,6 +878,21 @@ impl<'a> Writer<'a> {
                         output.push(' ');
                         self.write_block(body, indent, output);
                     }
+                    ArenaSugar::ForIndex {
+                        index,
+                        item,
+                        source,
+                        body,
+                    } => {
+                        output.push_str("for ");
+                        self.write_binding_target(index, output);
+                        output.push_str(", ");
+                        self.write_binding_target(item, output);
+                        output.push_str(" in ");
+                        self.write_expr(source, BRACE, output);
+                        output.push(' ');
+                        self.write_block(body, indent, output);
+                    }
                 }
             }
             ArenaStmtKind::Guard {
