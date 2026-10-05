@@ -34,10 +34,10 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
       return
     }
     if ! operands and arg == "--version" { gnu.version("date"); return }
-    if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal") { utc = true; continue }
+    if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal" or arg == "--uct" or arg == "--uni" or arg == "--u") { utc = true; continue }
     if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822") { format = "%a, %d %b %Y %H:%M:%S %z"; continue }
     if ! operands and arg == "--resolution" { gnu.error("clock resolution reporting is not supported"); exit 1 }
-    if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg.starts_with("--rfc-3339")) {
+    if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg == "--i" or arg.starts_with("--i=") or arg.starts_with("--rfc-3339")) {
       var spec = "date"
       var rfc = arg.starts_with("--rfc-3339")
       if arg.starts_with("-I") { spec = arg.byte_slice(2) } else if arg.find("=") != null { spec = arg.split("=", maxsplit: 1)[1] } else if rfc { gnu.usage_error("option '--rfc-3339' requires an argument") }
@@ -45,10 +45,10 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
       let separator = if rfc { " " } else { "T" }
       match spec {
         "date" => format = "%Y-%m-%d"
-        "hours" => format = f"%Y-%m-%d{separator}%H%:z"
-        "minutes" => format = f"%Y-%m-%d{separator}%H:%M%:z"
-        "seconds" => format = f"%Y-%m-%d{separator}%H:%M:%S%:z"
-        "ns" => format = f"%Y-%m-%d{separator}%H:%M:%S.%N%:z"
+        "hour" | "hours" => format = f"%Y-%m-%d{separator}%H%:z"
+        "minute" | "minutes" => format = f"%Y-%m-%d{separator}%H:%M%:z"
+        "second" | "seconds" => format = f"%Y-%m-%d{separator}%H:%M:%S%:z"
+        "ns" => { let decimal = if rfc { "." } else { "," }; format = f"%Y-%m-%d{separator}%H:%M:%S{decimal}%N%:z" }
         else => gnu.usage_error(f"invalid argument {gnu.quote(spec)}")
       }
       continue
@@ -78,7 +78,12 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
   if file != "" {
     var contents = ""
     match gnu.read_operand(file) {
-      Ok(data) => contents = data.utf8() ?? ""
+      Ok(data) => {
+        match data.utf8() {
+          Ok(text) => contents = text
+          Err(failure) => { gnu.error("date input is not UTF-8"); exit 1 }
+        }
+      }
       Err(failure) => { gnu.name_error(file, failure); exit 1 }
     }
     var success = true
