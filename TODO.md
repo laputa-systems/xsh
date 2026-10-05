@@ -125,7 +125,7 @@ Tests:
 - `lint_performance::repository_lint_is_clean_within_wall_budget` passes
   alone and fails when the rest of the `xsht` integration target runs beside
   it. With the utilities merged, `xsht lint` on this repository takes about
-  24 s against a 15 s budget, so the test fails alone too.
+  17 s against a 15 s budget, so the test fails alone too.
 - Three applet tests fail on an x86_64 musl host and did before the
   utilities were merged: `core/tests/test-stty.xsh` expects glibc's
   "Inappropriate ioctl for device" where musl says "Not a tty";
