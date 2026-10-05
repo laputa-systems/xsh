@@ -6,12 +6,23 @@ use crate::syntax::arena::{
     ArenaParam, ArenaProgram, ArenaStmtKind, ExprId, FunctionDefId, StmtId, TypeExprId,
 };
 
+/// What an option holds when the command line does not give it.
+#[derive(Clone, Debug)]
+pub(crate) enum CliEntryDefault {
+    /// A prepared constant: reading it runs no code, and help shows its value.
+    Constant(LiteralConstant),
+    /// Any other expression. The entry evaluates it as its own parameter
+    /// default after the command line is parsed, and only when the option is
+    /// absent; help shows its source text.
+    Computed(ExprId),
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct CliEntryParameter {
     pub name: Name,
     pub ty: Type,
     pub parser_type: String,
-    pub default: Option<LiteralConstant>,
+    pub default: Option<CliEntryDefault>,
     pub rest: bool,
 }
 
@@ -21,7 +32,15 @@ pub(crate) struct CliEntryParameter {
 pub(crate) struct CliEntryPlan {
     pub statement: StmtId,
     pub definition: FunctionDefId,
+    /// The subcommand words as typed on the command line, in kebab case.
+    /// Empty for a bare `cli main`, which is then the only entry.
+    pub path: Vec<String>,
     pub parameters: Vec<CliEntryParameter>,
+}
+
+/// The command-line spelling of a subcommand word or option name.
+pub(crate) fn cli_word(identifier: &str) -> String {
+    identifier.replace('_', "-")
 }
 
 pub(crate) fn validate_cli_entry(
@@ -29,7 +48,7 @@ pub(crate) fn validate_cli_entry(
     mut type_of: impl FnMut(&ArenaParam) -> Type,
     mut parser_type: impl FnMut(TypeExprId) -> Option<String>,
     mut default_value: impl FnMut(ExprId) -> Option<LiteralConstant>,
-) -> (Option<CliEntryPlan>, Vec<Diagnostic>) {
+) -> (Vec<CliEntryPlan>, Vec<Diagnostic>) {
     let roots = program.statement_ids().collect::<Vec<_>>();
     // A workspace arena can hold other entry scripts that this program neither
     // is nor imports; only the entry source and its modules are validated.
@@ -45,7 +64,7 @@ pub(crate) fn validate_cli_entry(
         .map(|id| program.arena.stmt(id).span.source_id)
         .collect::<std::collections::BTreeSet<_>>();
     let mut diagnostics = Vec::new();
-    let mut entry = None;
+    let mut entries = Vec::<CliEntryPlan>::new();
     // Nested `cli main` is a parse error (`parse.cli-entry-scope`), and the
     // arena may hold other modules' statements (`xsht lint` shares one arena
     // across entry bundles), so only this program's top level is an entry.
@@ -64,15 +83,37 @@ pub(crate) fn validate_cli_entry(
                     .with_label(Label::primary(span, message)),
             )
         };
-        if entry.is_some() {
-            error(
-                statement.span,
-                "only one signature CLI entry may be declared",
-            );
-        }
         let function = program.arena.function_def(definition);
-        if function.name != "main" {
+        // The parser joins the entry's words with single spaces.
+        let name = function.name.as_str();
+        let mut words = name.split(' ');
+        if words.next() != Some("main") {
             error(statement.span, "a signature CLI entry must be named `main`");
+        }
+        let path = words.map(cli_word).collect::<Vec<_>>();
+        if let Some(other) = entries.first() {
+            if path.is_empty() || other.path.is_empty() {
+                error(
+                    statement.span,
+                    "a bare `cli main` cannot be declared beside another CLI entry; name every entry by a subcommand path, as in `cli main build(...)`",
+                );
+            } else if entries.iter().any(|other| other.path == path) {
+                error(
+                    statement.span,
+                    "this subcommand path is already declared; subcommand words must be unique after snake_case maps to kebab-case",
+                );
+            } else if entries
+                .iter()
+                .any(|other| other.path.starts_with(&path) || path.starts_with(&other.path))
+            {
+                error(
+                    statement.span,
+                    "a subcommand path cannot continue another entry's path: a word is either an entry or a group of entries",
+                );
+            }
+        }
+        if path.iter().any(|word| word == "help") {
+            error(statement.span, "`help` is reserved by the CLI parser");
         }
         let another_main = roots.iter().any(|root| {
             let kind = match program.arena.stmt(*root).kind {
@@ -99,7 +140,7 @@ pub(crate) fn validate_cli_entry(
         for (index, parameter) in program.arena.params(function.params).iter().enumerate() {
             let span = program.arena.span(parameter.span);
             let ty = type_of(parameter);
-            if !names.insert(parameter.name.to_string().replace('_', "-")) {
+            if !names.insert(cli_word(&parameter.name.as_str())) {
                 error(
                     span,
                     "CLI parameter spellings must be unique after snake_case maps to kebab-case",
@@ -146,29 +187,31 @@ pub(crate) fn validate_cli_entry(
             if parameter.name == "help" {
                 error(span, "`--help` is reserved by the CLI parser");
             }
-            let default = parameter.default.and_then(&mut default_value);
-            if parameter.default.is_some() && default.is_none() {
-                error(
-                    span,
-                    "CLI defaults must be prepared constants and cannot execute source code",
-                );
-            }
-            if default
+            // A default that is not a prepared constant is the entry's own
+            // parameter default: the function check types it against the
+            // parameter and charges its effects to the entry.
+            let constant = parameter.default.and_then(&mut default_value);
+            if constant
                 .as_ref()
                 .is_some_and(|value| !value.matches_data_type(&ty))
             {
                 error(span, "a CLI default must match its parameter type");
             }
             if parser_type == "UInt"
-                && matches!(default, Some(LiteralConstant::Int(value)) if value < 0)
+                && matches!(constant, Some(LiteralConstant::Int(value)) if value < 0)
             {
                 error(span, "a UInt CLI default must be nonnegative");
             }
             if parser_type == "List[UInt]"
-                && matches!(&default, Some(LiteralConstant::List(values)) if values.iter().any(|value| matches!(value, LiteralConstant::Int(value) if *value < 0)))
+                && matches!(&constant, Some(LiteralConstant::List(values)) if values.iter().any(|value| matches!(value, LiteralConstant::Int(value) if *value < 0)))
             {
                 error(span, "UInt CLI list defaults must be nonnegative");
             }
+            let default = match (constant, parameter.default) {
+                (Some(constant), _) => Some(CliEntryDefault::Constant(constant)),
+                (None, Some(expression)) => Some(CliEntryDefault::Computed(expression)),
+                (None, None) => None,
+            };
             parameters.push(CliEntryParameter {
                 name: parameter.name,
                 ty,
@@ -177,16 +220,17 @@ pub(crate) fn validate_cli_entry(
                 rest: parameter.rest,
             });
         }
-        entry = Some(CliEntryPlan {
+        entries.push(CliEntryPlan {
             statement: id,
             definition,
+            path,
             parameters,
         });
     }
     if diagnostics.is_empty() {
-        (entry, diagnostics)
+        (entries, diagnostics)
     } else {
-        (None, diagnostics)
+        (Vec::new(), diagnostics)
     }
 }
 

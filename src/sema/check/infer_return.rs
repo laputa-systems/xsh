@@ -433,7 +433,7 @@ impl Checker {
                 if proc_may_return_value(program, def) {
                     let boundary = if decl.exported {
                         Some("exported")
-                    } else if decl.name == "main" {
+                    } else if decl.name == "main" || decl.name.as_str().starts_with("main ") {
                         Some("entry")
                     } else if cyclic.contains(&index) {
                         Some("recursive")

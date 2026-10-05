@@ -27,7 +27,9 @@ pub struct CompactDeclOutput {
     pub bodies: CompactBodyFacts,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
-    pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
+    /// The signature CLI entries of the entry script: one bare `cli main`,
+    /// or one entry per subcommand path.
+    pub(crate) cli_entries: Vec<crate::sema::cli_entry::CliEntryPlan>,
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
@@ -351,7 +353,7 @@ impl Checker {
                 });
             output.wire_enums = wire_enums;
             collector.diagnostics.extend(wire_diagnostics);
-            let (entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
+            let (entries, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
                 program,
                 |parameter| {
                     output
@@ -377,7 +379,7 @@ impl Checker {
                         .analyze_expression(&program.arena, expr)
                 },
             );
-            output.cli_entry = entry;
+            output.cli_entries = entries;
             collector.diagnostics.extend(diagnostics);
             output.diagnostics = collector.diagnostics;
             output.diagnostics.extend(

@@ -38,11 +38,22 @@ struct OptionSpec {
     positional_order: Option<usize>,
 }
 
+/// What a signature option holds when the command line does not give it.
+#[derive(Clone, Debug)]
+pub(crate) enum SignatureDefault {
+    /// A prepared value, which the parser supplies and help shows.
+    Value(Value),
+    /// An expression the entry evaluates itself when the option is absent.
+    /// Parsing reports the option as omitted, and help shows this source
+    /// text without running it.
+    Computed(String),
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SignatureParameter {
     pub name: String,
     pub type_name: String,
-    pub default: Option<Value>,
+    pub default: Option<SignatureDefault>,
     pub rest: bool,
 }
 
@@ -89,7 +100,7 @@ impl PreparedSignatureCli {
                     Value::Str(format!("...{}", parameter.name.to_ascii_uppercase()).into()),
                 );
             }
-            if let Some(default) = &parameter.default {
+            if let Some(SignatureDefault::Value(default)) = &parameter.default {
                 descriptor.insert(Arc::from("default"), default.clone());
             }
             schema.insert(
@@ -114,7 +125,14 @@ impl PreparedSignatureCli {
         })
     }
 
-    pub(crate) fn parse(&self, argv: &[String], command: &str) -> Result<Vec<Value>, RuntimeError> {
+    /// The entry's arguments in parameter order, the rest parameter's items
+    /// last. `None` stands for an option with a computed default that the
+    /// command line did not give: the entry evaluates the default.
+    pub(crate) fn parse(
+        &self,
+        argv: &[String],
+        command: &str,
+    ) -> Result<Vec<Option<Value>>, RuntimeError> {
         let usage = usage_text(&self.specs, command);
         let usage = if self.description.is_empty() {
             usage
@@ -138,6 +156,10 @@ impl PreparedSignatureCli {
             let value = values
                 .remove(parameter.name.as_str())
                 .expect("checked CLI schema supplies every parameter");
+            let given = matches!(
+                parsed.sources.get(parameter.name.as_str()),
+                Some(Value::Str(source)) if source.as_ref() == "argv"
+            );
             if parameter.rest {
                 let Value::List(values) = value else {
                     return Err(cli_error(
@@ -145,18 +167,135 @@ impl PreparedSignatureCli {
                         self.span,
                     ));
                 };
-                arguments.extend(values);
+                arguments.extend(values.into_iter().map(Some));
+            } else if matches!(parameter.default, Some(SignatureDefault::Computed(_))) && !given {
+                arguments.push(None);
             } else {
-                arguments.push(value);
+                arguments.push(Some(value));
             }
         }
         Ok(arguments)
     }
 }
 
+/// One subcommand entry of a script: the words that select it and the
+/// parser of its own signature.
+#[derive(Clone, Debug)]
+pub(crate) struct SignatureCommand {
+    /// The words as typed, in kebab case. Empty for a script's only entry.
+    pub path: Vec<String>,
+    /// The first line of the entry's doc comment, for the listings.
+    pub summary: String,
+    pub parser: PreparedSignatureCli,
+}
+
+/// The signature CLI entries of a script. A script has either one entry with
+/// an empty path or entries with distinct paths, none of which continues
+/// another, so the words before the first that names no group select at most
+/// one entry.
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedSignatureCommands {
+    pub commands: Vec<SignatureCommand>,
+    /// The script's own description, shown above the top-level listing.
+    pub description: String,
+    pub span: Span,
+}
+
+impl PreparedSignatureCommands {
+    /// Selects the entry the leading words of `argv` name and parses the
+    /// rest with it: the entry's index and its arguments.
+    ///
+    /// Words are read while they extend a declared path. `-h` or `--help`
+    /// where a word is expected is help for the group read so far; anything
+    /// else there, or nothing, is a usage error that lists the group.
+    pub(crate) fn parse(
+        &self,
+        argv: &[String],
+        command: &str,
+    ) -> Result<(usize, Vec<Option<Value>>), RuntimeError> {
+        let mut taken = 0;
+        loop {
+            let prefix = &argv[..taken];
+            if let Some(index) = self
+                .commands
+                .iter()
+                .position(|entry| entry.path.as_slice() == prefix)
+            {
+                let mut name = command.to_string();
+                for word in prefix {
+                    name.push(' ');
+                    name.push_str(word);
+                }
+                return self.commands[index]
+                    .parser
+                    .parse(&argv[taken..], &name)
+                    .map(|arguments| (index, arguments));
+            }
+            let listing = self.group_usage(prefix, command);
+            let Some(word) = argv.get(taken) else {
+                return Err(cli_usage_error(
+                    cli_error("missing subcommand", self.span),
+                    listing,
+                ));
+            };
+            if word == "-h" || word == "--help" {
+                return Err(cli_help_error(listing, self.span));
+            }
+            if !self.commands.iter().any(|entry| {
+                entry.path.len() > taken
+                    && entry.path[..taken] == *prefix
+                    && entry.path[taken] == *word
+            }) {
+                return Err(cli_usage_error(
+                    cli_error(format!("unknown subcommand `{word}`"), self.span),
+                    listing,
+                ));
+            }
+            taken += 1;
+        }
+    }
+
+    /// The listing of the entries under `prefix`, each by the words that
+    /// remain after it.
+    fn group_usage(&self, prefix: &[String], command: &str) -> String {
+        let mut name = command.to_string();
+        for word in prefix {
+            name.push(' ');
+            name.push_str(word);
+        }
+        let entries = self
+            .commands
+            .iter()
+            .filter(|entry| entry.path.starts_with(prefix))
+            .map(|entry| (entry.path[prefix.len()..].join(" "), entry.summary.as_str()))
+            .collect::<Vec<_>>();
+        let width = entries.iter().map(|(words, _)| words.len()).max().unwrap_or(0);
+        let mut usage = String::new();
+        if prefix.is_empty() && !self.description.is_empty() {
+            usage.push_str(&self.description);
+            usage.push_str("\n\n");
+        }
+        usage.push_str(&format!("usage: {name} COMMAND [ARGS]...\n\ncommands:"));
+        for (words, summary) in entries {
+            if summary.is_empty() {
+                usage.push_str(&format!("\n  {words}"));
+            } else {
+                usage.push_str(&format!("\n  {words:<width$}  {summary}"));
+            }
+        }
+        usage.push_str(&format!(
+            "\n\nRun `{name} COMMAND --help` for the arguments of a command."
+        ));
+        usage
+    }
+}
+
 fn signature_parameter_help(parameter: &SignatureParameter) -> String {
     let mut help = parameter.type_name.clone();
-    if let Some(default) = &parameter.default {
+    if let Some(SignatureDefault::Computed(source)) = &parameter.default {
+        help.push_str(&format!(", default: {source}"));
+    }
+    if let Some(SignatureDefault::Value(default)) = &parameter.default {
         let text = match default {
             Value::List(values) => format!(
                 "[{}]",

@@ -95,9 +95,6 @@ main()
 """,
     """cli main(rows: Record) [] {}
 """,
-    """proc default_jobs() [] -> Int { print "DEFAULT-MARKER"; 4 }
-cli main(jobs: Int = default_jobs()) [] {}
-""",
   ] {
     let result = test.run_script(ctx, source, ["--help"], {}, b"", "signature-rejected.xsh")?
     {

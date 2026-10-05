@@ -14221,6 +14221,8 @@ impl<'a> CallableReachability<'a> {
                 || (callable.namespace == 0
                     && callable.proc_entry
                     && (callable.name == "main"
+                        // A subcommand `cli main` entry is named `main WORD...`.
+                        || callable.name.as_str().starts_with("main ")
                         || self
                             .arena
                             .function_def(callable.definition)

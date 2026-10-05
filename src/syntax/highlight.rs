@@ -231,6 +231,14 @@ fn paint(source: &str, base: usize, kinds: &mut [Kind]) {
                 {
                     fill(kinds, base, name.start, name.end, Kind::Function);
                     skip_until = name.end;
+                    // The subcommand words of `cli main repo check(` are
+                    // part of the declared name.
+                    if text == "cli" {
+                        for word in tokens[index + 1..].iter().take_while(|word| is_name(word)) {
+                            fill(kinds, base, word.start, word.end, Kind::Function);
+                            skip_until = word.end;
+                        }
+                    }
                 }
             }
             TokenTag::Int | TokenTag::Float | TokenTag::Duration => {
@@ -1032,6 +1040,16 @@ mod tests {
         assert_eq!(kind_of(source, "x"), Kind::Plain);
         assert_eq!(kind_of(source, "Ok"), Kind::Type);
         assert_eq!(kind_of("a.b.x", "x"), Kind::Property);
+    }
+
+    #[test]
+    fn subcommand_words_of_a_cli_entry_are_its_name() {
+        let source = "cli main repo check_all(root: Path) {\n}\ncli tool args\n";
+        assert_eq!(kind_of(source, "cli"), Kind::Keyword);
+        assert_eq!(kind_of(source, "main"), Kind::Function);
+        assert_eq!(kind_of(source, "repo"), Kind::Function);
+        assert_eq!(kind_of(source, "check_all"), Kind::Function);
+        assert_eq!(kind_of(source, "root"), Kind::Property);
     }
 
     #[test]

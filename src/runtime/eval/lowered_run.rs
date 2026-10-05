@@ -3892,6 +3892,7 @@ fn lowered_param_check(lowered: &FunctionHeader, index: usize) -> Option<&super:
 fn validate_unsigned_runtime_args(
     header: &FunctionHeader,
     args: &[Value],
+    omitted: &[usize],
     span: Span,
 ) -> Result<(), RuntimeError> {
     for (index, check) in header.param_checks.iter().enumerate() {
@@ -3909,7 +3910,7 @@ fn validate_unsigned_runtime_args(
                 .unwrap_or(&[])
                 .iter()
                 .all(|value| value_matches_static_type(value, item))
-        } else if let Some(value) = args.get(index) {
+        } else if let Some(value) = args.get(index).filter(|_| !omitted.contains(&index)) {
             value_matches_static_type(value, &check.ty)
         } else {
             header
@@ -10267,10 +10268,14 @@ impl Evaluator {
         Ok(())
     }
 
+    /// `omitted` lists the positions whose argument was not supplied even
+    /// though a later one was; each takes the parameter's default, as a
+    /// position past the end of `args` does.
     fn try_bind_lowered_runtime_args(
         &mut self,
         lowered: &FunctionHeader,
         args: &[Value],
+        omitted: &[usize],
     ) -> Option<Vec<LoweredValue>> {
         let values = if let Some(rest_index) = lowered_rest_index(lowered) {
             if args.len() < lowered_required_arg_count(lowered)
@@ -10294,7 +10299,7 @@ impl Evaluator {
                     values.push(value);
                     break;
                 }
-                match args.get(index) {
+                match args.get(index).filter(|_| !omitted.contains(&index)) {
                     Some(value) => {
                         if !lowered_runtime_arg_matches_param(lowered, index, value) {
                             return None;
@@ -10312,7 +10317,7 @@ impl Evaluator {
             }
             let mut values = Vec::with_capacity(lowered.params.len());
             for (index, kind) in lowered.param_kinds.iter().copied().enumerate() {
-                match args.get(index) {
+                match args.get(index).filter(|_| !omitted.contains(&index)) {
                     Some(value) => {
                         if !lowered_runtime_arg_matches_param(lowered, index, value) {
                             return None;

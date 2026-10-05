@@ -3392,9 +3392,23 @@ impl Evaluator {
         args: &[Value],
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
+        self.call_indexed_direct_omitting(function, kind, args, &[], call_span)
+    }
+
+    /// A direct call in which the arguments at the `omitted` positions were
+    /// not supplied: the callee takes its own default for each, evaluating
+    /// one that is not a constant. The values at those positions are unused.
+    pub(in crate::runtime::eval) fn call_indexed_direct_omitting(
+        &mut self,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        args: &[Value],
+        omitted: &[usize],
+        call_span: Span,
+    ) -> Option<Result<Value, RuntimeError>> {
         let program = Arc::clone(self.indexed_program.as_ref()?);
         let _symbols = program.symbol_owner().enter();
-        self.call_indexed_direct_in_program(program, function, kind, args, call_span)
+        self.call_indexed_direct_in_program(program, function, kind, args, omitted, call_span)
     }
 
     fn call_indexed_direct_in_program(
@@ -3403,6 +3417,7 @@ impl Evaluator {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         args: &[Value],
+        omitted: &[usize],
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
         let view = match program.function_view(function, kind) {
@@ -3427,10 +3442,12 @@ impl Evaluator {
             Ok(header) => header,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
-        if let Err(error) = super::validate_unsigned_runtime_args(&header, args, call_span) {
+        if let Err(error) =
+            super::validate_unsigned_runtime_args(&header, args, omitted, call_span)
+        {
             return Some(Err(error));
         }
-        let slots = self.try_bind_lowered_runtime_args(&header, args)?;
+        let slots = self.try_bind_lowered_runtime_args(&header, args, omitted)?;
         let frame_support = match self.indexed_frames_supported(view, call_span) {
             Ok(supported) => supported,
             Err(error) => return Some(Err(error)),

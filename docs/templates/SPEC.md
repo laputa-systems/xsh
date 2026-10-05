@@ -346,15 +346,52 @@ entry instead:
 - Parameter types may be `Str`, `Int`, `UInt`, `Bool`, `Path`, or `Duration`,
   or aliases of them. `Bool` options accept a bare switch or an explicit value.
   Defaulted `List` options append repeated occurrences.
-- Defaults must be constants; reading them runs no code.
+- A default is a constant or any other expression. Reading a constant runs no
+  code, and help shows its value. A *computed* default (`repo: Path =
+  default_repo()`) is the entry's own parameter default (9.1): it is checked
+  against the parameter's type, its effects are charged to the entry, and it
+  is evaluated only when the command line does not give the option, after the
+  command line is parsed and the top-level statements have run, immediately
+  before the body. Its failure is an ordinary failure of the script. Help
+  shows its source text and does not evaluate it.
 - `-h` and `--help` print generated help (types, defaults, and doc comments)
   and exit `0`. Unknown or duplicate options and malformed values print usage
   and exit `2`. Both happen before any top-level statement or module
   initializer runs.
 - `cli main` is not callable or exportable, appears only at the entry script's
-  top level, and cannot coexist with `proc main`.
+  top level, and cannot coexist with `proc main`. A `cli` entry in an imported
+  module is a check error (`check.cli-entry`).
 
-For subcommands, dynamic schemas, or other advanced policies, use `cli.parse`,
+A script with several commands declares one entry per command, each named by a
+subcommand path after `main`:
+
+```xsh
+{{.spec.cli_subcommands.source}}
+```
+
+- Each entry is a `cli main` in every respect above: its own positionals,
+  options, defaults, effects, doc comment, and generated help.
+- A path word is an identifier, typed on the command line in kebab case as
+  options are (`sync_all` is `sync-all`). A keyword cannot be a path word.
+- The leading arguments select the entry: words are read while they continue
+  a declared path, and the rest of the command line is parsed by the entry
+  reached (`tool repo check --repo /srv`).
+- `-h` or `--help` in place of a path word prints a listing of the entries
+  under the words read so far, each with the first line of its doc comment,
+  and exits `0`; at the top it starts with the script's module doc comment. A
+  missing or unknown word prints the same listing after the error and exits
+  `2`. As for a single entry, this happens before any top-level statement
+  runs.
+- A bare `cli main(...)` cannot be declared beside subcommand entries, two
+  entries cannot have the same path, and a path cannot continue another
+  entry's path (a word names an entry or a group, not both). `help` is
+  reserved. Each is `check.cli-entry`:
+
+```xsh
+{{.spec.cli_entry_beside_subcommands.source}}
+```
+
+For dynamic schemas or other advanced policies, use `cli.parse`,
 `cli.parse_full`, and `cli.commands`. A `cli.parse` error propagated with `?`
 at the top level prints usage and exits `2` (or `0` for help) without a
 traceback.
@@ -3979,7 +4016,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `diff`, `patch` | unified diffs and confined patch application |
 | `net`, `dns` | HTTP(S) requests, downloads, uploads, batches, pooled clients, `NetJob`; DNS lookups |
 | `time` | clock, `sleep`, measurement, duration helpers |
-| `cli` | argument parsing beyond `cli main` |
+| `cli` | argument parsing beyond `cli main` and its subcommand entries |
 | `module` | runtime module loading |
 | `error` | `error.fail` validation failures |
 | `map`, `set` | empty-map factory; `set.empty()` and `set.from(items)`, which build a `Set[T]` where one is expected and otherwise the legacy `Map[Bool]` string set that `set.add` and `set.remove` update |

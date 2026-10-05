@@ -201,8 +201,24 @@ pub(crate) struct CompactIndexedRunPlan {
 
 #[derive(Clone)]
 struct SignatureCliRunPlan {
-    parser: crate::modules::cli::PreparedSignatureCli,
+    commands: crate::modules::cli::PreparedSignatureCommands,
+    /// The entry function of each command, in the commands' order.
+    functions: Vec<Name>,
     argv: Vec<String>,
+}
+
+/// The text of a doc comment block without its `##` or `#!` markers.
+fn doc_comment_text(block: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            line.trim_start()
+                .trim_start_matches('#')
+                .trim_start_matches('!')
+                .trim_start()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Clone)]
@@ -4554,34 +4570,57 @@ impl Evaluator {
                 DiagnosticCode::CompactStatementCount,
             ));
         }
-        let signature_cli = declarations
-            .cli_entry
-            .as_ref()
-            .map(|entry| {
-                debug_assert_eq!(program.arena.function_def(entry.definition).name, "main");
+        let signature_cli = if declarations.cli_entries.is_empty() {
+            None
+        } else {
+            let source_text = |span: Span| {
+                self.sources
+                    .get(span.source_id)
+                    .and_then(|source| source.text().get(span.start()..span.end()))
+            };
+            let module_doc = program
+                .module_doc_for(program.statements)
+                .and_then(source_text)
+                .map(doc_comment_text)
+                .unwrap_or_default();
+            let mut commands = Vec::new();
+            let mut functions = Vec::new();
+            for entry in &declarations.cli_entries {
+                let span = program.arena.stmt(entry.statement).span;
                 let parameters = entry
                     .parameters
                     .iter()
                     .map(|parameter| {
-                        let default = parameter
-                            .default
-                            .as_ref()
-                            .map(|constant| {
+                        use crate::modules::cli::SignatureDefault;
+                        use crate::sema::cli_entry::CliEntryDefault;
+                        let default = match &parameter.default {
+                            None => None,
+                            Some(CliEntryDefault::Constant(constant)) => {
                                 debug_assert!(constant.matches_data_type(&parameter.ty));
-                                lower::lower_literal_constant(
+                                let value = lower::lower_literal_constant(
                                     constant,
                                     Some(&declarations.wire_enums),
                                 )
                                 .map(LoweredValue::into_value)
                                 .ok_or_else(|| {
                                     compact_lowerability_diagnostic(
-                                        program.arena.stmt(entry.statement).span,
+                                        span,
                                         "a prepared CLI default cannot be represented",
                                         DiagnosticCode::CompactCliDefault,
                                     )
-                                })
-                            })
-                            .transpose()?;
+                                })?;
+                                Some(SignatureDefault::Value(value))
+                            }
+                            // Help shows the expression as written. A program
+                            // prepared without its text still runs the same.
+                            Some(CliEntryDefault::Computed(expression)) => {
+                                Some(SignatureDefault::Computed(
+                                    source_text(program.arena.expr(*expression).span)
+                                        .unwrap_or("computed")
+                                        .to_string(),
+                                ))
+                            }
+                        };
                         Ok(crate::modules::cli::SignatureParameter {
                             name: parameter.name.to_string(),
                             type_name: parameter.parser_type.clone(),
@@ -4590,27 +4629,18 @@ impl Evaluator {
                         })
                     })
                     .collect::<Result<Vec<_>, Diagnostic>>()?;
-                let span = program.arena.stmt(entry.statement).span;
-                let description = program
+                let entry_doc = program
                     .cli_entry_doc(entry.statement)
-                    .or_else(|| program.module_doc_for(program.statements))
-                    .and_then(|doc| {
-                        self.sources
-                            .get(doc.source_id)
-                            .and_then(|source| source.text().get(doc.start()..doc.end()))
-                    })
-                    .map(|text| {
-                        text.lines()
-                            .map(|line| {
-                                line.trim_start()
-                                    .trim_start_matches('#')
-                                    .trim_start_matches('!')
-                                    .trim_start()
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-                    .unwrap_or_default();
+                    .and_then(source_text)
+                    .map(doc_comment_text);
+                // The only entry of a script speaks for the script, so it
+                // falls back to the module's description. A subcommand's help
+                // is its own; the module's description heads the listing.
+                let description = match &entry_doc {
+                    Some(doc) => doc.clone(),
+                    None if entry.path.is_empty() => module_doc.clone(),
+                    None => String::new(),
+                };
                 let parser = crate::modules::cli::PreparedSignatureCli::prepare(
                     parameters,
                     description,
@@ -4623,35 +4653,59 @@ impl Evaluator {
                         DiagnosticCode::CheckCliEntry,
                     )
                 })?;
-                let argv = self
-                    .lookup(Name::intern("args"))
-                    .and_then(|binding| match &binding.value {
-                        Value::List(values) => values
-                            .iter()
-                            .map(|value| match value {
-                                Value::Str(text) => Some(text.to_string()),
-                                _ => None,
-                            })
-                            .collect::<Option<Vec<_>>>(),
-                        _ => None,
-                    })
-                    .ok_or_else(|| {
-                        compact_lowerability_diagnostic(
-                            span,
-                            "incoming script arguments must be a List[Str]",
-                            DiagnosticCode::CompactCliArgs,
-                        )
-                    })?;
-                Ok(SignatureCliRunPlan { parser, argv })
+                commands.push(crate::modules::cli::SignatureCommand {
+                    path: entry.path.clone(),
+                    summary: entry_doc
+                        .as_deref()
+                        .and_then(|doc| doc.lines().next())
+                        .unwrap_or_default()
+                        .to_string(),
+                    parser,
+                });
+                functions.push(program.arena.function_def(entry.definition).name);
+            }
+            let span = program
+                .arena
+                .stmt(declarations.cli_entries[0].statement)
+                .span;
+            let argv = self
+                .lookup(Name::intern("args"))
+                .and_then(|binding| match &binding.value {
+                    Value::List(values) => values
+                        .iter()
+                        .map(|value| match value {
+                            Value::Str(text) => Some(text.to_string()),
+                            _ => None,
+                        })
+                        .collect::<Option<Vec<_>>>(),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    compact_lowerability_diagnostic(
+                        span,
+                        "incoming script arguments must be a List[Str]",
+                        DiagnosticCode::CompactCliArgs,
+                    )
+                })?;
+            Some(SignatureCliRunPlan {
+                commands: crate::modules::cli::PreparedSignatureCommands {
+                    commands,
+                    description: module_doc,
+                    span,
+                },
+                functions,
+                argv,
             })
-            .transpose()?;
+        };
         let auto_main_required = signature_cli.is_some()
             || compact_root_proc_main_requires_auto_call_indexed(program, &root, &indexed)?;
+        let entry_functions = signature_cli
+            .as_ref()
+            .map_or_else(|| vec![Name::intern("main")], |cli| cli.functions.clone());
         if auto_main_required
-            && !indexed.contains_function(
-                LoweredFunctionKey::Name(Name::intern("main")),
-                LoweredFunctionKind::Proc,
-            )
+            && !entry_functions.iter().all(|name| {
+                indexed.contains_function(LoweredFunctionKey::Name(*name), LoweredFunctionKind::Proc)
+            })
         {
             let span = root
                 .iter()
@@ -4864,21 +4918,37 @@ impl Evaluator {
         let mut diagnostics = Vec::new();
         let mut compact_indexed_defers = Vec::new();
         let mut main_arguments = plan.compact_auto_main_args.clone();
+        let mut main_function = Name::intern("main");
+        // Options with a computed default that the command line did not
+        // give: the entry evaluates those defaults itself, as any call that
+        // omits an argument does, so their failures and effects are its own.
+        let mut main_omitted = Vec::new();
         if let Some(cli) = &plan.signature_cli {
-            match cli.parser.parse(&cli.argv, &self.command_name) {
-                Ok(arguments) => main_arguments = arguments,
+            match cli.commands.parse(&cli.argv, &self.command_name) {
+                Ok((command, arguments)) => {
+                    main_function = cli.functions[command];
+                    main_omitted = arguments
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, argument)| argument.is_none().then_some(index))
+                        .collect();
+                    main_arguments = arguments
+                        .into_iter()
+                        .map(|argument| argument.unwrap_or(Value::Null))
+                        .collect();
+                }
                 Err(error) => {
                     let error = Value::Error(Box::new(error));
                     if let Some(stop_status) = self.handle_cli_parse_stop(&error) {
                         status = stop_status;
                     } else {
                         diagnostics.push(runtime_diagnostic(
-                            cli.parser.span,
+                            cli.commands.span,
                             "CLI argument binding failed",
                             DiagnosticCode::RuntimeCliArgs,
                         ));
                         traceback =
-                            Some(self.traceback_for_value(cli.parser.span, "cli.parse", &error));
+                            Some(self.traceback_for_value(cli.commands.span, "cli.parse", &error));
                     }
                     stopped = true;
                 }
@@ -5104,10 +5174,11 @@ impl Evaluator {
 
         if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
-            let call_result = self.call_indexed_direct(
-                LoweredFunctionKey::Name(Name::intern("main")),
+            let call_result = self.call_indexed_direct_omitting(
+                LoweredFunctionKey::Name(main_function),
                 LoweredFunctionKind::Proc,
                 &main_arguments,
+                &main_omitted,
                 zero,
             );
             if let Some(call_result) = call_result {

@@ -126,11 +126,8 @@ impl<'a> Parser<'a> {
                     arena.push_expr_statement(value, self.span(start, end));
                     return Some(());
                 }
-                if self.current_name().is_some_and(|name| name == "cli")
-                    && self.peek_tag(1) == Some(TokenTag::Ident)
-                    && self.peek_tag(2) == Some(TokenTag::LParen)
-                {
-                    self.parse_function_arena_only(start, true, arena)?;
+                if self.lookahead_is_cli_entry() {
+                    self.parse_cli_entry_arena_only(start, arena)?;
                     arena.mark_last_function_as_cli_main();
                     if self.block_depth != 0 {
                         self.diagnostic_at(
@@ -1216,6 +1213,41 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
+    /// `cli NAME(` opens a signature CLI entry, and so does `cli main` with
+    /// subcommand words before the `(`. Any other run of words after `cli`
+    /// stays a command statement.
+    fn lookahead_is_cli_entry(&self) -> bool {
+        if !self.current_name().is_some_and(|name| name == "cli")
+            || self.peek_tag(1) != Some(TokenTag::Ident)
+        {
+            return false;
+        }
+        let mut words = 1;
+        while self.peek_tag(words + 1) == Some(TokenTag::Ident) {
+            words += 1;
+        }
+        self.peek_tag(words + 1) == Some(TokenTag::LParen)
+            && (words == 1 || self.peek_name(1).is_some_and(|name| name == "main"))
+    }
+
+    /// The entry is a proc whose name is its words joined by single spaces:
+    /// `main` alone, or `main repo check` for a subcommand entry. No
+    /// identifier contains a space, so a subcommand entry cannot be named by
+    /// a call or collide with a declaration.
+    fn parse_cli_entry_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        self.bump();
+        let mut name = self.expect_proc_ident("expected proc name")?.to_string();
+        while self.current_tag() == TokenTag::Ident {
+            name.push(' ');
+            name.push_str(&self.expect_ident("expected subcommand name")?.as_str());
+        }
+        self.parse_function_signature_and_body_arena_only(start, Name::intern(&name), true, arena)
+    }
+
     fn parse_function_arena_only(
         &mut self,
         start: usize,
@@ -1228,6 +1260,16 @@ impl<'a> Parser<'a> {
         } else {
             self.expect_ident("expected pure function name")?
         };
+        self.parse_function_signature_and_body_arena_only(start, name, proc_def, arena)
+    }
+
+    fn parse_function_signature_and_body_arena_only(
+        &mut self,
+        start: usize,
+        name: Name,
+        proc_def: bool,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
         if self.consume(TokenKindMatch::LParen).is_none() {
             self.diagnostic_here(
                 "function signatures are required",

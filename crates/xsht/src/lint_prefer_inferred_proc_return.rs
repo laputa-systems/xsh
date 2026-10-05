@@ -49,6 +49,8 @@ impl Linter<'_> {
             || def.return_ty_defaulted
             || def.test_declaration
             || def.name == "main"
+            // A subcommand `cli main` entry is named `main WORD...`.
+            || def.name.as_str().starts_with("main ")
         {
             return;
         }

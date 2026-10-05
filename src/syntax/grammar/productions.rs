@@ -1092,6 +1092,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 w("cli"),
                 w("main"),
+                star(ident()),
                 signature(),
                 opt(r("effects")),
                 opt(returns()),
