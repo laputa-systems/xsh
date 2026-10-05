@@ -123,14 +123,14 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
         if ch != '%' { out.push(ch); continue; }
         let mut flags = String::new();
         while let Some(&(_, c)) = chars.peek() {
-            if "_-0^#".contains(c) { flags.push(c); chars.next(); } else { break; }
+            if "_-0^#+".contains(c) { flags.push(c); chars.next(); } else { break; }
         }
         let mut width = String::new();
         while let Some(&(_, c)) = chars.peek() {
             if c.is_ascii_digit() { width.push(c); chars.next(); } else { break; }
         }
         let requested = if width.is_empty() { None } else { Some(width.parse::<usize>().map_err(|_| "date format width too large")?) };
-        if requested.is_some_and(|w| w > FORMAT_LIMIT) { return Err("date format width too large".into()); }
+        if requested.is_some_and(|w| w > FORMAT_LIMIT) { return Err(std::format!("format modifier width '{width}' is too large for specifier '%{}'", chars.peek().map(|&(_, c)| c).unwrap_or('?'))); }
         let mut colons = 0;
         while chars.peek().is_some_and(|&(_, c)| c == ':') { chars.next(); colons += 1; }
         let Some((mut end, mut spec)) = chars.next() else { out.push_str(&format[start..]); break; };
@@ -156,12 +156,37 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
                 else { std::format!("{sign}{:02}", n / 3600) }
             }
             (_, 1..) => format[start..end + spec.len_utf8()].into(),
-            _ if !"aAbBcCdDeFgGhHIjklmMnprRStTuUVwWxXyYzZ%+".contains(spec) => format[start..end + spec.len_utf8()].into(),
-            _ => strftime_piece(&tm, &format[start..end + spec.len_utf8()])?,
+            _ if !"aAbBcCdDeFgGhHIjklmMnpPrRStTuUVwWxXyYzZ%+".contains(spec) => format[start..end + spec.len_utf8()].into(),
+            ('P', 0) => strftime_piece(&tm, "%p")?.to_lowercase(),
+            ('k', 0) => std::format!("{:2}", tm.tm_hour),
+            ('l', 0) => std::format!("{:2}", (tm.tm_hour + 11) % 12 + 1),
+            _ => strftime_piece(&tm, &std::format!("%{spec}"))?,
         };
         if flags.contains('^') { piece = piece.to_uppercase(); }
-        if spec != 'N' && matches!(spec, 's' | 'q') && !flags.contains('-') {
-            if let Some(n) = requested { if piece.len() < n { piece = std::format!("{}{piece}", if flags.contains('_') { " " } else { "0" }.repeat(n - piece.len())); } }
+        else if flags.contains('#') {
+            piece = if matches!(spec, 'p' | 'P' | 'Z') { piece.to_lowercase() } else { piece.to_uppercase() };
+        }
+        if spec != 'N' && colons == 0 {
+            let numeric = "CdeGgHIkjlmMSuUVwWyYs q".contains(spec);
+            let padding = flags.chars().rev().find(|c| "_-0+".contains(*c));
+            let default_width = piece.len();
+            if numeric && (padding.is_some() || requested.is_some()) {
+                let negative = piece.starts_with('-');
+                let digits = piece.trim_start_matches([' ', '0', '-']);
+                piece = if digits.is_empty() { "0".into() } else { digits.into() };
+                if negative { piece.insert(0, '-'); }
+            }
+            if padding != Some('-') {
+                let n = requested.unwrap_or(default_width);
+                let force_sign = padding == Some('+') && matches!(spec, 'Y' | 'G') && requested.is_some_and(|w| w > 4) && !piece.starts_with('-');
+                if force_sign { piece.insert(0, '+'); }
+                if piece.len() < n {
+                    let pad = if padding == Some('_') || (padding.is_none() && (matches!(spec, 'e' | 'k' | 'l') || !numeric)) { ' ' } else { '0' };
+                    let fill = pad.to_string().repeat(n - piece.len());
+                    if pad == '0' && (piece.starts_with('+') || piece.starts_with('-')) { piece.insert_str(1, &fill); }
+                    else { piece.insert_str(0, &fill); }
+                }
+            }
         }
         if out.len().saturating_add(piece.len()) > FORMAT_LIMIT { return Err("formatted date too large".into()); }
         out.push_str(&piece);
@@ -239,13 +264,18 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
                 "fortnight" => Some(1209600), _ => None,
             };
             if scale.is_some() || unit == "month" || unit == "year" {
-                let (count, prefix_end) = if end >= 2 {
+                let (count, mut prefix_end) = if end >= 2 {
                     if let Ok(n) = words[end - 2].parse::<i64>() { (n, end - 2) }
                     else if words[end - 2].eq_ignore_ascii_case("next") { (1, end - 2) }
                     else if words[end - 2].eq_ignore_ascii_case("last") { (-1, end - 2) }
                     else if words[end - 2].eq_ignore_ascii_case("this") { (0, end - 2) }
                     else { (1, end - 1) }
                 } else { (1, 0) };
+                let mut count = count;
+                if prefix_end > 0 && matches!(words[prefix_end - 1], "+" | "-") {
+                    if words[prefix_end - 1] == "-" { count = count.checked_neg().ok_or("relative date overflow")?; }
+                    prefix_end -= 1;
+                }
                 let count = count.checked_mul(if ago { -1 } else { 1 }).ok_or("relative date overflow")?;
                 let prefix = words[..prefix_end].join(" ");
                 let prefix_relative = words.get(prefix_end.saturating_sub(1)).is_some_and(|word| {
@@ -273,7 +303,7 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     }
     let mut input = text.to_owned();
     let mut explicit_offset = None;
-    for (suffix, offset) in [(" AWST", 28800), (" ACST", 34200), (" ACDT", 37800), (" AEST", 36000), (" AEDT", 39600), (" WET", 0), (" WEST", 3600), (" CET", 3600), (" CEST", 7200), (" MET", 3600), (" MEST", 7200), (" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
+    for (suffix, offset) in [(" MEZ", 3600), (" MESZ", 7200), (" KST", 32400), (" JST", 32400), (" AWST", 28800), (" ACST", 34200), (" ACDT", 37800), (" AEST", 36000), (" AEDT", 39600), (" WET", 0), (" WEST", 3600), (" CET", 3600), (" CEST", 7200), (" MET", 3600), (" MEST", 7200), (" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
         if input.eq_ignore_ascii_case(suffix.trim()) { input.clear(); explicit_offset = Some(offset); break; }
         if let Some(rest) = input.strip_suffix(suffix) { input = rest.trim_end().into(); explicit_offset = Some(offset); break; }
     }
@@ -298,8 +328,8 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
         if let Some(pos) = input.char_indices().rev().find_map(|(i,c)| ((c == '+' || c == '-') && i > 9).then_some(i)) {
             let tail = &input[pos + 1..];
             let digits = tail.replace(':', "");
-            if matches!(digits.len(), 2 | 4 | 6) && digits.bytes().all(|b| b.is_ascii_digit()) {
-                let h = digits[..2].parse::<i64>().unwrap();
+            if matches!(digits.len(), 1 | 2 | 4 | 6) && digits.bytes().all(|b| b.is_ascii_digit()) {
+                let h = digits[..digits.len().min(2)].parse::<i64>().unwrap();
                 let m = if digits.len() >= 4 { digits[2..4].parse::<i64>().unwrap() } else { 0 };
                 let s = if digits.len() == 6 { digits[4..].parse::<i64>().unwrap() } else { 0 };
                 if h > 23 || m > 59 || s > 59 { return Err("invalid timezone offset".into()); }
@@ -330,7 +360,7 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     }
     let text_c = std::ffi::CString::new(input.as_str()).map_err(|_| "date contains NUL")?;
     let current = calendar(now / NANOS_PER_SECOND, utc)?;
-    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y %I:%M%p", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
+    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y %I:%M%p", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%I:%M%p", "%I%p", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
     for pattern in formats {
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         tm.tm_year = current.tm_year; tm.tm_mon = current.tm_mon; tm.tm_mday = current.tm_mday;

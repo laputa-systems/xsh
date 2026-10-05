@@ -14,7 +14,17 @@ proc emit_date(text: Str, format: Str, utc: Bool) [time, process, env, io] -> Bo
   false
 }
 
-proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
+proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
+  var argv: List[Str] = []
+  for item in raw {
+    if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
+      var rest = item.byte_slice(1)
+      while rest != "" {
+        let first = rest.byte_slice(0, 1)
+        if first == "u" or first == "R" { argv += [f"-{first}"]; rest = rest.byte_slice(1) } else { argv += [f"-{rest}"]; break }
+      }
+    } else { argv += [item] }
+  }
   var utc = false
   var date = "now"
   var file = ""
@@ -22,7 +32,8 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
   var setting = false
   var format = "%a %b %e %H:%M:%S %Z %Y"
   var specified_format = false
-  var sources = 0
+  var source = ""
+  var resolution = false
   var index = 0
   var operands = false
   while index < argv.len() {
@@ -35,14 +46,11 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
     }
     if ! operands and arg == "--version" { gnu.version("date"); return }
     if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal" or arg == "--uct" or arg == "--uni" or arg == "--u") { utc = true; continue }
-    if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822") { format = "%a, %d %b %Y %H:%M:%S %z"; continue }
-    if ! operands and arg == "--resolution" { let resolution = time.clock_resolution()?
-      let whole = resolution / 1000000000
-      let fraction = time.format(resolution % 1000000000, "%N", utc: true)?
-      gnu.write_text(f"{whole}.{fraction}\n"); return }
-    if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg == "--i" or arg.starts_with("--i=") or arg.starts_with("--rfc-3339")) {
+    if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822" or arg == "--rfc-e") { format = "%a, %d %b %Y %H:%M:%S %z"; continue }
+    if ! operands and arg == "--resolution" { resolution = true; continue }
+    if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg == "--i" or arg.starts_with("--i=") or arg.starts_with("--rfc-3339") or arg.starts_with("--rfc-3=")) {
       var spec = "date"
-      var rfc = arg.starts_with("--rfc-3339")
+      var rfc = arg.starts_with("--rfc-3339") or arg.starts_with("--rfc-3=")
       if arg.starts_with("-I") { spec = arg.byte_slice(2) } else if arg.find("=") != null { spec = arg.split("=", maxsplit: 1)[1] } else if rfc { gnu.usage_error("option '--rfc-3339' requires an argument") }
       if spec == "" { spec = "date" }
       let separator = if rfc { " " } else { "T" }
@@ -62,23 +70,36 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
         if index >= argv.len() { gnu.usage_error(f"option {gnu.quote(arg)} requires an argument") }
         value = argv[index]; index += 1
       }
-      sources += 1
+      let kind = if arg.starts_with("-f") or arg.starts_with("--file") { "file" } else if arg.starts_with("-r") or arg.starts_with("--reference") { "reference" } else if arg.starts_with("-s") or arg.starts_with("--set") { "set" } else { "date" }
+      if source != "" and source != kind { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
+      source = kind
       if arg.starts_with("-f") or arg.starts_with("--file") { file = value } else if arg.starts_with("-r") or arg.starts_with("--reference") { reference = value } else { date = value; setting = arg.starts_with("-s") or arg.starts_with("--set") }
       continue
     }
     if arg.starts_with("+") {
       if specified_format { gnu.extra_operand(arg) }
       format = arg.byte_slice(1); specified_format = true
-    } else if ! operands and arg.starts_with("-") { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") } else { gnu.usage_error(f"invalid date {gnu.quote(arg)}") }
+    } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") } else {
+      if source != "" {
+        gnu.error(f"the argument {arg} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
+        exit 1
+      }
+      source = "set"; date = arg; setting = true
+    }
   }
-  if sources > 1 { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
-  if reference != "" {
+  if resolution {
+    if source != "" { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
+    let nanos = time.clock_resolution()?
+    if specified_format or format != "%a %b %e %H:%M:%S %Z %Y" { gnu.write_text(f"{time.format(nanos, format, utc:)?}\n") } else { gnu.write_text(f"{nanos / 1000000000}.{time.format(nanos % 1000000000, "%N", utc: true)?}\n") }
+    return
+  }
+  if source == "reference" {
     match fs.stat(fp"{reference}", follow_symlinks: true) {
       Ok(meta) => { gnu.write_text(f"{time.format(meta.mtime_ns, format, utc:)?}\n"); return }
       Err(failure) => { gnu.name_error(reference, failure); exit 1 }
     }
   }
-  if file != "" {
+  if source == "file" {
     var contents = ""
     match gnu.read_operand(file) {
       Ok(data) => {
