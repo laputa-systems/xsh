@@ -233,8 +233,8 @@ print done
 
 test test_pattern_predicate_lint_keeps_a_declined_fix_declined_after_another_fix { |ctx|
   # The `_` arm has a fix and the boolean match does not, because of the
-  # comment. Formatting the result would lift the comment out of the match
-  # and let a second round rewrite the match across it.
+  # comment. The fixed file is formatted; the comment must stay before its
+  # arm, or a second round would rewrite the match across it.
   let source = """let value = Ok(7)
 let selected = match value {
   # Preserve this explanation.
@@ -247,7 +247,7 @@ print done
 let selected = match value {
   # Preserve this explanation.
   Ok(_) => true,
-  else => false
+  else => false,
 }
 print done
 """
@@ -257,6 +257,42 @@ print done
   let second = run.capture --text "xsht" lint --fix $candidate ?
   assert candidate.read_text()? == expected
   assert "lint.boolean-pattern-test" in second.stderr
+}
+
+test test_formatter_keeps_comments_with_their_match_arms { |ctx|
+  # A comment before an arm, after an arm on its line, or before the closing
+  # brace stays there. A braced arm whose comment has a line of its own keeps
+  # its braces; unbraced, the comment would follow the arm it describes.
+  let source = r"""pure pick(n: Int, ready: Bool) -> Int {
+  let label = match n {
+    # The common case.
+    0 => "zero", # cheap
+    # Everything else.
+    else => "many",
+    # Nothing follows.
+  }
+  match n {
+    3 => {
+      # Only when ready.
+      return 5 when ready
+    }
+    4 => {
+      return 6 when ready
+      # Otherwise fall through.
+    }
+    5 => return 7 when ready # same line
+    else => {}
+  }
+
+  label.byte_len()
+}
+
+print ${pick(1, true)}
+"""
+  let candidate = test.temp_file(ctx, name: "match-arm-comments.xsh", contents: bytes.from_text(source))?
+  let formatted = run.capture --text "xsht" fmt $candidate ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  assert candidate.read_text()? == source
 }
 
 test test_pattern_predicates_resolve_qualified_constructor_type_and_facet_names { |ctx|

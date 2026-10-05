@@ -82,9 +82,8 @@ reports and fixes; an unknown code is a usage error that suggests the nearest
 selectable code. A scoped fix splices its
 exact edits with no formatting pass (`apply_cst_fixes`), while unrestricted
 `--fix` formats the rewritten file. A fix is declined when a comment lies inside
-its span, so when formatting would move a comment between two other words of
-code the round keeps its exact edits unformatted (`edit.rs::comment_anchors`);
-otherwise a later round could apply the declined fix across the moved comment.
+its span; the formatter keeps a comment with the match arm it precedes, so a
+later round finds it in the same place and declines again.
 A fix round is accepted when the rewritten file has no check diagnostic the
 file did not have before, whether or not `--only` selects its code. SIGINT or
 SIGTERM is observed between files and between fix rounds; fixed files are

@@ -1427,7 +1427,10 @@ impl<'a> Writer<'a> {
             output.push_str(" => ");
             let block = self.arena.block(arm.block);
             let stmts: Vec<StmtId> = self.arena.stmt_ids(block.statements).collect();
-            if stmts.len() == 1 && block.params.is_empty() {
+            if stmts.len() == 1
+                && block.params.is_empty()
+                && !self.arm_braces_hold_comment_line(arm.block, stmts[0])
+            {
                 let stmt_id = stmts[0];
                 let stmt = self.arena.stmt(self.layout_stmt(stmt_id));
                 let definition = matches!(
@@ -1473,6 +1476,24 @@ impl<'a> Writer<'a> {
         self.write_closing_comments(close, indent + 1, output);
         self.write_indent(indent, output);
         output.push('}');
+    }
+
+    /// Whether an arm's braces hold a comment on a line of its own beside
+    /// the one statement `only`. Such an arm keeps its braces: written
+    /// unbraced, the comment would land after the arm it describes.
+    fn arm_braces_hold_comment_line(&self, block: BlockId, only: StmtId) -> bool {
+        let block = self.arena.span(self.arena.block(block).span);
+        let stmt = self.arena.stmt(only).span;
+        // A statement's span can own the newline that ends its line.
+        let stmt_end = self.text_end(stmt);
+        self.has_comment_in(block.start(), stmt.start())
+            || self.comments[self.next_comment..].iter().any(|comment| {
+                (stmt_end..block.end()).contains(&comment.span.start())
+                    && self
+                        .source
+                        .get(stmt_end..comment.span.start())
+                        .is_some_and(|gap| gap.contains('\n'))
+            })
     }
 
     fn write_assert(&mut self, condition: ExprId, message: Option<ExprId>, output: &mut String) {
@@ -3484,10 +3505,14 @@ impl<'a> Writer<'a> {
         output.push('}');
     }
 
+    /// Writes a match expression one arm per line. `close` is the offset of
+    /// its closing brace: a comment before an arm stays before that arm, and
+    /// one after the last arm stays inside the braces.
     fn write_match_expr_multiline(
         &mut self,
         value: ExprId,
         arms: xsh::frontend::syntax::arena::ArenaRange,
+        close: usize,
         output: &mut String,
     ) {
         let indent = indent_for_expr(output);
@@ -3501,6 +3526,11 @@ impl<'a> Writer<'a> {
         output.push('\n');
         for index in 0..arms.len() {
             let arm = self.arena.match_expr_arms(arms)[index].clone();
+            let pattern_start = self
+                .arena
+                .span(self.arena.pattern(arm.pattern).span)
+                .start();
+            self.write_comments_before(pattern_start, indent + 1, output);
             self.write_indent(indent + 1, output);
             self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
@@ -3509,8 +3539,11 @@ impl<'a> Writer<'a> {
             }
             output.push_str(" => ");
             self.write_expr_safe_in(arm.value, Context::arm_body(Follow::CLOSE), output);
-            output.push_str(",\n");
+            output.push(',');
+            self.write_trailing_comment(self.arena.span(arm.span).end(), output);
+            output.push('\n');
         }
+        self.write_closing_comments(close, indent + 1, output);
         self.write_indent(indent, output);
         output.push('}');
     }
@@ -4273,7 +4306,8 @@ impl<'a> Writer<'a> {
                 else_value,
             } if !fits => self.write_if_expr_multiline(branches, else_value, output),
             ArenaExprKind::Match { value, arms } if !fits => {
-                self.write_match_expr_multiline(value, arms, output)
+                let close = self.arena.expr(expr_id).span.end().saturating_sub(1);
+                self.write_match_expr_multiline(value, arms, close, output)
             }
             ArenaExprKind::ListComp { qualifiers, .. }
             | ArenaExprKind::MapComp { qualifiers, .. }
@@ -4308,7 +4342,8 @@ impl<'a> Writer<'a> {
                 else_value,
             } => self.write_if_expr_multiline(*branches, *else_value, output),
             ArenaExprKind::Match { value, arms } => {
-                self.write_match_expr_multiline(*value, *arms, output)
+                let close = self.arena.expr(expr_id).span.end().saturating_sub(1);
+                self.write_match_expr_multiline(*value, *arms, close, output)
             }
             ArenaExprKind::ListComp { .. } => self.write_list_comp_multiline(expr_id, output),
             ArenaExprKind::MapComp { .. } => self.write_map_comp_multiline(expr_id, output),
