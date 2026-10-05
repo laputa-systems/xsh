@@ -154,7 +154,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-set` | Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in) |
 | `lint.prefer-collect` | Build a list that is declared empty and then only appended to with `collect { ... }` |
 | `lint.prefer-wait-until` | Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit |
-| `lint.legacy-set-call` | Note a `set.empty`, `set.from`, `set.add`, or `set.remove` call in its `Map[Str, Bool]` form that `lint.prefer-set` has no fix for; a `Set[T]` has `.add` and `.remove` |
 | `lint.redundant-discard` | Remove `let _ =` from a propagated call whose value the registry marks discardable, such as `test.expect(...)?` |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
@@ -164,3 +163,4 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `check.redundant-parens` | Remove parentheses that do not change the parse |
 | `check.removed-abort` | Rewrite a call of the removed `abort(STATUS)` as the statement `exit STATUS` |
 | `check.removed-fs-function` | Rewrite a call of a removed `fs` function as the `Path` method of the same name |
+| `check.removed-set-function` | Rewrite a call of the removed `set.add(set, item)` or `set.remove(set, item)` as the `Set[T]` method `set.add(item)` or `set.remove(item)` |

@@ -345,12 +345,10 @@ Regex compilation, matching, captures, and replacement.
 
 ### `set`
 
-String-key set helpers backed by Map[Bool].
+Set constructors.
 
-- `set.add(set: Map[Bool], item: Str) -> Map[Bool]` — Adds or removes one string membership entry.
-- `set.empty() -> Map[Bool]` — Creates an empty string-key set.
-- `set.from(items: List[Str]) -> Map[Bool]` — Builds a set from a list of strings.
-- `set.remove(set: Map[Bool], item: Str) -> Map[Bool]` — Adds or removes one string membership entry.
+- `set.empty() -> Set[T]` — Creates the empty set.
+- `set.from(items: List[T]) -> Set[T]` — Builds a set from a list.
 
 ### `shlex`
 

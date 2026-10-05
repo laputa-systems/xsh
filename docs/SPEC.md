@@ -841,8 +841,17 @@ print ${joined.len()} ${numbers.len()} ${less.len()} ${none.len()} ${one.len()} 
 `xsht lint` rewrites a local `Map[K, Bool]` that only ever stores `true` and
 is read only through `in`, `not in`, `len()`, `is_empty()`, and `keys()` to a
 `Set[K]` (`lint.prefer-set`), and on request notes every other
-`Map[K, Bool]`, where a stored `false` may mean something. A `set` module
-call left in its `Map[Str, Bool]` form is noted (`lint.legacy-set-call`).
+`Map[K, Bool]`, where a stored `false` may mean something.
+
+The `set` module has the two constructors. `set.empty()` takes its element
+type from where it is written, so it needs an expected `Set[T]`: an annotated
+binding, a parameter, a field, or a return type (`check.local-inference`
+anywhere else). `set.from(items)` holds the elements of a list once each; its
+element type is the expected set's, or the list's when none is expected. The
+functions `set.add(set, item)` and `set.remove(set, item)`, which updated a
+`Map[Str, Bool]` before there were sets, are gone: a call of either is
+`check.removed-set-function`, and where the first argument is a set the
+diagnostic carries the rewrite to the method, `set.add(item)`.
 
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
@@ -4938,7 +4947,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `cli` | argument parsing beyond `cli main` and its subcommand entries |
 | `module` | runtime module loading |
 | `error` | `error.fail` validation failures |
-| `map`, `set` | empty-map factory; `set.empty()` and `set.from(items)`, which build a `Set[T]` where one is expected and otherwise the legacy `Map[Bool]` string set that `set.add` and `set.remove` update |
+| `map`, `set` | empty-map factory; the set constructors `set.empty()` and `set.from(items)` (4.5) |
 | `system`, `cpu`, `user`, `group` | host identity and resources |
 | `unix`, `linux`, `elf` | privileged and platform-specific host operations, ELF inspection |
 | `mime`, `shlex`, `tui`, `utils` | MIME lookup, shell quoting for display, terminal styling, process-scoped cache |
