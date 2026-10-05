@@ -97,6 +97,21 @@ pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
   return [] when total == 0
   return [line] when layout.mode == "line"
 
+  if let Ok(text) = line.utf8() {
+    if layout.mode == "blank" {
+      let words = [bytes.from_text(hit.text) for hit in rx"[^ \t\n]+".find(text)]
+
+      return [] when words.len() == 0
+      return words + [b""] when text.ends_with(" ") or text.ends_with("\t") or text.ends_with("\n")
+
+      return words
+    }
+
+    if let Ok(mark) = layout.sep.utf8() {
+      return [bytes.from_text(part) for part in text.split(mark)]
+    }
+  }
+
   var out: List[Bytes] = []
 
   if layout.mode == "sep" {
