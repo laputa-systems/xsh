@@ -57,6 +57,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "developer tooling rewrites user-supplied source paths",
     ),
     (
+        "crates/xsht/src/stats.rs",
+        "runtime stats writes the report path supplied on its command line",
+    ),
+    (
         "crates/xsht/src/cli/trace.rs",
         "developer tooling reads trace paths",
     ),
@@ -67,10 +71,6 @@ const ALLOWED: &[(&str, &str)] = &[
     (
         "src/docs.rs",
         "documentation generation operates on repository paths",
-    ),
-    (
-        "src/entrypoints/runtime_stats.rs",
-        "runtime stats writes the report path supplied on its command line",
     ),
     (
         "src/frontend_stats.rs",

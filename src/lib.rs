@@ -41,14 +41,14 @@ pub mod host {
 }
 pub mod frontend;
 pub(crate) mod loader;
-/// Tooling-only allocation counters used by `xsh-frontend-stats`.
+/// Tooling-only allocation counters used by the `xsht` statistics commands.
 pub mod mem_track;
 pub(crate) mod modules;
 pub mod process;
 pub(crate) mod project;
 pub(crate) mod runner;
 pub(crate) mod runtime;
-/// Tooling-only runtime allocation accounting used by `xsh-runtime-stats`.
+/// Tooling-only runtime allocation accounting used by `xsht runtime-stats`.
 pub mod runtime_stats;
 pub(crate) mod sema;
 pub(crate) mod source;

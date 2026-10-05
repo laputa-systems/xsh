@@ -182,7 +182,7 @@ pub fn run_script_with_test_fakes(
 }
 
 /// Run one script with construction, controller, and explicitly spawned worker
-/// allocation phases. This exists solely for `xsh-runtime-stats`; ordinary
+/// allocation phases. This exists solely for `xsht runtime-stats`; ordinary
 /// script execution stays on [`run_script`].
 pub(crate) fn run_script_with_allocation_stats(
     options: RunOptions,

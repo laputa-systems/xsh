@@ -62,7 +62,7 @@ hosts. The same report includes five paired macOS peak-RSS samples from
 dispositions to 12.80 MB, and `text_pad_batch` fell from 14.22 MB to 13.88 MB
 (medians, decimal MB). No language-facing signature changed.
 
-For the three fixed CLI batches, `xsh-runtime-stats` counted 1,338,302,
+For the three fixed CLI batches, `xsh-runtime-stats` (now `xsht runtime-stats`) counted 1,338,302,
 3,492,356, and 1,236,579 execution allocations on the macOS script candidate.
 A 200-iteration control constructing the four-field schema without `cli.parse`
 made only 7,463. A five-second sample of 20,000 small-schema parses found

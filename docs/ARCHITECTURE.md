@@ -17,7 +17,7 @@ tooling in `docs/XSHT.md`, formatter policy in `docs/XSHT-FMT.md`.
 
 | Package | Owns |
 |---|---|
-| `xsh` (root) | the `libxsh` library, the `xsh` binary, the `xsh-test-helper` test child process (`tests/helpers/`, one subcommand per mode), and the `xsh-frontend-stats`/`xsh-runtime-stats` profiling binaries |
+| `xsh` (root) | the `libxsh` library, the `xsh` binary, and the `xsh-test-helper` test child process (`tests/helpers/`, one subcommand per mode) |
 | `crates/xsht` | the `xsht` tooling binary: check, fmt, lint, test, api, trace, grep, refactor, grammar |
 | `crates/xshi` | the `xshi` interactive shell |
 | `crates/xsh-registry` | standard-module signatures, records, API docs, examples, language reference items, and runtime operation IDs |
@@ -409,9 +409,10 @@ and `expectation_annotation`, `Type::from_arena`, and the three in
 
 Change frame layouts, token/arena storage, or instruction encodings only with
 retained-memory, RSS, latency, or stack-depth evidence from
-`xsh-frontend-stats` (`src/frontend_stats.rs`) or `xsh-runtime-stats`
-(`src/runtime_stats.rs`). Only those profiling binaries install
-`mem_track::CountingAllocator`.
+`xsht frontend-stats` (`src/frontend_stats.rs`) or `xsht runtime-stats`
+(`src/runtime_stats.rs`). The `xsht` binary wraps its allocator in
+`mem_track::CountingAllocator`, which counts only after one of those commands
+(`crates/xsht/src/stats.rs`) turns it on; `xsh` and `xshi` never count.
 
 ## Runtime design
 

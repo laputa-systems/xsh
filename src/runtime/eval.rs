@@ -7975,8 +7975,8 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
             .spawn_scoped(scope, || {
                 // The script's execution happens on this thread, so its
                 // allocation traffic is measured here; the diagnostics report
-                // reads it through `mem_track`. Both calls are inert unless a
-                // diagnostics binary installed the counting allocator.
+                // reads it through `mem_track`. Both calls are inert unless the
+                // process turned allocation counting on.
                 crate::mem_track::begin_stage();
                 let result = f();
                 crate::mem_track::record_eval_traffic(crate::mem_track::end_stage());

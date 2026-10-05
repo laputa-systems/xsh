@@ -1,17 +1,18 @@
 use super::common::*;
 
-// `xsh-runtime-stats` owns the counting allocator. The disk-backed fixture
+// `xsht runtime-stats` owns the counting allocator. The disk-backed fixture
 // separates construction from read passes; subtracting one pass from seventeen
 // isolates repeated reads at the same collection size.
 fn read_scaling_allocations(collection: &str, fields: usize, passes: usize) -> (u64, String) {
     let fixture = Path::new(cargo_env!("CARGO_MANIFEST_DIR")).join(format!(
         "tests/fixtures/runtime/{collection}-read-scaling.xsh"
     ));
-    let stats = cargo_env!("CARGO_BIN_EXE_xsh-runtime-stats");
+    let stats = cargo_env!("CARGO_BIN_EXE_xsht");
     let report =
         temp_path(&format!("{collection}-read-scaling-{fields}-{passes}")).with_extension("json");
     let output = std::process::Command::new(stats)
         .args([
+            "runtime-stats",
             "--json",
             report.to_str().unwrap(),
             fixture.to_str().unwrap(),
@@ -25,7 +26,7 @@ fn read_scaling_allocations(collection: &str, fields: usize, passes: usize) -> (
             passes.to_string(),
         )
         .output()
-        .expect("run xsh-runtime-stats over the collection read fixture");
+        .expect("run xsht runtime-stats over the collection read fixture");
     assert!(
         output.status.success(),
         "{collection} fields={fields} passes={passes} stderr: {}",
@@ -55,8 +56,9 @@ fn accumulation_traffic(collection: &str, size: usize) -> (u64, u64, String) {
     let fixture = Path::new(cargo_env!("CARGO_MANIFEST_DIR"))
         .join(format!("tests/fixtures/runtime/{fixture_name}.xsh"));
     let report = temp_path(&format!("{collection}-accumulation-{size}")).with_extension("json");
-    let mut command = std::process::Command::new(cargo_env!("CARGO_BIN_EXE_xsh-runtime-stats"));
+    let mut command = std::process::Command::new(cargo_env!("CARGO_BIN_EXE_xsht"));
     command.args([
+        "runtime-stats",
         "--json",
         report.to_str().unwrap(),
         fixture.to_str().unwrap(),
@@ -124,7 +126,7 @@ fn list_and_map_accumulation_allocation_traffic_is_not_quadratic() {
 
 /// Reading a map must not copy all of its entries.
 ///
-/// `xsh-runtime-stats` runs the disk-backed XSH fixture at two sizes and read-pass counts.
+/// `xsht runtime-stats` runs the disk-backed XSH fixture at two sizes and read-pass counts.
 #[test]
 fn map_reads_do_not_copy_the_map() {
     let run = |fields, passes| read_scaling_allocations("map", fields, passes);

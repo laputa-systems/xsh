@@ -81,7 +81,7 @@ debug builds for compile checks, and build only the package you need
 | lint, tooling | `cargo test --release -p xsht --test integration lint::NAME` | `cargo test --release -p xsht` |
 | API, registry, docs | `cargo test --release -p xsht --test api` | API gate below |
 | standard modules | `target/release/xsht test tests/xsh/stdlib/NAME.xsh` | `target/release/xsht test tests/xsh/stdlib` |
-| retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` |
+| retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `target/release/xsht frontend-stats --json tests/fixtures/frontend-indexed` |
 
 API gate: `cargo test --release --test integration libxsh_api`,
 `cargo test -p xsh-registry`, `cargo test -p xsh --lib modules::signature`,
@@ -256,5 +256,6 @@ settings, and treat single-run latency changes as inconclusive.
 - `bench/stdlib-port/run.py` and `bench/stdlib-port/tooling.py` measure
   end-to-end `xsh` and `xsht` latency; `bench/stdlib-port/README.md` records
   dispositions.
-- `xsh-runtime-stats --json REPORT SCRIPT` reports construction, controller,
+- `xsht runtime-stats --json REPORT SCRIPT` reports construction, controller,
   and `par-map` worker allocation; pair memory claims with a host RSS check.
+  It and `xsht frontend-stats` are not listed in `xsht --help`.

@@ -129,16 +129,6 @@ path = "src/entrypoints/xsh_main.rs"
 test = false
 
 [[bin]]
-name = "xsh-frontend-stats"
-path = "src/entrypoints/frontend_stats.rs"
-test = false
-
-[[bin]]
-name = "xsh-runtime-stats"
-path = "src/entrypoints/runtime_stats.rs"
-test = false
-
-[[bin]]
 # The one native helper process the integration tests spawn; each mode is a subcommand.
 name = "xsh-test-helper"
 path = "tests/helpers/main.rs"

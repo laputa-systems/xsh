@@ -210,10 +210,15 @@ print $total
 "#,
     );
     let report = temp_path("runtime-stats-par-map-report").with_extension("json");
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh-runtime-stats"))
-        .args(["--json", report.to_str().unwrap(), script.to_str().unwrap()])
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+        .args([
+            "runtime-stats",
+            "--json",
+            report.to_str().unwrap(),
+            script.to_str().unwrap(),
+        ])
         .output()
-        .expect("run xsh-runtime-stats");
+        .expect("run xsht runtime-stats");
 
     assert!(output.status.success());
     assert_eq!(output.stdout, b"9900\n");

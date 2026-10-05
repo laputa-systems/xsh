@@ -1,8 +1,9 @@
 //! Optional allocation traffic tracking for frontend/IR diagnostics.
 //!
-//! Counters only move when a dedicated diagnostics binary installs
-//! [`CountingAllocator`] as the global allocator. Library callers still run
-//! and report zero peak/traffic when tracking is inactive.
+//! Counters only move in a binary whose global allocator is
+//! [`CountingAllocator`], and only after that binary calls
+//! [`enable_tracking`]. Library callers still run and report zero peak/traffic
+//! when tracking is inactive.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -81,28 +82,30 @@ thread_local! {
     };
 }
 
-/// Marker global allocator used only by the frontend-stats binary.
-pub struct CountingAllocator;
+/// Global allocator that counts the requests it forwards to `A`.
+///
+/// The tooling binary installs it around its ordinary allocator, so the
+/// counters cost one flag load per request until [`enable_tracking`] runs.
+/// Counts and byte totals are the sizes callers request, which do not depend
+/// on `A`.
+pub struct CountingAllocator<A = System>(A);
 
-impl CountingAllocator {
-    pub const fn new() -> Self {
-        Self
-    }
-
-    pub fn install_marker() {
-        TRACKING_INSTALLED.store(true, Ordering::Relaxed);
-    }
-}
-
-impl Default for CountingAllocator {
-    fn default() -> Self {
-        Self::new()
+impl<A> CountingAllocator<A> {
+    pub const fn new(inner: A) -> Self {
+        Self(inner)
     }
 }
 
-unsafe impl GlobalAlloc for CountingAllocator {
+/// Turns the counters on for the rest of the process. Only a binary whose
+/// global allocator is [`CountingAllocator`] may call this: reports state
+/// `tracking_active` from this flag.
+pub fn enable_tracking() {
+    TRACKING_INSTALLED.store(true, Ordering::Relaxed);
+}
+
+unsafe impl<A: GlobalAlloc> GlobalAlloc for CountingAllocator<A> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { System.alloc(layout) };
+        let ptr = unsafe { self.0.alloc(layout) };
         if !ptr.is_null() {
             record_alloc(layout.size());
         }
@@ -110,7 +113,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { System.alloc_zeroed(layout) };
+        let ptr = unsafe { self.0.alloc_zeroed(layout) };
         if !ptr.is_null() {
             record_alloc(layout.size());
         }
@@ -118,7 +121,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let new_ptr = unsafe { System.realloc(ptr, layout, new_size) };
+        let new_ptr = unsafe { self.0.realloc(ptr, layout, new_size) };
         if !new_ptr.is_null() {
             record_realloc(layout.size(), new_size);
         }
@@ -127,11 +130,16 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         record_dealloc(layout.size());
-        unsafe { System.dealloc(ptr, layout) }
+        unsafe { self.0.dealloc(ptr, layout) }
     }
 }
 
 fn record_alloc(size: usize) {
+    // Ordinary script runs open a stage on the evaluation thread, so the
+    // per-thread flag alone would count in every run of the tooling binary.
+    if !tracking_installed() {
+        return;
+    }
     ENABLED.with(|enabled| {
         if !enabled.get() {
             return;
@@ -152,6 +160,9 @@ fn record_alloc(size: usize) {
 }
 
 fn record_dealloc(size: usize) {
+    if !tracking_installed() {
+        return;
+    }
     ENABLED.with(|enabled| {
         if !enabled.get() {
             return;
@@ -161,6 +172,9 @@ fn record_dealloc(size: usize) {
 }
 
 fn record_realloc(old_size: usize, new_size: usize) {
+    if !tracking_installed() {
+        return;
+    }
     ENABLED.with(|enabled| {
         if !enabled.get() {
             return;
@@ -221,10 +235,10 @@ pub struct WorkerStageTraffic {
     pub scopes: [ScopedAllocTraffic; WORKER_ALLOCATION_SCOPE_COUNT],
 }
 
-/// A per-worker allocation scope used by the dedicated runtime-stats binary.
+/// A per-worker allocation scope used by `xsht runtime-stats`.
 ///
-/// Product allocators never install [`CountingAllocator`], so creating this
-/// scope is a no-op in normal execution. The collected counters remain
+/// Nothing but the statistics commands calls [`enable_tracking`], so creating
+/// this scope is a no-op in normal execution. The collected counters remain
 /// thread-local: allocation ownership can cross worker boundaries, so callers
 /// must treat worker peaks as allocation-pressure evidence rather than process
 /// RSS or an exact concurrent-live total.
@@ -347,7 +361,7 @@ fn eval_traffic() -> &'static Mutex<Option<AllocTraffic>> {
 /// The engine runs a script on its own thread, so the counters the caller
 /// reads describe construction only; the evaluation wrapper hands that
 /// thread's traffic here so the diagnostics report can attribute execution.
-/// Inert unless a diagnostics binary installed [`CountingAllocator`].
+/// Inert unless the process called [`enable_tracking`].
 pub fn record_eval_traffic(traffic: AllocTraffic) {
     if let Ok(mut slot) = eval_traffic().lock() {
         *slot = Some(traffic);

@@ -81,8 +81,7 @@ compile checks use debug builds.
 Build the exact binary or package needed for the task instead of using bare
 `cargo build --release`: the `xsh`, `xshi`, and `xsht` packages own the
 user-facing binaries, while the root package also owns `xsh-test-helper`, the
-one native child process the tests spawn (a subcommand per mode), and the
-`xsh-frontend-stats` profiling tool. Do not use the
+one native child process the tests spawn (a subcommand per mode). Do not use the
 `dist` profile for agent work; it is reserved for CI release packaging.
 
 Bound machine load: run one full native suite at a time, run ad-hoc `xsh`

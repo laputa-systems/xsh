@@ -2,7 +2,7 @@
 //!
 //! Retained totals come from owned structures where the representation exposes
 //! them. The indexed executable store reports its finalized retained columns;
-//! the dedicated stats binary also records allocator live-byte deltas so
+//! `xsht frontend-stats` also records allocator live-byte deltas so
 //! construction traffic and the finalized representation remain distinguishable.
 
 use crate::loader::parse_load_check_text;
