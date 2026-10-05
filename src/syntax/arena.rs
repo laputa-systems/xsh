@@ -4889,6 +4889,17 @@ impl AstArena {
             (SugarForm::Guard, operands) => {
                 unreachable!("`guard` has a condition and a failure block, found {operands:?}")
             }
+            (
+                SugarForm::Tempdir,
+                &[
+                    ArenaSugarOperand::BindingTarget(name),
+                    ArenaSugarOperand::Expr(path),
+                    ArenaSugarOperand::Block(body),
+                ],
+            ) => ArenaSugar::Tempdir { name, path, body },
+            (SugarForm::Tempdir, operands) => {
+                unreachable!("`tempdir` has a name, a path, and a body, found {operands:?}")
+            }
         }
     }
 
@@ -5546,15 +5557,24 @@ pub enum SugarForm {
     /// `guard CONDITION else { BLOCK }`: operands are the condition and the
     /// failure block.
     Guard,
+    /// `tempdir NAME at PATH { BODY }`: operands are the binding that names
+    /// the directory, the path expression, and the body block.
+    Tempdir,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 4] = [Self::Repeat, Self::When, Self::Unless, Self::Guard];
+    pub const ALL: [Self; 5] = [
+        Self::Repeat,
+        Self::When,
+        Self::Unless,
+        Self::Guard,
+        Self::Tempdir,
+    ];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
-            Self::Repeat | Self::Guard => true,
+            Self::Repeat | Self::Guard | Self::Tempdir => true,
             Self::When | Self::Unless => false,
         }
     }
@@ -5588,6 +5608,11 @@ pub enum ArenaSugar {
         condition: ExprId,
     },
     Guard { condition: ExprId, else_block: BlockId },
+    Tempdir {
+        name: BindingTargetId,
+        path: ExprId,
+        body: BlockId,
+    },
 }
 
 /// The table rows one sugar expansion added.

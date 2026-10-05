@@ -672,6 +672,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
                 r("repeat_statement"),
                 r("without_statement"),
+                r("tempdir_statement"),
             ])),
         ),
         rule(
@@ -1215,6 +1216,19 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         alt(effect_names().into_iter().map(w)),
                     ])),
                 ])),
+                block(),
+            ]),
+        ),
+        // `tempdir` and `at` are contextual words: the statement is recognized
+        // by the three words that begin it.
+        rule(
+            Statements,
+            "tempdir_statement",
+            seq([
+                w("tempdir"),
+                t(T::Ident),
+                w("at"),
+                r("condition_expression"),
                 block(),
             ]),
         ),

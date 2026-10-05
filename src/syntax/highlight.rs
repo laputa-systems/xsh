@@ -409,6 +409,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if text == "without" && without_head_word(source, tokens, at, previous) {
         return Kind::Keyword;
     }
+    // `tempdir` and `at` are ordinary names except in the head of a
+    // `tempdir NAME at PATH {` statement.
+    if matches!(text, "tempdir" | "at") && tempdir_head_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
     // `print` is a statement form, not a reserved word, so only a bare use
     // reads as one.
     if text == "print" && !after_dot && !called {
@@ -507,6 +512,24 @@ fn without_head_word(source: &str, tokens: &[Token], at: usize, previous: Option
             _ => return false,
         }
     }
+}
+
+/// Whether `tokens[at]` is the `tempdir` or the `at` of a statement that
+/// begins `tempdir NAME at`.
+fn tempdir_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let is_head = |first: usize| {
+        statement_start(first.checked_sub(1).map(|before| tokens[before]), source)
+            && matches!(
+                tokens.get(first..first + 3),
+                Some([keyword, name, word])
+                    if text(keyword) == "tempdir"
+                        && name.tag == TokenTag::Ident
+                        && word.tag == TokenTag::Ident
+                        && text(word) == "at"
+            )
+    };
+    is_head(at) || at.checked_sub(2).is_some_and(is_head)
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -802,6 +825,16 @@ mod tests {
         assert_eq!(kind_of(source, "times ="), Kind::Plain);
         assert_eq!(kind_of(source, "repeat(count"), Kind::Function);
         assert_eq!(kind_of(source, "repeat = times"), Kind::Plain);
+    }
+
+    #[test]
+    fn tempdir_head_words_are_keywords_only_in_a_tempdir_statement() {
+        let source = "tempdir at at tempdir {\n}\nlet tempdir = at\nlet at = fs.tempdir()\n";
+        assert_eq!(kind_of(source, "tempdir at"), Kind::Keyword);
+        assert_eq!(kind_of(source, "at tempdir"), Kind::Keyword);
+        assert_eq!(kind_of(source, "tempdir {"), Kind::Plain);
+        assert_eq!(kind_of(source, "tempdir ="), Kind::Plain);
+        assert_eq!(kind_of(source, "at = fs"), Kind::Plain);
     }
 
     #[test]

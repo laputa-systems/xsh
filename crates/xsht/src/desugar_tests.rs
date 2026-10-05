@@ -62,6 +62,12 @@ const PROGRAMS: &[&str] = &[
     "var total = 0\nrepeat 3 times {\n  total += 1\n  continue when total == 2\n  break unless total < 9\n}\nprint $total\n",
     "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    guard row >= 0 else {\n      guard row > -9 else { break }\n      continue\n    }\n    yield row when row > 0\n  }\n}\n",
     "proc pick(code: Int) -> Int {\n  match code {\n    0 => return 1 when code == 0\n    _ => { return 2 unless code > 5 }\n  }\n  3\n}\n",
+    "proc stage(root: Path) [fs, error] -> Result[Str] {\n  tempdir scratch at fp\"{root}/stage\" {\n    defer { print \"staged\" }\n    return \"early\" when scratch.exists()?\n    fp\"{scratch}/stamp\".read_text()?\n  }\n}\n",
+    "tempdir outer at p\"/tmp/outer\" {\n  tempdir inner at fp\"{outer}/inner\" {\n    print $inner\n  }\n}\n",
+    // A path that is not a Path, a name the body reassigns, and a pure body.
+    "let text = [\"/tmp/stage\"][0]\ntempdir scratch at text {\n  print $scratch\n}\n",
+    "tempdir scratch at p\"/tmp/stage\" {\n  scratch = p\"/tmp/other\"\n}\n",
+    "pure stage(root: Path) -> Int {\n  tempdir scratch at root {\n    1\n  }\n}\n",
     // A guarded statement proves nothing when its payload stays in the block.
     "stream rows(raw: Str?) -> Stream[Str] {\n  yield \"none\" when raw == null\n  yield raw.trim()\n}\n",
     // A condition that is not a Bool or a Status.
@@ -106,6 +112,17 @@ fn a_guard_that_falls_through_is_rejected_only_as_written() {
     assert_eq!(check(source).len(), 1, "{:?}", check(source));
     assert!(check(source)[0].starts_with("check.guard-fallthrough: "));
     assert_eq!(check(&desugar(source)), Vec::<String>::new());
+}
+
+/// A `tempdir` prints as the block it stands for: the binding, the two
+/// removals around the creation, and the body as a block of its own.
+#[test]
+fn a_tempdir_is_printed_as_its_block() {
+    let source = "proc stage(root: Path) [fs, error] {\n  # a scratch tree\n  tempdir scratch at fp\"{root}/stage\" {\n    print $scratch\n  }\n}\n";
+    assert_eq!(
+        desugar(source),
+        "proc stage(root: Path) [fs, error] {\n  # a scratch tree\n  {\n    let scratch: Path = fp\"{root}/stage\"\n    fs.remove(scratch, missing_ok: true)\n    fs.mkdir(scratch)\n    defer fs.remove(scratch, missing_ok: true)\n    {\n      print $scratch\n    }\n  }\n}\n"
+    );
 }
 
 #[test]

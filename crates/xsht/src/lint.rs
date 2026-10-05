@@ -13,6 +13,9 @@ mod context_scope;
 
 #[path = "lint_prefer_repeat.rs"]
 mod prefer_repeat;
+
+#[path = "lint_prefer_tempdir.rs"]
+mod prefer_tempdir;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 #[path = "lint_implicit_message.rs"]
@@ -62,7 +65,7 @@ use xsh::frontend::syntax::arena::{
     ArenaFmtPart, ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind,
     ArenaPatternKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange,
     ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag, SugarForm,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag, SugarForm,
     ArenaWordPart, AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId,
     CommandStmtId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
 };
@@ -942,6 +945,7 @@ impl<'a> Linter<'a> {
         }
         self.lint_list_comp_suggestions(statements);
         self.lint_stream_producer_suggestions(statements);
+        prefer_tempdir::lint_scratch_directories(self, statements, None);
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
@@ -1564,6 +1568,19 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Continue => {}
             ArenaStmtKind::Loop { block } => self.lint_block(block),
+            // The name a `tempdir` binds is in scope for its body only, and
+            // the form itself uses it, so it is never an unused binding.
+            ArenaStmtKind::Sugar { form: SugarForm::Tempdir, operands, .. } => {
+                if let ArenaSugar::Tempdir { name, path, body } =
+                    self.arena.sugar(SugarForm::Tempdir, operands)
+                {
+                    self.lint_expr(path);
+                    self.push_scope();
+                    self.define_binding_target(name, stmt.span, false);
+                    self.lint_block(body);
+                    self.pop_scope();
+                }
+            }
             ArenaStmtKind::Sugar { form, operands, .. } => {
                 let guarded = matches!(form, SugarForm::When | SugarForm::Unless);
                 for operand in self.arena.sugar_operands(operands).to_vec() {
@@ -5105,6 +5122,7 @@ impl<'a> Linter<'a> {
             .stmt_ids(self.arena.block(block).statements)
             .collect();
         self.lint_list_comp_suggestions(&stmts);
+        prefer_tempdir::lint_scratch_directories(self, &stmts, Some(block));
         self.lint_statement_sequence(&stmts);
     }
 
@@ -13324,13 +13342,25 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.pop_scope();
             }
             ArenaStmtKind::Loop { block } => self.scan_block(block),
-            ArenaStmtKind::Sugar { operands, .. } => {
-                for operand in self.arena().sugar_operands(operands).to_vec() {
-                    match operand {
-                        ArenaSugarOperand::Expr(expr) => self.scan_expr(expr),
-                        ArenaSugarOperand::Block(block) => self.scan_block(block),
-                        ArenaSugarOperand::Stmt(stmt) => self.scan_stmt(stmt),
-                        _ => {}
+            ArenaStmtKind::Sugar { form, operands, .. } => {
+                match self.arena().sugar(form, operands) {
+                    // The name is in scope for the body, not for the path.
+                    ArenaSugar::Tempdir { name, path, body } => {
+                        self.scan_expr(path);
+                        self.push_scope();
+                        self.define_binding_target(name);
+                        self.scan_block(body);
+                        self.pop_scope();
+                    }
+                    _ => {
+                        for operand in self.arena().sugar_operands(operands).to_vec() {
+                            match operand {
+                                ArenaSugarOperand::Expr(expr) => self.scan_expr(expr),
+                                ArenaSugarOperand::Block(block) => self.scan_block(block),
+                                ArenaSugarOperand::Stmt(stmt) => self.scan_stmt(stmt),
+                                _ => {}
+                            }
+                        }
                     }
                 }
             }

@@ -7,7 +7,8 @@ use super::expanded_walk;
 use std::collections::BTreeMap;
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaRange, ArenaStmtKind, ArenaSugarOperand, BlockId, ExprId, StmtId, SugarForm,
+    ArenaBindingTargetKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaSugarOperand, BlockId,
+    ExprId, StmtId, SugarForm,
 };
 use xsh::frontend::syntax::parser::Parser;
 
@@ -78,6 +79,24 @@ fn cases(form: SugarForm) -> &'static [Case] {
             Case {
                 sugar: "for raw in [1, 2] {\n  guard raw > 0 else {\n    guard raw < 0 else { continue }\n    break unless raw == 0\n    continue\n  }\n  print $raw\n}\n",
                 core: Core::Written("for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n"),
+            },
+        ],
+        SugarForm::Tempdir => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/60-tempdir.xsh"),
+                core: Core::Desugared,
+            },
+            // At the top level, nested, with a body that defers and leaves
+            // early, and with a path that is a block of its own.
+            Case {
+                sugar: "let root = p\"/tmp\"\ntempdir outer at fp\"{root}/outer\" {\n  defer { print \"outer\" }\n  repeat 2 times {\n    tempdir inner at { fp\"{outer}/inner\" } {\n      break when inner.exists()?\n    }\n  }\n}\n",
+                core: Core::Written("let root = p\"/tmp\"\n{\n  let outer: Path = fp\"{root}/outer\"\n  fs.remove(outer, missing_ok: true)\n  fs.mkdir(outer)\n  defer fs.remove(outer, missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let inner: Path = { fp\"{outer}/inner\" }\n        fs.remove(inner, missing_ok: true)\n        fs.mkdir(inner)\n        defer fs.remove(inner, missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n      }\n    }\n  }\n}\n"),
+            },
+            // The words stay names: `tempdir` and `at` as the bound name, the
+            // path, and a match arm's statement.
+            Case {
+                sugar: "proc stage(at: Path, tempdir: Int) {\n  match tempdir {\n    0 => tempdir at at at { print $at }\n    _ => {\n      tempdir tempdir at at {\n        print $tempdir\n      }\n    }\n  }\n}\n",
+                core: Core::Written("proc stage(at: Path, tempdir: Int) {\n  match tempdir {\n    0 => {\n      {\n        let at: Path = at\n        fs.remove(at, missing_ok: true)\n        fs.mkdir(at)\n        defer fs.remove(at, missing_ok: true)\n        { print $at }\n      }\n    }\n    _ => {\n      {\n        let tempdir: Path = at\n        fs.remove(tempdir, missing_ok: true)\n        fs.mkdir(tempdir)\n        defer fs.remove(tempdir, missing_ok: true)\n        {\n          print $tempdir\n        }\n      }\n    }\n  }\n}\n"),
             },
         ],
     }
@@ -228,6 +247,28 @@ fn every_form_keeps_the_expansion_rules() {
                     assert!(within(span, sugar.span), "statement span in `{text}`");
                     // The root and the surface statement are the one pair
                     // that shares a span.
+                    // A binding the expansion adds either binds a name the
+                    // user wrote as an operand or a name no identifier can
+                    // spell, so it never captures a name the body uses.
+                    if let ArenaStmtKind::Let { target, .. }
+                    | ArenaStmtKind::Var { target, .. }
+                    | ArenaStmtKind::Const { target, .. } = arena.stmt(id).kind
+                    {
+                        let written = arena
+                            .sugar_operands(sugar.operands)
+                            .contains(&ArenaSugarOperand::BindingTarget(target));
+                        let spellable = match &arena.binding_target(target).kind {
+                            ArenaBindingTargetKind::Name(name) => name
+                                .as_str()
+                                .chars()
+                                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
+                            ArenaBindingTargetKind::Record { .. } => true,
+                        };
+                        assert!(
+                            written || !spellable,
+                            "`{text}` binds a name of its own that the body could use"
+                        );
+                    }
                     let expected = if id == sugar.expansion { 2 } else { 1 };
                     assert_eq!(
                         count(&stmt_spans, span),

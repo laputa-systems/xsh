@@ -851,6 +851,14 @@ impl<'a> Writer<'a> {
                         output.push_str(" else ");
                         self.write_block(else_block, indent, output);
                     }
+                    ArenaSugar::Tempdir { name, path, body } => {
+                        output.push_str("tempdir ");
+                        self.write_binding_target(name, output);
+                        output.push_str(" at ");
+                        self.write_expr(path, BRACE, output);
+                        output.push(' ');
+                        self.write_block(body, indent, output);
+                    }
                 }
             }
             ArenaStmtKind::Guard {

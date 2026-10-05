@@ -580,6 +580,7 @@ diagnostic_codes! {
         LintPreferSlice = "lint.prefer-slice", warning, "Use half-open slicing where offset/count method bounds are equivalent";
         LintPreferStreamProducer = "lint.prefer-stream-producer", warning, "Suggest a `stream` producer with `yield` for a proc that builds a list item by item";
         LintPreferStringConcat = "lint.prefer-string-concat", warning, "Use `+` instead of joining literal pieces with an empty separator";
+        LintPreferTempdir = "lint.prefer-tempdir", warning, "Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
         LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";

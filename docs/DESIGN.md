@@ -17,7 +17,7 @@ guard ready else { return }
 ```
 
 `when`, `unless`, and `guard ... else` each read aloud the way the program
-behaves; the planned `tempdir scratch at PATH { ... }` follows the same rule.
+behaves; `tempdir scratch at PATH { ... }` follows the same rule.
 A reader who has never seen the form can guess it, and a reader who has can
 grep for it.
 

@@ -87,6 +87,7 @@ type unless use var wait when while with yield
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `test`, `repeat` and `times` in the head of a `repeat` statement (8.6),
+`tempdir` and `at` in the head of a `tempdir` statement (8.7),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -1563,6 +1564,39 @@ failure becomes primary, and later cleanup failures are reported with their
 locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
 the block's defers run (11.8). `abort(status, force: true)` skips cleanup.
+
+`tempdir name at path { ... }` runs its block with a scratch directory at a
+path the program chooses. It is sugar, defined by its expansion:
+
+```xsh
+{{.spec.tempdir.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.tempdir.desugared}}
+```
+
+So the path is a `Path` evaluated once and bound to the immutable `name`,
+which is in scope for the body only. Both removals are `fs.remove` with
+`missing_ok: true`: whatever is at the path, a file, a symlink (itself, never
+its target), or a directory with everything below it, is removed, and nothing
+being there is not an error. A failure to remove what is there or to create
+the directory propagates before the body runs. The deferred removal runs
+however control leaves the statement, after the body's own defers, and follows
+the `defer` rules above: when it fails, the body's failure stays primary, and
+if the body succeeded the removal's failure is the statement's failure. The
+statement needs the `fs` effect, and the `error` effect where a failure can
+leave a restricted proc. The body is a block (6.9): as the tail of a body that
+produces a value it produces its own tail, computed before the directory is
+removed. The expansion names the standard `fs` module, so the statement is
+rejected where a local binding named `fs` hides it. A statement is a `tempdir`
+statement when it begins with the word `tempdir`, a name, and the word `at`
+on one line; neither word is reserved, and the path is a head expression like
+the source of a `for`.
+`fs.tempdir()` (15) is the other scratch directory: a private one at a path
+the runtime chooses, owned through its handle.
 
 ### 8.8 `try`, `retry`, and `ctx`
 

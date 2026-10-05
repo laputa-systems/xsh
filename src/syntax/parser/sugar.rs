@@ -32,7 +32,8 @@ use super::{Keyword, Name, Parser, TokenTag};
 use crate::diagnostic::DiagnosticCode;
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaCallArgInput, ArenaProgramBuilder, ArenaSugarOperand, BlockId, ExprId, StmtId, SugarForm,
+    ArenaCallArgInput, ArenaExprOrRun, ArenaProgramBuilder, ArenaSugarOperand, BindingTargetId,
+    BlockId, ExprId, StmtId, SugarForm,
 };
 
 /// The word that begins a `repeat` statement. It stays an ordinary identifier
@@ -40,6 +41,10 @@ use crate::syntax::arena::{
 const REPEAT_WORD: &str = "repeat";
 /// The word that ends a `repeat` statement's count.
 const TIMES_WORD: &str = "times";
+/// The word that begins a `tempdir` statement.
+const TEMPDIR_WORD: &str = "tempdir";
+/// The word between a `tempdir` statement's name and its path.
+const AT_WORD: &str = "at";
 
 impl Parser<'_> {
     /// Whether the statement at the cursor is `repeat COUNT times {`.
@@ -283,10 +288,218 @@ fn expand_guard(
     arena.push_if(&[(condition, then_block)], Some(else_block), span)
 }
 
+impl Parser<'_> {
+    /// Whether the statement at the cursor is `tempdir NAME at PATH {`.
+    ///
+    /// Neither word is reserved. The statement is recognized by the words
+    /// `tempdir`, a name, and `at` at its start: no other statement begins
+    /// with three names, so the path that follows is an ordinary head
+    /// expression, as in `for`.
+    pub(super) fn lookahead_is_tempdir(&self) -> bool {
+        self.current_name()
+            .is_some_and(|name| name == TEMPDIR_WORD)
+            && self.peek_tag(1) == Some(TokenTag::Ident)
+            && self.peek_tag(2) == Some(TokenTag::Ident)
+            && self.peek_name(2).is_some_and(|name| name == AT_WORD)
+    }
+
+    pub(super) fn parse_tempdir_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        let keyword = self.bump();
+        let name = self
+            .current_name()
+            .expect("the lookahead saw a name after `tempdir`");
+        let name_span = self.bump();
+        let at = self.bump();
+        let path = self.parse_head_expr_arena_only(arena)?.id;
+        let path_span = arena.expr_span(path);
+        let body_start = self.current_start();
+        let body = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        let target = arena.push_binding_target_name(name);
+        let operands = TempdirOperands {
+            keyword,
+            name,
+            name_span,
+            at,
+            target,
+            path,
+            path_span,
+            body,
+            body_span: self.span(body_start, span.end()),
+        };
+        arena.push_sugar(
+            SugarForm::Tempdir,
+            &[
+                ArenaSugarOperand::BindingTarget(target),
+                ArenaSugarOperand::Expr(path),
+                ArenaSugarOperand::Block(body),
+            ],
+            span,
+            |arena| expand_tempdir(arena, operands, span),
+        );
+        Some(())
+    }
+}
+
+struct TempdirOperands {
+    /// The `tempdir` word.
+    keyword: Span,
+    name: Name,
+    name_span: Span,
+    /// The `at` word.
+    at: Span,
+    target: BindingTargetId,
+    path: ExprId,
+    path_span: Span,
+    body: BlockId,
+    body_span: Span,
+}
+
+/// `tempdir NAME at PATH { BODY }` is a block that binds `NAME: Path` to
+/// `PATH`, removes whatever is there, creates the directory, defers its
+/// removal, and then runs `BODY` as an inner block:
+///
+/// ```text
+/// {
+///   let NAME: Path = PATH
+///   fs.remove(NAME, missing_ok: true)
+///   fs.mkdir(NAME)
+///   defer fs.remove(NAME, missing_ok: true)
+///   { BODY }
+/// }
+/// ```
+///
+/// `NAME` is immutable and the body is a scope of its own, so the three calls
+/// see the one value `PATH` produced and no hidden local is needed. The
+/// annotation makes a path of the wrong type one diagnostic on `PATH` instead
+/// of one per call.
+///
+/// The three calls are fourteen expressions over a head of four parts, and each needs a span no other expression has. Each call is
+/// anchored on the part of the head that names its step, so a failure reports
+/// there: the first removal on `tempdir NAME at`, the creation on the whole
+/// head, and the deferred removal on `at`. The nodes inside a call that can
+/// carry no diagnostic of their own (the `fs` module name and `true`) take
+/// distinct prefixes and suffixes of the `tempdir` word.
+fn expand_tempdir(
+    arena: &mut ArenaProgramBuilder<'_>,
+    operands: TempdirOperands,
+    span: Span,
+) -> StmtId {
+    let TempdirOperands {
+        keyword,
+        name,
+        name_span,
+        at,
+        target,
+        path,
+        path_span,
+        body,
+        body_span,
+    } = operands;
+    let within = |start: usize, end: usize| Span::new(span.source_id, start, end);
+    let head = within(keyword.start(), path_span.end());
+    // `tempdir` has seven bytes, so these four are distinct and none is the
+    // whole word.
+    let keyword_prefix = |len: usize| within(keyword.start(), keyword.start() + len);
+    let keyword_suffix = |skip: usize| within(keyword.start() + skip, keyword.end());
+
+    let fs_call = |arena: &mut ArenaProgramBuilder<'_>,
+                   function: &str,
+                   missing_ok: Option<Span>,
+                   spans: CallSpans| {
+        let module = arena.push_ident_expr(Name::intern("fs"), spans.module);
+        let callee = arena.push_field_expr(module, Name::intern(function), spans.callee);
+        let argument = arena.push_ident_expr(name, spans.argument);
+        let flag = missing_ok.map(|flag| arena.push_bool_expr(true, flag));
+        arena.begin_call_args();
+        arena.push_call_arg_input(ArenaCallArgInput::Positional(argument));
+        if let Some(value) = flag {
+            // The argument starts before its value, as a written `name: value`
+            // does; one that starts where its value starts is the shorthand
+            // `name:`.
+            arena.push_call_arg_input(ArenaCallArgInput::Named {
+                name: Name::intern("missing_ok"),
+                value,
+                span: keyword,
+            });
+        }
+        let args = arena.finish_call_args();
+        arena.push_call_expr(callee, args, spans.call)
+    };
+
+    arena.begin_block();
+    let path_type = arena.push_named_type_expr(Name::intern("Path"), path_span);
+    arena.push_binding_parts(
+        true,
+        target,
+        Some(path_type),
+        ArenaExprOrRun::Expr(path),
+        within(name_span.start(), path_span.end()),
+    );
+    let clear_span = within(keyword.start(), at.end());
+    let clear = fs_call(
+        arena,
+        "remove",
+        Some(keyword_suffix(1)),
+        CallSpans {
+            module: keyword_prefix(1),
+            callee: keyword,
+            argument: within(at.start(), path_span.end()),
+            call: clear_span,
+        },
+    );
+    arena.push_expr_statement(clear, clear_span);
+    let create = fs_call(
+        arena,
+        "mkdir",
+        None,
+        CallSpans {
+            module: keyword_prefix(2),
+            callee: within(keyword.start(), name_span.end()),
+            argument: within(name_span.start(), at.end()),
+            call: head,
+        },
+    );
+    arena.push_expr_statement(create, head);
+    let remove = fs_call(
+        arena,
+        "remove",
+        Some(keyword_suffix(2)),
+        CallSpans {
+            module: keyword_prefix(3),
+            callee: within(name_span.end(), at.end()),
+            argument: name_span,
+            call: at,
+        },
+    );
+    arena.push_defer(ArenaExprOrRun::Expr(remove), at);
+    let inner = arena.push_value_block_expr(body, body_span);
+    arena.push_expr_statement(inner, body_span);
+    // The block is the scope of the name, so it starts there. The whole
+    // statement's span may already belong to a block: a `match` arm that is
+    // one statement is a block with that statement's span.
+    let scope = within(name_span.start(), span.end());
+    let block = arena.finish_block(&[], scope);
+    let outer = arena.push_value_block_expr(block, scope);
+    arena.push_expr_statement(outer, span)
+}
+
+/// Where the nodes of one `fs` call in a `tempdir` expansion report.
+struct CallSpans {
+    module: Span,
+    callee: Span,
+    argument: Span,
+    call: Span,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::source::SourceId;
-    use crate::syntax::arena::{ArenaStmtKind, SugarForm};
+    use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, SugarForm};
     use crate::syntax::grammar::earley::{Recognizer, top_level_parts};
     use crate::syntax::grammar::generate::Generator;
     use crate::syntax::grammar::{grammar, lex_grammar_tokens};
@@ -297,13 +510,74 @@ mod tests {
     /// Every sentence of the production must come out as the sugar statement.
     #[test]
     fn every_repeat_sentence_of_the_grammar_parses_as_a_repeat_statement() {
+        let mut sentences = 0;
+        for (depth, seed, source) in sentences_of("repeat_statement") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            assert!(
+                first_statement_is(&parsed.arena, SugarForm::Repeat),
+                "depth {depth} seed {seed} is not a repeat statement:\n{source}"
+            );
+        }
+        assert!(sentences > 300, "only {sentences} sentences");
+    }
+
+    /// `tempdir NAME at PATH {` has no word between its path and its body, so
+    /// its head ends where the head of `for NAME in PATH {` ends. The grammar
+    /// is looser than the parser about that end for both, so the two are held
+    /// to each other: a sentence parses as a `tempdir` exactly when the same
+    /// text parses as its `for` twin.
+    #[test]
+    fn every_tempdir_sentence_parses_exactly_where_its_for_twin_does() {
+        let mut parsed_sentences = 0;
+        for (depth, seed, source) in sentences_of("tempdir_statement") {
+            let (name, rest) = source
+                .strip_prefix("tempdir ")
+                .and_then(|rest| rest.split_once(" at "))
+                .unwrap_or_else(|| panic!("depth {depth} seed {seed} has no head:\n{source}"));
+            let twin = format!("for {name} in {rest}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            let parsed_twin = Parser::parse_source_arena_only(SourceId::new(0), &twin);
+            assert_eq!(
+                parsed.diagnostics.is_empty(),
+                parsed_twin.diagnostics.is_empty(),
+                "depth {depth} seed {seed}:\n{source}"
+            );
+            if !parsed.diagnostics.is_empty() {
+                continue;
+            }
+            parsed_sentences += 1;
+            assert!(
+                first_statement_is(&parsed.arena, SugarForm::Tempdir),
+                "depth {depth} seed {seed} is not a tempdir statement:\n{source}"
+            );
+        }
+        assert!(parsed_sentences > 100, "only {parsed_sentences} sentences");
+    }
+
+    fn first_statement_is(program: &ArenaProgram, expected: SugarForm) -> bool {
+        let first = program.statement_ids().next().expect("one statement");
+        matches!(
+            program.arena.stmt(first).kind,
+            ArenaStmtKind::Sugar { form, .. } if form == expected
+        )
+    }
+
+    /// Generated sentences of one production, with the depth and seed that
+    /// made each.
+    fn sentences_of(production: &str) -> Vec<(u32, u64, String)> {
         let grammar = grammar();
         let recognizer = Recognizer::new(grammar);
         let mut generator = Generator::new(grammar);
-        let mut sentences = 0;
+        let mut sentences = Vec::new();
         for depth in [3, 5, 8] {
             for seed in 0..300 {
-                let Some(source) = generator.sentence("repeat_statement", seed, depth) else {
+                let Some(source) = generator.sentence(production, seed, depth) else {
                     continue;
                 };
                 // A candidate that misses a lookahead or lexes differently is
@@ -314,35 +588,20 @@ mod tests {
                 if recognizer.recognize(&tokens).is_err() {
                     continue;
                 }
-                sentences += 1;
-                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-                assert!(
-                    parsed.diagnostics.is_empty(),
-                    "depth {depth} seed {seed}: {}\n{source}",
-                    parsed.diagnostics[0].message
-                );
-                let first = parsed.arena.statement_ids().next().expect("one statement");
-                assert!(
-                    matches!(
-                        parsed.arena.arena.stmt(first).kind,
-                        ArenaStmtKind::Sugar {
-                            form: SugarForm::Repeat,
-                            ..
-                        }
-                    ),
-                    "depth {depth} seed {seed} is not a repeat statement:\n{source}"
-                );
+                sentences.push((depth, seed, source));
             }
         }
-        assert!(sentences > 300, "only {sentences} sentences");
+        sentences
     }
 
     #[test]
-    fn the_grammar_recognizes_written_repeat_statements() {
+    fn the_grammar_recognizes_written_sugar_statements() {
         let recognizer = Recognizer::new(grammar());
         for source in [
             include_str!("../../../tests/xsh/repeat.xsh"),
             include_str!("../../../docs/snippets/spec/45-repeat.xsh"),
+            include_str!("../../../tests/xsh/tempdir.xsh"),
+            include_str!("../../../docs/snippets/spec/60-tempdir.xsh"),
         ] {
             let tokens = lex_grammar_tokens(source).expect("lexes");
             for part in top_level_parts(&tokens) {
