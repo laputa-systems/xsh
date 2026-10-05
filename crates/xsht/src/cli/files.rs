@@ -174,6 +174,7 @@ pub struct LintConfig {
     pub prefer_inferred_private_effects: bool,
     pub prefer_inferred_variants: bool,
     pub prefer_positional_constructors: bool,
+    pub prefer_implicit_messages: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -296,6 +297,8 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_inferred_variants: ini_string(lint, "prefer-inferred-variants")
             .is_some_and(|value| value == "true"),
         prefer_positional_constructors: ini_string(lint, "prefer-positional-constructors")
+            .is_some_and(|value| value == "true"),
+        prefer_implicit_messages: ini_string(lint, "prefer-implicit-messages")
             .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
@@ -554,6 +557,17 @@ mod tests {
         fs::write(&path, "[lint]\n").unwrap();
         let lint = load_config_from(&path).unwrap().lint;
         assert!(!lint.prefer_inferred_variants && !lint.prefer_positional_constructors);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn implicit_message_lint_is_explicit_opt_in() {
+        let root = temp_root("implicit-message-lint-config");
+        let path = root.join("xsht-config.ini");
+        fs::write(&path, "[lint]\nprefer-implicit-messages = true\n").unwrap();
+        assert!(load_config_from(&path).unwrap().lint.prefer_implicit_messages);
+        fs::write(&path, "[lint]\n").unwrap();
+        assert!(!load_config_from(&path).unwrap().lint.prefer_implicit_messages);
         let _ = fs::remove_dir_all(root);
     }
 

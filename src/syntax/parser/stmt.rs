@@ -7,8 +7,8 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBuilderEntryKind, ArenaExprOrRun, ArenaModuleContractEntryKind, ArenaProgramBuilder,
-    ArenaTypeDefBody, BindingTargetId, BuilderBlockId, ExprId, TypeExprId,
+    ArenaBuilderEntryKind, ArenaErrorVariant, ArenaExprOrRun, ArenaModuleContractEntryKind,
+    ArenaProgramBuilder, ArenaTypeDefBody, BindingTargetId, BuilderBlockId, ExprId, TypeExprId,
 };
 use crate::syntax::grammar::{self, StatementForm};
 use std::str::FromStr;
@@ -678,7 +678,10 @@ impl<'a> Parser<'a> {
         if self.at(TokenKindMatch::LBracket) {
             // Recover past the parameter list so the variants still parse.
             let parameters_start = self.current_start();
-            while !self.at(TokenKindMatch::Equals) && !self.at(TokenKindMatch::Eof) {
+            while !self.at(TokenKindMatch::Equals)
+                && !self.at(TokenKindMatch::LBrace)
+                && !self.at(TokenKindMatch::Eof)
+            {
                 self.bump();
             }
             self.diagnostic_at(
@@ -687,25 +690,20 @@ impl<'a> Parser<'a> {
                 DiagnosticCode::ParseGenericErrorFamily,
             );
         }
-        self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
-        self.skip_newlines();
-        let mut variants = Vec::new();
-        loop {
-            if self.consume(TokenKindMatch::Pipe).is_some() {
-                self.skip_newlines();
-            }
-            if self.at(TokenKindMatch::Eof) {
-                break;
-            }
-            let variant_start = self.current_start();
-            let variant_name =
-                if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
-                    let name = self
-                        .current_name()
-                        .expect("error variant name token has payload");
-                    self.bump();
-                    name
-                } else {
+        let variants = if self.at(TokenKindMatch::LBrace) {
+            self.parse_error_variant_block_arena_only(arena)?
+        } else {
+            self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
+            self.skip_newlines();
+            let mut variants = Vec::new();
+            loop {
+                if self.consume(TokenKindMatch::Pipe).is_some() {
+                    self.skip_newlines();
+                }
+                if self.at(TokenKindMatch::Eof) {
+                    break;
+                }
+                let Some(variant) = self.parse_error_variant_arena_only(arena)? else {
                     if variants.is_empty() {
                         self.diagnostic_here(
                             "expected error variant",
@@ -714,52 +712,125 @@ impl<'a> Parser<'a> {
                     }
                     break;
                 };
-            let mut fields = Vec::new();
-            if self.consume(TokenKindMatch::LParen).is_some() {
+                variants.push(variant);
+                if self.consume(TokenKindMatch::Pipe).is_none() {
+                    break;
+                }
                 self.skip_newlines();
-                while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
-                    let field_start = self.current_start();
-                    let field_name = self.expect_label_name("expected error payload field")?;
-                    self.expect(
-                        TokenKindMatch::Colon,
-                        "expected `:` after error payload field",
-                    );
-                    let ty_id = self.parse_type_expr(arena)?;
-                    let ty_end = self.previous_end();
-                    let span = self.span(field_start, ty_end);
-                    fields.push(arena.build_error_field(field_name, ty_id, span));
-                    self.skip_newlines();
-                    if self.consume(TokenKindMatch::Comma).is_none() {
-                        break;
-                    }
-                    self.skip_newlines();
-                }
-                self.expect(
-                    TokenKindMatch::RParen,
-                    "expected `)` after error payload fields",
-                );
             }
-            let mut facets = Vec::new();
-            if self.consume(TokenKindMatch::Colon).is_some() {
-                loop {
-                    facets.push(self.expect_ident("expected error facet")?);
-                    if self.consume(TokenKindMatch::Comma).is_none() {
-                        break;
-                    }
-                }
-            }
-            let variant_end = self.previous_end();
-            let span = self.span(variant_start, variant_end);
-            variants.push(arena.build_error_variant(variant_name, fields, &facets, span));
-            if self.consume(TokenKindMatch::Pipe).is_none() {
-                break;
-            }
-            self.skip_newlines();
-        }
+            variants
+        };
         let end = self.expect_terminator();
         let span = self.span(start, end);
         arena.push_error_def(name, variants, span);
         Some(())
+    }
+
+    /// The braced variant list of an error family: one variant per line.
+    /// A newline is the only separator, because `,` already separates the
+    /// facets that may end a variant's line.
+    fn parse_error_variant_block_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<Vec<ArenaErrorVariant>> {
+        self.expect(
+            TokenKindMatch::LBrace,
+            "expected `{` after error family name",
+        )?;
+        let mut variants = Vec::new();
+        loop {
+            self.skip_enum_trivia();
+            if self.at(TokenKindMatch::RBrace) || self.at(TokenKindMatch::Eof) {
+                break;
+            }
+            let Some(variant) = self.parse_error_variant_arena_only(arena)? else {
+                self.diagnostic_here("expected error variant", DiagnosticCode::ParseErrorVariant);
+                break;
+            };
+            variants.push(variant);
+            if !matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment)
+                && !self.at(TokenKindMatch::RBrace)
+                && !self.at(TokenKindMatch::Eof)
+            {
+                self.diagnostic_here(
+                    "each error variant in braces is on its own line, with no separator",
+                    DiagnosticCode::ParseErrorVariant,
+                );
+                // Step over one stray separator so the remaining variants
+                // are still declared and checked.
+                if self.consume(TokenKindMatch::Comma).is_none()
+                    && self.consume(TokenKindMatch::Pipe).is_none()
+                    && !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent)
+                {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKindMatch::RBrace, "expected `}` after error variants")?;
+        if variants.is_empty() {
+            self.diagnostic_previous(
+                "an error family requires at least one variant",
+                DiagnosticCode::ParseErrorVariant,
+            );
+        }
+        Some(variants)
+    }
+
+    /// One variant with its payload fields and facets, or `None` when the
+    /// current token cannot begin a variant.
+    fn parse_error_variant_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<Option<ArenaErrorVariant>> {
+        if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
+            return Some(None);
+        }
+        let variant_start = self.current_start();
+        let variant_name = self
+            .current_name()
+            .expect("error variant name token has payload");
+        self.bump();
+        let mut fields = Vec::new();
+        if self.consume(TokenKindMatch::LParen).is_some() {
+            self.skip_newlines();
+            while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
+                let field_start = self.current_start();
+                let field_name = self.expect_label_name("expected error payload field")?;
+                self.expect(
+                    TokenKindMatch::Colon,
+                    "expected `:` after error payload field",
+                );
+                let ty_id = self.parse_type_expr(arena)?;
+                let ty_end = self.previous_end();
+                let span = self.span(field_start, ty_end);
+                fields.push(arena.build_error_field(field_name, ty_id, span));
+                self.skip_newlines();
+                if self.consume(TokenKindMatch::Comma).is_none() {
+                    break;
+                }
+                self.skip_newlines();
+            }
+            self.expect(
+                TokenKindMatch::RParen,
+                "expected `)` after error payload fields",
+            );
+        }
+        let mut facets = Vec::new();
+        if self.consume(TokenKindMatch::Colon).is_some() {
+            loop {
+                facets.push(self.expect_ident("expected error facet")?);
+                if self.consume(TokenKindMatch::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        let span = self.span(variant_start, self.previous_end());
+        Some(Some(arena.build_error_variant(
+            variant_name,
+            fields,
+            &facets,
+            span,
+        )))
     }
 
     fn parse_binding_arena_only(
@@ -1099,8 +1170,9 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    /// `error Name =` or `error Name[...] =`; the bracketed form is parsed
-    /// only to report that generic error families are unsupported.
+    /// `error Name =`, `error Name {`, or either after `[...]`; the bracketed
+    /// form is parsed only to report that generic error families are
+    /// unsupported.
     fn lookahead_is_error_def(&self) -> bool {
         if self.current_name() != Some(Name::intern("error"))
             || !matches!(
@@ -1129,7 +1201,10 @@ impl<'a> Parser<'a> {
                 index += 1;
             }
         }
-        self.token_table.tag_at(index) == Some(TokenTag::Equals)
+        matches!(
+            self.token_table.tag_at(index),
+            Some(TokenTag::Equals | TokenTag::LBrace)
+        )
     }
 
     fn lookahead_is_signal_hook(&self) -> bool {

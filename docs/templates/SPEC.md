@@ -581,6 +581,12 @@ families whose variants carry fixed payloads and may implement facets:
 {{.spec.error_declaration.source}}
 ```
 
+A family is written on one line with `=` and `|`, or in braces with one
+variant per line and no separator. The two forms declare the same family, and
+in both a variant's facets follow it after `:`. `xsht fmt` keeps the `=` form
+while the declaration fits the line width and writes the brace form once it
+does not; a family written in braces stays in braces.
+
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
 A constructor takes payload fields by name (with puns) or positionally:
@@ -594,6 +600,29 @@ Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
 diagnostics only.
+
+A variant declared without a payload carries only its message, as the one
+field `message: Str`. Its constructor takes the message as a single optional
+positional argument and takes no named argument (`check.error-constructor`):
+
+```xsh
+{{.spec.error_implicit_message.source}}
+```
+
+```text
+{{.spec.error_implicit_message.output}}
+```
+
+Constructed without the argument, the message is the family and variant name,
+`FetchError.Usage`. The pattern `FetchError.Usage` matches every `Usage` error
+whatever its message, and `FetchError.Usage {message}` binds it. A variant with
+a declared payload is unchanged: its `.message` is its `message: Str` field
+when it declares one and its family and variant name otherwise, and its
+constructor takes exactly the declared fields.
+
+```xsh
+{{.spec.error_message_argument.source}}
+```
 
 `error.fail(message)` builds a `Result[Unit, Error]` validation failure; it is
 the shortest way to report an expected failure from a fallible function.

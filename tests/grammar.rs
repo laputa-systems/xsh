@@ -374,3 +374,52 @@ fn line_continuation_spellings_come_from_the_operator_table() {
         "a line starting with `-` or `/` begins a statement"
     );
 }
+
+/// An error family has an `=` form and a brace form with one variant per
+/// line; the parser and the productions agree on both and on what the brace
+/// form rejects.
+#[test]
+fn error_family_forms_are_parsed_and_recognized_alike() {
+    let recognizer = Recognizer::new(grammar());
+    for source in [
+        "error E = A(file: Path) : NotFound | B(file: Path, message: Str) | C\n",
+        "error E { A }\n",
+        "error E {\n    A\n}\n",
+        "error E {\n    A\n    B(code: Int) : NotFound, Timeout\n\n    # note\n    C : Timeout # trailing\n}\n",
+        "export error E {\n    A(file: Path,\n      message: Str)\n    B\n}\n",
+        "error E {\n    A\n}\nlet x = 1\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "the parser rejects {source:?}: {:?}",
+            parsed.diagnostics
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_ok(),
+            "the grammar rejects {source:?}"
+        );
+    }
+    for source in [
+        "error E { }\n",
+        "error E {\n}\n",
+        "error E { A, B }\n",
+        "error E {\n    A,\n    B\n}\n",
+        "error E { A | B }\n",
+        "error E { A B }\n",
+        "error E {\n    A : NotFound,\n    B\n}\n",
+    ] {
+        assert!(
+            !Parser::parse_source_arena_only(SourceId::new(0), source)
+                .diagnostics
+                .is_empty(),
+            "the parser accepts {source:?}"
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_err(),
+            "the grammar accepts {source:?}"
+        );
+    }
+}

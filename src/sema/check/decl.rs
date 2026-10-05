@@ -1,8 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, Checker, CoreCommand, ErrorFamilyInfo, ErrorPayloadFields, ErrorVariantInfo,
-    FxHashSet, Name, QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
+    BTreeMap, Checker, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
+    QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::check::{
@@ -1406,12 +1406,11 @@ impl Checker {
                 .iter()
                 .map(|field| (field.name, self.type_from_arena(arena, field.ty)))
                 .collect::<Vec<_>>();
-            let fields = ErrorPayloadFields::from_declared(fields);
             let facets: Vec<Name> = arena.arena.names(variant.facets).collect();
             for facet in &facets {
                 self.error_facets.insert(*facet);
             }
-            variants.insert(variant.name, ErrorVariantInfo { fields, facets });
+            variants.insert(variant.name, ErrorVariantInfo::declared(fields, facets));
         }
         self.error_families
             .insert(def.name, ErrorFamilyInfo { variants });

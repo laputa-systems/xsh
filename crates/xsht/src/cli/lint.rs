@@ -1471,6 +1471,7 @@ fn lint_config_for_file(
         prefer_inferred_private_effects: tool_config.config.lint.prefer_inferred_private_effects,
         prefer_inferred_variants: tool_config.config.lint.prefer_inferred_variants,
         prefer_positional_constructors: tool_config.config.lint.prefer_positional_constructors,
+        prefer_implicit_messages: tool_config.config.lint.prefer_implicit_messages,
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,

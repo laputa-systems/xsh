@@ -2,8 +2,8 @@
 
 use super::decl::is_builtin_or_standard_record_type_name;
 use super::{
-    BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorPayloadFields,
-    ErrorVariantInfo, FxHashMap, FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
+    BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo, FxHashMap,
+    FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
@@ -516,10 +516,7 @@ impl CompactDeclCollector {
             let facets = program.arena.names(variant.facets).collect::<Vec<_>>();
             family_variants.insert(
                 variant.name,
-                ErrorVariantInfo {
-                    fields: ErrorPayloadFields::from_declared(field_types),
-                    facets,
-                },
+                ErrorVariantInfo::declared(field_types, facets),
             );
         }
         let info = ErrorFamilyInfo {

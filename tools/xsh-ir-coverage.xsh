@@ -362,19 +362,30 @@ pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
 
 pure error_variant_names(source: Str) -> List[Str] {
   var names = []
+  # Inside `error Name {`, where each line up to the closing `}` is one variant.
+  var in_braces = false
 
   for raw in source.lines() {
     let line = raw.trim().replace("export error ", "error ")
+    var variants = []
 
-    if line.starts_with("error ") and "=" in line {
-      let variants = (line.split("=").get(1) ?? "").split("|")
+    if in_braces {
+      if line.starts_with("}") {
+        in_braces = false
+      } else if ! line.starts_with("#") {
+        variants = [line]
+      }
+    } else if line.starts_with("error ") and "=" in line {
+      variants = (line.split("=").get(1) ?? "").split("|")
+    } else if line.starts_with("error ") and line.ends_with("{") {
+      in_braces = true
+    }
 
-      for raw_variant in variants {
-        let name = raw_variant.trim().replace("(", " ").fields().get(0) ?? ""
+    for raw_variant in variants {
+      let name = raw_variant.trim().replace("(", " ").fields().get(0) ?? ""
 
-        if name != "" and ! (name in names) {
-          names += [name]
-        }
+      if name != "" and ! (name in names) {
+        names += [name]
       }
     }
   }

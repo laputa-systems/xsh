@@ -15,6 +15,8 @@ mod context_scope;
 mod prefer_repeat;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
+#[path = "lint_implicit_message.rs"]
+mod lint_implicit_message;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -236,6 +238,9 @@ pub struct LintOptions {
     pub prefer_inferred_variants: bool,
     /// Opt in to `lint.prefer-positional-constructor`.
     pub prefer_positional_constructors: bool,
+    /// Opt in to `lint.prefer-implicit-message`, which a corpus adopts once
+    /// it migrates its `Variant(message: Str)` declarations.
+    pub prefer_implicit_messages: bool,
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
@@ -286,6 +291,7 @@ impl Default for LintOptions {
             prefer_inferred_private_effects: false,
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
+            prefer_implicit_messages: false,
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
@@ -472,6 +478,7 @@ impl<'a> Linter<'a> {
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
+        let prefer_implicit_messages = options.prefer_implicit_messages;
         let only = options.only;
         let checked_effects =
             if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
@@ -568,6 +575,13 @@ impl<'a> Linter<'a> {
             linter
                 .diagnostics
                 .extend(lint_callable_alias::lint_callable_aliases(program, source));
+        }
+        if prefer_implicit_messages {
+            linter
+                .diagnostics
+                .extend(lint_implicit_message::lint_implicit_messages(
+                    program, source,
+                ));
         }
         linter
             .diagnostics

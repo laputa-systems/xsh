@@ -482,7 +482,7 @@ impl<'a> Writer<'a> {
                 self.write_stmt_body(*inner, indent, output);
             }
             ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, stmt.span, indent, output),
-            ArenaStmtKind::ErrorDef(def) => self.write_error_def(*def, output),
+            ArenaStmtKind::ErrorDef(def) => self.write_error_def(*def, stmt.span, indent, output),
             ArenaStmtKind::Let {
                 target,
                 ty,
@@ -840,39 +840,92 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// An error family in its `=` form while that fits the line, and in the
+    /// brace form (one variant per line) once it does not or when the author
+    /// wrote braces.
     fn write_error_def(
         &mut self,
         def_id: xsh::frontend::syntax::arena::ErrorDefId,
+        span: Span,
+        indent: usize,
         output: &mut String,
     ) {
         let def = self.arena.error_def(def_id).clone();
-        output.push_str("error ");
-        output.push_str(def.name.as_str().as_str());
-        output.push_str(" = ");
         let variants = self.arena.error_variants(def.variants).to_vec();
-        for (index, variant) in variants.iter().enumerate() {
-            if index > 0 {
-                output.push_str(" | ");
+        let raw = self
+            .source
+            .get(span.range())
+            .unwrap_or("")
+            .trim_end_matches(['\n', '\r']);
+        let authored_braces = raw
+            .find(['=', '{'])
+            .is_some_and(|at| raw[at..].starts_with('{'));
+        let variants_end = variants
+            .last()
+            .map_or(span.start(), |variant| self.arena.span(variant.span).end());
+        // Comments between variants, and in braces up to the closing `}`,
+        // have no place in the rebuilt declaration.
+        let body_end = if authored_braces {
+            error_block_close(&self.source, variants_end, span.end())
+        } else {
+            variants_end
+        };
+        if self.comments[self.next_comment..].iter().any(|comment| {
+            comment.span.start() >= span.start() && comment.span.start() < body_end
+        }) {
+            // Keep variant comments at their authored positions.
+            output.push_str(
+                raw.strip_prefix("export")
+                    .map(str::trim_start)
+                    .unwrap_or(raw),
+            );
+            while self
+                .comments
+                .get(self.next_comment)
+                .is_some_and(|comment| comment.span.start() < span.end())
+            {
+                self.next_comment += 1;
             }
-            output.push_str(variant.name.as_str().as_str());
+            return;
+        }
+        let mut parts = Vec::with_capacity(variants.len());
+        for variant in &variants {
+            let mut part = variant.name.as_str().to_string();
             if !variant.fields.is_empty() {
-                output.push('(');
+                part.push('(');
                 let fields = self.arena.error_fields(variant.fields).to_vec();
                 for (field_index, field) in fields.iter().enumerate() {
                     if field_index > 0 {
-                        output.push_str(", ");
+                        part.push_str(", ");
                     }
-                    output.push_str(field.name.as_str().as_str());
-                    output.push_str(": ");
-                    self.write_type(field.ty, output);
+                    part.push_str(field.name.as_str().as_str());
+                    part.push_str(": ");
+                    self.write_type(field.ty, &mut part);
                 }
-                output.push(')');
+                part.push(')');
             }
             if !variant.facets.is_empty() {
-                output.push_str(" : ");
-                output.push_str(&self.join_name_range(variant.facets, ", "));
+                part.push_str(" : ");
+                part.push_str(&self.join_name_range(variant.facets, ", "));
             }
+            parts.push(part);
         }
+        output.push_str("error ");
+        output.push_str(def.name.as_str().as_str());
+        let inline = format!(" = {}", parts.join(" | "));
+        if !authored_braces && self.fits_inline(output, &inline) {
+            output.push_str(&inline);
+            return;
+        }
+        output.push_str(" {\n");
+        for part in &parts {
+            self.write_indent(indent, output);
+            output.push_str("    ");
+            output.push_str(part);
+            output.push('\n');
+        }
+        self.write_indent(indent, output);
+        output.push('}');
     }
 
     fn write_function(
@@ -1315,8 +1368,20 @@ impl<'a> Writer<'a> {
                 output.push_str(family.as_str().as_str());
                 output.push('.');
                 output.push_str(variant.as_str().as_str());
-                output.push_str(" {");
                 let fields = self.arena.pattern_fields(*fields).to_vec();
+                // `Family.Variant` and `Family.Variant {}` are one pattern;
+                // keep the author's spelling instead of adding braces.
+                if fields.is_empty()
+                    && !self
+                        .source
+                        .get(self.arena.span(self.arena.pattern(pattern_id).span).range())
+                        .unwrap_or("")
+                        .trim_end()
+                        .ends_with('}')
+                {
+                    return;
+                }
+                output.push_str(" {");
                 for (index, field) in fields.iter().enumerate() {
                     if index > 0 {
                         output.push_str(", ");
@@ -4216,6 +4281,21 @@ fn tag_variants_original_multiline(
     source
         .get(first.start()..last.end())
         .is_some_and(|source| source.contains('\n'))
+}
+
+/// The offset of the `}` that closes a braced error family whose last variant
+/// ends at `from`: only blank space and comments can come before it.
+fn error_block_close(source: &str, from: usize, limit: usize) -> usize {
+    let mut in_comment = false;
+    for (offset, character) in source.get(from..limit).unwrap_or("").char_indices() {
+        match character {
+            '\n' => in_comment = false,
+            '#' => in_comment = true,
+            '}' if !in_comment => return from + offset,
+            _ => {}
+        }
+    }
+    limit
 }
 
 fn record_field_span(arena: &AstArena, field: &ArenaRecordFieldKind) -> Option<Span> {

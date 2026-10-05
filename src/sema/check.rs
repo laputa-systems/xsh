@@ -161,9 +161,24 @@ pub struct CheckOutput {
     /// The schema field each record constructor argument supplies, in source
     /// order, keyed by call expression.
     pub record_constructor_fields: BTreeMap<Span, Vec<Name>>,
+    /// Constructor calls of error variants whose declared payload is exactly
+    /// `message: Str`, the field a variant without a payload already carries,
+    /// keyed by call expression.
+    pub message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
+}
+
+/// One constructor call of a variant declared as `Variant(message: Str)`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessagePayloadConstructor {
+    /// The checked family name, as `Type::ErrorFamily` carries it.
+    pub family: Name,
+    pub variant: Name,
+    /// The `message: value` (or `message:`) argument and its value, when the
+    /// call names the field instead of passing it positionally.
+    pub named_message: Option<(Span, Span)>,
 }
 
 /// A leading-dot variant resolved against its expected type. It carries the
@@ -373,6 +388,33 @@ pub struct ErrorFamilyInfo {
 pub struct ErrorVariantInfo {
     pub fields: ErrorPayloadFields,
     pub facets: Vec<Name>,
+    /// The variant was declared without a payload. `fields` is then the one
+    /// `message: Str` every error carries, and the constructor takes it as a
+    /// single optional positional argument instead of by name.
+    pub implicit_message: bool,
+}
+
+impl ErrorVariantInfo {
+    /// The facts of a variant from the payload fields its declaration wrote.
+    pub fn declared(
+        payload: impl IntoIterator<Item = (Name, Type)>,
+        facets: Vec<Name>,
+    ) -> Self {
+        let fields = ErrorPayloadFields::from_declared(payload);
+        if fields.is_empty() {
+            Self {
+                fields: ErrorPayloadFields::from_declared([(Name::intern("message"), Type::Str)]),
+                facets,
+                implicit_message: true,
+            }
+        } else {
+            Self {
+                fields,
+                facets,
+                implicit_message: false,
+            }
+        }
+    }
 }
 
 /// A variant's payload fields in the order the declaration wrote them, which
@@ -507,6 +549,7 @@ pub struct Checker {
     inferred_variants: BTreeMap<Span, InferredVariant>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
+    message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
@@ -635,6 +678,7 @@ impl Checker {
                 inferred_variants: checker.inferred_variants,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
+                message_payload_constructors: checker.message_payload_constructors,
                 embedded_bodies_checked: options.embedded_bodies,
             }
         })
@@ -776,6 +820,7 @@ impl Checker {
                 inferred_variants: checker.inferred_variants,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
+                message_payload_constructors: checker.message_payload_constructors,
                 embedded_bodies_checked: false,
             }
         })
@@ -841,6 +886,7 @@ impl Checker {
             inferred_variants: BTreeMap::new(),
             redundant_variant_qualifiers: BTreeMap::new(),
             record_constructor_fields: BTreeMap::new(),
+            message_payload_constructors: BTreeMap::new(),
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),
@@ -897,19 +943,18 @@ impl Checker {
                     )
                 })
                 .collect::<Vec<_>>();
-            let fields = ErrorPayloadFields::from_declared(fields);
             let mut variants = BTreeMap::new();
             for variant in family.variants {
                 variants.insert(
                     Name::intern(variant.name),
-                    ErrorVariantInfo {
-                        fields: fields.clone(),
-                        facets: variant
+                    ErrorVariantInfo::declared(
+                        fields.clone(),
+                        variant
                             .facets
                             .iter()
                             .map(|facet| Name::intern(facet.name()))
                             .collect(),
-                    },
+                    ),
                 );
             }
             let family_name = if family.name == "ProcessError" {

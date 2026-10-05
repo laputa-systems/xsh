@@ -11177,7 +11177,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for arg in args {
             let (field, value) = match arg.kind {
                 ArenaCallArgKind::Named { name, value, .. } => {
-                    if !info.fields.contains_key(&name) || !seen.insert(name) {
+                    if info.implicit_message
+                        || !info.fields.contains_key(&name)
+                        || !seen.insert(name)
+                    {
                         return None;
                     }
                     (name, value)
@@ -11208,6 +11211,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 lowered
             };
             fields.push((Arc::<str>::from(field.as_str().as_str()), lowered));
+        }
+        if info.implicit_message && seen.is_empty() {
+            // A variant without a payload always carries its message, so a
+            // `{message}` pattern binds what `.message` reads when the
+            // constructor omitted it.
+            let message = push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Str(format!("{family_name}.{variant}").into())
+            );
+            for field in &expected_fields {
+                fields.push((Arc::<str>::from(field.as_str().as_str()), message));
+                seen.insert(*field);
+            }
         }
         if expected_fields.iter().any(|field| !seen.contains(field)) {
             return None;

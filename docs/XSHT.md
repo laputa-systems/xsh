@@ -55,6 +55,7 @@ command error.
 | `[check] annotate` | default `--annotate` policy |
 | `[lint] prefer-inferred-pure-returns`, `prefer-inferred-private-effects` | opt-in removal of annotations the checker can infer |
 | `[lint] prefer-inferred-variants`, `prefer-positional-constructors` | opt-in `lint.prefer-inferred-variant` (drop a variant qualifier the expected type selects) and `lint.prefer-positional-constructor` (pass in-order constructor fields positionally) |
+| `[lint] prefer-implicit-messages` | opt-in `lint.prefer-implicit-message`: a variant declared `V(message: Str)` drops its payload and takes the message positionally. Calls that name `message:` are fixed first; the declaration is fixed only when the family is not exported, because calls in importing files are not visible |
 | `[lint] runless-except` | commands allowed under `--runless` |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |
 | `[coverage] exclude` | files removed from the `xsht test --cov` denominator only |

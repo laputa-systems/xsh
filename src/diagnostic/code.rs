@@ -540,6 +540,7 @@ diagnostic_codes! {
         LintPreferFsFiles = "lint.prefer-fs-files", warning, "Use `fs.files()` instead of `fs.walk()` filtered to `kind == file`";
         LintPreferGenericRecordConstructor = "lint.prefer-generic-record-constructor", warning, "Let a constructor infer its concrete schema from the supplied fields";
         LintPreferGuard = "lint.prefer-guard", warning, "Use `guard` instead of a single-action `if`";
+        LintPreferImplicitMessage = "lint.prefer-implicit-message", warning, "Declare a variant whose only payload is `message: Str` without a payload and pass its message positionally";
         LintPreferIn = "lint.prefer-in", warning, "Use `in` or `not in` instead of a membership method call";
         LintPreferInferredPrivateEffects = "lint.prefer-inferred-private-effects", warning, "Drop a private proc effect clause when it is inferred exactly";
         LintPreferInferredPureReturn = "lint.prefer-inferred-pure-return", warning, "Drop a private pure return type when it is inferred exactly";

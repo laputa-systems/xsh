@@ -102,3 +102,18 @@ test test_fmt_match_arm_nested_blocks_preserve_value { |ctx|
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
 }
+
+test test_fmt_error_families_choose_the_form_by_width { |ctx|
+  let source = p"tests/fixtures/fmt/error-families.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/error-families.xsh",
+    p"tests/fixtures/fmt/error-families.expected.xsh",
+    "fmt-error-families.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/error-families.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+}

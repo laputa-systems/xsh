@@ -1519,6 +1519,20 @@ impl Checker {
         let mut positional_index = 0usize;
         for arg in args {
             let (name, expected) = match &arg.kind {
+                // The message of a variant without a payload has one spelling,
+                // so a declaration that later gains a payload cannot silently
+                // rebind a `message:` argument.
+                ArenaCallArgKind::Named { .. } if info.implicit_message => {
+                    self.error(
+                        call_arg_span_arena(arena, &arg.kind),
+                        &format!(
+                            "variant `{variant}` declares no payload; pass its message positionally: `{variant}(\"...\")`"
+                        ),
+                        DiagnosticCode::CheckErrorConstructor,
+                    );
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    continue;
+                }
                 ArenaCallArgKind::Named { name, .. } => {
                     let Some(expected) = info.fields.get(name) else {
                         self.error(
@@ -1565,13 +1579,44 @@ impl Checker {
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
-        for name in info.fields.keys() {
-            if !seen.contains(name) {
-                self.error(
+        self.message_payload_constructors.remove(&span);
+        let message = Name::intern("message");
+        if !info.implicit_message
+            && info.fields.len() == 1
+            && info.fields.get(&message) == Some(&Type::Str)
+            && let [arg] = args
+            && !xsh_registry::errors::builtin_error_families()
+                .iter()
+                .any(|builtin| family == builtin.name)
+        {
+            let named_message = match &arg.kind {
+                ArenaCallArgKind::Named { name, value, .. } if *name == message => Some((
+                    call_arg_span_arena(arena, &arg.kind),
+                    arena.arena.expr(*value).span,
+                )),
+                _ => None,
+            };
+            if named_message.is_some() || matches!(arg.kind, ArenaCallArgKind::Positional(_)) {
+                self.message_payload_constructors.insert(
                     span,
-                    "missing error payload field",
-                    DiagnosticCode::CheckErrorConstructor,
+                    super::MessagePayloadConstructor {
+                        family,
+                        variant,
+                        named_message,
+                    },
                 );
+            }
+        }
+        // An omitted implicit message defaults to the family and variant name.
+        if !info.implicit_message {
+            for name in info.fields.keys() {
+                if !seen.contains(name) {
+                    self.error(
+                        span,
+                        "missing error payload field",
+                        DiagnosticCode::CheckErrorConstructor,
+                    );
+                }
             }
         }
         Type::ErrorVariant { family, variant }
