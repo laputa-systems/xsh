@@ -676,36 +676,32 @@ pure squfof(n: List[Int]) -> Int {
 
     let limit = 6 * isqrt_int(2 * start) + 100
     var p = start
-    var previous_q = 1
-    var q = big_to_int(big_sub(target, big_mul(big_from_int(start), big_from_int(start))))
+    var older = 1
+    var newer = big_to_int(big_sub(target, big_mul(big_from_int(start), big_from_int(start))))
     var root = 0
     var found = false
     var round = 2
 
-    # Each pass takes two steps and tests for a perfect square after the
-    # first, which is the even-numbered form; a perfect square has an exact
-    # float square root, so no adjustment is needed.
+    # Two steps per pass, the two Q values trading places instead of being
+    # copied; the form after the first step is the even-numbered one, which is
+    # tested for a perfect square (exact in floating point, so no adjustment).
     while round < limit {
-      var step = (start + p) / q
-      var next_p = step * q - p
-      var next_q = previous_q + step * (p - next_p)
+      var step = (start + p) / newer
+      var edge = step * newer - p
 
-      previous_q = q
-      p = next_p
-      q = next_q
-      root = q.float().sqrt().floor() ?? 0
+      older = older + step * (p - edge)
+      p = edge
+      root = older.float().sqrt().floor() ?? 0
 
-      if root * root == q {
+      if root * root == older {
         found = true
         break
       }
 
-      step = (start + p) / q
-      next_p = step * q - p
-      next_q = previous_q + step * (p - next_p)
-      previous_q = q
-      p = next_p
-      q = next_q
+      step = (start + p) / older
+      edge = step * older - p
+      newer = newer + step * (p - edge)
+      p = edge
       round += 2
     }
 
@@ -713,11 +709,10 @@ pure squfof(n: List[Int]) -> Int {
       let step = (start - p) / root
 
       p = step * root + p
-      previous_q = root
 
+      var previous_q = root
       let rest = big_sub(target, big_mul(big_from_int(p), big_from_int(p)))
-
-      q = big_to_int(big_div_small_or_big(rest, previous_q))
+      var q = big_to_int(big_div_small_or_big(rest, previous_q))
 
       loop {
         let leap = (start + p) / q
