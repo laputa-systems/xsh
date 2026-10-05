@@ -54,10 +54,12 @@ test test_md5sum_zero_binary_and_tagged { |ctx|
 }
 
 test test_md5sum_escaped_unicode_file_roundtrip { |ctx|
-  let file = test.temp_file(ctx, name: "checksum-µ\\file", contents: b"abc")?
+  let directory = test.temp_dir(ctx, name: "checksum-escaped")?
+  let file = fp"{directory}/checksum-µ\\file"
+  file.write("abc")
   let emitted = invoke(ctx, [file.display()], b"")?
   assert emitted.status == 0
-  assert emitted.stdout.utf8()?.starts_with("\\900150983cd24fb0d6963f7d28e17f72  ")
+  assert emitted.stdout.utf8()?.starts_with("\\900150983cd24fb0d6963f7d28e17f72  "), f"path={file}, output={emitted.stdout.utf8()?}"
   let list = test.temp_file(ctx, name: "escaped-check-list", contents: emitted.stdout)?
   let checked = invoke(ctx, ["--check", list.display()], b"")?
   assert checked.status == 0
