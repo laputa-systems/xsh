@@ -597,10 +597,12 @@ Process-scoped utility helpers.
 - `Path.dirname() -> Path` — Returns the directory component using POSIX dirname semantics.
 - `Path.display() -> Str` — Formats a path for display.
 - `Path.du() -> Result[Int, Error]` — Calculates disk usage for a path.
+- `Path.ends_with(suffix: Path) -> Bool` — Tests whether a path ends with the components of another path.
 - `Path.executable() -> Result[Bool, Error]` — Checks a filesystem property for a path.
 - `Path.exists() -> Result[Bool, Error]` — Checks a filesystem property for a path.
 - `Path.ext() -> Str` — Returns the path extension.
 - `Path.ext_or(fallback: Str) -> Str` — Returns the path extension, or a fallback when there is no extension.
+- `Path.glob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern below a path.
 - `Path.hardlink(path: Path) -> Result[Unit, Error]` — Creates a hard link to a path.
 - `Path.lines() -> Result[Stream[Str], Error]` — Streams UTF-8 file lines.
 - `Path.metadata() -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads a path's filesystem metadata record.
@@ -609,6 +611,7 @@ Process-scoped utility helpers.
 - `Path.normalize() -> Path` — Normalizes lexical path components.
 - `Path.parent() -> Path` — Returns the lexical parent path.
 - `Path.read_bytes() -> Result[Bytes, Error]` — Reads a file as Bytes.
+- `Path.read_lines() -> Result[List[Str], Error]` — Reads a UTF-8 file into a list of its lines.
 - `Path.read_text() -> Result[Str, Error]` — Reads a UTF-8 file into Str.
 - `Path.readlink() -> Result[Path, Error]` — Reads a symbolic link target.
 - `Path.relative_to(base: Path) -> Path` — Computes a path relative to an explicit base.
@@ -616,6 +619,8 @@ Process-scoped utility helpers.
 - `Path.remove_dir() -> Result[Unit, Error]` — Removes an empty directory.
 - `Path.rename(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
 - `Path.resolve() -> Result[Path, Error]` — Resolves a path through the filesystem.
+- `Path.rglob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern at any depth below a path.
+- `Path.starts_with(prefix: Path) -> Bool` — Tests whether a path begins with the components of another path.
 - `Path.strip_prefix(prefix: Path) -> Result[Path, Error]` — Removes an explicit path prefix.
 - `Path.touch(create: Bool = default) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.touch_from(reference: Path) -> Result[Unit, Error]` — Creates or updates a path timestamp.
@@ -624,6 +629,7 @@ Process-scoped utility helpers.
 - `Path.with_ext(ext: Str) -> Path` — Replaces a path extension.
 - `Path.write(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
 - `Path.write_atomic(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Atomically replaces a path with text or bytes.
+- `Path.write_lines(lines: List[Str]) -> Result[Unit, Error]` — Writes a list of text lines to a path, each followed by a newline.
 
 ### ProcessHandle
 

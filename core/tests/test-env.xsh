@@ -1,5 +1,6 @@
 test test_env_assignment_runs_command { |ctx|
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/env.xsh" -- XSH_MODULE_PATH=ok ${ctx.xsh_bin} fp"{ctx.core_dir}/printenv.xsh" -- XSH_MODULE_PATH ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/env.xsh" -- XSH_MODULE_PATH=ok ${ctx.xsh_bin} \
+    fp"{ctx.core_dir}/printenv.xsh" -- XSH_MODULE_PATH ?
   assert output.trim() == "ok"
 }
 

@@ -3149,17 +3149,19 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
         return Err(check_failure("cache reference omits its owner CPU"))
       }
 
-      rows += [{
-        owner_cpu_id: cpu_id,
-        sysfs_index: index,
-        kernel_id: reference_cache_optional_number(root, fp"{entry}/id")?,
-        level: level,
-        kind: kind,
-        size_bytes: parse_cpu_cache_size_reference(size_text ?? "")?,
-        line_size_bytes: reference_cache_optional_number(root, fp"{entry}/coherency_line_size")?,
-        sets: reference_cache_optional_number(root, fp"{entry}/number_of_sets")?,
-        shared_cpus: shared_cpus,
-      }]
+      rows += [
+        {
+          owner_cpu_id: cpu_id,
+          sysfs_index: index,
+          kernel_id: reference_cache_optional_number(root, fp"{entry}/id")?,
+          level: level,
+          kind: kind,
+          size_bytes: parse_cpu_cache_size_reference(size_text ?? "")?,
+          line_size_bytes: reference_cache_optional_number(root, fp"{entry}/coherency_line_size")?,
+          sets: reference_cache_optional_number(root, fp"{entry}/number_of_sets")?,
+          shared_cpus: shared_cpus,
+        },
+      ]
     }
   }
 
@@ -3713,15 +3715,17 @@ export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List
       return Err(check_failure(f"USB device {name} bus number disagrees with its sysfs name"))
     }
 
-    devices += [{
-      name: name,
-      parent_name: identity.parent_name,
-      port_path: identity.port_path,
-      bus_number: bus_number,
-      device_number: reference_usb_number(root, fp"{device_path}/devnum")?,
-      speed_mbps: reference_usb_text(root, fp"{device_path}/speed")?,
-      is_root_hub: identity.is_root_hub,
-    }]
+    devices += [
+      {
+        name: name,
+        parent_name: identity.parent_name,
+        port_path: identity.port_path,
+        bus_number: bus_number,
+        device_number: reference_usb_number(root, fp"{device_path}/devnum")?,
+        speed_mbps: reference_usb_text(root, fp"{device_path}/speed")?,
+        is_root_hub: identity.is_root_hub,
+      },
+    ]
   }
 
   devices |> sort-by .name
@@ -3981,17 +3985,19 @@ export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbI
       let _ = usb_reference_hex(version.value, 4)?
     }
 
-    devices += [{
-      name: name,
-      vendor_id: reference_usb_hex_attribute(root, fp"{device_path}/idVendor", 4)?,
-      product_id: reference_usb_hex_attribute(root, fp"{device_path}/idProduct", 4)?,
-      device_version: version,
-      class_code: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceClass", 2)?,
-      subclass: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceSubClass", 2)?,
-      protocol: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceProtocol", 2)?,
-      manufacturer: reference_usb_attribute(root, fp"{device_path}/manufacturer")?,
-      product: reference_usb_attribute(root, fp"{device_path}/product")?,
-    }]
+    devices += [
+      {
+        name: name,
+        vendor_id: reference_usb_hex_attribute(root, fp"{device_path}/idVendor", 4)?,
+        product_id: reference_usb_hex_attribute(root, fp"{device_path}/idProduct", 4)?,
+        device_version: version,
+        class_code: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceClass", 2)?,
+        subclass: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceSubClass", 2)?,
+        protocol: reference_usb_hex_attribute(root, fp"{device_path}/bDeviceProtocol", 2)?,
+        manufacturer: reference_usb_attribute(root, fp"{device_path}/manufacturer")?,
+        product: reference_usb_attribute(root, fp"{device_path}/product")?,
+      },
+    ]
   }
 
   devices |> sort-by .name
@@ -4057,14 +4063,16 @@ export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[Us
     }
 
     names += [name]
-    devices += [{
-      name: name,
-      power_control: reference_usb_attribute(root, fp"{device_path}/power/control")?,
-      autosuspend_delay_ms: reference_usb_power_number(root, fp"{device_path}/power/autosuspend_delay_ms", true)?,
-      runtime_status: reference_usb_attribute(root, fp"{device_path}/power/runtime_status")?,
-      configuration_count: reference_usb_power_number(root, fp"{device_path}/bNumConfigurations", false)?,
-      active_configuration: reference_usb_power_number(root, fp"{device_path}/bConfigurationValue", true)?,
-    }]
+    devices += [
+      {
+        name: name,
+        power_control: reference_usb_attribute(root, fp"{device_path}/power/control")?,
+        autosuspend_delay_ms: reference_usb_power_number(root, fp"{device_path}/power/autosuspend_delay_ms", true)?,
+        runtime_status: reference_usb_attribute(root, fp"{device_path}/power/runtime_status")?,
+        configuration_count: reference_usb_power_number(root, fp"{device_path}/bNumConfigurations", false)?,
+        active_configuration: reference_usb_power_number(root, fp"{device_path}/bConfigurationValue", true)?,
+      },
+    ]
   }
 
   devices |> sort-by .name
@@ -4289,19 +4297,21 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
 
       let active = reference_usb_power_number(root, fp"{interface_path}/bAlternateSetting", false)?
       var owned = [setting for setting in descriptor_settings if setting.interface_number == identity.number]
-      rows += [{
-        device_name: device_name,
-        name: name,
-        number: identity.number,
-        driver: reference_usb_interface_driver(root, interface_path)?,
-        active_alternate: active,
-        active_class: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceClass", 2)?,
-        active_subclass: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceSubClass", 2)?,
-        active_protocol: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceProtocol", 2)?,
-        active_endpoint_count: reference_usb_hex_attribute(root, fp"{interface_path}/bNumEndpoints", 2)?,
-        settings: owned,
-        descriptors_complete: descriptors_complete,
-      }]
+      rows += [
+        {
+          device_name: device_name,
+          name: name,
+          number: identity.number,
+          driver: reference_usb_interface_driver(root, interface_path)?,
+          active_alternate: active,
+          active_class: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceClass", 2)?,
+          active_subclass: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceSubClass", 2)?,
+          active_protocol: reference_usb_hex_attribute(root, fp"{interface_path}/bInterfaceProtocol", 2)?,
+          active_endpoint_count: reference_usb_hex_attribute(root, fp"{interface_path}/bNumEndpoints", 2)?,
+          settings: owned,
+          descriptors_complete: descriptors_complete,
+        },
+      ]
     }
   }
 
@@ -4624,20 +4634,22 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
     }
 
     seen += [name]
-    supplies += [{
-      name: name,
-      kind: reference_power_text(root, fp"{supply_path}/type")?,
-      status: reference_power_text(root, fp"{supply_path}/status")?,
-      health: reference_power_text(root, fp"{supply_path}/health")?,
-      capacity_percent: reference_power_number(root, fp"{supply_path}/capacity", false, true)?,
-      energy_now_uwh: reference_power_number(root, fp"{supply_path}/energy_now", false, false)?,
-      energy_full_uwh: reference_power_number(root, fp"{supply_path}/energy_full", false, false)?,
-      charge_now_uah: reference_power_number(root, fp"{supply_path}/charge_now", false, false)?,
-      charge_full_uah: reference_power_number(root, fp"{supply_path}/charge_full", false, false)?,
-      voltage_now_uv: reference_power_number(root, fp"{supply_path}/voltage_now", false, false)?,
-      current_now_ua: reference_power_number(root, fp"{supply_path}/current_now", true, false)?,
-      cycle_count: reference_power_number(root, fp"{supply_path}/cycle_count", false, false)?,
-    }]
+    supplies += [
+      {
+        name: name,
+        kind: reference_power_text(root, fp"{supply_path}/type")?,
+        status: reference_power_text(root, fp"{supply_path}/status")?,
+        health: reference_power_text(root, fp"{supply_path}/health")?,
+        capacity_percent: reference_power_number(root, fp"{supply_path}/capacity", false, true)?,
+        energy_now_uwh: reference_power_number(root, fp"{supply_path}/energy_now", false, false)?,
+        energy_full_uwh: reference_power_number(root, fp"{supply_path}/energy_full", false, false)?,
+        charge_now_uah: reference_power_number(root, fp"{supply_path}/charge_now", false, false)?,
+        charge_full_uah: reference_power_number(root, fp"{supply_path}/charge_full", false, false)?,
+        voltage_now_uv: reference_power_number(root, fp"{supply_path}/voltage_now", false, false)?,
+        current_now_ua: reference_power_number(root, fp"{supply_path}/current_now", true, false)?,
+        cycle_count: reference_power_number(root, fp"{supply_path}/cycle_count", false, false)?,
+      },
+    ]
   }
 
   supplies |> sort-by .name
@@ -4795,15 +4807,17 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: item.path,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: item.path,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = power_supply_bundle_layout(source)?
@@ -5212,29 +5226,33 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
         }
 
         indices += [constraint_index]
-        constraints += [{
-          index: constraint_index,
-          name: reference_power_text(root, fp"{zone_path}/constraint_{constraint_index}_name")?,
-          power_limit_uw: reference_power_number(root, attribute, false, false)?,
-          time_window_us: reference_power_number(
-            root,
-            fp"{zone_path}/constraint_{constraint_index}_time_window_us",
-            false,
-            false,
-          )?,
-        }]
+        constraints += [
+          {
+            index: constraint_index,
+            name: reference_power_text(root, fp"{zone_path}/constraint_{constraint_index}_name")?,
+            power_limit_uw: reference_power_number(root, attribute, false, false)?,
+            time_window_us: reference_power_number(
+              root,
+              fp"{zone_path}/constraint_{constraint_index}_time_window_us",
+              false,
+              false,
+            )?,
+          },
+        ]
       }
     }
 
-    zones += [{
-      entry_name: entry_name,
-      name: names[index],
-      parent: reference_powercap_parent(root, zone_path, zone_names)?,
-      energy_uj: reference_power_number(root, fp"{zone_path}/energy_uj", false, false)?,
-      maximum_energy_range_uj: reference_power_number(root, fp"{zone_path}/max_energy_range_uj", false, false)?,
-      constraints: constraints |> sort-by .index,
-      constraints_complete: attributes.state == "complete",
-    }]
+    zones += [
+      {
+        entry_name: entry_name,
+        name: names[index],
+        parent: reference_powercap_parent(root, zone_path, zone_names)?,
+        energy_uj: reference_power_number(root, fp"{zone_path}/energy_uj", false, false)?,
+        maximum_energy_range_uj: reference_power_number(root, fp"{zone_path}/max_energy_range_uj", false, false)?,
+        constraints: constraints |> sort-by .index,
+        constraints_complete: attributes.state == "complete",
+      },
+    ]
   }
 
   zones |> sort-by .entry_name
@@ -5321,10 +5339,10 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
 
       indices += [index]
       source_paths += [
-          f"{prefix}/constraint_{index}_power_limit_uw",
-          f"{prefix}/constraint_{index}_name",
-          f"{prefix}/constraint_{index}_time_window_us",
-        ]
+        f"{prefix}/constraint_{index}_power_limit_uw",
+        f"{prefix}/constraint_{index}_name",
+        f"{prefix}/constraint_{index}_time_window_us",
+      ]
     }
 
     if source_paths.len() > 4096 {
@@ -5385,15 +5403,17 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     }
 
     saved_bytes += [raw.data]
-    observations += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    observations += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = powercap_bundle_layout(source)?
@@ -5824,14 +5844,16 @@ export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List
 
       let name = device_class_reference_name(root, entry, source.class_name)?
       let parent = device_class_reference_parent(root, entry)?
-      records += [{
-        class: source.class_name,
-        entry_name: entry.name(),
-        name: name.value,
-        name_complete: name.complete,
-        parent_target: parent.target,
-        parent_complete: parent.complete,
-      }]
+      records += [
+        {
+          class: source.class_name,
+          entry_name: entry.name(),
+          name: name.value,
+          name_complete: name.complete,
+          parent_target: parent.target,
+          parent_complete: parent.complete,
+        },
+      ]
     }
   }
 
@@ -6192,21 +6214,23 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
       continue unless name.ends_with("_input")
       let channel = name.split("") |> take(name.count_chars() - 6).join("")
       let shape = hwmon_channel_shape(channel)
-      channels += [{
-        chip_entry_name: chip_path.name(),
-        chip: chip_name,
-        channel: channel,
-        kind: shape.kind,
-        unit: shape.unit,
-        value: reference_hwmon_number(root, attribute, false)?,
-        label: reference_hwmon_text(root, fp"{chip_path}/{channel}_label")?,
-        minimum: reference_hwmon_number(root, fp"{chip_path}/{channel}_min", false)?,
-        maximum: reference_hwmon_number(root, fp"{chip_path}/{channel}_max", false)?,
-        critical: reference_hwmon_number(root, fp"{chip_path}/{channel}_crit", false)?,
-        alarm: reference_hwmon_number(root, fp"{chip_path}/{channel}_alarm", true, true)?,
-        parent_target: parent.target,
-        parent_complete: parent.complete,
-      }]
+      channels += [
+        {
+          chip_entry_name: chip_path.name(),
+          chip: chip_name,
+          channel: channel,
+          kind: shape.kind,
+          unit: shape.unit,
+          value: reference_hwmon_number(root, attribute, false)?,
+          label: reference_hwmon_text(root, fp"{chip_path}/{channel}_label")?,
+          minimum: reference_hwmon_number(root, fp"{chip_path}/{channel}_min", false)?,
+          maximum: reference_hwmon_number(root, fp"{chip_path}/{channel}_max", false)?,
+          critical: reference_hwmon_number(root, fp"{chip_path}/{channel}_crit", false)?,
+          alarm: reference_hwmon_number(root, fp"{chip_path}/{channel}_alarm", true, true)?,
+          parent_target: parent.target,
+          parent_complete: parent.complete,
+        },
+      ]
     }
   }
 
@@ -6306,12 +6330,14 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
       complete = false
     }
 
-    chips += [{
-      name: name,
-      class_target: class_target,
-      storage_path: storage,
-      device_target: device_target,
-    }]
+    chips += [
+      {
+        name: name,
+        class_target: class_target,
+        storage_path: storage,
+        device_target: device_target,
+      },
+    ]
     source_paths += [f"{storage}/name"]
     for attribute in attributes.children {
       let attribute_name = attribute.name()
@@ -6382,15 +6408,17 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = hwmon_bundle_layout(source)?
@@ -7199,17 +7227,19 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
         return Err(check_failure("CPUIdle reference state has an invalid disable control"))
       }
 
-      states += [{
-        cpu_id: cpu_id,
-        state_index: index,
-        name: state_name,
-        description: reference_cpuidle_text(root, fp"{state_path}/desc", false)?,
-        disable_setting: disable,
-        latency_us: reference_cpuidle_number(root, fp"{state_path}/latency")?,
-        residency_us: reference_cpuidle_number(root, fp"{state_path}/residency")?,
-        usage_count: reference_cpuidle_number(root, fp"{state_path}/usage")?,
-        time_us: reference_cpuidle_number(root, fp"{state_path}/time")?,
-      }]
+      states += [
+        {
+          cpu_id: cpu_id,
+          state_index: index,
+          name: state_name,
+          description: reference_cpuidle_text(root, fp"{state_path}/desc", false)?,
+          disable_setting: disable,
+          latency_us: reference_cpuidle_number(root, fp"{state_path}/latency")?,
+          residency_us: reference_cpuidle_number(root, fp"{state_path}/residency")?,
+          usage_count: reference_cpuidle_number(root, fp"{state_path}/usage")?,
+          time_us: reference_cpuidle_number(root, fp"{state_path}/time")?,
+        },
+      ]
     }
   }
 
@@ -7346,7 +7376,8 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
     let affected = reference_cpufreq_text(root, fp"{policy_path}/affected_cpus", true)?
     let governor = reference_cpufreq_text(root, fp"{policy_path}/scaling_governor", false)?
     let available_epp = reference_cpufreq_text(root, fp"{policy_path}/energy_performance_available_preferences", false)?
-    policies += [{
+    policies += [
+      {
         name: name,
         related_cpus: reference_cpufreq_members(related ?? "")?,
         affected_cpus: reference_cpufreq_members(affected ?? "")?,
@@ -7367,13 +7398,18 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
             complete: true,
           }
         },
-        energy_performance_preference: reference_cpufreq_text(root, fp"{policy_path}/energy_performance_preference", false)?,
+        energy_performance_preference: reference_cpufreq_text(
+          root,
+          fp"{policy_path}/energy_performance_preference",
+          false,
+        )?,
         available_energy_performance_preferences: reference_cpufreq_words(available_epp ?? ""),
         boost_supported: boost.supported,
         boost_allowed: boost.allowed,
         boost_active: null,
         boost_scope: boost.scope,
-      }]
+      },
+    ]
   }
 
   policies |> sort-by .name
@@ -7459,15 +7495,17 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       sha256_hex = hash.sha256(raw.data).hex()
     }
 
-    observations += [{
-      name: name,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    observations += [
+      {
+        name: name,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   var stable = true
@@ -7706,15 +7744,17 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = cpufreq_bundle_layout(source)?
@@ -7950,15 +7990,17 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
       }
     }
 
-    rows += [{
-      id: cpu_id,
-      online: cpu_id in sets.online,
-      package_id: package ?? -1,
-      die_id: cpu_topology_reference_number(root, f"{prefix}/die_id", false)?,
-      core_id: core ?? -1,
-      siblings: siblings,
-      node_id: node_id,
-    }]
+    rows += [
+      {
+        id: cpu_id,
+        online: cpu_id in sets.online,
+        package_id: package ?? -1,
+        die_id: cpu_topology_reference_number(root, f"{prefix}/die_id", false)?,
+        core_id: core ?? -1,
+        siblings: siblings,
+        node_id: node_id,
+      },
+    ]
   }
 
   rows
@@ -8090,15 +8132,17 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = cpu_topology_bundle_layout(source)?
@@ -8303,15 +8347,17 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     }
 
     saved_bytes += [raw.data]
-    observations += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    observations += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   var stable = true
@@ -8563,11 +8609,13 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
 
     let kib = source_unit == "kB"
     let source_value = meminfo_reference_number(fields[0], if kib { 8796093022207 } else { 9007199254740991 })?
-    counters += [{
-      name: name,
-      value: if kib { source_value * 1024 } else { source_value },
-      unit: if kib { "bytes" } else if source_unit == "" { "count" } else { source_unit },
-    }]
+    counters += [
+      {
+        name: name,
+        value: if kib { source_value * 1024 } else { source_value },
+        unit: if kib { "bytes" } else if source_unit == "" { "count" } else { source_unit },
+      },
+    ]
     seen = set.add(seen, name)
   }
 
@@ -8948,15 +8996,17 @@ export proc capture_vulnerabilities_bundle(
         }
       }
 
-      sources += [{
-        name: name,
-        state: raw.state,
-        truncated: raw.truncated,
-        errno: raw.errno,
-        error_kind: raw.error_kind,
-        byte_count: raw.data?.len() ?? 0,
-        sha256_hex: digest,
-      }]
+      sources += [
+        {
+          name: name,
+          state: raw.state,
+          truncated: raw.truncated,
+          errno: raw.errno,
+          error_kind: raw.error_kind,
+          byte_count: raw.data?.len() ?? 0,
+          sha256_hex: digest,
+        },
+      ]
       if raw.state != "observed" or raw.truncated or raw.errno != null or raw.error_kind != null or raw.data == null {
         scoreable = false
       } else if scoreable {
@@ -9311,14 +9361,16 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
       return Err(check_failure("PSI reference has an invalid average or missing field"))
     }
 
-    rows += [{
-      resource: resource,
-      kind: kind,
-      avg10: avg10,
-      avg60: avg60,
-      avg300: avg300,
-      total_us: psi_reference_total(total_text)?,
-    }]
+    rows += [
+      {
+        resource: resource,
+        kind: kind,
+        avg10: avg10,
+        avg60: avg60,
+        avg300: avg300,
+        total_us: psi_reference_total(total_text)?,
+      },
+    ]
   }
 
   rows
@@ -9515,15 +9567,17 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
       sha256_hex = hash.sha256(data).hex()
     }
 
-    sources += [{
-      path: relative.display(),
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative.display(),
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   var reference: List[PsiReferenceRow]? = null
@@ -9709,13 +9763,15 @@ export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenc
     }
 
     seen = set.add(seen, name)
-    devices += [{
-      name: name,
-      kind: columns[1],
-      size_bytes: size_kib * 1024,
-      used_bytes: used_kib * 1024,
-      priority: priority,
-    }]
+    devices += [
+      {
+        name: name,
+        kind: columns[1],
+        size_bytes: size_kib * 1024,
+        used_bytes: used_kib * 1024,
+        priority: priority,
+      },
+    ]
   }
 
   devices
@@ -10084,23 +10140,25 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       iommu_group = fields.get("IOMMUGroup")?
     }
 
-    references += [{
-      address: bdf.address,
-      domain: bdf.domain,
-      bus: bdf.bus,
-      device: bdf.device,
-      function: bdf.function,
-      vendor_id: pci_reference_hex(fields.get("Vendor") ?? "", 4)?,
-      device_id: pci_reference_hex(fields.get("Device") ?? "", 4)?,
-      class_code: class_base * 256 + (prog_if ?? 0),
-      prog_if: prog_if,
-      revision: revision,
-      subsystem_vendor_id: pci_reference_optional_hex(fields, "SVendor", 4)?,
-      subsystem_device_id: pci_reference_optional_hex(fields, "SDevice", 4)?,
-      driver: driver,
-      numa_node: numa_node,
-      iommu_group: iommu_group,
-    }]
+    references += [
+      {
+        address: bdf.address,
+        domain: bdf.domain,
+        bus: bdf.bus,
+        device: bdf.device,
+        function: bdf.function,
+        vendor_id: pci_reference_hex(fields.get("Vendor") ?? "", 4)?,
+        device_id: pci_reference_hex(fields.get("Device") ?? "", 4)?,
+        class_code: class_base * 256 + (prog_if ?? 0),
+        prog_if: prog_if,
+        revision: revision,
+        subsystem_vendor_id: pci_reference_optional_hex(fields, "SVendor", 4)?,
+        subsystem_device_id: pci_reference_optional_hex(fields, "SDevice", 4)?,
+        driver: driver,
+        numa_node: numa_node,
+        iommu_group: iommu_group,
+      },
+    ]
     if references.len() > 65536 {
       return Err(check_failure("lspci reference contains too many functions"))
     }
@@ -10815,12 +10873,14 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
       }
       for trip_index in trip_indices |> sort-by .
     ]
-    zones += [{
-      id: id,
-      kind: reference_thermal_text(root, fp"{zone_path}/type")?,
-      temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/temp")?,
-      trips: trips,
-    }]
+    zones += [
+      {
+        id: id,
+        kind: reference_thermal_text(root, fp"{zone_path}/type")?,
+        temperature_millidegrees: reference_thermal_number(root, fp"{zone_path}/temp")?,
+        trips: trips,
+      },
+    ]
   }
 
   zones |> sort-by .id
@@ -10910,15 +10970,17 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     }
 
     saved_bytes += [raw.data]
-    observations += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    observations += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = thermal_bundle_layout(source)?
@@ -11100,13 +11162,15 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
       }
     }
 
-    rows += [{
-      address: address,
-      driver: reference_pci_link_name(root, fp"{device_path}/driver", driver_present)?,
-      parent_address: pci_binding_parent_from_target(entry, address)?,
-      numa_node: reference_pci_numa_node(root, fp"{device_path}/numa_node")?,
-      iommu_group: reference_pci_link_name(root, fp"{device_path}/iommu_group", iommu_present)?,
-    }]
+    rows += [
+      {
+        address: address,
+        driver: reference_pci_link_name(root, fp"{device_path}/driver", driver_present)?,
+        parent_address: pci_binding_parent_from_target(entry, address)?,
+        numa_node: reference_pci_numa_node(root, fp"{device_path}/numa_node")?,
+        iommu_group: reference_pci_link_name(root, fp"{device_path}/iommu_group", iommu_present)?,
+      },
+    ]
   }
 
   rows |> sort-by .address
@@ -11157,13 +11221,15 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
     return Err(check_failure("PCI link reference repeats a BDF")) when address in seen
 
     seen = set.add(seen, address)
-    rows += [{
-      address: address,
-      current_speed: reference_pci_link_text(root, fp"{device_path}/current_link_speed")?,
-      current_width: reference_pci_link_width(root, fp"{device_path}/current_link_width")?,
-      maximum_speed: reference_pci_link_text(root, fp"{device_path}/max_link_speed")?,
-      maximum_width: reference_pci_link_width(root, fp"{device_path}/max_link_width")?,
-    }]
+    rows += [
+      {
+        address: address,
+        current_speed: reference_pci_link_text(root, fp"{device_path}/current_link_speed")?,
+        current_width: reference_pci_link_width(root, fp"{device_path}/current_link_width")?,
+        maximum_speed: reference_pci_link_text(root, fp"{device_path}/max_link_speed")?,
+        maximum_width: reference_pci_link_width(root, fp"{device_path}/max_link_width")?,
+      },
+    ]
   }
 
   rows |> sort-by .address
@@ -11187,23 +11253,25 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
     let bdf = pci_reference_bdf(address)?
     let prefix = f"sys/bus/pci/devices/{address}"
     let class_code = pci_raw_hex(root, fp"{prefix}/class", 6)?
-    rows += [{
-      address: address,
-      domain: bdf.domain,
-      bus: bdf.bus,
-      device: bdf.device,
-      function: bdf.function,
-      vendor_id: pci_raw_hex(root, fp"{prefix}/vendor", 4)?,
-      device_id: pci_raw_hex(root, fp"{prefix}/device", 4)?,
-      class_code: class_code,
-      prog_if: class_code.bit_and(255),
-      revision: pci_raw_hex(root, fp"{prefix}/revision", 2)?,
-      subsystem_vendor_id: pci_raw_hex(root, fp"{prefix}/subsystem_vendor", 4)?,
-      subsystem_device_id: pci_raw_hex(root, fp"{prefix}/subsystem_device", 4)?,
-      driver: binding.driver,
-      numa_node: binding.numa_node,
-      iommu_group: binding.iommu_group,
-    }]
+    rows += [
+      {
+        address: address,
+        domain: bdf.domain,
+        bus: bdf.bus,
+        device: bdf.device,
+        function: bdf.function,
+        vendor_id: pci_raw_hex(root, fp"{prefix}/vendor", 4)?,
+        device_id: pci_raw_hex(root, fp"{prefix}/device", 4)?,
+        class_code: class_code,
+        prog_if: class_code.bit_and(255),
+        revision: pci_raw_hex(root, fp"{prefix}/revision", 2)?,
+        subsystem_vendor_id: pci_raw_hex(root, fp"{prefix}/subsystem_vendor", 4)?,
+        subsystem_device_id: pci_raw_hex(root, fp"{prefix}/subsystem_device", 4)?,
+        driver: binding.driver,
+        numa_node: binding.numa_node,
+        iommu_group: binding.iommu_group,
+      },
+    ]
   }
 
   rows
@@ -11264,13 +11332,15 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
       }
     }
 
-    functions += [{
-      address: address,
-      class_target: class_target,
-      storage_path: storage,
-      driver_target: driver_target,
-      iommu_target: iommu_target,
-    }]
+    functions += [
+      {
+        address: address,
+        class_target: class_target,
+        storage_path: storage,
+        driver_target: driver_target,
+        iommu_target: iommu_target,
+      },
+    ]
     let prefix = entry.display()
     for name in [
       "vendor",
@@ -11351,15 +11421,17 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = pci_bundle_layout(source)?
@@ -11567,12 +11639,14 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
       }
     }
 
-    entries += [{
-      name: name,
-      class_target: class_target,
-      storage_path: storage,
-      driver_target: driver_target,
-    }]
+    entries += [
+      {
+        name: name,
+        class_target: class_target,
+        storage_path: storage,
+        driver_target: driver_target,
+      },
+    ]
     let prefix = entry.display()
     if interface {
       for attribute in [
@@ -11678,15 +11752,17 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = usb_bundle_layout(source)?
@@ -11878,17 +11954,19 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
       operstate = f"operstate_{state_index}"
     }
 
-    links += [{
-      ifindex: ifindex,
-      name: name,
-      mtu: mtu,
-      admin_up: "UP" in flags,
-      operstate: operstate,
-      kind: kind,
-      master_name: master_name,
-      lower_name: lower_name,
-      lower_index: lower_index,
-    }]
+    links += [
+      {
+        ifindex: ifindex,
+        name: name,
+        mtu: mtu,
+        admin_up: "UP" in flags,
+        operstate: operstate,
+        kind: kind,
+        master_name: master_name,
+        lower_name: lower_name,
+        lower_index: lower_index,
+      },
+    ]
   }
 
   links
@@ -12152,15 +12230,17 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
     let flags = network_raw_number(root, fp"{entry}/flags", true, 4294967295)?
     let rx_bytes = network_raw_number(root, fp"{entry}/statistics/rx_bytes", false, 9007199254740991)?
     let tx_bytes = network_raw_number(root, fp"{entry}/statistics/tx_bytes", false, 9007199254740991)?
-    links += [{
-      ifindex: index,
-      name: name,
-      hardware_type: hardware_type.value,
-      flags: flags.value,
-      rx_bytes: rx_bytes.value,
-      tx_bytes: tx_bytes.value,
-      complete: hardware_type.complete and flags.complete and rx_bytes.complete and tx_bytes.complete,
-    }]
+    links += [
+      {
+        ifindex: index,
+        name: name,
+        hardware_type: hardware_type.value,
+        flags: flags.value,
+        rx_bytes: rx_bytes.value,
+        tx_bytes: tx_bytes.value,
+        complete: hardware_type.complete and flags.complete and rx_bytes.complete and tx_bytes.complete,
+      },
+    ]
   }
 
   links |> sort-by .ifindex
@@ -12401,16 +12481,18 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
       }
 
       identities = set.add(identities, key)
-      addresses += [{
-        ifindex: ifindex,
-        family: family,
-        address: local,
-        prefix_length: prefix_length,
-        scope: scope,
-        broadcast: broadcast,
-        valid_lifetime_seconds: valid_lifetime,
-        preferred_lifetime_seconds: preferred_lifetime,
-      }]
+      addresses += [
+        {
+          ifindex: ifindex,
+          family: family,
+          address: local,
+          prefix_length: prefix_length,
+          scope: scope,
+          broadcast: broadcast,
+          valid_lifetime_seconds: valid_lifetime,
+          preferred_lifetime_seconds: preferred_lifetime,
+        },
+      ]
     }
   }
 
@@ -13547,12 +13629,14 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
         fully_represented = false
       }
 
-      nexthops += [{
-        output_name: names_by_index.get(f"{hop_index}")?,
-        gateway: hop.gateway.value,
-        weight: hop.hops + 1,
-        flags: hop.flags.bit_and(127),
-      }]
+      nexthops += [
+        {
+          output_name: names_by_index.get(f"{hop_index}")?,
+          gateway: hop.gateway.value,
+          weight: hop.hops + 1,
+          flags: hop.flags.bit_and(127),
+        },
+      ]
     }
 
     if hop_missing {
@@ -14002,16 +14086,18 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     }
 
     seen = set.add(seen, name)
-    devices += [{
-      name: name,
-      kind: kind,
-      scheduler: scheduler?.trim(),
-      read_ahead_kb: read_ahead,
-      discard_granularity_bytes: discard_granularity,
-      discard_max_bytes: discard_max,
-      model: model?.trim(),
-      revision_hint: revision?.trim(),
-    }]
+    devices += [
+      {
+        name: name,
+        kind: kind,
+        scheduler: scheduler?.trim(),
+        read_ahead_kb: read_ahead,
+        discard_granularity_bytes: discard_granularity,
+        discard_max_bytes: discard_max,
+        model: model?.trim(),
+        revision_hint: revision?.trim(),
+      },
+    ]
   }
 
   devices
@@ -14241,11 +14327,13 @@ export proc read_block_queue_sources(
       firmware_primary
     }
     let stat = bounded_block_reference_text(root, fp"sys/class/block/{name}/stat")?
-    sources += [{
-      name: name,
-      firmware: firmware,
-      counters: if stat == null { [] } else { parse_block_queue_stat(stat)? },
-    }]
+    sources += [
+      {
+        name: name,
+        firmware: firmware,
+        counters: if stat == null { [] } else { parse_block_queue_stat(stat)? },
+      },
+    ]
   }
 
   sources
@@ -14370,15 +14458,17 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       }
     }
 
-    entries += [{
-      name: name,
-      class_target: class_target,
-      storage_path: storage,
-      holders_state: holders_listing.state,
-      slaves_state: slaves_listing.state,
-      holders: holders |> sort-by .name,
-      slaves: slaves |> sort-by .name,
-    }]
+    entries += [
+      {
+        name: name,
+        class_target: class_target,
+        storage_path: storage,
+        holders_state: holders_listing.state,
+        slaves_state: slaves_listing.state,
+        holders: holders |> sort-by .name,
+        slaves: slaves |> sort-by .name,
+      },
+    ]
     for attribute in [
       "dev",
       "size",
@@ -14624,44 +14714,48 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       }
     }
 
-    devices += [{
-      name: name,
-      major: numbers[0],
-      minor: numbers[1],
-      kind: kind,
-      size_bytes: sectors * 512,
-      logical_sector_bytes: logical,
-      physical_sector_bytes: physical,
-      removable: removable,
-      rotational: rotational,
-      read_only: read_only,
-      parent_name: parent_name,
-      holders: entry.holders
-        |> map .name
-        |> sort-by .,
-      slaves: entry.slaves
-        |> map .name
-        |> sort-by .,
-    }]
-    queue += [{
-      name: name,
-      kind: if partition { "part" } else { kind },
-      scheduler: block_raw_scheduler(bounded_block_reference_text(root, fp"{source_path}/queue/scheduler")?)?,
-      read_ahead_kb: block_raw_optional_number(
-        bounded_block_reference_text(root, fp"{source_path}/queue/read_ahead_kb")?,
-        "read ahead",
-      )?,
-      discard_granularity_bytes: block_raw_optional_number(
-        bounded_block_reference_text(root, fp"{source_path}/queue/discard_granularity")?,
-        "discard granularity",
-      )?,
-      discard_max_bytes: block_raw_optional_number(
-        bounded_block_reference_text(root, fp"{source_path}/queue/discard_max_bytes")?,
-        "discard maximum",
-      )?,
-      model: bounded_block_reference_text(root, fp"{source_path}/device/model")?,
-      revision_hint: null,
-    }]
+    devices += [
+      {
+        name: name,
+        major: numbers[0],
+        minor: numbers[1],
+        kind: kind,
+        size_bytes: sectors * 512,
+        logical_sector_bytes: logical,
+        physical_sector_bytes: physical,
+        removable: removable,
+        rotational: rotational,
+        read_only: read_only,
+        parent_name: parent_name,
+        holders: entry.holders
+          |> map .name
+          |> sort-by .,
+        slaves: entry.slaves
+          |> map .name
+          |> sort-by .,
+      },
+    ]
+    queue += [
+      {
+        name: name,
+        kind: if partition { "part" } else { kind },
+        scheduler: block_raw_scheduler(bounded_block_reference_text(root, fp"{source_path}/queue/scheduler")?)?,
+        read_ahead_kb: block_raw_optional_number(
+          bounded_block_reference_text(root, fp"{source_path}/queue/read_ahead_kb")?,
+          "read ahead",
+        )?,
+        discard_granularity_bytes: block_raw_optional_number(
+          bounded_block_reference_text(root, fp"{source_path}/queue/discard_granularity")?,
+          "discard granularity",
+        )?,
+        discard_max_bytes: block_raw_optional_number(
+          bounded_block_reference_text(root, fp"{source_path}/queue/discard_max_bytes")?,
+          "discard maximum",
+        )?,
+        model: bounded_block_reference_text(root, fp"{source_path}/device/model")?,
+        revision_hint: null,
+      },
+    ]
   }
 
   {
@@ -14953,15 +15047,17 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = block_bundle_layout(source)?
@@ -15462,20 +15558,22 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
       return Err(check_failure("mountinfo reference has an invalid mount value"))
     }
 
-    mounts += [{
-      mount_id: mount_id,
-      parent_id: parent_id,
-      major: device[0],
-      minor: device[1],
-      root: root,
-      target: target,
-      filesystem: fields[separator + 1],
-      source: source_name,
-      mount_options: mount_options,
-      super_options: super_options,
-      optional_fields: safe_optional_fields,
-      propagation: propagation,
-    }]
+    mounts += [
+      {
+        mount_id: mount_id,
+        parent_id: parent_id,
+        major: device[0],
+        minor: device[1],
+        root: root,
+        target: target,
+        filesystem: fields[separator + 1],
+        source: source_name,
+        mount_options: mount_options,
+        super_options: super_options,
+        optional_fields: safe_optional_fields,
+        propagation: propagation,
+      },
+    ]
   }
 
   mounts
@@ -15636,20 +15734,22 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
     }
 
     seen = set.add(seen, identity)
-    mounts += [{
-      mount_id: mount_id,
-      parent_id: parent_id,
-      major: numbers[0],
-      minor: numbers[1],
-      root: root,
-      target: target,
-      filesystem: filesystem,
-      source: source,
-      mount_options: vfs_options.split(","),
-      super_options: fs_options.split(","),
-      optional_fields: null,
-      propagation: propagation,
-    }]
+    mounts += [
+      {
+        mount_id: mount_id,
+        parent_id: parent_id,
+        major: numbers[0],
+        minor: numbers[1],
+        root: root,
+        target: target,
+        filesystem: filesystem,
+        source: source,
+        mount_options: vfs_options.split(","),
+        super_options: fs_options.split(","),
+        optional_fields: null,
+        propagation: propagation,
+      },
+    ]
   }
 
   mounts
@@ -16534,13 +16634,15 @@ proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[Lis
     let relative = source.path.strip_prefix(/)?
     let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state == "absent" and ! raw.truncated and raw.data == null {
-      reference += [{
-        name: source.name,
-        source: source.source,
-        state: "absent",
-        value: null,
-        raw_bytes_base64: null,
-      }]
+      reference += [
+        {
+          name: source.name,
+          source: source.source,
+          state: "absent",
+          value: null,
+          raw_bytes_base64: null,
+        },
+      ]
       continue
     }
 
@@ -16550,21 +16652,25 @@ proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[Lis
 
     let data = raw.data
     if let Ok(value) = data.utf8() {
-      reference += [{
-        name: source.name,
-        source: source.source,
-        state: "observed",
-        value: value.trim(),
-        raw_bytes_base64: null,
-      }]
+      reference += [
+        {
+          name: source.name,
+          source: source.source,
+          state: "observed",
+          value: value.trim(),
+          raw_bytes_base64: null,
+        },
+      ]
     } else {
-      reference += [{
-        name: source.name,
-        source: source.source,
-        state: "malformed",
-        value: null,
-        raw_bytes_base64: data.base64(),
-      }]
+      reference += [
+        {
+          name: source.name,
+          source: source.source,
+          state: "malformed",
+          value: null,
+          raw_bytes_base64: data.base64(),
+        },
+      ]
     }
   }
 
@@ -16616,15 +16722,17 @@ export proc capture_kernel_parameters_bundle(
       sha256_hex = hash.sha256(data).hex()
     }
 
-    observations += [{
-      path: relative.display(),
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    observations += [
+      {
+        path: relative.display(),
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
     saved_bytes += [raw.data]
   }
 
@@ -16907,15 +17015,17 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
       byte_count = data.len()
     }
 
-    observations += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    observations += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
     saved_bytes += [raw.data]
   }
 
@@ -17247,15 +17357,17 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   var stable = true
@@ -17439,15 +17551,17 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: relative,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: relative,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   var stable = true
@@ -18329,11 +18443,13 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
     }
 
     seen = set.add(seen, name)
-    counters += [{
-      resource: f"cpu.stat.{name}",
-      value: cgroup2_reference_number(fields[1])?,
-      unit: if name.starts_with("nr_") { "count" } else { "microseconds" },
-    }]
+    counters += [
+      {
+        resource: f"cpu.stat.{name}",
+        value: cgroup2_reference_number(fields[1])?,
+        unit: if name.starts_with("nr_") { "count" } else { "microseconds" },
+      },
+    ]
   }
 
   counters
@@ -18373,11 +18489,13 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
       }
 
       seen_fields = set.add(seen_fields, pair[0])
-      counters += [{
-        resource: f"io.stat.{device}.{pair[0]}",
-        value: cgroup2_reference_number(pair[1])?,
-        unit: if pair[0].ends_with("bytes") { "bytes" } else { "requests" },
-      }]
+      counters += [
+        {
+          resource: f"io.stat.{device}.{pair[0]}",
+          value: cgroup2_reference_number(pair[1])?,
+          unit: if pair[0].ends_with("bytes") { "bytes" } else { "requests" },
+        },
+      ]
     }
   }
 
@@ -18517,7 +18635,8 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
 
       let maximum = parse_cgroup2_limit(maximum_raw)?
       let current = cgroup2_reference_number(current_raw.trim())?
-      resources += [cgroup2_reference_resource(
+      resources += [
+        cgroup2_reference_resource(
           path_item.visible_path,
           path_item.hierarchy_level,
           family.controller,
@@ -18529,13 +18648,15 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
           null,
           null,
           [],
-        )]
+        ),
+      ]
     }
 
     let quota_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.max", 4096, false)?
     if quota_raw != null {
       let quota = parse_cpu_scope_quota(quota_raw)?
-      resources += [cgroup2_reference_resource(
+      resources += [
+        cgroup2_reference_resource(
           path_item.visible_path,
           path_item.hierarchy_level,
           "cpu",
@@ -18547,13 +18668,15 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
           quota.quota,
           quota.period,
           [],
-        )]
+        ),
+      ]
     }
 
     let cpu_stat_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpu.stat", 16384, false)?
     if cpu_stat_raw != null {
       for counter in parse_cgroup2_cpu_stat(cpu_stat_raw)? {
-        resources += [cgroup2_reference_resource(
+        resources += [
+          cgroup2_reference_resource(
             path_item.visible_path,
             path_item.hierarchy_level,
             "cpu",
@@ -18565,13 +18688,15 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
             null,
             null,
             [],
-          )]
+          ),
+        ]
       }
     }
 
     let cpuset_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/cpuset.cpus.effective", 65536, false)?
     if cpuset_raw != null {
-      resources += [cgroup2_reference_resource(
+      resources += [
+        cgroup2_reference_resource(
           path_item.visible_path,
           path_item.hierarchy_level,
           "cpuset",
@@ -18583,13 +18708,15 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
           null,
           null,
           parse_reference_cpu_list(cpuset_raw, true)?,
-        )]
+        ),
+      ]
     }
 
     let io_raw = cgroup2_reference_text(root, fp"{path_item.source_path}/io.stat", 262144, false)?
     if io_raw != null {
       for counter in parse_cgroup2_io_stat(io_raw)? {
-        resources += [cgroup2_reference_resource(
+        resources += [
+          cgroup2_reference_resource(
             path_item.visible_path,
             path_item.hierarchy_level,
             "io",
@@ -18601,7 +18728,8 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
             null,
             null,
             [],
-          )]
+          ),
+        ]
       }
     }
   }
@@ -18744,15 +18872,17 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     }
 
     saved_bytes += [raw.data]
-    sources += [{
-      path: item.path,
-      state: raw.state,
-      truncated: raw.truncated,
-      errno: raw.errno,
-      error_kind: raw.error_kind,
-      byte_count: byte_count,
-      sha256_hex: sha256_hex,
-    }]
+    sources += [
+      {
+        path: item.path,
+        state: raw.state,
+        truncated: raw.truncated,
+        errno: raw.errno,
+        error_kind: raw.error_kind,
+        byte_count: byte_count,
+        sha256_hex: sha256_hex,
+      },
+    ]
   }
 
   let later_layout = cgroup2_bundle_layout(source)?
@@ -19193,14 +19323,16 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    processes += [{
-      pid: first.pid,
-      start_ticks: first.start_ticks,
-      parent_pid: first.parent_pid,
-      uid: uid,
-      command: first.command,
-      state: first.state,
-    }]
+    processes += [
+      {
+        pid: first.pid,
+        start_ticks: first.start_ticks,
+        parent_pid: first.parent_pid,
+        uid: uid,
+        command: first.command,
+        state: first.state,
+      },
+    ]
   }
 
   {processes: processes |> sort-by .pid, skipped_count: skipped_count}
@@ -19287,14 +19419,16 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    processes += [{
-      pid: pid,
-      start_ticks: first.start_ticks,
-      thread_count: first.thread_count,
-      resident_bytes: memory.resident_bytes,
-      virtual_bytes: memory.virtual_bytes,
-      cgroup: cgroup,
-    }]
+    processes += [
+      {
+        pid: pid,
+        start_ticks: first.start_ticks,
+        thread_count: first.thread_count,
+        resident_bytes: memory.resident_bytes,
+        virtual_bytes: memory.virtual_bytes,
+        cgroup: cgroup,
+      },
+    ]
   }
 
   {processes: processes |> sort-by .pid, skipped_count: skipped_count}
@@ -19360,14 +19494,16 @@ export proc capture_process_bundle(
 
       let first = source.read_result(fp"{process_path}/stat", max_bytes: 16384)?
       if first.state != "observed" or first.truncated or first.data == null {
-        skipped += [{
-          name: pid_text,
-          source: "stat",
-          state: first.state,
-          truncated: first.truncated,
-          errno: first.errno,
-          error_kind: first.error_kind,
-        }]
+        skipped += [
+          {
+            name: pid_text,
+            source: "stat",
+            state: first.state,
+            truncated: first.truncated,
+            errno: first.errno,
+            error_kind: first.error_kind,
+          },
+        ]
         continue
       }
 
@@ -19389,14 +19525,16 @@ export proc capture_process_bundle(
       ] {
         let raw = source.read_result(fp"{process_path}/{field.name}", max_bytes: field.max_bytes)?
         if raw.state != "observed" or raw.truncated or raw.data == null {
-          skipped += [{
-            name: pid_text,
-            source: field.name,
-            state: raw.state,
-            truncated: raw.truncated,
-            errno: raw.errno,
-            error_kind: raw.error_kind,
-          }]
+          skipped += [
+            {
+              name: pid_text,
+              source: field.name,
+              state: raw.state,
+              truncated: raw.truncated,
+              errno: raw.errno,
+              error_kind: raw.error_kind,
+            },
+          ]
           complete = false
           break
         }
@@ -19407,14 +19545,16 @@ export proc capture_process_bundle(
       continue unless complete
       let last = source.read_result(fp"{process_path}/stat", max_bytes: 16384)?
       if last.state != "observed" or last.truncated or last.data == null {
-        skipped += [{
-          name: pid_text,
-          source: "stat",
-          state: last.state,
-          truncated: last.truncated,
-          errno: last.errno,
-          error_kind: last.error_kind,
-        }]
+        skipped += [
+          {
+            name: pid_text,
+            source: "stat",
+            state: last.state,
+            truncated: last.truncated,
+            errno: last.errno,
+            error_kind: last.error_kind,
+          },
+        ]
         continue
       }
 
@@ -19506,12 +19646,14 @@ export proc capture_process_bundle(
       for field in raw_fields {
         let relative = f"proc/{pid}/{field.name}"
         bundle.write(fp"{relative}", field.data)?
-        sources += [{
-          path: relative,
-          max_bytes: field.max_bytes,
-          byte_count: field.data.len(),
-          sha256_hex: hash.sha256(field.data).hex(),
-        }]
+        sources += [
+          {
+            path: relative,
+            max_bytes: field.max_bytes,
+            byte_count: field.data.len(),
+            sha256_hex: hash.sha256(field.data).hex(),
+          },
+        ]
       }
 
       pids += [pid]

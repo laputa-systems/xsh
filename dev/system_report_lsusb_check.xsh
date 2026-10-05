@@ -205,13 +205,15 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
       }
     }
 
-    rows += [{
-      bus: bus,
-      device: decimal(dev_token)?,
-      port: decimal(port_token)?,
-      interface_number: interface_number,
-      driver: driver,
-    }]
+    rows += [
+      {
+        bus: bus,
+        device: decimal(dev_token)?,
+        port: decimal(port_token)?,
+        interface_number: interface_number,
+        driver: driver,
+      },
+    ]
   }
 
   rows

@@ -727,12 +727,14 @@ pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
 
     by_id = by_id.set(mount_id, if mount_id in by_id { -1 } else { rows.len() })
     target_counts = target_counts.set(target, (target_counts.get(target) ?? 0) + 1)
-    rows += [{
-      mount_id: mount_id,
-      parent_id: parent_id,
-      target: target,
-      filesystem: fields[separator + 1],
-    }]
+    rows += [
+      {
+        mount_id: mount_id,
+        parent_id: parent_id,
+        target: target,
+        filesystem: fields[separator + 1],
+      },
+    ]
   }
 
   {rows: rows, by_id: by_id, target_counts: target_counts, valid_graph: valid_graph}
@@ -936,7 +938,13 @@ proc collect_storage(
 
   if listing.state != "complete" {
     issues += [
-      issue("storage", "devices", live_source_observation_state(listing.state, false), listing.error_kind, listing.errno),
+      issue(
+        "storage",
+        "devices",
+        live_source_observation_state(listing.state, false),
+        listing.error_kind,
+        listing.errno,
+      ),
     ]
   }
 
@@ -996,13 +1004,15 @@ proc collect_storage(
     ] {
       let observed = field_source.source
       if observed.observation.state != report.Observed and observed.observation.state != report.Absent {
-        issues += [issue(
+        issues += [
+          issue(
             "storage",
             f"devices.{name}.{field_source.field}",
             observed.observation.state,
             observed.error_kind,
             observed.errno,
-          )]
+          ),
+        ]
       }
     }
 
@@ -1011,7 +1021,13 @@ proc collect_storage(
     var available_schedulers: List[Str] = []
     if scheduler.observation.state != report.Observed and scheduler.observation.state != report.Absent {
       issues += [
-        issue("storage", f"devices.{name}.scheduler", scheduler.observation.state, scheduler.error_kind, scheduler.errno),
+        issue(
+          "storage",
+          f"devices.{name}.scheduler",
+          scheduler.observation.state,
+          scheduler.error_kind,
+          scheduler.errno,
+        ),
       ]
     }
 
@@ -1161,13 +1177,15 @@ proc collect_storage(
     if size.observation.state == report.Absent {
       issues += [issue("storage", f"devices.{name}.size", report.Absent, size.error_kind, size.errno)]
     } else if size_number.state != null {
-      issues += [issue(
+      issues += [
+        issue(
           "storage",
           f"devices.{name}.size",
           size_number.state ?? report.Malformed,
           size_number.error_kind,
           size_number.errno,
-        )]
+        ),
+      ]
     } else if sectors > 17592186044415 {
       issues += [issue("storage", f"devices.{name}.size", report.RangeFailure, "byte_count_overflow", null)]
     }
@@ -1187,7 +1205,13 @@ proc collect_storage(
     let target_path = target_source.target
     if target_source.state != report.Observed {
       issues += [
-        issue("storage", f"devices.{name}.sysfs_target", target_source.state, target_source.error_kind, target_source.errno),
+        issue(
+          "storage",
+          f"devices.{name}.sysfs_target",
+          target_source.state,
+          target_source.error_kind,
+          target_source.errno,
+        ),
       ]
     }
 
@@ -1209,24 +1233,28 @@ proc collect_storage(
     let holders_listing = root.children(fp"{device_path}/holders", max_entries: 4096)?
     let slaves_listing = root.children(fp"{device_path}/slaves", max_entries: 4096)?
     if holders_listing.state != "complete" {
-      issues += [issue(
+      issues += [
+        issue(
           "storage",
           f"devices.{name}.holders",
           live_source_observation_state(holders_listing.state, false),
           holders_listing.error_kind,
           holders_listing.errno,
-        )]
+        ),
+      ]
     }
 
     # Partitions expose holders but have no slaves directory of their own.
     if slaves_listing.state != "complete" and ! (is_partition and slaves_listing.state == "absent") {
-      issues += [issue(
+      issues += [
+        issue(
           "storage",
           f"devices.{name}.slaves",
           live_source_observation_state(slaves_listing.state, false),
           slaves_listing.error_kind,
           slaves_listing.errno,
-        )]
+        ),
+      ]
     }
 
     var holders: List[Str] = []
@@ -1252,7 +1280,8 @@ proc collect_storage(
       sector_bytes = sectors * 512
     }
 
-    candidates += [{
+    candidates += [
+      {
         device: {
           name: name,
           major: major,
@@ -1307,7 +1336,8 @@ proc collect_storage(
         parent_name: parent_name,
         holders: holders,
         slaves: slaves,
-      }]
+      },
+    ]
   }
 
   # Preserve the first enumerated identity while linking layered devices and mounts.
@@ -1347,12 +1377,14 @@ proc collect_storage(
       }
     }
 
-    linked_devices += [{
-      ...candidate.device,
-      parent_device_index: block_name_index(block_indices_by_name, candidate.parent_name),
-      holder_indices: holders,
-      slave_indices: slaves,
-    }]
+    linked_devices += [
+      {
+        ...candidate.device,
+        parent_device_index: block_name_index(block_indices_by_name, candidate.parent_name),
+        holder_indices: holders,
+        slave_indices: slaves,
+      },
+    ]
     candidate_index += 1
   }
 
@@ -1408,14 +1440,16 @@ proc collect_storage(
       if include_local_mount_usage and mount_usage_safe(usage_index, ids) {
         if ! target.starts_with("/") {
           usage_state = report.Malformed
-          issues += [issue_with_detail(
+          issues += [
+            issue_with_detail(
               "storage",
               f"mounts.{ids}.usage",
               usage_state,
               "invalid_mount_target",
               null,
               "The mount target was not absolute.",
-            )]
+            ),
+          ]
         } else {
           var usage_path: Path? = null
           if target == "/" {
@@ -1430,59 +1464,72 @@ proc collect_storage(
 
           if usage_path == null {
             usage_state = report.Malformed
-            issues += [issue_with_detail(
+            issues += [
+              issue_with_detail(
                 "storage",
                 f"mounts.{ids}.usage",
                 usage_state,
                 "invalid_mount_target",
                 null,
                 "The mount target could not be made relative to the observation root.",
-              )]
+              ),
+            ]
           } else {
             let usage = root.filesystem_stats(usage_path)?
-            usage_state = match usage.state { "observed" => report.Observed, "absent" => report.Disappeared, "permission_denied" => report.PermissionDenied, "malformed" => report.Malformed, "range_failure" => report.RangeFailure, _ => report.ReadFailure }
+            usage_state = match usage.state {
+              "observed" => report.Observed,
+              "absent" => report.Disappeared,
+              "permission_denied" => report.PermissionDenied,
+              "malformed" => report.Malformed,
+              "range_failure" => report.RangeFailure,
+              _ => report.ReadFailure,
+            }
             usage_total_bytes = usage.total_bytes
             usage_used_bytes = usage.used_bytes
             usage_available_bytes = usage.available_bytes
             if usage.state != "observed" {
-              issues += [issue(
+              issues += [
+                issue(
                   "storage",
                   f"mounts.{ids}.usage",
                   usage_state,
                   usage.error_kind,
                   usage.errno,
-                )]
+                ),
+              ]
             }
           }
         }
       }
 
-      mounts += [{
-        mount_id: ids,
-        parent_id: parent_id,
-        major: major,
-        minor: minor,
-        root: {
-          state: report.Observed,
-          value: decode_mount_field(fields[3]),
-          raw_bytes_base64: null,
+      mounts += [
+        {
+          mount_id: ids,
+          parent_id: parent_id,
+          major: major,
+          minor: minor,
+          root: {
+            state: report.Observed,
+            value: decode_mount_field(fields[3]),
+            raw_bytes_base64: null,
+          },
+          target: {
+            state: report.Observed,
+            value: target,
+            raw_bytes_base64: null,
+          },
+          mount_options: report.sanitize_mount_options(split_csv(fields[5])),
+          optional_fields: report.sanitize_mount_optional_fields(optional_fields),
+          filesystem: fields[separator + 1],
+          source: report.sanitize_mount_source({state: report.Observed, value: source, raw_bytes_base64: null}),
+          super_options: report.sanitize_mount_options(split_csv(fields[separator + 3])),
+          block_device_index: block_index(block_indices_by_device, major, minor),
+          usage_state: usage_state,
+          usage_total_bytes: usage_total_bytes,
+          usage_used_bytes: usage_used_bytes,
+          usage_available_bytes: usage_available_bytes,
         },
-        target: {
-          state: report.Observed,
-          value: target,
-          raw_bytes_base64: null,
-        },
-        mount_options: report.sanitize_mount_options(split_csv(fields[5])),
-        optional_fields: report.sanitize_mount_optional_fields(optional_fields),
-        filesystem: fields[separator + 1],
-        source: report.sanitize_mount_source({state: report.Observed, value: source, raw_bytes_base64: null}),
-        super_options: report.sanitize_mount_options(split_csv(fields[separator + 3])),
-        block_device_index: block_index(block_indices_by_device, major, minor),
-        usage_state: usage_state,
-        usage_total_bytes: usage_total_bytes,
-        usage_used_bytes: usage_used_bytes,
-        usage_available_bytes: usage_available_bytes,
-      }]
+      ]
     }
   }
 
@@ -1590,13 +1637,15 @@ proc collect_sensors(
   var zones: List[report.ThermalZone] = []
   var issues: List[report.CollectionIssue] = []
   if hwmon_listing.state != "complete" and hwmon_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "sensors",
         "hwmon",
         live_source_observation_state(hwmon_listing.state, false),
         hwmon_listing.error_kind,
         hwmon_listing.errno,
-      )]
+      ),
+    ]
   }
 
   for chip_path in hwmon_listing.children {
@@ -1619,13 +1668,15 @@ proc collect_sensors(
 
     let attribute_listing = root.children(chip_path, max_entries: 1024)?
     if attribute_listing.state != "complete" {
-      issues += [issue(
+      issues += [
+        issue(
           "sensors",
           f"hwmon.{chip_path.name()}.attributes",
           live_source_observation_state(attribute_listing.state, false),
           attribute_listing.error_kind,
           attribute_listing.errno,
-        )]
+        ),
+      ]
     }
 
     for attribute in attribute_listing.children {
@@ -1664,38 +1715,48 @@ proc collect_sensors(
           alarm_value = true
         } else {
           issues += [
-            issue("sensors", f"hwmon.{chip_path.name()}.{channel_name}_alarm", report.Malformed, "invalid_boolean", null),
+            issue(
+              "sensors",
+              f"hwmon.{chip_path.name()}.{channel_name}_alarm",
+              report.Malformed,
+              "invalid_boolean",
+              null,
+            ),
           ]
         }
       }
 
-      channels += [{
-        chip: chip,
-        chip_entry_name: chip_path.name(),
-        channel: channel_name,
-        label: label.observation,
-        kind: sensor_kind_name,
-        value: measured.value,
-        unit: sensor_unit(sensor_kind_name),
-        minimum: minimum_number.value,
-        maximum: maximum_number.value,
-        critical: critical_number.value,
-        alarm: alarm_value,
-        parent_device_class_index: null,
-        parent_pci_function_index: pci_function_index(pci_indices, parent_pci_address),
-        parent_usb_device_index: parent_usb_index,
-      }]
+      channels += [
+        {
+          chip: chip,
+          chip_entry_name: chip_path.name(),
+          channel: channel_name,
+          label: label.observation,
+          kind: sensor_kind_name,
+          value: measured.value,
+          unit: sensor_unit(sensor_kind_name),
+          minimum: minimum_number.value,
+          maximum: maximum_number.value,
+          critical: critical_number.value,
+          alarm: alarm_value,
+          parent_device_class_index: null,
+          parent_pci_function_index: pci_function_index(pci_indices, parent_pci_address),
+          parent_usb_device_index: parent_usb_index,
+        },
+      ]
     }
   }
 
   if thermal_listing.state != "complete" and thermal_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "sensors",
         "thermal_zones",
         live_source_observation_state(thermal_listing.state, false),
         thermal_listing.error_kind,
         thermal_listing.errno,
-      )]
+      ),
+    ]
   }
 
   for zone_path in thermal_listing.children {
@@ -1715,13 +1776,15 @@ proc collect_sensors(
     issues = append_number_issue(issues, "sensors", f"thermal_zones.{zone_path.name()}.temp", temperature_number)
     let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
-      issues += [issue(
+      issues += [
+        issue(
           "sensors",
           f"thermal_zones.{zone_path.name()}.attributes",
           live_source_observation_state(attributes.state, false),
           attributes.error_kind,
           attributes.errno,
-        )]
+        ),
+      ]
     }
 
     var trip_indices: List[Int] = []
@@ -1731,13 +1794,15 @@ proc collect_sensors(
       continue when ! attribute_name.starts_with("trip_point_") or ! attribute_name.ends_with("_temp")
       let trip_number = parse_integer(attribute_name.split("_").get(2) ?? "") ?? -1
       if trip_number < 0 or trip_number > 9007199254740991 or attribute_name != f"trip_point_{trip_number}_temp" or f"{trip_number}" in seen_trip_indices {
-        issues += [issue(
+        issues += [
+          issue(
             "sensors",
             f"thermal_zones.{zone_path.name()}.{attribute_name}",
             report.Malformed,
             "invalid_thermal_trip_index",
             null,
-          )]
+          ),
+        ]
         continue
       }
 
@@ -1770,21 +1835,25 @@ proc collect_sensors(
         f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_hyst",
         hysteresis_number,
       )
-      trips += [{
-        index: trip_number,
-        kind: observed_source_text(trip_type) ?? "unknown",
-        temperature_millidegrees: trip_number_value.value,
-        hysteresis_millidegrees: hysteresis_number.value,
-      }]
+      trips += [
+        {
+          index: trip_number,
+          kind: observed_source_text(trip_type) ?? "unknown",
+          temperature_millidegrees: trip_number_value.value,
+          hysteresis_millidegrees: hysteresis_number.value,
+        },
+      ]
     }
 
-    zones += [{
-      id: id,
-      kind: observed_source_text(kind),
-      temperature_millidegrees: temperature_number.value,
-      trips: trips,
-      parent_device_class_index: null,
-    }]
+    zones += [
+      {
+        id: id,
+        kind: observed_source_text(kind),
+        temperature_millidegrees: temperature_number.value,
+        trips: trips,
+        parent_device_class_index: null,
+      },
+    ]
   }
 
   var state = report.Complete
@@ -1812,23 +1881,27 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
   var cap_zones: List[report.PowerCapZone] = []
   var issues: List[report.CollectionIssue] = []
   if supply_listing.state != "complete" and supply_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "power",
         "supplies",
         live_source_observation_state(supply_listing.state, false),
         supply_listing.error_kind,
         supply_listing.errno,
-      )]
+      ),
+    ]
   }
 
   if cap_listing.state != "complete" and cap_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "power",
         "cap_zones",
         live_source_observation_state(cap_listing.state, false),
         cap_listing.error_kind,
         cap_listing.errno,
-      )]
+      ),
+    ]
   }
 
   for supply_path in supply_listing.children {
@@ -1869,21 +1942,23 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
       issues += [issue("power", f"{prefix}.capacity", report.Malformed, "percent_out_of_range", null)]
     }
 
-    supplies += [{
-      name: supply_path.name(),
-      kind: observed_source_text(kind),
-      status: observed_source_text(status),
-      health: observed_source_text(health),
-      capacity_percent: capacity_value,
-      energy_now_uwh: energy_now_number.value,
-      energy_full_uwh: energy_full_number.value,
-      charge_now_uah: charge_now_number.value,
-      charge_full_uah: charge_full_number.value,
-      voltage_now_uv: voltage_number.value,
-      current_now_ua: current_number.value,
-      cycle_count: cycles_number.value,
-      parent_device_class_index: null,
-    }]
+    supplies += [
+      {
+        name: supply_path.name(),
+        kind: observed_source_text(kind),
+        status: observed_source_text(status),
+        health: observed_source_text(health),
+        capacity_percent: capacity_value,
+        energy_now_uwh: energy_now_number.value,
+        energy_full_uwh: energy_full_number.value,
+        charge_now_uah: charge_now_number.value,
+        charge_full_uah: charge_full_number.value,
+        voltage_now_uv: voltage_number.value,
+        current_now_ua: current_number.value,
+        cycle_count: cycles_number.value,
+        parent_device_class_index: null,
+      },
+    ]
   }
 
   var cap_paths: List[PowerCapSource] = []
@@ -1904,13 +1979,15 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     issues = append_number_issue(issues, "power", f"cap_zones.{zone_path.name()}.max_energy_range_uj", range_number)
     let cap_attributes = root.children(zone_path, max_entries: 256)?
     if cap_attributes.state != "complete" {
-      issues += [issue(
+      issues += [
+        issue(
           "power",
           f"cap_zones.{zone_path.name()}.attributes",
           live_source_observation_state(cap_attributes.state, false),
           cap_attributes.error_kind,
           cap_attributes.errno,
-        )]
+        ),
+      ]
     }
 
     var constraints: List[report.PowerCapConstraint] = []
@@ -1921,7 +1998,13 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
       let parsed_index = index_number ?? -1
       if ! decimal_identifier(index_text) or index_number == null or parsed_index > 9007199254740991 or index_text != f"{parsed_index}" {
         issues += [
-          issue("power", f"cap_zones.{zone_path.name()}.{attribute.name()}", report.Malformed, "invalid_constraint_index", null),
+          issue(
+            "power",
+            f"cap_zones.{zone_path.name()}.{attribute.name()}",
+            report.Malformed,
+            "invalid_constraint_index",
+            null,
+          ),
         ]
         continue
       }
@@ -1978,23 +2061,27 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
         parent_name = candidate
       }
     } else if link.state != "read_failure" or link.errno != 22 {
-      issues += [issue(
+      issues += [
+        issue(
           "power",
           f"cap_zones.{zone_path.name()}.parent",
           live_source_observation_state(link.state, false),
           link.error_kind,
           link.errno,
-        )]
+        ),
+      ]
     }
 
-    cap_zones += [{
-      entry_name: zone_path.name(),
-      name: observed_source_text(name) ?? zone_path.name(),
-      parent: parent_name,
-      energy_uj: energy_number.value,
-      maximum_energy_range_uj: range_number.value,
-      constraints: constraints,
-    }]
+    cap_zones += [
+      {
+        entry_name: zone_path.name(),
+        name: observed_source_text(name) ?? zone_path.name(),
+        parent: parent_name,
+        energy_uj: energy_number.value,
+        maximum_energy_range_uj: range_number.value,
+        constraints: constraints,
+      },
+    ]
   }
 
   var state = report.Complete
@@ -2159,13 +2246,15 @@ proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: I
       },
     ] {
       if value.parsed.issue_state != null {
-        issues += [issue(
+        issues += [
+          issue(
             "processes",
             f"{pid}.statm.{value.field}",
             value.parsed.issue_state ?? report.Malformed,
             "invalid_page_count",
             null,
-          )]
+          ),
+        ]
       } else if value.scaled == null {
         issues += [issue("processes", f"{pid}.statm.{value.field}", report.RangeFailure, "page_count_overflow", null)]
       }
@@ -2255,13 +2344,15 @@ proc collect_processes(root: FsRoot, page_size_bytes: Int) [fs, error] -> Proces
   var processes: List[report.ProcessRecord] = []
   var issues: List[report.CollectionIssue] = []
   if listing.state != "complete" {
-    issues += [issue(
+    issues += [
+      issue(
         "processes",
         "enumeration",
         live_source_observation_state(listing.state, false),
         listing.error_kind,
         listing.errno,
-      )]
+      ),
+    ]
   }
 
   for process_path in listing.children {
@@ -2475,13 +2566,15 @@ proc collect_device_classes(
     if listing.enumeration_succeeded or listing.state == "absent" {
       enumerated_classes += 1
     } else {
-      issues += [issue(
+      issues += [
+        issue(
           "devices",
           f"{class_name}.enumeration",
           live_source_observation_state(listing.state, false),
           listing.error_kind,
           listing.errno,
-        )]
+        ),
+      ]
     }
 
     for entry in listing.children {
@@ -2500,13 +2593,15 @@ proc collect_device_classes(
 
       let driver_link = optional_driver_name(root, fp"{entry}/device/driver")
       if driver_link.observation.state != report.Observed and driver_link.observation.state != report.Absent {
-        issues += [issue(
+        issues += [
+          issue(
             "devices",
             f"{class_name}.{entry_name}.driver",
             driver_link.observation.state,
             driver_link.error_kind,
             driver_link.errno,
-          )]
+          ),
+        ]
       }
 
       let parent = class_parent_target(root, entry)
@@ -2538,24 +2633,26 @@ proc collect_device_classes(
         }
       }
 
-      devices += [{
-        class: class_name,
-        entry_name: {
-          state: report.Observed,
-          value: entry_name,
-          raw_bytes_base64: null,
+      devices += [
+        {
+          class: class_name,
+          entry_name: {
+            state: report.Observed,
+            value: entry_name,
+            raw_bytes_base64: null,
+          },
+          name: {
+            state: report.Observed,
+            value: name,
+            raw_bytes_base64: null,
+          },
+          parent_device_class_index: null,
+          parent_pci_function_index: pci_function_index(pci_indices, parent_pci_address),
+          parent_usb_device_index: parent_usb_device_index,
+          driver: observed_source_text(driver_link),
+          attributes: attributes,
         },
-        name: {
-          state: report.Observed,
-          value: name,
-          raw_bytes_base64: null,
-        },
-        parent_device_class_index: null,
-        parent_pci_function_index: pci_function_index(pci_indices, parent_pci_address),
-        parent_usb_device_index: parent_usb_device_index,
-        driver: observed_source_text(driver_link),
-        attributes: attributes,
-      }]
+      ]
     }
   }
 
@@ -2584,7 +2681,8 @@ proc collect_firmware(root: FsRoot) [fs, error] -> FirmwareCollection {
     let parsed = parse_smbios_table(source.data)?
     records = parsed.records
     for line_item in parsed.issues |> enumerate() {
-      issues += [issue_with_detail(
+      issues += [
+        issue_with_detail(
           "firmware",
           f"smbios.issue.{line_item.index}",
           if parsed.truncated {
@@ -2595,7 +2693,8 @@ proc collect_firmware(root: FsRoot) [fs, error] -> FirmwareCollection {
           "smbios_record_validation",
           null,
           line_item.value,
-        )]
+        ),
+      ]
     }
 
     let state = if parsed.issues.len() == 0 {
@@ -2896,13 +2995,15 @@ export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult] {
       }
     }
 
-    records += [{
-      record_type: record_type,
-      handle: handle,
-      formatted_length: formatted_length,
-      fields: fields,
-      strings: strings,
-    }]
+    records += [
+      {
+        record_type: record_type,
+        handle: handle,
+        formatted_length: formatted_length,
+        fields: fields,
+        strings: strings,
+      },
+    ]
     offset = position
     if record_type == 127 {
       saw_end_marker = true
@@ -3336,7 +3437,13 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
     let product_id = parse_hex_optional(observed_source_text(product), 4)
     if vendor.observation.state != report.Observed {
       issues += [
-        issue("usb", f"devices.{device_path.name()}.vendor_id", vendor.observation.state, vendor.error_kind, vendor.errno),
+        issue(
+          "usb",
+          f"devices.{device_path.name()}.vendor_id",
+          vendor.observation.state,
+          vendor.error_kind,
+          vendor.errno,
+        ),
       ]
     } else if vendor_id == null {
       issues += [
@@ -3346,7 +3453,13 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
 
     if product.observation.state != report.Observed {
       issues += [
-        issue("usb", f"devices.{device_path.name()}.product_id", product.observation.state, product.error_kind, product.errno),
+        issue(
+          "usb",
+          f"devices.{device_path.name()}.product_id",
+          product.observation.state,
+          product.error_kind,
+          product.errno,
+        ),
       ]
     } else if product_id == null {
       issues += [
@@ -3398,7 +3511,13 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
     ] {
       if named_value.source.observation.state == report.Observed and named_value.value == null {
         issues += [
-          issue("usb", f"devices.{device_path.name()}.{named_value.name}", report.Malformed, "invalid_usb_hex_value", null),
+          issue(
+            "usb",
+            f"devices.{device_path.name()}.{named_value.name}",
+            report.Malformed,
+            "invalid_usb_hex_value",
+            null,
+          ),
         ]
       }
     }
@@ -3462,61 +3581,77 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
     }
 
     if power_control.observation.state != report.Observed and power_control.observation.state != report.Absent {
-      issues += [issue(
+      issues += [
+        issue(
           "usb",
           f"devices.{device_path.name()}.power_control",
           power_control.observation.state,
           power_control.error_kind,
           power_control.errno,
-        )]
+        ),
+      ]
     }
 
     if autosuspend.observation.state != report.Observed and autosuspend.observation.state != report.Absent {
-      issues += [issue(
+      issues += [
+        issue(
           "usb",
           f"devices.{device_path.name()}.autosuspend_delay_ms",
           autosuspend.observation.state,
           autosuspend.error_kind,
           autosuspend.errno,
-        )]
+        ),
+      ]
     }
 
     if runtime_status.observation.state != report.Observed and runtime_status.observation.state != report.Absent {
-      issues += [issue(
+      issues += [
+        issue(
           "usb",
           f"devices.{device_path.name()}.runtime_status",
           runtime_status.observation.state,
           runtime_status.error_kind,
           runtime_status.errno,
-        )]
+        ),
+      ]
     }
 
     let raw_descriptors = root.read_result(fp"{device_path}/descriptors", max_bytes: 1048576)?
     var descriptor_alternates: List[UsbDescriptorAlternate] = []
     if raw_descriptors.truncated {
-      issues += [issue(
+      issues += [
+        issue(
           "usb",
           f"devices.{device_path.name()}.descriptors",
           report.Truncated,
           "descriptor_input_limit",
           raw_descriptors.errno,
-        )]
+        ),
+      ]
     } else if raw_descriptors.state == "observed" and raw_descriptors.data != null {
       if let Ok(alternates) = parse_usb_alternates(raw_descriptors.data) {
         descriptor_alternates = alternates
       } else {
         issues += [
-          issue("usb", f"devices.{device_path.name()}.descriptors", report.Malformed, "invalid_usb_descriptor_stream", null),
+          issue(
+            "usb",
+            f"devices.{device_path.name()}.descriptors",
+            report.Malformed,
+            "invalid_usb_descriptor_stream",
+            null,
+          ),
         ]
       }
     } else if raw_descriptors.state == "read_failure" or raw_descriptors.state == "permission_denied" {
-      issues += [issue(
+      issues += [
+        issue(
           "usb",
           f"devices.{device_path.name()}.descriptors",
           live_source_observation_state(raw_descriptors.state, raw_descriptors.truncated),
           raw_descriptors.error_kind,
           raw_descriptors.errno,
-        )]
+        ),
+      ]
     }
 
     var interfaces: List[report.UsbInterface] = []
@@ -3526,37 +3661,43 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
       let interface_number_text = (interface_name.split(":").get(1) ?? "").split(".").get(1) ?? ""
       let interface_number = parse_integer(interface_number_text) ?? -1
       if interface_number < 0 {
-        issues += [issue(
+        issues += [
+          issue(
             "usb",
             f"devices.{device_path.name()}.interfaces.{interface_name}",
             report.Malformed,
             "invalid_interface_name",
             null,
-          )]
+          ),
+        ]
         continue
       }
 
       let driver_link = optional_driver_name(root, fp"{interface_path}/driver")
       if driver_link.observation.state != report.Observed and driver_link.observation.state != report.Absent {
-        issues += [issue(
+        issues += [
+          issue(
             "usb",
             f"devices.{device_path.name()}.interfaces.{interface_name}.driver",
             driver_link.observation.state,
             driver_link.error_kind,
             driver_link.errno,
-          )]
+          ),
+        ]
       }
 
       let active = read_value(root, fp"{interface_path}/bAlternateSetting", max_bytes: 4096)
       let active_alternate = usb_decimal_optional(observed_source_text(active), 0)
       if active.observation.state == report.Observed and active_alternate == null {
-        issues += [issue(
+        issues += [
+          issue(
             "usb",
             f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
             report.Malformed,
             "invalid_usb_alternate",
             null,
-          )]
+          ),
+        ]
       } else if active.observation.state != report.Observed and active.observation.state != report.Absent {
         issues = append_text_issue(
           issues,
@@ -3578,13 +3719,15 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
         for alternate in descriptor_alternates
         if alternate.interface_number == interface_number
       ]
-      interfaces += [{
-        number: interface_number,
-        name: interface_name,
-        driver: observed_source_text(driver_link),
-        active_alternate: active_alternate,
-        alternate_settings: alternate_settings,
-      }]
+      interfaces += [
+        {
+          number: interface_number,
+          name: interface_name,
+          driver: observed_source_text(driver_link),
+          active_alternate: active_alternate,
+          alternate_settings: alternate_settings,
+        },
+      ]
     }
 
     let bus_number = usb_decimal_optional(observed_source_text(bus), 1)
@@ -3621,7 +3764,13 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
     ] {
       if named_number.source.observation.state == report.Observed and named_number.value == null {
         issues += [
-          issue("usb", f"devices.{device_path.name()}.{named_number.name}", report.Malformed, "invalid_usb_number", null),
+          issue(
+            "usb",
+            f"devices.{device_path.name()}.{named_number.name}",
+            report.Malformed,
+            "invalid_usb_number",
+            null,
+          ),
         ]
       }
     }
@@ -3629,35 +3778,43 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
     let controller = usb_controller_address(root, device_path)
     if controller.state != report.Observed {
       issues += [
-        issue("usb", f"devices.{device_path.name()}.controller", controller.state, controller.error_kind, controller.errno),
+        issue(
+          "usb",
+          f"devices.{device_path.name()}.controller",
+          controller.state,
+          controller.error_kind,
+          controller.errno,
+        ),
       ]
     }
 
-    devices += [{
-      sysfs_name: device_path.name(),
-      parent_device_index: null,
-      controller_pci_index: pci_function_index(pci_indices, controller.address),
-      port_path: usb_port_path(device_path.name()),
-      bus_number: bus_number,
-      device_number: device_number,
-      vendor_id: vendor_id,
-      product_id: product_id,
-      device_version: version_value,
-      class_code: class_code,
-      subclass: subclass_code,
-      protocol: protocol_code,
-      manufacturer: manufacturer.observation,
-      product: product_text.observation,
-      serial: serial.observation,
-      speed_mbps: observed_source_text(speed),
-      configuration_count: configuration_count,
-      active_configuration: active_configuration_number,
-      power_control: observed_source_text(power_control),
-      autosuspend_delay_ms: autosuspend_delay,
-      runtime_status: observed_source_text(runtime_status),
-      is_root_hub: device_path.name().starts_with("usb"),
-      interfaces: interfaces,
-    }]
+    devices += [
+      {
+        sysfs_name: device_path.name(),
+        parent_device_index: null,
+        controller_pci_index: pci_function_index(pci_indices, controller.address),
+        port_path: usb_port_path(device_path.name()),
+        bus_number: bus_number,
+        device_number: device_number,
+        vendor_id: vendor_id,
+        product_id: product_id,
+        device_version: version_value,
+        class_code: class_code,
+        subclass: subclass_code,
+        protocol: protocol_code,
+        manufacturer: manufacturer.observation,
+        product: product_text.observation,
+        serial: serial.observation,
+        speed_mbps: observed_source_text(speed),
+        configuration_count: configuration_count,
+        active_configuration: active_configuration_number,
+        power_control: observed_source_text(power_control),
+        autosuspend_delay_ms: autosuspend_delay,
+        runtime_status: observed_source_text(runtime_status),
+        is_root_hub: device_path.name().starts_with("usb"),
+        interfaces: interfaces,
+      },
+    ]
   }
 
   var state = report.Complete
@@ -3824,7 +3981,13 @@ proc collect_identity(root: FsRoot, base: report.SystemReport) [fs, error] -> re
   ] {
     if namespace.source.observation.state != report.Observed {
       issues += [
-        issue("scope", namespace.field, namespace.source.observation.state, namespace.source.error_kind, namespace.source.errno),
+        issue(
+          "scope",
+          namespace.field,
+          namespace.source.observation.state,
+          namespace.source.error_kind,
+          namespace.source.errno,
+        ),
       ]
     }
   }
@@ -4051,13 +4214,15 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 
     let node_listing = root.children(cpu_path, max_entries: 256)?
     if node_listing.state != "complete" {
-      issues += [issue(
+      issues += [
+        issue(
           "cpu",
           f"cpu{cpu_id}.enumeration",
           live_source_observation_state(node_listing.state, false),
           node_listing.error_kind,
           node_listing.errno,
-        )]
+        ),
+      ]
     }
 
     var numa_node: Int? = null
@@ -4069,35 +4234,39 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
     }
 
     let is_online = cpu_id in online
-    cpus += [{
-      id: cpu_id,
-      present: true,
-      online: is_online,
-      vendor: info.vendor,
-      model: info.model,
-      family: info.family,
-      model_id: info.model_id,
-      stepping: info.stepping,
-      features: info.features,
-      package_id: package_number.value,
-      die_id: die_number.value,
-      core_id: core_number.value,
-      thread_siblings: sibling_ids,
-      cache_ids: [],
-      cache_indices: [],
-      numa_node: numa_node,
-      policy: null,
-    }]
+    cpus += [
+      {
+        id: cpu_id,
+        present: true,
+        online: is_online,
+        vendor: info.vendor,
+        model: info.model,
+        family: info.family,
+        model_id: info.model_id,
+        stepping: info.stepping,
+        features: info.features,
+        package_id: package_number.value,
+        die_id: die_number.value,
+        core_id: core_number.value,
+        thread_siblings: sibling_ids,
+        cache_ids: [],
+        cache_indices: [],
+        numa_node: numa_node,
+        policy: null,
+      },
+    ]
 
     let cache_listing = root.children(fp"{cpu_path}/cache", max_entries: 64)?
     if cache_listing.state != "complete" and cache_listing.state != "absent" {
-      issues += [issue(
+      issues += [
+        issue(
           "cpu",
           f"cpu{cpu_id}.cache",
           live_source_observation_state(cache_listing.state, false),
           cache_listing.error_kind,
           cache_listing.errno,
-        )]
+        ),
+      ]
     }
 
     for cache_path in cache_listing.children {
@@ -4145,13 +4314,15 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         if let Ok(ids) = collectors.parse_cache_shared_cpus(shared.observation.value) {
           shared_cpus = ids
         } else {
-          issues += [issue(
+          issues += [
+            issue(
               "cpu",
               f"cpu{cpu_id}.cache.{cache_path.name()}.shared_cpu_list",
               report.Malformed,
               "invalid_cache_cpu_list",
               null,
-            )]
+            ),
+          ]
         }
       }
 
@@ -4193,7 +4364,13 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         let previous = caches[cache_by_key.get(cache_key)?]
         if previous.shared_cpus != shared_cpus or previous.level != level or previous.kind != cache_kind or previous.size_bytes != size_number.value or previous.line_size_bytes != line_size_number.value or previous.sets != sets_number.value {
           issues += [
-            issue("cpu", f"cpu{cpu_id}.cache.{cache_path.name()}", report.Malformed, "inconsistent_cache_instance", null),
+            issue(
+              "cpu",
+              f"cpu{cpu_id}.cache.{cache_path.name()}",
+              report.Malformed,
+              "inconsistent_cache_instance",
+              null,
+            ),
           ]
         }
 
@@ -4201,17 +4378,19 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
       }
 
       let cache_id = caches.len()
-      caches += [{
-        id: cache_id,
-        sysfs_index: sysfs_index,
-        owner_cpu_id: cpu_id,
-        level: level,
-        kind: cache_kind,
-        size_bytes: size_number.value,
-        line_size_bytes: line_size_number.value,
-        sets: sets_number.value,
-        shared_cpus: shared_cpus,
-      }]
+      caches += [
+        {
+          id: cache_id,
+          sysfs_index: sysfs_index,
+          owner_cpu_id: cpu_id,
+          level: level,
+          kind: cache_kind,
+          size_bytes: size_number.value,
+          line_size_bytes: line_size_number.value,
+          sets: sets_number.value,
+          shared_cpus: shared_cpus,
+        },
+      ]
       cache_by_key = cache_by_key.set(cache_key, cache_id)
       let members = if shared_cpus.len() > 0 { shared_cpus } else { [cpu_id] }
       for member in members {
@@ -4234,23 +4413,27 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
       }
     }
 
-    linked_cpus += [{
-      ...cpu_item,
-      policy: policy_name,
-      cache_ids: cache_ids,
-      cache_indices: cache_ids,
-    }]
+    linked_cpus += [
+      {
+        ...cpu_item,
+        policy: policy_name,
+        cache_ids: cache_ids,
+        cache_indices: cache_ids,
+      },
+    ]
   }
 
   let vulnerabilities_listing = root.children(p"sys/devices/system/cpu/vulnerabilities", max_entries: 256)?
   if vulnerabilities_listing.state != "complete" and vulnerabilities_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "cpu",
         "vulnerabilities",
         live_source_observation_state(vulnerabilities_listing.state, false),
         vulnerabilities_listing.error_kind,
         vulnerabilities_listing.errno,
-      )]
+      ),
+    ]
   }
 
   var vulnerabilities: List[report.CpuVulnerability] = []
@@ -4311,13 +4494,15 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
   for cpu_id in present {
     let cpuidle = root.children(fp"sys/devices/system/cpu/cpu{cpu_id}/cpuidle", max_entries: 256)?
     if cpuidle.state != "complete" and cpuidle.state != "absent" {
-      issues += [issue(
+      issues += [
+        issue(
           "cpu",
           f"cpu{cpu_id}.cpuidle",
           live_source_observation_state(cpuidle.state, false),
           cpuidle.error_kind,
           cpuidle.errno,
-        )]
+        ),
+      ]
     }
 
     for state_path in cpuidle.children {
@@ -4382,17 +4567,19 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         issues += [issue("cpu", f"{field_prefix}.disable", report.Malformed, "invalid_disable_setting", null)]
       }
 
-      idle_states += [{
-        cpu_id: cpu_id,
-        state_index: state_number,
-        name: observed_source_text(name) ?? state_path.name(),
-        description: observed_source_text(description),
-        disable_setting: disable_setting,
-        latency_us: latency_number.value,
-        residency_us: residency_number.value,
-        usage_count: usage_number.value,
-        time_us: time_number.value,
-      }]
+      idle_states += [
+        {
+          cpu_id: cpu_id,
+          state_index: state_number,
+          name: observed_source_text(name) ?? state_path.name(),
+          description: observed_source_text(description),
+          disable_setting: disable_setting,
+          latency_us: latency_number.value,
+          residency_us: residency_number.value,
+          usage_count: usage_number.value,
+          time_us: time_number.value,
+        },
+      ]
     }
   }
 
@@ -4433,13 +4620,15 @@ proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssu
   if listing.state == "absent" {
     collected_issues += [issue("cpu", "frequency_policies", report.Absent, "cpufreq_not_exposed", null)]
   } else if listing.state != "complete" {
-    collected_issues += [issue(
+    collected_issues += [
+      issue(
         "cpu",
         "frequency_policies",
         live_source_observation_state(listing.state, false),
         listing.error_kind,
         listing.errno,
-      )]
+      ),
+    ]
   }
 
   let boost = read_value(root, p"sys/devices/system/cpu/cpufreq/boost", max_bytes: 4096)
@@ -4497,7 +4686,13 @@ proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssu
 
     if affected.observation.state != report.Observed {
       collected_issues += [
-        issue("cpu", f"{directory.name()}.affected_cpus", affected.observation.state, affected.error_kind, affected.errno),
+        issue(
+          "cpu",
+          f"{directory.name()}.affected_cpus",
+          affected.observation.state,
+          affected.error_kind,
+          affected.errno,
+        ),
       ]
     }
 
@@ -4644,31 +4839,33 @@ proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssu
       )
     }
 
-    policies += [{
-      name: directory.name(),
-      related_cpus: related_cpus,
-      affected_cpus: affected_cpus,
-      driver: observed_source_text(driver),
-      governor: observed_source_text(governor),
-      available_governors: parse_words(observed_source_text(available_governors)),
-      hardware_min_khz: hardware_min_number.value,
-      hardware_max_khz: hardware_max_number.value,
-      scaling_min_khz: scaling_min_number.value,
-      scaling_max_khz: scaling_max_number.value,
-      hardware_current_khz: hardware_current_number.value,
-      scaling_current_khz: scaling_current_number.value,
-      governor_requested_khz: governor_requested_number,
-      average_current_khz: average_number.value,
-      bios_limit_khz: bios_limit_number.value,
-      transition_latency_ns: null,
-      available_frequencies_khz: frequencies,
-      energy_performance_preference: observed_source_text(epp),
-      available_energy_performance_preferences: parse_words(observed_source_text(available_epp)),
-      boost_supported: boost_supported,
-      boost_allowed: boost_allowed,
-      boost_active: null,
-      boost_scope: boost_scope,
-    }]
+    policies += [
+      {
+        name: directory.name(),
+        related_cpus: related_cpus,
+        affected_cpus: affected_cpus,
+        driver: observed_source_text(driver),
+        governor: observed_source_text(governor),
+        available_governors: parse_words(observed_source_text(available_governors)),
+        hardware_min_khz: hardware_min_number.value,
+        hardware_max_khz: hardware_max_number.value,
+        scaling_min_khz: scaling_min_number.value,
+        scaling_max_khz: scaling_max_number.value,
+        hardware_current_khz: hardware_current_number.value,
+        scaling_current_khz: scaling_current_number.value,
+        governor_requested_khz: governor_requested_number,
+        average_current_khz: average_number.value,
+        bios_limit_khz: bios_limit_number.value,
+        transition_latency_ns: null,
+        available_frequencies_khz: frequencies,
+        energy_performance_preference: observed_source_text(epp),
+        available_energy_performance_preferences: parse_words(observed_source_text(available_epp)),
+        boost_supported: boost_supported,
+        boost_allowed: boost_allowed,
+        boost_active: null,
+        boost_scope: boost_scope,
+      },
+    ]
   }
 
   {policies: policies, issues: collected_issues}
@@ -4911,17 +5108,19 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
         }
 
         seen_swaps = set.add(seen_swaps, name)
-        swaps += [{
-          name: {
-            state: report.Observed,
-            value: name,
-            raw_bytes_base64: null,
+        swaps += [
+          {
+            name: {
+              state: report.Observed,
+              value: name,
+              raw_bytes_base64: null,
+            },
+            kind: columns[1],
+            size_bytes: size_count * 1024,
+            used_bytes: used_count * 1024,
+            priority: priority,
           },
-          kind: columns[1],
-          size_bytes: size_count * 1024,
-          used_bytes: used_count * 1024,
-          priority: priority,
-        }]
+        ]
       }
     }
   }
@@ -4929,13 +5128,15 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
   var huge_pages: List[report.HugePagePool] = []
   let huge_listing = root.children(p"sys/kernel/mm/hugepages", max_entries: 1024)?
   if huge_listing.state != "complete" and huge_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "memory",
         "huge_pages.enumeration",
         live_source_observation_state(huge_listing.state, false),
         huge_listing.error_kind,
         huge_listing.errno,
-      )]
+      ),
+    ]
   }
 
   for huge_path in huge_listing.children {
@@ -4949,13 +5150,15 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
   let node_listing = root.children(p"sys/devices/system/node", max_entries: 1024)?
   if node_listing.state != "complete" and node_listing.state != "absent" {
-    issues += [issue(
+    issues += [
+      issue(
         "memory",
         "numa.enumeration",
         live_source_observation_state(node_listing.state, false),
         node_listing.error_kind,
         node_listing.errno,
-      )]
+      ),
+    ]
   }
 
   for node_path in node_listing.children {
@@ -4969,13 +5172,15 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
     let node_huge_listing = root.children(fp"{node_path}/hugepages", max_entries: 1024)?
     if node_huge_listing.state != "complete" and node_huge_listing.state != "absent" {
-      issues += [issue(
+      issues += [
+        issue(
           "memory",
           f"numa.{node_path.name()}.huge_pages",
           live_source_observation_state(node_huge_listing.state, false),
           node_huge_listing.error_kind,
           node_huge_listing.errno,
-        )]
+        ),
+      ]
     }
 
     for huge_path in node_huge_listing.children {
@@ -5020,13 +5225,15 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
   for resource in ["cpu", "memory", "io"] {
     let pressure_source = read_value(root, fp"proc/pressure/{resource}", max_bytes: 16384)
     if pressure_source.observation.state != report.Observed or pressure_source.observation.value == null {
-      issues += [issue(
+      issues += [
+        issue(
           "memory",
           f"pressure.{resource}",
           pressure_source.observation.state,
           pressure_source.error_kind,
           pressure_source.errno,
-        )]
+        ),
+      ]
       continue
     }
 
@@ -5095,14 +5302,16 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
         continue
       }
 
-      pressure += [{
-        resource: resource,
-        kind: kind,
-        avg10: avg10,
-        avg60: avg60,
-        avg300: avg300,
-        total_us: total_count,
-      }]
+      pressure += [
+        {
+          resource: resource,
+          kind: kind,
+          avg10: avg10,
+          avg60: avg60,
+          avg300: avg300,
+          total_us: total_count,
+        },
+      ]
     }
   }
 
@@ -5113,13 +5322,15 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
     continue when node_id < 0
     let numa_source = read_value(root, fp"{node_path}/meminfo", max_bytes: 65536)
     if numa_source.observation.state != report.Observed or numa_source.observation.value == null {
-      issues += [issue(
+      issues += [
+        issue(
           "memory",
           f"numa.{node_path.name()}.meminfo",
           numa_source.observation.state,
           numa_source.error_kind,
           numa_source.errno,
-        )]
+        ),
+      ]
       continue
     }
 
@@ -5127,13 +5338,15 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       let line = line_item.value
       let pair = line.split(":", maxsplit: 1)
       if pair.len() != 2 {
-        issues += [issue(
+        issues += [
+          issue(
             "memory",
             f"numa.{node_path.name()}.meminfo.line.{line_item.index}",
             report.Malformed,
             "missing_field_separator",
             null,
-          )]
+          ),
+        ]
         continue
       }
 
@@ -5417,7 +5630,8 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
       let maximum = cgroup_maximum(memory_max)
       let current = collectors.bounded_number(memory_current, true)
       let state = cgroup_numeric_state(memory_max, memory_current, maximum, current)
-      resources += [cgroup_resource(
+      resources += [
+        cgroup_resource(
           visible_path,
           hierarchy_level,
           "memory",
@@ -5430,17 +5644,20 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           null,
           null,
           [],
-        )]
+        ),
+      ]
       issues = append_number_issue(issues, "memory", f"cgroup.{hierarchy_level}.memory.max", maximum)
       issues = append_number_issue(issues, "memory", f"cgroup.{hierarchy_level}.memory.current", current)
       if memory_max.observation.state != report.Observed or memory_current.observation.state != report.Observed {
-        issues += [issue(
+        issues += [
+          issue(
             "memory",
             f"cgroup.{hierarchy_level}.memory",
             state,
             "cgroup_memory_value_unavailable",
             first_errno(memory_max.errno, memory_current.errno),
-          )]
+          ),
+        ]
       }
     }
 
@@ -5450,7 +5667,8 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
       let maximum = cgroup_maximum(memory_swap_max)
       let current = collectors.bounded_number(memory_swap_current, true)
       let state = cgroup_numeric_state(memory_swap_max, memory_swap_current, maximum, current)
-      resources += [cgroup_resource(
+      resources += [
+        cgroup_resource(
           visible_path,
           hierarchy_level,
           "memory",
@@ -5463,17 +5681,20 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           null,
           null,
           [],
-        )]
+        ),
+      ]
       issues = append_number_issue(issues, "memory", f"cgroup.{hierarchy_level}.memory.swap.max", maximum)
       issues = append_number_issue(issues, "memory", f"cgroup.{hierarchy_level}.memory.swap.current", current)
       if memory_swap_max.observation.state != report.Observed or memory_swap_current.observation.state != report.Observed {
-        issues += [issue(
+        issues += [
+          issue(
             "memory",
             f"cgroup.{hierarchy_level}.memory.swap",
             state,
             "cgroup_memory_swap_value_unavailable",
             first_errno(memory_swap_max.errno, memory_swap_current.errno),
-          )]
+          ),
+        ]
       }
     }
 
@@ -5503,7 +5724,8 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
         } else if (! unlimited and (quota_number.value ?? -1) <= 0) or (period_number.value ?? -1) <= 0 {
           issues += [issue("memory", f"cgroup.{hierarchy_level}.cpu.max", report.Malformed, "invalid_cpu_quota", null)]
         } else {
-          resources += [cgroup_resource(
+          resources += [
+            cgroup_resource(
               visible_path,
               hierarchy_level,
               "cpu",
@@ -5516,14 +5738,21 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
               quota_number.value,
               period_number.value,
               [],
-            )]
+            ),
+          ]
         }
       } else {
         issues += [issue("memory", f"cgroup.{hierarchy_level}.cpu.max", report.Malformed, "invalid_cpu_max", null)]
       }
     } else if cpu_max.observation.state != report.Absent {
       issues += [
-        issue("memory", f"cgroup.{hierarchy_level}.cpu.max", cpu_max.observation.state, cpu_max.error_kind, cpu_max.errno),
+        issue(
+          "memory",
+          f"cgroup.{hierarchy_level}.cpu.max",
+          cpu_max.observation.state,
+          cpu_max.error_kind,
+          cpu_max.errno,
+        ),
       ]
     }
 
@@ -5546,7 +5775,13 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           if fields[0] in seen_cpu_stat and fields[0] not in duplicate_cpu_stat {
             duplicate_cpu_stat = set.add(duplicate_cpu_stat, fields[0])
             issues += [
-              issue("memory", f"cgroup.{hierarchy_level}.cpu.stat.{fields[0]}", report.Malformed, "duplicate_cpu_stat_field", null),
+              issue(
+                "memory",
+                f"cgroup.{hierarchy_level}.cpu.stat.{fields[0]}",
+                report.Malformed,
+                "duplicate_cpu_stat_field",
+                null,
+              ),
             ]
           }
 
@@ -5576,18 +5811,21 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
         continue when fields[0] in duplicate_cpu_stat
         let number = cgroup_token_number(cpu_stat, fields[1])
         if number.value == null {
-          issues += [issue(
+          issues += [
+            issue(
               "memory",
               f"cgroup.{hierarchy_level}.cpu.stat.{fields[0]}",
               number.state ?? report.Malformed,
               "invalid_cpu_stat_value",
               null,
-            )]
+            ),
+          ]
           continue
         }
 
         let unit = if fields[0].starts_with("nr_") { "count" } else { "microseconds" }
-        resources += [cgroup_resource(
+        resources += [
+          cgroup_resource(
             visible_path,
             hierarchy_level,
             "cpu",
@@ -5600,18 +5838,26 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
             null,
             null,
             [],
-          )]
+          ),
+        ]
       }
     } else if cpu_stat.observation.state != report.Absent {
       issues += [
-        issue("memory", f"cgroup.{hierarchy_level}.cpu.stat", cpu_stat.observation.state, cpu_stat.error_kind, cpu_stat.errno),
+        issue(
+          "memory",
+          f"cgroup.{hierarchy_level}.cpu.stat",
+          cpu_stat.observation.state,
+          cpu_stat.error_kind,
+          cpu_stat.errno,
+        ),
       ]
     }
 
     let cpuset = read_value(root, fp"{source_path}/cpuset.cpus.effective", max_bytes: 65536)
     if cpuset.observation.state == report.Observed and cpuset.observation.value != null {
       if cpuset.observation.value == "" {
-        resources += [cgroup_resource(
+        resources += [
+          cgroup_resource(
             visible_path,
             hierarchy_level,
             "cpuset",
@@ -5624,10 +5870,12 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
             null,
             null,
             [],
-          )]
+          ),
+        ]
       } else {
         if let Ok(cpus) = report.parse_cpu_list(cpuset.observation.value) {
-          resources += [cgroup_resource(
+          resources += [
+            cgroup_resource(
               visible_path,
               hierarchy_level,
               "cpuset",
@@ -5640,21 +5888,30 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
               null,
               null,
               cpus,
-            )]
+            ),
+          ]
         } else {
           issues += [
-            issue("memory", f"cgroup.{hierarchy_level}.cpuset.cpus.effective", report.Malformed, "invalid_cgroup_cpu_list", null),
+            issue(
+              "memory",
+              f"cgroup.{hierarchy_level}.cpuset.cpus.effective",
+              report.Malformed,
+              "invalid_cgroup_cpu_list",
+              null,
+            ),
           ]
         }
       }
     } else if cpuset.observation.state != report.Absent {
-      issues += [issue(
+      issues += [
+        issue(
           "memory",
           f"cgroup.{hierarchy_level}.cpuset.cpus.effective",
           cpuset.observation.state,
           cpuset.error_kind,
           cpuset.errno,
-        )]
+        ),
+      ]
     }
 
     let pids_max = read_value(root, fp"{source_path}/pids.max", max_bytes: 4096)
@@ -5663,7 +5920,8 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
       let maximum = cgroup_maximum(pids_max)
       let current = collectors.bounded_number(pids_current, true)
       let state = cgroup_numeric_state(pids_max, pids_current, maximum, current)
-      resources += [cgroup_resource(
+      resources += [
+        cgroup_resource(
           visible_path,
           hierarchy_level,
           "pids",
@@ -5676,17 +5934,20 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           null,
           null,
           [],
-        )]
+        ),
+      ]
       issues = append_number_issue(issues, "memory", f"cgroup.{hierarchy_level}.pids.max", maximum)
       issues = append_number_issue(issues, "memory", f"cgroup.{hierarchy_level}.pids.current", current)
       if pids_max.observation.state != report.Observed or pids_current.observation.state != report.Observed {
-        issues += [issue(
+        issues += [
+          issue(
             "memory",
             f"cgroup.{hierarchy_level}.pids",
             state,
             "cgroup_pids_value_unavailable",
             first_errno(pids_max.errno, pids_current.errno),
-          )]
+          ),
+        ]
       }
     }
 
@@ -5700,7 +5961,13 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           if fields[0] in seen_io_devices and fields[0] not in duplicate_io_devices {
             duplicate_io_devices = set.add(duplicate_io_devices, fields[0])
             issues += [
-              issue("memory", f"cgroup.{hierarchy_level}.io.stat.{fields[0]}", report.Malformed, "duplicate_io_device", null),
+              issue(
+                "memory",
+                f"cgroup.{hierarchy_level}.io.stat.{fields[0]}",
+                report.Malformed,
+                "duplicate_io_device",
+                null,
+              ),
             ]
           }
 
@@ -5728,13 +5995,15 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           if pair.len() == 2 and pair[0] in ["rbytes", "wbytes", "rios", "wios", "dbytes", "dios"] {
             if pair[0] in seen_io_fields and pair[0] not in duplicate_io_fields {
               duplicate_io_fields = set.add(duplicate_io_fields, pair[0])
-              issues += [issue(
+              issues += [
+                issue(
                   "memory",
                   f"cgroup.{hierarchy_level}.io.stat.{fields[0]}.{pair[0]}",
                   report.Malformed,
                   "duplicate_io_counter",
                   null,
-                )]
+                ),
+              ]
             }
 
             seen_io_fields = set.add(seen_io_fields, pair[0])
@@ -5747,18 +6016,21 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           continue when pair[0] in duplicate_io_fields
           let number = cgroup_token_number(io_stat, pair[1])
           if number.value == null {
-            issues += [issue(
+            issues += [
+              issue(
                 "memory",
                 f"cgroup.{hierarchy_level}.io.stat.{fields[0]}.{pair[0]}",
                 number.state ?? report.Malformed,
                 "invalid_io_counter",
                 null,
-              )]
+              ),
+            ]
             continue
           }
 
           let unit = if pair[0].ends_with("bytes") { "bytes" } else { "requests" }
-          resources += [cgroup_resource(
+          resources += [
+            cgroup_resource(
               visible_path,
               hierarchy_level,
               "io",
@@ -5771,12 +6043,19 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
               null,
               null,
               [],
-            )]
+            ),
+          ]
         }
       }
     } else if io_stat.observation.state != report.Absent {
       issues += [
-        issue("memory", f"cgroup.{hierarchy_level}.io.stat", io_stat.observation.state, io_stat.error_kind, io_stat.errno),
+        issue(
+          "memory",
+          f"cgroup.{hierarchy_level}.io.stat",
+          io_stat.observation.state,
+          io_stat.error_kind,
+          io_stat.errno,
+        ),
       ]
     }
 
@@ -6031,25 +6310,27 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
       counters += [{name: "tx_bytes", value: raw_link.tx_bytes, unit: "bytes"}]
     }
 
-    links += [{
-      ifindex: raw_link.ifindex,
-      hardware_type: raw_link.hardware_type,
-      name: network_link_name(raw_link),
-      kind: raw_link.kind,
-      mtu: raw_link.mtu,
-      admin_up: raw_link.flags.bit_and(1) != 0,
-      operational_state: network_operstate(raw_link.operstate),
-      flags: network_link_flags(raw_link.flags),
-      mac: network_mac(raw_link.address),
-      master_ifindex: raw_link.master_ifindex,
-      lower_ifindex: raw_link.lower_ifindex,
-      parent_pci_function_index: null,
-      parent_usb_device_index: null,
-      driver: null,
-      addresses: addresses,
-      counters: counters,
-      attributes: network_attributes(raw_link.attributes),
-    }]
+    links += [
+      {
+        ifindex: raw_link.ifindex,
+        hardware_type: raw_link.hardware_type,
+        name: network_link_name(raw_link),
+        kind: raw_link.kind,
+        mtu: raw_link.mtu,
+        admin_up: raw_link.flags.bit_and(1) != 0,
+        operational_state: network_operstate(raw_link.operstate),
+        flags: network_link_flags(raw_link.flags),
+        mac: network_mac(raw_link.address),
+        master_ifindex: raw_link.master_ifindex,
+        lower_ifindex: raw_link.lower_ifindex,
+        parent_pci_function_index: null,
+        parent_usb_device_index: null,
+        driver: null,
+        addresses: addresses,
+        counters: counters,
+        attributes: network_attributes(raw_link.attributes),
+      },
+    ]
   }
 
   var routes: List[report.NetworkRoute] = []
@@ -6066,25 +6347,27 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
       }
       for nexthop in raw_route.nexthops
     ]
-    routes += [{
-      family: family,
-      destination: network_text(destination),
-      prefix_length: raw_route.destination_prefix_length,
-      source_prefix_length: raw_route.source_prefix_length,
-      source: network_text(raw_route.source),
-      preferred_source: network_text(raw_route.preferred_source),
-      gateway: network_text(raw_route.gateway),
-      table: raw_route.table,
-      metric: raw_route.priority,
-      route_type: network_route_type(raw_route.route_type),
-      scope: network_address_scope(raw_route.scope),
-      protocol: network_route_protocol(raw_route.protocol),
-      output_ifindex: raw_route.output_ifindex,
-      input_ifindex: raw_route.input_ifindex,
-      flags: raw_route.flags,
-      nexthops: nexthops,
-      attributes: network_attributes(raw_route.attributes),
-    }]
+    routes += [
+      {
+        family: family,
+        destination: network_text(destination),
+        prefix_length: raw_route.destination_prefix_length,
+        source_prefix_length: raw_route.source_prefix_length,
+        source: network_text(raw_route.source),
+        preferred_source: network_text(raw_route.preferred_source),
+        gateway: network_text(raw_route.gateway),
+        table: raw_route.table,
+        metric: raw_route.priority,
+        route_type: network_route_type(raw_route.route_type),
+        scope: network_address_scope(raw_route.scope),
+        protocol: network_route_protocol(raw_route.protocol),
+        output_ifindex: raw_route.output_ifindex,
+        input_ifindex: raw_route.input_ifindex,
+        flags: raw_route.flags,
+        nexthops: nexthops,
+        attributes: network_attributes(raw_route.attributes),
+      },
+    ]
   }
 
   var link_indices_by_name: Map[Int] = {}
@@ -6212,12 +6495,14 @@ export proc link_network_device_sources(
       }
     }
 
-    links += [{
-      ...link,
-      driver: driver,
-      parent_pci_function_index: parent_pci_function_index,
-      parent_usb_device_index: parent_usb_device_index,
-    }]
+    links += [
+      {
+        ...link,
+        driver: driver,
+        parent_pci_function_index: parent_pci_function_index,
+        parent_usb_device_index: parent_usb_device_index,
+      },
+    ]
   }
 
   let status = if issues.len() > assembled.issues.len() and assembled.status.state == report.Complete {

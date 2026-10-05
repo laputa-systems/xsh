@@ -362,7 +362,8 @@ test test_dev_main_target_override_reaches_context { |ctx|
   let root = fs.cwd()?
   let output = test.temp_path(ctx, name: "dev-target.stdout")
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"{root}/dev/main.xsh" -- system-report-check --target \
+    x86_64-unknown-linux-musl > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic

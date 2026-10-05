@@ -7,9 +7,9 @@ test test_bytes_construction_encoding_and_copy { |ctx|
   assert bytes.human(1023) == "1023"
   assert bytes.human(1024) == "1.0K"
   assert bytes.human(1536) == "1.5K"
-  assert bytes.human(10 * 1024) == "10K"
-  assert bytes.human(1024 * 1024) == "1.0M"
-  assert bytes.human(5 * 1024 * 1024 * 1024) == "5.0G"
+  assert bytes.human(10KiB) == "10K"
+  assert bytes.human(1MiB) == "1.0M"
+  assert bytes.human(5GiB) == "5.0G"
   assert bytes.pack_le(4660, 2)? == b"4\x12"
   assert bytes.pack_be(16909060, 4)? == b"\x01\x02\x03\x04"
   assert bytes.unpack_le(b"4\x12", 2)? == 4660

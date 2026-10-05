@@ -13,9 +13,11 @@ export proc built_binary(messages: Str) [error] -> Result[Path] {
     let executable = json.get(message, ["executable"])?.require(Str?)?
     if executable != null { binaries += [fp"{executable}"] }
   }
+
   if binaries.len() != 1 {
     error.fail(f"expected one xsh-fuzz binary artifact, found {binaries.len()}")?
   }
+
   Ok(binaries[0])
 }
 

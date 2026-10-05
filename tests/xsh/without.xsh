@@ -180,8 +180,14 @@ test test_nested_without_regions_add_up { |ctx|
 """,
   )?
   assert count(stderr, "err[check.effect-violation]") == 3, stderr
-  assert count(stderr, "err[check.effect-violation]: `net.request` requires the `net` effect, which `without net` excludes here") == 2, stderr
-  assert count(stderr, "err[check.effect-violation]: method `read_text` requires the `fs` effect, which `without fs` excludes here") == 1, stderr
+  assert count(
+    stderr,
+    "err[check.effect-violation]: `net.request` requires the `net` effect, which `without net` excludes here",
+  ) == 2, stderr
+  assert count(
+    stderr,
+    "err[check.effect-violation]: method `read_text` requires the `fs` effect, which `without fs` excludes here",
+  ) == 1, stderr
   assert ":4:15" in stderr and ":5:15" in stderr and ":9:13" in stderr, stderr
 }
 

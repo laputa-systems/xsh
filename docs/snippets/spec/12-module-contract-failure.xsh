@@ -3,7 +3,7 @@ type BuildPlugin = module {
   export proc build(root: Path) [fs, process, error] -> Result[Unit]
 }
 
-proc build_with(plugin_path: Path, root: Path) [fs, process, io, error] -> Result[Unit] {
+proc build_with(plugin_path: Path, root: Path) [fs, process, error, io] -> Result[Unit] {
   # begin example
   match module.load(plugin_path)?.require(BuildPlugin) {
     Ok(plugin) => plugin.build(root)?

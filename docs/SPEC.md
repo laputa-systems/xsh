@@ -149,6 +149,39 @@ let ready = config.enabled
   and target.exists()?
 ```
 
+**Command continuation.** A command, and only a command, also continues when
+a line ends with `\`. The backslash follows whitespace and is the last
+character of its line; it and the line break then read as the whitespace
+between two parts of the command, so the next line supplies more of it:
+arguments, `run` options and environment assignments, redirections, the `|`
+of a byte pipeline, the block of `cd` or `env`, or the trailing `?`. The first
+word of the command (`print`, `run`, `run.capture --text`) stays on the first
+line.
+
+```xsh
+run muon setup \
+  -Ddefault_library=shared \
+  -Dtests=false \
+  build ?
+
+run make "ARCH=arm64" -j${jobs} Image \
+  > $log ?
+```
+
+A comment runs to the end of its line, so only the last line of a continued
+command can carry one. Every other backslash outside a string is an error:
+
+- A `\` followed by anything but the line break, including a space or a
+  comment, or written directly after a word, is `lex.unexpected-character`.
+  A continuation never joins two halves of one word.
+- A `\` with nothing of the command after it (a blank line, a comment line,
+  `}`, or the end of the file), inside an expression (including a
+  parenthesized typed argument), or after anything that is not a command is
+  `parse.line-continuation`. Expressions continue only by the rules above.
+
+Inside a quoted word a backslash begins an escape (2.6), never a
+continuation; `"a\` at the end of a line is `lex.invalid-escape`.
+
 ### 2.6 Literals
 
 **Strings.** `"..."` supports the escapes `\\`, `\"`, `\$`, `\n`, `\r`,
@@ -226,7 +259,9 @@ let out = ./target/build
 
 **Globs.** `g"..."` expands against the current directory and produces
 `List[Path]`. Globbing is a filesystem effect and is not allowed in pure
-functions. Nothing else globs.
+functions. A glob literal and the methods `Path.glob` and `Path.rglob` (15)
+are the only things that glob; every other string, word, and path is taken
+literally.
 
 **Environment strings.** `e"NAME"` reads the environment variable `NAME` as
 `Result[Str]` (10.5), and `e"NAME" = value` sets it. The contents are one
@@ -242,6 +277,13 @@ exponent: `1.0`, `0.25`, `1.5e6`, `10e-3`.
 
 **Durations.** A decimal integer followed immediately by `ms`, `s`, `m`, or
 `h`: `250ms`, `30s`, `2h`.
+
+**Sizes.** A decimal integer followed immediately by `KiB`, `MiB`, `GiB`,
+`KB`, `MB`, or `GB` is an integer literal that counts bytes: `4KiB` is `4096`
+and `64MB` is `64000000`. Binary units are powers of 1024 and decimal units
+powers of 1000. Like a duration, a size has no fractional form (write
+`1536KiB`, not `1.5MiB`) and no space before its unit, and a unit that runs
+on into more letters is not one (`1KBps`). The literal has type `UInt` (4.2).
 
 ## 3. Programs And Modules
 
@@ -324,15 +366,18 @@ Dotted paths name subdirectories.
 
 The project module roots are the `module_path` entries of the nearest
 `xsht-config.ini`: the one in the entry script's directory, or else in the
-closest directory above it on the script's path as given (a relative path is
-searched up to the current directory). Entries are relative to the config's
-directory, and a config without `module_path` names its own directory. Every
-module of a program resolves through the entry script's roots, including the
-imports of a module loaded with `module.load`. A program whose entry script
-has no config above it has no project roots. A config that cannot be read or
-decoded, or whose `module_path` is not text, is an error before anything runs.
-`xsh`, `xshi`, and `xsht` share this resolution, so a `use` that checks is a
-`use` that loads.
+closest directory above it, up to the filesystem root. The search starts from
+the script's absolute location (a relative path joined onto the current
+directory, without resolving symbolic links), so it does not depend on where
+the command was started. Entries are relative to the config's directory, and
+a config without `module_path` names its own directory. Every module of a
+program resolves through the entry script's roots, including the imports of a
+module loaded with `module.load`. A program whose entry script has no config
+above it has no project roots; the current directory is never one. A config
+that cannot be read or decoded, or whose `module_path` is not text, is an
+error before anything runs. `xsh`, `xshi`, and every `xsht` command share this
+resolution, each file `xsht` is given being its own entry, so a `use` that
+checks is a `use` that loads.
 
 A module's top level may contain only `use`, `const`, `let`, `proc`, `pure`,
 `stream`, `type`, `enum`, and `error` declarations, optionally exported. It may
@@ -402,6 +447,23 @@ produced. A negative value fails at that point with `type-error`, leaves the
 target unchanged, and runs ordinary cleanup; `try` does not turn it into data.
 Use `value.require(UInt)?` to validate untrusted integers recoverably.
 
+A size literal (2.6) is a `UInt` number of bytes, not a separate type: it
+displays, compares, and computes as the integer it stands for, so
+`f"{64MiB}"` is `67108864` and `limit / 1MiB` is an `Int`. A size literal
+whose byte count exceeds `9223372036854775807` is a check error
+(`check.size-literal`).
+
+```xsh
+const chunk = 64KiB
+const reserve = 256MiB
+
+pure fits(needed: UInt, free: UInt) -> Bool {
+  needed + reserve <= free
+}
+
+print f"{size / 1MiB} MiB in {size / chunk} chunks; fits in 8GiB: {fits(size, 8GiB)}"
+```
+
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
 NaN, infinities, and out-of-range values. Float equality compares exact
@@ -451,6 +513,27 @@ text and `Path.parse_bytes(bytes)` converts bytes with a `Result`. A string
 literal is accepted where a `Path` is statically expected (a typed parameter,
 binding, or redirection target); a runtime `Str` always needs explicit
 conversion.
+
+Questions about a path's spelling are `Path` methods, so they need no
+`.display()` and lose no bytes. `p.starts_with(prefix)` and
+`p.ends_with(suffix)` compare whole components, not bytes: the argument's
+components must be a leading or trailing run of the receiver's. `/usr/lib`
+starts with `/usr` and not with `/us`; `a/b.txt` ends with `b.txt` and not
+with `txt`; an absolute suffix matches only an equal path;
+`p.starts_with(p"/")` holds exactly for absolute paths. Both are lexical and never touch the
+filesystem. Components are read as `strip_prefix` reads them (repeated
+separators, a trailing separator, and a `.` after the first component do not
+count; `..` is compared as written), and `p.starts_with(q)` is true exactly
+when `p.strip_prefix(q)` succeeds. `name()`, `ext()`, and `parent()` answer
+the remaining component questions. A text test on `.display()` is a different
+question, one about bytes: `p.display().starts_with("/us")` is true for
+`/usr/lib`.
+
+```xsh
+let library = relative.starts_with(p"lib") # lib/x.xsh, not libexec/x
+let static_library = relative.ends_with(p"out/libc.a") # whole trailing components
+let rooted = relative.starts_with(/) # an absolute path
+```
 
 ### 4.5 Lists, maps, and records
 
@@ -625,6 +708,36 @@ match module.load(plugin_path)?.require(BuildPlugin) {
 }
 ```
 
+`exact module { ... }` declares a closed contract: the module's exports are
+no larger than the contract. `.require(Contract)` on an exact contract also
+rejects every export the contract does not list, naming each one with its
+signature, and the error then implements `UnexpectedExport`. `optional`
+entries may still be absent. Exactness is about the callable and value
+surface a module value carries; exported types, error families, and streams
+are not contract members and are not counted.
+
+```xsh
+type Service = exact module {
+  export let name: Str
+  export optional let description: Str
+  export proc start() [process, error] -> Result[Unit]
+  export proc stop() [process, error] -> Result[Unit]
+}
+match module.load(service_path)?.require(Service) {
+  Ok(service) => {
+    service.stop()?
+    service.start()?
+  }
+  Err(is UnexpectedExport) => print "the service exports more than its contract allows"
+  Err(error) => return Err(error)
+}
+```
+
+A statically imported module satisfies an exact contract only when it
+exports nothing else. A value typed by an open contract does not satisfy an
+exact one, because its type does not say what else the module exports; check
+it with `.require(Exact)`.
+
 ### 4.10 Errors
 
 `Error` is the common structured error. Programs declare nominal error
@@ -633,19 +746,73 @@ families whose variants carry fixed payloads and may implement facets:
 ```xsh
 error ConfigError = Missing(file: Path) : NotFound | Invalid(file: Path, message: Str)
 
+error FetchError {
+    Usage
+    Offline : Timeout
+    Rejected(url: Str, status: Int)
+}
+
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
-  return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
+  return Err(ConfigError.Invalid(file, "empty")) when text == ""
+}
+
+pure parse_url(url: Str) -> Result[Str, FetchError] {
+  return Err(FetchError.Usage(f"not a URL: {url}")) unless url.starts_with("https://")
+  Ok(url)
 }
 ```
 
+A family is written on one line with `=` and `|`, or in braces with one
+variant per line and no separator. The two forms declare the same family, and
+in both a variant's facets follow it after `:`. `xsht fmt` keeps the `=` form
+while the declaration fits the line width and writes the brace form once it
+does not; a family written in braces stays in braces.
+
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
+A constructor takes payload fields by name (with puns) or positionally:
+positional arguments fill the leading fields in the order the variant
+declares them, the order record constructors use (4.7). Arguments evaluate
+once in source order, and the error is the same value whether a field was
+passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
 diagnostics only.
+
+A variant declared without a payload carries only its message, as the one
+field `message: Str`. Its constructor takes the message as a single optional
+positional argument and takes no named argument (`check.error-constructor`):
+
+```xsh
+print FetchError.Usage("not a URL").message
+print FetchError.Usage().message
+print describe(FetchError.Usage("not a URL"))
+print describe(FetchError.Offline("no route"))
+print FetchError.Rejected("https://example.test", 503).message
+```
+
+```text
+not a URL
+FetchError.Usage
+usage: not a URL
+offline
+FetchError.Rejected
+```
+
+Constructed without the argument, the message is the family and variant name,
+`FetchError.Usage`. The pattern `FetchError.Usage` matches every `Usage` error
+whatever its message, and `FetchError.Usage {message}` binds it. A variant with
+a declared payload is unchanged: its `.message` is its `message: Str` field
+when it declares one and its family and variant name otherwise, and its
+constructor takes exactly the declared fields.
+
+```xsh
+let named = FetchError.Usage(message: "not a URL")  # error: check.error-constructor
+let extra = FetchError.Usage("not a URL", "again")  # error: check.arity
+```
 
 `error.fail(message)` builds a `Result[Unit, Error]` validation failure; it is
 the shortest way to report an expected failure from a fallible function.
@@ -675,6 +842,7 @@ implement only the facets below (`xsht api language:facet`);
 | `ProcessFailure` | A process could not be spawned, executed, or completed. | Implemented by `ProcessError.UnexpectedExit`, `ProcessError.PipelineFailure`, `ProcessError.ExecFailure`, `ProcessError.Spawn`. |
 | `Signal` | A process was terminated by a signal. | Implemented by `ProcessError.Signal`. |
 | `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, host OS errors of kind `TimedOut`. |
+| `UnexpectedExport` | A module has an export its exact contract does not list. | Implemented by a failed `.require(Contract)` on a module with an export outside an `exact module` contract. |
 
 ```xsh
 match process.run(command) {
@@ -1575,6 +1743,52 @@ Opaque callables and unresolved dependencies have unknown effects, which a
 restricted caller cannot use either. Local `try` and `retry` capture removes
 only the outward `error` requirement.
 
+`without EFFECT, ... { BODY }` narrows the bound for one lexical region. It is
+a lexical block (same scope, same cleanup, same value rules), and the checker
+holds everything in it, including nested blocks and callbacks written there,
+to the enclosing bound minus the listed effects:
+
+```xsh
+proc build(index: Str, staged: Path) [fs, net, process, error] {
+  fetch_sources(index, staged)?
+
+  # Everything after the fetch is offline, and the checker holds it to that.
+  without net {
+    build_from_staged_sources(staged)?
+  }
+}
+```
+
+The listed effects are `fs`, `net`, `process`, `env`, `time`, and `io`;
+`error` is not a host effect and is bounded with `try` instead
+(`check.without-effect`). Inside the region, an operation or callee that
+requires a listed effect is a `check.effect-violation`, reported like a
+clause violation and pointing at the `without` head as well. A callee that
+requires `io` is excluded by `without fs`, `net`, `process`, or `env`, because
+`io` implies each of them; `without io` excludes only `io` itself. A callee
+with an unknown or unrestricted contract cannot be called in the region, even
+from code that is otherwise unrestricted. Nested regions add up. The bound
+does not change the effects inferred for, or declared by, the enclosing proc.
+
+```xsh
+proc fetch(url: Str) [net, error] -> Result[Int] {
+  net.request({method: "GET", url: url})?.status
+}
+
+proc refresh(url: Str, cache: Path) [fs, net, error] {
+  without net {
+    let status = fetch(url)? # error: check.effect-violation
+    cache.write(f"{status}")?
+  }
+}
+```
+
+This is a claim the checker proves about XSH code. It does not sandbox a
+spawned process or say what an external program does: `without net` still
+allows `run curl ...` where `process` is permitted. `without` is a word only
+at the start of such a statement, written on one line up to `{`; elsewhere it
+is an ordinary name.
+
 ## 10. Commands And Scopes
 
 ### 10.1 Command statements
@@ -1617,6 +1831,10 @@ Each command argument is one of:
 A name or field path passes its value as `$name` or `$record.field`; plain
 `record.field` is a word. `(name)` and `(record.field)` mean the same as the
 `$` forms, and `xsht lint` reports them as redundant (`lint.command-value`).
+
+A long argument list continues on the next line after a trailing `\` (2.5):
+the line break separates two arguments exactly as a space does, and the
+arguments are the same list either way.
 
 A standalone interpolation that evaluates to a `List` splices its elements,
 as `@` does. Interpolation inside a larger word uses display conversion and
@@ -2265,6 +2483,40 @@ Contracts worth knowing without consulting the reference:
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).
   With `stat: false`, metadata fields are unavailable and reading one fails
   with `metadata-unavailable` instead of returning a placeholder.
+- `root.glob(pattern)` expands a relative pattern below `root` and returns
+  `Result[List[Path]]`: each match is `root` joined with the components that
+  matched, in byte order, without duplicates. `root.rglob(pattern)` is
+  `root.glob("**/" + pattern)`, a match at any depth. Both use the matcher of
+  `g"..."`: `*`, `?`, and `[...]` match inside one component and never match
+  a leading `.` unless the pattern component starts with one; `**` as a whole
+  component matches any depth of directories, hidden ones included, and does
+  not follow a symbolic link to a directory. So `p"src".glob("*.xsh")` is
+  `g"src/*.xsh"`, with two differences: the receiver is never read as a
+  pattern, and the pattern is an ordinary `Str` computed at run time. A root
+  that is missing or is not a directory matches nothing. An empty pattern, an
+  absolute pattern, and a directory that cannot be read are errors.
+  `fs.walk`, `fs.files`, and `fs.dirs` answer a different question: they
+  stream `FsEntry` records lazily in traversal order and skip hidden and
+  git-ignored entries by default, while a glob is eager, sorted, returns paths
+  alone, and never reads `.gitignore`.
+
+```xsh
+let manifests = package.glob("*.toml")? # directly inside package
+let tests = package.rglob(f"*_test.{suffix}")? # at any depth
+let nested = package.glob("src/**/*.xsh")? # the same pattern as g"..."
+```
+
+- `Path.write_lines(lines)` writes each element of a `List[Str]` followed by
+  `\n`, so every line is terminated and an empty list writes an empty file.
+  Creating, replacing, the file mode, and failures are those of `Path.write`.
+  It is not `p.write(lines.join("\n") + "\n")`, which writes one newline for
+  an empty list.
+- `Path.read_lines()` is its partner and is exactly `p.read_text()?.lines()`:
+  it reads the whole file, fails as `read_text` fails (including on bytes that
+  are not UTF-8), and returns a `List[Str]` without line terminators. It is
+  eager, so every failure happens at the call; `Path.lines()` is the lazy
+  stream for a file read once, line by line. `read_lines` returns what
+  `write_lines` wrote when no element contains `\n` or ends with `\r`.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process.
@@ -2360,7 +2612,8 @@ Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
 file under the current directory plus `include` entries from the nearest
 `xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
 nearest config among its ancestors (for `module_path`, `[format] line-width`
-(default 120), lint options, and `[check] annotate`). `xsht fmt` discovery also
+(default 120), lint options, and `[check] annotate`); a file with no config
+above it has no project module roots (3.3). `xsht fmt` discovery also
 skips the discovery root's `[format] exclude` patterns.
 
 `xsht check` runs exactly the checks that execution runs before evaluating

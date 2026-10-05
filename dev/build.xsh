@@ -41,7 +41,8 @@ export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
 ## Runs the repository's non-mutating deprecated-import contract.
 export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Result[Unit] {
   let pattern = "xsh::(source|symbol|syntax|sema|loader|runner|runtime|modules|parse_script_with_module_roots)"
-  let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests src/entrypoints --glob "*.rs" ?
+  let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests \
+    src/entrypoints --glob "*.rs" ?
 
   if result.stdout.trim() != "" {
     return Err(

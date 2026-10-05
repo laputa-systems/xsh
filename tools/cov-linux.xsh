@@ -150,14 +150,16 @@ proc main() [fs, process, env, error, io] {
 
   let child_path = join_path([shim_dir, cargo_bin, /root/.cargo/bin, /bin, /usr/bin, /usr/local/bin, /sbin])
 
-  env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
+  env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path \
+      RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
     run cargo test --release --test integration --test ambient_fs_policy --test symbol_plateau -- --test-threads=1 ?
     run cargo test --lib -- --test-threads=1 ?
     run cargo test --release --features linux-priv-tests --test linux_priv -- --test-threads=1 ?
     run cargo build --release --bin xsh ?
     run cargo build --release -p xsht ?
     run cargo build --release -p xshi ?
-    run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
+    run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" \
+      XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
   } ?
 
   let profraws = collect_profraw(raw_dir)?

@@ -744,7 +744,8 @@ proc scan_pures_in_file(
         body = if seen_body { line } else { "" }
 
         if seen_body and depth <= 0 {
-          scans += [pure_scan(
+          scans += [
+            pure_scan(
               path_text,
               start_line,
               signature,
@@ -753,7 +754,8 @@ proc scan_pures_in_file(
               record_types,
               error_variants,
               pure_functions,
-            )]
+            ),
+          ]
 
           in_pure = false
         }
@@ -846,7 +848,8 @@ proc scan_procs_in_file(
         body = if seen_body { line } else { "" }
 
         if seen_body and depth <= 0 {
-          scans += [proc_scan(
+          scans += [
+            proc_scan(
               path_text,
               start_line,
               signature,
@@ -855,7 +858,8 @@ proc scan_procs_in_file(
               record_types,
               error_variants,
               lowerable_functions,
-            )]
+            ),
+          ]
 
           in_proc = false
         }
@@ -883,7 +887,8 @@ proc scan_procs_in_file(
     depth += line_scan.brace_delta
 
     if seen_body and depth <= 0 {
-      scans += [proc_scan(
+      scans += [
+        proc_scan(
           path_text,
           start_line,
           signature,
@@ -892,7 +897,8 @@ proc scan_procs_in_file(
           record_types,
           error_variants,
           lowerable_functions,
-        )]
+        ),
+      ]
 
       in_proc = false
     }
@@ -1201,13 +1207,13 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
 
   for file in files {
     scans += scan_pures_in_file(
-        display_root,
-        file,
-        lowered_methods,
-        corpus_record_types,
-        corpus_error_variants,
-        corpus_pure_functions,
-      )?
+      display_root,
+      file,
+      lowered_methods,
+      corpus_record_types,
+      corpus_error_variants,
+      corpus_pure_functions,
+    )?
   }
 
   corpus_report(roots, scans)
@@ -1257,13 +1263,13 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
 
   for file in files {
     scans += scan_procs_in_file(
-        display_root,
-        file,
-        lowered_methods,
-        corpus_record_types,
-        corpus_error_variants,
-        corpus_lowerable_functions,
-      )?
+      display_root,
+      file,
+      lowered_methods,
+      corpus_record_types,
+      corpus_error_variants,
+      corpus_lowerable_functions,
+    )?
   }
 
   proc_report(roots, scans)
@@ -1433,7 +1439,13 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
   }
 
   for file in files {
-    scans += scan_script_statements_in_file(display_root, file, lowered_methods, corpus_error_variants, corpus_pure_functions)?
+    scans += scan_script_statements_in_file(
+      display_root,
+      file,
+      lowered_methods,
+      corpus_error_variants,
+      corpus_pure_functions,
+    )?
   }
 
   script_report(roots, scans)

@@ -5,7 +5,8 @@ test test_wait_for_usage {
 
 test test_wait_for_timeout_exits_unsuccessfully { |ctx|
   let output = test.temp_path(ctx, name: "wait-for-output")
-  let status = run.status "xsh" "showcase/wait-for.xsh" -- "unsupported://no-endpoint" --timeout 1 --interval 1 > $output
+  let status = run.status "xsh" "showcase/wait-for.xsh" -- "unsupported://no-endpoint" --timeout 1 --interval 1 \
+    > $output
   assert status.exited_with(1), "a timed-out endpoint must fail the command"
   assert "timed out after 1s" in output.read_text()?
 }

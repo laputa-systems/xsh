@@ -127,7 +127,7 @@ test test_module_contract_failure_names_missing_exports { |ctx|
     Ok(_) => test.fail("a module without required exports satisfied the contract")?
     Err(error) => {
       assert error is MissingExport
-      assert !(error is MismatchedExport)
+      assert ! (error is MismatchedExport)
       assert "missing export `version`: expected `export let version: Int`" in error.message, error.message
       assert "missing export `render`: expected `export pure render(value: Str) -> Str`" in error.message, error.message
       assert "description" not in error.message, error.message
@@ -143,7 +143,7 @@ test test_module_contract_failure_names_mismatched_exports { |ctx|
     Ok(_) => test.fail("a module with other signatures satisfied the contract")?
     Err(error) => {
       assert error is MismatchedExport
-      assert !(error is MissingExport)
+      assert ! (error is MissingExport)
       assert "mismatched export `name`: expected `export let name: Int`, found `export let name: Str` (the value type differs)" in error.message, error.message
       assert "mismatched export `label`: expected `export pure label(value: Str, suffix: Str) -> Str`, found `export pure label(value: Str) -> Str` (the contract declares 2 parameters, the export takes 1 parameter)" in error.message, error.message
       assert "mismatched export `build`: expected `export proc build(root: Str) [fs, error] -> Result[Path, Error]`, found `export proc build(root: Path) [fs, error] -> Result[Path, Error]` (parameter 1 has type Path, the contract declares Str)" in error.message, error.message
@@ -213,8 +213,8 @@ test test_exact_module_contract_rejects_unexpected_exports { |ctx|
     Ok(_) => test.fail("a module with unlisted exports satisfied an exact contract")?
     Err(error) => {
       assert error is UnexpectedExport
-      assert !(error is MissingExport)
-      assert !(error is MismatchedExport)
+      assert ! (error is MissingExport)
+      assert ! (error is MismatchedExport)
       assert "unexpected export `build`: `export proc build(root: Path) [fs, error] -> Result[Path, Error]` is not in the exact contract" in error.message, error.message
       assert "unexpected export `label`: `export pure label(value: Str) -> Str` is not in the exact contract" in error.message, error.message
       assert "`name`" not in error.message, error.message

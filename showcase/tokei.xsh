@@ -1449,14 +1449,16 @@ proc main(...argv: List[Str]) [fs, error] {
         continue when cagg.files == 0
         let clines = cagg.blanks + cagg.code + cagg.comments
 
-        child_rows += [fmt_row(
+        child_rows += [
+          fmt_row(
             f"|- {clabel}",
             f"{cagg.files}",
             f"{clines}",
             f"{cagg.code}",
             f"{cagg.comments}",
             f"{cagg.blanks}",
-          )]
+          ),
+        ]
       }
 
       let lines = totals.blanks + totals.code + totals.comments

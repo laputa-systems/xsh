@@ -355,13 +355,15 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       }
     }
 
-    records += [{
-      record_type: record_type,
-      handle: handle,
-      formatted_length: length,
-      fields: fields,
-      strings: strings,
-    }]
+    records += [
+      {
+        record_type: record_type,
+        handle: handle,
+        formatted_length: length,
+        fields: fields,
+        strings: strings,
+      },
+    ]
     cursor = terminator + 2
     if record_type == 127 {
       saw_end = true

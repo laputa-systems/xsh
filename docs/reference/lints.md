@@ -35,6 +35,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.needless-annotation` | Remove a type annotation that the initializer or checked constraints already fix |
 | `lint.organize-top-level-consts` | Group safe immutable top-level constants after imports and before functions |
 | `lint.path-constructor` | Prefer a `p` string literal or path interpolation over `Path(...)` |
+| `lint.path-text-query` | Test a Path for a root component instead of testing its display text for a leading `/` |
 | `lint.pattern-conditional` | Use `if let` for a two-arm match with a complementary pattern |
 | `lint.prefer-bare-field-label` | Write identifier-shaped record field labels without quotes |
 | `lint.prefer-block-string` | Use a block string for a constant multiline string concatenation |
@@ -49,6 +50,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-fs-files` | Use `fs.files()` instead of `fs.walk()` filtered to `kind == file` |
 | `lint.prefer-generic-record-constructor` | Let a constructor infer its concrete schema from the supplied fields |
 | `lint.prefer-guard` | Use `guard` instead of a single-action `if` |
+| `lint.prefer-implicit-message` | Declare a variant whose only payload is `message: Str` without a payload and pass its message positionally |
 | `lint.prefer-in` | Use `in` or `not in` instead of a membership method call |
 | `lint.prefer-inferred-private-effects` | Drop a private proc effect clause when it is inferred exactly |
 | `lint.prefer-inferred-pure-return` | Drop a private pure return type when it is inferred exactly |
@@ -68,17 +70,20 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-nested-record-update` | Use disjoint static field paths instead of nested record spreads |
 | `lint.prefer-optional-postfix` | Use a guarded postfix and `??` instead of an explicit null branch |
 | `lint.prefer-positional-constructor` | Pass leading schema constructor fields positionally when no two of them can hold the same value |
+| `lint.prefer-read-lines` | Read a file's lines with `Path.read_lines()?` instead of `read_text()?.lines()` |
 | `lint.prefer-record-constructor` | Use the named schema constructor for a record literal of a schema type |
 | `lint.prefer-record-destructuring` | Bind adjacent fields of one record together with a destructuring `let` |
 | `lint.prefer-regex-literal` | Prepare a static regex pattern with an `rx` literal instead of a call |
 | `lint.prefer-repeat` | Use `repeat N times` instead of `for _ in range(N)` |
 | `lint.prefer-scalar-iteration` | Iterate a Str by scalars or bytes without a split List or unused offsets |
 | `lint.prefer-signature-cli` | Declare a literal CLI schema as a `cli main(...)` entry signature |
+| `lint.prefer-size-literal` | Write a byte count that is a product of literals and powers of 1024 as a size literal |
 | `lint.prefer-slice` | Use half-open slicing where offset/count method bounds are equivalent |
 | `lint.prefer-stream-producer` | Suggest a `stream` producer with `yield` for a proc that builds a list item by item |
 | `lint.prefer-string-concat` | Use `+` instead of joining literal pieces with an empty separator |
 | `lint.prefer-try-capture` | Replace a single-use closed helper with a local `try` block capture |
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
+| `lint.prefer-write-lines` | Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline |
 | `lint.prefer-yield-delegation` | Replace a transparent forwarding loop with `yield @iterable` |
 | `lint.redundant-bare-return` | Remove a bare `return` at the end of a `Result[Unit]` function |
 | `lint.redundant-command-fmt` | Use command value syntax directly for a single-value command f-string |

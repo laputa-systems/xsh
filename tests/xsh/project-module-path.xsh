@@ -141,7 +141,7 @@ test a_script_without_a_project_config_has_no_project_roots { |ctx|
   fp"{root}/xsht-config.ini".remove()?
 
   let output = run.capture --text "xsh" fp"{root}/bin/entry.xsh" ?
-  assert !output.status.ok, output.stdout
+  assert ! output.status.ok, output.stdout
   assert "failed to read module" in output.stderr, output.stderr
   assert "`module_path` in the project's xsht-config.ini" in output.stderr, output.stderr
 }
@@ -175,11 +175,11 @@ test the_starting_directory_is_not_a_module_root { |ctx|
 
   cd root {
     let run_output = run.capture --text "xsh" "sub/entry.xsh" ?
-    assert !run_output.status.ok, run_output.stdout
+    assert ! run_output.status.ok, run_output.stdout
     assert "failed to read module" in run_output.stderr, run_output.stderr
 
     let check_output = run.capture --text "xsht" check "sub/entry.xsh" ?
-    assert !check_output.status.ok, check_output.stderr
+    assert ! check_output.status.ok, check_output.stderr
     assert "failed to read module" in check_output.stderr, check_output.stderr
 
     let lint_output = run.capture --text "xsht" lint "sub/entry.xsh" ?

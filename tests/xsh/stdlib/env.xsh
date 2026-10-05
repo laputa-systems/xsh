@@ -394,8 +394,8 @@ test test_env_string_reads_exactly_like_env_str {
     test.error_kind(e"XSH_ESTR_ABSENT", "env-missing")?
     assert str_failure(e"XSH_ESTR_ABSENT") == str_failure(env.get(absent_name))
     let described = match e"XSH_ESTR_ABSENT" {
-      Ok(value) => f"set to {value}"
-      Err(error) => error.message
+      Ok(value) => f"set to {value}",
+      Err(error) => error.message,
     }
     assert described == "environment value is unset"
 

@@ -3,14 +3,18 @@ test test_existing_lvalue_observes_current_root_after_rhs {
   row.count += if true {
     row = {count: 10, untouched: 20}
     3
-  } else { 0 }
+  } else {
+    0
+  }
   assert row == {count: 13, untouched: 20}
   let empty: Map[Int] = {}
   var values = empty.set("selected", 1).set("untouched", 2)
   values["selected"] += if true {
     values = values.set("selected", 30).set("untouched", 40)
     3
-  } else { 0 }
+  } else {
+    0
+  }
   assert values.get("selected")? == 33
   assert values.get("untouched")? == 40
 }
@@ -32,7 +36,9 @@ test test_list_assignment_selector_and_rhs_observe_current_root {
   } else { 1 }] += if true {
     values = [30, 40]
     3
-  } else { 0 }
+  } else {
+    0
+  }
   assert values == [33, 40]
   var entries: Map[Int] = {}
   entries[if true {
@@ -41,7 +47,9 @@ test test_list_assignment_selector_and_rhs_observe_current_root {
   } else { "never" }] += if true {
     entries = entries.set("selected", 30).set("untouched", 40)
     3
-  } else { 0 }
+  } else {
+    0
+  }
   assert entries.get("selected")? == 33
   assert entries.get("untouched")? == 40
 }
@@ -184,7 +192,9 @@ test test_list_assignment_evaluates_each_selector_and_rhs_once {
     seen += ["rhs"]
     root[0]["selected"][1] = 40
     3
-  } else { 0 }
+  } else {
+    0
+  }
   assert seen == ["outer", "key", "inner", "rhs"]
   assert root[0].get("selected")? == [4, 40]
 }

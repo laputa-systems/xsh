@@ -33,7 +33,15 @@ export enum SectionState: Str {
 }
 
 ## Failures returned by report parsing, selection, and schema validation.
-export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | UnsupportedPlatform(message: Str)
+export error SystemReportError {
+    InvalidCpuList(message: Str)
+    InvalidSection(message: Str)
+    InvalidJson(message: Str)
+    UnsupportedSchema(version: Int, message: Str)
+    InvalidProcStat(message: Str)
+    InvalidExecutionUnits(message: Str)
+    UnsupportedPlatform(message: Str)
+}
 
 ## Identifies whether observations came from a live host or a replay source.
 export enum SourceMode: Str {
@@ -3351,15 +3359,17 @@ pure redact_usb_section(section: UsbSection) -> UsbSection {
   var devices: List[UsbDevice] = []
   for device in section.devices {
     var interfaces: List[UsbInterface] = [{...interface, name: null} for interface in device.interfaces]
-    devices += [{
-      ...device,
-      sysfs_name: null,
-      port_path: null,
-      bus_number: null,
-      device_number: null,
-      serial: redact_text_observation(device.serial),
-      interfaces: interfaces,
-    }]
+    devices += [
+      {
+        ...device,
+        sysfs_name: null,
+        port_path: null,
+        bus_number: null,
+        device_number: null,
+        serial: redact_text_observation(device.serial),
+        interfaces: interfaces,
+      },
+    ]
   }
 
   {...section, devices: devices}
@@ -3534,13 +3544,15 @@ pure redact_network_section(section: NetworkSection) -> NetworkSection {
       }
       for address in link.addresses
     ]
-    links += [{
-      ...link,
-      name: redact_text_observation(link.name),
-      mac: redact_text_observation(link.mac),
-      addresses: addresses,
-      attributes: redact_network_attributes(link.attributes),
-    }]
+    links += [
+      {
+        ...link,
+        name: redact_text_observation(link.name),
+        mac: redact_text_observation(link.mac),
+        addresses: addresses,
+        attributes: redact_network_attributes(link.attributes),
+      },
+    ]
   }
 
   var routes: List[NetworkRoute] = []
@@ -3552,15 +3564,17 @@ pure redact_network_section(section: NetworkSection) -> NetworkSection {
       }
       for nexthop in route.nexthops
     ]
-    routes += [{
-      ...route,
-      destination: redact_text_observation(route.destination),
-      source: redact_text_observation(route.source),
-      preferred_source: redact_text_observation(route.preferred_source),
-      gateway: redact_text_observation(route.gateway),
-      nexthops: nexthops,
-      attributes: redact_network_attributes(route.attributes),
-    }]
+    routes += [
+      {
+        ...route,
+        destination: redact_text_observation(route.destination),
+        source: redact_text_observation(route.source),
+        preferred_source: redact_text_observation(route.preferred_source),
+        gateway: redact_text_observation(route.gateway),
+        nexthops: nexthops,
+        attributes: redact_network_attributes(route.attributes),
+      },
+    ]
   }
 
   var rules = [
@@ -3647,11 +3661,13 @@ pure redact_device_section(section: DeviceSection) -> DeviceSection {
       }
       for attribute in device.attributes
     ]
-    devices += [{
-      ...device,
-      name: redact_text_observation(device.name),
-      attributes: attributes,
-    }]
+    devices += [
+      {
+        ...device,
+        name: redact_text_observation(device.name),
+        attributes: attributes,
+      },
+    ]
   }
 
   {...section, devices: devices}
@@ -3706,18 +3722,20 @@ export pure redact_report(report: SystemReport) -> SystemReport {
     for issue in report.issues
   ]
   if report.identity.kernel_build != null {
-    issues += [{
-      section: "identity",
-      field: "kernel_build",
-      state: Redacted,
-      error_kind: null,
-      errno: null,
-      detail: {
+    issues += [
+      {
+        section: "identity",
+        field: "kernel_build",
         state: Redacted,
-        value: null,
-        raw_bytes_base64: null,
+        error_kind: null,
+        errno: null,
+        detail: {
+          state: Redacted,
+          value: null,
+          raw_bytes_base64: null,
+        },
       },
-    }]
+    ]
   }
 
   {
