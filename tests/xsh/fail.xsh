@@ -152,9 +152,10 @@ for name in ["", "-v", "ok"] {
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
   assert first.status.exited_with(1), first.stderr
-  assert "error family `StageError` only carries a message; report its failures with `fail`" in first.stderr, first.stderr
-  # One report owns every edit, so one `--fix` leaves nothing to do by hand.
-  assert first.stderr.split("warn[lint.prefer-fail]").len() == 2, first.stderr
+  assert "`StageError.Failed` only carries a message; report it with `fail`" in first.stderr, first.stderr
+  # One report for each constructor; the declaration is reported once they
+  # are gone, and one `--fix` runs both steps.
+  assert first.stderr.split("warn[lint.prefer-fail]").len() == 3, first.stderr
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate ?
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
@@ -307,4 +308,52 @@ test test_prefer_fail_respells_a_returned_leading_dot_error { |ctx|
   assert formatted.status.exited_with(0), formatted.stderr
   let checked = run.capture --text "xsht" check $candidate ?
   assert checked.status.exited_with(0), checked.stderr
+}
+
+# Every rule's fixes are applied together, and an edit that overlaps another
+# rule's is dropped for the round. Deleting the family must not count on a
+# rewrite that `lint.prefer-guard` displaced.
+test test_every_rule_fixing_one_file_leaves_it_checking { |ctx|
+  let source = r"""error AppError = Failed(message: Str)
+
+proc validate(argv: List[Str]) [] -> Result[Unit] {
+  if argv.len() > 4 {
+    return Err(AppError.Failed("too many"))
+  }
+
+  if argv.len() > 3 {
+    return Err(AppError.Failed("this message is long enough that the one-line guard passes the column cap"))
+  }
+
+  for arg in argv {
+    if arg == "" {
+      return Err(AppError.Failed("empty"))
+    }
+
+    for part in arg.split(",") {
+      if part == "" {
+        return Err(AppError.Failed("empty part"))
+      }
+    }
+  }
+}
+
+match validate(["a", "", "c"]) {
+  Ok(_) => print "ok"
+  Err(problem) => print $problem.message
+}
+"""
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  let candidate = test.temp_file(ctx, name: "validate.xsh", contents: bytes.from_text(source))?
+  let fixing = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = candidate.read_text()?
+  let checked = run.capture --text "xsht" check $candidate ?
+  assert checked.status.exited_with(0), fixed + checked.stderr
+  assert fixing.status.exited_with(0), fixing.stderr
+  assert "AppError" not in fixed, fixed
+  assert "  fail \"too many\" when argv.len() > 4\n" in fixed, fixed
+  let after = test.run_script(ctx, fixed)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
 }
