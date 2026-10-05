@@ -90,3 +90,22 @@ test test_install_compare_checks_bytes_after_first_chunk { |ctx|
   assert fs.stat(dest)?.ino != old
   assert dest.read_text()? == f"{prefix}a"
 }
+
+test test_install_parallel_publications_do_not_share_staging_names { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let statuses = range(8) |> par-map(jobs: 4) { |index|
+    let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -D $source fp"{root}/shared/child/file-{index}"
+    status.exited_with(0)
+  }
+  for succeeded in statuses { assert succeeded }
+  for index in range(8) { assert fp"{root}/shared/child/file-{index}".read_text()? == "payload" }
+}
+
+test test_install_directory_trailing_dot_creates_directory { |ctx|
+  let root = test.temp_dir(ctx)?
+  let directory = fp"{root}/directory/."
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d $directory
+  assert fp"{root}/directory".is_dir()?
+}

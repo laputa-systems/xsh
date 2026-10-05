@@ -89,8 +89,42 @@ test test_mv_interactive_decline_leaves_both_files { |ctx|
   let command = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), script.display(), "-i", source.display(), dest.display()],
     root, {}, b"n\n", out, err)
-  assert process.run(command)?.exited_with(0)
+  assert process.run(command)?.exited_with(1)
   assert source.read_text()? == "new"
   assert dest.read_text()? == "old"
-  assert "overwrite" in err.read_text()?
+  assert err.read_text()? == f"mv: overwrite '{dest}'? "
+}
+
+test test_mv_exchange_swaps_file_and_directory_atomically { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/file"
+  let dest = fp"{root}/directory"
+  source.write("payload")
+  dest.mkdir()
+  fp"{dest}/child".write("child")
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- -T --exchange $source $dest
+  assert source.is_dir()?
+  assert fp"{source}/child".read_text()? == "child"
+  assert dest.read_text()? == "payload"
+}
+
+test test_mv_same_entry_fails_and_retains_source { |ctx|
+  let source = test.temp_file(ctx, contents: b"keep")?
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- $source $source
+  assert status.exited_with(1)
+  assert source.read_text()? == "keep"
+}
+
+test test_mv_backup_preserves_source_link_named_like_backup { |ctx|
+  let root = test.temp_dir(ctx)?
+  let dest = fp"{root}/a"
+  dest.write("old")
+  let actual = fp"{root}/real"
+  actual.write("new")
+  let source = fp"{root}/a~"
+  source.symlink(to: actual)
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- --backup=simple $source $dest
+  assert dest.readlink()? == actual
+  assert source.read_text()? == "old"
+  assert actual.read_text()? == "new"
 }

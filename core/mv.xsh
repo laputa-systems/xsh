@@ -3,7 +3,7 @@ use lib.gnu
 use lib.file_publish as files
 
 type Options = {
-  no_target_directory: Bool, no_clobber: Bool, force: Bool, interactive: Bool,
+  no_target_directory: Bool, no_clobber: Bool, force: Bool, interactive: Bool, exchange: Bool,
   target: Str?, verbose: Bool, debug: Bool, update: Str?, older: Bool,
   backup: Str?, simple_backup: Bool, suffix: Str?, strip_slashes: Bool,
   help: Bool, version: Bool, operands: List[Str],
@@ -11,12 +11,47 @@ type Options = {
 
 enum MoveOutcome { Moved, Skipped, Failed }
 
+pure permission_text(mode: Int) -> Str {
+  let masks = [0o400, 0o200, 0o100, 0o40, 0o20, 0o10, 0o4, 0o2, 0o1]
+  var text = ""
+  for index in range(9) {
+    let enabled = mode.bit_and(masks[index]) != 0
+    var letter = if enabled { "rwx".byte_slice(index % 3, 1) } else { "-" }
+    if index % 3 == 2 {
+      let special = if index == 2 { 0o4000 } else if index == 5 { 0o2000 } else { 0o1000 }
+      if mode.bit_and(special) != 0 {
+        letter = if index == 8 { if enabled { "t" } else { "T" } } else { if enabled { "s" } else { "S" } }
+      }
+    }
+    text += letter
+  }
+  text
+}
+
+# A terminal user gets the protected-file prompt unless force was requested.
+proc confirm_protected(target: Path, mode: Int) -> Result[Bool] {
+  let bits = mode.bit_and(0o777)
+  let octal = f"0{bits / 64}{bits / 8 % 8}{bits % 8}"
+  io.write_stderr(f"mv: replace {gnu.quote(target.display())}, overriding mode {octal} ({permission_text(mode)})? ")?
+  io.flush_stderr()?
+  io.stdin_line()?.lower().starts_with("y")
+}
+
 proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[MoveOutcome] {
   let metadata = fs.stat(source)?
   let existing = files.present(target)?
   if existing {
     let dest_meta = fs.stat(target)?
-    if metadata.dev == dest_meta.dev and metadata.ino == dest_meta.ino {
+    if metadata.kind == "symlink" and dest_meta.kind != "symlink" and backup in ["none", "off"] {
+      if let Ok(followed) = fs.stat(source, follow_symlinks: true) {
+        if followed.dev == dest_meta.dev and followed.ino == dest_meta.ino {
+          gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
+          return Failed
+        }
+      }
+    }
+    if metadata.dev == dest_meta.dev and metadata.ino == dest_meta.ino and
+      (backup in ["none", "off"] or files.same_entry(source, target)?) {
       gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
       return Failed
     }
@@ -32,7 +67,14 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       if opts.debug { print f"skipped {gnu.quote(target.display())}" }
       return Skipped
     }
-    if policy == "interactive" and ! files.confirm(target)? { return Skipped }
+    if policy == "interactive" and ! files.confirm(target)? { return Failed }
+    if policy == "default" and unix.isatty(0) and dest_meta.mode.bit_and(0o200) == 0 and
+      ! confirm_protected(target, dest_meta.mode)? { return Failed }
+    if opts.exchange {
+      fs.rename_exchange(source, target)?
+      if opts.verbose or opts.debug { print f"exchanged {gnu.quote(source.display())} <-> {gnu.quote(target.display())}" }
+      return Moved
+    }
     if metadata.kind == "dir" and dest_meta.kind != "dir" {
       gnu.error(f"cannot overwrite non-directory {gnu.quote(target.display())} with directory {gnu.quote(source.display())}")
       return Failed
@@ -42,6 +84,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       return Failed
     }
   }
+  if opts.exchange { fs.rename_exchange(source, target)?; return Moved }
   if metadata.kind == "dir" and files.canonical(target)?.starts_with(source.resolve()?) {
     gnu.error(f"cannot move {gnu.quote(source.display())} to a subdirectory of itself, {gnu.quote(target.display())}")
     return Failed
@@ -52,20 +95,38 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       return Failed
     }
   }
+  let suffix = opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
+  if existing and backup in ["simple", "never", "existing", "nil"] and metadata.kind != "symlink" and
+    files.same_entry(source, fp"{target}{suffix}")? {
+    gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not moved")
+    return Failed
+  }
+  var moving_source = source
   var saved: Path? = null
   if existing {
-    saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")?
+    saved = files.backup_name(target, backup, suffix)?
     if saved != null {
       if files.same_entry(saved, source)? {
-        gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not moved")
-        return Failed
+        if metadata.kind != "symlink" {
+          gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not moved")
+          return Failed
+        }
+        # Keep the source link alive when its name is also the backup name.
+        let scratch = fs.tempfile()?
+        defer scratch.root.close()
+        moving_source = fp"{source.parent()}/.xsh-move-{scratch.root.host_path()?.name()}"
+        source.rename(to: moving_source)
       }
-      target.rename(to: saved, overwrite: true)
+      if let Err(failure) = target.rename(to: saved, overwrite: true) {
+        if moving_source != source { moving_source.rename(to: source) }
+        return Err(failure)
+      }
     }
   }
-  let moved = if policy == "skip" { fs.rename_noreplace(source, target) } else { source.rename(to: target, overwrite: true) }
+  let moved = if policy == "skip" { fs.rename_noreplace(moving_source, target) } else { moving_source.rename(to: target, overwrite: true) }
   if let Err(failure) = moved {
     if saved != null { saved.rename(to: target, overwrite: true) }
+    if moving_source != source { moving_source.rename(to: source) }
     if policy == "skip" and gnu.errno(failure) == 17 { return Skipped }
     return Err(failure)
   }
@@ -79,10 +140,10 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
 proc main(...argv: List[Str]) {
   var opts: Options = cli.applet(argv, {
     gnu: {status: 1, unsupported: {
-      "--exchange": "atomic exchange is not available",
       "--no-copy": "cross-device copy is not available",
       "-Z": "security contexts are not available",
     }},
+    exchange: {form: "--exchange", default: false},
     no_target_directory: {form: "-T --no-target-directory", default: false},
     no_clobber: {form: "-n --no-clobber", default: false},
     force: {form: "-f --force", default: false},
@@ -120,7 +181,7 @@ proc main(...argv: List[Str]) {
     exit 1
   }
   opts.update = files.update(argv)?
-  let policy = files.overwrite(argv, "force")?
+  let policy = files.overwrite(argv, "default")?
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   if policy == "skip" and backup not in ["none", "off"] { gnu.usage_error("options --backup and --no-clobber are mutually exclusive") }
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
@@ -132,16 +193,17 @@ proc main(...argv: List[Str]) {
       while stripped.ends_with("/") and stripped.byte_len() > 1 { stripped = stripped.byte_slice(0, stripped.byte_len() - 1) }
     }
     let source = fp"{stripped}"
-    let target = if is_dir { fp"{dest}/{source.name()}" } else { dest }
+    let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {
       gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
       failed = true
       continue
     }
     match move_one(source, target, opts, policy, backup) {
-      Ok(Moved) => seen += [target]
-      Ok(Skipped) => {}
-      Ok(Failed) => failed = true
+      Ok(outcome) => {
+        if outcome == Failed { failed = true }
+        if outcome == Moved { seen += [target] }
+      }
       Err(failure) => {
         if gnu.errno(failure) == 2 and ! files.present(source)? { gnu.cannot("stat", text, failure) } else { gnu.error(f"cannot move {gnu.quote(text)} to {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
         failed = true

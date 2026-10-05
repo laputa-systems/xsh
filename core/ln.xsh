@@ -10,6 +10,10 @@ type Options = {
 }
 
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
+  if ! opts.symbolic {
+    let source_meta = fs.stat(source, follow_symlinks: opts.logical)?
+    if source_meta.kind == "dir" { gnu.error(f"{gnu.quote(source.display())}: hard link not allowed for directory"); return false }
+  }
   var existing = files.present(target)?
   if existing and fs.stat(target)?.kind == "dir" {
     gnu.error(f"{gnu.quote(target.display())}: cannot overwrite directory")
@@ -19,7 +23,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
     exit 1
   }
-  if existing and policy == "interactive" and ! files.confirm(target)? { return false }
+  if existing and policy == "interactive" and ! files.confirm(target, "replace")? { return false }
   var saved: Path? = null
   if existing and backup != "none" {
     saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")?
@@ -89,24 +93,26 @@ proc main(...argv: List[Str]) {
     exit 1
   }
   opts.logical = files.logical(argv)?
-  let policy = files.overwrite(argv, "default")?
+  let policy = files.overwrite(argv, "default", no_clobber: false)?
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
   var seen: List[Path] = []
   for text in sources {
     let source = fp"{text}"
-    let target = if is_dir { fp"{dest}/{source.name()}" } else { dest }
+    let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {
       gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
       failed = true
       continue
     }
     match link_one(source, target, opts, policy, backup) {
-      Ok(created) => { if created { seen += [target] } }
+      Ok(created) => { if created { seen += [target] } else { failed = true } }
       Err(failure) => {
         let kind = if opts.symbolic { "symbolic link" } else { "hard link" }
-        gnu.error(f"failed to create {kind} {gnu.quote(target.display())}: {gnu.strerror(failure)}")
+        if opts.logical and ! opts.symbolic and gnu.errno(failure) == 2 and files.present(source)? {
+          gnu.error(f"failed to access {gnu.quote(text)}: {gnu.strerror(failure)}")
+        } else { gnu.error(f"failed to create {kind} {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
         failed = true
       }
     }

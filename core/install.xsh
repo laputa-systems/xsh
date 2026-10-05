@@ -89,48 +89,64 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   var saved: Path? = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
   if saved != null and files.same_entry(saved, source)? {
-    gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not installed")
+    gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not copied")
     exit 1
   }
-  if opts.parents { make_ancestors(target.parent())? }
+  if opts.parents { make_ancestors(target.parent(), opts.verbose)? }
   # Publishing a prepared regular file replaces a symlink entry without
   # touching the object it names, and leaves existing files intact on failure.
   let scratch = fs.tempfile()?
   defer scratch.root.close()
-  let staged = fp"{target.parent()}/.xsh-install-{scratch.path.name()}"
-  if null_device { staged.write(b"") } else { fs.install(actual, staged, mode, parents: false) }
+  let staged = fp"{target.parent()}/.xsh-install-{scratch.root.host_path()?.name()}"
+  if null_device { staged.write(b"") } else { let _ = fs.copy_file(actual, staged, reflink: "auto", sparse: "never", mode: 0o600)? }
   defer staged.remove()
   fs.set_owner(staged, uid: uid, gid: gid)
   staged.chmod(mode)
-  if opts.preserve { fs.set_times(staged, atime_ns: metadata.atime_ns, mtime_ns: metadata.mtime_ns) }
-  if saved != null { target.rename(to: saved, overwrite: true) }
+  if opts.preserve {
+    let copied = fs.stat(actual)?
+    fs.set_times(staged, atime_ns: copied.atime_ns, mtime_ns: copied.mtime_ns)
+  }
+  if saved != null {
+    if let Err(failure) = target.rename(to: saved, overwrite: true) {
+      gnu.cannot("backup", target.display(), failure)
+      return false
+    }
+  }
   if let Err(failure) = staged.rename(to: target, overwrite: true) {
     if saved != null { saved.rename(to: target, overwrite: true) }
     return Err(failure)
   }
-  if opts.verbose { print f"{gnu.quote(source.display())} -> {gnu.quote(target.display())}" }
+  if opts.verbose {
+    if existing and saved == null { print f"removed {gnu.quote(target.display())}" }
+    print f"{gnu.quote(source.display())} -> {gnu.quote(target.display())}"
+  }
   true
 }
 
 # Intermediate installation directories use fixed searchable permissions even
 # when the installed leaf is deliberately inaccessible.
-proc make_ancestors(dest: Path) -> Result[Unit] {
+proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
   if files.present(dest)? { return }
-  make_ancestors(dest.parent())?
+  make_ancestors(dest.parent(), verbose)?
   if let Err(failure) = dest.mkdir() {
     if ! files.directory(dest, true)? { return Err(failure) }
   }
   dest.chmod(0o755)
+  if verbose { print f"install: creating directory {gnu.quote(dest.display())}" }
 }
 
-proc install_directory(dest: Path, opts: Options, mode: Int, uid: Int?, gid: Int?) -> Result[Unit] {
+proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?) -> Result[Unit] {
+  var text = raw.display()
+  while text.ends_with("/") and text.byte_len() > 1 { text = text.byte_slice(0, text.byte_len() - 1) }
+  while text.ends_with("/.") { text = text.byte_slice(0, text.byte_len() - 2) }
+  let dest = if text == "" { p"/" } else { fp"{text}" }
   let existed = files.present(dest)?
-  make_ancestors(dest.parent())?
+  make_ancestors(dest.parent(), opts.verbose)?
   dest.mkdir(parents: true)
   fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true)
   dest.chmod(mode)
   if opts.verbose and ! existed {
-    let name = if dest.display().ends_with("/.") or dest.display().ends_with("/./") { dest.normalize().display() } else { dest.display() }
+    let name = if raw.display().ends_with("/.") or raw.display().ends_with("/./") { dest.normalize().display() } else { dest.display() }
     print f"install: creating directory {gnu.quote(name)}"
   }
 }
@@ -164,7 +180,7 @@ proc main(...argv: List[Str]) {
   if opts.help { gnu.help("Usage: install [OPTION]... SOURCE... DEST\n  or: install -d [OPTION]... DIRECTORY...\nCopy files and set their attributes."); return }
   if opts.version { gnu.version("install"); return }
   if opts.operands.is_empty() { gnu.missing_operand() }
-  let mode = install_mode(opts.mode, opts.directory)
+  let mode = install_mode(opts.mode.trim(), opts.directory)
   if mode == null { gnu.usage_error(f"invalid mode {gnu.quote(opts.mode)}"); return }
   var uid: Int? = null
   var gid: Int? = null
@@ -201,7 +217,7 @@ proc main(...argv: List[Str]) {
   if opts.target == null and opts.operands.len() == 1 { gnu.missing_operand_after(opts.operands[0]) }
   if opts.target != null and opts.no_target_directory { gnu.usage_error("cannot combine --target-directory and --no-target-directory") }
   let dest = if opts.target != null { fp"{opts.target}" } else { fp"{opts.operands[-1]}" }
-  if opts.parents and opts.target != null { make_ancestors(dest)? }
+  if opts.parents and opts.target != null { make_ancestors(dest, opts.verbose)? }
   var is_dir = false
   if ! opts.no_target_directory {
     match files.directory(dest, true) {
@@ -217,7 +233,7 @@ proc main(...argv: List[Str]) {
   var seen: List[Path] = []
   for text in sources {
     let source = fp"{text}"
-    let target = if is_dir { fp"{dest}/{source.name()}" } else { dest }
+    let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {
       gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
       failed = true

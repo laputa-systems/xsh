@@ -31,20 +31,20 @@ pure value_flags() -> List[Str] {
 }
 
 ## Select the last overwrite option after expanding short option clusters.
-export proc overwrite(argv: List[Str], fallback: Str) -> Result[Str, Error] {
+export proc overwrite(argv: List[Str], fallback: Str, no_clobber = true) -> Result[Str, Error] {
   var selected = fallback
   for token in cli.tokens(argv, value_flags())? {
     if token.kind == "short" {
       match token.name {
         "f" => selected = "force"
         "i" => selected = "interactive"
-        "n" => selected = "skip"
+        "n" => { if no_clobber { selected = "skip" } }
         else => {}
       }
     } else if token.kind == "long" {
       if "force".starts_with(token.name) { selected = "force" }
       if "interactive".starts_with(token.name) { selected = "interactive" }
-      if "no-clobber".starts_with(token.name) { selected = "skip" }
+      if no_clobber and "no-clobber".starts_with(token.name) { selected = "skip" }
     }
   }
   selected
@@ -73,8 +73,9 @@ export proc backup_name(dest: Path, control: Str, suffix: Str) -> Result[Path?, 
 }
 
 ## Read exactly one answer so each operand can ask its own question.
-export proc confirm(dest: Path) -> Result[Bool, Error] {
-  eprint --flush f"{gnu.prog()}: overwrite {gnu.quote(dest.display())}?"
+export proc confirm(dest: Path, verb = "overwrite") -> Result[Bool, Error] {
+  io.write_stderr(f"{gnu.prog()}: {verb} {gnu.quote(dest.display())}? ")?
+  io.flush_stderr()?
   let answer = io.stdin_line()?
   answer.lower().starts_with("y")
 }
@@ -88,7 +89,7 @@ export proc publish_link(source: Path, dest: Path, symbolic: Bool, logical: Bool
   }
   let scratch = fs.tempfile()?
   defer scratch.root.close()
-  let staged = fp"{dest.parent()}/.xsh-link-{scratch.path.name()}"
+  let staged = fp"{dest.parent()}/.xsh-link-{scratch.root.host_path()?.name()}"
   if symbolic { staged.symlink(to: source) } else { fs.link(source, staged, follow_symlinks: logical) }
   defer staged.remove()
   staged.rename(to: dest, overwrite: true)
@@ -163,4 +164,9 @@ export proc directory(entry: Path, follow: Bool) -> Result[Bool, Error] {
       Err(failure)
     }
   }
+}
+
+## Append the source basename without duplicating a target's trailing slash.
+export pure destination(directory: Path, source: Path) -> Path {
+  if directory.display().ends_with("/") { fp"{directory}{source.name()}" } else { fp"{directory}/{source.name()}" }
 }

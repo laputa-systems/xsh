@@ -72,8 +72,9 @@ test test_ln_interactive_respects_last_force_option { |ctx|
   let decline = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), script.display(), "-sfi", source.display(), dest.display()],
     root, {}, b"n\n", out, err)
-  assert process.run(decline)?.exited_with(0)
+  assert process.run(decline)?.exited_with(1)
   assert dest.read_text()? == "old"
+  assert err.read_text()? == f"ln: replace '{dest}'? "
   let force = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), script.display(), "-sif", source.display(), dest.display()],
     root, {}, b"n\n", out, err)
@@ -105,4 +106,15 @@ test test_ln_relative_resolves_dangling_source_link { |ctx|
   let dest = fp"{root}/dest"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sr $dangling $dest
   assert dest.readlink()? == p"missing"
+}
+
+test test_ln_no_dereference_does_not_imply_force { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("new")
+  dest.write("old")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sn $source $dest
+  assert status.exited_with(1)
+  assert dest.read_text()? == "old"
 }
