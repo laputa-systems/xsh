@@ -368,3 +368,117 @@ print ${both == null} ${keyed == null}
   assert "every `RelPath` already fits the member `Path`" in stderr, stderr
   assert "err[check.map-key-type]" in stderr, stderr
 }
+
+type Inventory = {root: Path, files: List[Path]}
+
+pure display_all(paths: List[Path]) -> List[Str] {
+  [entry.display() for entry in paths]
+}
+
+pure named_paths(paths: Map[Path]) -> Int {
+  paths.len()
+}
+
+pure or_root(found: Path?) -> Path {
+  found ?? /
+}
+
+pure beneath_prefix(file: Path, root: Path) -> Result[RelPath] {
+  file.strip_prefix(root)
+}
+
+pure as_path(file: Path, root: Path) -> Result[Path] {
+  beneath_prefix(file, root)
+}
+
+pure inventory_size(inventory: Inventory) -> Int {
+  inventory.files.len()
+}
+
+pure text_or_paths(value: Union[Str, List[Path]]) -> Int {
+  match value {
+    text is Str => text.byte_len()
+    paths is List[Path] => paths.len()
+  }
+}
+
+# A validated value is stored as a value of its base and no structure is
+# shared once it is passed, so a structure of validated values is read as the
+# same structure of base values wherever that is expected.
+test test_structure_of_rel_paths_fits_the_structure_of_paths {
+  let root = /srv/tree
+  let files = [/srv/tree/b/two, /srv/tree/a/one]
+  let manifest = files |> map .strip_prefix(root)? |> sort-by .display()
+  assert display_all(manifest) == ["a/one", "b/two"]
+
+  let rels: List[RelPath] = ["x", "y/z"]
+  let widened: List[Path] = rels
+  assert widened == rels
+  assert Inventory(root:, files: rels).files.len() == 2
+  assert inventory_size({root, files: rels}) == 2
+
+  let named: Map[RelPath] = {a: "x"}
+  assert named_paths(named) == 1
+  let maybe: RelPath? = "opt"
+  assert or_root(maybe) == "opt"
+  assert as_path(/srv/tree/a, root)? == "a"
+  assert text_or_paths(rels) == 2
+  let nested: List[List[Path]] = [rels]
+  assert nested[0][0] == "x"
+
+  # The widened copy is an ordinary list of paths; the original keeps its type.
+  var grown: List[Path] = rels
+  grown += [/etc]
+  assert grown.len() == 3
+  assert rels.len() == 2
+}
+
+# A stream of validated items is pulled as a stream of base items, and a
+# dynamic call tests the list against the base element type.
+test test_stream_and_dynamic_call_read_rel_paths_as_paths { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""stream rel_items() [] -> Stream[RelPath] {
+  yield p"x"
+  yield p"y/z"
+}
+
+proc show(paths: Stream[Path]) [io] {
+  for entry in paths {
+    print ${entry.display()}
+  }
+}
+
+pure size(paths: List[Path]) -> Result[Int] {
+  Ok(paths.len())
+}
+
+show(rel_items())
+let rels: List[RelPath] = ["a", "b"]
+let dynamic: Pure = size
+print ${dynamic.call(rels)?.require(Int)?}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "x\ny/z\n2\n", output.stdout
+}
+
+# Widening never runs the other way, at any depth.
+test test_structure_of_paths_never_fits_the_structure_of_rel_paths { |ctx|
+  let stderr = check_errors(
+    ctx,
+    r"""let paths: List[Path] = [p"a"]
+let rels: List[RelPath] = paths
+let maybe: Path? = p"a"
+let rel: RelPath? = maybe
+let named: Map[Path] = {a: p"a"}
+let rel_named: Map[RelPath] = named
+let nested: List[List[RelPath]] = [paths]
+print ${rels.len()} $rel ${rel_named.len()} ${nested.len()}
+""",
+  )?
+  assert count(stderr, "err[check.type-mismatch]") == 4, stderr
+  assert "expected List[RelPath], found List[Path]" in stderr, stderr
+  assert "expected RelPath?, found Path?" in stderr, stderr
+  assert "expected Map[RelPath], found Map[Path]" in stderr, stderr
+}

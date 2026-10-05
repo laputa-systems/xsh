@@ -3508,7 +3508,7 @@ impl<'a> Linter<'a> {
                     || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
                         self.expr_types
                             .get(&self.arena.expr(child).span)
-                            .is_some_and(|ty| ty.validated().is_some())
+                            .is_some_and(Type::holds_validated)
                     })
                     // A constant's elements carry no checked type of their
                     // own; in a collection of paths a string literal element

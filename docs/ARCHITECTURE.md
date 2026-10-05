@@ -341,7 +341,11 @@ A validated type is a base type plus a property the checker tracks
 that make a validated type sound are written once, for every instance:
 
 - **Assignability.** `Type::matches_expected` lets a validated type fit its
-  base and nothing fit a validated type except the same validation.
+  base and nothing fit a validated type except the same validation. Inside a
+  list, map, stream, optional, result, record, or union the same widening
+  holds at any depth (`Type::matches_stored`), and only that: the position is
+  otherwise invariant. It needs no conversion because of the next two rules
+  and because a structure is a value.
 - **Erasure.** An operation reads its operand through `Type::unvalidated`, so
   it sees the base and returns what the base returns. Only the places named
   below produce a validated type.

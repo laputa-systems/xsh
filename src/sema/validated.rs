@@ -260,6 +260,25 @@ impl Type {
         ty
     }
 
+    /// Whether a validated type is this type or sits inside it where a
+    /// structure of base values may be expected instead. A value of such a
+    /// type can have been given a wider type by the context it was written
+    /// in.
+    pub fn holds_validated(&self) -> bool {
+        match self {
+            Self::Validated(_) => true,
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+                inner.holds_validated()
+            }
+            Self::Map(key, value) | Self::Result(key, value) => {
+                key.holds_validated() || value.holds_validated()
+            }
+            Self::Record(fields) => fields.values().any(Self::holds_validated),
+            Self::Union(members) => members.iter().any(Self::holds_validated),
+            _ => false,
+        }
+    }
+
     pub fn into_unvalidated(self) -> Type {
         let mut ty = self;
         while let Self::Validated(validated) = ty {
@@ -286,15 +305,56 @@ mod tests {
         // The base is a list, so the element type is invariant.
         assert!(!names.matches_expected(&Type::List(Box::new(Type::Any))));
         assert!(!names.matches_expected(&Type::non_empty(Type::Path)));
-        // Inside a collection the validated type and its base are different
-        // element types.
-        assert!(
-            !Type::List(Box::new(names.clone())).matches_expected(&Type::List(Box::new(list.clone())))
-        );
         assert_eq!(names.unvalidated(), &list);
         assert_eq!(names.to_string(), "NonEmpty[Str]");
         assert_eq!(names.annotation_source().as_deref(), Some("NonEmpty[Str]"));
         assert_eq!(names.iteration_item_type(), Some(Type::Str));
+    }
+
+    #[test]
+    fn a_structure_of_validated_values_fits_the_structure_of_base_values() {
+        let list = |item: Type| Type::List(Box::new(item));
+        let optional = |inner: Type| Type::Optional(Box::new(inner));
+        let map = |value: Type| Type::Map(Box::new(Type::Str), Box::new(value));
+        let rel = Type::rel_path;
+        let wrappers: [&dyn Fn(Type) -> Type; 6] = [
+            &list,
+            &optional,
+            &map,
+            &|item| Type::Stream(Box::new(item)),
+            &|item| list(list(item)),
+            &|item| list(optional(item)),
+        ];
+        for wrap in wrappers {
+            let (narrow, wide) = (wrap(rel()), wrap(Type::Path));
+            assert!(narrow.matches_expected(&wide), "{narrow} -> {wide}");
+            assert!(!wide.matches_expected(&narrow), "{wide} -> {narrow}");
+        }
+        // The base of a validated element is widened too, and the outer
+        // validation is kept or dropped.
+        let names = Type::non_empty(rel());
+        assert!(names.matches_expected(&Type::non_empty(Type::Path)));
+        assert!(names.matches_expected(&list(Type::Path)));
+        assert!(list(names.clone()).matches_expected(&list(list(Type::Path))));
+        assert!(!list(list(Type::Path)).matches_expected(&list(names)));
+        // Only a validation is dropped: the element type is otherwise
+        // invariant, and a scalar domain is not crossed.
+        assert!(!list(rel()).matches_expected(&list(Type::Any)));
+        assert!(!list(rel()).matches_expected(&list(Type::Str)));
+        assert!(!list(Type::Int).matches_expected(&list(Type::UInt)));
+        assert!(!optional(Type::Int).matches_expected(&optional(Type::UInt)));
+        let union = |members: Vec<Type>| Type::Union(members);
+        let narrow = list(union(vec![rel(), Type::Int]));
+        let wide = list(union(vec![Type::Path, Type::Int]));
+        assert!(narrow.matches_expected(&wide));
+        assert!(!wide.matches_expected(&narrow));
+        assert!(!list(rel()).matches_expected(&wide));
+        // The two lists are one runtime shape, so a union cannot tell them
+        // apart.
+        assert!(
+            crate::sema::types::union_member_error(&[list(rel()), list(Type::Path)])
+                .is_some_and(|reason| reason.contains("already fits"))
+        );
     }
 
     #[test]

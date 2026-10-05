@@ -930,9 +930,14 @@ impl Type {
                     .is_some()
             }
             (Self::List(actual), Self::List(expected))
-            | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_invariant(expected),
+            | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_stored(expected),
             (Self::Map(ak, actual), Self::Map(ek, expected)) => {
-                ak.matches_invariant(ek) && actual.matches_invariant(expected)
+                ak.matches_invariant(ek) && actual.matches_stored(expected)
+            }
+            (Self::Optional(actual), Self::Optional(expected))
+                if actual.matches_stored(expected) =>
+            {
+                true
             }
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.matches_expected(expected_ok) && actual_err.matches_expected(expected_err)
@@ -1027,6 +1032,53 @@ impl Type {
                     && actual.base().matches_invariant(expected.base())
             }
             _ => self.matches_expected(expected) && expected.matches_expected(self),
+        }
+    }
+
+    /// Whether a value of this type, held inside a structure, may be read as
+    /// `expected` held in the same place. The two are the same type except
+    /// that a validated type on this side may stand where its base is
+    /// expected, at any depth. That is sound for two reasons that hold for
+    /// every validation: a validated value is stored exactly as a value of
+    /// its base, so no element needs converting, and a structure is a value,
+    /// so nothing written through the wider view can reach a holder of the
+    /// narrower one. It never runs the other way.
+    pub(super) fn matches_stored(&self, expected: &Type) -> bool {
+        match (self, expected) {
+            (Self::List(actual), Self::List(expected))
+            | (Self::Stream(actual), Self::Stream(expected))
+            | (Self::Optional(actual), Self::Optional(expected)) => actual.matches_stored(expected),
+            (Self::Map(ak, av), Self::Map(ek, ev)) => {
+                ak.matches_invariant(ek) && av.matches_stored(ev)
+            }
+            (Self::Result(ao, ae), Self::Result(eo, ee)) => {
+                ao.matches_stored(eo) && ae.matches_stored(ee)
+            }
+            (Self::Record(actual), Self::Record(expected)) => {
+                actual.len() == expected.len()
+                    && expected.iter().all(|(name, ty)| {
+                        actual
+                            .get(name)
+                            .is_some_and(|actual| actual.matches_stored(ty))
+                    })
+            }
+            // Member for member: no member is added, so a list of the
+            // narrower union is not read as a list of a wider one.
+            (Self::Union(actual), Self::Union(expected)) => {
+                actual.len() == expected.len()
+                    && actual
+                        .iter()
+                        .all(|member| expected.iter().any(|wider| member.matches_stored(wider)))
+                    && expected
+                        .iter()
+                        .all(|wider| actual.iter().any(|member| member.matches_stored(wider)))
+            }
+            (Self::Validated(actual), Self::Validated(expected)) => {
+                actual.validation().implies(expected.validation())
+                    && actual.base().matches_stored(expected.base())
+            }
+            (Self::Validated(actual), expected) => actual.base().matches_stored(expected),
+            _ => self.matches_invariant(expected),
         }
     }
 
