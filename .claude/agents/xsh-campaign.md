@@ -25,9 +25,10 @@ is the workflow; its "Lane contract" section binds you.
 - Run only the tests you wrote or changed, by exact name
   (`target/release/xsht test FILE`, `cargo test ... NAME`), on release
   binaries built with `-j 3`; use debug `cargo check` for compile checks.
-  Do not run a whole test target or suite, the corpus tests, the soundness
-  tests, `make docs-check`, `make fuzz`, or the Linux container: the
-  integrator runs the gates after merging your work and sends failures back.
+  Do not run a whole test target or suite, the corpus tests,
+  `make docs-check`, or the Linux container: the integrator runs the gates
+  after merging your work and sends failures back. Nothing in the campaign
+  runs `make fuzz` or the `xsh-fuzz` test targets.
   Give every ad-hoc probe a wall-clock limit and leave nothing running.
 - Do not add dependencies. Do not change another workstream's item, and do
   not fix an unrelated defect you find: record it in your report.

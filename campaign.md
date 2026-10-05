@@ -79,9 +79,8 @@ commit.
    - `cargo build --release -p xsh --bins -p xsht --bin xsht`, then the full
      native suite, the `sema::`, `syntax::`, and filtered `runtime::`
      integration gates, `cargo test --release -p xsht`, the `--lib` unit
-     tests, `cargo test --release -p xsh-fuzz --test soundness`, and
-     `make docs-check` (`docs/TESTING.md` has the exact commands);
-   - `make fuzz` once;
+     tests, and `make docs-check` (`docs/TESTING.md` has the exact
+     commands);
    - the `xsht check` and `xsht lint` timing lines on this repository and on
      Laputa against the baseline. A wave that slows either by more than a
      tenth is explained or fixed before the next wave.
@@ -109,10 +108,8 @@ commit.
 - **Hardening is part of the slice.** A new instruction shape gets a verifier
   rule and a unit test that corrupts a valid lowered program and requires
   rejection. A new checker fact is consumed by lowering, never re-derived
-  there. A form the fuzzer's generator could produce gets generator and
-  reference-evaluator support, or a line in the report saying why not. A
-  check that moves a runtime failure to check time keeps the runtime failure
-  as the defended fallback.
+  there. A check that moves a runtime failure to check time keeps the
+  runtime failure as the defended fallback.
 - **Behavior changes are named.** An item that changes what existing code
   does (a default, an index rule, a severity, an ordering) ships the lint
   that makes old code explicit first, and its report lists the change.
@@ -124,9 +121,12 @@ commit.
   `cargo test ... NAME` for a Rust test it added. Use debug `cargo check`
   for compile checks and build with `-j 3`. A lane does not run a test
   target or suite as a whole, the corpus tests (lint/format invariance,
-  lowering agreement), the soundness tests, `make docs-check`, `make fuzz`,
-  or the Linux container. The integrator runs those after the merge, and
-  the lane's report says which of its changes they should exercise.
+  lowering agreement), `make docs-check`, or the Linux container. The
+  integrator runs those after the merge, and the lane's report says which
+  of its changes they should exercise.
+- **No fuzz gate.** Neither lanes nor the integrator run `make fuzz` or the
+  `xsh-fuzz` test targets as part of the campaign, and an item does not
+  extend the fuzzer unless the item is about it.
 - **Scope.** Do not migrate the corpus, settle an open design point, add a
   dependency, or fix another workstream's defect. Report those instead.
 
