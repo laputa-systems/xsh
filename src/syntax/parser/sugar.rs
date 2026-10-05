@@ -580,6 +580,18 @@ mod tests {
         assert!(sentences > 300, "only {sentences} sentences");
     }
 
+    /// The two spellings the formatter prints for a propagated `spawn run`:
+    /// a space before `?` ends the words of a bare one, and a parenthesized
+    /// one takes the `?` directly after its `)`.
+    #[test]
+    fn a_propagated_spawn_run_is_a_sentence_as_the_formatter_prints_it() {
+        let source =
+            "let job = (spawn run sh -c f\"sleep {n}\")?\nlet other = spawn run sleep 1 ?\n";
+        assert_grammar_recognizes(&[source]);
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    }
+
     /// A stage that takes a block owns the `{` after its name or its
     /// arguments, so in a head that a block must follow, such as the source
     /// of a `for`, that `{` is never the body. The grammar and the parser

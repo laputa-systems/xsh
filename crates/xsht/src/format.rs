@@ -2844,9 +2844,13 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Try(inner) => {
                 let start = output.len();
                 self.write_expr(*inner, child(*inner), output);
-                // A statement-final `?` after `spawn run` keeps its customary space.
+                // A statement-final `?` after `spawn run` keeps its customary
+                // space, which is what ends the command's words. A command
+                // that had to be parenthesized has ended at its `)`, and the
+                // `?` joins that as it joins any other operand.
                 let spaced = context.follow.token == grouping::FollowToken::End
-                    && matches!(self.arena.expr(*inner).kind, ArenaExprKind::Spawn(form) if matches!(form.target, ArenaSpawnTarget::Run(_)));
+                    && matches!(self.arena.expr(*inner).kind, ArenaExprKind::Spawn(form) if matches!(form.target, ArenaSpawnTarget::Run(_)))
+                    && !grouping::needs_parens(self.arena, &self.source, *inner, child(*inner));
                 if spaced {
                     output.push_str(" ?")
                 } else {
@@ -5317,6 +5321,13 @@ mod tests {
                 Some("let picked = match name { \"a\" => {...value, a: 1}, _ => {a: 2} }\n"),
             ),
             ("let x = (run foo)?\nlet y = {\n  (x)\n}\n", None),
+            // The space before `?` ends the words of a bare `spawn run`; a
+            // parenthesized one takes the `?` as any operand does.
+            (
+                "let job = spawn run sh -c f\"sleep {n}\" ?\nlet other = spawn run sleep 1 ?\n",
+                Some("let job = (spawn run sh -c f\"sleep {n}\")?\nlet other = spawn run sleep 1 ?\n"),
+            ),
+            ("let job = (spawn run sh -c f\"sleep {n}\") ?\n", Some("let job = (spawn run sh -c f\"sleep {n}\")?\n")),
             (
                 "match r {\n  Err(X.Timeout {..}) => {a: 1}\n  _ => ({b})\n}\n",
                 None,

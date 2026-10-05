@@ -1596,9 +1596,17 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         r("run_end"),
                     ]),
                 ]),
+                // Inside parentheses the run form ends at the `)`, as a
+                // captured one does.
                 seq([
                     kw(Keyword::Spawn),
-                    alt([seq([r("run_form"), r("run_end")]), r("operand")]),
+                    alt([
+                        seq([
+                            r("run_form"),
+                            alt([r("run_end"), Item::Peek(vec![vec![tag_term(T::RParen)]])]),
+                        ]),
+                        r("operand"),
+                    ]),
                 ]),
                 seq([kw(Keyword::Wait), r("operand")]),
                 seq([w("ctx"), line(r("condition_expression")), block()]),

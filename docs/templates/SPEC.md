@@ -2250,7 +2250,17 @@ as above, when the contents must be durable before they are visible.
 Two writers to one destination, or to two destinations in one directory, never
 share a temporary file: each runs with a name of its own, and of two that
 replace the same destination the one that renames last wins. The name is
-unused when it is drawn and is not reserved by a lock. A run that is killed
+unused when it is drawn and is not reserved, by a lock or by creating a file
+there: the body has to be free to make the path itself, as a directory, or
+through a producer that refuses a path that exists. So the names differ by
+chance. `RANDOM` is six letters and digits, and a name that exists is never
+drawn, which leaves one window: two runs that draw the same name before
+either has produced anything at it, about one chance in 56 billion for two
+statements that start together on one destination. Those two would write one
+path, and the destination could receive a mix of both or a file that is
+still being written; nothing detects it. A program that cannot accept that
+holds an `fs.lock` on a lock file of its own around the statement. A run
+that is killed
 leaves its temporary file behind; a later run neither publishes nor removes
 it, because it never uses that name.
 
