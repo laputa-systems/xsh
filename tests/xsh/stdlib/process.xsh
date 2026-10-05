@@ -518,3 +518,121 @@ print ${copied.len()}
     assert assertion_condition, assertion_message
   }
 }
+
+test test_bytes_stdin_empty_payload_closes_input_without_reading_inherited_stdin { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""let empty = run.bytes cat < b""
+print ${empty.len()}
+io.write_stdout_bytes(io.stdin_bytes()?)?
+""",
+    status: 0,
+    stdin: b"inherited",
+  )?
+  assert output.stdout == "0\ninherited"
+}
+
+test test_bytes_stdin_reaches_command_plans_spawned_commands_and_streams { |ctx|
+  let source = r"""let payload = b"cmd\0\xff"
+let command = process.command { stdin = payload; run cat }
+let _ = process.run(command)?
+let explicit = process.command_argv("cat", ["cat"], stdin: payload)
+let handle = spawn explicit?
+let status = wait handle?
+if status.ok == false { error.fail("command failed")? }
+let streamed = run.stream --bytes cat < b"stream\n"
+for chunk in streamed { io.write_stdout_bytes(chunk)? }
+"""
+  let script = test.temp_file(ctx, name: "bytes-stdin-routes.xsh", contents: bytes.from_text(source))?
+  let output = run.capture --bytes ${ctx.xsh_bin} $script
+  assert output.status.ok, output.stderr as Str
+  assert output.stdout == b"cmd\0\xffcmd\0\xffstream\n"
+}
+
+# Starts a child that never reads the megabyte offered on its standard input
+# and lets the handle go out of scope.
+proc abandon_unread_input() [process, error] -> Int {
+  let payload = bytes.zero(1048576)?
+  let handle = spawn run sleep 30 < $payload ?
+  handle.pid
+}
+
+test test_bytes_stdin_scope_cleanup_reaps_a_child_that_never_read_its_input {
+  let pid = abandon_unread_input()
+  test.error_kind(process.kill(pid, signal: "0"), "process-missing")
+}
+
+test test_argv_words_become_a_command_that_runs_with_those_arguments { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""let words = process.argv_words("sh -c 'printf \"<%s>\\n\" \"$@\"' ignored 'two words' escaped\\ space")?
+let status = process.run(process.command_argv("sh", words))?
+let env_command = process.command_argv("printenv", ["printenv", "XSH_PLAN"], Path("."), {XSH_PLAN: "ready"})
+let env_status = process.run(env_command)?
+let false_status = process.run(process.command_argv("false", ["false"]))?
+print ${status.ok} ${env_status.ok} ${false_status.exited_with(1)}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "<two words>\n<escaped space>\nready\ntrue true true\n"
+}
+
+# Polls until `marker` exists, for at most three seconds.
+proc appears(marker: Path) [fs, time, error] -> Bool {
+  var tries = 0
+  while ! marker.exists() and tries < 300 {
+    time.sleep(10ms)
+    tries += 1
+  }
+
+  marker.exists()?
+}
+
+# A child that would create `marker` after 300 ms unless it is stopped first.
+proc slow_toucher(marker: Path) [] -> Command {
+  process.command_argv("sh", ["sh", "-c", r"sleep 0.3; touch $1", "sh", marker])
+}
+
+test test_process_handle_cancel_stops_the_child { |ctx|
+  let root = test.temp_dir(ctx, name: "spawn-cancel")?
+  let marker = fp"{root}/marker"
+  let handle = spawn slow_toucher(marker)?
+  handle.cancel(kill_after: 0ms)
+  time.sleep(600ms)
+  assert ! marker.exists()?
+}
+
+proc spawn_detached_and_drop(marker: Path) [process, error] {
+  let command = process.command_argv(
+    "sh",
+    ["sh", "-c", r"sleep 0.1; touch $1", "sh", marker],
+    detach: true,
+  )
+  let _ = spawn command?
+}
+
+test test_dropped_detached_process_keeps_running { |ctx|
+  let root = test.temp_dir(ctx, name: "spawn-detached")?
+  let marker = fp"{root}/marker"
+  spawn_detached_and_drop(marker)
+  assert appears(marker)
+}
+
+test test_process_spawn_options_and_kill_are_observable { |ctx|
+  let root = test.temp_dir(ctx, name: "spawn-options")?
+  let marker = fp"{root}/ready"
+  let command = process.command {
+    detach = true
+    new_session = true
+    ignore_hup = true
+    run sh -c "printf ready > $1; exec sleep 10" sh $marker
+  }
+
+  let spawned = process.spawn(command)?
+  assert appears(marker)
+  process.kill(spawned.pid, signal: "TERM")
+  assert spawned.detach
+  assert spawned.new_session
+  assert spawned.ignore_hup
+  test.error_kind(process.kill(2147483647, signal: "0"), "process-missing")
+}

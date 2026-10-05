@@ -71,3 +71,76 @@ print "captured"
 """
   assert "accept-policy" in output.stderr
 }
+
+test test_accept_byte_stream_delivers_exact_bytes_before_a_late_policy_failure { |ctx|
+  let source = r"""let rows = run.stream --bytes --accept=[0] sh -c "printf '\\000\\377'; exit 1"
+for row in rows { run cat < (row) }
+"""
+  let script = test.temp_file(ctx, name: "accept-stream-bytes.xsh", contents: bytes.from_text(source))?
+  let output = run.capture --bytes ${ctx.xsh_bin} $script
+  assert ! output.status.ok
+  assert output.stdout == b"\0\xff"
+  assert "err: `sh` exited with unaccepted status 1" in output.stderr as Str
+}
+
+test test_accept_does_not_lift_the_capture_limit {
+  match try run.bytes --accept=[0] head -c 16777217 /dev/zero {
+    Err(ProcessError.CaptureLimit {..}) => {}
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("capture limit was accepted")
+  }
+}
+
+test test_accept_policy_expression_runs_once_before_the_child_starts { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc accepted_codes() [process, error] -> List[Int] {
+  run printf "option\n"
+  return [0, 1]
+}
+run --accept=accepted_codes() sh -c "printf child; exit 1"
+""",
+    status: 0,
+  )?
+  assert output.stdout == "option\nchild"
+}
+
+test test_accept_stream_consumer_that_stops_early_ends_the_child { |ctx|
+  let root = test.temp_dir(ctx, name: "accept-stream-cancel")?
+  let marker = fp"{root}/marker"
+  let rows = run.stream --text --accept=[0] sh -c "printf 'ready\n'; sleep 2; touch $1" sh $marker
+  var seen = []
+  for row in rows {
+    seen += [row]
+    break
+  }
+
+  assert seen == ["ready"]
+  # The child would create the marker two seconds after its first row.
+  time.sleep(2200ms)
+  assert ! marker.exists()?, "early consumer left its child alive"
+}
+
+test test_accept_stream_consumer_that_stops_early_ends_descendants_of_an_exited_child { |ctx|
+  let root = test.temp_dir(ctx, name: "accept-stream-exited-child")?
+  let marker = fp"{root}/marker"
+  let rows = run.stream --text --accept=[0] sh -c "(sleep 0.2; printf 'ready\n'; sleep 2; touch $1) & exit 0" sh \
+    $marker
+  var seen = []
+  for row in rows {
+    seen += [row]
+    break
+  }
+
+  assert seen == ["ready"]
+  time.sleep(2300ms)
+  assert ! marker.exists()?, "stream cancellation left its exited child's descendant alive"
+}
+
+test test_accept_byte_stream_feeds_stdin_while_draining_large_output {
+  let payload = bytes.concat([b"a\0\xff\n", bytes.zero(2097152)?])
+  let rows = run.stream --bytes --timeout=3s --accept=[0] cat < $payload
+  let chunks = [row for row in rows]
+  assert payload.len() == 2097156
+  assert bytes.concat(chunks) == payload
+}
