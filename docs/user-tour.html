@@ -526,7 +526,7 @@ after the block: (unset)</code></pre></figure>
 <figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>/var/log/nginx/access.log.1
 name=access.log.1 ext=1 parent=/var/log/nginx
 as gzip: /var/log/nginx/access.log.gz</code></pre></figure>
-<p>Literals that start with <code>/</code>, <code>./</code>, or <code>../</code> are paths. <code>p"..."</code> makes a path from any literal and <code>fp"..."</code> builds one with interpolation. There is no <code>/</code> operator on paths and no implicit normalization: what you wrote is what the kernel sees. File operations are methods (<code>read_text</code>, <code>lines</code>, <code>write</code>, <code>write_atomic</code>, <code>exists</code>, <code>mkdir</code>) or <code>fs.*</code> functions (<code>fs.files</code>, <code>fs.walk</code>, <code>fs.copy</code>, <code>fs.rename</code>, <code>fs.mounts</code>).</p>
+<p>Literals that start with <code>/</code>, <code>./</code>, or <code>../</code> are paths. <code>p"..."</code> makes a path from any literal and <code>fp"..."</code> builds one with interpolation. There is no <code>/</code> operator on paths and no implicit normalization: what you wrote is what the kernel sees. An operation on one path is a method (<code>read_text</code>, <code>lines</code>, <code>write</code>, <code>write_atomic</code>, <code>exists</code>, <code>mkdir</code>, <code>copy</code>, <code>rename</code>); the rest are <code>fs.*</code> functions (<code>fs.files</code>, <code>fs.walk</code>, <code>fs.copy_tree</code>, <code>fs.mounts</code>).</p>
 </section>
 <section class="chapter">
 <h2 id="errors-results-and"><a class="anchor" href="#errors-results-and">Errors, Results, and <code>?</code></a></h2>

@@ -141,7 +141,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-write-mode` | Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)` |
 | `lint.prefer-for-index` | Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list |
 | `lint.prefer-path-kind` | Test a path's kind with `is_dir()`, `is_file()`, or `is_symlink()` instead of comparing `metadata()?.kind` |
-| `lint.prefer-path-method` | Call the `Path` method instead of the `fs` function that takes the path first |
 | `lint.prefer-typed-callable` | Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature |
 | `lint.prefer-test-expect` | State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script` |
 | `lint.prefer-is-empty` | Use `is_empty()` instead of comparing a length with zero |
@@ -163,3 +162,4 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `check.mixed-logical` | Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand |
 | `check.redundant-parens` | Remove parentheses that do not change the parse |
 | `check.removed-abort` | Rewrite a call of the removed `abort(STATUS)` as the statement `exit STATUS` |
+| `check.removed-fs-function` | Rewrite a call of a removed `fs` function as the `Path` method of the same name |

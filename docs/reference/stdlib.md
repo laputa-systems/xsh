@@ -108,14 +108,11 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 
 - `fs.chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
 - `fs.children(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Lists immediate filesystem children as structured entries.
-- `fs.chmod(path: Path, mode: Int) -> Result[Unit, Error]` — Changes permission bits on a filesystem path.
 - `fs.chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
-- `fs.copy(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies one file to a destination path.
 - `fs.copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -> Result[{dirs: Int, files: Int, symlinks: Int}, Error]` — Copies a directory tree and returns copy statistics.
 - `fs.cwd() -> Result[Path, Error]` — Returns the evaluator's current working directory.
 - `fs.dirs(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
-- `fs.executable(path: Path) -> Result[Bool, Error] (+1 overloads)` — Inspects one permission bit on a filesystem path.
-- `fs.exists(path: Path) -> Result[Bool, Error]` — Checks whether a filesystem path exists.
+- `fs.executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.files(path: Path, gitignore: Bool = default, stat: Bool = default, exts: List[Str] = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.filesystem_stats(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}, Error]` — Reads filesystem capacity statistics for a path.
 - `fs.fsync(path: Path) -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
@@ -124,8 +121,6 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.install(source: Path, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Installs a file with explicit destination and mode policy.
 - `fs.install_as(source: Path, dest: Path, mode: Int, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, group: {gid: Int, members: List[Str], name: Str}, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Installs a file with explicit destination and mode policy.
 - `fs.lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -> Result[{id: Int, path: Path, shared: Bool}, Error]` — Acquires a filesystem lock and returns an explicit lock record.
-- `fs.metadata(path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads filesystem metadata into an FsEntry record.
-- `fs.mkdir(path: Path, parents: Bool = default) -> Result[Unit, Error]` — Creates a directory with an explicit parent policy.
 - `fs.mkfifo(path: Path, mode: Int) -> Result[Unit, Error]` — Creates a named FIFO at a path.
 - `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads the mounted-filesystem record of the mount that holds a path.
 - `fs.mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` — Reads mounted-filesystem records for the host.
@@ -133,10 +128,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.other_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.owner_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Finds the project root from a starting path.
-- `fs.read_text(path: Path) -> Result[Str, Error]` — Reads a UTF-8 file into Str.
-- `fs.remove(path: Path, missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree, leaving the path gone.
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
-- `fs.rename(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path with an explicit overwrite policy.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `fs.setgid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.setuid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
@@ -150,8 +142,6 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Returns the current user's filesystem root path.
 - `fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.world_writable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
-- `fs.write(path: Path, data: Bytes) -> Result[Unit, Error] (+3 overloads)` — Writes text or bytes to a path.
-- `fs.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Replaces a file through an atomic write path.
 
 ### `group`
 

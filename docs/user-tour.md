@@ -298,9 +298,9 @@ as gzip: /var/log/nginx/access.log.gz
 Literals that start with `/`, `./`, or `../` are paths. `p"..."` makes a path
 from any literal and `fp"..."` builds one with interpolation. There is no `/`
 operator on paths and no implicit normalization: what you wrote is what the
-kernel sees. File operations are methods (`read_text`, `lines`, `write`,
-`write_atomic`, `exists`, `mkdir`) or `fs.*` functions (`fs.files`, `fs.walk`,
-`fs.copy`, `fs.rename`, `fs.mounts`).
+kernel sees. An operation on one path is a method (`read_text`, `lines`,
+`write`, `write_atomic`, `exists`, `mkdir`, `copy`, `rename`); the rest are
+`fs.*` functions (`fs.files`, `fs.walk`, `fs.copy_tree`, `fs.mounts`).
 
 ## Errors, Results, and `?`
 
