@@ -163,8 +163,8 @@ proc main(...argv: List[Str]) {
   })?
   if opts.help { gnu.help("Usage: mv [OPTION]... SOURCE... DEST\nRename SOURCE to DEST, or move SOURCE(s) to DIRECTORY."); return }
   if opts.version { gnu.version("mv"); return }
-  if opts.operands.is_empty() { gnu.missing_operand() }
-  if opts.target == null and opts.operands.len() == 1 { gnu.missing_operand_after(opts.operands[0]) }
+  if opts.operands.is_empty() { gnu.usage_error("missing file operand") }
+  if opts.target == null and opts.operands.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote(opts.operands[0])}") }
   if opts.target != null and opts.no_target_directory { gnu.usage_error("cannot combine --target-directory and --no-target-directory") }
   if opts.update != null and opts.update not in ["all", "none", "none-fail", "older"] { gnu.usage_error(f"invalid argument {gnu.quote(opts.update)} for 'update'") }
   let dest = if opts.target != null { fp"{opts.target}" } else { fp"{opts.operands[-1]}" }

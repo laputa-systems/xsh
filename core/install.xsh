@@ -179,7 +179,7 @@ proc main(...argv: List[Str]) {
   })?
   if opts.help { gnu.help("Usage: install [OPTION]... SOURCE... DEST\n  or: install -d [OPTION]... DIRECTORY...\nCopy files and set their attributes."); return }
   if opts.version { gnu.version("install"); return }
-  if opts.operands.is_empty() { gnu.missing_operand() }
+  if opts.operands.is_empty() { gnu.usage_error("missing file operand") }
   let mode = install_mode(opts.mode.trim(), opts.directory)
   if mode == null { gnu.usage_error(f"invalid mode {gnu.quote(opts.mode)}"); return }
   var uid: Int? = null
@@ -214,7 +214,7 @@ proc main(...argv: List[Str]) {
     if failed { exit 1 }
     return
   }
-  if opts.target == null and opts.operands.len() == 1 { gnu.missing_operand_after(opts.operands[0]) }
+  if opts.target == null and opts.operands.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote(opts.operands[0])}") }
   if opts.target != null and opts.no_target_directory { gnu.usage_error("cannot combine --target-directory and --no-target-directory") }
   let dest = if opts.target != null { fp"{opts.target}" } else { fp"{opts.operands[-1]}" }
   if opts.parents and opts.target != null { make_ancestors(dest, opts.verbose)? }
@@ -225,8 +225,12 @@ proc main(...argv: List[Str]) {
       Err(failure) => { gnu.cannot_access(dest.display(), failure); exit 1 }
     }
   }
+  if dest.display().ends_with("/") and ! files.directory(dest, true)? {
+    gnu.error(f"target {gnu.quote(dest.display())} is not a directory")
+    exit 1
+  }
   let sources = if opts.target != null { opts.operands } else { opts.operands |> take(opts.operands.len() - 1) }
-  if (sources.len() > 1 or opts.target != null) and ! is_dir { gnu.error(f"target {gnu.quote(dest.display())}: Not a directory"); exit 1 }
+  if (sources.len() > 1 or opts.target != null) and ! is_dir { gnu.error(f"target {gnu.quote(dest.display())} is not a directory"); exit 1 }
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
