@@ -621,3 +621,46 @@ print "ok"
     status: 0,
   )?
 }
+
+# The match reads a missing path's result, so only the checker runs.
+test test_error_family_construction_matching_and_facets_check { |ctx|
+  let file = test.temp_file(
+    ctx,
+    name: "families.xsh",
+    contents: bytes.from_text(r"""
+error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied
+
+pure missing(file: Path) -> Result[Str, FsError] {
+  return Err(FsError.NotFound(file: file))
+}
+
+let result = missing(Path("missing"))
+match result {
+  Ok(text) => { print ${text} }
+  Err(FsError.NotFound { file }) => { print ${file.display()} }
+  Err(is PermissionDenied) => { print "permission denied" }
+  Err(error) => { print ${error.message} }
+}
+"""),
+  )?
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+}
+
+test test_error_family_reports_removed_error_record_and_payload_errors { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""
+error FsError = NotFound(file: Path) : NotFound
+let old = Error(kind: "parse", message: "bad")
+let bad = FsError.NotFound()
+let result: Result[Str, FsError] = Err(FsError.NotFound(file: Path("missing")))
+match result {
+  Err({kind: "not-found"}) => { print "old" }
+  Err(error) => { print ${error.kind} }
+}
+""",
+    status: 2,
+    stderr: ["[check.error-removed]", "[check.error-constructor]"],
+  )?
+}

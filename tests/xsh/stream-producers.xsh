@@ -94,3 +94,29 @@ test test_worker_stages_consume_a_producer_through_the_producer_machinery { |ctx
   assert fp"{dir}/closed-check".exists()?
   assert ! fp"{dir}/row-check-three".exists()?
 }
+
+test test_stream_producers_check_yield_and_return_contracts { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""
+stream nums() -> Stream[Int] {
+  for n in range(3) {
+    yield n
+  }
+  return
+}
+
+let total = nums() |> sum
+""",
+    status: 0,
+  )?
+
+  for {source, code} in [
+    {source: "yield 1\n", code: "check.yield"},
+    {source: "stream bad() -> Stream[Int] {\n  return 1\n}\n", code: "check.stream-return"},
+    {source: "stream bad() -> Stream[Int] {\n  yield \"no\"\n}\n", code: "check.type-mismatch"},
+    {source: "stream bad() -> Stream[Int] {\n  yield range(3)\n}\n", code: "check.yield-stream"},
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+  }
+}

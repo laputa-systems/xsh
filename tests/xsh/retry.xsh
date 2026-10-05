@@ -495,3 +495,71 @@ test test_retry_body_uses_the_expected_success_type {
   assert counts?.len() == 0
   assert names?.len() == 0
 }
+
+test test_retry_attempt_local_try_needs_no_error_effect { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""
+proc fetch() [net] -> Result[Str] {
+  return Ok("ok")
+}
+
+proc main() [net] -> Unit {
+  let value = retry [] {
+    fetch()?
+  }
+}
+""",
+    status: 0,
+  )?
+}
+
+test test_retry_delays_require_the_time_effect { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""
+proc main() [fs] -> Unit {
+  let value = retry [1ms] {
+    Ok("ok")
+  }
+}
+""",
+    status: 2,
+    stderr: ["[check.effect-violation]"],
+  )?
+}
+
+test test_retry_rejects_non_duration_delays { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""
+let value = retry ["soon"] {
+  Ok("ok")
+}
+""",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+}
+
+test test_retry_family_selectors_keep_builtin_and_user_error_identity { |ctx|
+  for source in [
+    "let result: Result[Unit, AssertionError] = retry [] on (AssertionError) { assert false, \"condition\" }\n",
+    "error LocalError = Failed(message: Str)\nlet result = retry [] on (LocalError) { Err(LocalError.Failed(message: \"local\"))? }\n",
+    "let result = retry [] on (Error) { assert false, \"condition\" }\n",
+    "let result = retry [] on (ProcessError) { Err(ProcessError.NotFound(message: \"missing\", status: null))? }\n",
+  ] {
+    let file = test.temp_file(ctx, name: "selector.xsh", contents: bytes.from_text(source))?
+    let checked = run.capture --text "xsht" check $file
+    assert checked.status.exited_with(0), f"{source}: {checked.stderr}"
+    assert "[check." not in checked.stderr, f"{source}: {checked.stderr}"
+  }
+
+  for source in [
+    "error OtherError = Failed(message: Str)\nlet result: Result[Unit, AssertionError] = retry [] on (OtherError) { assert false, \"condition\" }\n",
+    "error LocalError = Failed(message: Str)\nlet failed: Result[Unit, LocalError] = Err(LocalError.Failed(message: \"local\"))\nlet result = retry [] on (AssertionError) { failed? }\n",
+    "let value = 1\nlet tested = value is Str\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.pattern-type]"])?
+  }
+}

@@ -256,3 +256,23 @@ print "unreachable"
   assert output.stdout == ""
   assert "accept-policy" in output.stderr
 }
+
+test test_accept_policy_requires_bounded_int_codes_on_every_plan_route { |ctx|
+  for source in [
+    "run --accept=[] sh\n",
+    "run --accept=[0,0] sh\n",
+    "run --accept=[256] sh\n",
+    "let command = process.command { accept = [-1]\nrun sh }\n",
+    "let command = process.command_argv(\"sh\", [\"sh\"], accept: [0,0])\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.accept-policy]"])?
+  }
+
+  for source in [
+    "run --accept=[true] sh\n",
+    "let command = process.command { accept = [\"zero\"]\nrun sh }\n",
+    "let command = process.command_argv(\"sh\", [\"sh\"], accept: [false])\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?
+  }
+}

@@ -168,3 +168,15 @@ print $selected
     assert assertion_condition, assertion_message
   }
 }
+
+test test_value_pipeline_holes_preserve_record_presence_refinement { |ctx|
+  let accepted = test.expect(
+    ctx,
+    r"""type Row = {name: Str}
+pure project(value: Any) -> Any { value }
+pure version(row: Row) -> Any { if "version" in row { row.version |> project(_) } else { null } }
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+}

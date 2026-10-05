@@ -460,3 +460,47 @@ true
 true
 """
 }
+
+test test_try_capture_infers_nominal_error_and_keeps_result_tail_data { |ctx|
+  let accepted = test.expect(
+    ctx,
+    r"""error LocalError = Failed(message: Str)
+proc fail() [] -> Result[Int, LocalError] { Err(LocalError.Failed(message: "failure")) }
+proc local() [] -> Result[Int, LocalError] { try { fail()? } }
+let nested: Result[Result[Int, LocalError]] = try { fail() }
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+}
+
+test test_try_capture_rejects_underconstrained_success_and_outer_effects { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""error LocalError = Failed(message: Str)
+let result = try { Err(LocalError.Failed(message: "failure"))? }
+proc outer() [] -> Int { try { 7 }? }
+""",
+    status: 2,
+    stderr: ["[check.try-success-type]", "[check.effect-violation]"],
+  )?
+}
+
+test test_try_capture_merges_variants_within_their_nominal_family { |ctx|
+  let accepted = test.expect(
+    ctx,
+    r"""error LocalError = First(message: Str) | Second(message: Str)
+let value = try {
+  if true {
+    let _ = Err(LocalError.First(message: "first"))?
+  } else {
+    let _ = Err(LocalError.Second(message: "second"))?
+  }
+  7
+}
+let narrow: Result[Int, LocalError] = value
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+}

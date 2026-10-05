@@ -391,3 +391,14 @@ print \${caller()}
   assert accepted.stdout == """42
 """
 }
+
+test test_private_proc_effects_module_helpers_use_declaring_module_identity { |ctx|
+  let root = test.temp_dir(ctx, name: "effect-helper-module")?
+  fp"{root}/helper.xsh".write(
+    "##! Effect helper.\nproc private_answer() -> Int { 42 }\n## Checked public boundary.\nexport proc answer() [] -> Int { private_answer() }\n",
+  )
+  fp"{root}/main.xsh".write("use helper\nproc caller() [] -> Int { helper.answer() }\n")
+  let checked = run.capture --text "xsht" check fp"{root}/main.xsh"
+  assert checked.status.exited_with(0), checked.stderr
+  assert "[check." not in checked.stderr, checked.stderr
+}

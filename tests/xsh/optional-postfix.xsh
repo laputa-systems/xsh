@@ -292,3 +292,23 @@ test test_optional_method_retains_validated_local_receiver_type {
 
   assert labels == ["noop", "absent"]
 }
+
+test test_optional_postfix_preserves_outer_result_effect_checks { |ctx|
+  for source in [
+    "proc value(input: Result[List[Int]]) [io] -> Int {\n  return input?[0]\n}\n",
+    "proc value(input: Result[Str]) [io] -> Str {\n  return input?.trim()\n}\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.effect-violation]"])?
+  }
+}
+
+test test_optional_postfix_rejects_guessed_wrappers_and_unguarded_nullable_hops { |ctx|
+  for source in [
+    "let value: Any = null\nlet item = value?[0]\n",
+    "let value: Any? = null\nlet item = value?.trim()\n",
+    "let value: Str? = null\nlet item = value?.trim().trim()\n",
+    "let value: Result[Str?] = Ok(null)\nlet item = value?.trim()\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check."])?
+  }
+}

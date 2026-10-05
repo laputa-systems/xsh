@@ -662,3 +662,77 @@ let sum = raw.a + raw.b
     assert candidate.read_text()? == source
   }
 }
+
+test test_dynamic_boundary_accepts_any_as_the_public_dynamic_type { |ctx|
+  let _ = test.expect(
+    ctx,
+    r"""
+let x: Any = json.decode("{}")?
+let y: Any = {name: "demo"}.get("name")?
+""",
+    status: 0,
+  )?
+  let _ = test.expect(
+    ctx,
+    "let x: Unknown = json.decode(\"{}\")?\n",
+    status: 2,
+    stderr: ["[check.unknown-type]"],
+  )?
+}
+
+test test_dynamic_boundary_reports_each_unvalidated_flow { |ctx|
+  let rejected = test.expect(
+    ctx,
+    r"""
+type Row = {name: Str}
+
+proc needs_name(name: Str) -> Result[Unit] {
+  return Ok()
+}
+
+proc load(path: Path) -> Result[Row] {
+  return json.read(path)?
+}
+
+let row: Row = json.read(Path("row.json"))?
+let name: Str = row.get("name")?
+needs_name(name)?
+let raw = json.decode("\"demo\"")?
+needs_name(raw)?
+let mixed = [1, json.decode("1")?]
+""",
+    status: 2,
+  )?
+  assert rejected.stderr.split("err[check.dynamic-boundary]").len() >= 3, rejected.stderr
+}
+
+# The accepted programs read `row.json`, so only the checker runs.
+test test_dynamic_boundary_accepts_validated_data_and_dynamic_storage { |ctx|
+  for source in [
+    r"""
+type Row = {name: Str}
+
+let raw: Any = json.decode("{\"name\":\"demo\"}")?
+let row = raw.require(Row)?
+let name: Str = row.name
+let still_dynamic: Any = json.read(Path("row.json"))?
+let checked = ({name: "demo"}).require(Row)?
+var seen: Map[Bool] = map.empty()
+""",
+    r"""
+type Config = {name: Str, ports: List[Int], note: Str?}
+
+let raw: Any = json.decode("{\"name\":\"demo\",\"ports\":[80],\"note\":null}")?
+let cfg = raw.require(Config)?
+let name: Str = cfg.name
+let port: Int = cfg.ports[0]
+let note: Str? = cfg.note
+""",
+  ] {
+    let file = test.temp_file(ctx, name: "validated.xsh", contents: bytes.from_text(source))?
+    let checked = run.capture --text "xsht" check $file
+    for code in ["check.dynamic-boundary", "check.unknown-field", "check.contract-type", "check.type-mismatch"] {
+      assert f"[{code}]" not in checked.stderr, f"{source}: {checked.stderr}"
+    }
+  }
+}

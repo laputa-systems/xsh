@@ -353,3 +353,31 @@ let _ = bad() |> collect
   assert ! output.success, output.stderr
   assert "check.defer-control-flow" in output.stderr
 }
+
+test test_defer_block_restores_mutable_capture_types { |ctx|
+  # A refinement of a mutable binding cannot survive registration.
+  let _ = test.expect(
+    ctx,
+    r"""proc work(input: Str?) [] { var value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }
+""",
+    status: 2,
+    stderr: ["[check."],
+  )?
+
+  let immutable = test.expect(
+    ctx,
+    r"""proc work(input: Str?) [] { let value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }
+""",
+    status: 0,
+  )?
+  assert immutable.stderr == "", immutable.stderr
+}
+
+test test_defer_block_rejects_yield_delegation { |ctx|
+  let _ = test.expect(
+    ctx,
+    "stream values() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\n",
+    status: 2,
+    stderr: ["[check.defer-control-flow]"],
+  )?
+}

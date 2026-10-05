@@ -269,3 +269,49 @@ test test_signature_cli_preserves_entry_exit_status_and_errors { |ctx|
     assert output.status == status, output.stderr
   }
 }
+
+# The accepted entry needs a `root` argument, so only the checker reads it.
+test test_signature_cli_checks_body_without_registering_a_callable { |ctx|
+  let file = test.temp_file(
+    ctx,
+    name: "entry.xsh",
+    contents: bytes.from_text(
+  r"""type Root = Path
+cli main(root: Root, jobs: Int = 4, ...paths: List[Path]) [error] { guard jobs > 0 else { return error.fail("positive") }; print ${root.display()} ${paths.len()} }
+""",
+),
+  )?
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  assert "[check." not in checked.stderr, checked.stderr
+
+  let _ = test.expect(
+    ctx,
+    "cli main() [] {}\nlet callable = main\nmain()\n",
+    status: 2,
+    stderr: ["[check.unresolved-name]"],
+  )?
+  let _ = test.expect(
+    ctx,
+    "cli main() [] { fs.read_text(p\"file\")? }\n",
+    status: 2,
+    stderr: ["[check.effect-violation]"],
+  )?
+}
+
+test test_signature_cli_rejects_imported_entries_and_unprepared_defaults { |ctx|
+  let root = test.temp_dir(ctx, name: "imported-entry")?
+  fp"{root}/entry.xsh".write("##! Imported entry.\ncli main() [] {}\n")
+  fp"{root}/main.xsh".write("use entry\n")
+  let imported = run.capture --text "xsht" check fp"{root}/main.xsh"
+  assert imported.status.exited_with(2), imported.stderr
+  assert "[check.cli-entry]" in imported.stderr, imported.stderr
+
+  for source in [
+    "let jobs = 4\ncli main(jobs: Int = jobs) [] {}\n",
+    "cli main(verbose: Bool = false, root: Path) [] {}\n",
+    "type Count = UInt\ncli main(count: Count = -1) [] {}\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.cli-entry]"])?
+  }
+}

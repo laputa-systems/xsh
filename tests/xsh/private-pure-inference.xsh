@@ -204,3 +204,79 @@ print inferred_tags.enabled()
   assert result.stdout == """true
 """
 }
+
+test test_private_pure_inference_requires_annotations_for_recursive_and_contextual_returns { |ctx|
+  for {source, code} in [
+    {
+      source: "pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n",
+      code: "check.required-return",
+    },
+    {
+      source: "export pure value() { 1 }\n",
+      code: "check.required-return",
+    },
+    {
+      source: "pure value() { [] }\n",
+      code: "check.infer-return",
+    },
+    {
+      source: "pure value(input: Any) { input }\n",
+      code: "check.infer-return",
+    },
+    {
+      source: "pure value(flag: Bool) { if flag { Ok(1) } else { 1 } }\n",
+      code: "check.infer-return",
+    },
+    {
+      source: "pure value(flag: Bool) { if flag { return 1 }; let unused = 2 }\n",
+      code: "check.infer-return",
+    },
+    {
+      source: "pure value() { map.empty() }\n",
+      code: "check.local-inference",
+    },
+    {
+      source: "pure parsed(text: Str) { text.parse_int()? }\n",
+      code: "check.try-context",
+    },
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+  }
+}
+
+test test_private_pure_inference_destructured_capture { |ctx|
+  let accepted = test.expect(
+    ctx,
+    "let {left, right} = {left: 2, right: 3}\npure destructured() { left + right }\n",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+}
+
+test test_private_pure_inference_preserves_prefix_capture_visibility { |ctx|
+  let _ = test.expect(
+    ctx,
+    "pure captured() { prefix + \"!\" }\nlet prefix = \"later\"\n",
+    status: 2,
+    stderr: ["[check.unresolved-name]"],
+  )?
+}
+
+test test_private_pure_inference_pattern_captures_do_not_create_recursive_dependencies { |ctx|
+  for source in [
+    "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected + 1 } else { 0 } }\n",
+    "pure selected(outcome: Result[Int]) { let value = if let Ok(selected) = outcome { selected + 1 } else { 0 }; value }\n",
+    "pure selected(outcome: Result[Int]) { var value = 0; while let Ok(selected) = outcome { value += selected; break }; value }\n",
+    "pure recovered(outcome: Result[Str]) { outcome ?? { |recovered| recovered.message } }\n",
+  ] {
+    let accepted = test.expect(ctx, source, status: 0)?
+    assert accepted.stderr == "", f"{source}: {accepted.stderr}"
+  }
+
+  for source in [
+    "pure selected(outcome: Result[Int]) { if let Ok(selected) = selected(outcome) { selected } else { 0 } }\n",
+    "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.required-return]"])?
+  }
+}

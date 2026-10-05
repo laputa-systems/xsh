@@ -200,3 +200,49 @@ for row in records() {
 """
   assert "schema check failed at nested: missing required field missing" in output.stderr
 }
+
+test test_nested_record_binding_rejects_contract_violations { |ctx|
+  for {source, code} in [
+    {
+      source: "let {outer: {missing}} = {outer: {known: 1}}\n",
+      code: "check.destructure-field",
+    },
+    {
+      source: "let {outer: {value}} = {outer: 1}\n",
+      code: "check.destructure-type",
+    },
+    {
+      source: "let {a: same, b: {c: same}} = {a: 1, b: {c: 2}}\n",
+      code: "check.duplicate-name",
+    },
+    {
+      source: "let {a: one, a: two} = {a: 1}\n",
+      code: "check.destructure-field",
+    },
+    {
+      source: "type Fields = {a: Int}\npure take(value: Any) -> Unit { let {a}: Fields = value }\n",
+      code: "check.destructure-type",
+    },
+    {
+      source: "let {a: fs} = {a: 1}\n",
+      code: "check.standard-module-shadow",
+    },
+    {
+      source: "type Inner = {a: Int}\ntype Outer = {inner: Inner}\npure take(value: Any) -> Unit { let {inner: {a}}: Outer = {inner: value} }\n",
+      code: "check.destructure-type",
+    },
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+  }
+}
+
+test test_nested_record_binding_keeps_selected_field_types { |ctx|
+  let _ = test.expect(
+    ctx,
+    "let {outer: {value: selected}} = {outer: {value: 1}}\nlet wrong: Str = selected\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+  let discards = test.expect(ctx, "let {a: _, b: {c: _, ..}, ..} = {a: 1, b: {c: 2}}\n", status: 0)?
+  assert discards.stderr == "", discards.stderr
+}

@@ -442,3 +442,14 @@ let _ = build(...bad)
     assert "check.type-mismatch" in rejected.stderr, rejected.stderr
   }
 }
+
+test test_default_parameters_inference_needs_own_default_anchor_and_never_body_or_callers { |ctx|
+  for source in [
+    "pure choose(value = null) -> Str { value.trim() }\nlet x = choose(\"anchored caller\")\n",
+    "pure choose(value = []) -> List[Int] { value }\nlet x = choose([1])\n",
+    "pure choose(first: Int = 1, second = first) -> Int { second }\n",
+    "pure choose(value = later) -> Int { value }\nlet later = 4\nlet supplied = choose(9)\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check.infer-param]"])?
+  }
+}

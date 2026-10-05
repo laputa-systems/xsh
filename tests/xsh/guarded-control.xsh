@@ -217,3 +217,48 @@ if x == 1 {
     assert output.stdout == ""
   }
 }
+
+test test_guarded_value_control_narrows_only_the_selected_payload { |ctx|
+  let accepted = test.expect(
+    ctx,
+    r"""
+pure cached(value: Str?) -> Str {
+  return value when value != null
+  return value unless value == null
+  return "missing"
+}
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+
+  let _ = test.expect(
+    ctx,
+    r"""
+pure cached(value: Str?) -> Str {
+  return value when value == null
+  return value
+}
+""",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+  let _ = test.expect(
+    ctx,
+    "pure value() -> Int { return 1 when 2; return 3 }\n",
+    status: 2,
+    stderr: ["[check.if-condition]"],
+  )?
+}
+
+test test_guarded_value_control_retains_lexical_targets_and_effects { |ctx|
+  for source in [
+    "break 1 when false\n",
+    "yield 1 when false\n",
+    "pure value(selected: Bool) -> Int { return 1 when selected }\n",
+    "pure value() -> Int { return \"bad\" when false; return 1 }\n",
+    "proc value() [] -> Status { return (run.status /usr/bin/true) when false; return (run.status /usr/bin/true) }\n",
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: ["[check."])?
+  }
+}

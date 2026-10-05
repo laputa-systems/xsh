@@ -194,3 +194,76 @@ let updated = {...dynamic, build.jobs: 8}
     assert code in output.stderr
   }
 }
+
+test test_record_update_rejects_nested_contract_violations { |ctx|
+  for {source, code} in [
+    {
+      source: "let value = {a.b: 1}\n",
+      code: "check.record-update-base",
+    },
+    {
+      source: "pure update(value: Record) -> Unit { let base = {a: {b: {c: 1}}}; let result = {...base, a.b: value} }\n",
+      code: "check.record-update-value",
+    },
+    {
+      source: "pure update(base: Map[Int]) -> Unit { let result = {...base, a.b: 2} }\n",
+      code: "check.record-update-shape",
+    },
+    {
+      source: "pure update(value: Any) -> Unit { let base = {a: {b: 1}}; let result = {...base, a.b: value} }\n",
+      code: "check.record-update-value",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, ...base}\n",
+      code: "check.record-update-base",
+    },
+    {
+      source: "pure update(base: Any) -> Any { return {...base, a.b: 1} }\n",
+      code: "check.record-update-shape",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a.missing: 2}\n",
+      code: "check.record-update-field",
+    },
+    {
+      source: "let base = {a: [1]}\nlet value = {...base, a.b: 2}\n",
+      code: "check.record-update-field",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a: {b: 2}, a.b: 3}\n",
+      code: "check.record-update-overlap",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a.b: 3, a: {b: 2}}\n",
+      code: "check.record-update-overlap",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, a.b: 3}\n",
+      code: "check.record-update-overlap",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a.b: true}\n",
+      code: "check.type-mismatch",
+    },
+    {
+      source: "let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, added: 3}\n",
+      code: "check.record-update-field",
+    },
+  ] {
+    let _ = test.expect(ctx, source, status: 2, stderr: [f"[{code}]"])?
+  }
+}
+
+test test_record_update_preserves_nested_schema_and_context { |ctx|
+  let accepted = test.expect(
+    ctx,
+    r"""type Inner = {values: List[Int], if: Bool}
+type Outer = {inner: Inner}
+let base = Outer(inner: Inner(values: [1], if: false))
+let updated: Outer = {...base, inner.values: [], inner.if: true}
+let selected: List[Int] = updated.inner.values
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+}

@@ -181,3 +181,27 @@ test test_slice_rejects_colon_inclusive_stride_and_range_values { |ctx|
     assert "parse." in output.stderr
   }
 }
+
+test test_slice_checker_accepts_half_open_types_and_rejects_bad_bounds { |ctx|
+  let accepted = test.expect(
+    ctx,
+    r"""let values: List[Int] = [1, 2][..]
+let text: Str = "é🦀"[1..]
+let data: Bytes = b"abc"[-2..99]
+""",
+    status: 0,
+  )?
+  assert accepted.stderr == "", accepted.stderr
+
+  # The bound mismatch is reported at the bound itself, `true`.
+  let rejected = test.expect(
+    ctx,
+    r"""let wrong = b"abc"[true..]
+let unsupported = 42[..]
+""",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "[check.slice-type]"],
+  )?
+  assert ":1:20\n" in rejected.stderr, rejected.stderr
+  assert "\n                     ^^^^ " in rejected.stderr, rejected.stderr
+}
