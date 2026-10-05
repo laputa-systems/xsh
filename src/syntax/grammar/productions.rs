@@ -1462,13 +1462,25 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Expressions,
             "multiplicative",
             seq([
-                r("unary"),
+                r("conversion"),
                 star(seq([
                     operators(OperatorFamily::Multiplicative),
                     nl(),
-                    r("unary"),
+                    r("conversion"),
                 ])),
             ]),
+        ),
+        // `as` is a contextual word. A conversion takes no suffix: its type
+        // would read an adjacent `.`, `[`, or `?` as part of itself.
+        rule(
+            Expressions,
+            "conversion",
+            seq([r("unary"), r("conversion_tail")]),
+        ),
+        rule(
+            Expressions,
+            "conversion_tail",
+            star(seq([w("as"), r("type_expr")])),
         ),
         rule(
             Expressions,
@@ -1947,11 +1959,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Expressions,
             "multiplicative_tail",
-            star(seq([
-                operators(OperatorFamily::Multiplicative),
-                nl(),
-                r("unary"),
-            ])),
+            seq([
+                r("conversion_tail"),
+                star(seq([
+                    operators(OperatorFamily::Multiplicative),
+                    nl(),
+                    r("conversion"),
+                ])),
+            ]),
         ),
         rule(
             Expressions,

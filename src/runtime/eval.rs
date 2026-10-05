@@ -369,7 +369,7 @@ pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 12;
 pub const COMPACT_STMT_KIND_COUNT: usize = 30;
-pub const COMPACT_EXPR_KIND_COUNT: usize = 47;
+pub const COMPACT_EXPR_KIND_COUNT: usize = 48;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
 

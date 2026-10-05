@@ -33,7 +33,8 @@ composition model and replaces its semantics.
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   leaves a function only through a form that is visible at the site: the `?`
-  operator; an `assert`, a `fail`, or a plain `run` whose command fails; and
+  operator; an `assert`, a `fail`, or a plain `run` whose command fails; a
+  conversion `value as T` that fails; and
   a `Result` in a control position, where it cannot be a value, which is a
   statement-position `Result[Unit]` or a `Result[Bool]` condition. Nothing
   else propagates: a `Result` in a binding, an argument, an operand, or a
@@ -105,6 +106,7 @@ statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
 and the `as` that ends its destination (8.7),
+`as` between a value and a type, where it is the conversion operator (6.11),
 `within` before the duration and block of a `within` scope (10.4),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
@@ -1174,7 +1176,7 @@ The complete grammar is in the [grammar reference](reference/grammar.md).
 
 The [precedence table](reference/grammar.md#operator-precedence) lists every
 operator from tightest to loosest: postfix forms, then prefix `!` and `-`,
-multiplicative, additive, ordering and membership, equality and `is`, `and`,
+the conversion `as` (6.11), multiplicative, additive, ordering and membership, equality and `is`, `and`,
 and loosest `or` and the right-associative `??`. A `|>` pipeline is looser
 than every operator.
 
@@ -1192,7 +1194,7 @@ intended meaning at a glance:
   write `(if a { 1 } else { 2 }) + 3` or `(match x { ... }).name`. A whole
   initializer, argument, element, field value, arm body, or condition stays
   bare;
-- a pipeline that an operator, a prefix, or `is` applies to
+- a pipeline that an operator, a prefix, `is`, or `as` applies to
   (`check.ambiguous-grouping`): write `(xs |> count) > 3`.
 
 A suffix after a pipeline whose last stage is complete chains left to right
@@ -1207,7 +1209,10 @@ The fixes for `check.mixed-logical` and `check.ambiguous-grouping` insert the pa
 Parentheses are legal only where removing them would change the parse or break
 one of these grouping rules (`check.redundant-parens`, whose fix removes
 them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
-`(x?).name` (otherwise `?.`), `(-x).abs()`, a command form followed by more of
+`(x?).name` (otherwise `?.`), `(-x).abs()`, `-(text as Int)` and
+`(text as Int).float()` (a conversion is looser than a prefix and takes no
+suffix), a conversion of a name that begins a statement (`(count as UInt)`,
+which would otherwise be the command `count`), a command form followed by more of
 its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
 final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
@@ -1490,6 +1495,82 @@ names: write `outcome is Ok(_)`. Alternatives need grouping
 (`value is (P | Q)`), and negation is `!(value is P)`. Testing a `Result` never
 propagates. A true test narrows a stable binding in the selected branch.
 
+### 6.11 Conversion
+
+`value as T` converts a value to another type, or fails. It is never a new
+operation: each pair of types it accepts names an operation the language
+already has, one that returns a `Result`, and the expression is that
+operation under `?`.
+
+| Value | `as` | Is exactly | Fails when |
+|---|---|---|---|
+| `Str` | `Int` | `text.parse_int()?` | the trimmed text is not an integer in `Int` range; a sign, a radix prefix, and `_` separators are read |
+| `Str` | `UInt` | `text.parse_uint()?` | the trimmed text is not a run of decimal digits in range |
+| `Str` | `Float` | `text.parse_float()?` | the trimmed text is not a number; exponents, `nan`, and `inf` are read |
+| `Str` | `Path` | `Path.parse_bytes(bytes.from_text(text))?` | the text contains NUL |
+| `Bytes` | `Str` | `data.utf8()?` | the bytes are not UTF-8 |
+| `Bytes` | `Path` | `Path.parse_bytes(data)?` | the bytes contain NUL |
+| `Int` | `UInt` | `n.require(UInt)?` | the value is negative |
+
+```xsh
+{{.spec.as_conversion.source}}
+```
+
+The pair is the value's static type and the written type, matched exactly;
+every other pair is a check error (`check.conversion`), so no conversion
+loses information without saying so. A `Float` does not convert to `Int`,
+because the rounding is the author's choice (`.floor()`, `.ceil()`,
+`.round()`); an `Int` does not convert to `Float` (`.float()`), nor a `Path`
+to `Str` (`.display()` replaces bytes that are not UTF-8); an `Any` is
+validated with `.require(T)` (5.3); an optional or a `Result` is handled
+first; and a value that already has the type is not converted to it. The
+stricter parsers `parse_int_decimal` and `parse_uint_positive` have no `as`
+spelling. A propagated operation of the table has one spelling, the
+conversion: `lint.prefer-as-conversion` rewrites `text.parse_int()?` as
+`text as Int`, and likewise for each row.
+
+```xsh
+{{.spec.conversion_pair.source}}
+```
+
+A failed conversion propagates as `?` on its operation would (8.3): it
+leaves the nearest propagation boundary with the operation's error, a `try`
+captures it, it needs the `error` effect in a restricted proc, and in a pure
+function whose return type is not a `Result` it is `check.try-context`. To
+keep the failure as a value, call the operation: `text.parse_int() ?? 0`.
+
+```xsh
+{{.spec.conversion_context.source}}
+```
+
+`as` binds tighter than every binary operator and looser than a prefix, and
+chains to the left: `a * b as Int` converts `b`, `text as Int + 1` adds one
+to the converted value, and `-n as UInt` converts `-n`, so negating a
+converted value is written `-(text as Int)`. A conversion takes no suffix,
+because its type reads a following `.`, `[`, or `?` as part of itself: write
+`(text as Int).float()`. `text as Int?` names the optional type and is
+rejected.
+
+`as` is a contextual word. Three other forms use it, and one position reads
+it as a plain word; each is decided by position before a conversion is
+considered:
+
+- `use M as N` renames a module (3.3). A `use` statement holds no
+  expression.
+- In a pattern, `PATTERN as NAME` binds the matched value (6.10). After `is`,
+  an `as` therefore belongs to the pattern, where a test rejects it
+  (`check.pattern-test-binding`); it never converts the test's result. The
+  subject of `is` and of `match` is an expression and may convert:
+  `match field as Int { ... }`, `field as Int is 0`.
+- In `atomically replace DEST as NAME { ... }` (8.7), the `as` that ends the
+  destination is the first one outside brackets that stands directly before
+  a name and `{`. Every earlier `as` is part of the destination, so
+  `atomically replace target as Path as tmp { ... }` converts `target`.
+- A statement that begins with a name or a `.name` chain followed by a word
+  is a command (10.1), and `as` is a word: `count as UInt` alone on a line
+  runs the command `count`. A conversion there is grouped, `(count as UInt)`;
+  in a binding, an argument, an operand, or a `return` it needs no grouping.
+
 ## 7. Bindings And Assignment
 
 `let` bindings are immutable and `var` bindings are mutable. Both may
@@ -1598,6 +1679,10 @@ requires the `error` effect.
 
 `expr?.name`, `expr?.method(...)`, and `expr?[i]` on a `Result` are this
 operator followed by the access (6.7).
+
+A conversion `value as T` (6.11) is its operation followed by this operator,
+so every row of the table and every rule of this section applies to a failed
+conversion as it does to a `?`.
 
 `expr ?` with a space is the same operator in expression context. In a command
 argument, a separated `?` belongs to the whole command or run form: write
@@ -2080,7 +2165,8 @@ program already holds.
 
 Normal completion yields `Ok(tail)`; an empty body yields `Ok(Unit)`. A
 `Result` tail stays nested (`try { op() }` is `Result[Result[T]]`; write
-`try { op()? }`). Explicit `?`, statement-position `Result[Unit]` failures,
+`try { op()? }`). Explicit `?`, failed conversions (`value as T`),
+statement-position `Result[Unit]` failures,
 failed assertions, and failed plain `run` statements inside the block become
 `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime

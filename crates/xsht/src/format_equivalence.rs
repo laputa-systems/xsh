@@ -997,6 +997,11 @@ impl CanonicalWriter<'_> {
                 self.expr(*value);
                 self.opt_type(*schema);
             }
+            ArenaExprKind::Convert { value, target } => {
+                self.put("convert;");
+                self.expr(*value);
+                self.ty(*target);
+            }
             ArenaExprKind::Loop { block } => {
                 self.put("loop;");
                 self.block(*block);

@@ -65,6 +65,17 @@ fn match_expr(
     match_expr_structural(p, &pattern.kind, t, &target.kind, source, bindings)
 }
 
+/// The name of a type written as one bare name, such as `Int`.
+fn named_type(arena: &AstArena, id: xsh::frontend::syntax::arena::TypeExprId) -> Option<String> {
+    use xsh::frontend::syntax::arena::ArenaTypeExprTag;
+    matches!(arena.type_expr_tags[id.index()], ArenaTypeExprTag::Named).then(|| {
+        xsh::frontend::symbols::Name::from_symbol(xsh::frontend::symbols::Symbol::from_raw(
+            arena.type_expr_data[id.index()].lhs,
+        ))
+        .to_string()
+    })
+}
+
 fn match_expr_structural(
     p: &AstArena,
     pattern: &ArenaExprKind,
@@ -346,6 +357,20 @@ fn match_expr_structural(
         }
         (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
             match_expr(p, *pe, t, *te, source, bindings)
+        }
+        // A conversion matches a conversion to the same plainly named type.
+        (
+            ArenaExprKind::Convert {
+                value: pv,
+                target: pt,
+            },
+            ArenaExprKind::Convert {
+                value: tv,
+                target: tt,
+            },
+        ) => {
+            named_type(p, *pt).is_some_and(|name| named_type(t, *tt) == Some(name))
+                && match_expr(p, *pv, t, *tv, source, bindings)
         }
         (ArenaExprKind::Record(pfields), ArenaExprKind::Record(tfields)) => {
             use xsh::frontend::syntax::arena::ArenaRecordFieldKind as Field;
@@ -705,6 +730,11 @@ fn build_replacement_text(
         ArenaExprKind::Try(inner) => {
             let inner = build_replacement_text(arena, *inner, m, target_source, pattern_source)?;
             Some(format!("({inner})?"))
+        }
+        ArenaExprKind::Convert { value, target } => {
+            let value = build_replacement_text(arena, *value, m, target_source, pattern_source)?;
+            let target = pattern_source.get(arena.type_expr_span(*target).range())?;
+            Some(format!("({value}) as {target}"))
         }
         ArenaExprKind::Call { callee, args } => {
             let callee_text =

@@ -154,6 +154,8 @@ interpolates `{expr}`; plain `"..."` never interpolates.
 There are no implicit conversions. `"8080" + 1` is a check error, and
 `"8080".parse_int()` returns `Result[Int]` because parsing can fail. You will
 see that pattern everywhere: anything that can fail says so in its type.
+`"8080" as Int` is the same parse with the failure propagated, for the usual
+case where bad input should stop the function.
 
 ## Commands and argv
 

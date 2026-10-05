@@ -2,7 +2,9 @@
 
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
-use crate::sema::check::{CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo};
+use crate::sema::check::{
+    CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo, Conversion,
+};
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
 use crate::source::{SourceMap, Span};
@@ -1861,6 +1863,7 @@ fn compact_collect_expr_call_edges(
         ArenaExprKind::Unary { expr, .. }
         | ArenaExprKind::Try(expr)
         | ArenaExprKind::Require { value: expr, .. }
+        | ArenaExprKind::Convert { value: expr, .. }
         | ArenaExprKind::Field { base: expr, .. }
         | ArenaExprKind::NullSafeField { base: expr, .. } => {
             compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
@@ -2362,6 +2365,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::ValuePipelineCall { .. } => 43,
         ArenaExprKind::ContextScope { .. } => 45,
         ArenaExprKind::TempDirScope { .. } => 46,
+        ArenaExprKind::Convert { .. } => 47,
     }
 }
 
@@ -2416,6 +2420,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::ValuePipelineCall { .. } => "value_pipeline_call",
         ArenaExprKind::ContextScope { .. } => "context_scope",
         ArenaExprKind::TempDirScope { .. } => "tempdir_scope",
+        ArenaExprKind::Convert { .. } => "convert",
     }
 }
 
@@ -3001,7 +3006,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 12];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 47];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 48];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -7327,6 +7332,53 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     }
                 ))
+            }
+            // Each conversion is an operation the language already has,
+            // under `?`. The checker chose which; an expression it published
+            // no conversion for was rejected and is not lowered.
+            ArenaExprKind::Convert { value, .. } => {
+                let conversion = *self.bodies.conversions.get(&id)?;
+                let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                let method = |name: &str| BuildExprRow::Method {
+                    receiver: value,
+                    name: Name::intern(name).as_str(),
+                    args: Vec::new(),
+                    span,
+                };
+                let path_from_bytes = |bytes| BuildExprRow::ModuleCall {
+                    cli_plan: None,
+                    op: RuntimeOp::PathParseBytes,
+                    args: vec![Some(bytes)],
+                    span,
+                };
+                let operation = match conversion {
+                    Conversion::TextToInt => method("parse_int"),
+                    Conversion::TextToUInt => method("parse_uint"),
+                    Conversion::TextToFloat => method("parse_float"),
+                    Conversion::BytesToText => method("utf8"),
+                    Conversion::BytesToPath => path_from_bytes(value),
+                    Conversion::TextToPath => path_from_bytes(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::ModuleCall {
+                            cli_plan: None,
+                            op: RuntimeOp::BytesFromText,
+                            args: vec![Some(value)],
+                            span,
+                        }
+                    )),
+                    Conversion::IntToUInt => BuildExprRow::Require {
+                        value,
+                        check: LoweredTypeCheck {
+                            schema: Some(self.prepared_schema(Type::UInt)),
+                            ty: Type::UInt,
+                            name: Arc::from("UInt"),
+                        },
+                        span,
+                    },
+                };
+                let operation = push_build_row!(self, expr, operation);
+                Some(push_build_row!(self, expr, BuildExprRow::Try(operation)))
             }
             ArenaExprKind::Require { value, schema } => {
                 let (ty, name) = if let Some(schema) = schema {

@@ -10727,6 +10727,86 @@ pure selected() -> Str {
         });
     }
 
+    /// A conversion lowers to the operation the checker selected, under a
+    /// propagation, and to nothing else: no instruction is specific to it.
+    /// Lowering reads the selection and never works it out, so a conversion
+    /// with no selection is refused instead of being given a default.
+    #[test]
+    fn a_conversion_lowers_to_the_operation_the_checker_selected() {
+        run_with_large_stack(|| {
+            let source = "pure width(field: Str) -> Result[Int] {\n  Ok(field as Int)\n}\npure size(count: Int) -> Result[UInt] {\n  Ok(count as UInt)\n}\npure place(name: Str) -> Result[Path] {\n  Ok(name as Path)\n}\n";
+            let program = Arc::new(fixture("conversion.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let count = |tag| program.store.tags.iter().filter(|found| **found == tag).count();
+            assert_eq!(count(FullTag::ExprTry), 3);
+            assert_eq!(count(FullTag::ExprMethod), 1);
+            assert_eq!(count(FullTag::ExprRequire), 1);
+            assert_eq!(count(FullTag::ExprModuleCall), 2);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut call = |name: &str, argument: Value| {
+                evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure,
+                        &[argument],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("the function exists")
+            };
+            use crate::runtime::value::ResultValue;
+            assert_eq!(
+                call("width", Value::Str("12".into())).unwrap(),
+                Value::Result(ResultValue::Ok(Box::new(Value::Int(12))))
+            );
+            assert!(matches!(
+                call("width", Value::Str("wide".into())).unwrap(),
+                Value::Result(ResultValue::Err(_))
+            ));
+            assert!(matches!(
+                call("size", Value::Int(-1)).unwrap(),
+                Value::Result(ResultValue::Err(_))
+            ));
+
+            // The propagation's operand is the operation: a program whose
+            // propagation points nowhere is rejected before it runs.
+            let mut dangling = (*program).clone();
+            let propagation = dangling
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprTry)
+                .unwrap();
+            dangling.store.data[propagation].lhs = u32::MAX;
+            dangling.store.data[propagation].rhs = u32::MAX;
+            assert!(FullVerifier::verify(&dangling).is_err());
+
+            // Without the checker's selection there is nothing to lower.
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                "conversion.xsh",
+                crate::loader::entry_source_from_text("conversion.xsh", source.to_string()),
+                Vec::new(),
+            );
+            let source_id = crate::source::SourceMap::files(&sources)
+                .first()
+                .map(crate::source::SourceFile::id)
+                .expect("entry source is present");
+            let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+            assert_eq!(declarations.bodies.conversions.len(), 3);
+            declarations.bodies.conversions.clear();
+            assert!(
+                FullBuilder::build_compact(
+                    &parsed.arena,
+                    &declarations,
+                    source,
+                    Arc::new(sources),
+                    source_id,
+                )
+                .is_err()
+            );
+        });
+    }
+
     #[test]
     fn constant_key_projection_preserves_index_and_get_both_routes() {
         run_with_large_stack(|| {

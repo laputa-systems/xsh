@@ -13,7 +13,7 @@ use crate::syntax::arena::{
     AstArena, ExprId,
 };
 use crate::syntax::grammar::{
-    self, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence,
+    self, CONVERSION, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence,
     binary_right_operand_precedence,
 };
 use crate::syntax::lexer::{lex_spellings, tokens_stay_separate};
@@ -222,6 +222,8 @@ pub enum Slot {
     Right(BinaryOp),
     /// The operand of `is`.
     PatternTestValue,
+    /// The operand of `as`.
+    ConversionValue,
     /// The operand of `!` or unary `-`.
     Prefix,
     /// The receiver of `.name`, `?.name`, `[...]`, a call, `.require(...)`, or a
@@ -311,6 +313,7 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::PatternCondition { .. } => 0,
         ArenaExprKind::Binary { op, .. } => binary_precedence(*op),
         ArenaExprKind::PatternTest { .. } => PATTERN_TEST,
+        ArenaExprKind::Convert { .. } => CONVERSION,
         ArenaExprKind::ComparisonChain(_) => binary_precedence(BinaryOp::Lt),
         ArenaExprKind::Unary { .. }
         | ArenaExprKind::Spawn(crate::syntax::arena::ArenaSpawnForm {
@@ -662,6 +665,7 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
                 || comparison_family(&kind) == Some(true)
                 || matches!(kind, ArenaExprKind::PatternTest { .. })
         }
+        Slot::ConversionValue => power < CONVERSION,
         Slot::Prefix => power < PREFIX,
         // A `spawn` or `wait` target stops before `?`, `?.`, and `?[`.
         Slot::Postfix { .. } | Slot::Try => {
@@ -714,6 +718,8 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
         // `. in x` reads as the field `.in`.
         // A type pattern takes in an adjacent `.`, `[`, `(`, or `?`.
         ArenaExprKind::PatternTest { .. } => follow.is_suffix(),
+        // So does the type a conversion names.
+        ArenaExprKind::Convert { .. } => follow.is_suffix(),
         ArenaExprKind::Item => {
             matches!(follow.token, FollowToken::Word | FollowToken::WordOperator)
                 || (follow.adjacent && follow.token == FollowToken::DotDot)
@@ -755,6 +761,7 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
     };
     let level_needs = (matches!(kind, ArenaExprKind::PatternTest { .. })
         && context.level > PATTERN_TEST)
+        || (matches!(kind, ArenaExprKind::Convert { .. }) && context.level > CONVERSION)
         || (closed_pipeline && context.level > 0);
     slot_needs
         || follow_needs
@@ -768,7 +775,7 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
 /// Whether `kind`, held by an operator or suffix in `slot`, must be grouped
 /// because a reader cannot see its extent (`check.ambiguous-grouping`): an
 /// `if` or `match` anywhere an operator, suffix, or `|>` holds it, and a
-/// pipeline that an operator, prefix, or `is` applies to. A suffix after a
+/// pipeline that an operator, prefix, `is`, or `as` applies to. A suffix after a
 /// complete last stage chains left to right like a method chain, so
 /// `xs |> drop(1).join("")` applies `.join` to the pipeline's result.
 pub fn held_ambiguously(slot: Slot, kind: &ArenaExprKind) -> bool {
@@ -779,7 +786,11 @@ pub fn held_ambiguously(slot: Slot, kind: &ArenaExprKind) -> bool {
         | ArenaExprKind::ValuePipelineCall { .. } => {
             matches!(
                 slot,
-                Slot::Left(_) | Slot::Right(_) | Slot::Prefix | Slot::PatternTestValue
+                Slot::Left(_)
+                    | Slot::Right(_)
+                    | Slot::Prefix
+                    | Slot::PatternTestValue
+                    | Slot::ConversionValue
             )
         }
         _ => false,
@@ -834,6 +845,13 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
                 after_expression: true,
             }
         }
+        // A statement that starts with a name or a `.name` chain and goes on
+        // with `as` is a command whose first word is `as`, so a conversion of
+        // one is grouped there: `(count as UInt)`.
+        ArenaExprKind::Convert { value, .. } if statement => is_name_chain(arena, *value),
+        ArenaExprKind::Field { .. } if statement && context.slot == Slot::ConversionValue => {
+            is_name_chain_kind(arena, kind)
+        }
         // A name alone is a command; a `.name` chain followed by a word is a
         // dotted command (`Parser::lookahead_is_dotted_command`).
         ArenaExprKind::Ident(_) if statement => match context.slot {
@@ -841,8 +859,23 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
                 context.chain_follow.token,
                 FollowToken::Word | FollowToken::Brace
             ),
+            Slot::ConversionValue => true,
             _ => context.follow.token == FollowToken::End,
         },
+        _ => false,
+    }
+}
+
+/// Whether `expr` is a name or a `.name` chain on one, the shapes that begin
+/// a command statement.
+fn is_name_chain(arena: &AstArena, expr: ExprId) -> bool {
+    is_name_chain_kind(arena, &arena.expr(expr).kind)
+}
+
+fn is_name_chain_kind(arena: &AstArena, kind: &ArenaExprKind) -> bool {
+    match kind {
+        ArenaExprKind::Ident(_) => true,
+        ArenaExprKind::Field { base, .. } => is_name_chain(arena, *base),
         _ => false,
     }
 }
@@ -887,6 +920,9 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
             Slot::PatternTestValue,
             Follow::spaced(FollowToken::WordOperator),
         ),
+        // `as` is a word, not an operator, to whatever reads the operand's
+        // first tokens: a statement that starts `name as` is a command.
+        ArenaExprKind::Convert { .. } => left(Slot::ConversionValue, Follow::WORD),
         ArenaExprKind::Unary { .. } => inherit(Slot::Prefix, PREFIX_OPERAND),
         ArenaExprKind::Spawn(_) => inherit(
             Slot::CommandTarget {
@@ -1036,9 +1072,9 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
             visit(right);
         }
         ArenaExprKind::ComparisonChain(pairs) => arena.expr_ids(pairs).for_each(visit),
-        ArenaExprKind::PatternTest { value, .. } | ArenaExprKind::Require { value, .. } => {
-            visit(value)
-        }
+        ArenaExprKind::PatternTest { value, .. }
+        | ArenaExprKind::Require { value, .. }
+        | ArenaExprKind::Convert { value, .. } => visit(value),
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => visit(expr),
         ArenaExprKind::Field { base, .. }
             if matches!(arena.expr(base).kind, ArenaExprKind::Item) => {}
@@ -1083,7 +1119,9 @@ fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
             visit(base)
         }
-        ArenaExprKind::Require { value, .. } => visit(value),
+        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
+            visit(value)
+        }
         ArenaExprKind::Index { base, index, .. } => {
             visit(base);
             visit(index);

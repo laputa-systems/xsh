@@ -409,6 +409,23 @@ impl Checker {
             return Type::Unknown;
         }
         self.report_unresolved_proc_command(name, span);
+        // A statement that begins `name as` is this command, with `as` as its
+        // first word; the author most likely meant a conversion.
+        let converts = source
+            .get(span.range())
+            .and_then(|text| text.strip_prefix(name))
+            .is_some_and(|rest| {
+                rest.starts_with([' ', '\t'])
+                    && rest
+                        .trim_start_matches([' ', '\t'])
+                        .strip_prefix("as")
+                        .is_some_and(|after| after.starts_with([' ', '\t']))
+            });
+        if converts && let Some(diagnostic) = self.diagnostics.pop() {
+            self.diagnostics.push(diagnostic.with_note(format!(
+                "a statement that begins with a name and a word is a command; to convert `{name}`, group the conversion: `({name} as TYPE)`"
+            )));
+        }
         Type::Unknown
     }
 

@@ -2849,6 +2849,11 @@ impl<'a> Writer<'a> {
                     push_joined(output, start, "?")
                 }
             }
+            ArenaExprKind::Convert { value, target } => {
+                self.write_expr(*value, child(*value), output);
+                output.push_str(" as ");
+                self.write_type(*target, output);
+            }
             ArenaExprKind::Require { value, schema } => {
                 let start = output.len();
                 self.write_expr(*value, child(*value), output);

@@ -3728,6 +3728,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
+    /// `value as TARGET`.
+    pub fn push_convert_expr(&mut self, value: ExprId, target: TypeExprId, span: Span) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::Convert { value, target }, span)
+    }
+
     /// Records that `expr` was written inside the parentheses spanning `span`.
     pub fn record_paren_group(&mut self, expr: ExprId, span: Span) {
         self.paren_groups.push((expr, span));
@@ -4738,6 +4744,10 @@ impl AstArena {
             ArenaExprTag::Require => ArenaExprKind::Require {
                 value: ExprId::new(data.lhs as usize),
                 schema: optional_type_expr_id(data.rhs),
+            },
+            ArenaExprTag::Convert => ArenaExprKind::Convert {
+                value: ExprId::new(data.lhs as usize),
+                target: TypeExprId::new(data.rhs as usize),
             },
             ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
@@ -6290,6 +6300,7 @@ pub enum ArenaExprTag {
     TempDirStatementScope,
     WithinScope,
     WithinStatementScope,
+    Convert,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -6459,6 +6470,12 @@ pub enum ArenaExprKind {
     Require {
         value: ExprId,
         schema: Option<TypeExprId>,
+    },
+    /// `value as TARGET`: the conversion the checker selects for the pair of
+    /// types, propagating its failure as `?` would.
+    Convert {
+        value: ExprId,
+        target: TypeExprId,
     },
     Loop {
         block: BlockId,
@@ -7690,6 +7707,10 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::Require { value, schema } => (
                 ArenaExprTag::Require,
                 ArenaExprData::new(raw_expr_id(value), optional_raw_type_expr_id(schema)),
+            ),
+            ArenaExprKind::Convert { value, target } => (
+                ArenaExprTag::Convert,
+                ArenaExprData::new(raw_expr_id(value), raw_type_expr_id(target)),
             ),
             ArenaExprKind::Capture(block) => (
                 ArenaExprTag::Capture,

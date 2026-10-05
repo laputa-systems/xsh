@@ -887,6 +887,9 @@ impl Checker {
                 self.note_run_propagated(arena, *inner);
                 self.check_propagation(&ty, expr.span)
             }
+            ArenaExprKind::Convert { value, target } => {
+                self.check_conversion_arena(arena, source, *value, *target, expr.span)
+            }
             ArenaExprKind::Require { value, schema } => {
                 self.requirement_targets.remove(&expr.span);
                 self.requirement_expected_targets.remove(&expr.span);

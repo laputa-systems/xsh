@@ -91,6 +91,8 @@ mod lint_path_kind;
 mod lint_prefer_is_empty;
 #[path = "lint_prefer_negative_index.rs"]
 mod lint_prefer_negative_index;
+#[path = "lint_prefer_as_conversion.rs"]
+mod lint_prefer_as_conversion;
 
 #[path = "lint_fs_method.rs"]
 mod lint_fs_method;
@@ -11100,6 +11102,15 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(end_index);
+        let bytes_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("bytes"));
+        let conversion = lint_prefer_as_conversion::propagated_conversion(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            bytes_is_shadowed,
+            expr,
+        );
+        self.diagnostics.extend(conversion);
     }
 
     fn lint_redundant_named_bool(
@@ -11758,7 +11769,9 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         }
         ArenaExprKind::Wait(form) => out.push(form.target),
         ArenaExprKind::BuilderCall { call, .. } => out.push(call),
-        ArenaExprKind::Require { value, .. } => out.push(value),
+        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
+            out.push(value)
+        }
         ArenaExprKind::ErrorContext { message, .. }
         | ArenaExprKind::ContextScope { input: message, .. } => out.push(message),
         ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
@@ -12205,7 +12218,8 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         }
         ArenaExprKind::Unary { expr, .. }
         | ArenaExprKind::Try(expr)
-        | ArenaExprKind::Require { value: expr, .. } => refs(expr),
+        | ArenaExprKind::Require { value: expr, .. }
+        | ArenaExprKind::Convert { value: expr, .. } => refs(expr),
         ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(refs),
         ArenaExprKind::Binary { left, right, .. } => refs(left) || refs(right),
         ArenaExprKind::Call { callee, args } => {
@@ -12817,6 +12831,10 @@ impl LintExprVisitor<'_, '_> {
                 if let Some(schema) = schema {
                     self.linter.collect_type_expr_refs(schema);
                 }
+            }
+            ArenaExprKind::Convert { value, target } => {
+                self.visit_expr(value);
+                self.linter.collect_type_expr_refs(target);
             }
             ArenaExprKind::ErrorContext { message, block }
             | ArenaExprKind::ContextScope {
@@ -13603,6 +13621,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
@@ -13692,6 +13711,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
@@ -14404,7 +14424,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaExprKind::Unary { expr, .. }
             | ArenaExprKind::Try(expr)
-            | ArenaExprKind::Require { value: expr, .. } => self.scan_expr(expr),
+            | ArenaExprKind::Require { value: expr, .. }
+            | ArenaExprKind::Convert { value: expr, .. } => self.scan_expr(expr),
             ArenaExprKind::ComparisonChain(pairs) => {
                 for operand in self
                     .arena()
@@ -15272,7 +15293,7 @@ fn expr_flow(
                 block,
             ))
         }
-        ArenaExprKind::Require { value, .. } => expr_flow(arena, value),
+        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => expr_flow(arena, value),
         ArenaExprKind::ContextScope { input, block, .. } => {
             expr_flow(arena, input).then(
                 FlowSummary::fallthrough().union(block_flow(arena, block)),

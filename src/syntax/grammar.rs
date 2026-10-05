@@ -36,9 +36,13 @@ pub mod reference;
 
 /// Binding power of `!` and unary `-`: their operand is parsed at
 /// [`PREFIX_OPERAND`], so prefix forms bind tighter than every binary operator.
-pub const PREFIX: u8 = 7;
+pub const PREFIX: u8 = 8;
 /// Minimum binding power of a prefix operand.
-pub const PREFIX_OPERAND: u8 = 8;
+pub const PREFIX_OPERAND: u8 = 9;
+/// Binding power of the conversion `value as TYPE`: tighter than every binary
+/// operator and looser than a prefix, so `-n as UInt` converts `-n` and
+/// `a * b as Int` converts `b`. A conversion chains to the left.
+pub const CONVERSION: u8 = 7;
 /// `is` applies to an operand built at this precedence or tighter: it shares
 /// the equality level.
 pub const PATTERN_TEST: u8 = 3;

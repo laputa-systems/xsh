@@ -115,6 +115,8 @@ pub struct CompactBodyFacts {
     /// List index expressions that count from the end, with the distance
     /// their negative literal index names.
     pub from_end_indexes: FxHashMap<ExprId, u32>,
+    /// The operation each `value as TARGET` expression performs.
+    pub conversions: FxHashMap<ExprId, super::Conversion>,
 }
 
 impl CompactBodyFacts {
@@ -184,6 +186,11 @@ impl CompactBodyFacts {
                 && let Some(distance) = checked.from_end_indexes.get(&span)
             {
                 facts.from_end_indexes.insert(id, *distance);
+            }
+            if matches!(expression.kind, ArenaExprKind::Convert { .. })
+                && let Some(conversion) = checked.conversions.get(&span)
+            {
+                facts.conversions.insert(id, *conversion);
             }
         }
         if !checked.inferred_variant_patterns.is_empty() {

@@ -355,6 +355,7 @@ pub fn reference_json(grammar: &Grammar) -> String {
         ("sections", json_array(sections)),
         ("operators", json_array(operators)),
         ("prefix_precedence", super::PREFIX.to_string()),
+        ("conversion_precedence", super::CONVERSION.to_string()),
         (
             "continuation",
             json_string(

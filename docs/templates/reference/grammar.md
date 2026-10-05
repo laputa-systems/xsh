@@ -69,8 +69,9 @@ Duration suffixes: {{.grammar.duration_suffixes}}.
 
 From tightest to loosest. Postfix forms (`.name`, `?.name`, `[i]`, `?[i]`,
 calls, `?`) bind tighter than every operator; prefix `!` and `-` bind at
-level {{.grammar.prefix_precedence}}; `is` shares the equality level; `|>` is
-looser than every operator.
+level {{.grammar.prefix_precedence}}; the conversion `value as TYPE` binds at
+level {{.grammar.conversion_precedence}} and chains to the left; `is` shares
+the equality level; `|>` is looser than every operator.
 
 | Level | Operators | Associativity | Family |
 |---|---|---|---|

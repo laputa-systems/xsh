@@ -13,7 +13,7 @@ pub mod check {
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
-        CompactTypeDefInfo, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
+        CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
         FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RequirementTarget,
         StatementPosition, StaticCallableAlias, TagVariantInfo,
     };

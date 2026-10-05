@@ -670,6 +670,8 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let mut pending_pipeline: Option<ArenaPendingPipeline> = None;
         let mut extended = false;
+        // The conversion this loop built last, while it is still `left`.
+        let mut conversion: Option<ExprId> = None;
         loop {
             // Coming round again means the pass before applied one form to
             // `left`.
@@ -693,7 +695,13 @@ impl<'a> Parser<'a> {
             if !continues_pipeline && let Some(pending) = pending_pipeline.take() {
                 left.id = pending.seal(arena, left.span);
             }
-            if self.at(TokenKindMatch::Question)
+            // A conversion takes no member, index, or call suffix: its type
+            // has already read every `.`, `[`, and `?` written directly after
+            // it, so one that reached here would apply to the conversion only
+            // by an accident of spacing. Write `(text as Int).float()`.
+            let after_conversion = conversion == Some(left.id) && pending_pipeline.is_none();
+            if !after_conversion
+                && self.at(TokenKindMatch::Question)
                 && self.peek_tag(1) == Some(TokenTag::Dot)
                 && self.peek_start(1) == Some(self.current_end())
             {
@@ -767,7 +775,10 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 };
-            } else if self.at(TokenKindMatch::Dot) && self.peek_tag(1) != Some(TokenTag::Dot) {
+            } else if !after_conversion
+                && self.at(TokenKindMatch::Dot)
+                && self.peek_tag(1) != Some(TokenTag::Dot)
+            {
                 self.bump();
                 let name = self.expect_member_name("expected field name after `.`")?;
                 // These receivers also name user callable fields and removed
@@ -807,11 +818,12 @@ impl<'a> Parser<'a> {
                         bare_ident: None,
                     };
                 }
-            } else if self.at(TokenKindMatch::LBracket)
-                || (self.at(TokenKindMatch::Question)
-                    && self.current_start() == left.span.end()
-                    && self.peek_tag(1) == Some(TokenTag::LBracket)
-                    && self.peek_start(1) == Some(self.current_end()))
+            } else if !after_conversion
+                && (self.at(TokenKindMatch::LBracket)
+                    || (self.at(TokenKindMatch::Question)
+                        && self.current_start() == left.span.end()
+                        && self.peek_tag(1) == Some(TokenTag::LBracket)
+                        && self.peek_start(1) == Some(self.current_end())))
             {
                 let guarded = self.consume(TokenKindMatch::Question).is_some();
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `?`");
@@ -857,7 +869,7 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 };
-            } else if self.consume(TokenKindMatch::LParen).is_some() {
+            } else if !after_conversion && self.consume(TokenKindMatch::LParen).is_some() {
                 let args = self.parse_call_args_arena_only(arena);
                 self.expect(TokenKindMatch::RParen, "expected `)` after call arguments");
                 let span = self.span(left.span.start(), self.previous_end());
@@ -881,6 +893,28 @@ impl<'a> Parser<'a> {
             } else {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_line_breaks();
+                }
+                // `as` converts only where no other form owns the word: the
+                // `as` that ends an `atomically replace` destination is found
+                // before the destination is parsed, and a pattern reads its
+                // own `as NAME` before control returns here.
+                if self.at_ident("as") && !self.at_head_as() {
+                    if min_prec > grammar::CONVERSION {
+                        break;
+                    }
+                    if let Some(pending) = pending_pipeline.take() {
+                        left.id = pending.seal(arena, left.span);
+                    }
+                    self.bump();
+                    let target = self.parse_type_expr(arena)?;
+                    let span = self.span(left.span.start(), self.previous_end());
+                    left = ArenaOnlyExpr {
+                        id: arena.push_convert_expr(left.id, target, span),
+                        span,
+                        bare_ident: None,
+                    };
+                    conversion = Some(left.id);
+                    continue;
                 }
                 if self.at_ident("is") {
                     if min_prec > grammar::PATTERN_TEST {
