@@ -58,63 +58,6 @@ pure tokenize(data: Bytes) -> List[Bytes] {
   out
 }
 
-type Graph = {labels: List[Bytes], keys: List[Str], succ: List[List[Int]], preds: List[Int]}
-
-# A loop among the nodes that are still unprinted, found by depth-first search
-# from each node in name order; the nodes on it from the point where the search
-# met its own path again.
-pure find_loop(graph: Graph, done: List[Bool]) -> List[Int] {
-  let total = graph.keys.len()
-  var order = [{key: graph.keys[node], node: node} for node in range(total) if ! done[node]] |> sort-by .key
-  var state: List[Int] = [0 for _ in range(total)]
-  var stack: List[Int] = [0 for _ in range(total + 1)]
-  var next: List[Int] = [0 for _ in range(total + 1)]
-
-  for item in order {
-    if state[item.node] != 0 {
-      continue
-    }
-
-    var depth = 1
-
-    stack[0] = item.node
-    next[0] = 0
-    state[item.node] = 1
-
-    while depth > 0 {
-      let top = stack[depth - 1]
-      let at = next[depth - 1]
-
-      if at >= graph.succ[top].len() {
-        state[top] = 2
-        depth -= 1
-        continue
-      }
-
-      next[depth - 1] = at + 1
-
-      let target = graph.succ[top][at]
-
-      if state[target] == 0 {
-        state[target] = 1
-        stack[depth] = target
-        next[depth] = 0
-        depth += 1
-      } else if state[target] == 1 {
-        var from = depth - 1
-
-        while stack[from] != target {
-          from -= 1
-        }
-
-        return stack[from..depth]
-      }
-    }
-  }
-
-  []
-}
-
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: TsortOptions = cli.applet(
     argv,
@@ -198,9 +141,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let total = labels.len()
-  var graph: Graph = {labels: labels, keys: keys, succ: succ, preds: preds}
+
+  # Successors in GNU's order: the most recently added edge first.
+  var top: List[List[Int]] = [[succ[node][succ[node].len() - 1 - index] for index in range(succ[node].len())] for node in range(total)]
+  var count = preds
   var done: List[Bool] = [false for _ in range(total)]
-  var queue: List[Int] = [item.node for item in [{key: keys[node], node: node} for node in range(total) if preds[node] == 0] |> sort-by .key]
+  var link: List[Int] = [-1 for _ in range(total)]
+  let order = [item.node for item in [{key: keys[node], node: node} for node in range(total)] |> sort-by .key]
+  var queue: List[Int] = [node for node in order if count[node] == 0]
   var head = 0
   var remaining = total
   var looped = false
@@ -208,34 +156,73 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   while remaining > 0 {
     if head >= queue.len() {
-      let cycle = find_loop(graph, done)
-
       gnu.error(f"{gnu.quote_maybe(name)}: input contains a loop:")
-
-      for node in cycle {
-        gnu.error(graph.keys[node])
-      }
-
       looped = true
 
-      let last = cycle[cycle.len() - 1]
-      let first = cycle[0]
-      var rest: List[Int] = []
-      var removed = false
+      # GNU's loop search: walk the nodes in name order, chaining each unprinted
+      # node that has an edge to the chain's head, until a node that is already
+      # chained closes a cycle; the cycle is printed and the closing edge dropped.
+      var chain = -1
+      var found = false
 
-      for target in graph.succ[last] {
-        if target == first and ! removed {
-          removed = true
-        } else {
-          rest += [target]
+      while ! found {
+        for node in order {
+          if count[node] == 0 or found {
+            continue
+          }
+
+          if chain < 0 {
+            chain = node
+            continue
+          }
+
+          var at = 0
+
+          while at < top[node].len() and ! found {
+            if top[node][at] == chain {
+              if link[node] >= 0 {
+                var walk = chain
+
+                while walk >= 0 {
+                  let next = link[walk]
+
+                  gnu.error(keys[walk])
+
+                  if walk == node {
+                    count[chain] -= 1
+                    top[node] = top[node][..at] + top[node][at + 1..]
+                    break
+                  }
+
+                  link[walk] = -1
+                  walk = next
+                }
+
+                while walk >= 0 {
+                  let next = link[walk]
+
+                  link[walk] = -1
+                  walk = next
+                }
+
+                chain = -1
+                found = true
+              } else {
+                link[node] = chain
+                chain = node
+                break
+              }
+            }
+
+            at += 1
+          }
         }
       }
 
-      graph.succ[last] = rest
-      graph.preds[first] -= 1
-
-      if graph.preds[first] == 0 {
-        queue += [first]
+      for node in order {
+        if count[node] == 0 and ! done[node] {
+          queue += [node]
+        }
       }
 
       continue
@@ -246,16 +233,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     head += 1
     done[node] = true
     remaining -= 1
-    out += [graph.labels[node], b"\n"]
+    out += [labels[node], b"\n"]
 
-    let targets = graph.succ[node]
+    for target in top[node] {
+      count[target] -= 1
 
-    for index in range(targets.len()) {
-      let target = targets[targets.len() - 1 - index]
-
-      graph.preds[target] -= 1
-
-      if graph.preds[target] == 0 {
+      if count[target] == 0 {
         queue += [target]
       }
     }
