@@ -58,6 +58,63 @@ pure tokenize(data: Bytes) -> List[Bytes] {
   out
 }
 
+# Past this many unprinted nodes GNU's loop search is quadratic and finishes
+# in no useful time, so a depth-first search is used instead.
+const LARGE_GRAPH = 5000
+
+# A loop among the unprinted nodes, found by depth-first search from each in
+# name order: the nodes on it from where the search met its own path again.
+pure find_loop(top: List[List[Int]], done: List[Bool], order: List[Int]) -> List[Int] {
+  let total = top.len()
+  var state: List[Int] = [0 for _ in range(total)]
+  var stack: List[Int] = [0 for _ in range(total + 1)]
+  var next: List[Int] = [0 for _ in range(total + 1)]
+
+  for start in order {
+    if done[start] or state[start] != 0 {
+      continue
+    }
+
+    var depth = 1
+
+    stack[0] = start
+    next[0] = 0
+    state[start] = 1
+
+    while depth > 0 {
+      let node = stack[depth - 1]
+      let at = next[depth - 1]
+
+      if at >= top[node].len() {
+        state[node] = 2
+        depth -= 1
+        continue
+      }
+
+      next[depth - 1] = at + 1
+
+      let target = top[node][at]
+
+      if state[target] == 0 {
+        state[target] = 1
+        stack[depth] = target
+        next[depth] = 0
+        depth += 1
+      } else if state[target] == 1 {
+        var from = depth - 1
+
+        while stack[from] != target {
+          from -= 1
+        }
+
+        return stack[from..depth]
+      }
+    }
+  }
+
+  []
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: TsortOptions = cli.applet(
     argv,
@@ -159,62 +216,81 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       gnu.error(f"{gnu.quote_maybe(name)}: input contains a loop:")
       looped = true
 
-      # GNU's loop search: walk the nodes in name order, chaining each unprinted
-      # node that has an edge to the chain's head, until a node that is already
-      # chained closes a cycle; the cycle is printed and the closing edge dropped.
-      var chain = -1
-      var found = false
+      if remaining > LARGE_GRAPH {
+        let cycle = find_loop(top, done, order)
+        let last = cycle[cycle.len() - 1]
+        let first = cycle[0]
 
-      while ! found {
-        for node in order {
-          if count[node] == 0 or found {
-            continue
-          }
+        for node in cycle {
+          gnu.error(keys[node])
+        }
 
-          if chain < 0 {
-            chain = node
-            continue
-          }
+        var at = 0
 
-          var at = 0
+        while top[last][at] != first {
+          at += 1
+        }
 
-          while at < top[node].len() and ! found {
-            if top[node][at] == chain {
-              if link[node] >= 0 {
-                var walk = chain
+        top[last] = top[last][..at] + top[last][at + 1..]
+        count[first] -= 1
+      } else {
+        # GNU's loop search: walk the nodes in name order, chaining each unprinted
+        # node that has an edge to the chain's head, until a node that is already
+        # chained closes a cycle; the cycle is printed and the closing edge dropped.
+        var chain = -1
+        var found = false
 
-                while walk >= 0 {
-                  let next = link[walk]
-
-                  gnu.error(keys[walk])
-
-                  if walk == node {
-                    count[chain] -= 1
-                    top[node] = top[node][..at] + top[node][at + 1..]
-                    break
-                  }
-
-                  link[walk] = -1
-                  walk = next
-                }
-
-                while walk >= 0 {
-                  let next = link[walk]
-
-                  link[walk] = -1
-                  walk = next
-                }
-
-                chain = -1
-                found = true
-              } else {
-                link[node] = chain
-                chain = node
-                break
-              }
+        while ! found {
+          for node in order {
+            if count[node] == 0 or found {
+              continue
             }
 
-            at += 1
+            if chain < 0 {
+              chain = node
+              continue
+            }
+
+            var at = 0
+
+            while at < top[node].len() and ! found {
+              if top[node][at] == chain {
+                if link[node] >= 0 {
+                  var walk = chain
+
+                  while walk >= 0 {
+                    let next = link[walk]
+
+                    gnu.error(keys[walk])
+
+                    if walk == node {
+                      count[chain] -= 1
+                      top[node] = top[node][..at] + top[node][at + 1..]
+                      break
+                    }
+
+                    link[walk] = -1
+                    walk = next
+                  }
+
+                  while walk >= 0 {
+                    let next = link[walk]
+
+                    link[walk] = -1
+                    walk = next
+                  }
+
+                  chain = -1
+                  found = true
+                } else {
+                  link[node] = chain
+                  chain = node
+                  break
+                }
+              }
+
+              at += 1
+            }
           }
         }
       }
