@@ -139,7 +139,7 @@ test test_beta [error] {
   ]
   assert kept.len() == 1, fail_fast.stdout
   let temp_root = fp"{kept[0]}"
-  defer { temp_root.remove(missing_ok: true) }
+  defer { temp_root.remove() }
   assert fp"{temp_root}/marker".read_text()? == "kept"
 
   let nocapture = xsht(root, ["test", "--nocapture", "--exact", "tests/main.xsh::test_alpha"])?

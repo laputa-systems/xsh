@@ -1296,7 +1296,8 @@ is expected. Incompatible contributions are errors; inference never widens to
 
 - Identical types match. Every concrete value fits `Any`.
 - `List`, `Map`, and `Stream` are invariant in their parameters: `List[Str]` is
-  not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`.
+  not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`. A validated type
+  in a parameter is the exception (below).
 - `null` and `T` both fit `T?`.
 - A value fits `Union[A, B, ...]` when it fits a member. A union fits another
   union when each of its members fits one of the other's, whatever the order.
@@ -1308,11 +1309,41 @@ is expected. Incompatible contributions are errors; inference never widens to
   `NonEmpty[T]` fits `List[T]`. The base never fits the validated type; only a
   judged literal, `.require`, a type test, or a preserving operation produces
   it. The element type stays invariant (`NonEmpty[Str]` is not
-  `NonEmpty[Any]`), and as an element type the two differ:
-  `List[NonEmpty[Str]]` is not `List[List[Str]]`. In a `Union`, a validated
+  `NonEmpty[Any]`). In a `Union`, a validated
   type and its base cannot both be members. `RelPath` fits `Path`, so every
   parameter that takes a path takes a `RelPath`; a `Path` fits `RelPath`
   only through a judged literal, `.require(RelPath)`, or a type test.
+- That rule is general: it holds at any depth inside another type. A type
+  fits an expected type that differs from it only by having the base where it
+  has a validated type, so `List[RelPath]` fits `List[Path]`, `RelPath?` fits
+  `Path?`, `Map[RelPath]` fits `Map[Path]`, `Stream[RelPath]` fits
+  `Stream[Path]`, `Result[RelPath, E]` fits `Result[Path, E]`,
+  `List[NonEmpty[Str]]` fits `List[List[Str]]`, and the same holds for a
+  record field and for a union member inside a collection. This is the one
+  exception to the invariance of `List`, `Map`, and `Stream`, and it needs no
+  conversion: a validated value is stored as a value of its base, and a
+  collection is a value, so nothing added through the wider type reaches the
+  holder of the narrower one. It never runs the other way: `List[Path]` does
+  not fit `List[RelPath]`; validate the elements. Because the two are one
+  shape at run time, a `Union` cannot list `List[RelPath]` beside
+  `List[Path]`.
+
+  ```xsh
+  pure names(files: List[Path]) -> List[Str] {
+  [file.name() for file in files]
+}
+
+proc manifest(tree: Path, files: List[Path]) [error] -> Result[List[RelPath]] {
+  Ok(files |> map .strip_prefix(tree)? |> sort-by .display())
+}
+
+proc listing(tree: Path, files: List[Path]) [error] -> Result[List[Str]] {
+  # A list of RelPaths is a list of paths wherever one is expected.
+  let rels = manifest(tree, files)?
+  Ok(names(rels))
+}
+  ```
+
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
