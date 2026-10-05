@@ -975,6 +975,7 @@ impl Checker {
                 initializer,
             } => {
                 self.check_binding_arena(arena, source, target, ty, initializer, false, stmt.span);
+                self.record_discardable_binding(arena, target, ty, initializer, stmt.span);
             }
             ArenaStmtKind::Const {
                 target,
@@ -1001,7 +1002,6 @@ impl Checker {
                             }))
                     });
                 }
-                self.record_discardable_binding(arena, target, ty, initializer, stmt.span);
             }
             ArenaStmtKind::Var {
                 target,
