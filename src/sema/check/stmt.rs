@@ -3698,6 +3698,12 @@ impl Checker {
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Value);
+        if matches!(
+            stmt.kind,
+            ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. }
+        ) {
+            self.branch_constructs.insert(stmt.span);
+        }
         // A `Unit` body leaves a `Result[Unit]` tail nothing to become, and
         // the direct tail of a `Result[Unit]` function propagates as that
         // function's result. Against any other result type, or none, the tail

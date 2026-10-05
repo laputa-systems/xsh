@@ -816,6 +816,10 @@ pub struct Checker {
     /// takes no postfix guard, so a fix that turns one of these into
     /// `let _ = ...` would not parse.
     guarded_statements: FxHashSet<Span>,
+    /// The `if`, `match`, and block expressions and tail statements checked
+    /// so far. Each checks its own tails against what is expected of it, so
+    /// a mismatch one of them reports is not reported again for the whole.
+    branch_constructs: FxHashSet<Span>,
     /// The expression of the expression statement entered last, tail or
     /// not. A diagnostic whose fix replaces an expression with a statement
     /// compares its span with this before it checks anything nested.
@@ -1225,6 +1229,7 @@ impl Checker {
             current_exported: false,
             exit_status_statement: None,
             guarded_statements: FxHashSet::default(),
+            branch_constructs: FxHashSet::default(),
             statement_root: None,
         };
         checker.register_builtin_process_error_family();

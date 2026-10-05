@@ -325,12 +325,28 @@ impl Checker {
             };
             let unvalidated = Self::validated_mismatch_note(expected, actual);
             let (expected, actual) = self.mismatch_labels(expected, actual);
+            // A branching expression takes the type of a branch, and each
+            // branch was checked against the same expectation: when one of
+            // them reported this mismatch at its own tail, the whole
+            // expression has nothing to add.
+            let message = format!("expected {expected}, found {actual}");
+            if self.branch_constructs.contains(&span)
+                && self.diagnostics.iter().any(|reported| {
+                    reported.code == Some(DiagnosticCode::CheckTypeMismatch)
+                        && reported.labels.first().is_some_and(|label| {
+                            label.span != span
+                                && label.span.source_id == span.source_id
+                                && span.start() <= label.span.start()
+                                && label.span.end() <= span.end()
+                                && label.message.as_deref() == Some(message.as_str())
+                        })
+                })
+            {
+                return;
+            }
             let mut diagnostic = Diagnostic::error("type mismatch")
                 .with_code(DiagnosticCode::CheckTypeMismatch)
-                .with_label(Label::primary(
-                    span,
-                    format!("expected {expected}, found {actual}"),
-                ));
+                .with_label(Label::primary(span, message));
             if let Some(note) = unvalidated {
                 diagnostic = diagnostic.with_note(note);
             }

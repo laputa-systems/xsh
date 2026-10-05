@@ -479,6 +479,12 @@ impl Checker {
         }
         self.condition_proofs.remove(&id);
         let expr = arena.arena.expr(id);
+        if matches!(
+            expr.kind,
+            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::ValueBlock(_)
+        ) {
+            self.branch_constructs.insert(expr.span);
+        }
         if let Some(ty) = self.prepared_constants.types.get(&id) {
             let ty = ty.clone();
             self.record_expr_type(expr.span, ty.clone());

@@ -378,9 +378,10 @@ print ${consume("a", 1, [], 1)}
   assert "a List is invariant in its element type" in stderr, stderr
   assert "expected Union[Str, Path], found Int" in stderr, stderr
   assert "expected Int, found Union[Int, Float]" in stderr, stderr
-  assert "expected Str, found Path" in stderr, stderr
-  assert count(stderr, "err[check.type-mismatch]") == 8, stderr
-  assert count(stderr, "err[") == 8, stderr
+  # The branches that disagree are reported once, at the second branch.
+  assert count(stderr, "expected Str, found Path") == 1, stderr
+  assert count(stderr, "err[check.type-mismatch]") == 7, stderr
+  assert count(stderr, "err[") == 7, stderr
 }
 
 test test_union_type_tests_name_members_and_matches_cover_them { |ctx|
