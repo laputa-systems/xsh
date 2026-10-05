@@ -110,7 +110,7 @@ impl Evaluator {
         ctx: &RecordMap,
         source: &str,
         args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -124,7 +124,7 @@ impl Evaluator {
         source: &str,
         xsh_args: &[String],
         script_args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -149,7 +149,7 @@ impl Evaluator {
         source: &str,
         trace_args: &[String],
         script_args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -176,7 +176,7 @@ impl Evaluator {
         source: &str,
         tool_args: &[String],
         script_args: &[String],
-        env: &BTreeMap<String, String>,
+        env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
         span: Span,
@@ -2146,11 +2146,11 @@ fn lowered_record_arg(
 }
 
 #[cfg(feature = "native-tests")]
-fn lowered_optional_str_record(
+fn lowered_optional_env_record(
     value: Option<LoweredValue>,
     operation: &str,
     span: Span,
-) -> Result<BTreeMap<String, String>, RuntimeError> {
+) -> Result<BTreeMap<String, Vec<u8>>, RuntimeError> {
     let Some(value) = value else {
         return Ok(BTreeMap::new());
     };
@@ -2173,17 +2173,25 @@ fn lowered_optional_str_record(
 
     let mut env = BTreeMap::new();
     for (key, value) in fields.iter() {
-        let Some(text) = lowered_str_value(value) else {
-            return Err(RuntimeError::new(
-                "type-error",
-                format!(
-                    "{operation} env field `{key}` expected Str, found {}",
-                    value.type_name()
-                ),
-            )
-            .with_span(span));
+        // Text as UTF-8 and a Path as its native bytes; nothing else is an
+        // environment value here.
+        let bytes = match value {
+            LoweredValue::Path(path) => path.bytes.clone(),
+            value => match lowered_str_value(value) {
+                Some(text) => text.as_bytes().to_vec(),
+                None => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!(
+                            "{operation} env field `{key}` expected Str or Path, found {}",
+                            value.type_name()
+                        ),
+                    )
+                    .with_span(span));
+                }
+            },
         };
-        env.insert(key.to_string(), text.to_string());
+        env.insert(key.to_string(), bytes);
     }
     Ok(env)
 }
@@ -2251,25 +2259,34 @@ fn lowered_path_like_arg(
     }
 }
 
+/// The bytes one environment value hands to a child: a Path's native bytes,
+/// and for every other value its display text, which is what an argv word
+/// carries. Converting a Path through its display text would replace every
+/// byte sequence that is not UTF-8.
+fn lowered_env_value_bytes(value: &LoweredValue, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    if let LoweredValue::Path(path) = value {
+        return Ok(path.bytes.clone());
+    }
+    let mut text = String::new();
+    push_lowered_display(&mut text, value, span)?;
+    Ok(text.into_bytes())
+}
+
 fn lowered_env_record_arg(
     value: LoweredValue,
     operation: &str,
     span: Span,
-) -> Result<BTreeMap<String, String>, RuntimeError> {
+) -> Result<BTreeMap<String, Vec<u8>>, RuntimeError> {
     let mut env = BTreeMap::new();
     match value {
         LoweredValue::Record(fields) => {
             for (name, value) in fields.iter() {
-                let mut text = String::new();
-                push_lowered_display(&mut text, value, span)?;
-                env.insert(name.to_string(), text);
+                env.insert(name.to_string(), lowered_env_value_bytes(value, span)?);
             }
         }
         LoweredValue::RecordVec(fields) => {
             for (name, value) in fields.iter() {
-                let mut text = String::new();
-                push_lowered_display(&mut text, value, span)?;
-                env.insert(name.to_string(), text);
+                env.insert(name.to_string(), lowered_env_value_bytes(value, span)?);
             }
         }
         _ => {
@@ -7763,7 +7780,7 @@ impl Evaluator {
                 let args =
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_script", span)?;
                 let env =
-                    lowered_optional_str_record(values.get(3).cloned(), "test.run_script", span)?;
+                    lowered_optional_env_record(values.get(3).cloned(), "test.run_script", span)?;
                 let stdin =
                     lowered_bytes_arg_or_empty(values.get(4).cloned(), "test.run_script", span)?;
                 let name = lowered_str_arg_owned(
@@ -7788,7 +7805,7 @@ impl Evaluator {
                 let script_args =
                     lowered_optional_str_list(values.get(3).cloned(), "test.run_xsh", span)?;
                 let env =
-                    lowered_optional_str_record(values.get(4).cloned(), "test.run_xsh", span)?;
+                    lowered_optional_env_record(values.get(4).cloned(), "test.run_xsh", span)?;
                 let stdin =
                     lowered_bytes_arg_or_empty(values.get(5).cloned(), "test.run_xsh", span)?;
                 let name = lowered_str_arg_owned(
@@ -7820,7 +7837,7 @@ impl Evaluator {
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_xsht_trace", span)?;
                 let script_args =
                     lowered_optional_str_list(values.get(3).cloned(), "test.run_xsht_trace", span)?;
-                let env = lowered_optional_str_record(
+                let env = lowered_optional_env_record(
                     values.get(4).cloned(),
                     "test.run_xsht_trace",
                     span,

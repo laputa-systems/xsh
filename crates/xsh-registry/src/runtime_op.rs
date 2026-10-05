@@ -464,6 +464,7 @@ pub enum RuntimeOp {
     PathStartsWith,
     PathEndsWith,
     PathComponents,
+    PathBytes,
     StatusExited,
     StatusSignaled,
     StatusExitedWith,

@@ -1026,7 +1026,10 @@ fn native_test_host(
     if let Some(module_path) = module_path {
         command.env(XSH_MODULE_PATH, module_path);
     }
-    command.envs(&request.env);
+    for (name, value) in &request.env {
+        let value: &std::ffi::OsStr = std::os::unix::ffi::OsStrExt::from_bytes(value);
+        command.env(name, value);
+    }
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     if request.stdin.is_empty() {

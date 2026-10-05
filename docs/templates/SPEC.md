@@ -515,7 +515,9 @@ count; `..` is compared as written), and `p.starts_with(q)` is true exactly
 when `p.strip_prefix(q)` succeeds. `p.components()` is that same reading as
 a `List[Path]`, one path per component with its native bytes: `/usr//lib/`
 gives `/`, `usr`, `lib`, and the empty path gives an empty list. `name()`,
-`ext()`, and `parent()` answer the remaining component questions. A text test on `.display()` is a different
+`ext()`, and `parent()` answer the remaining component questions.
+`p.bytes()` is the path's native `Bytes`, lossless where
+`bytes.from_text(p.display())` is not: `Path.parse_bytes(p.bytes())` is `p`. A text test on `.display()` is a different
 question, one about bytes: `p.display().starts_with("/us")` is true for
 `/usr/lib`, and `p.display().split("/")` yields text with an empty piece for
 the root and for each repeated separator.
@@ -1861,6 +1863,13 @@ otherwise. Convert explicitly (`.utf8()?`, `.pid`); a `Path` needs no
 `.display()`, which would only replace its non-UTF-8 bytes. There is no
 word splitting at any point: `run rm $file` passes exactly one argument
 whatever `file` contains.
+
+Every place that hands bytes to the operating system converts this way, so a
+`Path` goes there as itself: an item of `process.command_argv`'s `argv` and
+its `target`, a value of an `env` scope overlay, and a value of the `env` of a
+command plan (`process.command`, `process.command_argv`) or of a native test
+run (`test.run_script`, `test.run_xsh`, `test.run_xsht_trace`). `.display()`
+before such a sink only replaces the bytes that are not UTF-8.
 
 ### 11.5 Capture
 

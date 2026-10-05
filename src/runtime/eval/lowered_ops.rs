@@ -2114,6 +2114,7 @@ pub(super) fn lowered_path_method_value(
         "starts_with" | "ends_with" if args.len() == 1 => {
             path_component_predicate(&path, name, &args[0], span).map(LoweredValue::Bool)
         }
+        "bytes" if args.is_empty() => Ok(LoweredValue::Bytes(path.bytes.into())),
         // The same split `path_component_predicate` compares, so a prefix
         // test and a prefix of this list cannot disagree.
         "components" if args.is_empty() => pathbuf_from_path_value(&path)

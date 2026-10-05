@@ -1413,6 +1413,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The components starts_with, ends_with, and strip_prefix compare: a root is the component `/`, repeated and trailing separators and a `.` after the first component yield nothing, `..` is kept, and the empty path has none. Native bytes are preserved; lexical, with no filesystem access.",
             &["path", "component", "split"],
         )),
+        ("Path", "bytes") => Some((
+            "Returns the native bytes of a path.",
+            "Lossless: Path.parse_bytes of the result is the same path. Use it where bytes are wanted (hashing, binary formats) instead of encoding display text, which replaces bytes that are not UTF-8.",
+            &["path", "bytes", "conversion"],
+        )),
         ("Path", "with_ext") => Some((
             "Replaces a path extension.",
             "The operation changes spelling only and does not rename or touch the filesystem path.",

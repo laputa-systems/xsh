@@ -159,7 +159,8 @@ pub struct NativeTestRunRequest {
     pub source: String,
     pub tool_args: Vec<String>,
     pub script_args: Vec<String>,
-    pub env: BTreeMap<String, String>,
+    /// Overrides by name; a value is the bytes the script receives.
+    pub env: BTreeMap<String, Vec<u8>>,
     pub stdin: Vec<u8>,
     /// The fakes the requesting test installed; the host runs the script
     /// under the same fakes.
@@ -2925,6 +2926,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "glob",
     "rglob",
     "components",
+    "bytes",
     "wait",
     "cancel",
     "context",

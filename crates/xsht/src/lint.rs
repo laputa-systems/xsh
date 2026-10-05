@@ -23,6 +23,9 @@ mod lint_path_text_query;
 #[path = "lint_path_display_equality.rs"]
 mod lint_path_display_equality;
 
+#[path = "lint_path_display_sink.rs"]
+mod lint_path_display_sink;
+
 #[path = "lint_write_lines.rs"]
 mod lint_write_lines;
 
@@ -10301,6 +10304,13 @@ impl<'a> Linter<'a> {
             ),
         ];
         self.diagnostics.extend(found.into_iter().flatten());
+        let sinks = lint_path_display_sink::path_display_sinks(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            expr,
+        );
+        self.diagnostics.extend(sinks);
     }
 
     fn lint_redundant_named_bool(

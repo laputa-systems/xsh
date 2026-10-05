@@ -1066,7 +1066,9 @@ pub struct CommandPlan {
     pub target: Vec<u8>,
     pub argv: Vec<Vec<u8>>,
     pub cwd: Option<PathValue>,
-    pub env: BTreeMap<String, String>,
+    /// Overrides by name. A value is the bytes the child receives: text as
+    /// UTF-8 and a Path as its native bytes, never its display text.
+    pub env: BTreeMap<String, Vec<u8>>,
     pub redirections: Vec<CommandRedirection>,
     pub timeout: Option<DurationValue>,
     pub cpu_max: Option<i64>,

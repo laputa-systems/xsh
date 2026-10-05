@@ -153,6 +153,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     true,
                     RuntimeOp::PathComponents,
                 ),
+                method("bytes", Vec::new(), Type::Bytes, true, RuntimeOp::PathBytes),
                 method(
                     "exists",
                     Vec::new(),

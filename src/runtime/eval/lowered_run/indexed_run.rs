@@ -7323,10 +7323,7 @@ impl Evaluator {
                             };
                             let mut run_env = BTreeMap::new();
                             for (name, value) in env_overlay {
-                                run_env.insert(
-                                    String::from_utf8_lossy(&name).into_owned(),
-                                    String::from_utf8_lossy(&value).into_owned(),
-                                );
+                                run_env.insert(String::from_utf8_lossy(&name).into_owned(), value);
                             }
                             let run_timeout = match self.eval_indexed_optional_expr(
                                 execution,
