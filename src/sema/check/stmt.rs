@@ -1833,6 +1833,16 @@ impl Checker {
             ok_ty
         };
         self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
+        // A failed Result binds nothing, so the statements after the guard
+        // cannot run: the block leaves, exactly as an optional guard's does.
+        let else_span = arena.arena.span(arena.arena.block(else_block).span);
+        if !self.definitely_exiting_block_spans.contains(&else_span) {
+            self.error(
+                else_span,
+                "guard failure branch must leave the enclosing continuation on every reachable path",
+                DiagnosticCode::CheckGuardFallthrough,
+            );
+        }
         self.define_binding_target_arena(arena, target, &bind_ty, false, span);
     }
 
@@ -3819,7 +3829,12 @@ impl Checker {
                 }
                 let infer_branches = self.inferred_returns.is_some() && expected.is_none();
                 let mut inferred = None;
+                // What every earlier condition proved by failing holds in
+                // each later condition and branch, and in the final `else`.
+                let mut previous_failure = Vec::new();
                 for branch in arena.arena.if_branches(branches) {
+                    self.push_scope();
+                    self.apply_narrowings(&previous_failure);
                     let narrowings = self.check_condition_arena(
                         arena,
                         source,
@@ -3857,16 +3872,12 @@ impl Checker {
                             inferred.unwrap_or(actual)
                         });
                     }
+                    previous_failure.extend(narrowings.when_false);
+                    self.pop_scope();
                 }
                 if let Some(block) = else_block {
                     self.push_scope();
-                    if arena.arena.if_branches(branches).len() == 1 {
-                        let narrowings = self.infer_condition_narrowings_arena(
-                            arena,
-                            arena.arena.if_branches(branches)[0].condition,
-                        );
-                        self.apply_narrowings(&narrowings.when_false);
-                    }
+                    self.apply_narrowings(&previous_failure);
                     let actual = self.check_tail_block_arena(
                         arena,
                         source,

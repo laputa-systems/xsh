@@ -997,6 +997,9 @@ continuation, loop body, or match arm where a condition proved it.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
+- What a condition of an `if` proves by failing holds in every later
+  `else if` condition and branch and in the final `else`, in a statement
+  `if` and a value `if` alike.
 - `guard cond else { ... }`, `assert cond`, and an exiting guarded statement
   (`return x when cond`) make the success facts hold for the following
   statements.
@@ -1769,8 +1772,11 @@ evaluates once, and its type selects the form:
   may name the error: `else { |failure| ... }`.
 - `T?`: any value but `null` is bound as `T`. `null` runs the block. A null
   value carries no error, so the block takes no parameter
-  (`check.block-params`), and like the block of `guard cond` it must leave the
-  enclosing continuation (`check.guard-fallthrough`).
+  (`check.block-params`).
+
+Either way nothing is bound when the block runs, so like the block of
+`guard cond` it must leave the enclosing continuation
+(`check.guard-fallthrough`).
 
 ```xsh
 {{.spec.optional_binding.source}}
@@ -2105,6 +2111,10 @@ Return types may be omitted only on private functions:
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
+
+A function declared `Result[T, E]?` returns `null`, an `Ok`, or an `Err` as
+the value it is: an `Err` it returns is data for the caller, bound by a plain
+`let` like any other value, and not a failure of the call.
 
 An annotation on a private function is never required where inference
 succeeds. The opt-in `lint.prefer-inferred-proc-return` removes a private

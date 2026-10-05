@@ -1012,6 +1012,10 @@ struct LoweredTypeCheck {
 enum LoweredReturnKind {
     Plain(LoweredType),
     Result(LoweredType),
+    /// A declared `Result[T, E]?`: the function returns `null`, an `Ok`, or
+    /// an `Err` as the value it is. An `Err` here is data the caller asked
+    /// for, not a failure of the call.
+    OptionalResult,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

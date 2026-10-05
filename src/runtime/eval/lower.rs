@@ -3380,6 +3380,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 };
                 if let Type::Result(ok, _) = ty {
                     storage_kind(ok).map(LoweredReturnKind::Result)
+                } else if matches!(ty, Type::Optional(inner) if matches!(**inner, Type::Result(_, _)))
+                {
+                    Some(LoweredReturnKind::OptionalResult)
                 } else {
                     storage_kind(ty).map(LoweredReturnKind::Plain)
                 }
@@ -4783,6 +4786,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 TypeExprId::from_index(data.lhs as usize),
                 self.declarations,
             )?));
+        }
+        if tag == ArenaTypeExprTag::Optional
+            && self.program.arena.type_expr_tags[data.lhs as usize] == ArenaTypeExprTag::Result
+        {
+            return Some(LoweredReturnKind::OptionalResult);
         }
         Some(LoweredReturnKind::Plain(lowered_arena_type(
             &self.program.arena,
@@ -16760,6 +16768,7 @@ fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool
             // completes an `Any`- or `Any?`-returning function.
             | LoweredReturnKind::Plain(LoweredType::Any)
             | LoweredReturnKind::Result(LoweredType::Any)
+            | LoweredReturnKind::OptionalResult
     )
 }
 

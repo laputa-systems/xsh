@@ -978,6 +978,7 @@ pub(super) fn lowered_return_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
+        (LoweredReturnKind::OptionalResult, value) => Ok(value),
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
             let mut error = super::runtime_error_from_value(*error, span);
             error.propagated = true;

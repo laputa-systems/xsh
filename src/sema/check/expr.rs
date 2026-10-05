@@ -1741,7 +1741,12 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         let mut inferred = None;
+        // What every earlier condition proved by failing holds in each later
+        // condition and branch, and in the final `else`.
+        let mut previous_failure = Vec::new();
         for branch in arena.arena.if_expr_branches(branches) {
+            self.push_scope();
+            self.apply_narrowings(&previous_failure);
             let narrowings = self.check_condition_arena(
                 arena,
                 source,
@@ -1776,15 +1781,11 @@ impl Checker {
                 });
             }
             self.pop_scope();
+            previous_failure.extend(narrowings.when_false);
+            self.pop_scope();
         }
         self.push_scope();
-        if arena.arena.if_expr_branches(branches).len() == 1 {
-            let narrowings = self.infer_condition_narrowings_arena(
-                arena,
-                arena.arena.if_expr_branches(branches)[0].condition,
-            );
-            self.apply_narrowings(&narrowings.when_false);
-        }
+        self.apply_narrowings(&previous_failure);
         let infer_branches = self.inferred_returns.is_some() && expected.is_none();
         let else_expected = if infer_branches {
             None

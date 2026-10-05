@@ -1405,6 +1405,9 @@ impl<'a> FullFunctionView<'a> {
             });
         let return_kind = match return_type {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
+            Type::Optional(inner) if matches!(*inner, Type::Result(_, _)) => {
+                LoweredReturnKind::OptionalResult
+            }
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
         };
         Ok(FunctionHeader {
@@ -2644,6 +2647,15 @@ impl FullBuilder {
                     &Type::Result(Box::new(ok), Box::new(Type::Error)),
                 )
             }
+            // The signature keeps only the shape that selects the kind again
+            // when the function header is read back.
+            LoweredReturnKind::OptionalResult => self.semantic.intern_type(
+                &mut self.store.semantic,
+                &Type::Optional(Box::new(Type::Result(
+                    Box::new(Type::Any),
+                    Box::new(Type::Error),
+                ))),
+            ),
         }
     }
 
