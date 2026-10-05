@@ -216,3 +216,42 @@ show(["a", "b"])
   assert after.stdout == before.stdout
   assert after.stdout == "0: a\n1: b\nb 1\na\nb\n2\n"
 }
+
+# `xsht grep` takes a loop head as a pattern. A head matches the loops written
+# with the same number of bindings, and never the expansion of another form.
+test test_grep_finds_loops_by_their_head { |ctx|
+  let candidate = test.temp_file(
+    ctx,
+    name: "for-grep.xsh",
+    contents: bytes.from_text("""type Entry = {name: Str, size: Int}
+const entries: List[Entry] = [{name: "a", size: 1}]
+for entry in entries {
+  print \$entry.name
+}
+for i, {name, size} in entries {
+  print \$i \$name \$size
+}
+for row, n in range(3) {
+  print \$row \$n
+}
+repeat 2 times {
+  print "tick"
+}
+"""),
+  )?
+  let plain = run.capture --text "xsht" grep "for NAME in ITER" $candidate ?
+  assert plain.stdout == f"{candidate}:3:for entry in entries {{\n1 match\n", plain.stdout
+
+  let indexed = run.capture --text "xsht" grep "for INDEX, NAME in ITER" $candidate ?
+  assert ":6:for i, {name, size} in entries {" in indexed.stdout, indexed.stdout
+  assert ":9:for row, n in range(3) {" in indexed.stdout, indexed.stdout
+  assert indexed.stdout.ends_with("2 matches\n"), indexed.stdout
+
+  # A lowercase name matches only itself, and the source is an expression
+  # pattern like any other.
+  let named = run.capture --text "xsht" grep "for row, NAME in range(COUNT)" $candidate ?
+  assert named.stdout == f"{candidate}:9:for row, n in range(3) {{\n1 match\n", named.stdout
+
+  let rejected = run.capture --text --accept=[2] "xsht" grep "for {name}, ITEM in ITER" $candidate ?
+  assert "failed to parse pattern" in rejected.stderr, rejected.stderr
+}

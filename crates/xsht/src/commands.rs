@@ -539,12 +539,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         options_end_at_first_argument: false,
         notes: &[
             "Uppercase identifiers are expression metavariables; ARGS.. matches zero or more arguments.",
+            "A pattern that begins with `for` is a loop head; a metavariable there matches any loop binding.",
         ],
         examples: &[
             "xsht grep 'X.len()' .",
             "xsht grep 'X.push(ITEM)' src/",
             "xsht grep 'M.set(K, V)' .",
             "xsht grep 'for NAME in ITER' .",
+            "xsht grep 'for INDEX, NAME in ITER' .",
         ],
     },
     CommandSpec {

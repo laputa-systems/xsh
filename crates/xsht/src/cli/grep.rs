@@ -3,7 +3,7 @@ use crate::xsht::cli::{
     text_bytes,
 };
 use crate::xsht::grep::{
-    find_matches_in_program, line_at_offset, offset_to_line, parse_pattern_expr,
+    find_pattern_matches, line_at_offset, offset_to_line, parse_pattern,
 };
 use std::fs;
 use std::path::Path;
@@ -15,7 +15,7 @@ pub fn grep_scripts(pattern_str: &str, paths: &[String]) -> CliOutput {
         return output;
     }
 
-    let pattern_expr = match parse_pattern_expr(pattern_str) {
+    let pattern = match parse_pattern(pattern_str) {
         Ok(expr) => expr,
         Err(message) => {
             return CliOutput {
@@ -82,7 +82,7 @@ pub fn grep_scripts(pattern_str: &str, paths: &[String]) -> CliOutput {
         }
 
         let mut matches = Vec::new();
-        find_matches_in_program(&pattern_expr, &parsed.arena, &text, &mut matches);
+        find_pattern_matches(&pattern, &parsed.arena, &text, &mut matches);
 
         for m in &matches {
             let line = offset_to_line(&text, m.span.start());

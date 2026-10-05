@@ -3003,6 +3003,10 @@ explanation) whenever equivalence cannot be proved.
 `xsht grep` patterns are XSH expressions where uppercase identifiers are
 metavariables (`X.push(ITEM)`, `ARGS..` for zero or more arguments). Matching
 respects expression boundaries and ignores whitespace and comments.
+A `xsht grep` pattern that begins with `for` is a loop head instead,
+`for NAME in ITER` or `for INDEX, NAME in ITER`: it matches the loops written
+with that many bindings, a metavariable in a binding position matches any
+loop binding, and the source is an expression pattern.
 `xsht refactor` substitutes the captured text into a replacement template;
 `--dry-run` prints a diff.
 

@@ -3,8 +3,8 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram, ArenaStmtKind, AstArena,
-    BlockId, ExprId, PatternId,
+    ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram,
+    ArenaStmtKind, ArenaSugar, AstArena, BindingTargetId, BlockId, ExprId, PatternId, StmtId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -998,4 +998,163 @@ pub fn parse_pattern_expr(pattern: &str) -> Result<PatternExpr, String> {
         root,
         source: wrapped,
     })
+}
+
+/// A `for` loop head as a pattern: `for NAME in ITER` or
+/// `for INDEX, NAME in ITER`. The loop lives in its own arena, parsed from
+/// the pattern text with an empty body.
+#[derive(Clone, Debug)]
+pub struct ForHeadPattern {
+    program: ArenaProgram,
+    /// The index binding of the indexed form.
+    index: Option<BindingTargetId>,
+    item: BindingTargetId,
+    iter: ExprId,
+}
+
+/// What `xsht grep` searches for.
+#[derive(Clone, Debug)]
+pub enum Pattern {
+    Expr(PatternExpr),
+    ForHead(ForHeadPattern),
+}
+
+/// Parses a grep pattern: a `for` loop head when it begins with the word
+/// `for`, and an expression otherwise.
+pub fn parse_pattern(pattern: &str) -> Result<Pattern, String> {
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    let is_for_head = pattern
+        .trim_start()
+        .strip_prefix("for")
+        .is_some_and(|rest| rest.starts_with(char::is_whitespace));
+    if !is_for_head {
+        return parse_pattern_expr(pattern).map(Pattern::Expr);
+    }
+    let wrapped = format!("{pattern} {{}}");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &wrapped);
+    if !parsed.diagnostics.is_empty() {
+        return Err(format!(
+            "failed to parse pattern '{}': {}",
+            pattern, parsed.diagnostics[0].message
+        ));
+    }
+    let program = parsed.arena;
+    let unexpected = || format!("failed to parse pattern '{pattern}': expected one `for` loop head");
+    let statements = program
+        .arena
+        .stmt_ids(program.statements)
+        .collect::<Vec<_>>();
+    let [statement] = statements[..] else {
+        return Err(unexpected());
+    };
+    let (index, item, iter) = match program.arena.stmt(statement).kind {
+        ArenaStmtKind::For { target, iter, .. } => (None, target, iter),
+        ArenaStmtKind::Sugar { form, operands, .. } => {
+            match program.arena.sugar(form, operands) {
+                ArenaSugar::ForIndex {
+                    index,
+                    item,
+                    source,
+                    ..
+                } => (Some(index), item, source),
+                _ => return Err(unexpected()),
+            }
+        }
+        _ => return Err(unexpected()),
+    };
+    for target in index.into_iter().chain([item]) {
+        if !matches!(
+            program.arena.binding_target(target).kind,
+            ArenaBindingTargetKind::Name(_)
+        ) {
+            return Err(format!(
+                "failed to parse pattern '{pattern}': a `for` pattern binds names or metavariables"
+            ));
+        }
+    }
+    Ok(Pattern::ForHead(ForHeadPattern {
+        program,
+        index,
+        item,
+        iter,
+    }))
+}
+
+/// Whether the pattern binding `p_id` accepts the loop binding `t_id`: a
+/// metavariable accepts any binding, including a destructuring, and any
+/// other name accepts only itself. A binding has no expression span, so a
+/// metavariable here is not recorded in the match's bindings.
+fn match_binding_target(
+    p: &AstArena,
+    p_id: BindingTargetId,
+    t: &AstArena,
+    t_id: BindingTargetId,
+) -> bool {
+    let ArenaBindingTargetKind::Name(pattern) = p.binding_target(p_id).kind else {
+        return false;
+    };
+    is_metavar(pattern.as_str().as_str())
+        || matches!(t.binding_target(t_id).kind, ArenaBindingTargetKind::Name(name) if name == pattern)
+}
+
+/// Find all occurrences of `pattern` in `program`. A `for` head matches the
+/// loops the user wrote with the same number of bindings: `for NAME in ITER`
+/// does not match an indexed loop, and the indexed pattern matches no other.
+/// A match of a head spans the loop from `for` through its source.
+pub fn find_pattern_matches(
+    pattern: &Pattern,
+    program: &ArenaProgram,
+    source: &str,
+    matches: &mut Vec<Match>,
+) {
+    let head = match pattern {
+        Pattern::Expr(pattern) => {
+            return find_matches_in_program(pattern, program, source, matches);
+        }
+        Pattern::ForHead(head) => head,
+    };
+    let p = &head.program.arena;
+    let t = &program.arena;
+    for index in 0..t.stmt_tags.len() {
+        let id = StmtId::from_index(index);
+        // A pattern matches what the user wrote, never a sugar expansion.
+        if t.stmt_is_synthetic(id) {
+            continue;
+        }
+        let stmt = t.stmt(id);
+        let (target_index, target_item, target_iter) = match stmt.kind {
+            ArenaStmtKind::For { target, iter, .. } => (None, target, iter),
+            ArenaStmtKind::Sugar { form, operands, .. } => match t.sugar(form, operands) {
+                ArenaSugar::ForIndex {
+                    index,
+                    item,
+                    source,
+                    ..
+                } => (Some(index), item, source),
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let indexes_match = match (head.index, target_index) {
+            (None, None) => true,
+            (Some(pattern), Some(target)) => match_binding_target(p, pattern, t, target),
+            _ => false,
+        };
+        let mut bindings = FxHashMap::default();
+        if indexes_match
+            && match_binding_target(p, head.item, t, target_item)
+            && match_expr(p, head.iter, t, target_iter, source, &mut bindings)
+        {
+            matches.push(Match {
+                span: Span::new(
+                    stmt.span.source_id,
+                    stmt.span.start(),
+                    t.expr(target_iter).span.end(),
+                ),
+                bindings,
+            });
+        }
+    }
 }
