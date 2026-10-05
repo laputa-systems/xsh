@@ -558,3 +558,24 @@ test test_cp_does_not_reuse_destination_symlink_for_second_source { |ctx|
   assert result.stderr.find("through just-created symlink") != null
   assert referent.read_text()? == "first"
 }
+
+test test_cp_force_unreadable_source_keeps_destination { |ctx|
+  if unix.id()?.uid != 0 { test.skip("credential drop requires root") }
+  let root = test.temp_dir(ctx, name: "cp-force-source")?
+  root.parent().chmod(0o755)
+  root.chmod(0o777)
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("unreadable")
+  source.chmod(0o000)
+  dest.write("protected")
+  let helper = fp"{root}/helper.xsh"
+  helper.write(f"""unix.set_uid(65534)
+let status = run.status p"{ctx.xsh_bin}" p"{ctx.core_dir}/cp.xsh" -- -f p"{source}" p"{dest}"
+exit status.shell_code()?
+""")
+  helper.chmod(0o644)
+  let result = run.capture --text ${ctx.xsh_bin} $helper
+  assert result.status.exited_with(1), result.stderr
+  assert dest.read_text()? == "protected"
+}
