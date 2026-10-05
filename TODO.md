@@ -26,13 +26,12 @@ Closed. Each is written on its item below.
 | `PATH-12` | The type is named `RelPath`. |
 | `PATH-13`, `MATCH-10` | Methods, not phrases: `p.is_dir()` and `xs.is_empty()`. `is` keeps one meaning, the type test. |
 | `ERR-4` | `Err(.Variant(...))` requires a declared family-typed return. There is no rule that guesses a family. |
-| `MATCH-2` | Ordinary and Str-backed enums now, as a direct change of severity with no autofix. An exactly known error family follows once `ERR-5` has merged. |
+| `MATCH-2` | Ordinary and Str-backed enums first, as a direct change of severity with no autofix; an exactly known error family after that. |
 | `MATCH-7` | Only a literal negative index counts from the end. A computed negative index still fails. |
 | `TYPE-2` | The spelling written on the item: `proc(...) [effects] -> T`. |
 | `TYPE-4`, `TYPE-5`, `PATH-12` | One checker mechanism for validated types, built with `TYPE-4`. |
 | `TYPE-6` | `nominal type`. Identity only; field privacy is not part of it. |
 | `SCOPE-9` | Last, and narrow: use after a consuming operation in straight-line code of one scope. |
-| `CMD-4` | `exit N` is a core statement. `abort`, with its `force` argument, is removed; nothing replaces `force`. |
 
 Still open; the item is not assigned until it is closed here:
 
@@ -51,8 +50,7 @@ Still open; the item is not assigned until it is closed here:
 
 What `?` means, where a failure may leave without one, and the statements
 that produce failures. The lints for a redundant statement `?`, a redundant
-`}?`, and a re-propagating `match` are merged; applying them is the first
-migration in `campaign.md`.
+`}?`, and a re-propagating `match` are merged and applied to both corpora.
 
 The propagation rule the later items implement, replacing the list in SPEC 1
 ("Results, not exceptions"): a failure leaves a function only through a form
@@ -112,12 +110,6 @@ signatures.
   Decided: the inferred form requires a declared family-typed return, and
   there is no guessing rule. Laputa gains family-typed returns where `ERR-5`
   narrows a signature; other sites keep the qualified spelling.
-- `ERR-5` **Public Result signatures must spell their error type.** The
-  warning and its autofix (`, Error`) are merged and both corpora are
-  migrated. The check error is prepared on the branch `held/err-check-errors`
-  together with the error for an ambiguous positional error-constructor
-  argument; it needs a rebase. A module loaded with `module.load` is not
-  checked at run time. Pairs with `MOD-7`.
 - `ERR-6` The inferred-variant and positional-constructor lints are opt-in
   (`[lint] prefer-inferred-variants`, `prefer-positional-constructors`)
   because the repository lint gate requires zero diagnostics; enable them by
@@ -133,6 +125,10 @@ signatures.
   toward exhaustiveness. The `record.require` migration fix is offered only
   for a call in the root program, so a module reached only through its
   importer keeps the site until it is linted directly.
+- `ERR-10` A public signature must spell its `Result` error type, and an
+  ambiguous positional error-constructor argument is rejected; both are
+  check errors now. A module loaded with `module.load` is not held to the
+  first rule at run time.
 
 ## `PATH`: paths and the filesystem API
 
@@ -285,7 +281,7 @@ conversion.
   directly: the warning finds no site in either corpus, and an autofix that
   appends `else => {}` would not preserve behavior, because an unmatched
   statement match fails today with `match-no-arm`. An exactly known error
-  family follows once `ERR-5` has merged.
+  family follows.
 - `MATCH-3` Two codes have per-site severity: `check.non-exhaustive-match` and
   `check.reveal-type`.
   `MATCH-2` removes the `check.non-exhaustive-match` case.
@@ -412,11 +408,6 @@ to inference.
 Command words, literals, script entry points, the test API, and repository
 tooling. The items are independent of each other.
 
-- `CMD-4` **`exit N` replaces `abort(N)`.** The `exit` statement and
-  `lint.prefer-exit` are merged. The removal of `abort` and of its `force`
-  argument is prepared on the branch `held/cmd4-abort-removal`; it merges
-  after both corpora are migrated with the lint, and it hand-edits the
-  script strings and fixtures the lint cannot reach.
 - `CMD-5` **Subcommand `cli` entries.** `cli main repo check(repo: Path = default_repo()) { ... }`:
   several `cli` entries named by a subcommand path, each with generated help
   and option parsing. Replaces the `var parsed = Placeholder(...)` +
@@ -443,6 +434,9 @@ tooling. The items are independent of each other.
 - `CMD-16` Measure retained frontend memory for guarded statements, which
   now take several arena rows where they took one
   (`xsh-frontend-stats`).
+- `CMD-17` `abort` is removed. Its diagnostic offers `exit N`, but
+  `xsht lint --fix` does not apply that fix, so old code needs a manual
+  rewrite.
 
 ## `LINT`: lint accuracy and migrations
 
@@ -471,20 +465,75 @@ table costs files times the whole workspace.
 - `LINT-7` `xsht lint --fix --only CODE` rejects every fix round in a file
   that has any unselected check warning. `xsht lint --fix` ignored SIGTERM
   during one long run.
+- `LINT-8` Fixes whose output is not what the formatter prints, or that fire
+  where they should not; each has a failing test:
+  - `lint.prefer-item-shorthand` writes `map .upper()` where `xsht fmt`
+    writes `map { .upper() }`
+    (`lint::linter_list_compound_assignment_reaches_every_argument_that_leaves_the_local_alone`).
+  - `lint.prefer-match-else` leaves a blank line after the `match` that
+    `xsht fmt` removes
+    (`lint::linter_reports_dead_code_after_all_returning_match`).
+  - An unfiltered `xsht lint --fix` now rewrites two files the tests expect
+    it to leave alone because a comment or guard is in the way
+    (`tests/xsh/pattern-conditionals.xsh::test_pattern_conditional_lint_retains_comments_guards_and_error_bindings`,
+    `tests/xsh/pattern-tests.xsh::test_pattern_predicate_lint_preserves_comments_and_bindings`).
+  - `lint::fs_root_receiver_cli_fix_checks_an_isolated_fixture_and_converges`
+    fails on its `root.mkdir(p"nested", parents: true)` fixture.
 
 ## Laputa
 
-Migrated through `lint.prefer-tempdir`, one commit per rule, with its
-`xsht check` clean. Sites without an autofix remain: `lint.prefer-tempdir`
-17, `lint.prefer-size-literal` 9, `lint.prefer-match-else` 7,
-`lint.prefer-write-lines` 5. `packages/flex/files/flex.xsh` and
-`packages/bison/files/bison.xsh` are checksummed local sources and
-`tests/pm/fixtures/plans/basic-aarch64.json` records proof hashes, so a
-migration that rewrites them must update the `sha256` in their
-`PKGBUILD.xsh` and regenerate the fixture. `pm/execute.xsh` carries a comment
-that `?` once escaped a `par-map` worker; it does not reproduce
-(`tests/xsh/par-map-worker-propagation.xsh`), so the site can migrate and
-the comment can go.
+Laputa (`../laputa`) is migrated through every campaign lint and through
+`lint.prefer-inferred-private-effects`, `lint.prefer-item-shorthand`, and
+`lint.prefer-tempdir-scope`, one commit per rule, with its `xsht check` clean.
+Sites without an autofix remain, among them `lint.prefer-tempdir` 17,
+`lint.prefer-size-literal` 9, `lint.prefer-tempdir-scope` 8,
+`lint.prefer-match-else` 7, and `lint.prefer-write-lines` 5; its older lint
+findings were never part of the campaign.
+
+A lint migration that rewrites a checksummed local source must update the
+`sha256` its `PKGBUILD.xsh` declares (`packages/flex`, `packages/bison`,
+`packages/ca-certificates` so far) and regenerate
+`tests/pm/fixtures/plans/basic-aarch64.json`, which records proof hashes.
+`pm/execute.xsh` carries a comment that `?` once escaped a `par-map` worker;
+it does not reproduce (`tests/xsh/par-map-worker-propagation.xsh`), so the
+comment can go.
+
+## `ITER`: iteration speed
+
+Gates and builds are the slowest part of every change, for a person and for
+a lane. Measured on a ten-core M1 Pro with nothing else running: a release
+rebuild of `xsh` and `xsht` after a source change takes about two minutes;
+the `xsht` integration target runs for about 105 s and the debug `xsh --lib`
+tests for about 40 s, each after its own build; the whole gate sequence is
+15 minutes or more, and 25 to 40 with lanes building. Nothing in this
+workstream is designed yet.
+
+- `ITER-1` Measure first: `cargo build --timings` for the release build and
+  each test target, and the slowest native tests and Rust tests by wall
+  time. Record the numbers in `docs/TESTING.md` so a regression is visible.
+- `ITER-2` A faster build for running tests. The release profile uses thin
+  LTO at `opt-level = 3`, and tests refuse debug binaries
+  (`tests/release_binary.rs`). Decide what a test binary needs: probably
+  optimization without LTO, with more codegen units.
+- `ITER-3` Less to rebuild. `src/runtime/eval/lower.rs` is 16,000 lines and
+  `crates/xsht/src/lint.rs` 15,000, and a change to either recompiles its
+  whole crate; every new lint already lives in its own file. The root
+  package's unit tests cannot be built with `--release` at all (LLVM
+  recursion), which is why they run in debug.
+- `ITER-4` A faster native suite. About 1,000 tests run a whole script
+  through a fresh `xsh` process (`test.run_script`); the few
+  `system-report` tests take five to eight seconds each. `CMD-6`
+  (`test.expect`) is the natural place to run a script test in process.
+- `ITER-5` A faster `xsht` integration target, which is dominated by the
+  corpus tests (lint and format invariance over this repository and
+  Laputa) and competes with itself: the 15 s lint budget test passes alone
+  and fails when the rest of the target runs beside it.
+- `ITER-6` Check a module once per workspace. `xsht lint` still rechecks
+  shared modules under every root that imports them (about 26 s of thread
+  time here); a per-module checked-interface cache is the fix, and `xsh`
+  startup would use the same cache.
+- `ITER-7` Run only the gates a change can affect: map changed paths to the
+  rows of the table in `docs/TESTING.md`, as one `cargo dev` command.
 
 ## Open, without an accepted design
 
