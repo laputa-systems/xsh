@@ -187,6 +187,14 @@ be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
   `prepend`, and `in` still reject a string literal, against the one
   literal rule. Where overloads disagree (`hash.sha256`, `fs.executable`) a
   literal stays `Str`.
+- `PATH-18` `fs.mounts()`, `fs.mount_for`, and `linux.disk_usage()` fail
+  as a whole with `Permission denied` when `statvfs` is refused on one mount
+  point. On a Linux host that runs Docker, an unprivileged user is refused on
+  `/run/docker/netns/*` and on the overlay roots, so every call fails
+  (`tests/xsh/stdlib/fs.xsh::test_fs_tree_metadata_install_and_locking`,
+  `runtime::linux::linux_real_read_only_surfaces_work_in_container`). `df`
+  skips such a mount. Decide between skipping it and listing it without
+  statistics; a mount the caller named must still fail.
 
 Rejected this round: `/` as path join (keep `fp"..."`).
 
@@ -431,6 +439,10 @@ tooling. The items are independent of each other.
   `dev/tests/test-targets.xsh::test_dev_main_target_override_reaches_context`
   overflows the stack on a debug binary. Lint flow no longer folds
   `guard true` and `guard false`.
+  On x86_64 Alpine a debug `xsh` overflows the default 8 MiB stack on
+  `dev/main.xsh -- help`, so every `cargo dev` command and `make` target dies
+  with a segmentation fault there; `ulimit -s 65536` or
+  `XSH_DEV=target/release/xsh make ...` gets past it.
 - `CMD-16` Measure retained frontend memory for guarded statements, which
   now take several arena rows where they took one
   (`xsh-frontend-stats`).
@@ -532,6 +544,17 @@ workstream is designed yet.
   shared modules under every root that imports them (about 26 s of thread
   time here); a per-module checked-interface cache is the fix, and `xsh`
   startup would use the same cache.
+- `ITER-8` On a musl host (Alpine) `rustc` uses musl's allocator and spends
+  most of a thin-LTO build in the kernel. On a 32-thread x86_64 machine a
+  release rebuild of `xsh` after touching `src/lib.rs` takes 163 s (519 s
+  user, 3,059 s system) and 33 s (292 s user, 2 s system) with
+  `LD_PRELOAD=/usr/lib/libjemalloc.so.2` on the `cargo build`. With the
+  preload on builds only, the whole gate sequence takes about eight minutes
+  there: 26 s for the release build, 51 s for the native suite, 69 s + 147 s
+  for the `xsht` targets, 64 s + 8 s for the root integration target, and
+  37 s + 32 s for the unit tests. Decide where the preload belongs (a
+  `rustc-wrapper`, `cargo dev`, or the machine's environment); it must not
+  reach the processes that tests spawn.
 - `ITER-7` Run only the gates a change can affect: map changed paths to the
   rows of the table in `docs/TESTING.md`, as one `cargo dev` command.
 
