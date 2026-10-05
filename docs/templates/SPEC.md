@@ -332,6 +332,10 @@ parameter collects the remainder, so the usual form is
 `proc main(...argv: List[Str])`. A `main` whose required parameter is neither
 `Str` nor `Path` can never bind an argument and is reported at check time.
 
+`process.script_path()` returns the script operand of the running `xsh`
+exactly as it was passed, relative or absolute and never symlink-resolved, so
+an applet installed as a symlink alias sees its own name.
+
 `cli main(parameters) [effects] -> Return { ... }` declares a typed command-line
 entry instead:
 
@@ -395,6 +399,62 @@ For dynamic schemas or other advanced policies, use `cli.parse`,
 `cli.parse_full`, and `cli.commands`. A `cli.parse` error propagated with `?`
 at the top level prints usage and exits `2` (or `0` for help) without a
 traceback.
+
+**GNU mode.** A schema for `cli.applet`, `cli.parse`, or `cli.parse_full` that
+contains a `gnu` record selects GNU `getopt_long` behavior; without it nothing
+changes. The `gnu` field is configuration, not an option, and does not appear
+in the result.
+
+```xsh
+{{.spec.cli_gnu.source}}
+```
+
+- `gnu` fields: `prog: Str` (diagnostic prefix; defaults to the basename of the
+  command name, which is the script path as invoked, so symlinked aliases name
+  themselves), `status: Int` (exit status for usage errors, `0..=255`, default
+  `1`; `ls`, `cmp`, `diff`, and `grep` use `2`, and `env`, `nice`, `nohup`,
+  `timeout`, `stdbuf`, and `chroot` use `125`), `permute: Bool` (default
+  `true`), and `unsupported: Record`. Unknown fields are rejected.
+- Short options bundle (`-abc`) and take attached or separate values (`-n5`,
+  `-n 5`). A required value is always the next argument, even when it starts
+  with `-` (`nice -n -5`). An optional value attaches only: `--color[=WHEN]`,
+  or `-x[ARG]` declared with `optional_value: true`; an option declared
+  `flag: true` with a non-`Bool` kind accepts an attached value the same way. `--opt=value`, `--opt value`, and `--`
+  follow `getopt_long`; a lone `-` is an operand.
+- A long option may be abbreviated to any unambiguous prefix; an exact name
+  always wins over a longer candidate, and aliases of one option never conflict.
+  An ambiguous prefix is an error that lists the candidates in alphabetical
+  order. A long name matches as written after `--`; `_` in a declared name is
+  spelled `-`.
+- Repeating an option is legal: the last value of a scalar wins, switches stay
+  `true`, and an option declared `repeated: true` or with a `List[T]` kind
+  collects every occurrence. `conflicts` resets the earlier option, so the last
+  of two conflicting options wins.
+- Options and operands may interleave. The first operand ends option parsing
+  when the environment defines `POSIXLY_CORRECT` or the `gnu` record sets
+  `permute: false`.
+- `numeric: true` on a value option makes digit runs in a short cluster set
+  it: `-5` and `-12v` give the option the value `5` and `12`. A declared short
+  option with the same digit takes precedence.
+- `stop: true` ends parsing successfully right after the option, before later
+  arguments are read or required operands are checked. Declare `--help` and
+  `--version` this way: GNU mode has no automatic `-h` or `--help`, and both
+  are ordinary options the applet reads from the record.
+- `unsupported` maps `"--name"` or `"-x"` to a reason. Meeting that option
+  fails with `option '--name' is not supported: REASON`; it is never ignored
+  and takes part in abbreviation.
+- Errors stop at the first problem in command-line order. Each prints the
+  `getopt_long` wording on stderr, prefixed `PROG: `, then
+  `Try 'PHRASE --help' for more information.`, and exits with `status` without
+  a traceback. `PHRASE` is `XSH_EXECUTION_PHRASE` when set, otherwise `PROG`.
+  The wordings are `invalid option -- 'x'`, `unrecognized option '--foo'`,
+  `option requires an argument -- 'n'`, `option '--foo' requires an argument`,
+  `option '--foo' doesn't allow an argument`, and
+  `option '--al' is ambiguous; possibilities: '--all' '--almost-all'`. After
+  option parsing, a surplus operand is `extra operand 'X'`, a missing required
+  operand is `missing operand`, and a value that does not convert or fails its
+  descriptor checks is `invalid argument 'V' for '--opt'`. Applets that need
+  utility-specific value wording declare `Str` options and validate them.
 
 ### 3.3 Modules
 
@@ -927,7 +987,9 @@ Arguments evaluate once in source order, and the error is the same value
 whether a field was passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
-Every error has `.message`. Exact variant patterns expose payload fields;
+Every error has `.message`. A failed host operation also carries `.errno: Int?`,
+the raw OS error number (`null` for errors the kernel did not raise). Exact
+variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
 diagnostics only. A `match` over a value of one declared family covers every
@@ -996,8 +1058,9 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 - `Status` is a completed process state, obtained only from process forms.
   It has `ok` and `success: Bool`, `kind` (`"exit"` or `"signal"`), and the
   methods `exited()`, `signaled()`, `exited_with(code)`,
-  `exit_code() -> Result[Int]`, and `signal_number() -> Result[Int]`. `!status`
-  is `!status.ok`.
+  `exit_code() -> Result[Int]`, `signal_number() -> Result[Int]`, and
+  `shell_code() -> Result[Int]`, the code a shell reports: the exit code, or
+  128 plus the signal. `!status` is `!status.ok`.
 - `ProcessHandle` is a live child started by `spawn` (see 11.7).
 - `Command` is a typed process plan from `process.command { ... }` or
   `process.command_argv(...)`. It is not a block literal and runs only when
@@ -4030,7 +4093,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 
 | Module | Role |
 |---|---|
-| `fs` | filesystem walks, metadata, reads and writes, atomic writes, copies, installs, locks, temp files, and `FsRoot` confined directory capabilities |
+| `fs` | filesystem walks, metadata (`stat`, `statvfs`), ownership, mode and nanosecond timestamps, device nodes, hard links, sparse and reflink copies, no-clobber rename, reads and writes, atomic writes, installs, locks, temp files, and `FsRoot` confined directory capabilities |
 | `path` | absolute-path computation; most path operations are `Path` methods |
 | `env` | environment variables and the scoped `env.PATH` view |
 | `process` | process listing, `Command` plans, `process.run`/`process.spawn`, `which` |
@@ -4149,6 +4212,24 @@ Contracts worth knowing without consulting the reference:
   eager, so every failure happens at the call; `Path.lines()` is the lazy
   stream for a file read once, line by line. `read_lines` returns what
   `write_lines` wrote when no element contains `\n` or ends with `\r`.
+- File-utility primitives in `fs` report the kernel's view and never emulate
+  it. `fs.stat` returns every `lstat` field (`follow_symlinks: true` gives
+  `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,
+  `ino`, `rdev`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
+  one file when `dev` and `ino` match. `fs.set_owner`, `fs.set_times` (explicit
+  nanoseconds, kernel "now", or unchanged per field), `fs.chmod` and `fs.link`
+  take `follow_symlinks`. Linux cannot change a symlink's mode, so the
+  no-follow `fs.chmod` on a symlink fails with `EOPNOTSUPP`. `fs.mknod`
+  creates FIFOs, sockets, and device nodes under the umask (`fs.umask()`).
+  `fs.copy_file` creates the destination with the source's permission bits
+  (or `mode`), copies by `FICLONE`, `copy_file_range`, or read and write
+  (`reflink: "auto"|"always"|"never"`, default `never`), and preserves holes
+  (`sparse: "auto"|"always"|"never"`, default `auto`; `always` also turns
+  zero blocks into holes); it sets no other metadata, and `overwrite: false`
+  is `O_EXCL`. `fs.rename_noreplace` is `RENAME_NOREPLACE`; it never falls
+  back to a racy check on a filesystem that lacks it. A facility the host
+  or filesystem lacks fails with its errno (`failure.errno`), so callers
+  test for `EOPNOTSUPP`, `EXDEV`, or `EEXIST` rather than parse messages.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process. Their path parameters are `Path`, so they
@@ -4210,6 +4291,46 @@ Contracts worth knowing without consulting the reference:
   `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
   have no environment gate or dry-run switch. Native tests use
   `test.unix_fake` (§17) instead of the host.
+- Process-control primitives report the kernel's view and never emulate it;
+  every failure carries `failure.errno`. `process.signals()` lists the named
+  signals in number order, starting with the pseudo-signal `EXIT` (0) and
+  ending with `RTMIN` and `RTMAX` where the host has real-time signals;
+  `process.signal` also reads `SIGRTMIN+N`, `RTMAX-N`, and the spellings
+  `CLD`, `IOT`, and `POLL`, and a number no name covers is its own name.
+  `process.group_id`, `session_id`, `parent_pid`, `set_group_id`, and
+  `new_session` read and change the process table (a group leader cannot start
+  a session); `process.kill_group` signals a whole group and, unlike
+  `unix.kill_process_group`, reports a missing group (`process-missing`).
+  `process.priority`, `set_priority` (`which` is `process`, `group`, or
+  `user`), and `nice(increment)` act on scheduling priority, and
+  `process.rlimit`, `rlimits`, and `set_rlimit` on resource limits, where an
+  omitted bound is left unchanged and `null` is unlimited; both are inherited
+  by children. `process.set_signal_action(signal, "ignore"|"default")`
+  changes how the running process treats a signal and survives `unix.exec`
+  (which is how `nohup` is built), while a child started with `run` restores
+  the defaults itself; replacing `INT` or `TERM` disables the runtime's
+  cancellation for that signal. `process.wait_timeout(handles, limit)` is
+  `process.wait_any` that returns `null`, consuming nothing, once `limit`
+  passes with no child finished.
+- Terminal primitives in `unix` work on descriptor numbers: `isatty`,
+  `ttyname`, `controlling_tty`, `window_size` and `set_window_size`,
+  `foreground_group` and `set_foreground_group`, `tty_session`, and
+  `tty_attrs` with `set_tty_attrs(attrs, fd, when: "now"|"drain"|"flush")`.
+  `unix.tty_table()` is the host's termios vocabulary (flags as field, mask,
+  and value, control characters as slot indexes, baud rates) so a script edits
+  the words of a `UnixTtyAttrs` by name; `unix.tty_mode(attrs, mode)` applies
+  `stty`'s `raw`, `cooked`, `cbreak`, or `sane` to a copy that reaches the
+  terminal only through `set_tty_attrs`. `unix.open_fd` and `close_fd`
+  give a bare descriptor for a device path, and `unix.open_pty` a
+  pseudo-terminal pair; descriptors are the script's to close. `unix.read_utmp`
+  decodes a utmp or wtmp file (Linux only; a trailing partial record is
+  ignored) and `unix.load_average` reads the system load.
+- `io.flush_stdout()` writes the buffered standard output to the host and
+  fails with the write's errno (`EPIPE`, `ENOSPC`); without it, output leaves
+  the process at exit and its write errors are not visible. Captured output is
+  not buffered for the host, so it succeeds and does nothing there. The runtime
+  ignores `SIGPIPE`; `process.set_signal_action("PIPE", "default")` makes a
+  closed pipe end the process as it would a shell utility.
 
 ### 15.1 `template`
 

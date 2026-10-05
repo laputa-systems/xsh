@@ -1,0 +1,66 @@
+{
+  "comment": "uutils patches to the GNU tests at the locked commit. class: plumbing (needed to run any non-GNU implementation), semantic (accepted uutils-vs-GNU divergence), wording (uutils diagnostic text; not automatic XSH policy). The differential runs both sides on the same patched tree, so classification affects only absolute GNU scoring. util/build-gnu.sh also rewrites tests with sed after line 160; classify those under build_gnu_rewrites.",
+  "patches": {
+    "tests_factor_factor.pl.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_cksum_base64.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_comm.pl.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_dup_source.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_env_env-S.pl.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_invalid_opt.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_ls_no_cap.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_sort_merge.pl.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_du_move_dir_while_traversing.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "test_mkdir_restorecon.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "error_msg_uniq.diff": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_numfmt.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_pwd-long.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_getopt_vs_usage.patch": {
+      "class": "unclassified",
+      "note": ""
+    },
+    "tests_usage_vs_refs.patch": {
+      "class": "unclassified",
+      "note": ""
+    }
+  },
+  "build_gnu_rewrites": "unclassified"
+}

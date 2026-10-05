@@ -1,42 +1,131 @@
-test test_split_lines { |ctx|
+type Ran = {status: Int, stdout: Bytes, stderr: Str}
+
+# Runs core/split.xsh by its real path inside `root`, capturing both streams.
+proc split_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
+proc piece(root: Path, name: Str) [fs, error] -> Result[Bytes] {
+  fp"{root}/{name}".read_bytes()?
+}
+
+test test_split_lines_bytes_and_line_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "split")?
-  let input = fp"{root}/input.txt"
+  fp"{root}/five".write("1\n2\n3\n4\n5\n")
 
-  input.write("""a
-b
-c
-""")
+  assert split_run(ctx, root, ["-l", "2", "five"])?.status == 0
+  assert piece(root, "xaa")? == b"1\n2\n"
+  assert piece(root, "xab")? == b"3\n4\n"
+  assert piece(root, "xac")? == b"5\n"
+  assert ! fp"{root}/xad".exists()?
 
-  let prefix = fp"{root}/chunk-"
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/split.xsh" -- -l 2 $input $prefix
+  assert split_run(ctx, root, ["-b", "3", "five", "b-"])?.status == 0
+  assert piece(root, "b-aa")? == b"1\n2"
+  assert piece(root, "b-ab")? == b"\n3\n"
 
-  assert """a
-b""" in fp"{root}/chunk-aa".read_text()?
-
-  assert "c" in fp"{root}/chunk-ab".read_text()?
+  assert split_run(ctx, root, ["-C", "3"], b"1\n2222\n3\n4")?.status == 0
+  assert piece(root, "xaa")? == b"1\n"
+  assert piece(root, "xab")? == b"222"
+  assert piece(root, "xac")? == b"2\n"
+  assert piece(root, "xad")? == b"3\n"
+  assert piece(root, "xae")? == b"4"
 }
 
-test test_split_bytes_clamps_final_chunk { |ctx|
-  let root = test.temp_dir(ctx, name: "split-bytes")?
-  let input = fp"{root}/input.bin"
-  input.write(b"abcdefg")
+test test_split_obsolete_line_count_and_conflicts { |ctx|
+  let root = test.temp_dir(ctx, name: "split")?
+  fp"{root}/five".write("1\n2\n3\n4\n5\n")
 
-  let prefix = fp"{root}/chunk-"
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/split.xsh" -- -b 3 $input $prefix
+  assert split_run(ctx, root, ["-2", "five", "o-"])?.status == 0
+  assert piece(root, "o-aa")? == b"1\n2\n"
+  assert split_run(ctx, root, ["-d2", "five", "d-"])?.status == 0
+  assert piece(root, "d-00")? == b"1\n2\n", "digits inside a cluster are the line count"
 
-  assert fp"{root}/chunk-aa".read_bytes()? == b"abc"
-  assert fp"{root}/chunk-ab".read_bytes()? == b"def"
-  assert fp"{root}/chunk-ac".read_bytes()? == b"g"
+  let both = split_run(ctx, root, ["-l", "2", "-2", "five"])?
+  assert both.status == 1
+  assert both.stderr == "split: cannot split in more than one way\n", both.stderr
+
+  let value = split_run(ctx, root, ["--lines", "-200", "five"])?
+  assert value.stderr == "split: invalid number of lines: '-200'\n", value.stderr
 }
 
-test test_split_bytes_large_count_preserves_entire_input { |ctx|
-  let root = test.temp_dir(ctx, name: "split-large-byte-count")?
-  let input = fp"{root}/input.bin"
-  input.write(b"abcdefg")
+test test_split_suffix_styles_and_widening { |ctx|
+  let root = test.temp_dir(ctx, name: "split")?
+  fp"{root}/abc".write("abc")
 
-  let prefix = fp"{root}/chunk-"
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/split.xsh" -- -b 9223372036854775807 $input $prefix
+  assert split_run(ctx, root, ["-b", "1", "-d", "abc", "n"])?.status == 0
+  assert piece(root, "n00")? == b"a"
+  assert split_run(ctx, root, ["-b", "1", "-d", "--hex-suffixes=a", "abc", "h"])?.status == 0
+  assert piece(root, "h0a")? == b"a", "the last suffix option wins and --hex-suffixes=N starts at N"
+  assert piece(root, "h0c")? == b"c"
+  assert split_run(ctx, root, ["-b", "1", "-a", "3", "--additional-suffix=.txt", "abc", "s"])?.status == 0
+  assert piece(root, "saaa.txt")? == b"a"
 
-  assert fp"{root}/chunk-aa".read_bytes()? == b"abcdefg"
-  assert ! fp"{root}/chunk-ab".exists()?
+  let long = bytes.concat([b"a" for _ in range(651)])
+  assert split_run(ctx, root, ["-b", "1", "-"], long)?.status == 0
+  assert piece(root, "xyz")? == b"a"
+  assert piece(root, "xzaaa")? == b"a", "the suffix widens after xyz"
+
+  let exhausted = split_run(ctx, root, ["-b", "1", "-a", "1", "-"], b"abcdefghijklmnopqrstuvwxyz0")?
+  assert exhausted.status == 1
+  assert exhausted.stderr == "split: output file suffixes exhausted\n", exhausted.stderr
+}
+
+test test_split_number_chunks { |ctx|
+  let root = test.temp_dir(ctx, name: "split")?
+  fp"{root}/az".write("abcdefghijklmnopqrstuvwxyz\n")
+  fp"{root}/five".write("1\n2\n3\n4\n5\n")
+
+  assert split_run(ctx, root, ["-n", "5", "az", "c-"])?.status == 0
+  assert piece(root, "c-aa")? == b"abcdef"
+  assert piece(root, "c-ae")? == b"wxyz\n"
+
+  assert split_run(ctx, root, ["-n", "3/5", "az"])?.stdout == b"mnopq"
+  assert split_run(ctx, root, ["-n", "l/2", "five", "l-"])?.status == 0
+  assert piece(root, "l-aa")? == b"1\n2\n3\n"
+  assert piece(root, "l-ab")? == b"4\n5\n"
+  assert split_run(ctx, root, ["-n", "r/2", "five", "r-"])?.status == 0
+  assert piece(root, "r-aa")? == b"1\n3\n5\n"
+  assert split_run(ctx, root, ["-n", "r/2/3", "five"])?.stdout == b"2\n5\n"
+  assert split_run(ctx, root, ["-e", "-n", "7", "-", "e-"], b"abc")?.status == 0
+  assert ! fp"{root}/e-ad".exists()?, "-e drops empty chunks"
+
+  let bad = split_run(ctx, root, ["-n", "10/5", "az"])?
+  assert bad.stderr == "split: invalid chunk number: '10'\n", bad.stderr
+  let zero = split_run(ctx, root, ["-n", "l/0", "az"])?
+  assert zero.stderr == "split: invalid number of chunks: '0'\n", zero.stderr
+  let width = split_run(ctx, root, ["-n", "100", "-a", "1", "az"])?
+  assert width.stderr == "split: the suffix length needs to be at least 2\n", width.stderr
+}
+
+test test_split_separator_verbose_filter_and_errors { |ctx|
+  let root = test.temp_dir(ctx, name: "split")?
+
+  assert split_run(ctx, root, ["--lines=2", "-t", ";", "-", "t-"], b"1;2;3;4;5;")?.status == 0
+  assert piece(root, "t-aa")? == b"1;2;"
+  assert piece(root, "t-ac")? == b"5;"
+
+  let verbose = split_run(ctx, root, ["-b", "2", "--verbose", "-", "v-"], b"abcd")?
+  assert verbose.stdout == b"creating file 'v-aa'\ncreating file 'v-ab'\n"
+
+  assert split_run(ctx, root, ["--filter=cat > $FILE.out", "-l", "1", "-", "f-"], b"x\ny\n")?.status == 0
+  assert piece(root, "f-aa.out")? == b"x\n"
+  assert split_run(ctx, root, ["--filter=exit 3", "-"], b"x\n")?.status == 1
+
+  let missing = split_run(ctx, root, ["nosuch"])?
+  assert missing.status == 1
+  assert missing.stderr == "split: cannot open 'nosuch' for reading: No such file or directory\n", missing.stderr
+
+  let separator = split_run(ctx, root, ["--separator=xx", "-"], b"a")?
+  assert separator.stderr == "split: multi-character separator 'xx'\n", separator.stderr
+  let invalid = split_run(ctx, root, ["-b", "1024W", "-"], b"a")?
+  assert invalid.stderr == "split: invalid number of bytes: '1024W'\n", invalid.stderr
+
+  fp"{root}/xaa".write("keep")
+  assert split_run(ctx, root, [], b"")?.status == 0
+  assert piece(root, "xaa")? == b"keep", "empty input creates no output and leaves existing files alone"
 }

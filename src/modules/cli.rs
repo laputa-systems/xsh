@@ -7,6 +7,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+mod gnu;
+
+use gnu::GnuConfig;
+
 #[derive(Clone, Debug)]
 struct OptionSpec {
     value_ty: ArgValueType,
@@ -36,6 +40,8 @@ struct OptionSpec {
     dir: bool,
     default: Option<Value>,
     positional_order: Option<usize>,
+    numeric: bool,
+    stop: bool,
 }
 
 /// What a signature option holds when the command line does not give it.
@@ -404,6 +410,7 @@ pub(crate) enum ParsePolicy {
 #[derive(Clone, Debug)]
 pub(crate) struct CliDescriptorPlan {
     specs: BTreeMap<String, OptionSpec>,
+    gnu: Option<GnuConfig>,
     policy: ParsePolicy,
     commands: Option<(BTreeMap<String, CommandSpec>, Option<CommandSpec>)>,
 }
@@ -415,8 +422,10 @@ impl CliDescriptorPlan {
         policy: ParsePolicy,
         origins: &BTreeMap<String, Span>,
     ) -> Result<Self, RuntimeError> {
+        let (specs, gnu) = parse_schema_inner(schema, span, policy, origins, true)?;
         Ok(Self {
-            specs: parse_schema_at(schema, span, policy, origins)?,
+            specs,
+            gnu,
             policy,
             commands: None,
         })
@@ -441,6 +450,7 @@ impl CliDescriptorPlan {
             .transpose()?;
         Ok(Self {
             specs: BTreeMap::new(),
+            gnu: None,
             policy: ParsePolicy::Strict,
             commands: Some((specs, fallback)),
         })
@@ -664,12 +674,16 @@ fn parse_cli_with_policy(
     prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
     let dynamic;
-    let specs = if let Some(plan) = prepared {
-        &plan.specs
+    let (specs, gnu) = if let Some(plan) = prepared {
+        (&plan.specs, plan.gnu.as_ref())
     } else {
-        dynamic = parse_schema_with_policy(schema, span, policy)?;
-        &dynamic
+        dynamic = parse_schema_inner(schema, span, policy, &BTreeMap::new(), true)?;
+        (&dynamic.0, dynamic.1.as_ref())
     };
+    if let Some(gnu) = gnu {
+        let parsed = gnu::parse_values(&argv, specs, gnu, command, &RecordMap::new(), span)?;
+        return Ok(Value::ok(Value::Record(parsed.values)));
+    }
     if argv_requests_help(&argv, specs, policy) {
         return Err(cli_help_error(
             usage_text_with_policy(specs, command, policy),
@@ -690,17 +704,21 @@ pub(crate) fn parse_cli_full(
     prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
     let dynamic;
-    let specs = if let Some(plan) = prepared {
-        &plan.specs
+    let (specs, gnu) = if let Some(plan) = prepared {
+        (&plan.specs, plan.gnu.as_ref())
     } else {
-        dynamic = parse_schema(schema, span)?;
-        &dynamic
+        dynamic = parse_schema_inner(schema, span, ParsePolicy::Strict, &BTreeMap::new(), true)?;
+        (&dynamic.0, dynamic.1.as_ref())
     };
-    if argv_requests_help(&argv, specs, ParsePolicy::Strict) {
-        return Err(cli_help_error(usage_text(specs, command), span));
-    }
-    let parsed = parse_values(&argv, specs, &env, span, ParsePolicy::Strict)
-        .map_err(|error| cli_usage_error(error, usage_text(specs, command)))?;
+    let parsed = if let Some(gnu) = gnu {
+        gnu::parse_values(&argv, specs, gnu, command, &env, span)?
+    } else {
+        if argv_requests_help(&argv, specs, ParsePolicy::Strict) {
+            return Err(cli_help_error(usage_text(specs, command), span));
+        }
+        parse_values(&argv, specs, &env, span, ParsePolicy::Strict)
+            .map_err(|error| cli_usage_error(error, usage_text(specs, command)))?
+    };
     let fields = xsh_registry::types::cli_full_fields(
         Value::Record(parsed.values),
         Value::Record(parsed.sources),
@@ -722,7 +740,7 @@ pub(crate) fn render_usage(
     command: String,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_schema(schema, span)?;
+    let (specs, _) = parse_schema_inner(schema, span, ParsePolicy::Strict, &BTreeMap::new(), true)?;
     Ok(Value::Str(usage_text(&specs, &command).into()))
 }
 
@@ -975,15 +993,7 @@ fn parse_schema(
     schema: RecordMap,
     span: Span,
 ) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
-    parse_schema_with_policy(schema, span, ParsePolicy::Strict)
-}
-
-fn parse_schema_with_policy(
-    schema: RecordMap,
-    span: Span,
-    policy: ParsePolicy,
-) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
-    parse_schema_at(schema, span, policy, &BTreeMap::new())
+    parse_schema_at(schema, span, ParsePolicy::Strict, &BTreeMap::new())
 }
 
 fn parse_schema_at(
@@ -992,14 +1002,41 @@ fn parse_schema_at(
     policy: ParsePolicy,
     origins: &BTreeMap<String, Span>,
 ) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
+    parse_schema_inner(schema, span, policy, origins, false).map(|(specs, _)| specs)
+}
+
+/// Entries that read a top-level schema (`cli.parse`, `cli.applet`,
+/// `cli.parse_full`, `cli.usage`) accept a `gnu` record that selects GNU
+/// getopt_long mode. Command and signature schemas never do, so a field named
+/// `gnu` there stays an ordinary option.
+fn parse_schema_inner(
+    schema: RecordMap,
+    span: Span,
+    policy: ParsePolicy,
+    origins: &BTreeMap<String, Span>,
+    allow_gnu: bool,
+) -> Result<(BTreeMap<String, OptionSpec>, Option<GnuConfig>), RuntimeError> {
+    let gnu = match schema.get("gnu").filter(|_| allow_gnu) {
+        Some(descriptor) => Some(GnuConfig::from_value(
+            descriptor,
+            origins.get("gnu").copied().unwrap_or(span),
+        )?),
+        None => None,
+    };
     let mut specs = BTreeMap::new();
     for (name, descriptor) in schema {
+        if gnu.is_some() && name.as_ref() == "gnu" {
+            continue;
+        }
         let descriptor_span = origins.get(name.as_ref()).copied().unwrap_or(span);
         let spec = parse_descriptor(&name, descriptor, descriptor_span)?;
-        validate_not_reserved_help(&name, &spec, descriptor_span, policy)?;
+        // GNU mode declares `--help` and `-h` like any other option.
+        if gnu.is_none() {
+            validate_not_reserved_help(&name, &spec, descriptor_span, policy)?;
+        }
         specs.insert(name.to_string(), spec);
     }
-    Ok(specs)
+    Ok((specs, gnu))
 }
 
 fn validate_not_reserved_help(
@@ -1075,6 +1112,8 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 dir: false,
                 default: None,
                 positional_order: None,
+                numeric: false,
+                stop: false,
             })
         }
         Value::Record(fields) => {
@@ -1158,6 +1197,8 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 false,
                 span,
             )?;
+            let numeric = descriptor_bool(name, &fields, "numeric", false, span)?;
+            let stop = descriptor_bool(name, &fields, "stop", false, span)?;
             Ok(OptionSpec {
                 value_ty,
                 repeated,
@@ -1186,6 +1227,8 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 dir,
                 default,
                 positional_order: None,
+                numeric,
+                stop,
             })
         }
         value => Err(cli_error(

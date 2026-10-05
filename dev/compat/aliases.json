@@ -1,0 +1,17 @@
+{
+  "comment": "Executable names that dispatch to a shared core applet, as {name, target} entries. The applet sees argv[0] and must keep command-specific defaults, help and diagnostics. Lanes propose entries; the integrator owns this file.",
+  "aliases": [
+    {
+      "name": "[",
+      "target": "test"
+    },
+    {
+      "name": "dir",
+      "target": "ls"
+    },
+    {
+      "name": "vdir",
+      "target": "ls"
+    }
+  ]
+}

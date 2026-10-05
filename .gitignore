@@ -9,3 +9,5 @@ crates/xshi/benches/baseline.json
 scripts/__pycache__
 lx-*
 .claude/worktrees/
+__pycache__/
+dev/compat/results/*.junit.xml

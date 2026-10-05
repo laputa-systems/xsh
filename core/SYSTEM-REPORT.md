@@ -8,8 +8,10 @@ subprocesses, and emits one typed snapshot as text or JSON v1.
 |---|---|
 | `core/system-report.xsh` | CLI: `--json`, `--full`, `--section NAME`, `--sensitive`, `--from FILE` |
 | `core/lib/system_report.xsh` | typed snapshot model (`SystemReport`), JSON v1 codec, redaction, text rendering |
-| `core/lib/system_report_collect.xsh` | bounded source readers and parsers |
-| `core/lib/system_report_live.xsh` | rooted Linux collection (`collect_from_root`, `collect_live`) |
+| `core/lib/system_report_collect.xsh` | bounded source readers and parsers (the PCI, block-scheduler, `read_source_text`, and `bounded_number` entries delegate to `sys_*`) |
+| `core/lib/system_report_live.xsh` | rooted Linux collection (`collect_from_root`, `collect_live`); maps `sys_*` records into the report model and applies redaction policy |
+| `core/lib/sys_source.xsh`, `sys_pci.xsh`, `sys_usb.xsh`, `sys_block.xsh`, `sys_mount.xsh` | reusable typed collectors, one per kernel ABI (see "Typed collectors") |
+| `core/tests/test-sys-*.xsh` | native tests for each `sys_*` module over synthetic procfs/sysfs trees |
 | `dev/system_report_check.xsh` | coverage manifest validation, capture/replay, live differential checks |
 | `dev/system-report-coverage.json` | fixed-denominator coverage manifest |
 | `tests/xsh/system-report.xsh`, `tests/xsh/system-report-collect.xsh` | native collector, model, and renderer tests over rooted fixtures |
@@ -23,6 +25,38 @@ issues; usage errors, invalid replay input, and non-Linux live collection map to
 `SystemReportCliError.Usage`, `InvalidInput`, and `Unsupported`; other
 unhandled failures keep their source error and exit with XSH's runtime-failure
 status 3.
+
+## Typed collectors
+
+`sys_pci`, `sys_usb`, `sys_block` and `sys_mount` are the single model of their
+kernel ABIs (`sys/bus/pci/devices`, `sys/bus/usb/devices`, `sys/class/block`,
+`proc/self/mountinfo`). `system-report` is one renderer over them; `lspci`,
+`lsusb`, `lsblk` and `findmnt` are meant to be others, and never parse each
+other's text. Contract:
+
+- Each module exports record types and one `collect(root)` proc. Records carry
+  identity (PCI domain/bus/device/function, vendor/device IDs, USB bus and
+  device numbers, `major:minor`, mount and parent IDs, sysfs names) and
+  relationships as both names and indexes into the same inventory. The
+  controller of a USB device and the controller of a block device are PCI
+  address strings, joined to a function index by the caller (`sys_pci.function_indices`).
+- Collectors read through a caller-owned `FsRoot`, so the same code serves the
+  live host (`fs.open_root(/)`), fixtures, and captured replay trees. The
+  native `linux.*` inventories read only the live view and carry no
+  identity relationships, so they cannot back a rooted collector. Direct
+  `/proc` and `/sys` reads are allowed only in `core/lib/sys_*.xsh`.
+- Collectors apply no redaction, escaping, or formatting and publish raw
+  option, source, model, and name text. `system_report_live.xsh` applies
+  `sanitize_mount_*` and the report's redaction when it maps records
+  (`report_mount`, `report_block_device`, `report_usb_device`).
+- Every read is bounded and a truncated or unreadable source yields an
+  observation state, never a value (`sys_source.read_source_text`).
+  Collection problems are `sys_source.Issue` records with a field address and
+  no section; callers attach one with `with_section`.
+- `system_report_collect.xsh` and `system_report_live.xsh` keep thin exports
+  (`collect_pci`, `parse_pci_address`, `usb_controller_address`, ...) with their
+  original error families for the tests that still load them; new code uses
+  the `sys_*` modules.
 
 ## Collection rules
 

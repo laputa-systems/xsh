@@ -603,6 +603,15 @@ fn io_module() -> ModuleSig {
                 RuntimeOp::IoWriteStdoutBytes,
             ),
         ),
+        (
+            "flush_stdout",
+            sig(
+                Vec::new(),
+                result(Type::Unit),
+                false,
+                RuntimeOp::IoFlushStdout,
+            ),
+        ),
     ])
 }
 
@@ -1483,6 +1492,140 @@ fn fs_module() -> ModuleSig {
                 result(Type::Unit),
                 false,
                 RuntimeOp::FsMkfifo,
+            ),
+        ),
+        (
+            "stat",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(crate::records::fs_stat_type()),
+                false,
+                RuntimeOp::FsStat,
+            ),
+        ),
+        (
+            "set_owner",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("uid", Type::Optional(Box::new(Type::Int))),
+                    default_param("gid", Type::Optional(Box::new(Type::Int))),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsSetOwner,
+            ),
+        ),
+        (
+            "set_times",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("atime_ns", Type::Optional(Box::new(Type::Int))),
+                    default_param("mtime_ns", Type::Optional(Box::new(Type::Int))),
+                    default_param("atime_now", Type::Bool),
+                    default_param("mtime_now", Type::Bool),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsSetTimes,
+            ),
+        ),
+        (
+            "mknod",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    param("kind", Type::Str),
+                    param("mode", Type::Int),
+                    default_param("major", Type::Int),
+                    default_param("minor", Type::Int),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsMknod,
+            ),
+        ),
+        (
+            "makedev",
+            sig(
+                vec![param("major", Type::Int), param("minor", Type::Int)],
+                Type::Int,
+                true,
+                RuntimeOp::FsMakedev,
+            ),
+        ),
+        (
+            "dev_major",
+            sig(vec![param("dev", Type::Int)], Type::Int, true, RuntimeOp::FsDevMajor),
+        ),
+        (
+            "dev_minor",
+            sig(vec![param("dev", Type::Int)], Type::Int, true, RuntimeOp::FsDevMinor),
+        ),
+        (
+            "link",
+            sig(
+                vec![
+                    param("source", Type::Path),
+                    param("dest", Type::Path),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsLink,
+            ),
+        ),
+        (
+            "umask",
+            sig(Vec::new(), result(Type::Int), false, RuntimeOp::FsUmask),
+        ),
+        (
+            "statvfs",
+            sig(
+                vec![param("path", Type::Path)],
+                result(crate::records::fs_statvfs_type()),
+                false,
+                RuntimeOp::FsStatvfs,
+            ),
+        ),
+        (
+            "rename_noreplace",
+            sig(
+                vec![param("source", Type::Path), param("dest", Type::Path)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsRenameNoreplace,
+            ),
+        ),
+        (
+            "data_ranges",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::List(Box::new(crate::records::fs_data_range_type()))),
+                false,
+                RuntimeOp::FsDataRanges,
+            ),
+        ),
+        (
+            "copy_file",
+            sig(
+                vec![
+                    param("source", Type::Path),
+                    param("dest", Type::Path),
+                    default_param("sparse", Type::Str),
+                    default_param("reflink", Type::Str),
+                    default_param("overwrite", Type::Bool),
+                    default_param("mode", Type::Optional(Box::new(Type::Int))),
+                ],
+                result(crate::records::fs_copy_file_result_type()),
+                false,
+                RuntimeOp::FsCopyFile,
             ),
         ),
         (
@@ -2722,10 +2865,159 @@ fn unix_module() -> ModuleSig {
                 vec![
                     param("attrs", Type::Record(BTreeMap::new())),
                     default_param("fd", Type::Int),
+                    default_param("when", Type::Str),
                 ],
                 result(Type::Unit),
                 false,
                 RuntimeOp::UnixSetTtyAttrs,
+            ),
+        ),
+        (
+            "isatty",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                Type::Bool,
+                false,
+                RuntimeOp::UnixIsatty,
+            ),
+        ),
+        (
+            "ttyname",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(Type::Str),
+                false,
+                RuntimeOp::UnixTtyname,
+            ),
+        ),
+        (
+            "controlling_tty",
+            sig(
+                Vec::new(),
+                result(Type::Str),
+                false,
+                RuntimeOp::UnixControllingTty,
+            ),
+        ),
+        (
+            "open_fd",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("write", Type::Bool),
+                    default_param("nonblock", Type::Bool),
+                ],
+                result(Type::Int),
+                false,
+                RuntimeOp::UnixOpenFd,
+            ),
+        ),
+        (
+            "close_fd",
+            sig(
+                vec![param("fd", Type::Int)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::UnixCloseFd,
+            ),
+        ),
+        (
+            "open_pty",
+            sig(
+                Vec::new(),
+                result(crate::records::unix_pty_type()),
+                false,
+                RuntimeOp::UnixOpenPty,
+            ),
+        ),
+        (
+            "tty_table",
+            sig(
+                Vec::new(),
+                crate::records::unix_tty_table_type(),
+                true,
+                RuntimeOp::UnixTtyTable,
+            ),
+        ),
+        (
+            "tty_mode",
+            sig(
+                vec![
+                    param("attrs", Type::Record(BTreeMap::new())),
+                    param("mode", Type::Str),
+                ],
+                result(unix_tty_attrs_type()),
+                true,
+                RuntimeOp::UnixTtyMode,
+            ),
+        ),
+        (
+            "window_size",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(crate::records::unix_window_size_type()),
+                false,
+                RuntimeOp::UnixWindowSize,
+            ),
+        ),
+        (
+            "set_window_size",
+            sig(
+                vec![
+                    param("rows", Type::Int),
+                    param("cols", Type::Int),
+                    default_param("xpixel", Type::Int),
+                    default_param("ypixel", Type::Int),
+                    default_param("fd", Type::Int),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::UnixSetWindowSize,
+            ),
+        ),
+        (
+            "foreground_group",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::UnixForegroundGroup,
+            ),
+        ),
+        (
+            "set_foreground_group",
+            sig(
+                vec![param("pgid", Type::Int), default_param("fd", Type::Int)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::UnixSetForegroundGroup,
+            ),
+        ),
+        (
+            "tty_session",
+            sig(
+                vec![default_param("fd", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::UnixTtySession,
+            ),
+        ),
+        (
+            "read_utmp",
+            sig(
+                vec![default_param("path", Type::Path)],
+                result(Type::List(Box::new(crate::records::unix_utmp_type()))),
+                false,
+                RuntimeOp::UnixReadUtmp,
+            ),
+        ),
+        (
+            "load_average",
+            sig(
+                Vec::new(),
+                result(crate::records::unix_load_average_type()),
+                false,
+                RuntimeOp::UnixLoadAverage,
             ),
         ),
         (
@@ -2776,6 +3068,15 @@ fn process_module() -> ModuleSig {
                 result(Type::Int),
                 false,
                 RuntimeOp::ProcessCurrentPid,
+            ),
+        ),
+        (
+            "script_path",
+            sig(
+                Vec::new(),
+                result(Type::Path),
+                false,
+                RuntimeOp::ProcessScriptPath,
             ),
         ),
         (
@@ -3101,6 +3402,164 @@ fn process_module() -> ModuleSig {
                 ),
                 false,
                 RuntimeOp::ProcessWaitReady,
+            ),
+        ),
+        (
+            "wait_timeout",
+            sig(
+                vec![
+                    param("handles", Type::List(Box::new(Type::ProcessHandle))),
+                    param("timeout", Type::Duration),
+                ],
+                Type::Result(
+                    Box::new(Type::Optional(Box::new(process_wait_any_type()))),
+                    Box::new(Type::ProcessError),
+                ),
+                false,
+                RuntimeOp::ProcessWaitTimeout,
+            ),
+        ),
+        (
+            "signals",
+            sig(
+                Vec::new(),
+                Type::List(Box::new(signal_record_type())),
+                true,
+                RuntimeOp::ProcessSignals,
+            ),
+        ),
+        (
+            "parent_pid",
+            sig(
+                Vec::new(),
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessParentPid,
+            ),
+        ),
+        (
+            "group_id",
+            sig(
+                vec![default_param("pid", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessGroupId,
+            ),
+        ),
+        (
+            "set_group_id",
+            sig(
+                vec![param("pid", Type::Int), param("pgid", Type::Int)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetGroupId,
+            ),
+        ),
+        (
+            "session_id",
+            sig(
+                vec![default_param("pid", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessSessionId,
+            ),
+        ),
+        (
+            "new_session",
+            sig(
+                Vec::new(),
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessNewSession,
+            ),
+        ),
+        (
+            "kill_group",
+            sig(
+                vec![param("pgid", Type::Int), default_param("signal", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessKillGroup,
+            ),
+        ),
+        (
+            "priority",
+            sig(
+                vec![default_param("pid", Type::Int), default_param("which", Type::Str)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessPriority,
+            ),
+        ),
+        (
+            "set_priority",
+            sig(
+                vec![
+                    param("pid", Type::Int),
+                    param("value", Type::Int),
+                    default_param("which", Type::Str),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetPriority,
+            ),
+        ),
+        (
+            "nice",
+            sig(
+                vec![param("increment", Type::Int)],
+                result(Type::Int),
+                false,
+                RuntimeOp::ProcessNice,
+            ),
+        ),
+        (
+            "rlimit",
+            sig(
+                vec![param("resource", Type::Str)],
+                result(crate::records::rlimit_type()),
+                false,
+                RuntimeOp::ProcessRlimit,
+            ),
+        ),
+        (
+            "rlimits",
+            sig(
+                Vec::new(),
+                result(Type::List(Box::new(crate::records::rlimit_type()))),
+                false,
+                RuntimeOp::ProcessRlimits,
+            ),
+        ),
+        (
+            "set_rlimit",
+            sig(
+                vec![
+                    param("resource", Type::Str),
+                    default_param("soft", Type::Optional(Box::new(Type::Int))),
+                    default_param("hard", Type::Optional(Box::new(Type::Int))),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetRlimit,
+            ),
+        ),
+        (
+            "signal_action",
+            sig(
+                vec![param("signal", Type::Str)],
+                result(Type::Str),
+                false,
+                RuntimeOp::ProcessSignalAction,
+            ),
+        ),
+        (
+            "set_signal_action",
+            sig(
+                vec![param("signal", Type::Str), param("action", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetSignalAction,
             ),
         ),
         (
@@ -3714,6 +4173,26 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Metadata is a host snapshot; permission and timestamp fields can change after the record is read.",
             &["filesystem", "metadata", "record"],
         ),
+        "FsCopyFileResult" => (
+            "Reports how fs.copy_file moved bytes into the destination.",
+            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination.",
+            &["filesystem", "copy", "record"],
+        ),
+        "FsDataRange" => (
+            "Describes one run of allocated data in a file.",
+            "Offsets and lengths are a point-in-time view; a concurrent writer can fill holes or extend the file after the read.",
+            &["filesystem", "sparse", "record"],
+        ),
+        "FsStat" => (
+            "Describes complete stat(2) or lstat(2) metadata for one path.",
+            "Times are nanoseconds since the Unix epoch; birth_ns is null where the filesystem reports none; dev and ino identify a file and its hard links; mode includes the file-type bits.",
+            &["filesystem", "metadata", "record"],
+        ),
+        "FsStatvfs" => (
+            "Reports raw statvfs(3) counters for the filesystem holding a path.",
+            "Block counts are in fragment_size units; type_magic is the statfs f_type value on Linux and null elsewhere.",
+            &["filesystem", "capacity", "record"],
+        ),
         "FsFilesystemStats" => (
             "Reports capacity statistics for a filesystem.",
             "Values are a point-in-time host observation and must not be used as a reservation without a separate operation.",
@@ -3938,6 +4417,46 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes one thread belonging to a process.",
             "Thread data is a host snapshot and does not retain or synchronize with the thread.",
             &["process", "thread", "record"],
+        ),
+        "Rlimit" => (
+            "Describes one resource limit of the calling process.",
+            "soft and hard are null for unlimited; the limits are process-global state that child processes inherit.",
+            &["process", "limits", "record"],
+        ),
+        "UnixTtyFlag" => (
+            "Describes one named terminal mode flag of the termios tables.",
+            "field names the UnixTtyAttrs word it lives in; a flag is on when the word masked by mask equals value, so single-bit flags have mask equal to value and delay or size groups share a mask; sane marks the flags the sane mode turns on.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixTtyChar" => (
+            "Describes one named terminal control character slot.",
+            "index is the position in UnixTtyAttrs.control_chars; sane is the value the sane mode assigns, and 0 means the character is disabled (min and time are counts, not characters).",
+            &["unix", "tty", "record"],
+        ),
+        "UnixTtyTable" => (
+            "Lists the terminal flags, control characters, and baud rates the host knows by name.",
+            "The table is the host's termios vocabulary as stty spells it; entries a platform lacks are absent, so scripts must treat a missing name as unsupported.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixWindowSize" => (
+            "Describes a terminal's window size.",
+            "A size of 0 means the terminal has not been told; pixel sizes are usually 0.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixPty" => (
+            "Describes a pseudo-terminal pair opened by unix.open_pty.",
+            "master and replica are bare descriptor numbers the script must close with unix.close_fd; name is the replica's device path and works as an stty --file target while the master stays open.",
+            &["unix", "tty", "record"],
+        ),
+        "UnixUtmp" => (
+            "Describes one record of a utmp or wtmp file.",
+            "kind names the record type (boot_time, user_process, dead_process, and so on); times are the record's 32-bit seconds and microseconds; strings stop at their first NUL.",
+            &["unix", "sessions", "record"],
+        ),
+        "UnixLoadAverage" => (
+            "Reports the system load averages over one, five, and fifteen minutes.",
+            "The values are a point-in-time host observation.",
+            &["unix", "system", "record"],
         ),
         "Signal" => (
             "Describes a Unix signal value.",

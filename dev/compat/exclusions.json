@@ -1,0 +1,29 @@
+{
+  "comment": "Exact uutils test IDs (module::function) excluded from Gate 3. One entry per test; module-wide exclusions are rejected by dev/compat/check_exclusions.py, which also fixes the category list. Excluded tests still count in the totals as `excluded`.",
+  "tests": [
+    {
+      "id": "test_basename::test_help",
+      "utility": "basename",
+      "category": "uutils-extension",
+      "reason": "The test also runs `-h`, a help alias uutils adds; GNU basename has no -h (it is an invalid option) and XSH follows GNU. --help is covered by core/tests/test-basename.xsh."
+    },
+    {
+      "id": "test_basename::test_version",
+      "utility": "basename",
+      "category": "uutils-extension",
+      "reason": "The test also runs `-V`, a version alias uutils adds; GNU basename has only --version and XSH follows GNU. --version is covered by core/tests/test-basename.xsh."
+    },
+    {
+      "id": "test_tee::test_short_help_is_long_help",
+      "utility": "tee",
+      "category": "uutils-extension",
+      "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
+    },
+    {
+      "id": "test_sleep::test_invalid_duration::case_7_single_quote",
+      "utility": "sleep",
+      "category": "uutils-extension",
+      "reason": "uutils quotes an argument containing an apostrophe as \"'1\" (double quotes); GNU quote() prints '\\'1' (verified on GNU coreutils 9.4: `sleep \"'1\"`), and XSH follows GNU via gnu.quote_value."
+    }
+  ]
+}

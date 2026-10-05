@@ -71,6 +71,78 @@ export pure core_install_path(relative_source: Path) -> Path {
   fp"core/{command}"
 }
 
+type AliasFile = {aliases: List[AliasEntry]}
+
+type AppletEntry = {name: Str, source: Str}
+
+type AliasEntry = {name: Str, target: Str}
+
+type AppletManifest = {
+  aliases: List[AliasEntry],
+  applets: List[AppletEntry],
+  generated_by: Str,
+  libraries: List[Str],
+}
+
+## Builds the deterministic applet manifest from core sources and the alias table
+## `dev/compat/aliases.json`. Each applet is installed as `core/NAME`; each alias
+## is an extra executable name for one applet, so a consumer can materialize
+## links from this file instead of a hand-maintained list. An alias that names a
+## missing applet, or collides with an applet, fails the release.
+export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str, Error] {
+  let sources = core_sources(ctx)?
+  var applets: List[AppletEntry] = []
+  var libraries: List[Str] = []
+
+  for relative in sources {
+    let text = relative.display()
+    if text.starts_with("lib/") {
+      libraries += [text]
+    } else if "/" not in text {
+      applets += [AppletEntry(name: text.byte_slice(0, length: text.byte_len() - 4), source: f"core/{text}")]
+    }
+  }
+
+  let names = applets |> map .name
+  let alias_file = fp"{ctx.root}/dev/compat/aliases.json"
+  var aliases: List[AliasEntry] = []
+
+  if alias_file.exists()? {
+    let table = json.read(alias_file)?.require(AliasFile)?
+    for {name: key, target: value} in table.aliases {
+      if value not in names {
+        return Err(
+          stages.StageError.Failed(
+            stage: "release-core",
+            target: ctx.target.triple,
+            detail: f"alias {key} targets missing applet {value}",
+          ),
+        )
+      }
+
+      if key in names {
+        return Err(
+          stages.StageError.Failed(
+            stage: "release-core",
+            target: ctx.target.triple,
+            detail: f"alias {key} collides with applet core/{key}.xsh",
+          ),
+        )
+      }
+
+      aliases += [AliasEntry(name: key, target: value)]
+    }
+  }
+
+  let manifest = AppletManifest(
+    aliases: aliases |> sort-by .name,
+    applets: applets |> sort-by .name,
+    generated_by: "dev/release.xsh",
+    libraries: libraries |> sort,
+  )
+  json.encode(manifest, pretty: true)? + "\n"
+}
+
 ## Collects core script sources deterministically while excluding the native test subtree.
 export proc core_sources(ctx: context.Context) [fs, error] -> Result[List[Path], Error] {
   let core = fp"{ctx.root}/core"
@@ -128,6 +200,10 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
       yield installed
     }
   }
+
+  stages.ensure_dir(fp"{stage}/core")
+  fp"{stage}/core/applets.json".write(applet_manifest(ctx)?)
+  archive_entries += [p"core/applets.json"]
 
   archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)
 

@@ -2971,6 +2971,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "exited_with",
     "exit_code",
     "signal_number",
+    "shell_code",
     "display",
     "name",
     "basename",
@@ -5864,7 +5865,11 @@ impl Evaluator {
             && matches!(error.payload.get("cli_usage"), Some(Value::Bool(true)))
         {
             self.write_stderr_line(&error.message);
-            return Some(2);
+            // GNU-mode diagnostics carry the utility's own usage-error status.
+            return Some(match error.payload.get("cli_status") {
+                Some(Value::Int(status)) => u8::try_from(*status).unwrap_or(2),
+                _ => 2,
+            });
         }
         None
     }

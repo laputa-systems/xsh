@@ -325,7 +325,10 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "chmod",
-                    vec![param("mode", Type::Int)],
+                    vec![
+                        param("mode", Type::Int),
+                        default_param("follow_symlinks", Type::Bool),
+                    ],
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsChmod,
@@ -1009,6 +1012,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     result(Type::Int),
                     true,
                     RuntimeOp::StatusSignalNumber,
+                ),
+                method(
+                    "shell_code",
+                    Vec::new(),
+                    result(Type::Int),
+                    true,
+                    RuntimeOp::StatusShellCode,
                 ),
             ]),
         },

@@ -1,0 +1,171 @@
+{
+  "comment": "uutils tests that run host programs directly instead of through UUTESTS_BINARY_PATH (spawns), or compare against a host GNU tool (host_oracle). In a clean environment these must come from XSH or be excluded with category host-oracle; Gate 8 checks that.",
+  "utilities": {
+    "chown": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "chroot": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "cksum": {
+      "spawns": [
+        "ldd"
+      ],
+      "host_oracle": false
+    },
+    "cp": {
+      "spawns": [
+        "chcon",
+        "cmd",
+        "filefrag",
+        "getfacl",
+        "getfattr",
+        "matchpathcon",
+        "setfacl",
+        "setfattr",
+        "sh"
+      ],
+      "host_oracle": true
+    },
+    "csplit": {
+      "spawns": [
+        "sh"
+      ],
+      "host_oracle": false
+    },
+    "dd": {
+      "spawns": [
+        "locale",
+        "sh",
+        "strace"
+      ],
+      "host_oracle": true
+    },
+    "df": {
+      "spawns": [
+        "unshare"
+      ],
+      "host_oracle": false
+    },
+    "du": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "env": {
+      "spawns": [
+        "kill"
+      ],
+      "host_oracle": false
+    },
+    "groups": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "id": {
+      "spawns": [
+        "id"
+      ],
+      "host_oracle": true
+    },
+    "install": {
+      "spawns": [
+        "id",
+        "strace"
+      ],
+      "host_oracle": true
+    },
+    "kill": {
+      "spawns": [
+        "cmd"
+      ],
+      "host_oracle": false
+    },
+    "ls": {
+      "spawns": [
+        "setfacl",
+        "strace"
+      ],
+      "host_oracle": true
+    },
+    "mknod": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "mv": {
+      "spawns": [
+        "getfattr",
+        "setfacl",
+        "setfattr"
+      ],
+      "host_oracle": false
+    },
+    "pinky": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "pwd": {
+      "spawns": [
+        "sh"
+      ],
+      "host_oracle": false
+    },
+    "rm": {
+      "spawns": [
+        "unshare"
+      ],
+      "host_oracle": false
+    },
+    "shuf": {
+      "spawns": [
+        "strace"
+      ],
+      "host_oracle": false
+    },
+    "sort": {
+      "spawns": [
+        "locale"
+      ],
+      "host_oracle": false
+    },
+    "stat": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "stdbuf": {
+      "spawns": [
+        "sh"
+      ],
+      "host_oracle": false
+    },
+    "stty": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "tail": {
+      "spawns": [
+        "kill",
+        "powershell",
+        "sh",
+        "sleep",
+        "taskkill"
+      ],
+      "host_oracle": true
+    },
+    "tty": {
+      "spawns": [
+        "sh"
+      ],
+      "host_oracle": false
+    },
+    "who": {
+      "spawns": [],
+      "host_oracle": true
+    },
+    "whoami": {
+      "spawns": [],
+      "host_oracle": true
+    }
+  }
+}

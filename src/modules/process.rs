@@ -2,9 +2,16 @@
 
 use crate::modules::time::{format_epoch_ms_utc, now_epoch_ms};
 use crate::modules::user::name_for_uid;
-use crate::runtime::value::{LiveStream, RecordMap, RecordShape, RuntimeError, StreamValue, Value};
+use crate::runtime::value::{
+    LiveStream, PathValue, RecordMap, RecordShape, RuntimeError, StreamValue, Value,
+};
 use crate::source::Span;
 use std::sync::{Arc, LazyLock};
+
+mod prims;
+pub(crate) use prims::{
+    Args, call as prim_call, handles as is_prim, host_error, key, name_error, positive_pid,
+};
 
 static K_PID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("pid"));
 static K_PARENT_PID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("parent_pid"));
@@ -389,6 +396,27 @@ fn list_threads_stream(_pid: Option<i64>, _span: Span) -> Result<StreamValue, Ru
     ))
 }
 
+/// The script operand of this `xsh` invocation, exactly as the kernel or the
+/// caller passed it: relative paths stay relative and symlinks stay unresolved,
+/// so multicall aliases see their own name.
+pub(crate) fn script_path(span: Span) -> Result<PathValue, RuntimeError> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut args = std::env::args_os().skip(1);
+    let first = args.next();
+    let script = match first {
+        Some(arg) if arg == "--" => args.next(),
+        other => other,
+    };
+    match script {
+        Some(arg) => PathValue::new(arg.into_vec()).map_err(|error| error.with_span(span)),
+        None => Err(
+            RuntimeError::new("script-path", "this process was not started from a script")
+                .with_span(span),
+        ),
+    }
+}
+
 pub(crate) fn process_stats(pid: i64, span: Span) -> Result<Value, RuntimeError> {
     if !(1..=i32::MAX as i64).contains(&pid) {
         return Err(
@@ -559,9 +587,7 @@ pub(crate) fn signal_info(signal: &str, span: Span) -> Result<SignalInfo, Runtim
     if let Ok(number) = signal.parse::<i32>() {
         if (0..=128).contains(&number) {
             return Ok(SignalInfo {
-                name: signal_name(number)
-                    .map(str::to_string)
-                    .unwrap_or_else(|| number.to_string()),
+                name: signal_name(number).unwrap_or_else(|| number.to_string()),
                 number,
             });
         }
@@ -572,13 +598,25 @@ pub(crate) fn signal_info(signal: &str, span: Span) -> Result<SignalInfo, Runtim
 
     let upper = signal.to_ascii_uppercase();
     let name = upper.strip_prefix("SIG").unwrap_or(&upper);
-    for (candidate, number) in SIGNALS {
+    if name == "EXIT" {
+        return Ok(SignalInfo {
+            name: "EXIT".to_string(),
+            number: 0,
+        });
+    }
+    for (candidate, number) in SIGNALS.iter().chain(SIGNAL_ALIASES) {
         if *candidate == name {
             return Ok(SignalInfo {
-                name: candidate.to_string(),
+                name: signal_name(*number).unwrap_or_else(|| number.to_string()),
                 number: *number,
             });
         }
+    }
+    if let Some(number) = realtime_signal_number(name) {
+        return Ok(SignalInfo {
+            name: signal_name(number).unwrap_or_else(|| number.to_string()),
+            number,
+        });
     }
     Err(RuntimeError::new("invalid-signal", "unknown signal").with_span(span))
 }
@@ -588,6 +626,69 @@ pub(crate) fn signal_record(signal: SignalInfo) -> Value {
         (Arc::from("name"), Value::Str(signal.name.into())),
         (Arc::from("number"), Value::Int(signal.number as i64)),
     ]))
+}
+
+/// The named signals in number order, led by the pseudo-signal `EXIT` (0) and
+/// closed by `RTMIN` and `RTMAX` where the platform has real-time signals.
+/// Numbers between the named ones that no name covers (32 and 33 on glibc) are
+/// left out.
+pub(crate) fn signal_table() -> Vec<SignalInfo> {
+    let mut table = vec![SignalInfo {
+        name: "EXIT".to_string(),
+        number: 0,
+    }];
+    table.extend(SIGNALS.iter().map(|(name, number)| SignalInfo {
+        name: (*name).to_string(),
+        number: *number,
+    }));
+    if let Some((min, max)) = realtime_bounds() {
+        table.push(SignalInfo {
+            name: "RTMIN".to_string(),
+            number: min,
+        });
+        table.push(SignalInfo {
+            name: "RTMAX".to_string(),
+            number: max,
+        });
+    }
+    table.sort_by_key(|signal| signal.number);
+    table
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn realtime_bounds() -> Option<(i32, i32)> {
+    Some((libc::SIGRTMIN(), libc::SIGRTMAX()))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn realtime_bounds() -> Option<(i32, i32)> {
+    None
+}
+
+/// `RTMIN`, `RTMAX`, `RTMIN+N`, and `RTMAX-N` with the `SIG` prefix removed
+/// and the case folded, when the result lies inside the real-time range.
+fn realtime_signal_number(name: &str) -> Option<i32> {
+    let (min, max) = realtime_bounds()?;
+    let (base, rest) = if let Some(rest) = name.strip_prefix("RTMIN") {
+        (min, rest)
+    } else {
+        (max, name.strip_prefix("RTMAX")?)
+    };
+    let number = if rest.is_empty() {
+        base
+    } else {
+        let (sign, digits) = rest.split_at(1);
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let offset = digits.parse::<i32>().ok()?;
+        match (base == min, sign) {
+            (true, "+") => min.checked_add(offset)?,
+            (false, "-") => max.checked_sub(offset)?,
+            _ => return None,
+        }
+    };
+    (min..=max).contains(&number).then_some(number)
 }
 
 const SIGNALS: &[(&str, i32)] = &[
@@ -617,14 +718,39 @@ const SIGNALS: &[(&str, i32)] = &[
     ("XFSZ", libc::SIGXFSZ),
     ("VTALRM", libc::SIGVTALRM),
     ("PROF", libc::SIGPROF),
+    ("WINCH", libc::SIGWINCH),
     ("USR1", libc::SIGUSR1),
     ("USR2", libc::SIGUSR2),
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    ("STKFLT", libc::SIGSTKFLT),
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    ("PWR", libc::SIGPWR),
 ];
 
-fn signal_name(number: i32) -> Option<&'static str> {
-    SIGNALS
+/// Historical spellings accepted on input; the canonical name is in `SIGNALS`.
+const SIGNAL_ALIASES: &[(&str, i32)] = &[
+    ("CLD", libc::SIGCHLD),
+    ("IOT", libc::SIGABRT),
+    ("POLL", libc::SIGIO),
+];
+
+fn signal_name(number: i32) -> Option<String> {
+    if number == 0 {
+        return Some("EXIT".to_string());
+    }
+    if let Some((_, name)) = SIGNALS
         .iter()
-        .find_map(|(name, candidate)| (*candidate == number).then_some(*name))
+        .find_map(|(name, candidate)| (*candidate == number).then_some((number, *name)))
+    {
+        return Some(name.to_string());
+    }
+    let (min, max) = realtime_bounds()?;
+    match number {
+        number if number == min => Some("RTMIN".to_string()),
+        number if number == max => Some("RTMAX".to_string()),
+        number if (min..max).contains(&number) => Some(format!("RTMIN+{}", number - min)),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -100,7 +100,6 @@ Environment variable and PATH manipulation.
 Expected validation failure construction.
 
 - `error.fail(message: Str) -> Result[Unit, Error]` — Constructs an expected validation failure as Result data.
-- `error.failure(message: Str) -> Error` — Constructs an expected validation failure as an Error value.
 
 ### `fs`
 
@@ -108,11 +107,18 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 
 - `fs.chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
 - `fs.children(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Lists immediate filesystem children as structured entries.
+- `fs.chmod(path: Path, mode: Int, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes permission bits on a filesystem path.
 - `fs.chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
+- `fs.copy(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies one file to a destination path.
+- `fs.copy_file(source: Path, dest: Path, sparse: Str = default, reflink: Str = default, overwrite: Bool = default, mode: Int? = default) -> Result[{bytes: Int, hole_bytes: Int, method: Str}, Error]` — Copies a regular file's bytes with sparse and reflink control.
 - `fs.copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -> Result[{dirs: Int, files: Int, symlinks: Int}, Error]` — Copies a directory tree and returns copy statistics.
 - `fs.cwd() -> Result[Path, Error]` — Returns the evaluator's current working directory.
+- `fs.data_ranges(path: Path) -> Result[List[{length: Int, offset: Int}], Error]` — Lists the runs of allocated data in a possibly sparse file.
+- `fs.dev_major(dev: Int) -> Int` — Converts between a device number and its major and minor parts.
+- `fs.dev_minor(dev: Int) -> Int` — Converts between a device number and its major and minor parts.
 - `fs.dirs(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
-- `fs.executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
+- `fs.executable(path: Path) -> Result[Bool, Error] (+1 overloads)` — Inspects one permission bit on a filesystem path.
+- `fs.exists(path: Path) -> Result[Bool, Error]` — Checks whether a filesystem path exists.
 - `fs.files(path: Path, gitignore: Bool = default, stat: Bool = default, exts: List[Str] = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.filesystem_stats(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}, Error]` — Reads filesystem capacity statistics for a path.
 - `fs.fsync(path: Path) -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
@@ -120,28 +126,43 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.group_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.install(source: Path, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Installs a file with explicit destination and mode policy.
 - `fs.install_as(source: Path, dest: Path, mode: Int, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, group: {gid: Int, members: List[Str], name: Str}, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Installs a file with explicit destination and mode policy.
+- `fs.link(source: Path, dest: Path, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Creates a hard link, optionally following a final symlink in the source.
 - `fs.lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -> Result[{id: Int, path: Path, shared: Bool}, Error]` — Acquires a filesystem lock and returns an explicit lock record.
+- `fs.makedev(major: Int, minor: Int) -> Int` — Converts between a device number and its major and minor parts.
+- `fs.metadata(path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads filesystem metadata into an FsEntry record.
+- `fs.mkdir(path: Path, parents: Bool = default) -> Result[Unit, Error]` — Creates a directory with an explicit parent policy.
 - `fs.mkfifo(path: Path, mode: Int) -> Result[Unit, Error]` — Creates a named FIFO at a path.
-- `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads the mounted-filesystem record of the mount that holds a path.
-- `fs.mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` — Reads mounted-filesystem records for the host.
+- `fs.mknod(path: Path, kind: Str, mode: Int, major: Int = default, minor: Int = default) -> Result[Unit, Error]` — Creates a file, FIFO, socket, or device node with an explicit mode.
+- `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads mounted-filesystem records for the host.
+- `fs.mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` — Reads mounted-filesystem records for the host.
 - `fs.open_root(path: Path) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
 - `fs.other_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.owner_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Finds the project root from a starting path.
+- `fs.read_text(path: Path) -> Result[Str, Error]` — Reads a UTF-8 file into Str.
+- `fs.remove(path: Path, missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree with an explicit missing policy.
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
+- `fs.rename(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path with an explicit overwrite policy.
+- `fs.rename_noreplace(source: Path, dest: Path) -> Result[Unit, Error]` — Renames a path atomically without replacing an existing destination.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `fs.set_owner(path: Path, uid: Int? = default, gid: Int? = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes a path's owner and group by numeric ID in one call.
+- `fs.set_times(path: Path, atime_ns: Int? = default, mtime_ns: Int? = default, atime_now: Bool = default, mtime_now: Bool = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Sets access and modification times with nanosecond precision.
 - `fs.setgid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.setuid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
+- `fs.stat(path: Path, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Reads complete metadata for a path without following a final symlink unless asked.
+- `fs.statvfs(path: Path) -> Result[{block_size: Int, blocks: Int, blocks_available: Int, blocks_free: Int, files: Int, files_available: Int, files_free: Int, flags: Int, fragment_size: Int, fsid: Int, name_max: Int, nodev: Bool, noexec: Bool, nosuid: Bool, readonly: Bool, type_magic: Int?}, Error]` — Reads raw filesystem counters for the filesystem holding a path.
 - `fs.sticky(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.symlink(target: Path, path: Path) -> Result[Unit, Error]` — Creates a symbolic link with explicit target and link paths.
 - `fs.sync() -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
-- `fs.temp_sibling(path: Path) -> Result[Path, Error]` — Names a hidden temporary path beside a path, for producing a file that is then renamed over it.
 - `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary resource under XSH ownership.
+- `fs.umask() -> Result[Int, Error]` — Returns the process file-creation mask.
 - `fs.unlock(lock: {id: Int, path: Path, shared: Bool}) -> Result[Unit, Error]` — Releases a filesystem lock record.
 - `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Returns the current user's filesystem root path.
 - `fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.world_writable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
+- `fs.write(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
+- `fs.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Replaces a file through an atomic write path.
 
 ### `group`
 
@@ -179,6 +200,7 @@ INI decoding, encoding, and file helpers.
 
 Script stdin and stdout helpers.
 
+- `io.flush_stdout() -> Result[Unit, Error]` — Writes the buffered standard output to the host and reports the outcome.
 - `io.stdin_bytes() -> Result[Bytes, Error]` — Reads all standard input as Bytes.
 - `io.stdin_line() -> Result[Str, Error]` — Reads one line from standard input.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
@@ -324,18 +346,35 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.command() -> Command` — Builds a typed command plan without starting it.
 - `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
 - `process.current_pid() -> Result[Int, Error]` — Returns the current process ID.
+- `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a selected signal to a process.
+- `process.kill_group(pgid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a signal to every member of a process group.
 - `process.list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
+- `process.new_session() -> Result[Int, Error]` — Moves a process into a process group, or makes this process a session leader.
+- `process.nice(increment: Int) -> Result[Int, Error]` — Reads or changes scheduling priority (niceness).
+- `process.parent_pid() -> Result[Int, Error]` — Returns the parent process ID of this process.
 - `process.port(port: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
 - `process.ports() -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
+- `process.priority(pid: Int = default, which: Str = default) -> Result[Int, Error]` — Reads or changes scheduling priority (niceness).
+- `process.rlimit(resource: Str) -> Result[{hard: Int?, resource: Str, soft: Int?}, Error]` — Reads or changes this process's resource limits.
+- `process.rlimits() -> Result[List[{hard: Int?, resource: Str, soft: Int?}], Error]` — Reads or changes this process's resource limits.
 - `process.run(command: Command) -> Result[Status, ProcessError]` — Runs a typed command and returns its process status.
+- `process.script_path() -> Result[Path, Error]` — Returns the script path this process was started with.
+- `process.session_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
+- `process.set_group_id(pid: Int, pgid: Int) -> Result[Unit, Error]` — Moves a process into a process group, or makes this process a session leader.
+- `process.set_priority(pid: Int, value: Int, which: Str = default) -> Result[Unit, Error]` — Reads or changes scheduling priority (niceness).
+- `process.set_rlimit(resource: Str, soft: Int? = default, hard: Int? = default) -> Result[Unit, Error]` — Reads or changes this process's resource limits.
+- `process.set_signal_action(signal: Str, action: Str) -> Result[Unit, Error]` — Reads or changes how this process treats a signal.
 - `process.signal(signal: Str) -> Result[{name: Str, number: Int}, Error]` — Sends a selected signal to a process.
+- `process.signal_action(signal: Str) -> Result[Str, Error]` — Reads or changes how this process treats a signal.
+- `process.signals() -> List[{name: Str, number: Int}]` — Lists the named signals of the host in number order.
 - `process.spawn(command: Command) -> Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]` — Starts a typed command and returns an owned process handle record.
 - `process.stats(pid: Int) -> Result[{rss_kb: Int, vsz_kb: Int}, Error]` — Reads structured process or listener information from the host.
 - `process.threads() -> Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
 - `process.wait_any(handles: List[ProcessHandle]) -> Result[{index: Int, pid: Int, status: Status}, ProcessError]` — Waits for one process from an owned handle set.
 - `process.wait_ready(handles: List[ProcessHandle]) -> Result[List[{index: Int, pid: Int, status: Status}], ProcessError]` — Waits for a process handle to become waitable.
-- `process.which(name: Str) -> Result[Path, Error] (+1 overloads)` — Resolves an executable through the current PATH.
+- `process.wait_timeout(handles: List[ProcessHandle], timeout: Duration) -> Result[{index: Int, pid: Int, status: Status}?, ProcessError]` — Waits for one process from an owned handle set for at most a duration.
+- `process.which(name: Str) -> Result[Path, Error]` — Resolves an executable through the current PATH.
 
 ### `regex`
 
@@ -345,10 +384,12 @@ Regex compilation, matching, captures, and replacement.
 
 ### `set`
 
-Set constructors.
+String-key set helpers backed by Map[Bool].
 
-- `set.empty() -> Set[T]` — Creates the empty set.
-- `set.from(items: List[T]) -> Set[T]` — Builds a set from a list.
+- `set.add(set: Map[Bool], item: Str) -> Map[Bool]` — Adds or removes one string membership entry.
+- `set.empty() -> Map[Bool]` — Creates an empty string-key set.
+- `set.from(items: List[Str]) -> Map[Bool]` — Builds a set from a list of strings.
+- `set.remove(set: Map[Bool], item: Str) -> Map[Bool]` — Adds or removes one string membership entry.
 
 ### `shlex`
 
@@ -380,13 +421,12 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 - `test.calls(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str = default) -> List[{args: Record, op: Str}]` — Reads recorded calls from a native-test mock.
 - `test.eq(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.error_kind(value: Any, kind: Str, message: Str = default) -> Result[Unit, Error]` — Asserts one native-test condition.
-- `test.expect(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, status: Int, stderr: List[Str] = default, stdout: List[Str] = default, args: List[Union[Str, Path]] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH script and requires its exit status and output fragments.
 - `test.fail(message: Str = default) -> Result[Unit, Error]` — Fails the current native XSH test with an explicit message.
 - `test.linux_fake(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, settings: Record = default) -> Result[Unit, Error]` — Replaces the `linux` module with fixed results for the rest of a native XSH test.
 - `test.mock(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str, matcher: Record, result: Any, times: Int = default) -> Result[Unit, Error]` — Installs a scoped host-effect mock for a native XSH test.
 - `test.ne(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.ok(condition: Bool, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
-- `test.run_script(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, args: List[Union[Str, Path]] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
+- `test.run_script(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
 - `test.run_xsh(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, xsh_args: List[Str] = default, script_args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
 - `test.run_xsht_trace(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, trace_args: List[Str] = default, script_args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
 - `test.skip(message: Str = default) -> Result[Unit, Error]` — Skips the current native XSH test.
@@ -435,25 +475,40 @@ Terminal styling, control sequences, and width-aware text padding.
 
 Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 
+- `unix.close_fd(fd: Int) -> Result[Unit, Error]` — Opens a path as a bare descriptor number, or closes one.
+- `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
+- `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
+- `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.kill_all(name: Str, signal: Str = default) -> Result[{matched: Int, signaled: Int}, Error]` — Sends a signal to a Unix process group or selected process set.
 - `unix.kill_process_group(pid: Int, signal: Str) -> Result[Unit, Error]` — Sends a signal to a Unix process group or selected process set.
+- `unix.load_average() -> Result[{fifteen: Float, five: Float, one: Float}, Error]` — Reads the system load averages.
 - `unix.notify_close(fd: Int) -> Result[Unit, Error]` — Signals readiness or closes a Unix service notification channel.
 - `unix.notify_ready(fd: Int) -> Result[Bool, Error]` — Signals readiness or closes a Unix service notification channel.
+- `unix.open_fd(path: Path, write: Bool = default, nonblock: Bool = default) -> Result[Int, Error]` — Opens a path as a bare descriptor number, or closes one.
+- `unix.open_pty() -> Result[{master: Int, name: Str, replica: Int}, Error]` — Opens a pseudo-terminal pair.
 - `unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.read_utmp(path: Path = default) -> Result[List[{addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}], Error]` — Reads the login session records of a utmp or wtmp file.
 - `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` — Reaps available Unix child events.
+- `unix.set_foreground_group(pgid: Int, fd: Int = default) -> Result[Unit, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.set_hostname(hostname: Str) -> Result[Unit, Error]` — Changes the Unix host name.
-- `unix.set_tty_attrs(attrs: Record, fd: Int = default) -> Result[Unit, Error]` — Reads or changes Unix terminal state.
+- `unix.set_tty_attrs(attrs: Record, fd: Int = default, when: Str = default) -> Result[Unit, Error]` — Reads or changes Unix terminal state.
+- `unix.set_window_size(rows: Int, cols: Int, xpixel: Int = default, ypixel: Int = default, fd: Int = default) -> Result[Unit, Error]` — Reads or sets a terminal's window size.
 - `unix.shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -> Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
 - `unix.spawn_logged_process_group(command: Command, logger: Command) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_process_group(command: Command, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_process_group_log(command: Command, log: Path, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.spawn_with_tty(command: Command, tty: Str) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
 - `unix.tty() -> Result[Str, Error]` — Reads or changes Unix terminal state.
-- `unix.tty_attrs(fd: Int = default) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Reads or changes Unix terminal state.
+- `unix.tty_attrs(fd: Int = default) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Reads or changes Unix terminal state.
+- `unix.tty_mode(attrs: Record, mode: Str) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]` — Applies raw, cooked, cbreak, or sane to a terminal attributes record.
+- `unix.tty_session(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
+- `unix.tty_table() -> {chars: List[{index: Int, name: Str, sane: Int}], flags: List[{field: Str, mask: Int, name: Str, sane: Bool, value: Int}], speeds: List[Int]}` — Returns the termios flag, control character, and baud rate names of the host.
+- `unix.ttyname(fd: Int = default) -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.uptime_seconds() -> Result[Int, Error]` — Reads Unix host uptime in seconds.
 - `unix.wait_pid1_event(timeout: Duration = default) -> Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.window_size(fd: Int = default) -> Result[{cols: Int, rows: Int, xpixel: Int, ypixel: Int}, Error]` — Reads or sets a terminal's window size.
 
 ### `user`
 
@@ -483,7 +538,6 @@ Process-scoped utility helpers.
 - `Bytes.count_lines() -> Int` — Counts line separators in bytes.
 - `Bytes.dump(format: Str = default) -> Str` — Formats bytes as a diagnostic dump.
 - `Bytes.ends_with(suffix: Bytes) -> Bool` — Checks a byte-prefix or suffix relationship.
-- `Bytes.is_empty() -> Bool` — Tests whether a value has no elements.
 - `Bytes.len() -> Int` — Returns the number of bytes.
 - `Bytes.lines() -> List[Bytes]` — Splits bytes into line-oriented chunks.
 - `Bytes.lower() -> Bytes` — Lowercases ASCII-compatible bytes.
@@ -557,16 +611,13 @@ Process-scoped utility helpers.
 - `List[T].collect() -> List[T]` — Returns an already materialized list.
 - `List[T].extend(other: List[T]) -> List[T]` — Returns a list with another list appended.
 - `List[T].get(index: Int) -> Result[T, Error]` — Reads a list element as Result.
-- `List[T].is_empty() -> Bool` — Tests whether a value has no elements.
 - `List[Str].join(separator: Str = default) -> Str` — Joins list values into text.
 - `List[T].len() -> Int` — Returns the number of list elements.
 - `List[T].push(item: T) -> List[T]` — Returns a list with one value appended.
-- `List[T].to_set() -> Set[T]` — Returns the set of a list's elements.
 
 ### Map
 
 - `Map[K, V].get(key: K) -> Result[V, Error]` — Reads a map value as Result.
-- `Map[K, V].is_empty() -> Bool` — Tests whether a value has no elements.
 - `Map[K, V].keys() -> List[K]` — Lists map keys or values.
 - `Map[K, V].len() -> Int` — Returns the number of entries in a map.
 - `Map[K, List[T]].push(key: K, value: T) -> Self` — Appends a value to a map entry list.
@@ -579,13 +630,6 @@ Process-scoped utility helpers.
 - `NetJob.cancel() -> Result[Unit, Error]` — Cancels and consumes an owned network job.
 - `NetJob.wait() -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Consumes an owned network job and returns its buffered response.
 
-### NonEmpty
-
-- `NonEmpty[T].extend(other: List[T]) -> NonEmpty[T]` — Returns a non-empty list with another list appended.
-- `NonEmpty[T].first() -> T` — Returns the first element.
-- `NonEmpty[T].last() -> T` — Returns the last element.
-- `NonEmpty[T].push(item: T) -> NonEmpty[T]` — Returns a non-empty list with one value appended.
-
 ### Path constructor
 
 - `Path.parse_bytes(bytes: Bytes) -> Result[Path, Error]` — Parses Bytes as a filesystem path.
@@ -597,7 +641,7 @@ Process-scoped utility helpers.
 - `Path.bytes_lines() -> Result[Stream[Bytes], Error]` — Streams file lines as Bytes.
 - `Path.chmod(mode: Int) -> Result[Unit, Error]` — Changes permission bits on a path.
 - `Path.components() -> List[Path]` — Splits a path into its components, each a Path.
-- `Path.copy(to: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
+- `Path.copy(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
 - `Path.dirname() -> Path` — Returns the directory component using POSIX dirname semantics.
 - `Path.display() -> Str` — Formats a path for display.
 - `Path.du() -> Result[Int, Error]` — Calculates disk usage for a path.
@@ -607,10 +651,7 @@ Process-scoped utility helpers.
 - `Path.ext() -> Str` — Returns the path extension.
 - `Path.ext_or(fallback: Str) -> Str` — Returns the path extension, or a fallback when there is no extension.
 - `Path.glob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern below a path.
-- `Path.hardlink(at: Path) -> Result[Unit, Error]` — Creates a hard link to the path at another path.
-- `Path.is_dir() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
-- `Path.is_file() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
-- `Path.is_symlink() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
+- `Path.hardlink(path: Path) -> Result[Unit, Error]` — Creates a hard link to a path.
 - `Path.lines() -> Result[Stream[Str], Error]` — Streams UTF-8 file lines.
 - `Path.metadata() -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads a path's filesystem metadata record.
 - `Path.mkdir(parents: Bool = default) -> Result[Unit, Error]` — Creates a directory at a path.
@@ -622,20 +663,19 @@ Process-scoped utility helpers.
 - `Path.read_text() -> Result[Str, Error]` — Reads a UTF-8 file into Str.
 - `Path.readlink() -> Result[Path, Error]` — Reads a symbolic link target.
 - `Path.relative_to(base: Path) -> Path` — Computes a path relative to an explicit base.
-- `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree, leaving the path gone.
+- `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree with an explicit missing policy.
 - `Path.remove_dir() -> Result[Unit, Error]` — Removes an empty directory.
-- `Path.rename(to: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
+- `Path.rename(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
 - `Path.resolve() -> Result[Path, Error]` — Resolves a path through the filesystem.
 - `Path.rglob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern at any depth below a path.
 - `Path.starts_with(prefix: Path) -> Bool` — Tests whether a path begins with the components of another path.
-- `Path.strip_prefix(prefix: Path) -> Result[RelPath, Error]` — Removes an explicit path prefix.
-- `Path.symlink(to: Path) -> Result[Unit, Error]` — Creates a symbolic link at the path that names a target.
+- `Path.strip_prefix(prefix: Path) -> Result[Path, Error]` — Removes an explicit path prefix.
 - `Path.touch(create: Bool = default) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.touch_from(reference: Path) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.truncate(size: Int) -> Result[Unit, Error]` — Changes a file's length.
 - `Path.unlink() -> Result[Unit, Error]` — Removes one directory entry.
 - `Path.with_ext(ext: Str) -> Path` — Replaces a path extension.
-- `Path.write(data: Bytes) -> Result[Unit, Error] (+3 overloads)` — Writes text or bytes to a path.
+- `Path.write(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
 - `Path.write_atomic(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Atomically replaces a path with text or bytes.
 - `Path.write_lines(lines: List[Str]) -> Result[Unit, Error]` — Writes a list of text lines to a path, each followed by a newline.
 
@@ -653,30 +693,18 @@ Process-scoped utility helpers.
 - `Regex.captures(text: Str) -> List[Str]` — Extracts regex capture groups.
 - `Regex.find(text: Str) -> List[{end: Int, start: Int, text: Str}]` — Finds regex matches in text.
 - `Regex.matches(text: Str) -> Bool` — Tests whether a regex matches text.
-- `Regex.replace(text: Str, with: Str) -> Str` — Replaces regex matches in text.
-
-### RelPath
-
-- `RelPath.normalize() -> RelPath` — Normalizes lexical path components, still a RelPath.
-- `RelPath.parent() -> RelPath` — Returns the lexical parent path, still a RelPath.
+- `Regex.replace(text: Str, replacement: Str) -> Str` — Replaces regex matches in text.
 
 ### Result
 
 - `Result[T, E].context(kind: Str, message: Str = default) -> Self` — Adds a domain-specific error context before propagation.
-
-### Set
-
-- `Set[T].add(item: T) -> Set[T]` — Returns the set with one more element.
-- `Set[T].is_empty() -> Bool` — Tests whether a value has no elements.
-- `Set[T].len() -> Int` — Returns the number of elements in a set.
-- `Set[T].remove(item: T) -> Set[T]` — Returns the set without one element.
-- `Set[T].to_list() -> List[T]` — Lists the elements of a set in its iteration order.
 
 ### Status
 
 - `Status.exit_code() -> Result[Int, Error]` — Reads one field from a process status.
 - `Status.exited() -> Bool` — Checks how a process status completed.
 - `Status.exited_with(code: Int) -> Bool` — Checks a process exit code.
+- `Status.shell_code() -> Result[Int, Error]` — Reports a status the way a shell does: the exit code, or 128 plus the signal.
 - `Status.signal_number() -> Result[Int, Error]` — Reads one field from a process status.
 - `Status.signaled() -> Bool` — Checks how a process status completed.
 
@@ -694,7 +722,6 @@ Process-scoped utility helpers.
 - `Str.ends_with(suffix: Str) -> Bool` — Checks a text relationship.
 - `Str.fields(delimiter: Str = default) -> List[Str]` — Splits text into a structured list.
 - `Str.find(needle: Str, start: Int = default) -> Int?` — Finds a text substring position.
-- `Str.is_empty() -> Bool` — Tests whether a value has no elements.
 - `Str.lines() -> List[Str]` — Splits text into a structured list.
 - `Str.lower() -> Str` — Changes text case.
 - `Str.parse_float() -> Result[Float, Error]` — Parses text as a floating-point value.
@@ -702,7 +729,7 @@ Process-scoped utility helpers.
 - `Str.parse_int_decimal() -> Result[Int, Error]` — Parses text as a strict decimal integer.
 - `Str.parse_uint() -> Result[Int, Error]` — Parses text as a non-negative decimal integer, trimming surrounding whitespace.
 - `Str.parse_uint_positive() -> Result[Int, Error]` — Parses text as a positive decimal integer, trimming surrounding whitespace.
-- `Str.replace(from: Str, with: Str) -> Str` — Replaces text occurrences.
+- `Str.replace(from: Str, to: Str) -> Str` — Replaces text occurrences.
 - `Str.reverse() -> Str` — Transforms text characters.
 - `Str.split(separator: Str, maxsplit: Int = default) -> List[Str]` — Splits text at an explicit separator.
 - `Str.squeeze(chars: Str = default) -> Str` — Transforms text characters.
@@ -727,16 +754,20 @@ Process-scoped utility helpers.
 - `ElfInfo {class: Str, dynamic_tags: List[{tag: Str, value: Int}], endian: Str, flags: List[Str], interpreter: Str, machine: Str, needed: List[Str], os_abi: Str, path: Path, rpath: Str, runpath: Str, soname: Str, type: Str}` — Describes ELF headers and dynamic dependencies.
 - `EnvEntry {name: Str, value: Str}` — Describes one environment variable entry.
 - `EnvPathEntry {empty: Bool, index: Int, path: Path, raw: Str}` — Describes one component of an environment path list.
+- `FsCopyFileResult {bytes: Int, hole_bytes: Int, method: Str}` — Reports how fs.copy_file moved bytes into the destination.
 - `FsCopyTreeResult {dirs: Int, files: Int, symlinks: Int}` — Reports files and directories copied by a tree operation.
+- `FsDataRange {length: Int, offset: Int}` — Describes one run of allocated data in a file.
 - `FsEntry {accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}` — Describes one filesystem directory entry and its metadata.
 - `FsFilesystemStats {available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}` — Reports capacity statistics for a filesystem.
 - `FsLock {id: Int, path: Path, shared: Bool}` — Represents an owned filesystem lock.
-- `FsMount {available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}` — Describes one mounted filesystem.
+- `FsMount {available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}` — Describes one mounted filesystem.
 - `FsRemoveManifestResult {missing: Int, pruned_dirs: Int, removed: Int}` — Reports paths removed by a manifest operation.
 - `FsRootChildrenResult {children: List[Path], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}` — Describes one bounded directory enumeration beneath a rooted filesystem capability.
 - `FsRootFilesystemStats {available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}` — Describes filesystem capacity observed through a rooted directory capability.
 - `FsRootReadResult {data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}` — Describes a bounded read beneath a rooted filesystem capability.
 - `FsRootReadlinkResult {errno: Int?, error_kind: Str?, state: Str, target: Path?}` — Describes a symlink target observation beneath a rooted filesystem capability.
+- `FsStat {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}` — Describes complete stat(2) or lstat(2) metadata for one path.
+- `FsStatvfs {block_size: Int, blocks: Int, blocks_available: Int, blocks_free: Int, files: Int, files_available: Int, files_free: Int, flags: Int, fragment_size: Int, fsid: Int, name_max: Int, nodev: Bool, noexec: Bool, nosuid: Bool, readonly: Bool, type_magic: Int?}` — Reports raw statvfs(3) counters for the filesystem holding a path.
 - `Group {gid: Int, members: List[Str], name: Str}` — Describes a Unix group account.
 - `LinuxBlkid {label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}` — Describes Linux block-device identification data.
 - `LinuxBlockDevice {name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}` — Describes one Linux block device.
@@ -774,6 +805,7 @@ Process-scoped utility helpers.
 - `ProcessEntry {argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}` — Describes one process-table entry.
 - `ProcessPort {argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}` — Describes one process-owned network port.
 - `ProcessThread {argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}` — Describes one thread belonging to a process.
+- `Rlimit {hard: Int?, resource: Str, soft: Int?}` — Describes one resource limit of the calling process.
 - `Signal {name: Str, number: Int}` — Describes a Unix signal value.
 - `Spawn {argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}` — Represents an owned spawned process.
 - `SystemExecutionUnits {clock_ticks_per_second: Int, page_size_bytes: Int}` — Reports host page size and process clock-tick rate.
@@ -786,9 +818,16 @@ Process-scoped utility helpers.
 - `UnixGroupId {gid: Int, name: Str}` — Describes Unix group identity numbers.
 - `UnixId {egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}` — Describes Unix user and group identity numbers.
 - `UnixKillAllResult {matched: Int, signaled: Int}` — Reports a Unix process-set signal operation.
+- `UnixLoadAverage {fifteen: Float, five: Float, one: Float}` — Reports the system load averages over one, five, and fifteen minutes.
 - `UnixLoggedProcessGroup {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}` — Represents an owned Unix process group with logging.
 - `UnixPid1Event {children: List[{pid: Int, status: Status}], kind: Str, signal: Str}` — Describes one PID 1 lifecycle event.
 - `UnixPid1Shutdown {kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}` — Describes a requested PID 1 shutdown action.
+- `UnixPty {master: Int, name: Str, replica: Int}` — Describes a pseudo-terminal pair opened by unix.open_pty.
 - `UnixSpawnedChild {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}` — Represents a Unix child spawned in a process group.
-- `UnixTtyAttrs {cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}` — Describes Unix terminal attributes.
+- `UnixTtyAttrs {cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, line: Int, oflag: Int, ospeed: Int, raw: Bool}` — Describes Unix terminal attributes.
+- `UnixTtyChar {index: Int, name: Str, sane: Int}` — Describes one named terminal control character slot.
+- `UnixTtyFlag {field: Str, mask: Int, name: Str, sane: Bool, value: Int}` — Describes one named terminal mode flag of the termios tables.
+- `UnixTtyTable {chars: List[{index: Int, name: Str, sane: Int}], flags: List[{field: Str, mask: Int, name: Str, sane: Bool, value: Int}], speeds: List[Int]}` — Lists the terminal flags, control characters, and baud rates the host knows by name.
+- `UnixUtmp {addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}` — Describes one record of a utmp or wtmp file.
+- `UnixWindowSize {cols: Int, rows: Int, xpixel: Int, ypixel: Int}` — Describes a terminal's window size.
 - `User {gid: Int, home: Path, name: Str, shell: Str, uid: Int}` — Describes a Unix user account.

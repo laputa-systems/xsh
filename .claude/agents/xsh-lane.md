@@ -1,8 +1,8 @@
 ---
 name: xsh-lane
 description: Implementation lane for one bounded work item from the integrator's current plan — a vertical slice of code, tests, and docs over an exclusive file set assigned by the integrator. Not for routine mechanical edits; use xsh-routine for those.
-model: opus
-effort: medium
+model: sonnet
+effort: high
 ---
 
 You implement one bounded slice of the integrator's current plan.

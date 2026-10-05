@@ -1,0 +1,425 @@
+{
+  "comment": "Lane ownership. A utility or file has exactly one owner per wave; lanes.py checks it. `utilities` names core/<name>.xsh and core/tests/test-<name>.xsh (new files included). Integrator-owned.",
+  "lanes": {
+    "awk": {
+      "wave": 1,
+      "kind": "rust",
+      "utilities": [],
+      "extra_files": [
+        "core/awk.xsh"
+      ],
+      "depends": [],
+      "note": "Long-running: credible POSIX awk parser and runtime."
+    },
+    "bytes-enc": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "base32",
+        "base64",
+        "basenc",
+        "od",
+        "dd"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-bytes-hash"
+      ],
+      "note": ""
+    },
+    "checksums": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "md5sum",
+        "sha1sum",
+        "sha224sum",
+        "sha256sum",
+        "sha384sum",
+        "sha512sum",
+        "b2sum",
+        "cksum",
+        "sum"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-bytes-hash"
+      ],
+      "note": "One checksum implementation shared through aliases.json (integrator-owned); each command keeps its own argv, help and output."
+    },
+    "cp": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "cp"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "Remove the cp discard bucket; 386 tests: reflink, sparse, attributes, hardlinks, symlink follow rules, update/backup."
+    },
+    "date": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "date",
+        "dircolors"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": "date format modifiers and widths (`date +%99999999999c` currently writes 2 GiB: bound it), -d parsing, -f, -r, --iso-8601; dircolors database and shell output."
+    },
+    "fs-basic": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "rm",
+        "rmdir",
+        "mkdir",
+        "touch"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "Remove the touch discard bucket."
+    },
+    "fs-misc": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "mknod",
+        "mkfifo",
+        "mktemp",
+        "truncate",
+        "shred",
+        "sync",
+        "readlink",
+        "realpath",
+        "pwd",
+        "dirname",
+        "pathchk",
+        "basename"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "basename is already converted (reference applet); only its recorded gap remains."
+    },
+    "gnu-patch-classify": {
+      "wave": 1,
+      "kind": "routine",
+      "utilities": [],
+      "extra_files": [
+        "dev/compat/gnu-patches.json"
+      ],
+      "depends": [],
+      "note": "Classify uutils' GNU test patches: plumbing, accepted semantic divergence, uutils wording."
+    },
+    "legacy-buckets": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "getty",
+        "ifdown",
+        "ifup",
+        "pstree",
+        "which"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": "Non-uutils applets that carry discard buckets; remove them."
+    },
+    "ls": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "ls",
+        "dir",
+        "vdir"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "Remove the ls discard bucket; dir/vdir are aliases of ls with different defaults (aliases.json, integrator-owned)."
+    },
+    "mv-ln": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "mv",
+        "ln",
+        "link",
+        "unlink",
+        "install"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "Remove the mv and ln discard buckets."
+    },
+    "native-bytes-hash": {
+      "wave": 1,
+      "kind": "rust",
+      "utilities": [],
+      "extra_files": [
+        "src/modules/hash.rs",
+        "src/modules/bytes.rs"
+      ],
+      "depends": [],
+      "note": "streaming byte I/O, BLAKE2b variable length, CRC for cksum, BSD/SysV sum; the byte-helper Requests from w0-gnu-lib."
+    },
+    "native-fs": {
+      "wave": 1,
+      "kind": "rust",
+      "utilities": [],
+      "extra_files": [
+        "src/modules/fs.rs",
+        "src/modules/fs/",
+        "tests/xsh/stdlib/fs.xsh",
+        "tests/xsh/stdlib/fs_*.xsh"
+      ],
+      "depends": [],
+      "note": "Typed fs primitives the Wave 1 file lanes request: nofollow metadata (lstat-style for every field), ownership and mode preservation, nanosecond timestamps (utimensat, set and get, nofollow variants), hardlink count and identity, FIFOs and device nodes (mkfifo/mknod), sparse files (SEEK_DATA/SEEK_HOLE), efficient copy (copy_file_range, reflink via FICLONE), statvfs and mount identity, no-clobber and atomic operations (RENAME_NOREPLACE, O_EXCL), xattrs only if cp -a needs them. Read the failing categories in dev/compat/results/uutils-integration.json for cp, mv, ln, ls, touch, stat, du, df, mkdir, rm, chmod, chown, mkfifo, mknod, truncate and the uutils tests to decide the API; keep it typed (records, Result), additive, and documented. You may edit the fs module's registry/signature/doc entries and the fs section of docs/templates/SPEC.md with its docs/snippets/spec files (not generated docs; the integrator runs make docs). Merge conflicts in shared registry files are resolved mechanically by the integrator, so keep edits additive."
+    },
+    "native-proc-tty": {
+      "wave": 1,
+      "kind": "rust",
+      "utilities": [],
+      "extra_files": [
+        "src/modules/process.rs",
+        "src/modules/unix.rs"
+      ],
+      "depends": [],
+      "note": "signals, pgrp/session, nice/priority, wait-with-timeout, rlimits, termios, tty identity."
+    },
+    "perm": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "chmod",
+        "chown",
+        "chgrp",
+        "chroot"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "Remove the chmod, chown, chgrp discard buckets; privileged cases run in namespaces or are excluded needs-root."
+    },
+    "printf-env": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "printf",
+        "env"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": "printf needs a real format engine (152 tests); env covers -S, -u, -C, signals options and exit status 125/126/127."
+    },
+    "proc-a": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "kill",
+        "nice",
+        "nohup",
+        "timeout",
+        "stdbuf"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-proc-tty"
+      ],
+      "note": "stdbuf: decide with evidence between a native buffering mechanism and an explicit capability exclusion; never a no-op."
+    },
+    "sed": {
+      "wave": 1,
+      "kind": "rust",
+      "utilities": [],
+      "extra_files": [
+        "core/sed.xsh"
+      ],
+      "depends": [],
+      "note": "Long-running: a real parser and addressing model; uutils/sed and its GNU shim are the reference."
+    },
+    "sort": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "sort"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": "One 217-test utility: keys, locale-free collation, -m merge, -c check, --parallel accepted, external merge for large inputs, FIFO input."
+    },
+    "stat-du-df": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "stat",
+        "du",
+        "df"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-fs"
+      ],
+      "note": "Remove the df and du discard buckets."
+    },
+    "sysreport-extract": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [],
+      "extra_files": [
+        "core/system-report.xsh",
+        "core/lib/system_report.xsh",
+        "core/lib/system_report_collect.xsh",
+        "core/lib/system_report_live.xsh",
+        "core/SYSTEM-REPORT.md",
+        "core/lib/sys_*.xsh",
+        "dev/system_report_check.xsh",
+        "dev/system_report_cpupower_check.xsh",
+        "dev/system_report_lsusb_check.xsh",
+        "dev/system_report_sensors_check.xsh",
+        "dev/system_report_smbios_check.xsh",
+        "dev/tests/test-system-report*.xsh",
+        "dev/system-report-coverage.json"
+      ],
+      "depends": [],
+      "note": "Extraction phase 1, one bounded vertical slice: pull the PCI, USB, block-device/partition and mount collectors out of core/lib/system_report_*.xsh into reusable typed modules named core/lib/sys_pci.xsh, sys_usb.xsh, sys_block.xsh, sys_mount.xsh (exported record types and collectors, bounded reads, no output formatting), and make system-report consume them with byte-identical output. Keep bounded reads, redaction, safety and capture/replay guarantees; dev/system_report_check.xsh (including --run-fixtures) and dev/tests/test-system-report*.xsh stay green. These modules become the substrate for lspci, lsusb, lsblk, findmnt later; design the records for those consumers (typed identity, not names), and never make one command parse another's text output. Stop after this slice and report what remains."
+    },
+    "text-a1": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "cat",
+        "tac",
+        "tee",
+        "head",
+        "tail",
+        "rev"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": "cat throughput on large inputs is a known risk (1 GB RSS and timeouts in the baseline)."
+    },
+    "text-a2": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "cut",
+        "paste",
+        "fold",
+        "expand",
+        "unexpand",
+        "nl",
+        "fmt",
+        "pr",
+        "tr"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": ""
+    },
+    "text-b1": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "uniq",
+        "comm",
+        "join",
+        "split",
+        "csplit",
+        "tsort",
+        "ptx",
+        "shuf"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": ""
+    },
+    "text-b2": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "seq",
+        "wc",
+        "numfmt",
+        "factor",
+        "expr"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": ""
+    },
+    "trivial": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "true",
+        "false",
+        "yes",
+        "echo",
+        "test",
+        "[",
+        "sleep",
+        "arch",
+        "hostid",
+        "nproc",
+        "whoami",
+        "logname",
+        "tty",
+        "groups",
+        "id",
+        "uname",
+        "hostname",
+        "printenv"
+      ],
+      "extra_files": [],
+      "depends": [
+        "w0"
+      ],
+      "note": "First lane; proves the lane process. `[` and `test` share one applet through aliases.json (integrator adds the alias). Small utilities, many of them new applets. Size: about 1,500 changed lines."
+    },
+    "tty-misc": {
+      "wave": 1,
+      "kind": "script",
+      "utilities": [
+        "stty",
+        "more",
+        "uptime",
+        "users",
+        "who",
+        "pinky"
+      ],
+      "extra_files": [],
+      "depends": [
+        "native-proc-tty"
+      ],
+      "note": "utmp commands: decide with evidence between real support and explicit failure."
+    }
+  }
+}

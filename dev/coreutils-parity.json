@@ -1,0 +1,3415 @@
+{
+  "generated_by": "dev/compat/parity.py",
+  "upstream": {
+    "repository": "https://github.com/uutils/coreutils",
+    "commit": "e7c9f3194280835c4487c2945c68d5f01ccacc8d",
+    "entry_feature_set": "feat_os_unix"
+  },
+  "totals": {
+    "upstream_utilities": 108,
+    "in_scope": 106,
+    "capability_gated": 2,
+    "present": 73,
+    "present_in_scope": 73,
+    "missing_in_scope": [
+      "b2sum",
+      "base32",
+      "base64",
+      "basenc",
+      "chroot",
+      "cksum",
+      "dd",
+      "dircolors",
+      "expand",
+      "fmt",
+      "install",
+      "md5sum",
+      "mkfifo",
+      "mknod",
+      "mktemp",
+      "nl",
+      "nohup",
+      "od",
+      "pathchk",
+      "pr",
+      "sha1sum",
+      "sha224sum",
+      "sha256sum",
+      "sha384sum",
+      "sha512sum",
+      "shred",
+      "stdbuf",
+      "sum",
+      "sync",
+      "timeout",
+      "truncate",
+      "unexpand",
+      "unlink"
+    ]
+  },
+  "utilities": [
+    {
+      "utility": "arch",
+      "capability": null,
+      "xsh_implementation": "core/arch.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-arch.xsh",
+      "uutils_test_count": 4,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "base32",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 16,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 16,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "base64",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 25,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 25,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "basename",
+      "capability": null,
+      "xsh_implementation": "core/basename.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-basename.xsh",
+      "uutils_test_count": 29,
+      "uutils_integration": {
+        "pass": 26,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 2
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [
+        "test_basename::test_help",
+        "test_basename::test_version"
+      ],
+      "known_semantic_gaps": [
+        "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+      ]
+    },
+    {
+      "utility": "basenc",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 38,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 38,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "cat",
+      "capability": null,
+      "xsh_implementation": "core/cat.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cat.xsh",
+      "uutils_test_count": 54,
+      "uutils_integration": {
+        "pass": 42,
+        "fail": 11,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "cksum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 132,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 388,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "b2sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 15,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 18,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "md5sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 40,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 38,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "nice",
+      "capability": null,
+      "xsh_implementation": "core/nice.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nice.xsh",
+      "uutils_test_count": 13,
+      "uutils_integration": {
+        "pass": 11,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sha1sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 10,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 10,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sha224sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 8,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 8,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sha256sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 13,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 13,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sha384sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 8,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 8,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sha512sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 8,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 8,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "comm",
+      "capability": null,
+      "xsh_implementation": "core/comm.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-comm.xsh",
+      "uutils_test_count": 48,
+      "uutils_integration": {
+        "pass": 41,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "cp",
+      "capability": null,
+      "xsh_implementation": "core/cp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cp.xsh",
+      "uutils_test_count": 398,
+      "uutils_integration": {
+        "pass": 51,
+        "fail": 335,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "csplit",
+      "capability": null,
+      "xsh_implementation": "core/csplit.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-csplit.xsh",
+      "uutils_test_count": 105,
+      "uutils_integration": {
+        "pass": 100,
+        "fail": 5,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "cut",
+      "capability": null,
+      "xsh_implementation": "core/cut.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cut.xsh",
+      "uutils_test_count": 83,
+      "uutils_integration": {
+        "pass": 9,
+        "fail": 74,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "date",
+      "capability": null,
+      "xsh_implementation": "core/date.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-date.xsh",
+      "uutils_test_count": 173,
+      "uutils_integration": {
+        "pass": 25,
+        "fail": 141,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "dd",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 155,
+      "uutils_integration": {
+        "pass": 4,
+        "fail": 148,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "dir",
+      "capability": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dir.xsh",
+      "uutils_test_count": 12,
+      "uutils_integration": {
+        "pass": 9,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "dircolors",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 20,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 19,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "dirname",
+      "capability": null,
+      "xsh_implementation": "core/dirname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dirname.xsh",
+      "uutils_test_count": 23,
+      "uutils_integration": {
+        "pass": 6,
+        "fail": 15,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "echo",
+      "capability": null,
+      "xsh_implementation": "core/echo.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-echo.xsh",
+      "uutils_test_count": 65,
+      "uutils_integration": {
+        "pass": 59,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "expand",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 46,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 46,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "expr",
+      "capability": null,
+      "xsh_implementation": "core/expr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-expr.xsh",
+      "uutils_test_count": 172,
+      "uutils_integration": {
+        "pass": 159,
+        "fail": 13,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "factor",
+      "capability": null,
+      "xsh_implementation": "core/factor.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-factor.xsh",
+      "uutils_test_count": 25,
+      "uutils_integration": {
+        "pass": 21,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "false",
+      "capability": null,
+      "xsh_implementation": "core/false.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-false.xsh",
+      "uutils_test_count": 7,
+      "uutils_integration": {
+        "pass": 6,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "fmt",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 39,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 37,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "fold",
+      "capability": null,
+      "xsh_implementation": "core/fold.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-fold.xsh",
+      "uutils_test_count": 101,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 98,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "head",
+      "capability": null,
+      "xsh_implementation": "core/head.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-head.xsh",
+      "uutils_test_count": 73,
+      "uutils_integration": {
+        "pass": 58,
+        "fail": 15,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "hostid",
+      "capability": null,
+      "xsh_implementation": "core/hostid.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-hostid.xsh",
+      "uutils_test_count": 3,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "join",
+      "capability": null,
+      "xsh_implementation": "core/join.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-join.xsh",
+      "uutils_test_count": 46,
+      "uutils_integration": {
+        "pass": 40,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "link",
+      "capability": null,
+      "xsh_implementation": "core/link.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-link.xsh",
+      "uutils_test_count": 8,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 5,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "ln",
+      "capability": null,
+      "xsh_implementation": "core/ln.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ln.xsh",
+      "uutils_test_count": 60,
+      "uutils_integration": {
+        "pass": 19,
+        "fail": 41,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "ls",
+      "capability": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ls.xsh",
+      "uutils_test_count": 219,
+      "uutils_integration": {
+        "pass": 168,
+        "fail": 39,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+        "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
+        "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
+        "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
+        "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
+        "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
+        "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
+      ]
+    },
+    {
+      "utility": "mkdir",
+      "capability": null,
+      "xsh_implementation": "core/mkdir.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mkdir.xsh",
+      "uutils_test_count": 50,
+      "uutils_integration": {
+        "pass": 25,
+        "fail": 22,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "mktemp",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 47,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 47,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "mv",
+      "capability": null,
+      "xsh_implementation": "core/mv.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mv.xsh",
+      "uutils_test_count": 141,
+      "uutils_integration": {
+        "pass": 37,
+        "fail": 110,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "nl",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 67,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 67,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "numfmt",
+      "capability": null,
+      "xsh_implementation": "core/numfmt.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-numfmt.xsh",
+      "uutils_test_count": 194,
+      "uutils_integration": {
+        "pass": 160,
+        "fail": 34,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "od",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 80,
+      "uutils_integration": {
+        "pass": 5,
+        "fail": 75,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "paste",
+      "capability": null,
+      "xsh_implementation": "core/paste.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-paste.xsh",
+      "uutils_test_count": 27,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 26,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "pathchk",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 9,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 9,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "pr",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 84,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 84,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "printenv",
+      "capability": null,
+      "xsh_implementation": "core/printenv.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-printenv.xsh",
+      "uutils_test_count": 9,
+      "uutils_integration": {
+        "pass": 6,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "printf",
+      "capability": null,
+      "xsh_implementation": "core/printf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-printf.xsh",
+      "uutils_test_count": 153,
+      "uutils_integration": {
+        "pass": 7,
+        "fail": 145,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "ptx",
+      "capability": null,
+      "xsh_implementation": "core/ptx.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ptx.xsh",
+      "uutils_test_count": 50,
+      "uutils_integration": {
+        "pass": 48,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "pwd",
+      "capability": null,
+      "xsh_implementation": "core/pwd.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pwd.xsh",
+      "uutils_test_count": 14,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 12,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "readlink",
+      "capability": null,
+      "xsh_implementation": "core/readlink.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-readlink.xsh",
+      "uutils_test_count": 27,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 24,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "realpath",
+      "capability": null,
+      "xsh_implementation": "core/realpath.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-realpath.xsh",
+      "uutils_test_count": 33,
+      "uutils_integration": {
+        "pass": 8,
+        "fail": 25,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "rm",
+      "capability": null,
+      "xsh_implementation": "core/rm.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-rm.xsh",
+      "uutils_test_count": 80,
+      "uutils_integration": {
+        "pass": 17,
+        "fail": 58,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "rmdir",
+      "capability": null,
+      "xsh_implementation": "core/rmdir.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-rmdir.xsh",
+      "uutils_test_count": 17,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 15,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "seq",
+      "capability": null,
+      "xsh_implementation": "core/seq.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-seq.xsh",
+      "uutils_test_count": 79,
+      "uutils_integration": {
+        "pass": 71,
+        "fail": 15,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "shred",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 31,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 30,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "shuf",
+      "capability": null,
+      "xsh_implementation": "core/shuf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-shuf.xsh",
+      "uutils_test_count": 78,
+      "uutils_integration": {
+        "pass": 50,
+        "fail": 27,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sleep",
+      "capability": null,
+      "xsh_implementation": "core/sleep.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sleep.xsh",
+      "uutils_test_count": 25,
+      "uutils_integration": {
+        "pass": 41,
+        "fail": 12,
+        "skip": 0,
+        "excluded": 1
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [
+        "test_sleep::test_invalid_duration::case_7_single_quote"
+      ],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sort",
+      "capability": null,
+      "xsh_implementation": "core/sort.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sort.xsh",
+      "uutils_test_count": 217,
+      "uutils_integration": {
+        "pass": 34,
+        "fail": 183,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "split",
+      "capability": null,
+      "xsh_implementation": "core/split.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-split.xsh",
+      "uutils_test_count": 135,
+      "uutils_integration": {
+        "pass": 123,
+        "fail": 11,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "sum",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 13,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 13,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "tac",
+      "capability": null,
+      "xsh_implementation": "core/tac.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tac.xsh",
+      "uutils_test_count": 33,
+      "uutils_integration": {
+        "pass": 21,
+        "fail": 12,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "tail",
+      "capability": null,
+      "xsh_implementation": "core/tail.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tail.xsh",
+      "uutils_test_count": 170,
+      "uutils_integration": {
+        "pass": 96,
+        "fail": 71,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "tee",
+      "capability": null,
+      "xsh_implementation": "core/tee.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tee.xsh",
+      "uutils_test_count": 35,
+      "uutils_integration": {
+        "pass": 23,
+        "fail": 11,
+        "skip": 0,
+        "excluded": 1
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [
+        "test_tee::test_short_help_is_long_help"
+      ],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "test",
+      "capability": null,
+      "xsh_implementation": "core/test.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-test.xsh",
+      "uutils_test_count": 126,
+      "uutils_integration": {
+        "pass": 97,
+        "fail": 18,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "touch",
+      "capability": null,
+      "xsh_implementation": "core/touch.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-touch.xsh",
+      "uutils_test_count": 66,
+      "uutils_integration": {
+        "pass": 13,
+        "fail": 51,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "tr",
+      "capability": null,
+      "xsh_implementation": "core/tr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tr.xsh",
+      "uutils_test_count": 174,
+      "uutils_integration": {
+        "pass": 4,
+        "fail": 170,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "true",
+      "capability": null,
+      "xsh_implementation": "core/true.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-true.xsh",
+      "uutils_test_count": 7,
+      "uutils_integration": {
+        "pass": 6,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "truncate",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 49,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 47,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "tsort",
+      "capability": null,
+      "xsh_implementation": "core/tsort.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tsort.xsh",
+      "uutils_test_count": 25,
+      "uutils_integration": {
+        "pass": 20,
+        "fail": 5,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "tty",
+      "capability": null,
+      "xsh_implementation": "core/tty.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tty.xsh",
+      "uutils_test_count": 11,
+      "uutils_integration": {
+        "pass": 9,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "uname",
+      "capability": null,
+      "xsh_implementation": "core/uname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uname.xsh",
+      "uutils_test_count": 14,
+      "uutils_integration": {
+        "pass": 14,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "unexpand",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 44,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 44,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "uniq",
+      "capability": null,
+      "xsh_implementation": "core/uniq.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uniq.xsh",
+      "uutils_test_count": 38,
+      "uutils_integration": {
+        "pass": 34,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "unlink",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 7,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 7,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "vdir",
+      "capability": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-vdir.xsh",
+      "uutils_test_count": 12,
+      "uutils_integration": {
+        "pass": 10,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "wc",
+      "capability": null,
+      "xsh_implementation": "core/wc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-wc.xsh",
+      "uutils_test_count": 60,
+      "uutils_integration": {
+        "pass": 56,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "yes",
+      "capability": null,
+      "xsh_implementation": "core/yes.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-yes.xsh",
+      "uutils_test_count": 10,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 8,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "df",
+      "capability": null,
+      "xsh_implementation": "core/df.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-df.xsh",
+      "uutils_test_count": 66,
+      "uutils_integration": {
+        "pass": 9,
+        "fail": 56,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "du",
+      "capability": null,
+      "xsh_implementation": "core/du.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-du.xsh",
+      "uutils_test_count": 121,
+      "uutils_integration": {
+        "pass": 15,
+        "fail": 106,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "env",
+      "capability": null,
+      "xsh_implementation": "core/env.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-env.xsh",
+      "uutils_test_count": 102,
+      "uutils_integration": {
+        "pass": 34,
+        "fail": 66,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "hostname",
+      "capability": null,
+      "xsh_implementation": "core/hostname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-hostname.xsh",
+      "uutils_test_count": 5,
+      "uutils_integration": {
+        "pass": 5,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "kill",
+      "capability": null,
+      "xsh_implementation": "core/kill.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-kill.xsh",
+      "uutils_test_count": 58,
+      "uutils_integration": {
+        "pass": 47,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "nohup",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 13,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 12,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "nproc",
+      "capability": null,
+      "xsh_implementation": "core/nproc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nproc.xsh",
+      "uutils_test_count": 7,
+      "uutils_integration": {
+        "pass": 7,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "more",
+      "capability": null,
+      "xsh_implementation": "core/more.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-more.xsh",
+      "uutils_test_count": 11,
+      "uutils_integration": {
+        "pass": 9,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
+        "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
+        "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
+        "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
+        "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
+      ]
+    },
+    {
+      "utility": "sync",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 17,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 15,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "timeout",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 33,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 28,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "uptime",
+      "capability": null,
+      "xsh_implementation": "core/uptime.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uptime.xsh",
+      "uutils_test_count": 16,
+      "uutils_integration": {
+        "pass": 10,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+        "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
+        "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
+      ]
+    },
+    {
+      "utility": "whoami",
+      "capability": null,
+      "xsh_implementation": "core/whoami.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-whoami.xsh",
+      "uutils_test_count": 5,
+      "uutils_integration": {
+        "pass": 5,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "chgrp",
+      "capability": null,
+      "xsh_implementation": "core/chgrp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chgrp.xsh",
+      "uutils_test_count": 32,
+      "uutils_integration": {
+        "pass": 15,
+        "fail": 16,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "chmod",
+      "capability": null,
+      "xsh_implementation": "core/chmod.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chmod.xsh",
+      "uutils_test_count": 63,
+      "uutils_integration": {
+        "pass": 4,
+        "fail": 59,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "chown",
+      "capability": null,
+      "xsh_implementation": "core/chown.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chown.xsh",
+      "uutils_test_count": 34,
+      "uutils_integration": {
+        "pass": 7,
+        "fail": 27,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "chroot",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 21,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 21,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "groups",
+      "capability": null,
+      "xsh_implementation": "core/groups.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-groups.xsh",
+      "uutils_test_count": 4,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "id",
+      "capability": null,
+      "xsh_implementation": "core/id.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-id.xsh",
+      "uutils_test_count": 22,
+      "uutils_integration": {
+        "pass": 13,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "install",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 124,
+      "uutils_integration": {
+        "pass": 3,
+        "fail": 118,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "logname",
+      "capability": null,
+      "xsh_implementation": "core/logname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-logname.xsh",
+      "uutils_test_count": 4,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "mkfifo",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 16,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 13,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "mknod",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 17,
+      "uutils_integration": {
+        "pass": 0,
+        "fail": 14,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "stat",
+      "capability": null,
+      "xsh_implementation": "core/stat.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stat.xsh",
+      "uutils_test_count": 52,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 49,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "stty",
+      "capability": null,
+      "xsh_implementation": "core/stty.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stty.xsh",
+      "uutils_test_count": 86,
+      "uutils_integration": {
+        "pass": 51,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
+        "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
+        "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",
+        "Arguments after `--` are settings; GNU 9.4 silently ignores them.",
+        "A terminal that keeps other state than requested (a pty drops parity and sizes other than 8 bits) is reported as `unable to perform all requested operations`; GNU 9.4 reports `Invalid argument` for some of those from tcsetattr itself, which `unix.set_tty_attrs` does not raise.",
+        "`-g` prints 32 control characters like glibc, but the kernel keeps 19: a saved state that sets later ones is applied and then refused as GNU does."
+      ]
+    },
+    {
+      "utility": "stdbuf",
+      "capability": null,
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 21,
+      "uutils_integration": {
+        "pass": 1,
+        "fail": 19,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "pinky",
+      "capability": null,
+      "xsh_implementation": "core/pinky.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pinky.xsh",
+      "uutils_test_count": 8,
+      "uutils_integration": {
+        "pass": 8,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+        "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
+        "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+      ]
+    },
+    {
+      "utility": "users",
+      "capability": null,
+      "xsh_implementation": "core/users.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-users.xsh",
+      "uutils_test_count": 5,
+      "uutils_integration": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
+      ]
+    },
+    {
+      "utility": "who",
+      "capability": null,
+      "xsh_implementation": "core/who.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-who.xsh",
+      "uutils_test_count": 27,
+      "uutils_integration": {
+        "pass": 15,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": [
+        "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+        "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
+        "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
+        "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+      ]
+    },
+    {
+      "utility": "chcon",
+      "capability": "selinux",
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 24,
+      "uutils_integration": null,
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    },
+    {
+      "utility": "runcon",
+      "capability": "selinux",
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 8,
+      "uutils_integration": null,
+      "gnu_differential": null,
+      "busybox": null,
+      "excluded_tests": [],
+      "known_semantic_gaps": []
+    }
+  ],
+  "linux_surface": {
+    "totals": {
+      "commands": 125,
+      "present": 2,
+      "optional": 6,
+      "missing": [
+        "arp",
+        "awk",
+        "blkid",
+        "blockdev",
+        "bunzip2",
+        "bzcat",
+        "bzip2",
+        "chattr",
+        "chrt",
+        "clear",
+        "cmp",
+        "cpio",
+        "curl",
+        "depmod",
+        "diff",
+        "dig",
+        "dmesg",
+        "efibootmgr",
+        "egrep",
+        "ethtool",
+        "fatlabel",
+        "fdisk",
+        "fgrep",
+        "file",
+        "find",
+        "findmnt",
+        "flock",
+        "free",
+        "fsck.fat",
+        "fsck.vfat",
+        "fsfreeze",
+        "fstrim",
+        "fuser",
+        "getcap",
+        "getent",
+        "getfacl",
+        "getfattr",
+        "grep",
+        "gunzip",
+        "gzip",
+        "halt",
+        "hwclock",
+        "ifconfig",
+        "insmod",
+        "ionice",
+        "iostat",
+        "iw",
+        "killall",
+        "ldd",
+        "login",
+        "losetup",
+        "lsattr",
+        "lsblk",
+        "lscpu",
+        "lsmod",
+        "lsns",
+        "lsof",
+        "lspci",
+        "lsusb",
+        "lzcat",
+        "lzma",
+        "mkfs.fat",
+        "mkfs.vfat",
+        "mkswap",
+        "modinfo",
+        "modprobe",
+        "mount",
+        "nc",
+        "nsenter",
+        "nslookup",
+        "nvme",
+        "partprobe",
+        "partx",
+        "patch",
+        "pgrep",
+        "pidof",
+        "pidstat",
+        "ping",
+        "ping6",
+        "pivot_root",
+        "pkill",
+        "poweroff",
+        "prlimit",
+        "ps",
+        "reboot",
+        "reset",
+        "rfkill",
+        "rmmod",
+        "route",
+        "sed",
+        "sensors",
+        "setcap",
+        "setfacl",
+        "setfattr",
+        "setpriv",
+        "setsid",
+        "sfdisk",
+        "smartctl",
+        "ss",
+        "swapoff",
+        "swapon",
+        "switch_root",
+        "sysctl",
+        "taskset",
+        "top",
+        "tracepath",
+        "traceroute",
+        "udevadm",
+        "umount",
+        "unlzma",
+        "unshare",
+        "unxz",
+        "unzstd",
+        "vmstat",
+        "watch",
+        "wget",
+        "wipefs",
+        "xargs",
+        "xz",
+        "xzcat",
+        "zcat",
+        "zstd",
+        "zstdcat"
+      ]
+    },
+    "commands": [
+      {
+        "command": "lscpu",
+        "phase": "3A",
+        "domain": "linux.device",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "rfkill",
+        "phase": "3A",
+        "domain": "linux.device",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lspci",
+        "phase": "3A",
+        "domain": "linux.pci",
+        "reference": "pciutils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lsusb",
+        "phase": "3A",
+        "domain": "linux.usb",
+        "reference": "usbutils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "sensors",
+        "phase": "3A",
+        "domain": "linux.sensor",
+        "reference": "lm-sensors",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "swapon",
+        "phase": "3B",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "swapoff",
+        "phase": "3B",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "mkswap",
+        "phase": "3B",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "dmesg",
+        "phase": "3B",
+        "domain": "linux.device",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "sysctl",
+        "phase": "3B",
+        "domain": "linux.sysctl",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "hwclock",
+        "phase": "3B",
+        "domain": "linux.clock",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "flock",
+        "phase": "3B",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "setsid",
+        "phase": "3B",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "pivot_root",
+        "phase": "3B",
+        "domain": "linux.mount",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "switch_root",
+        "phase": "3B",
+        "domain": "linux.mount",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "reboot",
+        "phase": "3B",
+        "domain": "linux.power",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "poweroff",
+        "phase": "3B",
+        "domain": "linux.power",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "halt",
+        "phase": "3B",
+        "domain": "linux.power",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lsmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "modinfo",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "modprobe",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "insmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "rmmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "depmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ps",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "pgrep",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "pkill",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "pidof",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "free",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "top",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "watch",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "vmstat",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "killall",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "psmisc",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "pstree",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "psmisc",
+        "optional": false,
+        "xsh_implementation": "core/pstree.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-pstree.xsh"
+      },
+      {
+        "command": "fuser",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "psmisc",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lsof",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "lsof",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "iostat",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "sysstat",
+        "optional": true,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "pidstat",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "sysstat",
+        "optional": true,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ip",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iproute2",
+        "optional": false,
+        "xsh_implementation": "core/ip.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ip.xsh"
+      },
+      {
+        "command": "ss",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iproute2",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ping",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iputils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ping6",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iputils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ifconfig",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "net-tools",
+        "optional": true,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "route",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "net-tools",
+        "optional": true,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "arp",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "net-tools",
+        "optional": true,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "udevadm",
+        "phase": "3F",
+        "domain": "linux.device",
+        "reference": "eudev",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "login",
+        "phase": "3G",
+        "domain": "linux.accounts",
+        "reference": "shadow",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "getent",
+        "phase": "3G",
+        "domain": "linux.accounts",
+        "reference": "glibc",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "grep",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "gnu-grep",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "egrep",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "gnu-grep",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fgrep",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "gnu-grep",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "find",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "findutils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "xargs",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "findutils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "sed",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "gnu-sed",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "awk",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "gawk",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "cmp",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "diffutils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "diff",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "diffutils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "patch",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "patch",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "gzip",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "gzip",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "gunzip",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "gzip",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "zcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "gzip",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "bzip2",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "bzip2",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "bunzip2",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "bzip2",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "bzcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "bzip2",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "xz",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "unxz",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "xzcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lzma",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "unlzma",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lzcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "zstd",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "zstd",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "unzstd",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "zstd",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "zstdcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "zstd",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "file",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "file",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ldd",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "glibc",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "clear",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "ncurses",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "reset",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "ncurses",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lsblk",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "blkid",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "findmnt",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "mount",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "umount",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "losetup",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "blockdev",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "wipefs",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "partx",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "partprobe",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fstrim",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fsfreeze",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "sfdisk",
+        "phase": "7A",
+        "domain": "linux.partition",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fdisk",
+        "phase": "7A",
+        "domain": "linux.partition",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "mkfs.fat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "mkfs.vfat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fsck.fat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fsck.vfat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "fatlabel",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lsattr",
+        "phase": "7C",
+        "domain": "linux.fs",
+        "reference": "e2fsprogs",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "chattr",
+        "phase": "7C",
+        "domain": "linux.fs",
+        "reference": "e2fsprogs",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "getfattr",
+        "phase": "7C",
+        "domain": "linux.xattr",
+        "reference": "attr",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "setfattr",
+        "phase": "7C",
+        "domain": "linux.xattr",
+        "reference": "attr",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "getfacl",
+        "phase": "7C",
+        "domain": "linux.acl",
+        "reference": "acl",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "setfacl",
+        "phase": "7C",
+        "domain": "linux.acl",
+        "reference": "acl",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "getcap",
+        "phase": "7C",
+        "domain": "linux.capability",
+        "reference": "libcap",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "setcap",
+        "phase": "7C",
+        "domain": "linux.capability",
+        "reference": "libcap",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "smartctl",
+        "phase": "8",
+        "domain": "linux.storage_health",
+        "reference": "smartmontools",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "nvme",
+        "phase": "8",
+        "domain": "linux.nvme",
+        "reference": "nvme-cli",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "nsenter",
+        "phase": "9",
+        "domain": "linux.namespace",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "unshare",
+        "phase": "9",
+        "domain": "linux.namespace",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "lsns",
+        "phase": "9",
+        "domain": "linux.namespace",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "taskset",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "chrt",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ionice",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "prlimit",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "setpriv",
+        "phase": "9",
+        "domain": "linux.capability",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "ethtool",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "ethtool",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "iw",
+        "phase": "10",
+        "domain": "linux.wifi",
+        "reference": "iw",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "traceroute",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "traceroute",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "tracepath",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "iputils",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "dig",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "bind",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "nslookup",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "bind",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "nc",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "netcat-openbsd",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "curl",
+        "phase": "10",
+        "domain": "xsh.net",
+        "reference": "curl",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "wget",
+        "phase": "10",
+        "domain": "xsh.net",
+        "reference": "curl",
+        "optional": true,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "cpio",
+        "phase": "11",
+        "domain": "archive",
+        "reference": "cpio",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      },
+      {
+        "command": "efibootmgr",
+        "phase": "11",
+        "domain": "linux.efi",
+        "reference": "efibootmgr",
+        "optional": false,
+        "xsh_implementation": null,
+        "present": false,
+        "native_tests": null
+      }
+    ]
+  }
+}

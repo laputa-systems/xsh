@@ -3250,6 +3250,7 @@ impl Checker {
             | Type::ErrorFacet(_)
             | Type::ProcessError => match name {
                 "message" | "kind" => Some(Type::Str),
+                "errno" => Some(Type::Optional(Box::new(Type::Int))),
                 _ => None,
             },
             _ => return None,

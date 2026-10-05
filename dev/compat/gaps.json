@@ -1,0 +1,51 @@
+{
+  "comment": "Known semantic gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
+  "utilities": {
+    "basename": [
+      "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+    ],
+    "ls": [
+      "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+      "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
+      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
+      "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
+      "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
+      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
+      "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
+    ],
+    "stty": [
+      "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
+      "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
+      "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",
+      "Arguments after `--` are settings; GNU 9.4 silently ignores them.",
+      "A terminal that keeps other state than requested (a pty drops parity and sizes other than 8 bits) is reported as `unable to perform all requested operations`; GNU 9.4 reports `Invalid argument` for some of those from tcsetattr itself, which `unix.set_tty_attrs` does not raise.",
+      "`-g` prints 32 control characters like glibc, but the kernel keeps 19: a saved state that sets later ones is applied and then refused as GNU does."
+    ],
+    "more": [
+      "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
+      "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
+      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
+      "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
+      "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
+    ],
+    "who": [
+      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+      "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
+      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
+      "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+    ],
+    "users": [
+      "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
+    ],
+    "uptime": [
+      "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+      "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
+      "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
+    ],
+    "pinky": [
+      "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+      "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
+      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+    ]
+  }
+}

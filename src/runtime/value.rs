@@ -1559,10 +1559,21 @@ impl RuntimeError {
         Self::new(kind, error.to_string()).with_host_facet(error)
     }
 
+    /// The OS error number a host failure carried, readable as `.errno`.
+    pub fn errno(&self) -> Option<i64> {
+        match self.payload.get("errno") {
+            Some(Value::Int(errno)) => Some(*errno),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub fn with_host_facet(mut self, error: &impl HostErrorFacet) -> Self {
         if let Some(facet) = error.host_facet() {
             self.facets.push(facet.name().to_string());
+        }
+        if let Some(errno) = error.os_errno() {
+            self.payload.insert("errno".into(), Value::Int(errno));
         }
         self
     }
@@ -1738,11 +1749,20 @@ pub fn error_family_matches(actual: Name, expected: Name) -> bool {
 /// An OS error source that maps onto the built-in error facet vocabulary.
 pub trait HostErrorFacet {
     fn host_facet(&self) -> Option<ErrorFacet>;
+
+    /// The raw OS error number, when the failure came from the kernel.
+    fn os_errno(&self) -> Option<i64> {
+        None
+    }
 }
 
 impl HostErrorFacet for std::io::Error {
     fn host_facet(&self) -> Option<ErrorFacet> {
         Some(ErrorFacet::of_host_io(self.kind()))
+    }
+
+    fn os_errno(&self) -> Option<i64> {
+        self.raw_os_error().map(i64::from)
     }
 }
 
@@ -1750,12 +1770,20 @@ impl HostErrorFacet for rustix::io::Errno {
     fn host_facet(&self) -> Option<ErrorFacet> {
         std::io::Error::from(*self).host_facet()
     }
+
+    fn os_errno(&self) -> Option<i64> {
+        Some(i64::from(self.raw_os_error()))
+    }
 }
 
 /// A walk failure has a facet only when the filesystem caused it.
 impl HostErrorFacet for ignore::Error {
     fn host_facet(&self) -> Option<ErrorFacet> {
         self.io_error().and_then(HostErrorFacet::host_facet)
+    }
+
+    fn os_errno(&self) -> Option<i64> {
+        self.io_error().and_then(HostErrorFacet::os_errno)
     }
 }
 

@@ -127,11 +127,13 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   let archive_path = fp"{root}/dist/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let members = entries |> map .path.display()
-  assert members.len() == 2
+  assert members.len() == 3
   assert "core/bin/report.xsh-helper" in members
   assert "core/lib/report.xsh-helper.xsh" in members
+  assert "core/applets.json" in members
   assert (entries |> where .path == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
   assert (entries |> where .path == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
+  assert (entries |> where .path == "core/applets.json")[0].mode.bit_and(0o777) == 0o644
   let extracted = fp"{root}/extracted"
   archive.tar_extract(archive_path, extracted)
   assert fp"{extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
@@ -141,6 +143,75 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   assert ! fp"{extracted}/core/tests/ignored".exists()?
   assert """  dist/core-fixture.tar.xz
 """ in fp"{root}/dist/core-fixture.sha256".read_text()?
+}
+
+type ManifestApplet = {name: Str, source: Str}
+
+type ManifestAlias = {name: Str, target: Str}
+
+type ManifestShape = {
+  aliases: List[ManifestAlias],
+  applets: List[ManifestApplet],
+  generated_by: Str,
+  libraries: List[Str],
+}
+
+test test_applet_manifest_lists_applets_aliases_and_libraries { |ctx|
+  let root = test.temp_dir(ctx, name: "applet-manifest")?
+  fp"{root}/core/lib".mkdir()
+  fp"{root}/core/tests".mkdir()
+  fp"{root}/dev/compat".mkdir()
+  fp"{root}/core/ls.xsh".write("print \"ls\"\n")
+  fp"{root}/core/basename.xsh".write("print \"basename\"\n")
+  fp"{root}/core/lib/gnu.xsh".write("##! gnu\n")
+  fp"{root}/core/tests/test-ls.xsh".write("print \"test\"\n")
+  fp"{root}/dev/compat/aliases.json".write(
+    """{"comment": "x", "aliases": [{"name": "vdir", "target": "ls"}, {"name": "dir", "target": "ls"}]}\n""",
+  )
+  let release_ctx = fixtures.linux_context(root, "dev")?
+  let text = releases.applet_manifest(release_ctx)?
+  assert text.ends_with("\n")
+  let manifest = json.decode(text)?.require(ManifestShape)?
+  assert manifest.generated_by == "dev/release.xsh"
+  assert (manifest.applets |> map .name) == ["basename", "ls"]
+  assert (manifest.applets |> map .source) == ["core/basename.xsh", "core/ls.xsh"]
+  assert (manifest.aliases |> map .name) == ["dir", "vdir"]
+  assert (manifest.aliases |> map .target) == ["ls", "ls"]
+  assert manifest.libraries == ["lib/gnu.xsh"]
+  assert releases.applet_manifest(release_ctx)? == text
+}
+
+test test_applet_manifest_without_alias_table_has_no_aliases { |ctx|
+  let root = test.temp_dir(ctx, name: "applet-manifest-no-aliases")?
+  fp"{root}/core".mkdir()
+  fp"{root}/core/cat.xsh".write("print \"cat\"\n")
+  let release_ctx = fixtures.linux_context(root, "dev")?
+  let manifest = json.decode(releases.applet_manifest(release_ctx)?)?.require(ManifestShape)?
+  assert manifest.aliases.len() == 0
+  assert (manifest.applets |> map .name) == ["cat"]
+}
+
+test test_applet_manifest_rejects_dangling_and_colliding_aliases { |ctx|
+  let root = test.temp_dir(ctx, name: "applet-manifest-bad-aliases")?
+  fp"{root}/core".mkdir()
+  fp"{root}/dev/compat".mkdir()
+  fp"{root}/core/ls.xsh".write("print \"ls\"\n")
+  fp"{root}/core/cat.xsh".write("print \"cat\"\n")
+  let release_ctx = fixtures.linux_context(root, "dev")?
+
+  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "dir", "target": "missing"}]}""")
+  match releases.applet_manifest(release_ctx) {
+    Ok(_) => test.fail("dangling alias was accepted")
+    Err(stages.StageError.Failed {detail, ..}) => assert detail == "alias dir targets missing applet missing"
+    Err(error) => test.fail(error.message)
+  }
+
+  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "cat", "target": "ls"}]}""")
+  match releases.applet_manifest(release_ctx) {
+    Ok(_) => test.fail("colliding alias was accepted")
+    Err(stages.StageError.Failed {detail, ..}) => assert detail == "alias cat collides with applet core/cat.xsh"
+    Err(error) => test.fail(error.message)
+  }
 }
 
 test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|

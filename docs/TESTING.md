@@ -105,10 +105,21 @@ API gate: `cargo test --release --test integration libxsh_api`,
 
 Repository gates (owner-run unless the task asks for them):
 
+The compatibility ratchets are `python3 dev/compat/check_ignored_options.py`
+(no new or grown discard bucket in `core/*.xsh`),
+`python3 dev/compat/check_kernel_reads.py` (no `/proc` or `/sys` literal in a
+top-level applet: kernel state is read through one typed domain API per ABI),
+`python3 dev/compat/check_exclusions.py` (Gate 3 exclusions are exact test IDs with
+a category and a reason), and
+`python3 dev/compat/parity.py --check` (the committed parity manifest matches
+the repository and the denominator pinned in `dev/compat/upstream.lock.json`;
+offline unless `UUTILS_ROOT` is set). Harness usage is in
+`dev/compat/README.md`.
+
 | Command | Runs |
 |---|---|
-| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, `check-docs` (with release binaries), `git diff --check` |
-| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), then `check-docs` with release binaries |
+| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the compatibility ratchets, `check-docs` (with release binaries), `git diff --check` |
+| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the compatibility ratchets, then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | the root integration targets with `cargo test --release`, then the unit tests with debug `cargo test --lib` |
 | `cargo dev test xsh` | build release `xsh` and `xsht`, then the native suite through `target/release/xsht test` |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |

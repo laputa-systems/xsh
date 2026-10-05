@@ -1,41 +1,81 @@
 #!/bin/xsh
-pure basename_value(name: Str, suffix: Str) -> Str {
-  let parts = name.split("/")
-  let raw = if ! parts.is_empty() { parts[-1] } else { name }
-  let base = if raw == "" and parts.len() > 1 { parts[-2] } else { raw }
+use lib.gnu
 
-  return base.replace(suffix, with: "") when suffix != "" and base.ends_with(suffix)
+const USAGE = """Usage: basename NAME [SUFFIX]
+  or:  basename OPTION... NAME...
+Print NAME with any leading directory components removed.
+If specified, also remove a trailing SUFFIX.
 
-  base
+  -a, --multiple       support multiple arguments and treat each as a NAME
+  -s, --suffix=SUFFIX  remove a trailing SUFFIX; implies -a
+  -z, --zero           end each output line with NUL, not newline
+      --help           display this help and exit
+      --version        output version information and exit
+"""
+
+type BasenameOptions = {
+  multiple: Bool,
+  suffix: Str?,
+  zero: Bool,
+  help: Bool,
+  version: Bool,
+  names: List[Str],
 }
 
-type BasenameOptions = {multiple: Bool, suffix: Str, names: List[Str]}
+# The last path component of NAME after trailing slashes are dropped; a NAME of
+# only slashes is "/". A SUFFIX is removed unless that would leave nothing.
+pure basename_value(name: Str, suffix: Str) -> Str {
+  var end = name.byte_len()
+  while end > 0 and name.byte_slice(end - 1, length: 1) == "/" {
+    end -= 1
+  }
 
-proc main(...argv: List[Str]) [error, io] -> Result[Int] {
+  return "/" when end == 0 and name != ""
+
+  let trimmed = name.byte_slice(0, length: end)
+  let parts = trimmed.split("/")
+  let base = if parts.len() > 0 { parts[parts.len() - 1] } else { trimmed }
+
+  return base when suffix == "" or base == suffix or ! base.ends_with(suffix)
+
+  base.byte_slice(0, length: base.byte_len() - suffix.byte_len())
+}
+
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: BasenameOptions = cli.applet(
     argv,
     {
-      multiple: {
-        form: "-a",
-        default: false,
-      },
-      suffix: {
-        form: "-s SUFFIX",
-        default: "",
-      },
-      names: {
-        form: "...NAME",
-      },
+      gnu: {status: 1, permute: false},
+      multiple: {form: "-a --multiple", default: false},
+      suffix: {form: "-s --suffix SUFFIX"},
+      zero: {form: "-z --zero", default: false},
+      help: {form: "--help", default: false, stop: true},
+      version: {form: "--version", default: false, stop: true},
+      names: {form: "...NAME"},
     },
   )?
-  var multiple = opts.multiple or opts.suffix != ""
-  var suffix = opts.suffix
+
+  if opts.help {
+    gnu.help(USAGE)
+    return
+  }
+
+  if opts.version {
+    gnu.version("basename")
+    return
+  }
+
   var names = opts.names
+  var suffix = opts.suffix ?? ""
 
-  return 2 when names.is_empty()
+  if names.len() == 0 {
+    gnu.missing_operand()
+  }
 
-  if ! multiple {
-    return 2 when names.len() > 2
+  if ! (opts.multiple or opts.suffix != null) {
+    if names.len() > 2 {
+      gnu.extra_operand(names[2])
+    }
 
     if names.len() == 2 {
       suffix = names[1]
@@ -43,9 +83,9 @@ proc main(...argv: List[Str]) [error, io] -> Result[Int] {
     }
   }
 
-  for name in names {
-    print basename_value(name, suffix)
-  }
+  let ending = if opts.zero { "\0" } else { "\n" }
 
-  0
+  for name in names {
+    gnu.write_text(basename_value(name, suffix) + ending)
+  }
 }

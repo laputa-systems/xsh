@@ -1943,6 +1943,22 @@ fn lowered_flag_name(value: &LoweredValue) -> Option<String> {
     Some(flag.replace('-', "_"))
 }
 
+fn lowered_optional_int_arg(
+    value: Option<&LoweredValue>,
+    operation: &str,
+    span: Span,
+) -> Result<Option<i64>, RuntimeError> {
+    match value {
+        None | Some(LoweredValue::Null) => Ok(None),
+        Some(LoweredValue::Int(value)) => Ok(Some(*value)),
+        Some(other) => Err(RuntimeError::new(
+            "type-error",
+            format!("{operation} expected Int or null, found {}", other.type_name()),
+        )
+        .with_span(span)),
+    }
+}
+
 fn lowered_int_arg_or(
     value: Option<LoweredValue>,
     default: i64,
@@ -2767,6 +2783,7 @@ fn unix_fake_tty_attrs() -> Value {
         (Arc::from("oflag"), Value::Int(0)),
         (Arc::from("cflag"), Value::Int(0)),
         (Arc::from("lflag"), Value::Int(0)),
+        (Arc::from("line"), Value::Int(0)),
         (Arc::from("ispeed"), Value::Int(0)),
         (Arc::from("ospeed"), Value::Int(0)),
         (Arc::from("echo"), Value::Bool(false)),
@@ -3433,6 +3450,7 @@ fn lowered_fs_mount_record(mount: fs_module::FsMount) -> Result<LoweredValue, Ru
         ),
         (Arc::from("mounted_on"), LoweredValue::Path(mounted_on)),
         (Arc::from("fstype"), LoweredValue::Str(mount.fstype.into())),
+        (Arc::from("device"), LoweredValue::Int(mount.device as i64)),
         (
             Arc::from("blocks_1k"),
             LoweredValue::Int(mount.blocks_1k as i64),
@@ -3997,7 +4015,78 @@ impl std::ops::Index<usize> for NativeArgumentValues {
     }
 }
 
+impl NativeArgumentValues {
+    /// The arguments as runtime values for the typed host primitives; a path
+    /// is resolved against the script's working directory first, and an
+    /// omitted parameter stays `None`.
+    fn into_host_values(
+        self,
+        evaluator: &Evaluator,
+        span: Span,
+    ) -> Result<Vec<Option<Value>>, RuntimeError> {
+        self.0
+            .into_iter()
+            .map(|value| match value {
+                Some(LoweredValue::Path(path)) => path_value_from_pathbuf(evaluator.host_path(&path))
+                    .map(|path| Some(Value::Path(path)))
+                    .map_err(|error| error.with_span(span)),
+                other => Ok(other.map(LoweredValue::into_value)),
+            })
+            .collect()
+    }
+}
+
 impl Evaluator {
+    /// Dispatches the typed process, terminal, and session primitives of
+    /// `modules::process::prims`, `modules::unix::tty`, and
+    /// `modules::unix::sessions`.
+    fn eval_host_primitive(
+        &mut self,
+        op: RuntimeOp,
+        values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let values = values.into_host_values(self, span)?;
+        let args = process_module::Args::new(op, &values, span);
+        let result = if process_module::is_prim(op) {
+            process_module::prim_call(op, &args)
+        } else {
+            unix_module::prim_call(op, &args)
+        };
+        lowered_module_result_value(result, span)
+    }
+
+    /// Writes the buffered stdout to the host descriptor and reports the first
+    /// failure with its errno. Nothing is written when output is captured or
+    /// owned by an embedding host.
+    fn flush_stdout_checked(&mut self, span: Span) -> Result<(), RuntimeError> {
+        if !self.shared_stdio || self.capture_process_output || self.stdout.is_empty() {
+            return Ok(());
+        }
+        let bytes = std::mem::take(&mut self.stdout);
+        let mut offset = 0;
+        while offset < bytes.len() {
+            // A raw write, not `std::io::stdout`, which reports a closed
+            // descriptor as success.
+            match rustix::io::write(rustix::stdio::stdout(), &bytes[offset..]) {
+                Ok(0) => {
+                    return Err(RuntimeError::host(
+                        "io-flush-stdout",
+                        &std::io::Error::from(std::io::ErrorKind::WriteZero),
+                    )
+                    .with_span(span));
+                }
+                Ok(written) => offset += written,
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::AGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(error) => {
+                    return Err(RuntimeError::host("io-flush-stdout", &error).with_span(span));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn lowered_stream_list_result(
         &mut self,
         result: Result<StreamValue, RuntimeError>,
@@ -4167,6 +4256,11 @@ impl Evaluator {
         span: Span,
         cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if process_module::is_prim(op) || unix_module::is_prim(op) {
+            return Ok(ControlFlow::Continue(
+                self.eval_host_primitive(op, values, span)?,
+            ));
+        }
         let value = match op {
             RuntimeOp::CpuCount if values.is_empty() => {
                 LoweredValue::Int(crate::modules::cpu::count())
@@ -5474,14 +5568,21 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::truncate_path(self.host_path(&path), size, span))
             }
-            RuntimeOp::FsChmod if values.len() == 2 => {
-                let mode = lowered_int_arg(values.pop(), "fs.chmod", span)?;
+            RuntimeOp::FsChmod if values.len() == 2 || values.len() == 3 => {
+                let follow_symlinks =
+                    lowered_bool_arg_or(values.get(2).cloned(), true, "fs.chmod", span)?;
+                let mode = lowered_int_arg(values.get(1).cloned(), "fs.chmod", span)?;
                 let path = lowered_path_arg(
-                    values.pop().expect("checked value length"),
+                    values.first().cloned().expect("checked value length"),
                     "fs.chmod",
                     span,
                 )?;
-                lowered_unit_result(fs_module::chmod_path(self.host_path(&path), mode, span))
+                lowered_unit_result(fs_module::chmod_path(
+                    self.host_path(&path),
+                    mode,
+                    follow_symlinks,
+                    span,
+                ))
             }
             RuntimeOp::FsHardlink if values.len() == 2 => {
                 let path = lowered_path_arg(
@@ -5542,6 +5643,132 @@ impl Evaluator {
                     span,
                 )?;
                 lowered_unit_result(fs_module::mkfifo_path(self.host_path(&path), mode, span))
+            }
+            RuntimeOp::FsStat if (1..=2).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(1).cloned(), false, "fs.stat", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.stat", span)?;
+                lowered_runtime_result(fs_module::stat(self.host_path(&path), follow, span), span)?
+            }
+            RuntimeOp::FsSetOwner if (1..=4).contains(&values.len()) => {
+                let follow =
+                    lowered_bool_arg_or(values.get(3).cloned(), false, "fs.set_owner", span)?;
+                let gid = lowered_optional_int_arg(values.get(2), "fs.set_owner", span)?;
+                let uid = lowered_optional_int_arg(values.get(1), "fs.set_owner", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.set_owner", span)?;
+                lowered_unit_result(fs_module::set_owner(
+                    self.host_path(&path),
+                    uid,
+                    gid,
+                    follow,
+                    span,
+                ))
+            }
+            RuntimeOp::FsSetTimes if (1..=6).contains(&values.len()) => {
+                let operation = "fs.set_times";
+                let times = fs_module::SetTimes {
+                    atime_ns: lowered_optional_int_arg(values.get(1), operation, span)?,
+                    mtime_ns: lowered_optional_int_arg(values.get(2), operation, span)?,
+                    atime_now: lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?,
+                    mtime_now: lowered_bool_arg_or(values.get(4).cloned(), false, operation, span)?,
+                    follow_symlinks: lowered_bool_arg_or(
+                        values.get(5).cloned(),
+                        false,
+                        operation,
+                        span,
+                    )?,
+                };
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_unit_result(fs_module::set_times(self.host_path(&path), times, span))
+            }
+            RuntimeOp::FsMknod if (3..=5).contains(&values.len()) => {
+                let operation = "fs.mknod";
+                let minor = lowered_int_arg_or(values.get(4).cloned(), 0, operation, span)?;
+                let major = lowered_int_arg_or(values.get(3).cloned(), 0, operation, span)?;
+                let mode = lowered_int_arg(values.get(2).cloned(), operation, span)?;
+                let kind = lowered_str_arg_owned(values.get(1).cloned(), "", operation, span)?;
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_unit_result(fs_module::mknod(
+                    self.host_path(&path),
+                    &kind,
+                    mode,
+                    major,
+                    minor,
+                    span,
+                ))
+            }
+            RuntimeOp::FsMakedev if values.len() == 2 => {
+                let minor = lowered_int_arg(values.pop(), "fs.makedev", span)?;
+                let major = lowered_int_arg(values.pop(), "fs.makedev", span)?;
+                LoweredValue::Int(fs_module::makedev(major, minor))
+            }
+            RuntimeOp::FsDevMajor if values.len() == 1 => {
+                let dev = lowered_int_arg(values.pop(), "fs.dev_major", span)?;
+                LoweredValue::Int(fs_module::dev_major(dev))
+            }
+            RuntimeOp::FsDevMinor if values.len() == 1 => {
+                let dev = lowered_int_arg(values.pop(), "fs.dev_minor", span)?;
+                LoweredValue::Int(fs_module::dev_minor(dev))
+            }
+            RuntimeOp::FsLink if (2..=3).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(2).cloned(), false, "fs.link", span)?;
+                let dest = lowered_path_arg(values.remove(1), "fs.link", span)?;
+                let source = lowered_path_arg(values.remove(0), "fs.link", span)?;
+                lowered_unit_result(fs_module::link(
+                    self.host_path(&source),
+                    self.host_path(&dest),
+                    follow,
+                    span,
+                ))
+            }
+            RuntimeOp::FsUmask if values.is_empty() => {
+                lowered_result_ok(LoweredValue::Int(fs_module::umask()))
+            }
+            RuntimeOp::FsStatvfs if values.len() == 1 => {
+                let path = lowered_path_arg(values.remove(0), "fs.statvfs", span)?;
+                lowered_runtime_result(fs_module::statvfs_record(self.host_path(&path), span), span)?
+            }
+            RuntimeOp::FsRenameNoreplace if values.len() == 2 => {
+                let dest = lowered_path_arg(values.remove(1), "fs.rename_noreplace", span)?;
+                let source = lowered_path_arg(values.remove(0), "fs.rename_noreplace", span)?;
+                lowered_unit_result(fs_module::rename_noreplace(
+                    self.host_path(&source),
+                    self.host_path(&dest),
+                    span,
+                ))
+            }
+            RuntimeOp::FsDataRanges if values.len() == 1 => {
+                let path = lowered_path_arg(values.remove(0), "fs.data_ranges", span)?;
+                lowered_runtime_result(fs_module::data_ranges(self.host_path(&path), span), span)?
+            }
+            RuntimeOp::FsCopyFile if (2..=6).contains(&values.len()) => {
+                let operation = "fs.copy_file";
+                let mode = lowered_optional_int_arg(values.get(5), operation, span)?;
+                let overwrite = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
+                let reflink = lowered_str_arg_owned(values.get(3).cloned(), "never", operation, span)?;
+                let sparse = lowered_str_arg_owned(values.get(2).cloned(), "auto", operation, span)?;
+                let dest = lowered_path_arg(values.remove(1), operation, span)?;
+                let source = lowered_path_arg(values.remove(0), operation, span)?;
+                let policies = fs_module::Policy::parse(&sparse, "sparse", span).and_then(|sparse| {
+                    fs_module::Policy::parse(&reflink, "reflink", span)
+                        .map(|reflink| (sparse, reflink))
+                });
+                match policies {
+                    Err(error) => lowered_result_err_value(error),
+                    Ok((sparse, reflink)) => lowered_runtime_result(
+                        fs_module::copy_file_with(
+                            self.host_path(&source),
+                            self.host_path(&dest),
+                            fs_module::CopyFile {
+                                sparse,
+                                reflink,
+                                overwrite,
+                                mode,
+                            },
+                            span,
+                        ),
+                        span,
+                    )?,
+                }
             }
             RuntimeOp::FsFsync if values.len() == 1 => {
                 let path = lowered_path_arg(
@@ -5884,6 +6111,9 @@ impl Evaluator {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stdout", span)?;
                 self.stdout.extend_from_slice(text.as_bytes());
                 lowered_result_ok(LoweredValue::Unit)
+            }
+            RuntimeOp::IoFlushStdout if values.is_empty() => {
+                lowered_unit_result(self.flush_stdout_checked(span))
             }
             RuntimeOp::IoWriteStdoutBytes if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
@@ -7352,6 +7582,12 @@ impl Evaluator {
             RuntimeOp::ProcessCurrentPid if values.is_empty() => {
                 lowered_result_ok(LoweredValue::Int(std::process::id() as i64))
             }
+            RuntimeOp::ProcessScriptPath if values.is_empty() => {
+                match process_module::script_path(span) {
+                    Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::ProcessStats if values.len() == 1 => {
                 let pid = lowered_int_arg(values.pop(), "process.stats", span)?;
                 lowered_runtime_result(process_module::process_stats(pid, span), span)?
@@ -7511,7 +7747,15 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(run_error_to_runtime(error, span)),
                 }
             }
-            RuntimeOp::ProcessWaitAny if values.len() == 1 => {
+            RuntimeOp::ProcessWaitAny | RuntimeOp::ProcessWaitTimeout
+                if values.len() == 1 || values.len() == 2 =>
+            {
+                let deadline = if op == RuntimeOp::ProcessWaitTimeout {
+                    let timeout = lowered_duration_arg(values.pop(), "process.wait_timeout", span)?;
+                    Some(Instant::now() + Duration::from_millis(timeout.millis))
+                } else {
+                    None
+                };
                 let handles = match lowered_process_handle_list_arg(
                     values.pop().expect("checked value length"),
                     "process.wait_any",
@@ -7567,6 +7811,9 @@ impl Evaluator {
                         }
                     }
 
+                    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                        return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Null)));
+                    }
                     std::thread::sleep(Duration::from_millis(1));
                 }
             }
@@ -8698,6 +8945,8 @@ impl Evaluator {
                     span,
                 )?;
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
+                // Buffered output would otherwise die with the replaced image.
+                self.flush_shared_stdio();
                 unix_module::exec(&invocation, span)
             }
             RuntimeOp::UnixSetHostname => {
@@ -8716,7 +8965,9 @@ impl Evaluator {
                 let attrs =
                     lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
                 let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
-                unix_module::set_tty_attrs(&attrs, fd, span)
+                let when =
+                    lowered_str_arg_owned(values.get(2).cloned(), "now", "unix.set_tty_attrs", span)?;
+                unix_module::set_tty_attrs(&attrs, fd, &when, span)
             }
             _ => unreachable!("unix operation expected"),
         }
@@ -11504,7 +11755,7 @@ impl Evaluator {
         {
             let mode = lowered_int_arg(values.pop(), "Path.chmod", *span)?;
             let value =
-                lowered_unit_result(fs_module::chmod_path(self.host_path(path), mode, *span));
+                lowered_unit_result(fs_module::chmod_path(self.host_path(path), mode, true, *span));
             return Ok(ControlFlow::Continue(value));
         }
         if let LoweredValue::Path(source) = &receiver
