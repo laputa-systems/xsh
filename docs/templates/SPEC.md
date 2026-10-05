@@ -408,6 +408,7 @@ literal configuration data (`lint.prefer-const`).
 | `Error`, error families | structured errors |
 | `Status`, `ProcessError`, `ProcessHandle`, `Command` | process values |
 | `Pure`, `Proc` | dynamic callable handles |
+| `pure(PARAMS) -> T`, `proc(PARAMS) [EFFECTS] -> T` | callables with a checked signature (9.4) |
 | `Module[T]` | runtime module values |
 | `Any` | dynamic value of unknown type |
 
@@ -823,7 +824,8 @@ deduplicates, or widens one, so each shape that would need such a rewrite is
   satisfies;
 - `Any` (it already accepts every value), `Null` or `T?` (write
   `Union[A, B]?`), another union, including one reached through an alias (list
-  its members), or a `Stream` (a type test cannot inspect a stream's items).
+  its members), a `Stream` (a type test cannot inspect a stream's items), or a
+  callable type (a type test cannot inspect a callable's signature).
 
 ```xsh
 {{.spec.union_members.source}}
@@ -906,6 +908,12 @@ is expected. Incompatible contributions are errors; inference never widens to
 - Enums, error families, and other nominal types match only themselves (or,
   for errors, `Error` and the facets they implement).
 - `Result[T, E]` fits `Result[T, F]` when `E` fits `F`.
+- A callable type (9.4) accepts a function, or a value of another callable
+  type, of the same kind (`pure` or `proc`) with the same parameter labels and
+  types in order and the same return type. Only effects may differ: the
+  function may need fewer effects than the type's clause allows. A value of a
+  callable type fits `Proc` or `Pure` of its kind; a `Proc`, a `Pure`, or an
+  `Any` never fits a callable type.
 - Equality may compare `T` with `T?` in either order; it yields `Bool` and does
   not narrow or validate.
 
@@ -2064,6 +2072,54 @@ that function's full signature (labels, defaults, return type, and effects):
 A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives
 a dynamic callable instead. An exported alias must still state its own return
 and effect contract.
+
+A callable type gives a value that is chosen at run time the same checked
+call. `proc(PARAMS) [EFFECTS] -> T` and `pure(PARAMS) -> T` are type
+expressions; each parameter is a label and a type, and the return type is
+always written:
+
+```xsh
+{{.spec.callable_types.source}}
+```
+
+A value gets a callable type in one of two ways: a function is named where
+the type is expected (a declaration, a module export, or an alias that kept
+its signature), or a value of a fitting callable type is passed along (5.2).
+Where the type is expected, a block may end in a bare function name, so both
+branches of an `if` or the arms of a `match` can select one. A function with
+defaulted parameters fits when its labels and types match, because a call
+through the type passes every argument; one with a rest parameter does not
+fit.
+
+A call through the type is written `value(args)`, `record.field(args)` for a
+record field of a callable type, which takes precedence over a record method
+of the same name, or `module.name(args)` for a module's exported value of
+one. The callee is evaluated first and named arguments in the order written. Arguments are checked against the type's parameters, by
+position or by label, the result has the type's return type, and the type's
+effect clause is charged to the caller exactly as a named proc's clause is
+(9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
+any proc, and a caller with a declared or `without` bound cannot call it. A
+call passes each argument explicitly; `@` splices and `...` spreads are
+rejected. A stream stage's callable is still a function name; a value of a
+callable type is called from the stage's block, as in `map { scale(.) }`.
+
+At run time a value of a callable type is the `Proc` or `Pure` handle it was
+made from. The handle does not carry its signature, so the type is never a
+runtime test: it cannot be the target of `.require`, of `is`, or of a type
+pattern, alone or inside a schema (`check.callable-type`), and it is not a
+union member (4.12). A callable type whose parameter has a default, a rest
+marker, a repeated label, or no type is also `check.callable-type`. A function
+that does not fit, a dynamic `Proc` or `Pure` where a callable type is
+expected, and a spliced call are `check.callable-mismatch`. `Proc` and `Pure`
+stay the types of callables whose signature is not known until run time.
+The opt-in `lint.prefer-typed-callable` reports a `Proc` or `Pure` parameter
+of a private function when every call in the module passes a function with
+one signature, and names the callable type. It offers no fix: the body's
+`.call(...)` and what it does with the dynamic result change with the type.
+
+```xsh
+{{.spec.callable_mismatch.source}}
+```
 
 ### 9.5 Stream producers
 

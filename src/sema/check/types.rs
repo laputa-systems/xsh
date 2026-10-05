@@ -257,6 +257,16 @@ impl Checker {
             }
             return;
         }
+        if actual.any_flows_to_concrete(expected) && expected.contains_typed_callable() {
+            // No validation can establish a callable signature, so the
+            // report offers no `.require` rewrite.
+            self.report_dynamic_boundary(
+                format!("unchecked {actual} cannot establish {expected}: a callable signature cannot be validated at run time; keep the value as `Proc` or `Pure` and call it dynamically"),
+                None,
+                span,
+            );
+            return;
+        }
         if actual.any_flows_to_concrete(expected) {
             let target = (*actual == Type::Any).then_some(expected);
             self.report_dynamic_boundary(
@@ -559,6 +569,20 @@ impl Checker {
                     return Type::Invalid;
                 }
                 Type::Union(members)
+            }
+            ArenaTypeExprTag::Callable => {
+                let Ok(callable) = crate::sema::types::TypedCallable::from_type_expr(
+                    &program.arena,
+                    type_id,
+                    |ty| Ok::<_, std::convert::Infallible>(self.type_from_arena(program, ty)),
+                );
+                if let Some(reason) =
+                    crate::sema::types::TypedCallable::type_expr_error(&program.arena, type_id)
+                {
+                    self.error(span, &reason, DiagnosticCode::CheckCallableType);
+                    return Type::Invalid;
+                }
+                Type::Callable(std::sync::Arc::new(callable))
             }
         }
     }

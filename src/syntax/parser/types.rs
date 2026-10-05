@@ -1,6 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{ArenaProgramBuilder, Name, Parser, Span, TokenKindMatch, TypeExprId};
+use crate::syntax::arena::ArenaCallableTypeExpr;
+use crate::syntax::token::Keyword;
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_type_expr(
@@ -8,6 +10,9 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<TypeExprId> {
         let start = self.current_start();
+        if self.at_keyword(Keyword::Proc) || self.at_keyword(Keyword::Pure) {
+            return self.parse_callable_type_expr(arena);
+        }
         let name = self.expect_ident("expected type name")?;
         let mut ty = match name.as_str().as_str() {
             "List" => {
@@ -96,6 +101,46 @@ impl<'a> Parser<'a> {
             ty = arena.push_optional_type_expr(ty, self.span(start, end));
         }
         Some(ty)
+    }
+
+    /// `proc(PARAMS) [EFFECTS] -> T` or `pure(PARAMS) -> T`. The return type
+    /// is always written, so a trailing `?` belongs to it; an optional
+    /// callable is spelled through an alias.
+    fn parse_callable_type_expr(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<TypeExprId> {
+        let start = self.current_start();
+        let pure = self.at_keyword(Keyword::Pure);
+        self.bump();
+        self.expect(
+            TokenKindMatch::LParen,
+            "expected `(` after `proc` or `pure` in a callable type",
+        );
+        let params = self.parse_params_arena_only(arena);
+        self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
+        let params = arena.push_params(&params);
+        let effects = if pure {
+            None
+        } else {
+            self.parse_effect_list()
+                .map(|effects| arena.push_effects(&effects))
+        };
+        self.expect(
+            TokenKindMatch::Arrow,
+            "expected `->` and a return type in a callable type",
+        );
+        let return_ty = self.parse_type_expr(arena)?;
+        let end = self.previous_end();
+        Some(arena.push_callable_type_expr(
+            ArenaCallableTypeExpr {
+                pure,
+                params,
+                effects,
+                return_ty,
+            },
+            self.span(start, end),
+        ))
     }
 }
 

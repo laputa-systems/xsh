@@ -39,7 +39,8 @@ pub(super) fn infer_requirement_target(
     ) {
         return None;
     }
-    if !concrete_validation_type(&ty, 0) {
+    // A callable signature cannot be validated, so it is never a target.
+    if !concrete_validation_type(&ty, 0) || ty.contains_typed_callable() {
         return None;
     }
     let context = resolve_context(context, constraints, 0)?;

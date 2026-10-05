@@ -87,6 +87,9 @@ mod lint_path_kind;
 #[path = "lint_fs_method.rs"]
 mod lint_fs_method;
 
+#[path = "lint_prefer_typed_callable.rs"]
+mod lint_prefer_typed_callable;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -375,6 +378,8 @@ pub struct LintOptions {
     pub prefer_implicit_messages: bool,
     /// Opt in to `lint.prefer-inferred-proc-return`.
     pub prefer_inferred_proc_returns: bool,
+    /// Opt in to `lint.prefer-typed-callable`.
+    pub prefer_typed_callables: bool,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -436,6 +441,7 @@ impl Default for LintOptions {
             prefer_positional_constructors: false,
             prefer_implicit_messages: false,
             prefer_inferred_proc_returns: false,
+            prefer_typed_callables: false,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -488,6 +494,7 @@ pub struct Linter<'a> {
     prefer_inferred_variants: bool,
     prefer_positional_constructors: bool,
     prefer_inferred_proc_returns: bool,
+    prefer_typed_callables: bool,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -547,6 +554,7 @@ pub struct Linter<'a> {
     duration_conversion_module_unshadowed: bool,
     list_any_bindings: lint_list_any_union::ListAnyBindings,
     fail_candidates: lint_prefer_fail::Candidates,
+    callable_parameters: lint_prefer_typed_callable::CallableParameters,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -573,11 +581,12 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Named => {
             ArenaTypeExprKind::Named(Name::from_symbol(Symbol::from_raw(data.lhs)))
         }
-        // The rules that read type expressions treat a union as they treat
-        // any type they cannot see into.
-        ArenaTypeExprTag::Applied | ArenaTypeExprTag::Qualified | ArenaTypeExprTag::Union => {
-            ArenaTypeExprKind::Qualified
-        }
+        // The rules that read type expressions treat a union and a callable
+        // type as they treat any type they cannot see into.
+        ArenaTypeExprTag::Applied
+        | ArenaTypeExprTag::Qualified
+        | ArenaTypeExprTag::Union
+        | ArenaTypeExprTag::Callable => ArenaTypeExprKind::Qualified,
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
@@ -677,6 +686,11 @@ impl<'a> Linter<'a> {
             prefer_inferred_variants: options.prefer_inferred_variants,
             prefer_positional_constructors: options.prefer_positional_constructors,
             prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
+            // Naming the rule in `--only` asks for it as the setting does.
+            prefer_typed_callables: options.prefer_typed_callables
+                || only.as_deref().is_some_and(|only| {
+                    only.contains(&DiagnosticCode::LintPreferTypedCallable)
+                }),
             return_proof: options.return_proof,
             proc_return_candidates: Vec::new(),
             return_removal_before: None,
@@ -727,6 +741,7 @@ impl<'a> Linter<'a> {
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
             fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
+            callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
         };
         linter.define(
             "args",
@@ -802,6 +817,16 @@ impl<'a> Linter<'a> {
         linter
             .diagnostics
             .extend(fail_candidates.finish(&program.arena, source));
+        if linter.prefer_typed_callables {
+            let callable_parameters = std::mem::take(&mut linter.callable_parameters);
+            let reports = callable_parameters.finish(
+                linter.arena,
+                source,
+                &linter.checked_function_returns,
+                &|body| linter.checked_effect_fact(body).cloned(),
+            );
+            linter.diagnostics.extend(reports);
+        }
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));
@@ -1667,6 +1692,14 @@ impl<'a> Linter<'a> {
                 let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
                     || function.test_declaration
                     || (!exported && self.scopes.len() == 1 && function.name == "main");
+                if self.prefer_typed_callables && self.scopes.len() == 1 {
+                    self.callable_parameters.define(
+                        function.name,
+                        def,
+                        false,
+                        !exported && !entrypoint,
+                    );
+                }
                 if matches!(stmt.kind, ArenaStmtKind::ProcDef(_)) {
                     self.lint_propagating_function(def, false, |linter| {
                         linter.lint_proc_function(def, exported, entrypoint, stmt.span);
@@ -1681,6 +1714,10 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::PureDef(def) => {
+                if self.prefer_typed_callables && self.scopes.len() == 1 {
+                    let name = self.arena.function_def(def).name;
+                    self.callable_parameters.define(name, def, true, !exported);
+                }
                 self.lint_inferred_pure_return(def, exported);
                 self.lint_propagating_function(def, true, |linter| linter.lint_function(def));
             }
@@ -1875,7 +1912,13 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
-            ArenaStmtKind::TailBareIdent(name) => self.mark_used(name.as_str().as_str()),
+            ArenaStmtKind::TailBareIdent(name) => {
+                self.mark_used(name.as_str().as_str());
+                if self.prefer_typed_callables {
+                    let hidden = self.local_hides(name);
+                    self.callable_parameters.tail_value(name, hidden);
+                }
+            }
             ArenaStmtKind::Expr(expr) => {
                 let span = self.arena.expr(expr).span;
                 if self.statement_expression_spans.contains(&span) {
@@ -2050,7 +2093,9 @@ impl<'a> Linter<'a> {
                         return;
                     }
                 }
-                ArenaTypeExprTag::Qualified => return,
+                // A callable type's data words are not a child type id, and
+                // its parts may name user types; it is never provably builtin.
+                ArenaTypeExprTag::Qualified | ArenaTypeExprTag::Callable => return,
                 ArenaTypeExprTag::Result => {
                     types.push(TypeExprId::from_index(data.lhs as usize));
                     if let Some(error) = TypeExprId::from_optional_raw(data.rhs) {
@@ -5271,6 +5316,15 @@ impl<'a> Linter<'a> {
             .rev()
             .find_map(|scope| scope.get(name.as_str()))
             .map(|binding| binding.span)
+    }
+
+    /// Whether a binding inside a function or block hides the top-level
+    /// meaning of `name` where the traversal is.
+    fn local_hides(&self, name: Name) -> bool {
+        self.scopes
+            .iter()
+            .skip(1)
+            .any(|scope| scope.contains_key(name.as_str().as_str()))
     }
 
     /// Tells `lint.list-any-union` about a name the traversal just defined.
@@ -12161,8 +12215,21 @@ impl LintExprVisitor<'_, '_> {
         }
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {
-            ArenaExprKind::Ident(name) => self.linter.mark_used(name.as_str().as_str()),
+            ArenaExprKind::Ident(name) => {
+                self.linter.mark_used(name.as_str().as_str());
+                if self.linter.prefer_typed_callables {
+                    let hidden = self.linter.local_hides(name);
+                    self.linter.callable_parameters.value(expr, name, hidden);
+                }
+            }
             ArenaExprKind::Call { callee, args } => {
+                if self.linter.prefer_typed_callables {
+                    let mut parameters = std::mem::take(&mut self.linter.callable_parameters);
+                    parameters.call(self.linter.arena, callee, args, &|name| {
+                        self.linter.local_hides(name)
+                    });
+                    self.linter.callable_parameters = parameters;
+                }
                 if self
                     .linter
                     .record_constructors

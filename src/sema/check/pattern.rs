@@ -230,6 +230,9 @@ impl Checker {
     }
 
     fn check_type_pattern_applicability(&mut self, tested: &Type, value_ty: &Type, span: Span) {
+        if self.reject_typed_callable_test(tested, span) {
+            return;
+        }
         if type_pattern_input_is_dynamic(value_ty) {
             return;
         }

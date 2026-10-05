@@ -978,7 +978,7 @@ impl<'a> Parser<'a> {
         op
     }
 
-    fn parse_params_arena_only(
+    pub(super) fn parse_params_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Vec<(

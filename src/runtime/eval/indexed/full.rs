@@ -204,6 +204,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprExternalCall,
     ExprDynamicCall,
     ExprSelfCall,
+    ExprTypedCall,
     StmtLet,
     StmtGuard,
     StmtWith,
@@ -2814,7 +2815,9 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                         | EFFECT_TRACE
                 }
                 FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
-                FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
+                FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
+                    EFFECT_DYNAMIC_CALL | EFFECT_TRACE
+                }
                 FullTag::ExprCall
                 | FullTag::ExprSelfCall
                 | FullTag::ExprDirectPureCall
@@ -2907,6 +2910,12 @@ fn executable_type(ty: &Type) -> Type {
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
         Type::Union(members) => Type::Union(members.iter().map(executable_type).collect()),
+        Type::Callable(callable) => {
+            Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
+                pure: callable.pure,
+                sig: executable_callable_type(&callable.sig),
+            }))
+        }
         Type::Result(ok, error) => Type::Result(
             Box::new(executable_type(ok)),
             Box::new(executable_type(error)),
@@ -2982,6 +2991,8 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Stream(_) => LoweredType::Stream,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
+        Type::Callable(callable) if callable.pure => LoweredType::Pure,
+        Type::Callable(_) => LoweredType::Proc,
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
             LoweredType::Error
         }
@@ -3749,6 +3760,133 @@ impl<'a> FullDecoder<'a> {
             }
         }
         pairs.finish()
+    }
+
+    /// A typed call was checked against one callable type: the row names
+    /// that type and its kind, and passes each parameter exactly once. The
+    /// executor binds arguments by position and reads no defaults, so a row
+    /// with another argument count, a splice, or an omitted slot would call
+    /// the function with arguments the checker never saw.
+    fn verify_typed_call_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        let callee = payload.raw()? as usize;
+        let pure = bool::decode(self, &mut payload)?;
+        // Top-level steps have no enclosing function to hold the call to.
+        if driver_owner_index(self.owner).is_none()
+            && let Some(function) = IrFunctionId::from_raw(self.owner)
+        {
+            let function = function.index();
+            let metadata = self
+                .store
+                .function_metadata
+                .get(function)
+                .ok_or_else(|| IrVerifyError::new("typed call owner metadata is missing"))?;
+            // A pure function calls only pure callables, whatever a row says
+            // its callee is.
+            if metadata.flags & 1 == 0 && !pure {
+                return Err(IrVerifyError::new(
+                    "typed call to a proc inside a pure function",
+                ));
+            }
+            self.verify_typed_callee_parameter(function, callee, &payload)?;
+        }
+        let ty = TypeId::from_raw(payload.raw()?)
+            .ok_or_else(|| IrVerifyError::new("typed call signature type id is invalid"))?;
+        let semantic = &self.store.semantic;
+        let signature = semantic
+            .typed_callable_signature(ty)
+            .map_err(|_| IrVerifyError::new("typed call signature is not a callable type"))?;
+        if semantic.typed_callable_is_pure(ty)? != pure {
+            return Err(IrVerifyError::new(
+                "typed call kind does not match its callable type",
+            ));
+        }
+        let id = IrBlockId::from_raw(payload.raw()?)
+            .ok_or_else(|| IrVerifyError::new("typed call argument block id is invalid"))?;
+        let block = self
+            .store
+            .blocks
+            .get(id.index())
+            .ok_or_else(|| IrVerifyError::new("typed call argument block is missing"))?;
+        let mut args = self.cursor(self.store.payload(block.instructions)?);
+        let len = args.raw()? as usize;
+        if len != semantic.signature_param_count(signature)? {
+            return Err(IrVerifyError::new(
+                "typed call argument count does not match its signature",
+            ));
+        }
+        for _ in 0..len {
+            if args.raw()? != 0 {
+                return Err(IrVerifyError::new(
+                    "typed call argument is not a single value",
+                ));
+            }
+            args.raw()?;
+        }
+        args.finish()
+    }
+
+    /// A typed call whose callee is read straight from a parameter of the
+    /// enclosing function was checked against that parameter's declared
+    /// type, which the function header records. The row must name the same
+    /// type: any other callable type would bind the arguments to a signature
+    /// the parameter's values were never held to.
+    fn verify_typed_callee_parameter(
+        &self,
+        function: usize,
+        callee: usize,
+        payload: &FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        if self.store.tags.get(callee) != Some(&FullTag::ExprParam) {
+            return Ok(());
+        }
+        let slot = *self
+            .store
+            .payload(self.store.data[callee].range())?
+            .first()
+            .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
+            as usize;
+        let params = self
+            .store
+            .functions
+            .get(function)
+            .ok_or_else(|| IrVerifyError::new("typed call owner is out of bounds"))?
+            .params;
+        let Some(param) = params.bounds(self.store.params.len()).and_then(|bounds| {
+            bounds
+                .start
+                .checked_add(slot)
+                .filter(|param| *param < bounds.end)
+        }) else {
+            return Ok(());
+        };
+        let Some(validation) = self
+            .store
+            .param_cold
+            .iter()
+            .find(|cold| cold.param as usize == param)
+            .map(|cold| cold.validation)
+            .filter(|validation| *validation != IR_NONE)
+        else {
+            return Ok(());
+        };
+        let declared = self
+            .store
+            .validations
+            .get(validation as usize)
+            .ok_or_else(|| IrVerifyError::new("typed callee validation is out of bounds"))?
+            .type_id;
+        // A parameter declared as something wider, such as an optional
+        // callable narrowed before the call, has no single type to compare.
+        if self.store.semantic.typed_callable_signature(declared).is_err() {
+            return Ok(());
+        }
+        let mut row = *payload;
+        if declared.raw() != row.raw()? {
+            return Err(IrVerifyError::new(
+                "typed call signature differs from its callee parameter's callable type",
+            ));
+        }
+        Ok(())
     }
 
     fn verify_retry_selection(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
@@ -6076,6 +6214,7 @@ macro_rules! impl_node_codec {
                     }
                 }
                 if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
+                if tag == FullTag::ExprTypedCall { decoder.verify_typed_call_shape(payload)?; }
                 if tag == FullTag::ExprTag {
                     let mut metadata = payload;
                     let type_name = Name::decode(decoder, &mut metadata)?;
@@ -8296,6 +8435,13 @@ impl_node_codec! {
             args: Vec<LoweredCallArg>,
             span: Span,
         } => BuildExprRow::SelfCall { args, span },
+        BuildExprRow::TypedCall { callee, pure, signature, args, span } => ExprTypedCall {
+            callee: BuildExprId,
+            pure: bool,
+            signature: Type,
+            args: Vec<LoweredCallArg>,
+            span: Span,
+        } => BuildExprRow::TypedCall { callee, pure, signature, args, span },
     }
 }
 
@@ -11233,6 +11379,260 @@ proc configured() [] -> Int {
                     .expect("wire enum function exists");
                 assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
             }
+        });
+    }
+
+    // A call through a callable type reaches the verified program as one row
+    // that names the checked type, its kind, and one argument per parameter.
+    // The executor binds those arguments by position and reads no signature,
+    // so each way the row can disagree with the type is rejected before it
+    // runs; a row that agrees with a type the value does not have stops at
+    // the call.
+    #[test]
+    fn typed_callable_calls_reject_corruption_in_a_lowered_program() {
+        run_with_large_stack(|| {
+            let source = r#"type Scale = pure(n: Int) -> Int
+type Shift = proc(n: Int) [error] -> Result[Int]
+
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+pure triple(n: Int) -> Int {
+  n * 3
+}
+
+proc add_one(n: Int) [error] -> Result[Int] {
+  Ok(n + 1)
+}
+
+proc add_two(n: Int) [error] -> Result[Int] {
+  Ok(n + 2)
+}
+
+pure scaled(wide: Bool, n: Int) -> Int {
+  let scale: Scale = if wide { triple } else { double }
+  scale(n)
+}
+
+proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
+  let shift: Shift = if far { add_two } else { add_one }
+  shift(n: n)
+}
+"#;
+            let program = Arc::new(fixture("typed-callables.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let call = |program: &Arc<FullProgram>, name: &str, kind, flag: bool| {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(program));
+                evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(program, name)),
+                        kind,
+                        &[Value::Bool(flag), Value::Int(5)],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("function exists")
+            };
+            for (flag, expected) in [(true, 15), (false, 10)] {
+                assert_eq!(
+                    call(&program, "scaled", LoweredFunctionKind::Pure, flag).unwrap(),
+                    Value::Int(expected)
+                );
+            }
+            for (flag, expected) in [(true, 7), (false, 6)] {
+                assert_eq!(
+                    call(&program, "shifted", LoweredFunctionKind::Proc, flag).unwrap(),
+                    Value::ok(Value::Int(expected))
+                );
+            }
+
+            // Payload words: callee, kind, signature type, argument block.
+            let typed_call = |pure: u32| {
+                program
+                    .store
+                    .tags
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+                    .map(|(index, _)| {
+                        program.store.data[index]
+                            .range()
+                            .bounds(program.store.extra.len())
+                            .unwrap()
+                            .start
+                    })
+                    .find(|start| program.store.extra[start + 1] == pure)
+                    .expect("both kinds of typed call are lowered")
+            };
+            let pure_call = typed_call(1);
+            let proc_call = typed_call(0);
+            let rejected = |corrupt: &FullProgram, reason: &str| {
+                let error = FullVerifier::verify(corrupt).unwrap_err();
+                assert!(error.message.contains(reason), "{}", error.message);
+            };
+
+            // The row claims a kind its type does not have.
+            let mut wrong_kind = (*program).clone();
+            wrong_kind.store.extra[proc_call + 1] = 1;
+            rejected(&wrong_kind, "typed call kind does not match its callable type");
+
+            // The row names a type that is not a callable type: here `Int`,
+            // the pure signature's return type.
+            let semantic = &program.store.semantic;
+            let scale = TypeId::from_raw(program.store.extra[pure_call + 2]).unwrap();
+            let int = semantic
+                .signature_return_type(semantic.typed_callable_signature(scale).unwrap())
+                .unwrap();
+            let mut untyped = (*program).clone();
+            untyped.store.extra[pure_call + 2] = int.raw();
+            rejected(&untyped, "typed call signature is not a callable type");
+
+            let arguments = |program: &FullProgram| {
+                let block = IrBlockId::from_raw(program.store.extra[pure_call + 3]).unwrap();
+                program.store.blocks[block.index()]
+                    .instructions
+                    .bounds(program.store.extra.len())
+                    .unwrap()
+                    .start
+            };
+            // More arguments than the signature has parameters.
+            let mut extra_argument = (*program).clone();
+            let count = arguments(&extra_argument);
+            extra_argument.store.extra[count] += 1;
+            rejected(
+                &extra_argument,
+                "typed call argument count does not match its signature",
+            );
+
+            // A spliced argument, and one left to a default the type lacks.
+            for kind in [1, 2] {
+                let mut indirect = (*program).clone();
+                let first = arguments(&indirect) + 1;
+                indirect.store.extra[first] = kind;
+                rejected(&indirect, "typed call argument is not a single value");
+            }
+
+            // The type's signature lets a call omit a parameter.
+            let mut defaulted = (*program).clone();
+            assert!(
+                defaulted
+                    .store
+                    .semantic
+                    .default_first_typed_callable_param_for_test()
+            );
+            rejected(
+                &defaulted,
+                "typed callable signature has a defaulted or rest parameter",
+            );
+
+            // A row made consistent with a proc type of the same arity still
+            // sits in a pure function, which makes no call to a proc.
+            let mut proc_in_pure = (*program).clone();
+            proc_in_pure.store.extra[pure_call + 1] = 0;
+            proc_in_pure.store.extra[pure_call + 2] = program.store.extra[proc_call + 2];
+            rejected(&proc_in_pure, "typed call to a proc inside a pure function");
+
+            // Inside a proc such a row verifies when its callee is a local;
+            // the callee's kind is then checked where the call runs, before
+            // any argument is evaluated.
+            let mut other_kind = (*program).clone();
+            other_kind.store.extra[proc_call + 1] = 1;
+            other_kind.store.extra[proc_call + 2] = program.store.extra[pure_call + 2];
+            FullVerifier::verify(&other_kind).unwrap();
+            let error = call(
+                &Arc::new(other_kind),
+                "shifted",
+                LoweredFunctionKind::Proc,
+                true,
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("typed call expected a Pure of its callable type, found Proc"),
+                "{error:?}"
+            );
+        });
+    }
+
+    // A typed call through a parameter was checked against the parameter's
+    // declared callable type, which the function header records. A row that
+    // names another callable type of the same kind and arity would bind its
+    // arguments to a signature the parameter was never held to.
+    #[test]
+    fn typed_call_through_a_parameter_names_the_parameter_s_type() {
+        run_with_large_stack(|| {
+            let source = r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+pure length(text: Str) -> Int {
+  text.byte_len()
+}
+
+pure apply(scale: Scale, n: Int) -> Int {
+  scale(n)
+}
+
+pure measure(by: Measure, text: Str) -> Int {
+  by(text)
+}
+
+pure both() -> Int {
+  apply(double, 4) + measure(length, "abc")
+}
+"#;
+            let program = Arc::new(fixture("typed-callable-parameters.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "both")),
+                    LoweredFunctionKind::Pure,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("both exists");
+            assert_eq!(result.unwrap(), Value::Int(11));
+
+            let calls = program
+                .store
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+                .map(|(index, _)| {
+                    program.store.data[index]
+                        .range()
+                        .bounds(program.store.extra.len())
+                        .unwrap()
+                        .start
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 2, "one typed call per parameter");
+            let (first, second) = (calls[0], calls[1]);
+            assert_ne!(
+                program.store.extra[first + 2],
+                program.store.extra[second + 2],
+                "the two parameters have different callable types"
+            );
+            let mut swapped = (*program).clone();
+            swapped.store.extra[first + 2] = program.store.extra[second + 2];
+            let error = FullVerifier::verify(&swapped).unwrap_err();
+            assert!(
+                error.message.contains(
+                    "typed call signature differs from its callee parameter's callable type"
+                ),
+                "{}",
+                error.message
+            );
         });
     }
 

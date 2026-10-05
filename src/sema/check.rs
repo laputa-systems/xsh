@@ -65,6 +65,8 @@ mod stmt;
 mod stream;
 #[path = "check/types.rs"]
 mod types;
+#[path = "check/typed_callable.rs"]
+mod typed_callable;
 
 use self::args::{
     call_arg_expr_id_arena, call_arg_span_arena, common_module_overload_expected_arena,
@@ -188,6 +190,10 @@ pub struct CheckOutput {
     /// `while`. A `null` subject takes the failure path and any other value is
     /// bound; lowering reads this instead of deciding from the subject's type.
     pub optional_binding_spans: BTreeSet<Span>,
+    /// Calls whose callee is a value of a callable type, keyed by call
+    /// expression, with the signature the call was checked against. Lowering
+    /// reads the signature here instead of working out what the callee is.
+    pub typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
@@ -625,6 +631,7 @@ pub struct Checker {
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
+    typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources:
         FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
@@ -808,6 +815,7 @@ impl Checker {
             let callable_effects = checker.callable_effects();
             CheckOutput {
                 static_callable_aliases: checker.static_callable_aliases,
+                typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
@@ -979,6 +987,7 @@ impl Checker {
             let callable_effects = checker.callable_effects();
             CheckOutput {
                 static_callable_aliases: checker.static_callable_aliases,
+                typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
@@ -1023,6 +1032,7 @@ impl Checker {
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
             static_callable_aliases: BTreeMap::new(),
+            typed_callable_calls: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
             context_scope_depths: Vec::new(),
             context_scope_tail_value: false,

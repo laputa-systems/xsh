@@ -223,6 +223,9 @@ impl Checker {
         if self.check_removed_record_require_arena(arena, source, callee, args, span) {
             return Type::Invalid;
         }
+        if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
+            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+        }
         if args
             .iter()
             .any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }))
@@ -650,6 +653,13 @@ impl Checker {
             };
         }
 
+        // Any other callee is an expression; it is callable only when its
+        // value has a callable type.
+        let diagnostics_before = self.diagnostics.len();
+        if let Type::Callable(callable) = self.check_expr_arena(arena, source, callee, None) {
+            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+        }
+        self.diagnostics.truncate(diagnostics_before);
         self.record_effect_contract(&None, "unresolved call target");
         self.error(
             span,
@@ -676,6 +686,32 @@ impl Checker {
         span: Span,
         expected: Option<&Type>,
     ) -> Type {
+        // A record field of a callable type is called like a method. The
+        // field wins over a record method of the same name, because the
+        // schema names it.
+        if let Type::Record(fields) = &base_ty
+            && let Some(Type::Callable(callable)) = fields.get(&name)
+        {
+            let callable = callable.clone();
+            self.expr_types.insert(
+                arena.arena.expr(callee).span,
+                Type::Callable(callable.clone()),
+            );
+            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+        }
+        if let Type::Callable(_) = &base_ty {
+            self.error(
+                span,
+                &format!(
+                    "a value of type `{base_ty}` is called directly, as `name(...)`; it has no `.{name}` method"
+                ),
+                DiagnosticCode::CheckUnknownMethod,
+            );
+            for arg in args {
+                self.check_call_arg_arena(arena, source, &arg.kind, None);
+            }
+            return Type::Unknown;
+        }
         if let Type::Module(exports) = &base_ty
             && let Some(export) = exports.get(&name)
         {
@@ -720,6 +756,20 @@ impl Checker {
                     );
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
+                }
+                // A module's exported value of a callable type is called
+                // like a record field of one.
+                ModuleExportType::Value {
+                    ty: Type::Callable(callable),
+                    ..
+                } => {
+                    let callable = callable.clone();
+                    self.expr_types.insert(
+                        arena.arena.expr(callee).span,
+                        Type::Callable(callable.clone()),
+                    );
+                    return self
+                        .check_typed_callable_call(arena, source, callee, args, &callable, span);
                 }
                 ModuleExportType::Value { .. } => {}
             }

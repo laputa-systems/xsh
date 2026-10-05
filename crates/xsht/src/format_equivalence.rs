@@ -730,6 +730,12 @@ impl CanonicalWriter<'_> {
                     self.ty(member);
                 }
             }
+            ArenaTypeExprKind::Callable(callable) => {
+                self.put(if callable.pure { "pure;" } else { "proc;" });
+                self.params(callable.params);
+                self.effects(callable.effects);
+                self.ty(callable.return_ty);
+            }
             ArenaTypeExprKind::Named(name) => self.debug(&name),
             ArenaTypeExprKind::Qualified { namespace, name } => self.debug(&(namespace, name)),
             ArenaTypeExprKind::List(inner) => {

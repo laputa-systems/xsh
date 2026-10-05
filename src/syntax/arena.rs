@@ -475,6 +475,17 @@ pub enum ArenaTypeExprTag {
     Result,
     Optional,
     Union,
+    Callable,
+}
+
+/// A callable type expression, `proc(PARAMS) [EFFECTS] -> T` or
+/// `pure(PARAMS) -> T`. A `proc` form without a clause has `effects: None`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaCallableTypeExpr {
+    pub pure: bool,
+    pub params: ArenaRange,
+    pub effects: Option<ArenaRange>,
+    pub return_ty: TypeExprId,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -2366,6 +2377,36 @@ impl<'a> ArenaProgramBuilder<'a> {
             ArenaTypeExprData::new(
                 0,
                 u32::try_from(start).expect("AST arena exceeded u32 union member offsets"),
+            ),
+            span,
+        )
+    }
+
+    /// `proc(PARAMS) [EFFECTS] -> T` or `pure(PARAMS) -> T`. `lhs` is 1 for
+    /// `pure`; `rhs` is the offset in `extra` of the parameter range, the
+    /// effect range (start `ARENA_ABSENT` without a clause), and the return
+    /// type.
+    pub fn push_callable_type_expr(
+        &mut self,
+        callable: ArenaCallableTypeExpr,
+        span: Span,
+    ) -> TypeExprId {
+        let start = self.lowerer.arena.extra.len();
+        let (effects_start, effects_len) = callable
+            .effects
+            .map_or((ARENA_ABSENT, 0), |effects| (effects.start, effects.len));
+        self.lowerer.arena.extra.extend([
+            callable.params.start,
+            callable.params.len,
+            effects_start,
+            effects_len,
+            callable.return_ty.index() as u32,
+        ]);
+        self.push_type_expr_row(
+            ArenaTypeExprTag::Callable,
+            ArenaTypeExprData::new(
+                u32::from(callable.pure),
+                u32::try_from(start).expect("AST arena exceeded u32 callable type offsets"),
             ),
             span,
         )
@@ -4703,6 +4744,25 @@ impl AstArena {
         self.extra[start + 1..start + 1 + len]
             .iter()
             .map(|raw| TypeExprId::from_index(*raw as usize))
+    }
+
+    /// The parts of a callable type expression.
+    pub fn callable_type_expr(&self, id: TypeExprId) -> ArenaCallableTypeExpr {
+        let data = self.type_expr_data[id.index()];
+        debug_assert_eq!(self.type_expr_tags[id.index()], ArenaTypeExprTag::Callable);
+        let raw = &self.extra[data.rhs as usize..data.rhs as usize + 5];
+        ArenaCallableTypeExpr {
+            pure: data.lhs != 0,
+            params: ArenaRange {
+                start: raw[0],
+                len: raw[1],
+            },
+            effects: (raw[2] != ARENA_ABSENT).then_some(ArenaRange {
+                start: raw[2],
+                len: raw[3],
+            }),
+            return_ty: TypeExprId::from_index(raw[4] as usize),
+        }
     }
 
     pub fn type_def(&self, id: TypeDefId) -> &ArenaTypeDef {

@@ -853,6 +853,7 @@ fn render_type(ty: &Type) -> String {
         Type::Unit => "Unit".to_string(),
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),
+        Type::Callable(_) => ty.to_string(),
         Type::Union(members) => format!(
             "Union[{}]",
             members

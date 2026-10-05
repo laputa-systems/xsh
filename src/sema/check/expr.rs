@@ -356,6 +356,7 @@ impl Checker {
         }
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
         let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
+        let actual = self.name_typed_callable(arena, id, actual, resolved.as_ref().or(expected));
         self.expected_schema = previous;
         if actual == Type::Any {
             self.record_dynamic_require_receiver(arena, source, id, expected);
@@ -836,6 +837,13 @@ impl Checker {
                 self.check_expr_arena(arena, source, *value, None);
                 let target = if let Some(schema) = schema {
                     let ty = self.type_from_arena(arena, *schema);
+                    let ty = if self
+                        .reject_typed_callable_test(&ty, arena.arena.type_expr_span(*schema))
+                    {
+                        Type::Invalid
+                    } else {
+                        ty
+                    };
                     let context = self
                         .record_constructors
                         .annotation_expectation(&arena.arena, *schema, self.current_namespace)

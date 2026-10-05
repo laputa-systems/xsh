@@ -250,6 +250,7 @@ enum ArenaTypeExprKind {
     },
     Optional(TypeExprId),
     Union(Vec<TypeExprId>),
+    Callable(xsh::frontend::syntax::arena::ArenaCallableTypeExpr),
 }
 
 fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
@@ -291,6 +292,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Union => {
             ArenaTypeExprKind::Union(arena.union_type_members(id).collect())
         }
+        ArenaTypeExprTag::Callable => ArenaTypeExprKind::Callable(arena.callable_type_expr(id)),
     }
 }
 
@@ -3728,6 +3730,17 @@ impl<'a> Writer<'a> {
                     self.write_type(*member, output);
                 }
                 output.push(']');
+            }
+            ArenaTypeExprKind::Callable(callable) => {
+                output.push_str(if callable.pure { "pure" } else { "proc" });
+                self.write_params(callable.params, output);
+                if let Some(effects) = callable.effects {
+                    let effects: Vec<Effect> = self.arena.effects(effects).collect();
+                    output.push(' ');
+                    self.write_effect_list(&effects, output);
+                }
+                output.push_str(" -> ");
+                self.write_type(callable.return_ty, output);
             }
             ArenaTypeExprKind::Named(name) => output.push_str(name.as_str().as_str()),
             ArenaTypeExprKind::Qualified { namespace, name } => {

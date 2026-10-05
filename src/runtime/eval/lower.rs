@@ -1212,6 +1212,12 @@ fn lowered_arena_type_inner(
         // A union has no single runtime representation; its members keep
         // their own.
         ArenaTypeExprTag::Optional | ArenaTypeExprTag::Union => Some(LoweredType::Any),
+        // A typed callable is the dynamic handle of its kind at run time.
+        ArenaTypeExprTag::Callable => Some(if arena.callable_type_expr(ty).pure {
+            LoweredType::Pure
+        } else {
+            LoweredType::Proc
+        }),
     }
 }
 
@@ -2205,6 +2211,7 @@ fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
         ArenaTypeExprTag::Result => 6,
         ArenaTypeExprTag::Optional => 7,
         ArenaTypeExprTag::Union => 9,
+        ArenaTypeExprTag::Callable => 10,
     }
 }
 
@@ -2985,7 +2992,7 @@ fn compact_body_tail_command_blocker(
     }
 }
 
-const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 9];
+const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 11];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
 const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 47];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
@@ -3408,7 +3415,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => lowered_checked_type(&expected),
             }
             .ok_or(CompactFunctionBlocker::ParamType)?;
-            let check = if param.ty_defaulted {
+            // A parameter of a callable type records the checked type, so
+            // the verifier can tie a typed call through the parameter to it.
+            let check = if matches!(expected, Type::Callable(_)) {
+                Some(LoweredTypeCheck {
+                    schema: None,
+                    ty: expected.clone(),
+                    name: Arc::from(expected.to_string()),
+                })
+            } else if param.ty_defaulted {
                 lowered_type_needs_static_check(kind).then(|| LoweredTypeCheck {
                     schema: None,
                     ty: expected.clone(),
@@ -8940,6 +8955,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 overrides.push((base, slots.postfix_receivers.insert(base, bound)));
             }
         }
+        // A typed call's callee may be any expression; it is evaluated before
+        // the argument entries, like a method's receiver.
+        if self.bodies.typed_callable_calls.contains_key(&id)
+            && !matches!(
+                self.program.arena.expr(callee).kind,
+                ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
+            )
+        {
+            let value = self.lower_expr(callee, slots, current_function, item_slot)?;
+            let slot = slots.reserve("typed callee");
+            bindings.push((value, slot));
+            let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
+            overrides.push((callee, slots.postfix_receivers.insert(callee, bound)));
+        }
         let lowered =
             self.lower_expanded_argument_values(&expanded, slots, current_function, item_slot);
         let call_was_bound = slots.bound_call_entries.insert(id);
@@ -9300,6 +9329,33 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 current_function,
                 item_slot,
             );
+        }
+        // The checker decided this callee is a value of a callable type and
+        // bound the arguments to that type's parameters. Named entries were
+        // evaluated in source order above, as for a call by name, so slot
+        // order is free here.
+        if let Some(callable) = self.bodies.typed_callable_calls.get(&id).cloned() {
+            let args = self.lower_function_call_args(
+                &args_vec,
+                Some(&callable.sig.params),
+                self.call_argument_slots(id),
+                None,
+                slots,
+                current_function,
+                item_slot,
+            )?;
+            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::TypedCall {
+                    callee,
+                    pure: callable.pure,
+                    signature: Type::Callable(callable),
+                    args,
+                    span,
+                }
+            ));
         }
         if let Some(alias) = self
             .declarations
@@ -14693,6 +14749,15 @@ fn compact_runtime_type_inner(
                 .map(|member| compact_runtime_type_inner(arena, member, declarations, depth))
                 .collect(),
         ),
+        // The signature is a checked fact, not something a slot can test: a
+        // slot of a callable type holds the dynamic handle of its kind.
+        ArenaTypeExprTag::Callable => {
+            if arena.callable_type_expr(ty).pure {
+                Type::Pure
+            } else {
+                Type::Proc
+            }
+        }
     }
 }
 
@@ -14824,6 +14889,36 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        ArenaTypeExprTag::Callable => {
+            let callable = arena.callable_type_expr(ty);
+            let params = arena
+                .params(callable.params)
+                .iter()
+                .map(|param| {
+                    format!(
+                        "{}: {}",
+                        param.name,
+                        compact_type_expr_name_string(arena, param.ty)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let effects = callable.effects.map_or(String::new(), |effects| {
+                format!(
+                    " [{}]",
+                    arena
+                        .effects(effects)
+                        .map(|effect| effect.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            });
+            format!(
+                "{}({params}){effects} -> {}",
+                if callable.pure { "pure" } else { "proc" },
+                compact_type_expr_name_string(arena, callable.return_ty)
+            )
+        }
     }
 }
 
@@ -14895,6 +14990,8 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::FsRoot => Some(LoweredType::FsRoot),
         Type::Pure => Some(LoweredType::Pure),
         Type::Proc => Some(LoweredType::Proc),
+        Type::Callable(callable) if callable.pure => Some(LoweredType::Pure),
+        Type::Callable(_) => Some(LoweredType::Proc),
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError => {
             Some(LoweredType::Error)
         }

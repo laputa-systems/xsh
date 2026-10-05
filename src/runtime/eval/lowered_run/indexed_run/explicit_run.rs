@@ -265,6 +265,8 @@ enum FrameContinuation {
     },
     DynamicCallee {
         args: Vec<(u32, u32)>,
+        /// The kind a typed call's callee must have; `None` for a dynamic call.
+        typed_pure: Option<bool>,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -3017,8 +3019,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprDynamicCall => {
+            FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
                 let callee = indexed_raw(&mut payload, span)?;
+                let typed_pure = if tag == FullTag::ExprTypedCall {
+                    let pure = indexed_decode::<bool>(
+                        &mut payload,
+                        &self.calls[index].execution,
+                        span,
+                    )?;
+                    // The signature is for the verifier; execution binds the
+                    // verified arguments by position.
+                    indexed_raw(&mut payload, span)?;
+                    Some(pure)
+                } else {
+                    None
+                };
                 let mut args = self.evaluator.frame_scratch.take_call_args();
                 decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
@@ -3029,6 +3044,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value_span,
                     FrameContinuation::DynamicCallee {
                         args,
+                        typed_pure,
                         span: value_span,
                         next: Box::new(next),
                     },
@@ -3920,8 +3936,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::DynamicCallee { args, span, next } => match value {
+            FrameContinuation::DynamicCallee {
+                args,
+                typed_pure,
+                span,
+                next,
+            } => match value {
                 FrameValue::Value(callee) => {
+                    if let Some(pure) = typed_pure {
+                        super::indexed_typed_callee_kind(&callee, pure, span)?;
+                    }
                     self.push_dynamic_arguments(index, callee, args, 0, Vec::new(), span, *next)?
                 }
                 FrameValue::Break(value) => {

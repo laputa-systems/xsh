@@ -1171,7 +1171,9 @@ impl RecordConstructors {
             }
             // A union gives its value no expectation: the value is typed on
             // its own and then has to fit a member.
-            ArenaTypeExprTag::Module | ArenaTypeExprTag::Union => {}
+            // A callable is assigned by name, never built from a literal that
+            // an expectation could shape.
+            ArenaTypeExprTag::Module | ArenaTypeExprTag::Union | ArenaTypeExprTag::Callable => {}
         }
         Ok(result)
     }
@@ -1541,6 +1543,20 @@ impl RecordConstructors {
                     ))),
                     _ => Type::Invalid,
                 }
+            }
+            ArenaTypeExprTag::Callable => {
+                if let Some(reason) = crate::sema::types::TypedCallable::type_expr_error(arena, ty)
+                {
+                    return Err(SchemaTypeError::new(
+                        DiagnosticCode::CheckCallableType,
+                        reason,
+                    ));
+                }
+                Type::Callable(Arc::new(crate::sema::types::TypedCallable::from_type_expr(
+                    arena,
+                    ty,
+                    |part| self.resolve_instance_annotation(arena, part, namespace, bindings, active),
+                )?))
             }
         })
     }
@@ -3866,7 +3882,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         | Type::ErrorVariant { .. }
         | Type::ErrorFacet(_)
         | Type::ProcessError => ValueClass::Error,
-        Type::Pure | Type::Proc => ValueClass::Callable,
+        Type::Pure | Type::Proc | Type::Callable(_) => ValueClass::Callable,
         Type::Command => ValueClass::Command,
         Type::ProcessHandle => ValueClass::ProcessHandle,
         Type::NetJob => ValueClass::NetJob,

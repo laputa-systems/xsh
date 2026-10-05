@@ -2050,10 +2050,27 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Types,
             "type_expr",
-            seq([
-                alt([r("builtin_type"), r("named_type")]),
-                opt(r("type_arguments")),
-                opt(t(T::Question)),
+            alt([
+                r("callable_type"),
+                seq([
+                    alt([r("builtin_type"), r("named_type")]),
+                    opt(r("type_arguments")),
+                    opt(t(T::Question)),
+                ]),
+            ]),
+        ),
+        // The return type is always written, so a trailing `?` is part of it.
+        rule(
+            Types,
+            "callable_type",
+            alt([
+                seq([
+                    kw(Keyword::Proc),
+                    signature(),
+                    opt(r("effects")),
+                    returns(),
+                ]),
+                seq([kw(Keyword::Pure), signature(), returns()]),
             ]),
         ),
         rule(

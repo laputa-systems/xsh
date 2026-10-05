@@ -297,6 +297,8 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
         }
         Type::ProcessError => matches!(value, Value::RunError(_)),
+        Type::Callable(callable) if callable.pure => matches!(value, Value::Pure(_)),
+        Type::Callable(_) => matches!(value, Value::Proc(_)),
         Type::Pure => matches!(value, Value::Pure(_)),
         Type::Proc => matches!(value, Value::Proc(_)),
         Type::Command => matches!(value, Value::Command(_)),

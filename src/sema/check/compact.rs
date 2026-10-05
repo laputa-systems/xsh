@@ -106,6 +106,9 @@ pub struct CompactBodyFacts {
     pub optional_binding_conditions: FxHashSet<ExprId>,
     /// `guard let` statements whose subject is an optional, not a `Result`.
     pub optional_binding_guards: FxHashSet<StmtId>,
+    /// Calls through a value of a callable type, keyed by call, with the
+    /// signature each was checked against.
+    pub typed_callable_calls: FxHashMap<ExprId, std::sync::Arc<crate::sema::types::TypedCallable>>,
 }
 
 impl CompactBodyFacts {
@@ -138,6 +141,11 @@ impl CompactBodyFacts {
             }
             if let Some(call) = checked.api_calls.get(&span) {
                 facts.api_calls.insert(id, call.clone());
+            }
+            if matches!(expression.kind, ArenaExprKind::Call { .. })
+                && let Some(callable) = checked.typed_callable_calls.get(&span)
+            {
+                facts.typed_callable_calls.insert(id, callable.clone());
             }
             if let Some(variant) = checked.inferred_variants.get(&span) {
                 facts.inferred_variants.insert(id, variant.clone());

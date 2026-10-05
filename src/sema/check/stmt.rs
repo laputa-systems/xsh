@@ -3747,7 +3747,10 @@ impl Checker {
                 ty
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                let ty = match self.tail_typed_callable(name, stmt.span, expected) {
+                    Some(ty) => ty,
+                    None => self.check_tail_bare_ident_arena(arena, source, name, stmt.span),
+                };
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
                     && self.reject_bool_statement(source, &ty, stmt.span)

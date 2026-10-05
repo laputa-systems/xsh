@@ -383,11 +383,24 @@ impl Checker {
                     } = kind
                     {
                         let before = self.annotation_facts.len();
-                        let actual =
-                            self.check_expr_or_run_arena(program, source, initializer, None);
-                        let ty = ty
-                            .map(|id| self.type_from_arena(program, id))
-                            .unwrap_or(actual);
+                        // This pass only needs the binding's type. The
+                        // statement check reports everything about the
+                        // initializer, with its schema context, so nothing
+                        // reported here is kept: it would be said twice, or
+                        // said only because that context is missing.
+                        let reported = self.diagnostics.len();
+                        // The annotation is the initializer's expected type
+                        // here as it is there: a target-typed initializer has
+                        // no type without it.
+                        let annotated = ty.map(|id| self.type_from_arena(program, id));
+                        let actual = self.check_expr_or_run_arena(
+                            program,
+                            source,
+                            initializer,
+                            annotated.as_ref(),
+                        );
+                        self.diagnostics.truncate(reported);
+                        let ty = annotated.unwrap_or(actual);
                         self.define_binding_target_arena(
                             program,
                             target,

@@ -69,6 +69,200 @@ pub enum Type {
     /// of which is `Any`, `Null`, optional, a stream, or itself a union
     /// (`union_member_error`).
     Union(Vec<Type>),
+    /// A callable value whose signature and effect bound the checker knows:
+    /// `proc(root: Path) [fs] -> Result[Unit]` or `pure(n: Int) -> Int`. At
+    /// run time it is the same handle as `Proc` or `Pure`; the signature is a
+    /// checked fact about every value that reaches the type, never a runtime
+    /// test, so no dynamic value converts to it.
+    Callable(Arc<TypedCallable>),
+}
+
+/// The contract of a typed callable. `sig.effects` is the upper bound a call
+/// charges to its caller; `None` is the unrestricted bound of a `proc(...)`
+/// type written without a clause. Parameters carry no defaults and no rest
+/// parameter, so a call supplies every argument.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypedCallable {
+    pub pure: bool,
+    pub sig: CallableType,
+}
+
+impl TypedCallable {
+    /// Builds the contract a callable type expression writes, resolving each
+    /// parameter and the return type through `resolve`. Every resolver of
+    /// type expressions builds it here, so they agree on its shape.
+    pub fn from_type_expr<E>(
+        arena: &AstArena,
+        id: TypeExprId,
+        mut resolve: impl FnMut(TypeExprId) -> Result<Type, E>,
+    ) -> Result<Self, E> {
+        let callable = arena.callable_type_expr(id);
+        Ok(Self {
+            pure: callable.pure,
+            sig: CallableType {
+                params: arena
+                    .params(callable.params)
+                    .iter()
+                    .map(|param| {
+                        Ok(CallableParamType {
+                            name: param.name,
+                            ty: resolve(param.ty)?,
+                            defaulted: false,
+                            rest: false,
+                        })
+                    })
+                    .collect::<Result<_, E>>()?,
+                return_ty: Box::new(resolve(callable.return_ty)?),
+                // A bound is a set: two clauses that list the same effects
+                // are the same type however they are written.
+                effects: callable.effects.map(|effects| {
+                    let written = arena.effects(effects).collect::<Vec<_>>();
+                    Effect::ALL
+                        .into_iter()
+                        .filter(|effect| written.contains(effect))
+                        .collect()
+                }),
+            },
+        })
+    }
+
+    /// Why a callable type expression is not a callable type, or `None` when
+    /// it is one. A call through the type supplies every argument by position
+    /// or label, so a parameter is a label and a type and nothing else.
+    pub fn type_expr_error(arena: &AstArena, id: TypeExprId) -> Option<String> {
+        let params = arena.params(arena.callable_type_expr(id).params);
+        for (index, param) in params.iter().enumerate() {
+            let name = param.name;
+            if param.rest {
+                return Some(format!(
+                    "a callable type cannot have a rest parameter (`...{name}`)"
+                ));
+            }
+            if param.ty_defaulted {
+                return Some(format!(
+                    "parameter `{name}` of a callable type needs a type"
+                ));
+            }
+            if param.default.is_some() {
+                return Some(format!(
+                    "parameter `{name}` of a callable type cannot have a default"
+                ));
+            }
+            if params[..index].iter().any(|earlier| earlier.name == name) {
+                return Some(format!(
+                    "a callable type names parameter `{name}` twice"
+                ));
+            }
+        }
+        None
+    }
+
+    /// Why a callable with signature `actual` (`actual_pure` for a pure
+    /// function) cannot be used where `self` is expected, or `None` when it
+    /// can. The rule is deliberately narrow: the same kind, the same
+    /// parameter labels and types in order, and the same return type. Only
+    /// effects vary: the callable may need fewer than the bound allows.
+    /// `check_effects` is false while effect summaries are still being
+    /// solved, when an inferred callable's effects and types may not be
+    /// known yet. Otherwise a type the checker has not resolved does not fit:
+    /// an unknown type is not evidence of a matching one. A type that is
+    /// invalid was already reported and is not reported again.
+    pub fn mismatch(
+        &self,
+        actual_pure: bool,
+        actual: &CallableType,
+        check_effects: bool,
+    ) -> Option<String> {
+        let kind = |pure: bool| if pure { "pure function" } else { "proc" };
+        if self.pure != actual_pure {
+            return Some(format!(
+                "expected a {}, found a {}",
+                kind(self.pure),
+                kind(actual_pure)
+            ));
+        }
+        if actual.params.len() != self.sig.params.len() {
+            return Some(format!(
+                "expected {} parameters, found {}",
+                self.sig.params.len(),
+                actual.params.len()
+            ));
+        }
+        for (index, (found, expected)) in actual.params.iter().zip(&self.sig.params).enumerate() {
+            let position = index + 1;
+            if found.rest {
+                return Some(format!(
+                    "parameter {position} `{}` is a rest parameter",
+                    found.name
+                ));
+            }
+            if found.name != expected.name {
+                return Some(format!(
+                    "parameter {position} is named `{}`, expected `{}`",
+                    found.name, expected.name
+                ));
+            }
+            if found.ty == Type::Invalid || expected.ty == Type::Invalid {
+                continue;
+            }
+            if found.ty.is_recovery() || expected.ty.is_recovery() {
+                if !check_effects {
+                    continue;
+                }
+                return Some(format!(
+                    "the type of parameter `{}` is not known; annotate it",
+                    found.name
+                ));
+            }
+            if found.ty != expected.ty {
+                return Some(format!(
+                    "parameter `{}` has type {}, expected {}",
+                    found.name, found.ty, expected.ty
+                ));
+            }
+        }
+        let unresolved = actual.return_ty.is_recovery() || self.sig.return_ty.is_recovery();
+        let invalid = *actual.return_ty == Type::Invalid || *self.sig.return_ty == Type::Invalid;
+        if unresolved && !invalid && check_effects {
+            return Some("its return type is not known; annotate it".to_string());
+        }
+        if !unresolved && actual.return_ty != self.sig.return_ty {
+            return Some(format!(
+                "it returns {}, expected {}",
+                actual.return_ty, self.sig.return_ty
+            ));
+        }
+        if !check_effects || self.pure {
+            return None;
+        }
+        let Some(bound) = &self.sig.effects else {
+            return None;
+        };
+        let Some(required) = &actual.effects else {
+            return Some(format!(
+                "its effects are unknown or unrestricted, so it cannot be held to `[{}]`",
+                effect_list(bound)
+            ));
+        };
+        required
+            .iter()
+            .find(|effect| !crate::sema::check::Checker::effects_covers(bound, effect))
+            .map(|effect| {
+                format!(
+                    "it requires the `{}` effect, which `[{}]` does not allow",
+                    effect.as_str(),
+                    effect_list(bound)
+                )
+            })
+    }
+}
+
+fn effect_list(effects: &[Effect]) -> String {
+    effects
+        .iter()
+        .map(Effect::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The first member, in the order written, that `accepts` the value at hand.
@@ -99,6 +293,9 @@ pub fn union_member_error(members: &[Type]) -> Option<String> {
             Type::Union(_) => "a member cannot be another union; list its members here",
             Type::Stream(_) => {
                 "a member cannot be a stream: a type test cannot inspect the items of a stream"
+            }
+            Type::Callable(_) => {
+                "a member cannot be a callable type: a type test cannot inspect a callable's signature"
             }
             _ => continue,
         };
@@ -371,6 +568,9 @@ impl Type {
                     total = total.saturating_add(member.retained_bytes());
                 }
             }
+            Self::Callable(callable) => {
+                total = total.saturating_add(callable.sig.retained_bytes());
+            }
             _ => {}
         }
         total
@@ -434,6 +634,12 @@ impl Type {
                     .map(|member| Self::from_arena(arena, member))
                     .collect(),
             ),
+            ArenaTypeExprTag::Callable => {
+                let Ok(callable) = TypedCallable::from_type_expr(arena, id, |ty| {
+                    Ok::<_, std::convert::Infallible>(Self::from_arena(arena, ty))
+                });
+                Self::Callable(Arc::new(callable))
+            }
         }
     }
 
@@ -518,7 +724,8 @@ impl Type {
             | Self::ErrorFacet(_)
             | Self::Tag(_)
             | Self::Optional(_)
-            | Self::Union(_) => None,
+            | Self::Union(_)
+            | Self::Callable(_) => None,
         }
     }
 
@@ -550,6 +757,10 @@ impl Type {
                 }
                 Self::Record(fields) => pending.extend(fields.values()),
                 Self::Union(members) => pending.extend(members),
+                Self::Callable(callable) => {
+                    pending.push(&callable.sig.return_ty);
+                    pending.extend(callable.sig.params.iter().map(|param| &param.ty));
+                }
                 Self::Module(exports) => {
                     for export in exports.values() {
                         match export {
@@ -568,6 +779,22 @@ impl Type {
         false
     }
 
+    /// Whether a callable type appears anywhere a value of this type holds one.
+    pub fn contains_typed_callable(&self) -> bool {
+        match self {
+            Self::Callable(_) => true,
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+                inner.contains_typed_callable()
+            }
+            Self::Map(key, value) | Self::Result(key, value) => {
+                key.contains_typed_callable() || value.contains_typed_callable()
+            }
+            Self::Record(fields) => fields.values().any(Self::contains_typed_callable),
+            Self::Union(members) => members.iter().any(Self::contains_typed_callable),
+            _ => false,
+        }
+    }
+
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
@@ -576,6 +803,10 @@ impl Type {
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
             Self::Union(members) => members.iter().any(Self::contains_any),
+            Self::Callable(callable) => {
+                callable.sig.params.iter().any(|param| param.ty.contains_any())
+                    || callable.sig.return_ty.contains_any()
+            }
             Self::Module(exports) => exports.values().any(|export| match export {
                 ModuleExportType::Value { ty, .. } => ty.contains_any(),
                 ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
@@ -702,6 +933,14 @@ impl Type {
                         })
             }
             (Self::DynamicModule, Self::Module(_)) => false,
+            // A typed callable fits another typed callable under the narrow
+            // rule, and either dynamic handle of its own kind. A dynamic
+            // handle never fits a typed callable: its signature is unknown.
+            (Self::Callable(actual), Self::Callable(expected)) => expected
+                .mismatch(actual.pure, &actual.sig, true)
+                .is_none(),
+            (Self::Callable(actual), Self::Proc) => !actual.pure,
+            (Self::Callable(actual), Self::Pure) => actual.pure,
             (Self::Tag(a), Self::Tag(b)) => a == b,
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
             (Self::ErrorVariant { .. }, Self::Error) => true,
@@ -921,6 +1160,25 @@ impl Type {
                     .collect::<Option<Vec<_>>>()?
                     .join(", ")
             )),
+            Self::Callable(callable) => {
+                let params = callable
+                    .sig
+                    .params
+                    .iter()
+                    .map(|param| Some(format!("{}: {}", param.name, param.ty.annotation_source()?)))
+                    .collect::<Option<Vec<_>>>()?
+                    .join(", ");
+                let effects = callable
+                    .sig
+                    .effects
+                    .as_ref()
+                    .map_or(String::new(), |effects| format!(" [{}]", effect_list(effects)));
+                Some(format!(
+                    "{}({params}){effects} -> {}",
+                    if callable.pure { "pure" } else { "proc" },
+                    callable.sig.return_ty.annotation_source()?
+                ))
+            }
         }
     }
 }
@@ -982,6 +1240,20 @@ impl fmt::Display for Type {
                     write!(f, "{member}")?;
                 }
                 write!(f, "]")
+            }
+            Self::Callable(callable) => {
+                write!(f, "{}(", if callable.pure { "pure" } else { "proc" })?;
+                for (index, param) in callable.sig.params.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", param.name, param.ty)?;
+                }
+                write!(f, ")")?;
+                if let Some(effects) = &callable.sig.effects {
+                    write!(f, " [{}]", effect_list(effects))?;
+                }
+                write!(f, " -> {}", callable.sig.return_ty)
             }
         }
     }

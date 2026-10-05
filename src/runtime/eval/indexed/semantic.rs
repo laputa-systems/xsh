@@ -55,6 +55,10 @@ pub(super) enum TypeTag {
     // A closed union. `lhs` is the member count and `rhs` the offset of the
     // member type ids in `type_extra`, in the order the union lists them.
     Union,
+    // A callable with a checked signature. `lhs` is the signature id; the
+    // signature has no defaulted or rest parameter.
+    TypedProc,
+    TypedPure,
 }
 
 impl TypeTag {
@@ -206,6 +210,26 @@ impl SemanticPools {
         Ok((fields, types))
     }
 
+    /// The signature of a typed callable type.
+    pub(super) fn typed_callable_signature(&self, id: TypeId) -> Result<SignatureId, IrVerifyError> {
+        if !matches!(self.type_tag(id)?, TypeTag::TypedProc | TypeTag::TypedPure) {
+            return Err(IrVerifyError::new("type id does not denote a typed callable"));
+        }
+        let signature = SignatureId::from_raw(self.type_data[id.index()].lhs)
+            .ok_or_else(|| IrVerifyError::new("typed callable signature id is invalid"))?;
+        if signature.index() >= self.signature_data.len() {
+            return Err(IrVerifyError::new(
+                "typed callable signature id is out of bounds",
+            ));
+        }
+        Ok(signature)
+    }
+
+    pub(super) fn typed_callable_is_pure(&self, id: TypeId) -> Result<bool, IrVerifyError> {
+        self.typed_callable_signature(id)?;
+        Ok(self.type_tag(id)? == TypeTag::TypedPure)
+    }
+
     /// The member type ids of a union, in the order the union lists them.
     fn union_members(&self, id: TypeId) -> Result<&[u32], IrVerifyError> {
         if self.type_tag(id)? != TypeTag::Union {
@@ -229,6 +253,36 @@ impl SemanticPools {
             return false;
         };
         self.type_data[index].lhs = 1;
+        true
+    }
+
+    /// Marks the first parameter of the first typed callable's signature as
+    /// defaulted, as a corrupted program would, and reports whether the pool
+    /// has a typed callable with a parameter.
+    #[cfg(test)]
+    pub(super) fn default_first_typed_callable_param_for_test(&mut self) -> bool {
+        let Some(index) = self
+            .type_tags
+            .iter()
+            .position(|tag| matches!(tag, TypeTag::TypedProc | TypeTag::TypedPure))
+        else {
+            return false;
+        };
+        let Some(signature) = SignatureId::from_raw(self.type_data[index].lhs) else {
+            return false;
+        };
+        let range = self.signature_data[signature.index()];
+        let Some(bounds) = range.range().bounds(self.signature_extra.len()) else {
+            return false;
+        };
+        let payload = &mut self.signature_extra[bounds];
+        let Ok(effects) = signature_effect_count(payload) else {
+            return false;
+        };
+        if payload[2] == 0 {
+            return false;
+        }
+        payload[3 + effects + 2] |= PARAM_DEFAULTED;
         true
     }
 
@@ -342,6 +396,12 @@ impl SemanticPools {
             TypeTag::ProcessError => Type::ProcessError,
             TypeTag::Pure => Type::Pure,
             TypeTag::Proc => Type::Proc,
+            TypeTag::TypedProc | TypeTag::TypedPure => {
+                Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
+                    pure: tag == TypeTag::TypedPure,
+                    sig: self.to_signature(self.typed_callable_signature(id)?, depth + 1)?,
+                }))
+            }
             TypeTag::Command => Type::Command,
             TypeTag::ProcessHandle => Type::ProcessHandle,
             TypeTag::NetJob => Type::NetJob,
@@ -500,6 +560,7 @@ impl SemanticPools {
                 }
                 Ok(format!("Union[{}]", members.join(", ")))
             }
+            TypeTag::TypedProc | TypeTag::TypedPure => Ok(self.to_type_inner(id, depth)?.to_string()),
             _ => Err(IrVerifyError::new("type tag has no display schema")),
         }
     }
@@ -695,6 +756,25 @@ impl SemanticPools {
                         }
                     }
                 }
+                // A call through a typed callable supplies exactly the
+                // parameters its signature lists, so a signature that would
+                // let one be omitted or collected was not produced by
+                // lowering.
+                TypeTag::TypedProc | TypeTag::TypedPure => {
+                    let id =
+                        TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
+                    let signature = self.typed_callable_signature(id)?;
+                    if data.rhs != 0 {
+                        return Err(IrVerifyError::new("typed callable type has invalid data"));
+                    }
+                    for param in 0..self.signature_param_count(signature)? {
+                        if self.signature_param(signature, param)?.2 != 0 {
+                            return Err(IrVerifyError::new(
+                                "typed callable signature has a defaulted or rest parameter",
+                            ));
+                        }
+                    }
+                }
                 _ => return Err(IrVerifyError::new("type tag has no verification schema")),
             }
         }
@@ -762,6 +842,7 @@ enum TypeKey {
     Aggregate(TypeTag, ShapeId, Box<[u32]>),
     /// Member type ids in the order the union lists them.
     Union(Box<[u32]>),
+    Callable(TypeTag, SignatureId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -976,6 +1057,19 @@ impl SemanticPoolBuilder {
                     words,
                 )
             }
+            Type::Callable(callable) => {
+                let signature = self.intern_signature(pools, &callable.sig)?;
+                let tag = if callable.pure {
+                    TypeTag::TypedPure
+                } else {
+                    TypeTag::TypedProc
+                };
+                (
+                    TypeKey::Callable(tag, signature),
+                    IrData::new(signature.raw(), 0),
+                    Vec::new(),
+                )
+            }
         };
         if let Some(id) = self.types.get(&key) {
             return Ok(*id);
@@ -989,6 +1083,7 @@ impl SemanticPoolBuilder {
             | TypeKey::NamedPair(tag, _, _)
             | TypeKey::Aggregate(tag, _, _) => *tag,
             TypeKey::Union(_) => TypeTag::Union,
+            TypeKey::Callable(tag, _) => *tag,
         };
         pools.type_tags.push(tag);
         pools.type_data.push(data);

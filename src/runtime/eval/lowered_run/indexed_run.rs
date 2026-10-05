@@ -7947,7 +7947,8 @@ impl Evaluator {
             | FullTag::ExprSelfCall
             | FullTag::ExprDirectPureCall
             | FullTag::ExprExternalCall
-            | FullTag::ExprDynamicCall => {
+            | FullTag::ExprDynamicCall
+            | FullTag::ExprTypedCall => {
                 let named = match tag {
                     FullTag::ExprCall | FullTag::ExprDirectPureCall => {
                         Some(indexed_decode::<LoweredFunctionKey>(
@@ -7977,6 +7978,15 @@ impl Evaluator {
                     .is_none()
                     .then(|| indexed_raw(&mut payload, call_span))
                     .transpose()?;
+                let typed_pure = if tag == FullTag::ExprTypedCall {
+                    let pure = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                    // The signature is for the verifier; execution binds the
+                    // verified arguments by position.
+                    indexed_raw(&mut payload, call_span)?;
+                    Some(pure)
+                } else {
+                    None
+                };
                 let mut args = self.frame_scratch.take_call_args();
                 explicit_run::decode_call_args_into(execution, &mut payload, call_span, &mut args)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
@@ -7985,7 +7995,12 @@ impl Evaluator {
                     (Some(function), _) => IndexedCallee::Named(function),
                     (None, Some(instruction)) => {
                         match self.eval_indexed_expr(execution, instruction, slots, span)? {
-                            ControlFlow::Continue(value) => IndexedCallee::Value(value),
+                            ControlFlow::Continue(value) => {
+                                if let Some(pure) = typed_pure {
+                                    indexed_typed_callee_kind(&value, pure, span)?;
+                                }
+                                IndexedCallee::Value(value)
+                            }
                             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                         }
                     }
@@ -8011,7 +8026,12 @@ impl Evaluator {
                 };
                 return match function {
                     LoweredFunctionKey::Qualified(qualified)
-                        if matches!(tag, FullTag::ExprExternalCall | FullTag::ExprDynamicCall) =>
+                        if matches!(
+                            tag,
+                            FullTag::ExprExternalCall
+                                | FullTag::ExprDynamicCall
+                                | FullTag::ExprTypedCall
+                        ) =>
                     {
                         self.eval_indexed_external_call(qualified, &values, span)
                     }
@@ -9837,6 +9857,28 @@ pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) 
 
 // Defaults retain their private omission marker until the actual callee binds
 // its slots. Callable aliases therefore keep lowered values across dispatch.
+/// The checker gives a callable type only to functions of its kind, so a
+/// typed call that receives anything else was reached through a path the
+/// checker did not see. The call stops here instead of running it.
+fn indexed_typed_callee_kind(
+    callee: &LoweredValue,
+    pure: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let expected = if pure { "Pure" } else { "Proc" };
+    match (callee, pure) {
+        (LoweredValue::Pure(_), true) | (LoweredValue::Proc(_), false) => Ok(()),
+        (other, _) => Err(RuntimeError::new(
+            "type-error",
+            format!(
+                "typed call expected a {expected} of its callable type, found {}",
+                other.type_name()
+            ),
+        )
+        .with_span(span)),
+    }
+}
+
 fn indexed_callable_identity(
     callee: &LoweredValue,
     span: Span,

@@ -364,7 +364,7 @@ impl Default for CompactLowerConstructProbeOutput {
 
 pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
-pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 9;
+pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 11;
 pub const COMPACT_STMT_KIND_COUNT: usize = 30;
 pub const COMPACT_EXPR_KIND_COUNT: usize = 47;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
@@ -1854,6 +1854,16 @@ enum BuildExprRow {
     },
     DynamicCall {
         callee: BuildExprId,
+        args: Vec<LoweredCallArg>,
+        span: Span,
+    },
+    /// A call through a value of a callable type. `signature` is the checked
+    /// `Type::Callable` the arguments were bound against, and `pure` its
+    /// kind; `args` supplies each of its parameters once, in order.
+    TypedCall {
+        callee: BuildExprId,
+        pure: bool,
+        signature: Type,
         args: Vec<LoweredCallArg>,
         span: Span,
     },
@@ -7258,6 +7268,10 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::ProcessError => matches!(value, Value::RunError(_)),
         Type::Pure => matches!(value, Value::Pure(_)),
         Type::Proc => matches!(value, Value::Proc(_)),
+        // A signature is a checked fact, not something a value carries: a
+        // slot of a callable type can only confirm the handle's kind.
+        Type::Callable(callable) if callable.pure => matches!(value, Value::Pure(_)),
+        Type::Callable(_) => matches!(value, Value::Proc(_)),
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
@@ -7406,6 +7420,8 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         }
         Type::Pure => matches!(value, LoweredValue::Pure(_)),
         Type::Proc => matches!(value, LoweredValue::Proc(_)),
+        Type::Callable(callable) if callable.pure => matches!(value, LoweredValue::Pure(_)),
+        Type::Callable(_) => matches!(value, LoweredValue::Proc(_)),
         Type::Unit => matches!(value, LoweredValue::Unit),
         Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {

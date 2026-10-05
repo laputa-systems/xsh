@@ -1485,6 +1485,7 @@ fn lint_config_for_file(
         // not also want them removed.
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
             && !configured_return_annotations,
+        prefer_typed_callables: tool_config.config.lint.prefer_typed_callables,
         return_proof: Some(crate::xsht::lint::ReturnProofContext {
             file: file.to_string(),
             module_roots: module_roots.clone(),
