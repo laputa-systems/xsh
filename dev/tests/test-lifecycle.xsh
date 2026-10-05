@@ -27,10 +27,12 @@ pure darwin_context_source(root: Path) -> Str {
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"""#!{xsh}
+  tool_path.write(
+    f"""#!{xsh}
 {body}
-""")
-  fs.chmod(tool_path, 0o755)
+""",
+    mode: 0o755,
+  )
 }
 
 test test_build_failure_stops_at_the_cargo_boundary { |ctx|
@@ -355,8 +357,7 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
   tools.mkdir()
   let release_dir = fp"{root}/target/aarch64-apple-darwin/release"
   release_dir.mkdir()
-  fp"{release_dir}/xsh".write("binary")
-  fs.chmod(fp"{release_dir}/xsh", 0o755)
+  fp"{release_dir}/xsh".write("binary", mode: 0o755)
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
   let codesign_marker = fp"{root}/codesign-marker"

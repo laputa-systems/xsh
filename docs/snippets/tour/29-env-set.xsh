@@ -18,8 +18,7 @@ let scratch = fs.tempdir()?
 defer scratch.close()?
 let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
-tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n")
-tool.chmod(0o755)
+tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n", mode: 0o755)
 
 env STAGE=release {
   env.PATH.prepend(tools)

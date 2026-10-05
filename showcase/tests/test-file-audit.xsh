@@ -1,16 +1,16 @@
 test test_file_audit_findings { |ctx|
   let root = test.temp_dir(ctx, name: "file-audit")?
   let outside = test.temp_dir(ctx, name: "file-audit-outside")?
-  fp"{root}/world.txt".write("world")
-  fp"{root}/world.txt".chmod(0o666)
+  fp"{root}/world.txt".write("world", mode: 0o666)
   fp"{root}/open-dir".mkdir()
   fp"{root}/open-dir".chmod(0o777)
   let suid = fp"{root}/suid.sh"
 
-  suid.write("""#!/bin/sh
-""")
-
-  suid.chmod(0o4755)
+  suid.write(
+    """#!/bin/sh
+""",
+    mode: 0o4755,
+  )
   fp"{outside}/target.txt".write("outside")
   fs.symlink(p"missing-target", fp"{root}/broken")
   fs.symlink(fp"{root}/world.txt", fp"{root}/absolute")

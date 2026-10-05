@@ -1220,8 +1220,7 @@ test test_filesystem_errors_name_their_paths { |ctx|
 
 test test_run_accepts_relative_command_paths { |ctx|
   let tool = fp"{ctx.temp_root}/tool"
-  tool.write("#!/bin/sh\necho ran\n")
-  tool.chmod(0o755)
+  tool.write("#!/bin/sh\necho ran\n", mode: 0o755)
   let output = test.run_script(
     ctx,
     r"""cd (ROOT) {

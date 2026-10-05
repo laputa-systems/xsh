@@ -148,7 +148,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Returns the current user's filesystem root path.
 - `fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.world_writable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
-- `fs.write(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
+- `fs.write(path: Path, data: Bytes) -> Result[Unit, Error] (+3 overloads)` — Writes text or bytes to a path.
 - `fs.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Replaces a file through an atomic write path.
 
 ### `group`
@@ -629,7 +629,7 @@ Process-scoped utility helpers.
 - `Path.truncate(size: Int) -> Result[Unit, Error]` — Changes a file's length.
 - `Path.unlink() -> Result[Unit, Error]` — Removes one directory entry.
 - `Path.with_ext(ext: Str) -> Path` — Replaces a path extension.
-- `Path.write(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
+- `Path.write(data: Bytes) -> Result[Unit, Error] (+3 overloads)` — Writes text or bytes to a path.
 - `Path.write_atomic(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Atomically replaces a path with text or bytes.
 - `Path.write_lines(lines: List[Str]) -> Result[Unit, Error]` — Writes a list of text lines to a path, each followed by a newline.
 

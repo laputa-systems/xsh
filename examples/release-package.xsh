@@ -7,9 +7,11 @@ bin.mkdir()
 let tool = fp"{bin}/tool"
 let config = fp"{source}/config"
 
-tool.write("""demo
-""")
-tool.chmod(0o755)
+tool.write(
+  """demo
+""",
+  mode: 0o755,
+)
 config.write("""name=demo
 enabled=false
 """)

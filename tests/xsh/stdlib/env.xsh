@@ -234,9 +234,8 @@ test test_env_functions_and_path_list { |ctx|
     """#!/bin/sh
 printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
 """,
+    mode: 0o755,
   )
-
-  fs.chmod(tool, 0o755)
 
   env XSH_STDLIB_ENV=yes DESTDIR=/tmp/xsh-stdlib-env XSH_STDLIB_COUNT=7 XSH_STDLIB_BOOL=true XSH_STDLIB_PATH=$root {
     assert e"XSH_STDLIB_ENV"? == "yes"
@@ -276,11 +275,12 @@ test test_env_overlays_blocks_lookup_and_path_mutation_affect_children { |ctx|
   let root = test.temp_dir(ctx, name: "env-scope")?
   let tool = fp"{root}/env-scope-tool"
 
-  tool.write("""#!/bin/sh
+  tool.write(
+    """#!/bin/sh
 printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
-""")
-
-  tool.chmod(0o755)
+""",
+    mode: 0o755,
+  )
   env.PATH.append(root)
   assert root in env.PATH
 

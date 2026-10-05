@@ -15,15 +15,17 @@ test test_path_audit_findings { |ctx|
   file_entry.write("not a directory")
   fs.symlink(bin1, duplicate)
 
-  fp"{bin1}/tool".write("""#!/bin/sh
-""")
+  fp"{bin1}/tool".write(
+    """#!/bin/sh
+""",
+    mode: 0o755,
+  )
 
-  fp"{bin1}/tool".chmod(0o755)
-
-  fp"{bin2}/tool".write("""#!/bin/sh
-""")
-
-  fp"{bin2}/tool".chmod(0o755)
+  fp"{bin2}/tool".write(
+    """#!/bin/sh
+""",
+    mode: 0o755,
+  )
   let missing = fp"{root}/missing"
   let raw = f"{bin1}:{bin2}:{duplicate}:{missing}:{file_entry}::{world}:{noexec}"
 

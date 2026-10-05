@@ -22,10 +22,12 @@ pure verification_context_source(root: Path) -> Str {
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"""#!{xsh}
+  tool_path.write(
+    f"""#!{xsh}
 {body}
-""")
-  fs.chmod(tool_path, 0o755)
+""",
+    mode: 0o755,
+  )
 }
 
 test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
@@ -42,8 +44,7 @@ test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
   let padding = (["x"]
     |> repeat(1024)
     |> collect()).join("")
-  product.write(padding)
-  fs.chmod(product, 0o755)
+  product.write(padding, mode: 0o755)
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("non-ELF product passed verification")
@@ -64,8 +65,7 @@ test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
   let padding = (["x"]
     |> repeat(1020)
     |> collect()).join("")
-  product.write("\u{7f}ELF" + padding)
-  fs.chmod(product, 0o755)
+  product.write("\u{7f}ELF" + padding, mode: 0o755)
   let tools = fp"{root}/tools"
   tools.mkdir()
   let repository = fs.cwd()?

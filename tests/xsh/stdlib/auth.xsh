@@ -43,9 +43,8 @@ test test_applet_auth_helpers_and_sessions { |ctx|
     """#!/bin/sh
 exit 17
 """,
+    mode: 0o755,
   )
-
-  fs.chmod(shell, 0o755)
   let user_entry = user.current()?
 
   let session_user = {

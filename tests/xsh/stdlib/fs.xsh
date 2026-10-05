@@ -729,10 +729,11 @@ test test_filesystem_package_policy_apis { |ctx|
   fp"{src}/dir".mkdir()
   let tool = fp"{src}/dir/tool"
 
-  tool.write("""tool
-""")
-
-  tool.chmod(0o755)
+  tool.write(
+    """tool
+""",
+    mode: 0o755,
+  )
   fs.symlink(p"dir/tool", fp"{src}/tool.link")
   let copied = fs.copy_tree(src, fp"{root}/copy")?
   let me = user.current()?

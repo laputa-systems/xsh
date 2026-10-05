@@ -1,4 +1,4 @@
-const root = p"/opt/stage"
+const root = /opt/stage
 
 # begin example
 let search = [fp"{root}/usr/bin", fp"{root}/bin", @env.PathList.PATH ?? []]

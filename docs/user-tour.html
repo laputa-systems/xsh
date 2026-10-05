@@ -657,8 +657,7 @@ as a path, the bytes survive: true</code></pre></figure>
 <span class="hl-keyword">defer</span> scratch<span class="hl-punctuation">.</span><span class="hl-function">close</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
 <span class="hl-keyword">let</span> tools <span class="hl-operator">=</span> scratch<span class="hl-punctuation">.</span><span class="hl-function">host_path</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
 <span class="hl-keyword">let</span> tool <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>tools<span class="hl-interpolation">}</span><span class="hl-path">/hello-tool"</span>
-tool<span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"#!/bin/sh\necho \"hello from $STAGE\"\n"</span><span class="hl-punctuation">)</span>
-tool<span class="hl-punctuation">.</span><span class="hl-function">chmod</span><span class="hl-punctuation">(</span><span class="hl-number">0o755</span><span class="hl-punctuation">)</span>
+tool<span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"#!/bin/sh\necho \"hello from $STAGE\"\n"</span><span class="hl-punctuation">,</span> <span class="hl-property">mode</span><span class="hl-punctuation">:</span> <span class="hl-number">0o755</span><span class="hl-punctuation">)</span>
 
 <span class="hl-keyword">env</span> <span class="hl-property">STAGE</span><span class="hl-operator">=</span>release <span class="hl-punctuation">{</span>
   env<span class="hl-punctuation">.</span><span class="hl-property">PATH</span><span class="hl-punctuation">.</span><span class="hl-function">prepend</span><span class="hl-punctuation">(</span>tools<span class="hl-punctuation">)</span>

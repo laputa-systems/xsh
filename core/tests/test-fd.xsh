@@ -22,13 +22,11 @@ test test_fd_hidden_and_glob { |ctx|
 test test_fd_multiple_roots_exclude_depth_and_executable { |ctx|
   let left = test.temp_dir(ctx, name: "fd-left")?
   let right = test.temp_dir(ctx, name: "fd-right")?
-  fp"{left}/keep.sh".write("echo keep")
-  fs.chmod(fp"{left}/keep.sh", 0o755)
+  fp"{left}/keep.sh".write("echo keep", mode: 0o755)
   fp"{left}/skip.log".write("skip")
   fs.mkdir(fp"{left}/nested")
   fp"{left}/nested/deep.sh".write("deep")
-  fp"{right}/other.sh".write("other")
-  fs.chmod(fp"{right}/other.sh", 0o755)
+  fp"{right}/other.sh".write("other", mode: 0o755)
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fd.xsh" -- --glob "*.sh" -t x -E "skip*" -d1 $left $right ?
   assert "keep.sh" in output
   assert "other.sh" in output

@@ -1,6 +1,6 @@
 test test_env_overlay_joins_a_path_list_and_reads_it_back {
   let raw = Path.parse_bytes(b"/opt/bad\xffname/bin")?
-  let dirs = [p"/opt/stage/usr/bin", raw, p"/bin"]
+  let dirs = [/opt/stage/usr/bin, raw, /bin]
   env ({XSH_PATH_LIST: dirs}) {
     assert env.PathList.XSH_PATH_LIST? == dirs
     let child = run.bytes printenv XSH_PATH_LIST ?
@@ -9,7 +9,7 @@ test test_env_overlay_joins_a_path_list_and_reads_it_back {
 
   # An empty entry is kept, and an empty list is the empty value.
   let none: List[Path] = []
-  env ({XSH_PATH_LIST: [p"/a", p"", p"/b"], XSH_PATH_LIST_EMPTY: none}) {
+  env ({XSH_PATH_LIST: [/a, p"", /b], XSH_PATH_LIST_EMPTY: none}) {
     assert e"XSH_PATH_LIST"? == "/a::/b"
     assert e"XSH_PATH_LIST_EMPTY"? == ""
   }
@@ -18,8 +18,8 @@ test test_env_overlay_joins_a_path_list_and_reads_it_back {
   # adds no entry.
   env ({XSH_PATH_LIST: "/usr/bin:/bin"}) {
     env ({
-      XSH_PATH_LIST: [p"/opt/bin", @env.PathList.XSH_PATH_LIST ?? []],
-      XSH_PATH_LIST_NEW: [p"/opt/bin", @env.PathList.XSH_PATH_LIST_UNSET ?? []],
+      XSH_PATH_LIST: [/opt/bin, @env.PathList.XSH_PATH_LIST ?? []],
+      XSH_PATH_LIST_NEW: [/opt/bin, @env.PathList.XSH_PATH_LIST_UNSET ?? []],
     }) {
       assert e"XSH_PATH_LIST"? == "/opt/bin:/usr/bin:/bin"
       assert e"XSH_PATH_LIST_NEW"? == "/opt/bin"
@@ -30,10 +30,10 @@ test test_env_overlay_joins_a_path_list_and_reads_it_back {
 test test_every_environment_value_position_joins_a_path_list { |ctx|
   let root = test.temp_dir(ctx, name: "env-path-list")?
   let sh = process.which("sh")?
-  let dirs = [p"/one", p"/two"]
+  let dirs = [/one, /two]
   let script = "printf '%s' \"$XSH_PATH_LIST\""
 
-  env XSH_PATH_LIST=$dirs XSH_PATH_LIST_EXPR=(dirs) {
+  env XSH_PATH_LIST=$dirs XSH_PATH_LIST_EXPR=$dirs {
     assert e"XSH_PATH_LIST"? == "/one:/two"
     assert e"XSH_PATH_LIST_EXPR"? == "/one:/two"
   }
@@ -66,7 +66,7 @@ test test_every_environment_value_position_joins_a_path_list { |ctx|
 }
 
 test test_a_path_list_entry_with_the_separator_fails { |ctx|
-  let split = [p"/one", p"/two:/three"]
+  let split = [/one, /two:/three]
   let entered = env ({XSH_PATH_LIST: split}) { 1 }
   test.error_kind(entered, "env-value")
   env XSH_PATH_LIST_SCOPE=1 {
@@ -114,7 +114,10 @@ test test_a_list_word_that_is_not_a_path_list_keeps_the_one_item_rule { |ctx|
     assert e"XSH_PATH_LIST"? == "only"
   }
   for names in ["[\"a\", \"b\"]", "[]"] {
-    let failed = test.run_script(ctx, f"let names: List[Str] = {names}\nenv NAMES=\$names {{\n  print \"entered\"\n}}\n")?
+    let failed = test.run_script(
+      ctx,
+      f"let names: List[Str] = {names}\nenv NAMES=\$names {{\n  print \"entered\"\n}}\n",
+    )?
     assert failed.status == 3, failed.stderr
     assert "environment values must be one value" in failed.stderr, failed.stderr
   }
