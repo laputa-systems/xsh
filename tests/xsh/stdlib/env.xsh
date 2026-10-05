@@ -505,3 +505,15 @@ test test_env_string_rejections { |ctx|
 test test_env_string_value_with_nul_fails_at_runtime { |ctx|
   let _ = test.expect(ctx, "e\"XSH_ESTR_NUL\" = \"a\\0b\"\n", status: 3, stderr: ["NUL"])?
 }
+
+# A script that reads a variable as text stops with exit status 3 when the
+# value its parent handed it is not UTF-8, through either spelling of the read.
+test test_env_text_reads_of_non_utf8_values_stop_a_script { |ctx|
+  let raw = b"\xff" as Path
+  for source in ["use env\nlet _ = env.get(\"XSH_BAD_UTF8\")?\n", "let _ = env(\"XSH_BAD_UTF8\") ?\n"] {
+    let script = test.temp_file(ctx, name: "env-invalid-utf8.xsh", contents: bytes.from_text(source))?
+    let output = run.capture --text XSH_BAD_UTF8=$raw "xsh" $script
+    assert output.status.exited_with(3), output.stderr
+    assert "invalid-utf8" in output.stderr, output.stderr
+  }
+}

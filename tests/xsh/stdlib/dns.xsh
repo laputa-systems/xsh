@@ -46,3 +46,8 @@ test test_dns_explicit_server_transport {
   assert aaaa[0].value == "2001:db8::42"
   assert aaaa[0].ttl == 60
 }
+
+# No mock and no server: the host resolver answers for `localhost`.
+test test_dns_resolves_localhost_through_the_host_resolver {
+  assert ! dns.resolve_host("localhost")?.is_empty()
+}
