@@ -5191,6 +5191,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let leaves_with_error = flow_leaves_with_error(&flow);
+        let released = match &flow {
+            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                self.release_call_host_resources(index, Some(value))
+            }
+            _ => self.release_call_host_resources(index, None),
+        };
         let call = &mut self.calls[index];
         let cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
@@ -5199,6 +5205,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             &mut call.slots,
             call.call_span,
         );
+        let cleanup = self.merge_release_failure(index, cleanup, released);
         let cleanup = if cleanup
             .as_ref()
             .err()
@@ -5223,6 +5230,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let leaves_with_error = !self.unwinding_successful_exit();
+        if let Some(error) = self.pending_error.as_ref()
+            && error.abort.is_none()
+            && error.propagated
+            && self.calls[index].owns_scope()
+            && self.calls[index].block_scopes.is_empty()
+        {
+            let parent = self.evaluator.parent_owned_host_scope();
+            self.evaluator.transfer_owned_host_resources_in_runtime_error(
+                error,
+                self.calls[index].scope_id,
+                parent,
+            );
+        }
+        let released = self.release_call_host_resources(index, None);
         let call = &mut self.calls[index];
         let cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
@@ -5231,6 +5252,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             &mut call.slots,
             call.call_span,
         );
+        let cleanup = self.merge_release_failure(index, cleanup, released);
         let cleanup = match cleanup {
             Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
             Err(error) => {
@@ -5243,6 +5265,49 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator.cleanup_error_contexts = previous_contexts;
         cleanup?;
         self.finish_error_call(index)
+    }
+
+    /// Releases what the call's own scope still owns before the call's
+    /// deferred actions run. `leaving` is the value the call hands to its
+    /// caller; the handles it holds move to the caller's scope first. A call
+    /// that shares its caller's scope, or that still has an open block, owns
+    /// nothing to release here.
+    fn release_call_host_resources(
+        &mut self,
+        index: usize,
+        leaving: Option<&LoweredValue>,
+    ) -> Result<(), RuntimeError> {
+        let call = &self.calls[index];
+        if !call.owns_scope() || !call.block_scopes.is_empty() {
+            return Ok(());
+        }
+        let scope_id = call.scope_id;
+        if let Some(value) = leaving {
+            let parent = self.evaluator.parent_owned_host_scope();
+            self.evaluator
+                .transfer_owned_host_resources_in_lowered_value(value, scope_id, parent);
+        }
+        self.evaluator.release_owned_host_resources(scope_id)
+    }
+
+    /// The failure of a scope's cleanup: a deferred action's failure comes
+    /// first, and a failed release of the scope's handles is reported beside
+    /// it instead of replacing it.
+    fn merge_release_failure(
+        &mut self,
+        index: usize,
+        cleanup: Result<(), RuntimeError>,
+        released: Result<(), RuntimeError>,
+    ) -> Result<(), RuntimeError> {
+        match (cleanup, released) {
+            (Err(error), Err(secondary)) => {
+                self.evaluator
+                    .report_cleanup_error(&secondary, self.calls[index].call_span);
+                Err(error)
+            }
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        }
     }
 
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
@@ -6012,14 +6077,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let defers = self.calls[index].defers.split_off(defer_offset);
         let previous_contexts =
             (include_work_contexts && !defers.is_empty()).then(|| self.install_cleanup_contexts());
+        // Values leaving the block moved their handles outward before this
+        // exit, so what the block still owns is dropped, and is released
+        // before the block's deferred actions run.
+        let released = if self.evaluator.current_scope_id() == scope_id {
+            self.evaluator.release_owned_host_resources(scope_id)
+        } else {
+            Ok(())
+        };
         let call = &mut self.calls[index];
-        let mut cleanup = self.evaluator.run_indexed_defers(
+        let cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
             &defers,
             leaves_with_error,
             &mut call.slots,
             call.call_span,
         );
+        let mut cleanup = self.merge_release_failure(index, cleanup, released);
         if include_work_contexts
             && disposition == CleanupFailureResources::Retain
             && cleanup.is_err()

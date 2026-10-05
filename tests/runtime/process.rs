@@ -38,41 +38,6 @@ print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
     );
 }
 
-#[test]
-fn dropped_non_detached_process_is_canceled_before_defer_runs() {
-    let marker = temp_path("spawn-scope-cleanup-marker");
-    let _ = std::fs::remove_file(&marker);
-    let script = format!(
-        "\
-proc observe(marker: Path) [fs, time, error] -> Result[Unit] {{
-  time.sleep(50ms)?
-  print ${{marker.exists()? == false}}
-  return Ok()
-}}
-
-let marker = Path({})
-proc scoped(marker: Path) [process, fs, time, error] -> Result[Unit] {{
-  let command = process.command_argv(\"sh\", [\"sh\", \"-c\", {}])
-  let h = spawn command?
-  defer observe(marker)
-  return Ok()
-}}
-scoped(marker)?
-",
-        xsh_string_literal(marker.to_str().unwrap()),
-        xsh_string_literal(&format!("sleep 1; touch {}", marker.display()))
-    );
-    let output = run_temp_script("spawn-scope-cleanup", &script);
-    let _ = std::fs::remove_file(&marker);
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
-}
-
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn sigterm_cancels_live_spawned_process_handles() {

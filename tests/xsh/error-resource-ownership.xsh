@@ -28,8 +28,8 @@ test test_error_payload_transfers_child_to_caller {
 }
 
 test test_error_cause_transfers_child_to_caller {
+  # The child now belongs to this scope, which cancels and reaps it on exit.
   let bundle = return_cause_child()?
-  defer process.kill(bundle.pid, signal: "TERM")
   assert process.list()? |> any .pid == bundle.pid, "child held only by a typed cause must survive callee cleanup"
 }
 

@@ -636,3 +636,38 @@ test test_process_spawn_options_and_kill_are_observable { |ctx|
   assert spawned.ignore_hup
   test.error_kind(process.kill(2147483647, signal: "0"), "process-missing")
 }
+
+# A scope cancels and reaps the non-detached children it still owns before its
+# deferred actions run: each child here would write its marker after 300 ms,
+# and the action looks 600 ms later, past the moment a surviving child would
+# have written it.
+test test_dropped_process_handle_is_cancelled_before_the_scope_defers_run { |ctx|
+  let root = test.temp_dir(ctx, name: "dropped-handle")?
+  let source = r"""proc observe(marker: Path) [fs, time, error] -> Result[Unit] {
+  time.sleep(600ms)?
+  print ${marker.exists()? == false}
+  return Ok()
+}
+
+proc scoped(marker: Path) [process, fs, time, error] -> Result[Unit] {
+  let command = process.command_argv("sh", ["sh", "-c", f"sleep 0.3; touch {marker}"])
+  let h = spawn command?
+  defer observe(marker)
+  return Ok()
+}
+
+proc in_block(marker: Path) [process, fs, time, error] -> Result[Unit] {
+  if true {
+    let command = process.command_argv("sh", ["sh", "-c", f"sleep 0.3; touch {marker}"])
+    let h = spawn command?
+    defer observe(marker)
+  }
+
+  return Ok()
+}
+
+scoped(Path("ROOT/call"))?
+in_block(Path("ROOT/block"))?
+"""
+  let _ = test.expect(ctx, source.replace("ROOT", with: root.display()), status: 0, stdout: ["true\ntrue\n"])?
+}

@@ -6086,9 +6086,26 @@ impl Evaluator {
 
     #[inline(never)]
     fn cleanup_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
-        let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
+        let cleanup = self.release_owned_host_resources(scope_id);
         let popped = self.scope_ids.pop();
         debug_assert_eq!(popped, Some(scope_id));
+        cleanup
+    }
+
+    /// Cancels and reaps the non-detached process handles `scope_id` owns,
+    /// hands its detached ones to the reaper, and cancels and drains its
+    /// network jobs, while the scope itself stays open. A scope does this
+    /// before its deferred actions run, so an action never finds a child the
+    /// scope dropped still running; the scope's exit then only has to release
+    /// what the actions themselves created.
+    pub(super) fn release_owned_host_resources(
+        &mut self,
+        scope_id: u64,
+    ) -> Result<(), RuntimeError> {
+        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+            return Ok(());
+        }
+        let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
         match cleanup {
             Ok(Flow::Continue(_)) => Ok(()),
             Ok(_) => Err(RuntimeError::new(
