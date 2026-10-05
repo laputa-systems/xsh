@@ -590,6 +590,13 @@ Process-scoped utility helpers.
 - `NetJob.cancel() -> Result[Unit, Error]` — Cancels and consumes an owned network job.
 - `NetJob.wait() -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Consumes an owned network job and returns its buffered response.
 
+### NonEmpty
+
+- `NonEmpty[T].extend(other: List[T]) -> NonEmpty[T]` — Returns a non-empty list with another list appended.
+- `NonEmpty[T].first() -> T` — Returns the first element.
+- `NonEmpty[T].last() -> T` — Returns the last element.
+- `NonEmpty[T].push(item: T) -> NonEmpty[T]` — Returns a non-empty list with one value appended.
+
 ### Path constructor
 
 - `Path.parse_bytes(bytes: Bytes) -> Result[Path, Error]` — Parses Bytes as a filesystem path.

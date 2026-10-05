@@ -429,6 +429,7 @@ literal configuration data (`lint.prefer-const`).
 | `Path` | native path bytes without NUL |
 | `Regex`, `Digest` | compiled regex; typed hash digest |
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
+| `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
@@ -606,7 +607,9 @@ one behaves as a copy, so mutating a `var` never changes another binding
 (copies share storage until written).
 
 `List.get(index)` and `Map.get(key)` return `Result[T]`. A present `null`
-value is `Ok(null)`; `??` handles only the missing case. `Str.find`,
+value is `Ok(null)`; `??` handles only the missing case. A list that is known
+to hold an element has the type `NonEmpty[T]` (4.13), whose `first()` and
+`last()` cannot fail. `Str.find`,
 `Str.byte_at`, and `Bytes.byte_at` return `Int?` and use `null` for absence.
 
 ### 4.6 Optional values
@@ -1059,6 +1062,105 @@ of a few concrete scalar or collection types and names its union
 (`lint.list-any-union`). It offers no fix: the union changes the binding's
 type, so uses that expect `List[Any]` have to change with it.
 
+### 4.13 Validated types
+
+A validated type is a base type together with a property its values have been
+checked to have. It is a type, not a runtime wrapper: the value is a value of
+the base, and the property is something the checker knows about every value
+that reaches the type. `NonEmpty[T]` is the validated type over `List[T]`
+whose values hold at least one element. A command vector is the canonical
+case: `run @argv` needs a program to run, so its argv is a `NonEmpty[Str]`,
+not merely a `List[Str]`.
+
+```xsh
+type Argv = NonEmpty[Str]
+
+pure program(argv: Argv) -> Str {
+  argv.first()
+}
+
+proc launch(extra: List[Str]) [process, error] {
+  # A literal with an element written out is checked where it is written.
+  let argv: Argv = ["git", "status", @extra]
+  print program(argv)
+  run @argv
+
+  # Appending keeps the guarantee; a slice gives the list back.
+  let verbose = argv.push("--verbose")
+  let flags = verbose[1..]
+  print verbose.last() flags.len()
+
+  # Any other list is validated once, at an explicit boundary.
+  let command = extra.require(Argv)?
+  run @command
+}
+```
+
+A value gets a validated type in exactly three ways:
+
+- **A literal the checker can judge.** A list literal written where a
+  `NonEmpty[T]` is expected has that type when it writes out at least one
+  element, or splices (`@`) a `NonEmpty` list. A literal that may be empty,
+  `[]` or one made only of splices of plain lists, is
+  `check.validated-literal`. The same holds for constants and field defaults,
+  whose values are known. Without that expectation a list literal is a
+  `List[T]`, as before: inference never produces a validated type from a
+  literal.
+- **One validation at an explicit boundary.** `value.require(NonEmpty[T])`
+  (5.3) tests the value once and returns `Result[NonEmpty[T]]`; `.require()`
+  takes the target from an expectation as usual. A slot of the type inside a
+  schema given to `.require` is validated with the rest of the value. A type
+  test `value is NonEmpty[T]`, or the type pattern `name is NonEmpty[T]`,
+  applies to a `List[T]` as well as to dynamic values and narrows where it
+  passes (5.4).
+- **An operation that preserves the property.** For `NonEmpty[T]` these are
+  `.push(item)` and `.extend(other)` on a `NonEmpty` receiver, `left + right`
+  when either operand is `NonEmpty`, `+=` on a `NonEmpty` variable, and a
+  list comprehension with a single `for` clause over a `NonEmpty` list and no
+  `if` clause. Replacing an element (`names[0] = value`) keeps the type of the
+  variable.
+
+Every other operation reads the value as its base type and returns what the
+base returns: indexing, slicing, `.get`, `.len`, `.join`, `.collect`,
+iteration, `in`, list patterns, a `@` splice, a pipeline source, and a
+comprehension with a filter or more than one `for` clause all see a
+`List[T]`, and those that produce a list produce a `List[T]`. Validate again
+to get the type back.
+
+The operations the property guarantees exist only on the validated type.
+`NonEmpty[T]` has `first()` and `last()`, which return `T` and cannot fail; a
+`List[T]` has neither (`check.unknown-method`), so an unvalidated list is read
+with `.get(0)` or validated first.
+
+A validated type fits its base and never the reverse (5.2). A value of the
+base where the validated type is expected is `check.type-mismatch`, with a
+note naming the conversion:
+
+```xsh
+pure program(argv: NonEmpty[Str]) -> Str {
+  argv.first()
+}
+
+let extra: List[Str] = ["status"]
+let none: NonEmpty[Str] = [] # error: check.validated-literal
+let maybe: NonEmpty[Str] = [@extra] # error: check.validated-literal
+let argv: NonEmpty[Str] = ["git", @extra]
+let rest: NonEmpty[Str] = argv[1..] # error: check.type-mismatch
+print ${program(extra)} # error: check.type-mismatch
+print ${extra.first()} # error: check.unknown-method
+print ${none.len()} ${maybe.len()} ${rest.len()}
+```
+
+Because the checker establishes the property, typed code never tests it
+again. Where an unchecked value reaches a checked slot at run time (an
+argument of a dynamic `Proc.call` or `Pure.call`), the slot's type is tested
+there, validation included, and a value that fails is the same `type-error` a
+value of the wrong type is. `first()` and `last()` on a dynamic (`Any`)
+receiver fail with `index-out-of-bounds` on an empty list.
+
+A rest parameter collects zero or more arguments, so it is a `List[T]` and
+cannot be declared `NonEmpty[T]`. `cli main` parameters do not take the type.
+
 ## 5. Typing
 
 ### 5.1 Inference and annotations
@@ -1090,6 +1192,13 @@ is expected. Incompatible contributions are errors; inference never widens to
   Invariance is unchanged: `List[Str]` is not `List[Union[Str, Path]]`. A list
   literal or comprehension written where the union list is expected has that
   element type.
+- A validated type (4.13) fits its base and whatever its base fits:
+  `NonEmpty[T]` fits `List[T]`. The base never fits the validated type; only a
+  judged literal, `.require`, a type test, or a preserving operation produces
+  it. The element type stays invariant (`NonEmpty[Str]` is not
+  `NonEmpty[Any]`), and as an element type the two differ:
+  `List[NonEmpty[Str]]` is not `List[List[Str]]`. In a `Union`, a validated
+  type and its base cannot both be members.
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
@@ -1183,6 +1292,8 @@ continuation, loop body, or match arm where a condition proved it.
 - `x is T` on a `Union` narrows to `T` where the test passes and to the
   remaining members where it fails: the one member left, or the smaller union.
   `x is (T | U)` narrows to those members.
+- `x is NonEmpty[T]` on a `List[T]` narrows to `NonEmpty[T]` where the test
+  passes (4.13). Where it fails, `x` stays a `List[T]`.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
@@ -1681,7 +1792,9 @@ names with the same types; `as` binds tighter than `|`. A guard `if cond` runs
 after the pattern matches, and a false guard moves to the next arm. Guarded
 arms never count toward exhaustiveness. List patterns check the length before
 touching elements and apply only to `List` values. Type patterns apply only to
-`Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. On a
+`Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. One
+more subject is allowed: a value of a validated type's base may be tested for
+that type (`names is NonEmpty[Str]` on a `List[Str]`, 4.13). On a
 union the tested type must be one of its members (`check.pattern-type`), and
 unguarded type patterns that cover every member make the `match` exhaustive.
 A statement `match` that misses a member is `check.non-exhaustive-match`,
@@ -1732,7 +1845,10 @@ appending or slice assignment), and `Str`/`Bytes` are immutable. Compound
 operators `+=`, `-=`, `*=`, `/=`, `%=` follow the binary operator rules, and
 the result must keep the target's type. Selectors evaluate once in path order,
 then the right side, then the update commits; a failed update leaves the
-target unchanged. Assignment produces `Unit`. Earlier aliases keep their old
+target unchanged. A compound operator reads the target's current value when
+it commits, after the right side: `x += e` evaluates `e` and then reads `x`,
+so it differs from `x = x + e`, which reads `x` first, exactly when `e`
+assigns `x`. Assignment produces `Unit`. Earlier aliases keep their old
 contents.
 
 Pure functions may assign to their own local `var`s, including their fields
@@ -3094,7 +3210,10 @@ let plan = process.command {
 An empty vector names no program. The run form fails with
 `ProcessError.InvalidTarget` before anything starts, in value position too,
 and an empty list literal in target position is a check error
-(`check.run-target`). A standalone interpolation in target position
+(`check.run-target`). A vector of type `NonEmpty[T]` (4.13) cannot be empty,
+so a function that runs its argument declares the parameter that way and its
+callers prove it; a plain `List[T]` is still accepted and still fails at run
+time when it is empty. A standalone interpolation in target position
 (`run $program`) is still exactly one argv item.
 
 A grouped body may span lines when `(` is followed by a newline:

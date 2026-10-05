@@ -449,8 +449,9 @@ builtin_type = "List" "[" type_expr "]"
              | "Stream" "[" type_expr "]"
              | "Module" "[" type_expr "]"
              | "Result" "[" type_expr ( "," type_expr )? "]"
-             | "Union" "[" type_expr ( "," type_expr )* "]" ;
-named_type = !( "List" | "Map" | "Stream" | "Module" | "Result" | "Union" ) IDENT ( "." IDENT )? ;
+             | "Union" "[" type_expr ( "," type_expr )* "]"
+             | "NonEmpty" "[" type_expr "]" ;
+named_type = !( "List" | "Map" | "Stream" | "Module" | "Result" | "Union" | "NonEmpty" ) IDENT ( "." IDENT )? ;
 type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 ```
 
