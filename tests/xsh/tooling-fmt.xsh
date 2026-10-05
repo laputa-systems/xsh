@@ -164,3 +164,35 @@ test test_fmt_ignores_legacy_config_ini { |ctx|
     assert checked.status.exited_with(0), checked.stderr
   }
 }
+
+# A parenthesized name, number, or plain string in a command is an expression,
+# and the same text written bare is a word: its text is the argument, and a
+# `$` in a quoted word interpolates. The formatter keeps those parentheses, so
+# the program prints what it printed.
+test test_fmt_keeps_the_parentheses_of_a_command_argument_that_a_word_would_change { |ctx|
+  let source = r"""let body = "x"
+let block = "y"
+print ("tags: $body") $block
+print ("costs \$5")
+print ("plain") (block) (7)
+print ( block.upper() ) ( f"{body}" )
+"""
+  let formatted = r"""let body = "x"
+let block = "y"
+print ("tags: $body") $block
+print ("costs $5")
+print ("plain") (block) (7)
+print block.upper() f"{body}"
+"""
+  let file = test.temp_file(ctx, name: "dollar.xsh", contents: bytes.from_text(source))?
+  let before = run.capture --text "xsh" $file
+  assert before.status.exited_with(0), before.stderr
+  assert before.stdout == "tags: \$body y\ncosts $5\nplain y 7\nY x\n"
+  let wrote = run.capture --text "xsht" fmt $file
+  assert wrote.status.exited_with(0), wrote.stderr
+  assert file.read_text()? == formatted
+  let after = run.capture --text "xsh" $file
+  assert after.stdout == before.stdout
+  let checked = run.capture --text "xsht" fmt --check $file
+  assert checked.status.exited_with(0), checked.stdout + checked.stderr
+}

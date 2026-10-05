@@ -5082,14 +5082,17 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Whether a typed command argument reads as the same expression
+    /// without its parentheses.
+    ///
+    /// Only what the command parser itself reads as an expression does: a
+    /// prefixed string, and a chain that calls or indexes. A name, a number,
+    /// a duration, or a plain string written bare is a word, whose text is
+    /// the argument and whose `$` interpolates, so `(name)` and
+    /// `("costs $5")` keep their parentheses.
     fn command_typed_arg_can_be_bare(&self, expr_id: ExprId) -> bool {
         match self.arena.expr(expr_id).kind {
-            ArenaExprKind::Ident(_)
-            | ArenaExprKind::Str(_)
-            | ArenaExprKind::Int(_)
-            | ArenaExprKind::Float(_)
-            | ArenaExprKind::Duration(_)
-            | ArenaExprKind::FmtString(_)
+            ArenaExprKind::FmtString(_)
             | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_)
