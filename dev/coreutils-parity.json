@@ -9,8 +9,8 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 55,
-    "present_in_scope": 55,
+    "present": 73,
+    "present_in_scope": 73,
     "missing_in_scope": [
       "b2sum",
       "base32",
@@ -18,32 +18,20 @@
       "basenc",
       "chroot",
       "cksum",
-      "comm",
-      "csplit",
       "dd",
-      "dir",
       "dircolors",
       "expand",
-      "expr",
-      "factor",
       "fmt",
       "install",
-      "join",
-      "kill",
       "md5sum",
       "mkfifo",
       "mknod",
       "mktemp",
-      "more",
-      "nice",
       "nl",
       "nohup",
-      "numfmt",
       "od",
       "pathchk",
-      "pinky",
       "pr",
-      "ptx",
       "sha1sum",
       "sha224sum",
       "sha256sum",
@@ -51,18 +39,12 @@
       "sha512sum",
       "shred",
       "stdbuf",
-      "stty",
       "sum",
       "sync",
       "timeout",
       "truncate",
-      "tsort",
       "unexpand",
-      "unlink",
-      "uptime",
-      "users",
-      "vdir",
-      "who"
+      "unlink"
     ]
   },
   "utilities": [
@@ -236,13 +218,13 @@
     {
       "utility": "nice",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/nice.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nice.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 12,
+        "pass": 11,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -344,13 +326,13 @@
     {
       "utility": "comm",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/comm.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-comm.xsh",
       "uutils_test_count": 48,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 44,
+        "pass": 41,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -380,13 +362,13 @@
     {
       "utility": "csplit",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/csplit.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-csplit.xsh",
       "uutils_test_count": 105,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 104,
+        "pass": 100,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -452,13 +434,13 @@
     {
       "utility": "dir",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dir.xsh",
       "uutils_test_count": 12,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 12,
+        "pass": 9,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -542,13 +524,13 @@
     {
       "utility": "expr",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/expr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-expr.xsh",
       "uutils_test_count": 172,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 171,
+        "pass": 159,
+        "fail": 13,
         "skip": 0,
         "excluded": 0
       },
@@ -560,13 +542,13 @@
     {
       "utility": "factor",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/factor.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-factor.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 24,
+        "pass": 21,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -668,13 +650,13 @@
     {
       "utility": "join",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/join.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-join.xsh",
       "uutils_test_count": 46,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 46,
+        "pass": 40,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -727,15 +709,23 @@
       "native_tests": "core/tests/test-ls.xsh",
       "uutils_test_count": 219,
       "uutils_integration": {
-        "pass": 17,
-        "fail": 190,
+        "pass": 168,
+        "fail": 39,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+        "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
+        "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
+        "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
+        "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
+        "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
+        "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
+      ]
     },
     {
       "utility": "mkdir",
@@ -812,13 +802,13 @@
     {
       "utility": "numfmt",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/numfmt.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-numfmt.xsh",
       "uutils_test_count": 194,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 193,
+        "pass": 160,
+        "fail": 34,
         "skip": 0,
         "excluded": 0
       },
@@ -938,13 +928,13 @@
     {
       "utility": "ptx",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/ptx.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ptx.xsh",
       "uutils_test_count": 50,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 50,
+        "pass": 48,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1051,8 +1041,8 @@
       "native_tests": "core/tests/test-seq.xsh",
       "uutils_test_count": 79,
       "uutils_integration": {
-        "pass": 13,
-        "fail": 73,
+        "pass": 71,
+        "fail": 15,
         "skip": 0,
         "excluded": 0
       },
@@ -1087,8 +1077,8 @@
       "native_tests": "core/tests/test-shuf.xsh",
       "uutils_test_count": 78,
       "uutils_integration": {
-        "pass": 8,
-        "fail": 69,
+        "pass": 50,
+        "fail": 27,
         "skip": 0,
         "excluded": 0
       },
@@ -1105,14 +1095,16 @@
       "native_tests": "core/tests/test-sleep.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 42,
+        "pass": 41,
         "fail": 12,
         "skip": 0,
-        "excluded": 0
+        "excluded": 1
       },
       "gnu_differential": null,
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_sleep::test_invalid_duration::case_7_single_quote"
+      ],
       "known_semantic_gaps": []
     },
     {
@@ -1141,8 +1133,8 @@
       "native_tests": "core/tests/test-split.xsh",
       "uutils_test_count": 135,
       "uutils_integration": {
-        "pass": 9,
-        "fail": 125,
+        "pass": 123,
+        "fail": 11,
         "skip": 0,
         "excluded": 0
       },
@@ -1318,13 +1310,13 @@
     {
       "utility": "tsort",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/tsort.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tsort.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 25,
+        "pass": 20,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1395,8 +1387,8 @@
       "native_tests": "core/tests/test-uniq.xsh",
       "uutils_test_count": 38,
       "uutils_integration": {
-        "pass": 6,
-        "fail": 32,
+        "pass": 34,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -1426,13 +1418,13 @@
     {
       "utility": "vdir",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-vdir.xsh",
       "uutils_test_count": 12,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 12,
+        "pass": 10,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1449,8 +1441,8 @@
       "native_tests": "core/tests/test-wc.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 9,
-        "fail": 50,
+        "pass": 56,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1552,13 +1544,13 @@
     {
       "utility": "kill",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/kill.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-kill.xsh",
       "uutils_test_count": 58,
       "uutils_integration": {
-        "pass": 4,
-        "fail": 46,
+        "pass": 47,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1606,20 +1598,26 @@
     {
       "utility": "more",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/more.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-more.xsh",
       "uutils_test_count": 11,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 10,
+        "pass": 9,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
+        "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
+        "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
+        "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
+        "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
+      ]
     },
     {
       "utility": "sync",
@@ -1660,20 +1658,24 @@
     {
       "utility": "uptime",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/uptime.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uptime.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 11,
+        "pass": 10,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+        "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
+        "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
+      ]
     },
     {
       "utility": "whoami",
@@ -1894,20 +1896,27 @@
     {
       "utility": "stty",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/stty.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stty.xsh",
       "uutils_test_count": 86,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 53,
+        "pass": 51,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
+        "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
+        "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",
+        "Arguments after `--` are settings; GNU 9.4 silently ignores them.",
+        "A terminal that keeps other state than requested (a pty drops parity and sizes other than 8 bits) is reported as `unable to perform all requested operations`; GNU 9.4 reports `Invalid argument` for some of those from tcsetattr itself, which `unix.set_tty_attrs` does not raise.",
+        "`-g` prints 32 control characters like glibc, but the kernel keeps 19: a saved state that sets later ones is applied and then refused as GNU does."
+      ]
     },
     {
       "utility": "stdbuf",
@@ -1930,56 +1939,67 @@
     {
       "utility": "pinky",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/pinky.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pinky.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 7,
+        "pass": 8,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+        "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
+        "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+      ]
     },
     {
       "utility": "users",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/users.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-users.xsh",
       "uutils_test_count": 5,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 2,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
+      ]
     },
     {
       "utility": "who",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/who.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-who.xsh",
       "uutils_test_count": 27,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 18,
+        "pass": 15,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+        "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
+        "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
+        "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+      ]
     },
     {
       "utility": "chcon",

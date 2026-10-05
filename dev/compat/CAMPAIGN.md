@@ -1,95 +1,126 @@
 # XSH Core Compatibility Campaign
 
-Status: Wave 0 in progress on branch `campaign-utils`; scope widened on
-2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
+Status: Wave 1 in progress on branch `campaign-utils` (two integrators, see the
+handoff and `CLAIMS.md`); scope widened on 2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
 integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 [`README.md`](README.md).
 
-## Handoff (2026-10-05, session wound down)
+## Handoff (2026-10-05, second session wound down)
 
-Read this first. Everything below was verified against the repository when it was
-written; anything not stated as verified is marked.
+Read this first, then `CLAIMS.md`. Verified against the repository when written;
+anything not stated as verified is marked.
 
 ### Where the campaign stands
 
-- **Wave 0 is complete**: `cli` GNU mode, `core/lib/gnu.xsh`,
-  `process.script_path()`, the uutils and GNU harnesses, the ratchets in `make
-  check`, the applet manifest in `dev/release.xsh`, and `basename` converted as the
-  end-to-end proof.
-- **Merged lanes (all verified, none outstanding):** `w0-cli`, `w0-gnu-lib`,
-  `sysreport-extract`, `native-fs` (typed `fs.*` primitives and `failure.errno`),
-  `trivial` (18 utilities), `text-a1` (`cat tac tee head tail rev`). No lane
-  branches or worktrees remain.
-- **Scoreboard** ([`results/`](results/), [`../coreutils-parity.json`](../coreutils-parity.json)):
-  uutils integration **1000 / 5978 passing** (3 excluded per
-  test ID, each with a reason), up from 539 / 5,978 at the first real baseline;
-  **55 of 106** in-scope utilities have an applet. GNU suite on the
-  pinned uutils: 571 pass / 46 fail / 101 skip / 1 error of 719; the XSH side of
-  the GNU differential has not been run. Surface inventory
-  ([`surface.json`](surface.json)): 125 commands, 2 present.
-- **Merge history in numbers** (each full-suite run compared with `compare.py`, no
-  regressions): trivial 553 -> 803, text-a1 803 -> 1000. The `w0-*` merges were
-  neutral (539 -> 539); `sysreport-extract` skipped its own full run (its diff
-  reaches no staged applet) and is covered by the next run.
-- **Known failures on a clean tree, not regressions:** `tests/xsh/stdlib` linux
-  modules and two mime tests, and
-  `dev/tests/test-system-report-check.xsh::...traced_live_and_replay...`.
+- **Wave 0 is complete** and the merge of fresh `origin/master` is done (the branch
+  was rebased onto master before this session; master has nothing the branch lacks).
+- **Merged lanes:** `w0-cli`, `w0-gnu-lib`, `sysreport-extract`, `native-fs`,
+  `trivial`, `text-a1`, then this session's `native-proc-tty` (process, tty, session,
+  termios, utmp primitives and `io.flush_stdout`), `ls` (`ls dir vdir`, rewritten),
+  `tty-misc` (`stty more uptime users who pinky`) and a partial `proc-a` (`kill`,
+  `nice` only); and, from the other integrator session (`01Tqp2`), `text-b1`
+  (`uniq comm join split csplit tsort ptx shuf`) and `text-b2` (`seq wc numfmt
+  factor expr`). Also `[` is now an alias of `test` (`core/[.xsh` is gone).
+- **Scoreboard** (full uutils run on the merged head `5358d323` plus docs, Linux
+  glibc host, [`results/`](results/)): **2186 / 5974 passing**, 4 excluded per test
+  ID (up from 1000 at the start of the session); **73 of 106** in-scope utilities have
+  an applet. Surface inventory ([`surface.json`](surface.json)): 125 commands, 2
+  present. The GNU suite on the pinned uutils is unchanged (571 / 719); the XSH side
+  of the GNU differential has still not been run.
+- **One regression is on the books:** `test_uniq::test_obsolete_skip_fields_not_read_after_double_dash`
+  passed in the other session's last committed results and fails on the merged head.
+  Probably the runtime request that `xsh` swallows a first `--` after the script path
+  (`src/entrypoints/xsh.rs:124`); not investigated. The `ls` merge also lost
+  `test_ls_proc_self_fd_no_errors` (eager directory reads; waived in `gaps.json`) and
+  `sleep case_7_single_quote` was excluded (uutils quotes an apostrophe argument
+  differently from GNU `quote()`).
+- **Known failures on a clean tree, not regressions:** native suite on Linux
+  2459 pass / 10 fail before this session's merges (the `linux-modules` and two mime
+  stdlib tests, `test-system-report-check ... traced_live_and_replay`, three `px`
+  showcase tests, the two pattern-lint tests, `tempdir` removal-on-exit); rerun
+  `target/release/xsht test` to refresh it. `make docs` was last run before the
+  `tty-misc`, `proc-a` and text lanes landed: run
+  `target/release/xsh dev/main.xsh -- docs` (not `make docs`, whose `cargo dev` alias
+  builds a debug `xsh` that overflows its stack on Linux), then `make docs-check`
+  equivalents, and commit. Not verified after this session's last merges.
+- **The lanes are all merged or released.** No lane worktree, lane branch or lane
+  target dir remains except `/home/user/targets/main` (a release build of the head
+  before `kill`/`nice`, safe to delete). `cp` and `mv-ln` were started and lost to a
+  worker restart with nothing committed; `nohup`, `timeout` and `stdbuf` (the rest of
+  `proc-a`) were never started.
+
+### Two integrators share this branch
+
+Another Claude session (`01Tqp2`) integrates into `campaign-utils` in parallel. Before
+starting a lane: `git fetch origin campaign-utils`, read [`CLAIMS.md`](CLAIMS.md), claim
+the lane there, and push the claim first. This session built `ls` and `native-proc-tty`
+twice by not doing that. `CLAIMS.md` lists `cp`, `text-a2`, `sort`, `fs-basic`,
+`printf-env`, `native-bytes-hash`, `bytes-enc`, `checksums`, `perm`, `stat-du-df`
+as the other session's; everything else is free, including `mv-ln`, `fs-misc`,
+`legacy-buckets`, `date`, `sed`, `awk`, `gnu-patch-classify`, `nohup`, `timeout`,
+`stdbuf`. Results JSON conflicts: take either side and rerun the suite.
 
 ### Next steps, in order
 
-1. **Merge fresh `origin/master` into `campaign-utils`** (the owner asked for this
-   once the active lanes were merged; they are, and it has not been started). A
-   merge, not a rebase: the branch is shared. Master was 10 commits ahead at
-   `df36798` and overlapped `src/runtime/eval.rs`, `src/runtime/eval/lower.rs`,
-   `crates/xsh-registry/src/signature/docs.rs` and the generated docs; the
-   `native-fs` merge has since touched more registry and lowering files. Regenerate
-   with `make docs`, rebuild, rerun `make docs-check`, the stdlib and core test
-   suites and the full uutils run, compare with `compare.py`, commit the results.
-   Master's traceback changes may alter expected stderr in native tests.
-2. Work through [`requests.md`](requests.md): add the verified exclusions, the
-   `[` alias, the `gnu.quote` fix, `gaps.json` entries, and the `fs.stat` wiring
-   for `test -ef`.
-3. Resume Wave 1 from the new base in `lanes.json` start order (4 lanes active, 1
-   compiling): `native-proc-tty`, `ls`, `cp`, `mv-ln`, `fs-basic`, `text-a2`,
-   `text-b1`, `text-b2`, `sort`, `native-bytes-hash`, `bytes-enc`, `checksums`,
-   `perm`, `stat-du-df`, `fs-misc`, `proc-a`, `tty-misc`, `legacy-buckets`,
-   `printf-env`, `date`, `sed`, `awk`, `gnu-patch-classify`. The file lanes can now
-   build on `fs.stat`, `fs.set_times`, `fs.copy_file` and friends.
-   `python3 dev/compat/lanes.py brief LANE` renders a brief with live counts;
-   `lanes.py check` guards ownership. Merge protocol: [`LANES.md`](LANES.md).
-4. Wave 2 and 3 follow the tables in `LANES.md` and the phases above; the XSH side
-   of the GNU differential starts in Wave 2.
+1. Fetch, merge `origin/campaign-utils`, rebuild (`cargo build --release -p xsh --bin
+   xsh -p xsht --bin xsht`; never `--bins`, which triggers the extra thin-LTO links),
+   regenerate docs, run the native suite and the full uutils run, compare with
+   `compare.py`, commit results and `parity.py` output.
+2. Investigate the `uniq` regression above.
+3. Work through [`requests.md`](requests.md): the remaining exclusion candidates
+   (verify each against GNU 9.12 source after `run-gnu.sh prepare`; the GNU source was
+   never fetched this session, so none of the `ls`, `tty-misc` or text-lane candidates
+   is verified), the `gaps.json` entries, and the `fs.stat` wiring for `test -ef`.
+4. Continue Wave 1 in `lanes.json` start order for whatever `CLAIMS.md` leaves free.
+   `python3 dev/compat/lanes.py brief LANE` renders a brief with live counts. The
+   rest of `proc-a` (`nohup timeout stdbuf`) now has its primitives: `process.wait_timeout`,
+   `kill_group`, `set_signal_action`, `priority`, `Status.shell_code`; `nohup` must use
+   `process.run` with an ignored HUP and a `stdout` path because `unix.exec` ignores plan
+   redirections. `native-bytes-hash` still gates `bytes-enc` and `checksums`.
+5. Wave 2 and 3 follow the tables in `LANES.md` and the phases below; the XSH side of
+   the GNU differential starts in Wave 2.
+
+### How lanes ran this session (lessons)
+
+- Lane agents are Sonnet at high effort, started in their own worktrees under
+  `/home/user/xsh-lanes` with a brief from `lanes.py brief` plus an operating-rules
+  note. A lane's Bash commands can block on a permission prompt that nobody is
+  watching (the `cp` lane did, on a command containing `rm -rf *`); tell lanes to avoid
+  destructive-looking shell and use the editing tools.
+- A worker restart (container restart) ends every lane and background suite at once and
+  loses uncommitted lane work; lane branches are never pushed. Tell lanes to commit
+  after every utility, and consider pushing finished lane branches.
+- Script lanes use the shared release binaries; a native build into a separate
+  `CARGO_TARGET_DIR` avoids replacing the binary under a running suite. The full suite
+  takes 25-30 minutes with other work running.
 
 ### Runtime requests (none implemented; full lists with test IDs in `requests.md`)
 
 - Non-UTF-8 argv is rejected by `xsh` before the script runs.
-- Stdout is buffered to exit and write errors, EPIPE and SIGPIPE are not
-  observable: blocks every broken-pipe and `/dev/full` test (yes, cat, tee, tail,
-  head, tac, tty, true/false). Wanted: `io.flush_stdout() -> Result` and an opt-in
-  default SIGPIPE.
+- Stdout is buffered to exit; `io.flush_stdout()` now exists but write errors, EPIPE
+  and SIGPIPE are still not observable by default (`process.set_signal_action("PIPE",
+  "default")` opts in): blocks the broken-pipe and `/dev/full` tests.
 - `src/entrypoints/xsh.rs:124` swallows a first `--` after the script path.
-- `main`'s `Int` return does not set the exit status (use `abort(n)`); no `Path`
-  to `Bytes` accessor; no incremental stdin read; no FIFO read.
-- Missing APIs: `user.groups(name)`, `user.login_name()`, `system.hostid()`,
-  ordered `getgroups`, online CPU count, u64 integers.
+- `main`'s `Int` return does not set the exit status (use `exit(n)`); no `Path` to
+  `Bytes` accessor; no incremental stdin read; no FIFO read; no lazy `fs.children`.
+- Missing APIs: `user.groups(name)`, `user.login_name()`, `system.hostid()`, ordered
+  `getgroups`, online CPU count, u64 integers, `gecos` in `user.lookup`, a timezone
+  database primitive, `dns.canonical`, sub-second boot time.
 - `date +%99999999999c` writes 2 GiB (assigned to the `date` lane).
 
 ### Standing constraints
 
 - Lane agents are Sonnet 5.5 at high effort only, never Opus (agent definition
-  pinned; every spawn passes `model: sonnet`). I could not confirm that the
-  `sonnet` alias resolves to 5.5 specifically.
-- The owner's non-negotiables: no accepted option silently ignored; the
-  denominator never shrinks; no compatibility command parses another's text
-  output; uutils is an oracle and reference, never a dependency.
-- Do not run formatters or autofixers (AGENTS.md): `xsht fmt` output on lane files
-  is the owner's call.
-- API session limits end every running lane at once (this session lost all of them
-  twice). Run three or four lanes, tell them to commit early, and resume them from
-  their branches rather than restarting. Lane branches are never pushed by lanes:
-  an unmerged lane exists only in the container that ran it.
-- The suite lock must not leak to children: a sleep test leaves `sleep 999d`
-  behind; `run-uutils.sh` now runs its children with the lock descriptor closed.
+  pinned; every spawn passes `model: sonnet`). The `sonnet` alias was not confirmed to
+  resolve to 5.5 specifically.
+- The owner's non-negotiables: no accepted option silently ignored; the denominator
+  never shrinks; no compatibility command parses another's text output; uutils is an
+  oracle and reference, never a dependency.
+- Do not run formatters or autofixers (AGENTS.md).
+- Build only `xsh` and `xsht` (the owner's request this session), not the other
+  workspace binaries.
+- The suite lock must not leak to children: `run-uutils.sh` runs its children with the
+  lock descriptor closed.
 
 ### Bootstrapping a fresh container
 
