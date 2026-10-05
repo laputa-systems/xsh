@@ -32,6 +32,10 @@ pub enum Conversion {
     BytesToPath,
     /// `Int as UInt`: `value.require(UInt)`.
     IntToUInt,
+    /// An `Int` or `UInt` as a bounded integer type: `value.require(T)`.
+    /// The target is the type the conversion names, so it has no row in the
+    /// table of fixed pairs.
+    IntToBounded,
 }
 
 impl Conversion {
@@ -50,19 +54,23 @@ impl Conversion {
 
     /// The conversion from exactly `from` to exactly `to`.
     pub fn select(from: &Type, to: &Type) -> Option<Self> {
+        if to.int_range().is_some() && matches!(from, Type::Int | Type::UInt) {
+            return Some(Self::IntToBounded);
+        }
         Self::TABLE
             .iter()
             .find(|(source, target, _)| source == from && target == to)
             .map(|(_, _, conversion)| *conversion)
     }
 
-    /// The type of the converted value.
-    pub fn target(self) -> Type {
+    /// The type of the converted value, for a conversion between a fixed
+    /// pair of types. A conversion to a bounded integer yields the type it
+    /// names and has no target of its own.
+    pub fn target(self) -> Option<Type> {
         Self::TABLE
             .iter()
             .find(|(_, _, conversion)| *conversion == self)
             .map(|(_, target, _)| target.clone())
-            .expect("every conversion has a table row")
     }
 }
 
@@ -113,6 +121,9 @@ impl Checker {
         {
             return to;
         }
+        // The operand is read as its base type: a bounded integer converts
+        // as the integer it is.
+        let from = from.into_unvalidated();
         let Some(conversion) = Conversion::select(&from, &to) else {
             let mut diagnostic = Diagnostic::error(format!("no conversion from {from} to {to}"))
                 .with_code(DiagnosticCode::CheckConversion)
@@ -128,7 +139,10 @@ impl Checker {
         };
         self.conversions.insert(span, conversion);
         let reported = self.diagnostics.len();
-        let result = Type::Result(Box::new(conversion.target()), Box::new(Type::Error));
+        let result = Type::Result(
+            Box::new(conversion.target().unwrap_or_else(|| to.clone())),
+            Box::new(Type::Error),
+        );
         let ty = self.check_propagation(&result, span);
         // The propagation rules are worded for `?`; say which form this is.
         for diagnostic in &mut self.diagnostics[reported..] {

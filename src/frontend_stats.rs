@@ -206,7 +206,9 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
     bytes += declarations.types.capacity() * size_of::<(crate::symbol::Name, CompactTypeDefInfo)>();
     for ty in declarations.types.values() {
         match ty {
-            CompactTypeDefInfo::Alias(_) | CompactTypeDefInfo::TagUnion => {}
+            CompactTypeDefInfo::Alias(_)
+            | CompactTypeDefInfo::Bounded(..)
+            | CompactTypeDefInfo::TagUnion => {}
             CompactTypeDefInfo::Record(fields) => {
                 type_count += fields.len();
                 bytes += size_of::<BTreeMap<crate::symbol::Name, Type>>()

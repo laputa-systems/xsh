@@ -429,6 +429,7 @@ literal configuration data (`lint.prefer-const`).
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
 | `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
 | `Set[T]` | distinct elements of one key type, in key order (4.5) |
+| `Int range A..=B`, `UInt range A..=B` | an integer between two constant bounds, declared by a `type` (4.2, 4.13) |
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
@@ -467,6 +468,43 @@ whose byte count exceeds `9223372036854775807` is a check error
 
 ```xsh
 {{.spec.size_literals.source}}
+```
+
+A `type` declaration bounds an integer type between two constants:
+
+```xsh
+{{.spec.bounded_int.source}}
+```
+
+`type NAME = Int range LOW..=HIGH` names the `Int`s from `LOW` to `HIGH`,
+both included; `UInt` is bounded the same way. `LOW..HIGH` stops before
+`HIGH`, as a slice does (6.6), so `0..256` is `0..=255`. A bound is an integer
+literal, with `-` before it for a negative one; a size literal is one
+(`UInt range 1KiB..=1MiB`). The form is written only there: `range` is an
+ordinary name everywhere else, an annotation names the declared type, and two
+declarations with the same base and bounds are one type. A range that holds no
+value, a bound outside 64 bits, a negative bound on a `UInt`, a base that is
+not `Int` or `UInt` (another bounded type included), and a declaration with
+type parameters are `check.schema`, as is `nominal type` with a range: a
+nominal type is a record schema (4.13). There are no bounds on other types
+and no predicates: the type is a range check and nothing more. A bounded type
+is not a map key (`check.map-key-type`) or a set element
+(`check.set-element-type`): both collections order what they store, and they
+store the base, which a bounded value fits.
+
+A bounded integer is a validated type (4.13) over its base. An integer literal
+written where one is expected, with its sign, is checked against the bounds
+there, and one outside them is `check.validated-literal`. Any other integer is
+validated once, by `n.require(Port)?` or `n as Port` (6.11). Every operation
+reads the value as its base and returns what the base returns: arithmetic on a
+`Port` returns an `Int`, comparison and equality work against any integer,
+and indexing, `range`, formatting, command arguments, and JSON see an `Int`.
+The checker tracks no ranges through arithmetic, so `port + 1` is validated
+again to be a `Port`, and `+=` on a variable of a bounded type is
+`check.operator-type`.
+
+```xsh
+{{.spec.bounded_int_unvalidated.source}}
 ```
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
@@ -1083,6 +1121,11 @@ the bytes of `p`, so `a/../b` after a prefix stays as written. A `RelPath`
 fits every `Path` parameter, so a caller that wants a plain path uses the
 result as one.
 
+A bounded integer type (4.2) is the validated type over `Int` or `UInt`
+whose values lie between its bounds. Its literal is an integer literal, with
+its sign, written where the type is expected; `.require(T)`, `as T`, a type
+test, and a type pattern are its boundaries; and no operation preserves it.
+
 The operations the property guarantees exist only on the validated type.
 `NonEmpty[T]` has `first()` and `last()`, which return `T` and cannot fail; a
 `List[T]` has neither (`check.unknown-method`), so an unvalidated list is read
@@ -1149,7 +1192,9 @@ is expected. Incompatible contributions are errors; inference never widens to
   literal or comprehension written where the union list is expected has that
   element type.
 - A validated type (4.13) fits its base and whatever its base fits:
-  `NonEmpty[T]` fits `List[T]`. The base never fits the validated type; only a
+  `NonEmpty[T]` fits `List[T]`, and a bounded integer (4.2) fits `Int`, or
+  `UInt` when that is its base. Two bounded types with different bounds are
+  different types, and neither fits the other. The base never fits the validated type; only a
   judged literal, `.require`, a type test, or a preserving operation produces
   it. The element type stays invariant (`NonEmpty[Str]` is not
   `NonEmpty[Any]`). In a `Union`, a validated
@@ -1846,6 +1891,11 @@ operation under `?`.
 ```xsh
 {{.spec.as_conversion.source}}
 ```
+
+An `Int` or a `UInt` also converts to a bounded integer type (4.2):
+`n as Port` is exactly `n.require(Port)?` and fails when the value is outside
+the bounds. A bounded value converts as the integer it is, and text converts
+in two steps, `(text as Int) as Port`.
 
 The pair is the value's static type and the written type, matched exactly;
 every other pair is a check error (`check.conversion`), so no conversion

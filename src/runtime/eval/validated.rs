@@ -15,6 +15,7 @@ pub(super) fn value_passes(validation: Validation, value: &Value) -> bool {
         // base record is all `.require(Name)` can ask for, and the checker
         // allows no other test of the type on a value it cannot vouch for.
         Validation::Nominal(_) => true,
+        Validation::Range(range) => matches!(value, Value::Int(value) if range.contains(*value)),
     }
 }
 
@@ -30,5 +31,17 @@ pub(super) fn lowered_value_passes(validation: Validation, value: &LoweredValue)
             matches!(value, LoweredValue::Path(path) if is_rel_path(&path.bytes))
         }
         Validation::Nominal(_) => true,
+        Validation::Range(range) => {
+            matches!(value, LoweredValue::Int(value) if range.contains(*value))
+        }
+    }
+}
+
+/// What `value`, which fails `validation`, is called in the failure: the
+/// integer itself for a range, whose bounds the expected type already names.
+pub(super) fn lowered_failure(validation: Validation, value: &LoweredValue) -> String {
+    match (validation, value) {
+        (Validation::Range(_), LoweredValue::Int(value)) => value.to_string(),
+        _ => validation.failure().to_string(),
     }
 }

@@ -490,7 +490,7 @@ impl Checker {
             ArenaExprKind::Int(value) => {
                 let literal = arena.arena.int_literal(*value);
                 // A size literal counts bytes, so it is never negative.
-                if literal.is_size() {
+                let ty = if literal.is_size() {
                     if literal.value().is_none() {
                         self.error(
                             expr.span,
@@ -508,7 +508,14 @@ impl Checker {
                         );
                     }
                     Type::Int
-                }
+                };
+                // Where a bounded integer is wanted the literal's value is
+                // judged against the bounds, and the literal has that type.
+                let bounded = literal.value().and_then(|value| {
+                    let wanted = self.validated_int_expectation(expected?)?;
+                    self.validated_int_literal(&wanted, value, expr.span)
+                });
+                bounded.unwrap_or(ty)
             }
             ArenaExprKind::Float(_) => Type::Float,
             ArenaExprKind::Duration(value) => {
@@ -822,7 +829,25 @@ impl Checker {
                 else_value,
             } => self.check_if_expr_arena(arena, source, *branches, *else_value, expected),
             ArenaExprKind::Unary { op, expr: inner } => {
-                self.check_unary_arena(arena, source, *op, *inner)
+                let operand = self.check_unary_arena(arena, source, *op, *inner);
+                // `-5` where a bounded integer is wanted is a literal with
+                // its sign, judged against the bounds as one.
+                let negated = (*op == UnaryOp::Neg)
+                    .then(|| match arena.arena.expr(*inner).kind {
+                        ArenaExprKind::Int(literal) => {
+                            let literal = arena.arena.int_literal(literal);
+                            (!literal.is_size())
+                                .then(|| literal.value()?.checked_neg())
+                                .flatten()
+                        }
+                        _ => None,
+                    })
+                    .flatten();
+                let bounded = negated.and_then(|value| {
+                    let wanted = self.validated_int_expectation(expected?)?;
+                    self.validated_int_literal(&wanted, value, expr.span)
+                });
+                bounded.unwrap_or(operand)
             }
             ArenaExprKind::ComparisonChain(pairs) => {
                 let mut previous = None;
@@ -831,16 +856,21 @@ impl Checker {
                     else {
                         unreachable!()
                     };
+                    // An ordering reads its operands as their base types: a
+                    // bounded integer compares as an integer, against any.
                     let left_ty = previous
                         .take()
-                        .unwrap_or_else(|| self.check_expr_arena(arena, source, left, None));
-                    let right_ty = self.check_expr_with_schema_arena(
-                        arena,
-                        source,
-                        ArenaExprOrRun::Expr(right),
-                        Some(&left_ty),
-                        None,
-                    );
+                        .unwrap_or_else(|| self.check_expr_arena(arena, source, left, None))
+                        .into_unvalidated();
+                    let right_ty = self
+                        .check_expr_with_schema_arena(
+                            arena,
+                            source,
+                            ArenaExprOrRun::Expr(right),
+                            Some(&left_ty),
+                            None,
+                        )
+                        .into_unvalidated();
                     if !matches!(
                         left_ty,
                         Type::Int
@@ -2697,14 +2727,20 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_with_schema_arena(
-                    arena,
-                    source,
-                    ArenaExprOrRun::Expr(right),
-                    Some(&left_ty),
-                    None,
-                );
+                // An ordering reads its operands as their base types: a
+                // bounded integer compares as an integer, against any.
+                let left_ty = self
+                    .check_expr_arena(arena, source, left, None)
+                    .into_unvalidated();
+                let right_ty = self
+                    .check_expr_with_schema_arena(
+                        arena,
+                        source,
+                        ArenaExprOrRun::Expr(right),
+                        Some(&left_ty),
+                        None,
+                    )
+                    .into_unvalidated();
                 let ordered = |ty: &Type| {
                     matches!(
                         ty,

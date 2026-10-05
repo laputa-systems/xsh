@@ -3252,6 +3252,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.arena.type_defs[id.index()].nominal = true;
     }
 
+    /// Records the bounds the type definition `statement` declares writes
+    /// after its aliased type.
+    pub fn set_type_def_bounds(&mut self, statement: StmtId, bounds: ArenaIntBounds) {
+        let ArenaStmtKind::TypeDef(id) = self.lowerer.arena.stmt(statement).kind else {
+            unreachable!("only a type definition has bounds")
+        };
+        self.lowerer.arena.type_defs[id.index()].bounds = Some(bounds);
+    }
+
+    /// Registers an integer literal that is not an expression: a bound of a
+    /// bounded integer type.
+    pub fn push_int_literal(&mut self, value: &IntLiteral) -> IntLiteralId {
+        self.lowerer.lower_int_literal(value)
+    }
+
     pub fn push_type_def(&mut self, name: Name, body: ArenaTypeDefBody, span: Span) -> StmtId {
         let type_def_id = TypeDefId::new(self.lowerer.arena.type_defs.len());
         self.lowerer.arena.type_defs.push(ArenaTypeDef {
@@ -3259,6 +3274,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             type_parameters: ArenaRange::default(),
             body,
             nominal: false,
+            bounds: None,
         });
         let id = self
             .lowerer
@@ -5050,6 +5066,31 @@ impl AstArena {
         &self.command_stmts[id.index()]
     }
 
+    /// The value of one written bound, or `None` when it does not fit a
+    /// 64-bit signed integer.
+    pub fn int_bound_value(&self, bound: ArenaIntBound) -> Option<i64> {
+        let value = self.int_literal(bound.literal).value()?;
+        if bound.negative {
+            value.checked_neg()
+        } else {
+            Some(value)
+        }
+    }
+
+    /// The lowest and highest value written bounds admit, both inclusive,
+    /// or `None` when a bound does not fit a 64-bit signed integer or the
+    /// range holds no value.
+    pub fn int_bounds_values(&self, bounds: ArenaIntBounds) -> Option<(i64, i64)> {
+        let low = self.int_bound_value(bounds.low)?;
+        let high = self.int_bound_value(bounds.high)?;
+        let high = if bounds.inclusive {
+            high
+        } else {
+            high.checked_sub(1)?
+        };
+        (low <= high).then_some((low, high))
+    }
+
     pub fn int_literal(&self, id: IntLiteralId) -> &IntLiteral {
         &self.int_literals[id.index()]
     }
@@ -6121,6 +6162,28 @@ pub struct ArenaTypeDef {
     /// `nominal type`: the declared name is an identity of its own, which a
     /// value has only from the constructor or a validation.
     pub nominal: bool,
+    /// `type NAME = BASE range LOW..=HIGH`: the bounds written after the
+    /// aliased type.
+    pub bounds: Option<ArenaIntBounds>,
+}
+
+/// The bounds of a bounded integer type as written.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaIntBounds {
+    pub low: ArenaIntBound,
+    pub high: ArenaIntBound,
+    /// `..=`: the upper bound is a value of the type. `..` stops before it,
+    /// as a slice does.
+    pub inclusive: bool,
+    /// From the word `range` to the end of the upper bound.
+    pub span: Span,
+}
+
+/// One bound: an integer literal, negated when `negative`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaIntBound {
+    pub literal: IntLiteralId,
+    pub negative: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

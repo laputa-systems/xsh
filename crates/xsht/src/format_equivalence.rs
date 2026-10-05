@@ -261,6 +261,11 @@ impl CanonicalWriter<'_> {
                     ArenaTypeDefBody::Alias(ty) => {
                         self.put("alias;");
                         self.ty(ty);
+                        if let Some(bounds) = def.bounds {
+                            self.put("range;");
+                            self.debug(&self.arena.int_bounds_values(bounds));
+                            self.debug(&bounds.inclusive);
+                        }
                     }
                     ArenaTypeDefBody::RecordSchema(fields) => {
                         self.put("record;");

@@ -906,9 +906,28 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 alt([
                     seq([opt(w("exact")), w("module"), r("module_contract")]),
                     r("record_schema"),
-                    r("type_expr"),
+                    seq([r("type_expr"), opt(r("int_bounds"))]),
                 ]),
             ]),
+        ),
+        // `range` is a word only here. The upper bound is a value of the
+        // type after `..=`, and the first value outside it after `..`.
+        rule(
+            Declarations,
+            "int_bounds",
+            seq([
+                w("range"),
+                r("int_bound"),
+                t(T::Dot),
+                g(T::Dot),
+                opt(g(T::Equals)),
+                r("int_bound"),
+            ]),
+        ),
+        rule(
+            Declarations,
+            "int_bound",
+            seq([opt(t(T::Minus)), t(T::Int)]),
         ),
         rule(
             Declarations,

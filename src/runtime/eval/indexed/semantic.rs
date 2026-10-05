@@ -68,6 +68,10 @@ pub(super) enum TypeTag {
     Nominal,
     // A set. `lhs` is the element type id, an ordered scalar domain.
     Set,
+    // An integer type between two constant bounds. `lhs` is the base type
+    // id and `rhs` the offset in `type_extra` of the bounds: the low and
+    // then the high 32 bits of the lower bound, then of the upper bound.
+    Bounded,
 }
 
 impl TypeTag {
@@ -252,6 +256,39 @@ impl SemanticPools {
         self.type_extra
             .get(start..end)
             .ok_or_else(|| IrVerifyError::new("union type payload is out of bounds"))
+    }
+
+    /// The bounds of a bounded integer type, lower and then upper.
+    fn bounds(&self, id: TypeId) -> Result<(i64, i64), IrVerifyError> {
+        if self.type_tag(id)? != TypeTag::Bounded {
+            return Err(IrVerifyError::new("type id does not denote a bounded type"));
+        }
+        let start = self.type_data[id.index()].rhs as usize;
+        let words = start
+            .checked_add(4)
+            .and_then(|end| self.type_extra.get(start..end))
+            .ok_or_else(|| IrVerifyError::new("bounded type payload is out of bounds"))?;
+        let bound = |low: u32, high: u32| ((u64::from(high) << 32) | u64::from(low)) as i64;
+        Ok((bound(words[0], words[1]), bound(words[2], words[3])))
+    }
+
+    /// Rewrites the first bounded type in the pool as a corrupted program
+    /// would: to bounds that hold no value, or (`rebase`) to bound itself
+    /// instead of an integer type. Reports whether the pool has one.
+    #[cfg(test)]
+    pub(super) fn corrupt_first_bounded_for_test(&mut self, rebase: bool) -> bool {
+        let Some(index) = self.type_tags.iter().position(|tag| *tag == TypeTag::Bounded) else {
+            return false;
+        };
+        if rebase {
+            self.type_data[index].lhs = TypeId::new(index).expect("a type id").raw();
+        } else {
+            let words = self.type_data[index].rhs as usize;
+            let (low, high) = self.type_extra.split_at_mut(words + 2);
+            high[0] = low[words].wrapping_sub(1);
+            high[1] = low[words + 1];
+        }
+        true
     }
 
     /// Rewrites the first union in the pool to claim a single member, as a
@@ -456,6 +493,14 @@ impl SemanticPools {
                 )
                 .map_err(|_| IrVerifyError::new("nominal type is not over a record type"))?,
             )),
+            TypeTag::Bounded => {
+                let (low, high) = self.bounds(id)?;
+                let range = crate::sema::validated::IntRange::new(low, high)
+                    .ok_or_else(|| IrVerifyError::new("bounded type admits no value"))?;
+                Type::bounded(range, child(data.lhs)?).map_err(|_| {
+                    IrVerifyError::new("bounded type has a base its bounds do not fit")
+                })?
+            }
             TypeTag::Union => Type::Union(
                 self.union_members(id)?
                     .iter()
@@ -599,7 +644,7 @@ impl SemanticPools {
                 Name::from_symbol(Symbol::from_raw(data.lhs)),
                 Name::from_symbol(Symbol::from_raw(data.rhs))
             )),
-            TypeTag::Validated | TypeTag::Nominal => {
+            TypeTag::Validated | TypeTag::Nominal | TypeTag::Bounded => {
                 Ok(self.to_type_inner(id, depth)?.to_string())
             }
             TypeTag::Union => {
@@ -774,6 +819,21 @@ impl SemanticPools {
                         ));
                     }
                 }
+                // A bounded type is stored as its base, so the base is the
+                // `Int` or `UInt` row itself and nothing derived from one;
+                // the bounds are a range that holds a value and that the
+                // base can hold.
+                TypeTag::Bounded => {
+                    let base = verify_type_raw(self, data.lhs, Some(index))?;
+                    if !matches!(self.type_tags[base.index()], TypeTag::Int | TypeTag::UInt) {
+                        return Err(IrVerifyError::new(
+                            "bounded type is not over an integer type",
+                        ));
+                    }
+                    let id =
+                        TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
+                    self.to_type(id)?;
+                }
                 // The checker never publishes a union it would have to
                 // simplify, and the runtime tries members in order, so a
                 // pool whose union has one member, repeats one, or lists a
@@ -939,6 +999,8 @@ enum TypeKey {
     Validated(u32, TypeId),
     /// A nominal declaration's name and the record type it names.
     Nominal(Name, TypeId),
+    /// The bounds of a bounded integer type and its base.
+    Bounded(i64, i64, TypeId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1162,10 +1224,23 @@ impl SemanticPoolBuilder {
                         IrData::new(base.raw(), name.symbol().raw()),
                         Vec::new(),
                     ),
+                    Validation::Range(range) => {
+                        let start =
+                            checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
+                        let words = [range.low(), range.high()]
+                            .into_iter()
+                            .flat_map(|bound| [bound as u32, (bound >> 32) as u32])
+                            .collect();
+                        (
+                            TypeKey::Bounded(range.low(), range.high(), base),
+                            IrData::new(base.raw(), start),
+                            words,
+                        )
+                    }
                     validation => {
                         let code = validation
                             .code()
-                            .expect("a validation without a name has a code");
+                            .expect("a validation without a payload has a code");
                         (
                             TypeKey::Validated(code, base),
                             IrData::new(base.raw(), code),
@@ -1203,6 +1278,7 @@ impl SemanticPoolBuilder {
             TypeKey::Callable(tag, _) => *tag,
             TypeKey::Validated(_, _) => TypeTag::Validated,
             TypeKey::Nominal(_, _) => TypeTag::Nominal,
+            TypeKey::Bounded(_, _, _) => TypeTag::Bounded,
         };
         pools.type_tags.push(tag);
         pools.type_data.push(data);
@@ -1765,6 +1841,96 @@ mod tests {
         let mut extra_word = pools.clone();
         extra_word.type_data[id.index()].rhs = 1;
         assert!(extra_word.verify().is_err());
+    }
+
+    // A bounded type's row names its base and its bounds. Other bounds, or
+    // the same bounds over the other integer type, are another type.
+    #[test]
+    fn bounded_types_round_trip_and_reject_corruption() {
+        use crate::sema::validated::IntRange;
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let bounded = |low, high, base| Type::bounded(IntRange::new(low, high).unwrap(), base);
+        let port = bounded(1, 65535, Type::Int).unwrap();
+        let offset = bounded(i64::MIN, -1, Type::Int).unwrap();
+        let byte = bounded(0, 255, Type::UInt).unwrap();
+        let int = builder.intern_type(&mut pools, &Type::Int).unwrap();
+        let uint = builder.intern_type(&mut pools, &Type::UInt).unwrap();
+        let text = builder.intern_type(&mut pools, &Type::Str).unwrap();
+        let port_id = builder.intern_type(&mut pools, &port).unwrap();
+        let offset_id = builder.intern_type(&mut pools, &offset).unwrap();
+        let byte_id = builder.intern_type(&mut pools, &byte).unwrap();
+        assert_ne!(port_id, int);
+        assert_ne!(port_id, offset_id);
+        assert_eq!(builder.intern_type(&mut pools, &port).unwrap(), port_id);
+        assert_ne!(
+            builder
+                .intern_type(&mut pools, &bounded(0, 255, Type::Int).unwrap())
+                .unwrap(),
+            byte_id
+        );
+        for (id, ty) in [(port_id, &port), (offset_id, &offset), (byte_id, &byte)] {
+            assert_eq!(&pools.to_type(id).unwrap(), ty);
+        }
+        assert_eq!(pools.display_type(port_id).unwrap(), "Int range 1..=65535");
+        assert_eq!(pools.display_type(byte_id).unwrap(), "UInt range 0..=255");
+        pools.verify().unwrap();
+
+        // The row's bounds are the type: changed, it is another type.
+        let words = pools.type_data[port_id.index()].rhs as usize;
+        let mut narrowed = pools.clone();
+        narrowed.type_extra[words + 2] = 1023;
+        narrowed.verify().unwrap();
+        assert_eq!(
+            narrowed.to_type(port_id).unwrap(),
+            bounded(1, 1023, Type::Int).unwrap()
+        );
+
+        // Bounds that hold no value.
+        let mut empty = pools.clone();
+        empty.type_extra[words + 2] = 0;
+        assert!(empty.verify().is_err());
+        assert!(empty.to_type(port_id).is_err());
+
+        // Bounds the base cannot hold: a `UInt` is never negative.
+        let mut negative = pools.clone();
+        let byte_words = pools.type_data[byte_id.index()].rhs as usize;
+        negative.type_extra[byte_words] = u32::MAX;
+        negative.type_extra[byte_words + 1] = u32::MAX;
+        assert!(negative.verify().is_err());
+
+        // Bounds that are not in the pool.
+        for offset in [pools.type_extra.len() as u32 - 3, u32::MAX] {
+            let mut out_of_bounds = pools.clone();
+            out_of_bounds.type_data[port_id.index()].rhs = offset;
+            assert!(out_of_bounds.verify().is_err());
+        }
+
+        // A base that is not an integer type, including another bounded
+        // type, that does not precede the type, or that is no type at all.
+        for base in [text.raw(), port_id.raw(), offset_id.raw(), byte_id.raw(), 0, u32::MAX] {
+            let mut wrong_base = pools.clone();
+            wrong_base.type_data[offset_id.index()].lhs = base;
+            assert!(wrong_base.verify().is_err(), "base {base}");
+        }
+        let mut rebased = pools.clone();
+        rebased.type_data[port_id.index()].lhs = uint.raw();
+        rebased.verify().unwrap();
+        assert_eq!(
+            rebased.to_type(port_id).unwrap(),
+            bounded(1, 65535, Type::UInt).unwrap()
+        );
+
+        // A bounded row cannot be read as a validation by code, nor a
+        // validation row as a bounded type.
+        let mut as_validation = pools.clone();
+        as_validation.type_tags[port_id.index()] = TypeTag::Validated;
+        assert!(as_validation.verify().is_err());
+        let rel = builder.intern_type(&mut pools, &Type::rel_path()).unwrap();
+        pools.verify().unwrap();
+        let mut as_bounded = pools.clone();
+        as_bounded.type_tags[rel.index()] = TypeTag::Bounded;
+        assert!(as_bounded.verify().is_err());
     }
 
     #[test]

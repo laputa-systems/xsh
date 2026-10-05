@@ -346,7 +346,9 @@ A validated type is a base type plus a property the checker tracks
 (`docs/SPEC.md` 4.13): `Type::Validated` holds a `ValidatedType`, a
 `Validation` and the base it narrows. There is one mechanism, in
 `src/sema/validated.rs`; `NonEmpty[T]` over `List[T]`, `RelPath` over
-`Path`, and a `nominal type` over its record schema are its instances. The rules
+`Path`, a `nominal type` over its record schema, and a bounded integer
+(`Validation::Range`, whose payload is its bounds) over `Int` or `UInt` are
+its instances. The rules
 that make a validated type sound are written once, for every instance:
 
 - **Assignability.** `Type::matches_expected` lets a validated type fit its
@@ -361,7 +363,10 @@ that make a validated type sound are written once, for every instance:
 - **Representation.** Lowering stores a validated value as its base
   (`lowered_type_from_type`). The type pool row `TypeTag::Validated` holds the
   base type id and the validation's code; `SemanticPools::verify` rejects an
-  unknown code and a base the validation does not accept.
+  unknown code and a base the validation does not accept. A validation with
+  a payload has a row of its own: `TypeTag::Bounded` holds the base type id
+  and its bounds, and the verifier requires an integer base and bounds that
+  hold a value the base can hold.
 - **The one runtime test.** `value_matches_static_type` and its lowered and
   test twins test the base and then ask `runtime/eval/validated.rs`. That is
   what `.require(T)`, `is T`, a type pattern, and a dynamic call boundary
@@ -379,9 +384,10 @@ An instance is one `Validation` variant. Adding it makes each `match` on
    element-wise mapping;
 2. in `src/sema/check/validated.rs`: which literals pass
    (`validated_list_literal` is the list case, `validated_static_path_literal`
-   and `validated_interpolated_path_literal` the path cases; another scalar
-   instance adds its own literal case beside them and calls it from that
-   literal's arm of `check_expr_arena_inner`);
+   and `validated_interpolated_path_literal` the path cases, and
+   `validated_int_literal` the integer case; another scalar instance adds its
+   own literal case beside them and calls it from that literal's arm of
+   `check_expr_arena_inner`);
 3. in `src/sema/constants.rs::constant_passes_validation`: which constant
    values pass;
 4. in `src/runtime/eval/validated.rs`: which runtime values pass, for `Value`
@@ -408,7 +414,10 @@ symbol), not as a validation code: `Validation::code` is `None` for it, and
 `SemanticPools::verify` requires its base to be a record row.
 
 A validation over a scalar base is where erasure is easiest to miss, because
-checker and lowering code compares scalar types by equality. A site that asks
+checker and lowering code compares scalar types by equality. An operator
+that hands one operand's type to the other as its expectation erases first,
+or a literal operand would be judged against the validation: `port < 70000`
+compares integers. A site that asks
 "is this a `Path`?" of an operand asks it of `ty.unvalidated()`; a site that
 asks it of a declared slot (a parameter the argument must fit) compares the
 declared type as written. A validated parameter whose storage kind is a

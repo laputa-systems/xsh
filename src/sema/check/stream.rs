@@ -464,7 +464,7 @@ impl Checker {
                     if key_ty == Type::Any {
                         self.reject_dynamic_use("a count key", None, stage_span);
                     } else if !matches!(
-                        key_ty,
+                        key_ty.unvalidated(),
                         Type::Str
                             | Type::Int
                             | Type::UInt

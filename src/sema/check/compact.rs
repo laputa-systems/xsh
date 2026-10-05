@@ -58,6 +58,9 @@ pub struct CompactDeclOutput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompactTypeDefInfo {
     Alias(TypeExprId),
+    /// An alias of an integer type between the bounds its declaration
+    /// writes.
+    Bounded(TypeExprId, crate::sema::validated::IntRange),
     Record(BTreeMap<Name, Type>),
     Module(std::sync::Arc<crate::sema::types::ModuleType>),
     TagUnion,
@@ -462,7 +465,15 @@ impl CompactDeclCollector {
         namespace: Option<Name>,
     ) -> CompactTypeDefInfo {
         match def.body {
-            ArenaTypeDefBody::Alias(ty) => CompactTypeDefInfo::Alias(ty),
+            ArenaTypeDefBody::Alias(ty) => match def
+                .bounds
+                .and_then(|bounds| program.arena.int_bounds_values(bounds))
+                .and_then(|(low, high)| crate::sema::validated::IntRange::new(low, high))
+            {
+                Some(range) => CompactTypeDefInfo::Bounded(ty, range),
+                // Bounds that admit no value are the checker's to report.
+                None => CompactTypeDefInfo::Alias(ty),
+            },
             ArenaTypeDefBody::RecordSchema(fields) => {
                 let mut names = FxHashSet::default();
                 let fields = program.arena.schema_fields(fields);

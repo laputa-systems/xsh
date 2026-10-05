@@ -1202,6 +1202,19 @@ impl Checker {
             );
             return;
         }
+        // A range bounds one integer type, so its declaration has no
+        // parameter to apply.
+        if def.bounds.is_some() && !def.type_parameters.is_empty() {
+            self.error(
+                span,
+                &format!(
+                    "`type {}` has a range, so it takes no type parameters",
+                    def.name
+                ),
+                DiagnosticCode::CheckSchema,
+            );
+            return;
+        }
         if !def.type_parameters.is_empty() {
             let mut names = FxHashSet::default();
             for parameter in arena.arena.names(def.type_parameters) {
@@ -1283,7 +1296,14 @@ impl Checker {
         }
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
-                self.type_from_arena(arena, *ty);
+                let base = self.type_from_arena(arena, *ty);
+                // Resolution rejects the same bounds where the type is used;
+                // a declaration nothing uses is reported here.
+                if let Err(error) =
+                    crate::sema::constants::bounded_alias_type(&arena.arena, def, base)
+                {
+                    self.error(span, &error.message, error.code);
+                }
             }
             ArenaTypeDefBody::RecordSchema(fields) => {
                 let field_list = arena.arena.schema_fields(*fields);

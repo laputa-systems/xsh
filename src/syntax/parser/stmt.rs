@@ -402,11 +402,20 @@ impl<'a> Parser<'a> {
         } else {
             ArenaTypeDefBody::Alias(self.parse_type_expr(arena)?)
         };
+        // `range` is a word only here, directly after an aliased type.
+        let bounds = if matches!(body, ArenaTypeDefBody::Alias(_)) && self.at_ident("range") {
+            Some(self.parse_int_bounds(arena)?)
+        } else {
+            None
+        };
         let end = self.expect_terminator();
         let span = self.span(start, end);
         let statement = arena.push_parameterized_type_def(name, parameters, body, span);
         if nominal {
             arena.mark_type_def_nominal(statement);
+        }
+        if let Some(bounds) = bounds {
+            arena.set_type_def_bounds(statement, bounds);
         }
         Some(())
     }
@@ -416,6 +425,63 @@ impl<'a> Parser<'a> {
         self.current_tag() == TokenTag::Ident
             && self.current_name() == Some(Name::intern("nominal"))
             && self.peek_keyword(1) == Some(Keyword::Type)
+    }
+
+    /// Parses `range LOW..=HIGH` or `range LOW..HIGH`, at the word `range`.
+    /// The dots, and the `=` after them, are written without spaces.
+    fn parse_int_bounds(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<crate::syntax::arena::ArenaIntBounds> {
+        let start = self.current_start();
+        self.bump();
+        let low = self.parse_int_bound(arena)?;
+        let glued = |parser: &Self| parser.current_start() == parser.previous_end();
+        if !(self.at(TokenKindMatch::Dot)
+            && self.peek_tag(1) == Some(TokenTag::Dot)
+            && self.peek_start(1) == Some(self.current_end()))
+        {
+            self.diagnostic_here(
+                "expected `..=` or `..` between the bounds of a range",
+                DiagnosticCode::ParseExpectedToken,
+            );
+            return None;
+        }
+        self.bump();
+        self.bump();
+        let inclusive = self.at(TokenKindMatch::Equals) && glued(self);
+        if inclusive {
+            self.bump();
+        }
+        let high = self.parse_int_bound(arena)?;
+        Some(crate::syntax::arena::ArenaIntBounds {
+            low,
+            high,
+            inclusive,
+            span: self.span(start, self.previous_end()),
+        })
+    }
+
+    /// One bound of a range: an integer literal, with `-` before it for a
+    /// negative one.
+    fn parse_int_bound(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<crate::syntax::arena::ArenaIntBound> {
+        let negative = self.consume(TokenKindMatch::Minus).is_some();
+        if self.current_tag() != TokenTag::Int {
+            self.diagnostic_here(
+                "expected an integer literal as a bound of a range",
+                DiagnosticCode::ParseExpectedToken,
+            );
+            return None;
+        }
+        let span = self.bump();
+        let literal = crate::syntax::node::IntLiteral::from_text(self.span_text(span));
+        Some(crate::syntax::arena::ArenaIntBound {
+            literal: arena.push_int_literal(&literal),
+            negative,
+        })
     }
 
     fn skip_enum_trivia(&mut self) {

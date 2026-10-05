@@ -1157,6 +1157,13 @@ use super::{
     ScanBytes, ScanCheck, ScanCondition, StmtFlow, lowered_method_name,
 };
 
+/// The bounded type a declaration names, over the base its alias resolves
+/// to. The checker accepted the declaration, so the base fits; a base that
+/// does not is left unbounded rather than given bounds it cannot have.
+fn compact_bounded_type(range: crate::sema::validated::IntRange, base: Type) -> Type {
+    Type::bounded(range, base.clone()).unwrap_or(base)
+}
+
 pub(super) fn lowered_arena_type(
     arena: &AstArena,
     ty: TypeExprId,
@@ -1195,7 +1202,8 @@ fn lowered_arena_type_inner(
                 return Some(LoweredType::Error);
             }
             match declarations.types.get(&name) {
-                Some(CompactTypeDefInfo::Alias(alias)) => {
+                // A bounded integer is stored as its base.
+                Some(CompactTypeDefInfo::Alias(alias) | CompactTypeDefInfo::Bounded(alias, _)) => {
                     lowered_arena_type_inner(arena, *alias, declarations, depth + 1)
                 }
                 Some(CompactTypeDefInfo::Record(_)) => Some(LoweredType::Record),
@@ -1207,7 +1215,8 @@ fn lowered_arena_type_inner(
         ArenaTypeExprTag::Qualified => {
             let name = Name::from_symbol(crate::symbol::Symbol::from_raw(data.rhs));
             match declarations.types.get(&name) {
-                Some(CompactTypeDefInfo::Alias(alias)) => {
+                // A bounded integer is stored as its base.
+                Some(CompactTypeDefInfo::Alias(alias) | CompactTypeDefInfo::Bounded(alias, _)) => {
                     lowered_arena_type_inner(arena, *alias, declarations, depth + 1)
                 }
                 Some(CompactTypeDefInfo::Record(_)) => Some(LoweredType::Record),
@@ -7504,7 +7513,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // Each conversion is an operation the language already has,
             // under `?`. The checker chose which; an expression it published
             // no conversion for was rejected and is not lowered.
-            ArenaExprKind::Convert { value, .. } => {
+            ArenaExprKind::Convert { value, target } => {
                 let conversion = *self.bodies.conversions.get(&id)?;
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 let method = |name: &str| BuildExprRow::Method {
@@ -7544,6 +7553,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         },
                         span,
                     },
+                    Conversion::IntToBounded => {
+                        let ty = compact_runtime_type_in_namespace(
+                            &self.program.arena,
+                            target,
+                            self.declarations,
+                            self.current_namespace,
+                        );
+                        BuildExprRow::Require {
+                            value,
+                            check: LoweredTypeCheck {
+                                schema: Some(self.prepared_schema(ty.clone())),
+                                ty,
+                                name: compact_type_expr_name(&self.program.arena, target),
+                            },
+                            span,
+                        }
+                    }
                 };
                 let operation = push_build_row!(self, expr, operation);
                 Some(push_build_row!(self, expr, BuildExprRow::Try { value: operation, span }))
@@ -15280,6 +15306,10 @@ fn compact_runtime_type_inner(
                 Some(CompactTypeDefInfo::Alias(alias)) => {
                     compact_runtime_type_inner(arena, *alias, declarations, depth + 1)
                 }
+                Some(CompactTypeDefInfo::Bounded(alias, range)) => compact_bounded_type(
+                    *range,
+                    compact_runtime_type_inner(arena, *alias, declarations, depth + 1),
+                ),
                 Some(CompactTypeDefInfo::Record(_)) => {
                     compact_record_type(arena, name, declarations, depth + 1)
                 }
@@ -15294,6 +15324,10 @@ fn compact_runtime_type_inner(
                 Some(CompactTypeDefInfo::Alias(alias)) => {
                     compact_runtime_type_inner(arena, *alias, declarations, depth + 1)
                 }
+                Some(CompactTypeDefInfo::Bounded(alias, range)) => compact_bounded_type(
+                    *range,
+                    compact_runtime_type_inner(arena, *alias, declarations, depth + 1),
+                ),
                 Some(CompactTypeDefInfo::Record(_)) => {
                     compact_record_type(arena, name, declarations, depth + 1)
                 }

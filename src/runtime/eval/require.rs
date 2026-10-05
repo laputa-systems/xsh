@@ -235,7 +235,7 @@ impl PreparedSchema {
                     {
                         Err(failure(format!(
                             "expected {ty}, found {}",
-                            validated.validation().failure()
+                            super::validated::lowered_failure(validated.validation(), &decoded)
                         )))
                     }
                     _ => Ok(decoded),

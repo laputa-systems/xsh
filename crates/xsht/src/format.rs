@@ -1062,6 +1062,19 @@ impl<'a> Writer<'a> {
             ArenaTypeDefBody::Alias(ty) => {
                 output.push_str(" = ");
                 self.write_type(*ty, output);
+                if let Some(bounds) = def.bounds {
+                    output.push_str(" range ");
+                    for (bound, separator) in [
+                        (bounds.low, if bounds.inclusive { "..=" } else { ".." }),
+                        (bounds.high, ""),
+                    ] {
+                        if bound.negative {
+                            output.push('-');
+                        }
+                        self.arena.int_literal(bound.literal).write(output);
+                        output.push_str(separator);
+                    }
+                }
             }
             ArenaTypeDefBody::RecordSchema(fields) => {
                 output.push_str(" = ");

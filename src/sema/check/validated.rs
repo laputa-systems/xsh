@@ -28,7 +28,7 @@ impl Checker {
             // An element written out is there whatever the splices hold, and
             // a splice of a non-empty list contributes at least one.
             // No list type carries this validation.
-            Validation::RelPath | Validation::Nominal(_) => false,
+            Validation::RelPath | Validation::Nominal(_) | Validation::Range(_) => false,
             Validation::NonEmpty => arena.arena.list_elements(range).any(|item| {
                 item.splice_span.is_none()
                     || self
@@ -73,7 +73,9 @@ impl Checker {
     ) -> Type {
         let failure = match expected.validation() {
             Validation::RelPath => rel_path_failure(bytes),
-            Validation::NonEmpty | Validation::Nominal(_) => return Type::Invalid,
+            Validation::NonEmpty | Validation::Nominal(_) | Validation::Range(_) => {
+                return Type::Invalid;
+            }
         };
         let ty = Type::Validated(Box::new(expected.clone()));
         if let Some(failure) = failure {
@@ -84,6 +86,60 @@ impl Checker {
             );
         }
         ty
+    }
+
+    /// The bounded integer type `expected` asks for. An integer literal
+    /// written there is judged against the bounds.
+    pub(super) fn validated_int_expectation(&self, expected: &Type) -> Option<ValidatedType> {
+        match expected {
+            Type::Validated(validated)
+                if matches!(validated.validation(), Validation::Range(_)) =>
+            {
+                Some(validated.as_ref().clone())
+            }
+            Type::Optional(inner) => self.validated_int_expectation(inner),
+            // A union lists at most one integer type, so its bounded member
+            // is the only one an integer literal can be.
+            Type::Union(members) => members
+                .iter()
+                .find_map(|member| self.validated_int_expectation(member)),
+            Type::Inference(_) => self
+                .type_constraints
+                .resolve(expected)
+                .ok()
+                .filter(|resolved| !resolved.contains_inference())
+                .and_then(|resolved| self.validated_int_expectation(&resolved)),
+            _ => None,
+        }
+    }
+
+    /// The type of an integer literal, with its sign, written where
+    /// `expected` is wanted: its value is the author's, so the bounds are
+    /// decided here. `None` when `expected` is not a range, and the literal
+    /// is an ordinary integer.
+    pub(super) fn validated_int_literal(
+        &mut self,
+        expected: &ValidatedType,
+        value: i64,
+        span: Span,
+    ) -> Option<Type> {
+        let Validation::Range(range) = expected.validation() else {
+            return None;
+        };
+        let ty = Type::Validated(Box::new(expected.clone()));
+        if !range.contains(value) {
+            self.diagnostics.push(
+                Diagnostic::error(format!("{value} is outside the range of `{ty}`"))
+                    .with_code(DiagnosticCode::CheckValidatedLiteral)
+                    .with_label(Label::primary(
+                        span,
+                        format!("write an integer from {} to {}", range.low(), range.high()),
+                    )),
+            );
+        }
+        // The literal keeps the expected type after a failure, so the
+        // binding it initializes is not reported a second time.
+        Some(ty)
     }
 
     /// The type of an interpolating path literal written where `expected` is

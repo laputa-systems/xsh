@@ -588,6 +588,8 @@ impl Checker {
         op_span: Span,
         rhs_span: Span,
     ) -> Type {
+        // The operand is read as its base type; the target keeps its own.
+        let right = right.unvalidated();
         if left == &Type::Duration {
             let valid = matches!(
                 (op, right),
@@ -643,6 +645,11 @@ impl Checker {
             if *left.unvalidated() == Type::Path {
                 diagnostic = diagnostic.with_note(
                     "operators never join paths; build the path with an `fp\"...\"` literal",
+                );
+            }
+            if left.int_range().is_some() {
+                diagnostic = diagnostic.with_note(
+                    "arithmetic on a bounded integer returns its base type, which is not known to stay in the range; assign the validated result, as in `n = (n + 1).require(T)?`",
                 );
             }
             self.diagnostics.push(diagnostic);
@@ -762,7 +769,9 @@ impl Checker {
         {
             return;
         }
-        if matches!(ty, Type::Int | Type::UInt) && self.exit_status_statement == Some(statement) {
+        if matches!(ty.unvalidated(), Type::Int | Type::UInt)
+            && self.exit_status_statement == Some(statement)
+        {
             return;
         }
         let diagnostic = if let Some(mistake) = copy_update {

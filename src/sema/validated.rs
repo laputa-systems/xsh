@@ -29,6 +29,46 @@ pub enum Validation {
     /// value: nothing at run time tells such a record from another with the
     /// same fields, so the checker alone decides where one is accepted.
     Nominal(Name),
+    /// `Int range LOW..=HIGH`: an `Int` or `UInt` between two constant
+    /// bounds. The payload is the bounds, so two declarations with the same
+    /// bounds over the same base are one type.
+    Range(IntRange),
+}
+
+/// The inclusive bounds of a bounded integer type. `low <= high` always: a
+/// declaration that admits no value is rejected where it is written.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct IntRange {
+    low: i64,
+    high: i64,
+}
+
+impl IntRange {
+    /// The range `low..=high`, or `None` when it holds no value.
+    pub fn new(low: i64, high: i64) -> Option<Self> {
+        (low <= high).then_some(Self { low, high })
+    }
+
+    pub fn low(self) -> i64 {
+        self.low
+    }
+
+    pub fn high(self) -> i64 {
+        self.high
+    }
+
+    /// Whether `value` lies within the bounds. This is the whole definition,
+    /// read by the checker for a literal and a constant and by the runtime
+    /// for a value, so the three cannot disagree.
+    pub fn contains(self, value: i64) -> bool {
+        self.low <= value && value <= self.high
+    }
+}
+
+impl fmt::Display for IntRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}..={}", self.low, self.high)
+    }
 }
 
 /// Whether the native bytes of a path are a `RelPath`. This is the whole
@@ -72,18 +112,21 @@ pub fn rel_path_failure(bytes: &[u8]) -> Option<&'static str> {
 }
 
 impl Validation {
-    /// The validations that are a property of a value, which a code alone
-    /// identifies. A nominal identity is named by its declaration instead.
+    /// The validations that are a property of a value without a payload,
+    /// which a code alone identifies. A nominal identity is named by its
+    /// declaration instead, and a range by its bounds.
     pub const ALL: [Self; 2] = [Self::NonEmpty, Self::RelPath];
 
-    /// The identity a lowered program stores for a validation that is a
-    /// property of a value, and `None` for a nominal identity, which a
-    /// lowered program stores by name.
+    /// The identity a lowered program stores for a validation a code alone
+    /// identifies, and `None` for a nominal identity, which a lowered
+    /// program stores by name, and for a range, which it stores with its
+    /// bounds.
     pub const fn code(self) -> Option<u32> {
         match self {
             Self::NonEmpty => Some(1),
             Self::RelPath => Some(2),
             Self::Nominal(_) => None,
+            Self::Range(_) => None,
         }
     }
 
@@ -102,6 +145,12 @@ impl Validation {
                 .then(|| format!("`RelPath` validates a Path, not {base}")),
             Self::Nominal(name) => (!matches!(base, Type::Record(_)))
                 .then(|| format!("nominal type `{name}` is a record, not {base}")),
+            Self::Range(range) => match base {
+                Type::Int => None,
+                Type::UInt => (range.low() < 0)
+                    .then(|| format!("a UInt is never negative, so `{range}` is not a range of UInt")),
+                _ => Some(format!("a range bounds an Int or a UInt, not {base}")),
+            },
         }
     }
 
@@ -113,6 +162,7 @@ impl Validation {
             Self::NonEmpty => Some(MethodReceiver::NonEmpty),
             Self::RelPath => Some(MethodReceiver::RelPath),
             Self::Nominal(_) => None,
+            Self::Range(_) => None,
         }
     }
 
@@ -121,7 +171,7 @@ impl Validation {
     pub fn survives_concatenation(self) -> bool {
         match self {
             Self::NonEmpty => true,
-            Self::RelPath | Self::Nominal(_) => false,
+            Self::RelPath | Self::Nominal(_) | Self::Range(_) => false,
         }
     }
 
@@ -130,7 +180,7 @@ impl Validation {
     pub fn survives_mapping(self) -> bool {
         match self {
             Self::NonEmpty => true,
-            Self::RelPath | Self::Nominal(_) => false,
+            Self::RelPath | Self::Nominal(_) | Self::Range(_) => false,
         }
     }
 
@@ -146,6 +196,7 @@ impl Validation {
             Self::NonEmpty => "an empty list",
             Self::RelPath => "a path that is empty, absolute, or climbs above where it starts",
             Self::Nominal(_) => "a record that did not come from the type's constructor",
+            Self::Range(_) => "an integer outside the range",
         }
     }
 
@@ -168,6 +219,9 @@ impl Validation {
                     "`{ty}` is a nominal type, so a record with the same fields is not one: build the value with the constructor `{name}(...)`, or convert a record with `.require({name})?`"
                 )
             }
+            Self::Range(range) => format!(
+                "an integer has a bounded type only once it is known to lie in {range}: validate it with `.require(...)?` or `as`, naming the type, or write an integer literal in the range; arithmetic on a bounded value returns its base type"
+            ),
         }
     }
 
@@ -177,6 +231,7 @@ impl Validation {
             (Self::NonEmpty, base) => write!(f, "NonEmpty<{base}>"),
             (Self::RelPath, _) => f.write_str("RelPath"),
             (Self::Nominal(name), _) => write!(f, "{name}"),
+            (Self::Range(range), base) => write!(f, "{base} range {range}"),
         }
     }
 
@@ -188,6 +243,9 @@ impl Validation {
             (Self::NonEmpty, _) => None,
             (Self::RelPath, _) => Some("RelPath".to_string()),
             (Self::Nominal(name), _) => Some(name.to_string()),
+            // The bounds are written only in a `type` declaration, which an
+            // annotation then names.
+            (Self::Range(_), _) => None,
         }
     }
 }
@@ -277,6 +335,21 @@ impl Type {
     pub fn nominal_name(&self) -> Option<Name> {
         match self.validated()?.validation() {
             Validation::Nominal(name) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// `base range low..=high`, for `base` an `Int` or a `UInt` the range
+    /// fits.
+    pub fn bounded(range: IntRange, base: Type) -> Result<Self, String> {
+        ValidatedType::new(Validation::Range(range), base)
+            .map(|validated| Self::Validated(Box::new(validated)))
+    }
+
+    /// The bounds of a bounded integer type.
+    pub fn int_range(&self) -> Option<IntRange> {
+        match self.validated()?.validation() {
+            Validation::Range(range) => Some(range),
             _ => None,
         }
     }
@@ -432,6 +505,7 @@ mod tests {
             }
             assert_eq!(Validation::from_code(0), None);
             assert_eq!(Validation::Nominal(Name::intern("Package")).code(), None);
+            assert_eq!(Validation::Range(IntRange::new(1, 2).unwrap()).code(), None);
         });
     }
 
@@ -493,6 +567,50 @@ mod tests {
                 None
             );
         });
+    }
+
+    #[test]
+    fn a_bounded_integer_fits_its_base_and_never_the_reverse() {
+        let range = IntRange::new(1, 65535).unwrap();
+        let port = Type::bounded(range, Type::Int).unwrap();
+        assert!(IntRange::new(2, 1).is_none());
+        assert!(range.contains(1) && range.contains(65535));
+        assert!(!range.contains(0) && !range.contains(65536));
+        assert_eq!(port.to_string(), "Int range 1..=65535");
+        assert_eq!(port.int_range(), Some(range));
+        assert_eq!(port.unvalidated(), &Type::Int);
+        assert!(port.matches_expected(&Type::Int));
+        assert!(port.matches_expected(&port));
+        assert!(port.matches_expected(&Type::Any));
+        assert!(!Type::Int.matches_expected(&port));
+        assert!(!Type::UInt.matches_expected(&port));
+        assert!(!Type::Any.matches_expected(&port));
+        // The base's own rules apply to what a bounded value widens to: it
+        // fits whatever an Int fits, and nothing else.
+        assert_eq!(
+            port.matches_expected(&Type::UInt),
+            Type::Int.matches_expected(&Type::UInt)
+        );
+        assert!(!port.matches_expected(&Type::Str));
+        // Other bounds are another type, in both directions.
+        let low = Type::bounded(IntRange::new(1, 1023).unwrap(), Type::Int).unwrap();
+        assert!(!low.matches_expected(&port));
+        assert!(!port.matches_expected(&low));
+        let list = |item: Type| Type::List(Box::new(item));
+        assert!(list(port.clone()).matches_expected(&list(Type::Int)));
+        assert!(!list(Type::Int).matches_expected(&list(port.clone())));
+
+        let size = Type::bounded(IntRange::new(0, 255).unwrap(), Type::UInt).unwrap();
+        assert_eq!(size.to_string(), "UInt range 0..=255");
+        assert!(size.matches_expected(&Type::UInt));
+        assert!(!size.matches_expected(&port));
+        assert!(Type::bounded(IntRange::new(-1, 5).unwrap(), Type::UInt).is_err());
+        assert!(Type::bounded(range, Type::Str).is_err());
+        assert!(Type::bounded(range, Type::Float).is_err());
+        assert!(
+            crate::sema::types::union_member_error(&[port, Type::Int])
+                .is_some_and(|reason| reason.contains("already fits"))
+        );
     }
 
     #[test]

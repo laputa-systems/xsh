@@ -40,7 +40,7 @@ pub(super) fn propagated_conversion(
     let operation = operation(arena, bytes_is_shadowed, inner)?;
     let operand = arena.expr(operation.operand);
     let from = expr_types.get(&operand.span)?;
-    let to = operation.conversion.target();
+    let to = operation.conversion.target()?;
     if Conversion::select(from, &to) != Some(operation.conversion) {
         return None;
     }

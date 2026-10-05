@@ -12774,6 +12774,90 @@ pure union_task(source: Str) -> Result[Str] {
         });
     }
 
+    // A bounded integer is stored as an integer, so everything that tests it
+    // reads the bounds from its type: the parameter's check, and the schema
+    // of the conversion, which the verifier ties to the bounded type.
+    #[test]
+    fn a_bounded_integer_keeps_its_bounds_in_a_lowered_program() {
+        use super::super::super::require::PreparedSchema;
+        run_with_large_stack(|| {
+            let source = r#"type Port = Int range 1..=65535
+
+pure following(port: Port) -> Int {
+  return port + 1
+}
+
+pure checked(number: Int) -> Result[Port] {
+  Ok(number as Port)
+}
+"#;
+            let program = Arc::new(fixture("bounded-types.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let call = |name: &str, value: i64| {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)),
+                    LoweredFunctionKind::Pure,
+                    &[Value::Int(value)],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+            };
+            // Arithmetic takes the integer as it is stored.
+            assert!(matches!(call("following", 80), Some(Ok(Value::Int(81)))));
+            // A value the parameter refuses never reaches the body: the
+            // direct call declines it or fails.
+            assert!(!matches!(call("following", 0), Some(Ok(_))));
+            assert!(!matches!(call("following", 65536), Some(Ok(_))));
+            assert_eq!(
+                call("checked", 8080).unwrap().unwrap(),
+                Value::ok(Value::Int(8080))
+            );
+            for outside in [0, 70000, -1] {
+                assert!(matches!(
+                    call("checked", outside).unwrap().unwrap(),
+                    Value::Result(crate::runtime::value::ResultValue::Err(_))
+                ));
+            }
+
+            // The conversion's schema decodes an integer and no longer tests
+            // the bounds.
+            let schema = program
+                .store
+                .prepared_schemas
+                .iter()
+                .position(|schema| matches!(schema.as_ref(), PreparedSchema::Validated(..)))
+                .expect("the bounded schema");
+            let mut unbounded = (*program).clone();
+            let PreparedSchema::Validated(_, base) = program.store.prepared_schemas[schema].as_ref()
+            else {
+                panic!("the schema is the bounded one");
+            };
+            unbounded.store.prepared_schemas[schema] = Arc::clone(base);
+            assert!(
+                FullVerifier::verify(&unbounded)
+                    .unwrap_err()
+                    .message
+                    .contains("does not match")
+            );
+
+            let mut empty = (*program).clone();
+            assert!(empty.store.semantic.corrupt_first_bounded_for_test(false));
+            assert!(
+                FullVerifier::verify(&empty)
+                    .unwrap_err()
+                    .message
+                    .contains("bounded type admits no value")
+            );
+
+            let mut wrong_base = (*program).clone();
+            assert!(wrong_base.store.semantic.corrupt_first_bounded_for_test(true));
+            assert!(FullVerifier::verify(&wrong_base).is_err());
+        });
+    }
+
     // A validated parameter stored as a scalar has a storage kind that says
     // nothing of the validation, so it carries the test of its declared type
     // and a call that arrives with an unchecked value is refused by it.

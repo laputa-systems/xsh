@@ -1293,9 +1293,9 @@ impl RecordConstructors {
                     Type::nominal(self.nominal_names[&id], record)
                         .map_err(|reason| SchemaTypeError::new(DiagnosticCode::CheckSchema, reason))
                 }),
-            ArenaTypeDefBody::Alias(ty) => {
-                self.resolve_instance_annotation(arena, ty, namespace, &bindings, active)
-            }
+            ArenaTypeDefBody::Alias(ty) => self
+                .resolve_instance_annotation(arena, ty, namespace, &bindings, active)
+                .and_then(|base| bounded_alias_type(arena, definition, base)),
             ArenaTypeDefBody::TagUnion(_) if arguments.is_empty() => {
                 Ok(Type::Tag(self.nominal_names[&id]))
             }
@@ -3772,6 +3772,48 @@ fn constant_matches_type(value: &LiteralConstant, ty: &Type) -> bool {
     }
 }
 
+/// The type an alias declaration names: the aliased type, between the bounds
+/// the declaration writes after it when it writes any. This is the one place
+/// a bounded integer type is made from a declaration.
+pub(crate) fn bounded_alias_type(
+    arena: &AstArena,
+    definition: &crate::syntax::arena::ArenaTypeDef,
+    base: Type,
+) -> Result<Type, SchemaTypeError> {
+    let Some(bounds) = definition.bounds else {
+        return Ok(base);
+    };
+    // The aliased type has its own diagnostic.
+    if base.is_recovery() {
+        return Ok(base);
+    }
+    let name = definition.name;
+    let failure = |reason: String| SchemaTypeError::new(DiagnosticCode::CheckSchema, reason);
+    if !definition.type_parameters.is_empty() {
+        return Err(failure(format!(
+            "`type {name}` has a range, so it takes no type parameters"
+        )));
+    }
+    let (Some(low), Some(high)) = (
+        arena.int_bound_value(bounds.low),
+        arena.int_bound_value(bounds.high),
+    ) else {
+        return Err(failure(format!(
+            "a bound of `type {name}` is outside the 64-bit signed range"
+        )));
+    };
+    let range = arena
+        .int_bounds_values(bounds)
+        .and_then(|(low, high)| crate::sema::validated::IntRange::new(low, high))
+        .ok_or_else(|| {
+            failure(format!(
+                "the range of `type {name}` holds no value: {low}{}{high} is empty",
+                if bounds.inclusive { "..=" } else { ".." }
+            ))
+        })?;
+    Type::bounded(range, base).map_err(|reason| failure(format!("`type {name}`: {reason}")))
+}
+
 /// A constant is a known value, so whether it passes a validation is decided
 /// from the value itself, as a literal's is.
 fn constant_passes_validation(
@@ -3789,6 +3831,9 @@ fn constant_passes_validation(
         // constant record came from the constructor is the statement
         // check's to decide from the initializer's checked type.
         crate::sema::validated::Validation::Nominal(_) => true,
+        crate::sema::validated::Validation::Range(range) => {
+            matches!(value, LiteralConstant::Int(value) if range.contains(*value))
+        }
     }
 }
 
