@@ -6,6 +6,18 @@ type Format = {kind: Str, size: Int, chars: Int, ascii: Bool}
 const DIGITS = "0123456789abcdef"
 const NAMES = ["nul", "soh", "stx", "etx", "eot", "enq", "ack", "bel", "bs", "ht", "nl", "vt", "ff", "cr", "so", "si", "dle", "dc1", "dc2", "dc3", "dc4", "nak", "syn", "etb", "can", "em", "sub", "esc", "fs", "gs", "rs", "us"]
 
+pure spaces(count: Int) -> Str {
+  var remaining = count
+  var block = " "
+  var out = ""
+  while remaining > 0 {
+    if remaining % 2 == 1 { out += block }
+    remaining /= 2
+    if remaining > 0 { block += block }
+  }
+  out
+}
+
 pure number(value: Int, base: Int, width: Int) -> Str {
   var n = value
   var out = ""
@@ -70,7 +82,7 @@ pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
     return Ok(NAMES[value]) when value < 32
     return Ok("sp") when value == 32
     return Ok("del") when value == 127
-    return data[0..1].utf8()
+    return bytes.from_ints([value])?.utf8()
   }
   if fmt.kind == "c" {
     return Ok("\\0") when byte == 0
@@ -112,7 +124,7 @@ pure address(offset: Int, base: Str, label: Int?, origin: Int) -> Str {
 
 pure old_offset(text: Str) -> Int? {
   var raw = if text.starts_with("+") { text.byte_slice(1) } else { text }
-  let blocks = raw.ends_with("b") or raw.ends_with("B")
+  let blocks = ! (raw.starts_with("0x") or raw.starts_with("0X")) and (raw.ends_with("b") or raw.ends_with("B"))
   if blocks { raw = raw.byte_slice(0, raw.byte_len() - 1) }
   let decimal = raw.ends_with(".")
   if decimal { raw = raw.byte_slice(0, raw.byte_len() - 1) }
@@ -160,10 +172,25 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       if i + 1 >= argv.len() { gnu.usage_error("option '--format' requires an argument") }
       i += 1
       requested += [argv[i]]
-    } else if options and arg.starts_with("-") and ! arg.starts_with("--") and arg != "-" and rx"^-[abcdDfFhHiIlLoOsxX]+$".matches(arg) {
-      for position in range(1, arg.byte_len()) {
+    } else if options and arg.starts_with("-") and ! arg.starts_with("--") and arg != "-" {
+      var position = 1
+      while position < arg.byte_len() {
         let char = arg.byte_slice(position, length: 1)
-        requested += [if char == "a" { "a" } else if char == "c" { "c" } else if char == "b" { "o1" } else if char in ["d", "s"] { if char == "d" { "u2" } else { "d2" } } else if char in ["h", "x"] { "x2" } else if char in ["H", "X"] { "x4" } else if char == "o" { "o2" } else if char == "O" { "o4" } else if char in ["I", "L"] { "d8" } else if char in ["i", "l", "D"] { if char == "D" { "u4" } else { "d4" } } else { "f" }]
+        if "abcdDfFhHiIlLOosxX".find(char) != null {
+          requested += [if char == "a" { "a" } else if char == "c" { "c" } else if char == "b" { "o1" } else if char in ["d", "s"] { if char == "d" { "u2" } else { "d2" } } else if char in ["h", "x"] { "x2" } else if char in ["H", "X"] { "x4" } else if char == "o" { "o2" } else if char == "O" { "o4" } else if char in ["I", "L"] { "d8" } else if char in ["i", "l", "D"] { if char == "D" { "u4" } else { "d4" } } else { "f" }]
+          position += 1
+        } else if char == "t" {
+          if position + 1 < arg.byte_len() { requested += [arg.byte_slice(position + 1)] } else {
+            if i + 1 >= argv.len() { gnu.usage_error("option requires an argument -- 't'") }
+            i += 1
+            requested += [argv[i]]
+          }
+          break
+        } else if char == "v" { args += ["-v"]; position += 1 } else {
+          args += ["-" + arg.byte_slice(position)]
+          if char in ["A", "j", "N"] and position + 1 == arg.byte_len() and i + 1 < argv.len() { i += 1; args += [argv[i]] }
+          break
+        }
       }
     } else { args += [arg] }
     i += 1
@@ -173,10 +200,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     address: {form: "-A --address-radix=RADIX", default: "o"},
     skip: {form: "-j --skip-bytes=BYTES", default: "0"},
     count: {form: "-N --read-bytes=BYTES", default: "9223372036854775807"},
-    width: {form: "-w --width[=BYTES]", default: "16", implicit: "32"},
+    width: {form: "-w --width[=BYTES]", default: "16", optional_default: "32"},
     endian: {form: "--endian=ORDER", default: "little"},
     duplicates: {form: "-v --output-duplicates", default: false},
-    strings: {form: "-S --strings[=BYTES]", default: "", implicit: "3"},
+    strings: {form: "-S --strings[=BYTES]", default: "", optional_default: "3"},
     traditional: {form: "--traditional", default: false},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
@@ -211,28 +238,62 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let skip_value: Int? = if origin != null { origin } else { byte_count(opts.skip) }
   guard let skip = skip_value else { gnu.usage_error(f"invalid number of bytes to skip: {gnu.quote(opts.skip)}"); return }
   guard let count = byte_count(opts.count) else { gnu.usage_error(f"invalid number of bytes: {gnu.quote(opts.count)}"); return }
-  let width = opts.width.parse_int() ?? 0
-  if width <= 0 { gnu.usage_error(f"invalid line width: {gnu.quote(opts.width)}") }
+  var width = opts.width.parse_int() ?? 0
+  if width <= 0 { gnu.error(f"invalid -w argument {gnu.quote(opts.width)}"); exit 1 }
   var selected: List[Format] = []
   for text in if requested.is_empty() { ["o2"] } else { requested } {
     guard let parsed = formats(text) else { |failure| gnu.usage_error(failure.message); return }
     selected += parsed
   }
   var alignment = 0
+  var unit = 1
   for fmt in selected {
     let scaled = (fmt.chars + 1) * 8 / fmt.size
     if scaled > alignment { alignment = scaled }
-    if width % fmt.size != 0 { gnu.usage_error("line width must be a multiple of the format size") }
+    if fmt.size > unit { unit = fmt.size }
   }
+  if width % unit != 0 { gnu.error(f"warning: invalid width {width}; using {unit} instead"); width = unit }
   let files = if operands.is_empty() { ["-"] } else { operands }
   var chunks: List[Bytes] = []
   var failed = false
+  var remaining = if count > 9223372036854775807 - skip { 9223372036854775807 } else { count + skip }
+  var seekable_device: Path? = null
   for name in files {
-    guard let data = gnu.read_operand(name) else { |failure| gnu.name_error(name, failure); failed = true; continue }
-    chunks += [data]
+    if name == "-" {
+      while remaining > 0 {
+        let want = if remaining < 65536 { remaining } else { 65536 }
+        guard let block = io.stdin_read(want) else { |failure| gnu.name_error(name, failure); failed = true; break }
+        break when block.is_empty()
+        chunks += [block]
+        remaining -= block.len()
+      }
+    } else {
+      guard let source = tio.open_source(name) else { |failure| gnu.name_error(name, failure); failed = true; continue }
+      if files.len() == 1 and source.mode == "device" { seekable_device = source.path }
+      var at = 0
+      while remaining > 0 {
+        let want = if remaining < 65536 { remaining } else { 65536 }
+        guard let block = tio.read_chunk(source, at, want) else { |failure| gnu.name_error(name, failure); failed = true; break }
+        break when block.is_empty()
+        let part = block.slice(0, length: remaining)
+        chunks += [part]
+        remaining -= part.len()
+        at += part.len()
+      }
+    }
   }
+  if failed and chunks.is_empty() { exit 1 }
   let all = bytes.concat(chunks)
-  if skip > all.len() { gnu.error("cannot skip past end of combined input"); exit 1 }
+  if skip > all.len() {
+    if let device = seekable_device {
+      if let Ok(_) = bytes.read_at(device, skip, 0) {
+        if opts.address != "n" and opts.strings == "" { gnu.write_text(address(skip, opts.address, label, skip) + "\n") }
+        return
+      }
+    }
+    gnu.error("cannot skip past end of combined input")
+    exit 1
+  }
   let data = all.slice(skip, length: count)
   if opts.strings != "" {
     let minimum = opts.strings
@@ -263,15 +324,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       previous = block
       for index in range(selected.len()) {
         let fmt = selected[index]
-        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { [" " for _ in range(address(skip + offset, opts.address, label, skip).byte_len())].join("") }
+        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(address(skip + offset, opts.address, label, skip).byte_len()) }
         for part in block.chunks(fmt.size) {
           let padded = bytes.concat([part, bytes.zero(fmt.size - part.len())?])
           let value = item(padded, fmt, big)?
-          line += " " + [" " for _ in range((alignment * fmt.size + 7) / 8 - 1 - value.byte_len())].join("") + value
+          line += " " + spaces((alignment * fmt.size + 7) / 8 - 1 - value.byte_len()) + value
         }
         if fmt.ascii {
           let text = [if byte >= 32 and byte <= 126 { bytes.from_ints([byte])?.utf8() ?? "." } else { "." } for byte in [block.byte_at(i) ?? 0 for i in range(block.len())]].join("")
-          line += "  >" + text + "<"
+          line += spaces((width + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8) - (block.len() + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8)) + "  >" + text + "<"
         }
         gnu.write_text(line + "\n")
       }

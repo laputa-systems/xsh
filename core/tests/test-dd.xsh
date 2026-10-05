@@ -53,3 +53,17 @@ test test_dd_regular_file_copy_and_records { |ctx|
   assert copied.stderr == "3+0 records in\n2+0 records out\n"
   assert invoke(ctx, ["bs=2", "ibs=3", "count=1", "status=none"], b"abcd")?.stdout == b"ab"
 }
+
+test test_dd_invalid_numbers_and_flags_use_gnu_messages { |ctx|
+  assert invoke(ctx, ["bs=0"])?.stderr == "dd: invalid number: '0'\n"
+  let bad = invoke(ctx, ["iflag="])?
+  assert bad.stderr.starts_with("dd: invalid input flag: ''\n")
+  assert invoke(ctx, ["status=none", "count=2Bx2"], b"abcdef")?.stdout == b"abcd"
+}
+
+test test_dd_skip_past_input_warns_without_failing { |ctx|
+  let result = invoke(ctx, ["bs=1", "skip=5", "count=0", "status=noxfer"], b"abcd")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b""
+  assert result.stderr == "dd: 'standard input': cannot skip to specified offset\n0+0 records in\n0+0 records out\n"
+}
