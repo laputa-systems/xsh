@@ -120,6 +120,26 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 core: Core::Written("proc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 0 {\n    return Err(error.failure(\"negative\"))\n  }\n  if fail % 2 == 0 {\n  } else {\n    return Err(error.failure(f\"odd: {error}\"))\n  }\n  if fail < 100 {\n  } else { return Err(error.failure(error)) }\n  match fail {\n    0 => return Err(error.failure(\"zero\"))\n    _ => Ok(fail)\n  }\n}\n"),
             },
         ],
+        SugarForm::Atomically => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/61-atomically.xsh"),
+                core: Core::Desugared,
+            },
+            // At the top level, nested, with a body that defers and leaves
+            // early, and with a destination that is a block of its own. The
+            // local that holds a destination is written under the name
+            // `xsht desugar` gives it.
+            Case {
+                sugar: "let root = p\"/tmp\"\natomically replace fp\"{root}/out\" as partial {\n  defer { print \"outer\" }\n  repeat 2 times {\n    atomically replace { fp\"{partial}.d/inner\" } as inner {\n      break when inner.exists()?\n    }\n  }\n}\n",
+                core: Core::Written("let root = p\"/tmp\"\n{\n  let dest_1: Path = fp\"{root}/out\"\n  let partial: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let dest_1: Path = { fp\"{partial}.d/inner\" }\n        let inner: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n        fs.remove(inner, missing_ok: true)\n        defer fs.remove(inner, missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n        fs.rename(inner, dest_1, overwrite: true)?\n      }\n    }\n  }\n  fs.rename(partial, dest_1, overwrite: true)?\n}\n"),
+            },
+            // The words stay names: `atomically`, `replace`, and `as` as the
+            // destination, the bound name, and a match arm's statement.
+            Case {
+                sugar: "proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => atomically replace atomically as as { print $as }\n    _ => {\n      atomically replace atomically as replace {\n        print $replace\n      }\n    }\n  }\n}\n",
+                core: Core::Written("proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => {\n      {\n        let dest_1: Path = atomically\n        let as: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n        fs.remove(as, missing_ok: true)\n        defer fs.remove(as, missing_ok: true)\n        { print $as }\n        fs.rename(as, dest_1, overwrite: true)?\n      }\n    }\n    _ => {\n      {\n        let dest_1: Path = atomically\n        let replace: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n        fs.remove(replace, missing_ok: true)\n        defer fs.remove(replace, missing_ok: true)\n        {\n          print $replace\n        }\n        fs.rename(replace, dest_1, overwrite: true)?\n      }\n    }\n  }\n}\n"),
+            },
+        ],
     }
 }
 
@@ -378,8 +398,18 @@ fn every_form_expands_to_its_stated_core_program() {
             );
             let sugar_roots = sugar.statement_ids().collect::<Vec<_>>();
             let core_roots = core.statement_ids().collect::<Vec<_>>();
+            // A local an expansion binds under a name no identifier can spell
+            // reads as the name `xsht desugar` prints for it, which is the
+            // one a core program can write.
+            let mut expanded = expanded_walk(&sugar.arena, case.sugar, &sugar_roots).text;
+            for (hidden, printed) in super::super::hidden_names(&sugar.arena, case.sugar) {
+                expanded = expanded.replace(
+                    &format!("{:?}", hidden.as_str().as_str()),
+                    &format!("{printed:?}"),
+                );
+            }
             assert_eq!(
-                expanded_walk(&sugar.arena, case.sugar, &sugar_roots).text,
+                expanded,
                 expanded_walk(&core.arena, core_source, &core_roots).text,
                 "{form:?}:\n{}",
                 case.sugar

@@ -141,7 +141,7 @@ fn deferred_removal(arena: &AstArena, stmt: StmtId) -> Option<Name> {
     }
 }
 
-fn binds(arena: &AstArena, stmt: StmtId, is: impl Fn(Name) -> bool) -> bool {
+pub(super) fn binds(arena: &AstArena, stmt: StmtId, is: impl Fn(Name) -> bool) -> bool {
     let (ArenaStmtKind::Let { target, .. }
     | ArenaStmtKind::Var { target, .. }
     | ArenaStmtKind::Const { target, .. }) = arena.stmt(stmt).kind
@@ -371,7 +371,7 @@ fn tail_may_be_a_result(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
 }
 
 /// Where a statement's text ends. Its span runs on through its terminator.
-fn text_end_of(source: &str, statement: Span) -> Option<usize> {
+pub(super) fn text_end_of(source: &str, statement: Span) -> Option<usize> {
     let text = source.get(statement.range())?;
     Some(statement.start() + text.trim_end().len())
 }
@@ -400,7 +400,7 @@ fn owns_nothing(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
     expr_owns_nothing(linter, expr)
 }
 
-fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> bool {
+pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> bool {
     let arena = linter.arena;
     let inert = match arena.expr(expr).kind {
         ArenaExprKind::Null
@@ -457,7 +457,7 @@ fn is_plain_data(ty: &Type) -> bool {
 /// The source ranges of the tokens in `start..end` that span lines, or `None`
 /// when the text does not lex. A line that begins inside one is part of a
 /// literal, and indenting it could change the literal's value.
-fn tokens_spanning_lines(
+pub(super) fn tokens_spanning_lines(
     linter: &super::Linter<'_>,
     start: usize,
     end: usize,

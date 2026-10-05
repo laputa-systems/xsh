@@ -534,6 +534,7 @@ diagnostic_codes! {
         LintPathTextQuery = "lint.path-text-query", warning, "Test a Path for a root component instead of testing its display text for a leading `/`";
         LintPatternConditional = "lint.pattern-conditional", warning, "Use `if let` for a two-arm match with a complementary pattern";
         LintPositionalErrorArguments = "lint.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
+        LintPreferAtomicallyReplace = "lint.prefer-atomically-replace", warning, "Use `atomically replace DEST as NAME` for a file produced at a temporary path and renamed into place";
         LintPreferBareFieldLabel = "lint.prefer-bare-field-label", warning, "Write identifier-shaped record field labels without quotes";
         LintPreferBlockString = "lint.prefer-block-string", warning, "Use a block string for a constant multiline string concatenation";
         LintPreferCallableAlias = "lint.prefer-callable-alias", warning, "Use an immutable alias for a callable that exactly forwards to another";

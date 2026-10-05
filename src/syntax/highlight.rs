@@ -425,6 +425,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "tempdir" | "at") && tempdir_head_word(source, tokens, at) {
         return Kind::Keyword;
     }
+    // `atomically`, `replace`, and `as` are ordinary names except in the head
+    // of an `atomically replace DEST as NAME {` statement.
+    if matches!(text, "atomically" | "replace" | "as") && atomically_head_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
     // `print` is a statement form, not a reserved word, so only a bare use
     // reads as one.
     if text == "print" && !after_dot && !called {
@@ -627,6 +632,37 @@ fn tempdir_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
             )
     };
     is_head(at) || at.checked_sub(2).is_some_and(is_head)
+}
+
+/// Whether `tokens[at]` is the `atomically`, the `replace`, or the `as` of a
+/// statement that begins `atomically replace`. The `as` is the one directly
+/// before the name and the `{` that end the head, on the line the statement
+/// starts on.
+fn atomically_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let is_head = |first: usize| {
+        statement_start(first.checked_sub(1).map(|before| tokens[before]), source)
+            && matches!(
+                tokens.get(first..first + 2),
+                Some([keyword, word])
+                    if text(keyword) == "atomically"
+                        && word.tag == TokenTag::Ident
+                        && text(word) == "replace"
+            )
+    };
+    if text(&tokens[at]) != "as" {
+        return is_head(at) || at.checked_sub(1).is_some_and(is_head);
+    }
+    let ends_head = matches!(
+        tokens.get(at + 1..at + 3),
+        Some([name, brace]) if name.tag == TokenTag::Ident && brace.tag == TokenTag::LBrace
+    );
+    let line_start = tokens[..at]
+        .iter()
+        .rposition(|token| token.tag == TokenTag::Newline)
+        .map_or(0, |newline| newline + 1);
+    // The destination sits between `replace` and this word.
+    ends_head && at >= line_start + 3 && is_head(line_start)
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -936,6 +972,18 @@ mod tests {
         assert_eq!(kind_of(source, "because) because"), Kind::Plain);
         assert_eq!(kind_of(source, "because because.fail"), Kind::Keyword);
         assert_eq!(kind_of(source, "because.fail"), Kind::Plain);
+    }
+
+    #[test]
+    fn atomically_head_words_are_keywords_only_in_an_atomically_statement() {
+        let source = "atomically replace as as replace {\n}\nlet atomically = replace\nlet replace = text.replace(a, b)\nuse a as b\n";
+        assert_eq!(kind_of(source, "atomically replace"), Kind::Keyword);
+        assert_eq!(kind_of(source, "replace as"), Kind::Keyword);
+        assert_eq!(kind_of(source, "as as"), Kind::Plain);
+        assert_eq!(kind_of(source, "as replace {"), Kind::Keyword);
+        assert_eq!(kind_of(source, "replace {"), Kind::Plain);
+        assert_eq!(kind_of(source, "atomically ="), Kind::Plain);
+        assert_eq!(kind_of(source, "replace = text"), Kind::Plain);
     }
 
     #[test]

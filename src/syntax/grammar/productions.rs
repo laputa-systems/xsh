@@ -686,6 +686,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("repeat_statement"),
                 r("without_statement"),
                 r("tempdir_statement"),
+                r("atomically_statement"),
             ])),
         ),
         rule(
@@ -1267,6 +1268,20 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 t(T::Ident),
                 w("at"),
                 r("condition_expression"),
+                block(),
+            ]),
+        ),
+        // `atomically`, `replace`, and `as` are contextual words: the
+        // statement is recognized by the two words that begin it.
+        rule(
+            Statements,
+            "atomically_statement",
+            seq([
+                w("atomically"),
+                w("replace"),
+                r("condition_expression"),
+                w("as"),
+                t(T::Ident),
                 block(),
             ]),
         ),

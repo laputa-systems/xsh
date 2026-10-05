@@ -89,6 +89,8 @@ and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
 `fail` at the start of a `fail` statement and `because` after its first
 operand (8.6),
+`atomically` and `replace` at the start of an `atomically replace` statement
+and the `as` that ends its destination (8.7),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -1774,6 +1776,55 @@ on one line; neither word is reserved, and the path is a head expression like
 the source of a `for`.
 `fs.tempdir()` (15) is the other scratch directory: a private one at a path
 the runtime chooses, owned through its handle.
+
+`atomically replace dest as name { ... }` publishes a file that something
+other than XSH writes (an archiver, a compiler, an image builder): the block
+writes to a temporary path beside the destination, and the path is renamed
+over the destination once the block has finished. It is sugar, defined by its
+expansion:
+
+```xsh
+{{.spec.atomically.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.atomically.desugared}}
+```
+
+So the destination is a `Path` evaluated once, and `name` is the immutable
+`Path` `.NAME.tmp` in the destination's directory, where `NAME` is the
+destination's final component; it is in scope for the body only. The local
+that holds the destination has no spelling in source, and `xsht desugar`
+prints it under a fresh name. "Atomically" means visibility by rename within
+one directory: another process sees the old destination or the complete new
+one, never a partial file. It promises nothing about a crash; call `fs.fsync`
+in the body, as above, when the contents must be durable before they are
+visible. Two writers replacing the same destination at once share the
+temporary path and need a lock of their own.
+
+Whatever is at the temporary path is removed before the body runs, so a file
+an interrupted run left behind is not an error. The rename is the last step
+and runs only when the body ran to its end: it replaces an existing
+destination (`overwrite: true`) and fails, as `fs.rename` does, when the body
+produced nothing at the path or the destination's directory does not exist.
+The deferred removal runs however control leaves the statement, after the
+body's own defers, and follows the `defer` rules above. A body that fails, or
+leaves early by `return`, `break`, or `continue`, therefore leaves the
+destination untouched and nothing at the temporary path; after a rename there
+is nothing there to remove. The body's last statement is in statement
+position: a failed `Result[Unit]` there propagates before the rename, and any
+other value is rejected as ignored. The statement produces no value: a failed
+rename propagates like any other failure of the statement, so `try` around it
+captures one `Result[Unit]`. It needs the `fs` effect, and the `error` effect where a failure can
+leave a restricted proc. The temporary name ends in `.tmp`, so a producer
+that chooses a format by file extension must be told the format. A
+statement is an `atomically replace`
+statement when it begins with the words `atomically` and `replace` on one
+line; no word of the head is reserved, and the destination is a head
+expression like the source of a `for`. `Path.write_atomic` (15) is the same
+publication for bytes the program already holds.
 
 ### 8.8 `try`, `retry`, and `ctx`
 

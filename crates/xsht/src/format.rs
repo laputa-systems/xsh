@@ -870,6 +870,14 @@ impl<'a> Writer<'a> {
                     ArenaSugar::Fail { failure, cause } => {
                         self.write_fail(failure, cause, Follow::END, output);
                     }
+                    ArenaSugar::Atomically { dest, name, body } => {
+                        output.push_str("atomically replace ");
+                        self.write_expr(dest, WORD, output);
+                        output.push_str(" as ");
+                        self.write_binding_target(name, output);
+                        output.push(' ');
+                        self.write_block(body, indent, output);
+                    }
                 }
             }
             ArenaStmtKind::Guard {
@@ -2906,7 +2914,9 @@ impl<'a> Writer<'a> {
         let has_comment = self.comments[self.next_comment..].iter().any(|comment| {
             comment.span.start() >= span.start() && comment.span.start() < span.end()
         });
-        if !has_comment || self.holds_sugar(span) {
+        // An expression an expansion added has no text of its own: its span
+        // only places it inside the statement the user wrote.
+        if !has_comment || self.holds_sugar(span) || self.arena.expr_is_synthetic(expr_id) {
             return false;
         }
         if let Some(raw) = self.source.get(span.range()) {

@@ -22,6 +22,8 @@ mod prefer_repeat;
 
 #[path = "lint_prefer_tempdir.rs"]
 mod prefer_tempdir;
+#[path = "lint_prefer_atomically.rs"]
+mod prefer_atomically;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 
@@ -1046,6 +1048,7 @@ impl<'a> Linter<'a> {
         self.lint_list_comp_suggestions(statements);
         self.lint_stream_producer_suggestions(statements);
         prefer_tempdir::lint_scratch_directories(self, statements, None);
+        prefer_atomically::lint_published_files(self, statements, None);
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
@@ -1742,6 +1745,20 @@ impl<'a> Linter<'a> {
                     self.arena.sugar(SugarForm::Tempdir, operands)
                 {
                     self.lint_expr(path);
+                    self.push_scope();
+                    self.define_binding_target(name, stmt.span, false);
+                    self.lint_block(body);
+                    self.pop_scope();
+                }
+            }
+            // The name `atomically replace` binds is in scope for its body
+            // only, and the form itself renames it, so it is never an unused
+            // binding.
+            ArenaStmtKind::Sugar { form: SugarForm::Atomically, operands, .. } => {
+                if let ArenaSugar::Atomically { dest, name, body } =
+                    self.arena.sugar(SugarForm::Atomically, operands)
+                {
+                    self.lint_expr(dest);
                     self.push_scope();
                     self.define_binding_target(name, stmt.span, false);
                     self.lint_block(body);
@@ -5297,6 +5314,7 @@ impl<'a> Linter<'a> {
             .collect();
         self.lint_list_comp_suggestions(&stmts);
         prefer_tempdir::lint_scratch_directories(self, &stmts, Some(block));
+        prefer_atomically::lint_published_files(self, &stmts, Some(block));
         self.lint_statement_sequence(&stmts);
     }
 
@@ -13588,6 +13606,14 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                     // The name is in scope for the body, not for the path.
                     ArenaSugar::Tempdir { name, path, body } => {
                         self.scan_expr(path);
+                        self.push_scope();
+                        self.define_binding_target(name);
+                        self.scan_block(body);
+                        self.pop_scope();
+                    }
+                    // Likewise for the destination and the temporary path.
+                    ArenaSugar::Atomically { dest, name, body } => {
+                        self.scan_expr(dest);
                         self.push_scope();
                         self.define_binding_target(name);
                         self.scan_block(body);

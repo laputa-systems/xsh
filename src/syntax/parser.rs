@@ -22,6 +22,7 @@ mod stmt;
 mod sugar;
 mod types;
 mod without;
+mod atomically;
 
 pub(in crate::syntax::parser) use self::literals::{
     decode_bytes_literal_for, decode_interpolation_text_for,

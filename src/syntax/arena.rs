@@ -4954,6 +4954,19 @@ impl AstArena {
             (SugarForm::Fail, operands) => {
                 unreachable!("`fail` has a failure and at most a cause, found {operands:?}")
             }
+            (
+                SugarForm::Atomically,
+                &[
+                    ArenaSugarOperand::Expr(dest),
+                    ArenaSugarOperand::BindingTarget(name),
+                    ArenaSugarOperand::Block(body),
+                ],
+            ) => ArenaSugar::Atomically { dest, name, body },
+            (SugarForm::Atomically, operands) => {
+                unreachable!(
+                    "`atomically replace` has a destination, a name, and a body, found {operands:?}"
+                )
+            }
         }
     }
 
@@ -5623,22 +5636,27 @@ pub enum SugarForm {
     /// message or `.Variant(...)` expression and then the cause, when the
     /// statement has one.
     Fail,
+    /// `atomically replace DEST as NAME { BODY }`: operands are the
+    /// destination expression, the binding that names the temporary path, and
+    /// the body block.
+    Atomically,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
         Self::Guard,
         Self::Tempdir,
         Self::Fail,
+        Self::Atomically,
     ];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
-            Self::Repeat | Self::Guard | Self::Tempdir => true,
+            Self::Repeat | Self::Guard | Self::Tempdir | Self::Atomically => true,
             Self::When | Self::Unless | Self::Fail => false,
         }
     }
@@ -5681,6 +5699,11 @@ pub enum ArenaSugar {
     Fail {
         failure: ExprId,
         cause: Option<ExprId>,
+    },
+    Atomically {
+        dest: ExprId,
+        name: BindingTargetId,
+        body: BlockId,
     },
 }
 

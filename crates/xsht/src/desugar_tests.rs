@@ -182,8 +182,41 @@ fn a_hidden_local_gets_a_fresh_spellable_name() {
     }
 }
 
-/// No form binds a hidden local yet, so a program the parser builds has none
-/// to rename and every written name is printed as written.
+/// A comment inside the body of a form whose expansion is a block stays in
+/// the body. The block the expansion adds spans text that begins inside the
+/// statement's head, which is never printed as it was written.
+#[test]
+fn a_comment_inside_a_body_stays_in_the_expanded_block() {
+    let source = "tempdir scratch at p\"/tmp/stage\" {\n  print \"first\"\n  # then\n  print $scratch\n}\n";
+    assert_eq!(
+        desugar(source),
+        "{\n  let scratch: Path = /tmp/stage\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: true)\n  {\n    print \"first\"\n    # then\n    print $scratch\n  }\n}\n"
+    );
+    let source = "atomically replace p\"/tmp/out\" as partial {\n  print \"first\"\n  # produce\n  partial.write(\"x\")\n}\n";
+    assert_eq!(
+        desugar(source),
+        "{\n  let dest_1: Path = /tmp/out\n  let partial: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  {\n    print \"first\"\n    # produce\n    partial.write(\"x\")\n  }\n  fs.rename(partial, dest_1, overwrite: true)?\n}\n"
+    );
+}
+
+/// An `atomically replace` prints as the block it stands for, and the local
+/// that holds its destination gets a name the source spells nowhere. The
+/// printed program checks as the written one does, and prints as itself.
+#[test]
+fn an_atomically_replace_is_printed_as_its_block_under_a_fresh_name() {
+    let source = "proc publish(dest_1: Path) [fs, error] {\n  # into place\n  atomically replace dest_1 as partial {\n    partial.write(\"x\")\n  }\n}\n";
+    let desugared = desugar(source);
+    assert_eq!(
+        desugared,
+        "proc publish(dest_1: Path) [fs, error] {\n  # into place\n  {\n    let dest_2: Path = dest_1\n    let partial: Path = fp\"{dest_2.parent()}/.{dest_2.name()}.tmp\"\n    fs.remove(partial, missing_ok: true)\n    defer fs.remove(partial, missing_ok: true)\n    {\n      partial.write(\"x\")\n    }\n    fs.rename(partial, dest_2, overwrite: true)?\n  }\n}\n"
+    );
+    assert_eq!(check(source), Vec::<String>::new());
+    assert_eq!(check(&desugared), Vec::<String>::new());
+    assert_eq!(desugar(&desugared), desugared);
+}
+
+/// None of these programs uses a form that binds a hidden local, so there is
+/// none to rename and every written name is printed as written.
 #[test]
 fn written_names_are_never_renamed() {
     for source in PROGRAMS {

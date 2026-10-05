@@ -719,6 +719,27 @@ mod tests {
         assert!(parsed_sentences > 100, "only {parsed_sentences} sentences");
     }
 
+    /// The head of `atomically replace DEST as NAME {` ends its destination
+    /// at a word, which the grammar is looser about than the parser. A
+    /// sentence the parser accepts is the sugar statement and nothing else,
+    /// because the two words that begin it decide.
+    #[test]
+    fn every_atomically_sentence_that_parses_is_an_atomically_statement() {
+        let mut parsed_sentences = 0;
+        for (depth, seed, source) in sentences_of("atomically_statement") {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            if !parsed.diagnostics.is_empty() {
+                continue;
+            }
+            parsed_sentences += 1;
+            assert!(
+                first_statement_is(&parsed.arena, SugarForm::Atomically),
+                "depth {depth} seed {seed} is not an atomically statement:\n{source}"
+            );
+        }
+        assert!(parsed_sentences > 100, "only {parsed_sentences} sentences");
+    }
+
     fn first_statement_is(program: &ArenaProgram, expected: SugarForm) -> bool {
         let first = program.statement_ids().next().expect("one statement");
         matches!(
@@ -864,6 +885,8 @@ mod tests {
             include_str!("../../../tests/xsh/fail.xsh"),
             include_str!("../../../docs/snippets/spec/61-fail.xsh"),
             include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
+            include_str!("../../../tests/xsh/atomically.xsh"),
+            include_str!("../../../docs/snippets/spec/61-atomically.xsh"),
         ] {
             let tokens = lex_grammar_tokens(source).expect("lexes");
             for part in top_level_parts(&tokens) {
