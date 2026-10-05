@@ -183,29 +183,20 @@ fn item_shorthand(
     if expected != actual {
         return None;
     }
-    // One edit per spelling, so no edit covers a comment in the block or a
-    // nested callback's own edits.
-    let file_offset = block_span.start();
-    let mut diagnostic = Diagnostic::warning(format!(
+    // Include the complete callback in the edit so comments and nested
+    // callbacks move together with the header and its item reads.
+    let diagnostic = Diagnostic::warning(format!(
         "`{name}` is only read through its fields; leave the parameter implicit and write `.`"
     ))
     .with_code(DiagnosticCode::LintPreferItemShorthand)
-    .with_label(Label::primary(param_span, "this parameter can be the item `.`"));
-    for (span, edit) in edits {
-        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-            Span::new(
-                block_span.source_id,
-                span.start() - offset + file_offset,
-                span.end() - offset + file_offset,
-            ),
-            if span == header {
-                "drop the parameter header"
-            } else {
-                "read the parameter as `.`"
-            },
-            edit,
-        ));
-    }
+    .with_label(Label::primary(param_span, "this parameter can be the item `.`"))
+    // Header removal and every item read form one rewrite. Keeping them in a
+    // single edit prevents an overlapping fix from leaving an unbound name.
+    .with_fix_hint(FixHint::replacement(
+        block_span,
+        "rewrite this callback with an implicit item",
+        replacement,
+    ));
     Some(diagnostic)
 }
 

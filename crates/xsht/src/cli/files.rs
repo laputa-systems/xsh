@@ -173,6 +173,12 @@ pub struct LintConfig {
     pub prefer_inferred_pure_returns: bool,
     /// On unless `prefer-inferred-private-effects = false`.
     pub prefer_inferred_private_effects: bool,
+    /// On unless `prefer-env-string = false`.
+    pub prefer_env_string: bool,
+    /// On unless `prefer-item-shorthand = false`.
+    pub prefer_item_shorthand: bool,
+    /// On unless `prefer-tempdir-scope = false`.
+    pub prefer_tempdir_scope: bool,
     pub prefer_inferred_variants: bool,
     pub prefer_positional_constructors: bool,
     pub runless_except: Vec<String>,
@@ -183,6 +189,9 @@ impl Default for LintConfig {
         Self {
             prefer_inferred_pure_returns: false,
             prefer_inferred_private_effects: true,
+            prefer_env_string: true,
+            prefer_item_shorthand: true,
+            prefer_tempdir_scope: true,
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
             runless_except: Vec::new(),
@@ -346,6 +355,12 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_inferred_pure_returns: ini_string(lint, "prefer-inferred-pure-returns")
             .is_some_and(|value| value == "true"),
         prefer_inferred_private_effects: ini_string(lint, "prefer-inferred-private-effects")
+            .is_none_or(|value| value != "false"),
+        prefer_env_string: ini_string(lint, "prefer-env-string")
+            .is_none_or(|value| value != "false"),
+        prefer_item_shorthand: ini_string(lint, "prefer-item-shorthand")
+            .is_none_or(|value| value != "false"),
+        prefer_tempdir_scope: ini_string(lint, "prefer-tempdir-scope")
             .is_none_or(|value| value != "false"),
         prefer_inferred_variants: ini_string(lint, "prefer-inferred-variants")
             .is_some_and(|value| value == "true"),
@@ -635,6 +650,29 @@ mod tests {
                 .unwrap()
                 .lint
                 .prefer_inferred_private_effects
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn migration_lints_are_on_unless_disabled() {
+        let root = temp_root("migration-lints-config");
+        let path = root.join("xsht-config.ini");
+        fs::write(
+            &path,
+            "[lint]\nprefer-env-string = false\nprefer-item-shorthand = false\nprefer-tempdir-scope = false\n",
+        )
+        .unwrap();
+        let lint = load_config_from(&path).unwrap().lint;
+        assert!(
+            !lint.prefer_env_string
+                && !lint.prefer_item_shorthand
+                && !lint.prefer_tempdir_scope
+        );
+        fs::write(&path, "[lint]\n").unwrap();
+        let lint = load_config_from(&path).unwrap().lint;
+        assert!(
+            lint.prefer_env_string && lint.prefer_item_shorthand && lint.prefer_tempdir_scope
         );
         fs::remove_dir_all(root).unwrap();
     }

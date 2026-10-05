@@ -1423,6 +1423,9 @@ fn lint_config_for_file(
         prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns
             && !configured_return_annotations,
         prefer_inferred_private_effects: tool_config.config.lint.prefer_inferred_private_effects,
+        prefer_env_string: tool_config.config.lint.prefer_env_string,
+        prefer_item_shorthand: tool_config.config.lint.prefer_item_shorthand,
+        prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
         prefer_inferred_variants: tool_config.config.lint.prefer_inferred_variants,
         prefer_positional_constructors: tool_config.config.lint.prefer_positional_constructors,
         runless,

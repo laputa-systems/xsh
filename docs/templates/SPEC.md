@@ -751,9 +751,9 @@ a facet (which name no single family, as in `Result[T]`), with a type that has
 no such variant, or with an enum whose variants are not visible in the module
 is `check.inferred-variant`. Patterns keep the qualified spellings.
 
-`.` is the current item inside a stream stage block (13.1), so there `.name`
-always reads the item's field, and a variant needs its qualified name.
-Elsewhere `.name` is always a variant. A line beginning with `.name`
+`.` is the current item inside a stream stage block (13.1) and an implicit
+one-item callback (6.9), so there `.name` reads the item's field and a variant
+needs its qualified name. Elsewhere `.name` is a variant. A line beginning with `.name`
 continues the previous line (2.5), so a target-typed variant can begin only
 the first statement of a block.
 

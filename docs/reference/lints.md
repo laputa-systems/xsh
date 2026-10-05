@@ -53,6 +53,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-inferred-private-effects` | Drop a private proc or stream effect clause that names exactly its inferred effects |
 | `lint.prefer-inferred-pure-return` | Drop a private pure return type when it is inferred exactly |
 | `lint.prefer-inferred-variant` | Drop a variant qualifier that the expected type already selects, as in `.Symlink` |
+| `lint.prefer-item-shorthand` | Leave a one-parameter callback's parameter implicit as `.` when it is only read through its fields |
 | `lint.prefer-known-field-access` | Select a guaranteed record field directly instead of through a lookup |
 | `lint.prefer-list-comp` | Use a list comprehension instead of a for loop that only builds a list |
 | `lint.prefer-list-compound-assignment` | Use `+=` for a local list update that reassigns the list |
@@ -76,6 +77,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-slice` | Use half-open slicing where offset/count method bounds are equivalent |
 | `lint.prefer-stream-producer` | Suggest a `stream` producer with `yield` for a proc that builds a list item by item |
 | `lint.prefer-string-concat` | Use `+` instead of joining literal pieces with an empty separator |
+| `lint.prefer-tempdir-scope` | Use a `tempdir NAME { ... }` scope for a temporary directory used only through its path |
 | `lint.prefer-try-capture` | Replace a single-use closed helper with a local `try` block capture |
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
 | `lint.prefer-yield-delegation` | Replace a transparent forwarding loop with `yield @iterable` |

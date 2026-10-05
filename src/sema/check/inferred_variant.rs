@@ -1,8 +1,9 @@
 #![allow(clippy::single_call_fn)]
 
 //! Target-typed variants: `.Name` and `.Name(args)` select a variant of the
-//! one enum or error family the expected type names. Inside a stream stage
-//! block `.` is the item, so there `.name` stays a field read.
+//! one enum or error family the expected type names. Stream stages and
+//! implicit item callbacks use `.` for their item, so `.name` there stays a
+//! field read.
 
 use super::{Checker, Diagnostic, InferredVariant, Label, Name, Span, TagVariantInfo, Type};
 use crate::diagnostic::DiagnosticCode;
@@ -25,10 +26,12 @@ enum VariantMiss {
 }
 
 impl Checker {
-    /// `.name` reads the current item wherever a stream stage block supplies
-    /// one; everywhere else it is a target-typed variant.
+    /// Reserve a leading dot for item syntax in a stream stage or an implicit
+    /// one-item callback; elsewhere it may name a target-typed variant.
     pub(super) fn item_shorthand_in_scope(&self) -> bool {
-        !self.stream_item_types.is_empty()
+        self.item_frames.last().is_some_and(|frame| {
+            frame.is_stage() || matches!(frame, super::ItemFrame::Implicit { .. })
+        })
     }
 
     /// Whether `expr` is `.Name` or `.Name(...)` naming a variant here.
@@ -330,8 +333,8 @@ impl Checker {
     /// Records that the qualified constructor at `expr_span` could drop its
     /// qualifier: `.variant` would select the same declaration from
     /// `expected`. `callee_span` covers the qualified name, which ends with
-    /// `.variant`. Outside a stream stage block only, where `.variant` is not
-    /// an item read.
+    /// `.variant`. Only offer the fix outside item-shorthand scopes, where
+    /// `.variant` is not an item read.
     pub(super) fn note_variant_qualifier(
         &mut self,
         expr_span: Span,

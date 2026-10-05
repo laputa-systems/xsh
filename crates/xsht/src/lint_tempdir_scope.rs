@@ -75,11 +75,9 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, program: &Aren
         }
     }
     for site in found {
-        let fix = rewrite(linter, &site).filter(|edits| {
+        let fix = rewrite(linter, &site).filter(|(span, replacement)| {
             let mut candidate = linter.source.to_owned();
-            for (span, replacement) in edits.iter().rev() {
-                candidate.replace_range(span.range(), replacement);
-            }
+            candidate.replace_range(span.range(), replacement);
             let parsed = Parser::parse_source_arena_only(source_id, &candidate);
             parsed.diagnostics.is_empty() && diagnostic_keys(&parsed.arena, &candidate) == *before
         });
@@ -91,7 +89,7 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, program: &Aren
             linter.arena.stmt(site.open).span,
             format!("`tempdir {} {{ ... }}` scopes the rest of this block", site.binder),
         ));
-        for (span, replacement) in fix.into_iter().flatten() {
+        if let Some((span, replacement)) = fix {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                 span,
                 "move the rest of the block into a `tempdir` scope",
@@ -269,11 +267,9 @@ fn site(
     })
 }
 
-/// The edits that open the scope in place of the opening statements, indent
-/// the rest of the block one level as the formatter writes it, and close the
-/// scope after it, or `None` when the layout cannot move verbatim. Each edit
-/// is small, so none covers a comment in the moved statements.
-fn rewrite(linter: &super::Linter<'_>, site: &Site) -> Option<Vec<(Span, String)>> {
+/// Open the scope, indent its body, and close it as one fix so another safe
+/// edit cannot apply only part of the transformation.
+fn rewrite(linter: &super::Linter<'_>, site: &Site) -> Option<(Span, String)> {
     let source = linter.source;
     let arena = linter.arena;
     let open = arena.stmt(site.open).span;
@@ -315,7 +311,15 @@ fn rewrite(linter: &super::Linter<'_>, site: &Site) -> Option<Vec<(Span, String)
     }
     edits.push((at(end, end), format!("\n{indent}}}")));
     edits.sort_by_key(|(span, _)| (span.start(), span.end()));
-    Some(edits)
+    let replacement_end = arena.stmt(*site.rest.last()?).span.end();
+    let mut replacement = source.get(open.start()..replacement_end)?.to_owned();
+    for (span, text) in edits.iter().rev() {
+        replacement.replace_range(
+            (span.start() - open.start())..(span.end() - open.start()),
+            text,
+        );
+    }
+    Some((at(open.start(), replacement_end), replacement))
 }
 
 fn callee(arena: &xsh::frontend::syntax::arena::AstArena, call: ExprId) -> Option<ExprId> {
@@ -404,7 +408,7 @@ mod tests {
     fn fixed(source: &str) -> String {
         let output = diagnostics(source);
         assert_eq!(output.len(), 1, "{source}: {output:?}");
-        assert!(!output[0].fix_hints.is_empty(), "no fix for {source}");
+        assert_eq!(output[0].fix_hints.len(), 1, "fix must be atomic: {source}");
         let mut fixed = source.to_owned();
         let mut hints = output[0].fix_hints.iter().collect::<Vec<_>>();
         hints.sort_by_key(|hint| (hint.span.unwrap().start(), hint.span.unwrap().end()));

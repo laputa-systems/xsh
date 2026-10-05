@@ -232,6 +232,9 @@ pub struct LintOutput {
 pub struct LintOptions {
     pub prefer_inferred_pure_returns: bool,
     pub prefer_inferred_private_effects: bool,
+    pub prefer_env_string: bool,
+    pub prefer_item_shorthand: bool,
+    pub prefer_tempdir_scope: bool,
     /// Opt in to `lint.prefer-inferred-variant`, which a corpus adopts once
     /// it migrates its qualified variants.
     pub prefer_inferred_variants: bool,
@@ -285,6 +288,9 @@ impl Default for LintOptions {
         Self {
             prefer_inferred_pure_returns: false,
             prefer_inferred_private_effects: true,
+            prefer_env_string: true,
+            prefer_item_shorthand: true,
+            prefer_tempdir_scope: true,
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
             runless: false,
@@ -331,6 +337,9 @@ pub struct Linter<'a> {
     record_constructors: xsh::frontend::check::RecordConstructors,
     prefer_inferred_pure_returns: bool,
     prefer_inferred_private_effects: bool,
+    prefer_env_string: bool,
+    prefer_item_shorthand: bool,
+    prefer_tempdir_scope: bool,
     prefer_inferred_variants: bool,
     prefer_positional_constructors: bool,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -498,6 +507,9 @@ impl<'a> Linter<'a> {
             ),
             prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
             prefer_inferred_private_effects: options.prefer_inferred_private_effects,
+            prefer_env_string: options.prefer_env_string,
+            prefer_item_shorthand: options.prefer_item_shorthand,
+            prefer_tempdir_scope: options.prefer_tempdir_scope,
             prefer_inferred_variants: options.prefer_inferred_variants,
             prefer_positional_constructors: options.prefer_positional_constructors,
             return_removal_before: None,
@@ -554,10 +566,14 @@ impl<'a> Linter<'a> {
         }
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
-        linter
-            .diagnostics
-            .extend(item_shorthand::lint_item_shorthand(program, source));
-        tempdir_scope::lint_tempdir_scopes(&mut linter, program);
+        if linter.prefer_item_shorthand {
+            linter
+                .diagnostics
+                .extend(item_shorthand::lint_item_shorthand(program, source));
+        }
+        if linter.prefer_tempdir_scope {
+            tempdir_scope::lint_tempdir_scopes(&mut linter, program);
+        }
         if include_reachability {
             linter
                 .diagnostics
@@ -8378,6 +8394,9 @@ impl<'a> Linter<'a> {
     /// it fails on a value that is not UTF-8, while `e"NAME" ?? fallback`
     /// would fall back, and it returns a `Result` where `??` returns `Str`.
     fn lint_env_string(&mut self, expr: ExprId) {
+        if !self.prefer_env_string {
+            return;
+        }
         let outer = self.arena.expr(expr);
         let name = match outer.kind {
             ArenaExprKind::Call { callee, args }
