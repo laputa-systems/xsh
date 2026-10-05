@@ -410,19 +410,38 @@ mod tests {
         );
     }
 
+    // The rule runs when its setting or `--only` asks for it, and for neither
+    // in a project whose `check --annotate` writes the returns it removes.
     #[test]
-    fn the_lint_is_off_unless_the_project_opts_in() {
+    fn the_lint_is_off_unless_the_project_or_the_command_asks_for_it() {
         let source = "proc one() -> Result[Int] {\n  1\n}\n\nprint ${one()?}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        let diagnostics = Linter::lint(
-            &parsed.arena,
-            source,
-            LintOptions {
-                only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
+        let reported = |options: LintOptions| {
+            Linter::lint(&parsed.arena, source, options)
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::LintPreferInferredProcReturn)
+                })
+                .count()
+        };
+        let named = Some(vec![DiagnosticCode::LintPreferInferredProcReturn]);
+        assert_eq!(reported(LintOptions::default()), 0);
+        assert_eq!(
+            reported(LintOptions {
+                only: named.clone(),
                 ..LintOptions::default()
-            },
-        )
-        .diagnostics;
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+            }),
+            1
+        );
+        assert_eq!(
+            reported(LintOptions {
+                only: named,
+                prefer_inferred_proc_returns: true,
+                annotation_policy_writes_returns: true,
+                ..LintOptions::default()
+            }),
+            0
+        );
     }
 }
