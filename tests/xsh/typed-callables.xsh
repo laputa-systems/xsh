@@ -205,6 +205,34 @@ test test_typed_callable_fits_the_dynamic_handle_of_its_kind {
   assert handle.call(4).require(Int)? == 8
 }
 
+proc bump(n: Int) -> Int {
+  n + 1
+}
+
+proc announce(log: Path) [fs, error] {
+  log.write("written")
+}
+
+proc call_dynamic(handle: Proc, argument: Any) -> Result[Any] {
+  handle.call(argument)
+}
+
+# A dynamic `Proc` handle does not say what its proc returns, so `.call` is a
+# Result for every proc: the proc's own Result, or `Ok` of any other value.
+test test_proc_call_is_a_result_whatever_the_proc_returns { |ctx|
+  assert call_dynamic(bump, 1) is Ok(_)
+  assert call_dynamic(bump, 1)?.require(Int)? == 2
+  let seen = if let Ok(value) = call_dynamic(bump, 4) { value.require(Int)? } else { -1 }
+  assert seen == 5
+
+  assert call_dynamic(strict_stage, "a")?.require(Str)? == "stage a"
+  assert call_dynamic(strict_stage, "") is Err(_)
+
+  let log = fp"{test.temp_dir(ctx, name: "proc-call")?}/log"
+  assert call_dynamic(announce, log) is Ok(_)
+  assert log.read_text()? == "written"
+}
+
 test test_alias_that_kept_its_signature_fits_a_callable_type {
   let alias = release_build
   let build: Builder = alias
@@ -466,4 +494,149 @@ print ${scaled.len()}
 """,
   )?
   assert "err[check.stream-callable]" in stderr, stderr
+}
+
+error StageError = Missing(name: Str)
+
+type Stage = proc(name: Str) [error] -> Result[Str]
+
+type StrictStage = proc(name: Str) [error] -> Result[Str, StageError]
+
+type Locate = pure(name: Str) -> Result[Path]
+
+proc strict_stage(name: Str) [error] -> Result[Str, StageError] {
+  return Err(StageError.Missing(name)) when name == ""
+  Ok(f"stage {name}")
+}
+
+proc plain_stage(name: Str) [error] -> Result[Str] {
+  Ok(f"plain {name}")
+}
+
+pure locate(name: Str) -> Result[RelPath] {
+  fp"etc/{name}".require()
+}
+
+proc run_stage(stage: Stage, name: Str) [error] -> Result[Str] {
+  stage(name)
+}
+
+# The error position of a returned Result is covariant: a function that fails
+# only with one family fits a type whose calls may fail with any error. The
+# value position takes the same type, or a validated type where its base is
+# written.
+test test_function_with_a_family_error_fits_a_type_that_returns_any_error {
+  let stage: Stage = strict_stage
+  assert stage("a")? == "stage a"
+  assert run_stage(strict_stage, "b")? == "stage b"
+  assert run_stage(plain_stage, "c")? == "plain c"
+  assert run_stage(strict_stage, "") is Err(_)
+
+  let strict: StrictStage = strict_stage
+  let widened: Stage = strict
+  assert widened("d")? == "stage d"
+  let chosen: Stage = if widened("e") is Ok(_) { strict_stage } else { plain_stage }
+  assert chosen("f")? == "stage f"
+
+  let find: Locate = locate
+  assert find("hosts")? == "etc/hosts"
+}
+
+test test_callable_return_is_not_narrowed_or_retyped { |ctx|
+  let stderr = check_errors(
+    ctx,
+    r"""error StageError = Missing(name: Str)
+error OtherError = Lost(name: Str)
+
+type Stage = proc(name: Str) [error] -> Result[Str]
+type StrictStage = proc(name: Str) [error] -> Result[Str, StageError]
+type Rel = pure(name: Str) -> Result[RelPath]
+
+proc plain(name: Str) [error] -> Result[Str] {
+  Ok(name)
+}
+
+proc other(name: Str) [error] -> Result[Str, OtherError] {
+  Ok(name)
+}
+
+proc counted(name: Str) [error] -> Result[Int, StageError] {
+  Ok(name.byte_len())
+}
+
+pure anywhere(name: Str) -> Result[Path] {
+  Ok(Path(name))
+}
+
+proc select(stage: Stage) [error] -> Result[Unit] {
+  let a: StrictStage = plain
+  let b: StrictStage = other
+  let c: Stage = counted
+  let d: Rel = anywhere
+  let e: StrictStage = stage
+  return
+}
+""",
+  )?
+  assert count(stderr, "err[check.callable-mismatch]") == 4, stderr
+  assert count(stderr, "err[check.type-mismatch]") == 1, stderr
+  assert "it returns Result[Str, Error], expected Result[Str, StageError]" in stderr, stderr
+  assert "it returns Result[Str, OtherError], expected Result[Str, StageError]" in stderr, stderr
+  assert "it returns Result[Int, StageError], expected Result[Str, Error]" in stderr, stderr
+  assert "it returns Result[Path, Error], expected Result[RelPath, Error]" in stderr, stderr
+}
+
+# A module's exported value of a callable type is called as `module.name(args)`
+# with the type's labels, and its effect bound is charged to the caller.
+test test_module_exported_callable_value_is_called_through_its_type { |ctx|
+  let root = test.temp_dir(ctx, name: "typed-callable-module")?
+  fp"{root}/handlers.xsh".write(r"""
+##! Handlers chosen when the module loads.
+## What a handler is called with and returns.
+export type Handler = proc(name: Str) [fs, error] -> Result[Str, Error]
+
+proc greet(name: Str) [error] -> Result[Str] {
+  Ok(f"hello {name}")
+}
+
+## The handler in use.
+export let handler: Handler = greet
+""")
+  let accepted = test.run_xsh(
+    ctx,
+    r"""use handlers
+
+proc relay(name: Str) [fs, error] -> Result[Str] {
+  handlers.handler(name)
+}
+
+print handlers.handler("one")?
+print handlers.handler(name: "two")?
+let kept: handlers.Handler = handlers.handler
+print kept("three")?
+print relay("four")?
+""",
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert accepted.success, accepted.stderr
+  assert accepted.stdout == "hello one\nhello two\nhello three\nhello four\n", accepted.stdout
+
+  let rejected = test.run_xsh(
+    ctx,
+    r"""use handlers
+
+proc bounded(name: Str) [error] -> Result[Str] {
+  handlers.handler(name)
+}
+
+print handlers.handler(1)?
+print handlers.handler(label: "two")?
+print bounded("three")?
+""",
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert rejected.status == 2, rejected.stderr
+  assert "expected Str, found Int" in rejected.stderr, rejected.stderr
+  assert "err[check.named-arg]: unknown named parameter `label`" in rejected.stderr, rejected.stderr
+  assert "effect `fs` required by `handler` is not in caller's declared effects" in rejected.stderr, rejected.stderr
 }

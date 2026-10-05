@@ -119,6 +119,9 @@ mod fix_grouping_tests;
 #[cfg(test)]
 #[path = "lint_redundant_default_remove_tests.rs"]
 mod redundant_default_remove_tests;
+#[cfg(test)]
+#[path = "lint_unused_type_tests.rs"]
+mod unused_type_tests;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1547,6 +1550,23 @@ impl<'a> Linter<'a> {
         if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::NonEmpty {
             let inner = TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize);
             self.collect_type_expr_refs(inner);
+            return;
+        }
+        // Likewise a union names its members and a callable type its
+        // parameter and return types.
+        if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Union {
+            let members = self.arena.union_type_members(ty).collect::<Vec<_>>();
+            for member in members {
+                self.collect_type_expr_refs(member);
+            }
+            return;
+        }
+        if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Callable {
+            let callable = self.arena.callable_type_expr(ty);
+            for param in self.arena.params(callable.params).to_vec() {
+                self.collect_type_expr_refs(param.ty);
+            }
+            self.collect_type_expr_refs(callable.return_ty);
             return;
         }
         match type_expr_kind(self.arena, ty) {

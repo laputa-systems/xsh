@@ -1746,6 +1746,12 @@ impl LiteralConstant {
     }
 }
 
+/// What constant preparation reports for a value that does not fit the type
+/// its constant declares. The statement check names the two types, and drops
+/// this report where it does.
+pub(crate) const CONSTANT_TYPE_FIT_FAILURE: &str =
+    "constant value does not match its expected type";
+
 /// Prepared declarations own data only. Lexical runtime bindings remain barriers
 /// to constant lookup even when their initializer happens to be a literal.
 #[derive(Clone, Debug, Default)]
@@ -3487,10 +3493,7 @@ impl ConstantPreparation<'_> {
                         )
                     })?;
             } else if !constant_matches_type(&value, expected) {
-                return Err((
-                    expr.span,
-                    "constant value does not match its expected type".into(),
-                ));
+                return Err((expr.span, CONSTANT_TYPE_FIT_FAILURE.into()));
             }
         }
         if let Some(ty) = expected {

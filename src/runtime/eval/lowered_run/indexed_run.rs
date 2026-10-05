@@ -8035,6 +8035,15 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(LoweredValue::ResultOk(Box::new(value)))
             }
+            FullTag::ExprProcCallResult => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(proc_call_result(value))
+            }
             FullTag::ExprErr => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let cause = indexed_optional_raw(&mut payload, call_span)?;
@@ -10095,6 +10104,16 @@ pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) 
 
 // Defaults retain their private omission marker until the actual callee binds
 // its slots. Callable aliases therefore keep lowered values across dispatch.
+/// The value of `Proc.call`: the `Result` the proc returned, or `Ok` of
+/// anything else it returned. The test reads the value because a dynamic
+/// handle's proc is not known where the call is checked.
+fn proc_call_result(value: LoweredValue) -> LoweredValue {
+    match value {
+        LoweredValue::ResultOk(_) | LoweredValue::ResultErr(_) => value,
+        value => LoweredValue::ResultOk(Box::new(value)),
+    }
+}
+
 /// The checker gives a callable type only to functions of its kind, so a
 /// typed call that receives anything else was reached through a path the
 /// checker did not see. The call stops here instead of running it.

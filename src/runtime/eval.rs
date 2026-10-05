@@ -1863,6 +1863,11 @@ enum BuildExprRow {
         span: Span,
     },
     Ok(BuildExprId),
+    /// What `Proc.call` returns for the call it wraps: the `Result` the proc
+    /// returned, or `Ok` of any other value. A dynamic handle does not say
+    /// what its proc returns, so the checker types the call `Result[Any]`
+    /// and this makes every proc honor that.
+    ProcCallResult(BuildExprId),
     Err {
         value: BuildExprId,
         cause: Option<BuildExprId>,

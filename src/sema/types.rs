@@ -231,7 +231,7 @@ impl TypedCallable {
         if unresolved && !invalid && check_effects {
             return Some("its return type is not known; annotate it".to_string());
         }
-        if !unresolved && actual.return_ty != self.sig.return_ty {
+        if !unresolved && !callable_return_fits(&actual.return_ty, &self.sig.return_ty) {
             return Some(format!(
                 "it returns {}, expected {}",
                 actual.return_ty, self.sig.return_ty
@@ -259,6 +259,30 @@ impl TypedCallable {
                     effect_list(bound)
                 )
             })
+    }
+}
+
+/// Whether a callable returning `actual` may stand where one returning
+/// `expected` is called. A caller reads the result as `expected` with no
+/// conversion, so the value must already be stored as one: the same type, or
+/// a validated type where its base is expected. The error of a `Result` may
+/// also be narrower, a family or variant where any error of the expected
+/// type may come back, because an error value is read through its own
+/// identity. Nothing else varies: a domain change such as `Int` to `UInt` or
+/// a wider record needs a checked boundary that a call through the type does
+/// not run. An unresolved type inside either is not evidence of a fit.
+fn callable_return_fits(actual: &Type, expected: &Type) -> bool {
+    if actual == expected {
+        return true;
+    }
+    if actual.contains_recovery() || expected.contains_recovery() {
+        return false;
+    }
+    match (actual, expected) {
+        (Type::Result(actual_ok, actual_err), Type::Result(expected_ok, expected_err)) => {
+            actual_ok.matches_stored(expected_ok) && actual_err.matches_expected(expected_err)
+        }
+        _ => actual.matches_stored(expected),
     }
 }
 
@@ -748,6 +772,28 @@ impl Type {
 
     pub fn is_recovery(&self) -> bool {
         matches!(self, Self::Unknown | Self::Invalid)
+    }
+
+    /// Whether a type the checker did not resolve is this type or sits
+    /// inside it.
+    pub fn contains_recovery(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Invalid => true,
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+                inner.contains_recovery()
+            }
+            Self::Map(key, value) | Self::Result(key, value) => {
+                key.contains_recovery() || value.contains_recovery()
+            }
+            Self::Record(fields) => fields.values().any(Self::contains_recovery),
+            Self::Union(members) => members.iter().any(Self::contains_recovery),
+            Self::Validated(validated) => validated.base().contains_recovery(),
+            Self::Callable(callable) => {
+                callable.sig.params.iter().any(|param| param.ty.contains_recovery())
+                    || callable.sig.return_ty.contains_recovery()
+            }
+            _ => false,
+        }
     }
 
     pub fn is_dynamic(&self) -> bool {

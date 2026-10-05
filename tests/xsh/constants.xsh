@@ -268,3 +268,27 @@ const selected: Str = source.value
   )?
   assert ! rejected.success
 }
+
+# A constant whose value does not fit its declared type is reported once, by
+# the check that names both types.
+test test_constants_mistyped_value_is_reported_once { |ctx|
+  let rejected = test.expect(
+    ctx,
+    r"""const LIMIT: Int = "ten"
+const NAMES: List[Str] = ["a", 2]
+
+proc inner() {
+  const DEPTH: Bool = 3
+  print $DEPTH
+}
+
+print $LIMIT ${NAMES.len()}
+inner()
+""",
+    status: 2,
+    stderr: ["expected Int, found Str", "expected Bool, found Int"],
+  )?
+  assert rejected.stdout == "", rejected.stdout
+  assert rejected.stderr.split("err[").len() - 1 == 3, rejected.stderr
+  assert "err[check.const]" not in rejected.stderr, rejected.stderr
+}

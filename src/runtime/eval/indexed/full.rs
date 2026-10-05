@@ -206,6 +206,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprDynamicCall,
     ExprSelfCall,
     ExprTypedCall,
+    ExprProcCallResult,
     StmtLet,
     StmtGuard,
     StmtWith,
@@ -8547,6 +8548,9 @@ impl_node_codec! {
         BuildExprRow::Ok(value) => ExprOk {
             value: BuildExprId,
         } => BuildExprRow::Ok(value),
+        BuildExprRow::ProcCallResult(value) => ExprProcCallResult {
+            value: BuildExprId,
+        } => BuildExprRow::ProcCallResult(value),
         BuildExprRow::Err { value, cause } => ExprErr {
             value: BuildExprId,
             cause: Option<BuildExprId>,
@@ -12198,6 +12202,121 @@ pure both() -> Int {
                 "{}",
                 error.message
             );
+        });
+    }
+
+    // A typed call whose callee is a local, a field, or a call result has
+    // nothing in the program to be held to: only a parameter row records a
+    // declared type, and the type of any other expression is the checker's
+    // fact, which the program does not repeat per slot. Such a row therefore
+    // verifies with a callee of another callable type, and what stops the
+    // call is the callee's own parameter boundary, which a call through a
+    // value always runs: the function tests each argument against its
+    // declared type and its arity before its body starts.
+    #[test]
+    fn typed_call_through_a_local_is_held_by_the_callee_s_parameter_boundary() {
+        run_with_large_stack(|| {
+            let source = r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(text: Str) -> Int
+type Pair = pure(n: Int, m: Int) -> Int
+
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+pure triple(n: Int) -> Int {
+  n * 3
+}
+
+pure length(text: Str) -> Int {
+  text.byte_len()
+}
+
+pure width(text: Str) -> Int {
+  text.byte_len() + 1
+}
+
+pure sum(n: Int, m: Int) -> Int {
+  n + m
+}
+
+pure product(n: Int, m: Int) -> Int {
+  n * m
+}
+
+pure all(wide: Bool, n: Int, text: Str) -> Int {
+  let scale: Scale = if wide { triple } else { double }
+  let measure: Measure = if wide { width } else { length }
+  let pair: Pair = if wide { product } else { sum }
+  scale(n) + measure(text) + pair(n, n)
+}
+"#;
+            let program = Arc::new(fixture("typed-callable-locals.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let call = |program: &Arc<FullProgram>| {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(program));
+                evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(program, "all")),
+                        LoweredFunctionKind::Pure,
+                        &[
+                            Value::Bool(false),
+                            Value::Int(5),
+                            Value::Str(Arc::from("abc")),
+                        ],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("all exists")
+            };
+            assert_eq!(call(&program).unwrap(), Value::Int(23));
+
+            // Payload words: callee, kind, signature type, argument block.
+            let calls = program
+                .store
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+                .map(|(index, _)| {
+                    program.store.data[index]
+                        .range()
+                        .bounds(program.store.extra.len())
+                        .unwrap()
+                        .start
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 3, "one typed call per local");
+            let (scale, measure, pair) = (calls[0], calls[1], calls[2]);
+            // Where the callee of a call keeps the slot it reads.
+            let callee_slot = |call: usize| {
+                let callee = program.store.extra[call] as usize;
+                program.store.data[callee]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap()
+                    .start
+            };
+
+            // `scale(n)` reads the local that holds a `Measure`: the Int
+            // argument reaches a Str parameter.
+            let mut retyped = (*program).clone();
+            retyped.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(measure)];
+            FullVerifier::verify(&retyped).unwrap();
+            let error = call(&Arc::new(retyped)).unwrap_err();
+            assert!(
+                error.message.contains("expected Str, found Int"),
+                "{error:?}"
+            );
+
+            // `scale(n)` reads the local that holds a `Pair`: one argument
+            // reaches two parameters.
+            let mut short = (*program).clone();
+            short.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(pair)];
+            FullVerifier::verify(&short).unwrap();
+            let error = call(&Arc::new(short)).unwrap_err();
+            assert!(error.message.contains("argument"), "{error:?}");
         });
     }
 

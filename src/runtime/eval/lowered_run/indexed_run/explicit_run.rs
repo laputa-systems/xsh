@@ -293,6 +293,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     WrapOk(Box<FrameContinuation>),
+    ProcCallResult(Box<FrameContinuation>),
     WrapErr {
         cause: Option<u32>,
         span: Span,
@@ -445,7 +446,8 @@ fn with_initializer_handler(
             | FrameContinuation::ListCompValue { next, .. }
             | FrameContinuation::WrapErr { next, .. }
             | FrameContinuation::AttachErrCause { next, .. }
-            | FrameContinuation::WrapOk(next) => next,
+            | FrameContinuation::WrapOk(next)
+            | FrameContinuation::ProcCallResult(next) => next,
             _ => return None,
         };
     }
@@ -2937,6 +2939,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::WrapOk(Box::new(next)),
                 );
             }
+            FullTag::ExprProcCallResult => {
+                let value = indexed_raw(&mut payload, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(
+                    index,
+                    value,
+                    span,
+                    FrameContinuation::ProcCallResult(Box::new(next)),
+                );
+            }
             FullTag::ExprErr => {
                 let value = indexed_raw(&mut payload, span)?;
                 let cause = indexed_optional_raw(&mut payload, span)?;
@@ -4082,6 +4094,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => self.push_value(
                     index,
                     FrameValue::Value(LoweredValue::ResultOk(Box::new(value))),
+                    *next,
+                ),
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
+            FrameContinuation::ProcCallResult(next) => match value {
+                FrameValue::Value(value) => self.push_value(
+                    index,
+                    FrameValue::Value(super::proc_call_result(value)),
                     *next,
                 ),
                 FrameValue::Break(value) => {

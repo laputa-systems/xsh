@@ -908,13 +908,34 @@ impl Checker {
                 target,
                 ty,
                 initializer,
+            } => {
+                self.check_binding_arena(arena, source, target, ty, initializer, false, stmt.span);
             }
-            | ArenaStmtKind::Const {
+            ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer,
             } => {
+                let reported = self.diagnostics.len();
                 self.check_binding_arena(arena, source, target, ty, initializer, false, stmt.span);
+                // Constant preparation runs before this check and reports a
+                // value that does not fit the declared type without saying
+                // why. This check has now said why, so that report would
+                // restate it; it stays the report when this check has none.
+                let explained = self.diagnostics[reported..]
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
+                if explained {
+                    self.diagnostics.retain(|diagnostic| {
+                        !(diagnostic.code == Some(DiagnosticCode::CheckConst)
+                            && diagnostic.message == crate::sema::constants::CONSTANT_TYPE_FIT_FAILURE
+                            && diagnostic.labels.first().is_some_and(|label| {
+                                label.span.source_id == stmt.span.source_id
+                                    && stmt.span.start() <= label.span.start()
+                                    && label.span.end() <= stmt.span.end()
+                            }))
+                    });
+                }
             }
             ArenaStmtKind::Var {
                 target,

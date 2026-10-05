@@ -1089,7 +1089,14 @@ is expected. Incompatible contributions are errors; inference never widens to
 - A callable type (9.4) accepts a function, or a value of another callable
   type, of the same kind (`pure` or `proc`) with the same parameter labels and
   types in order and the same return type. Only effects may differ: the
-  function may need fewer effects than the type's clause allows. A value of a
+  function may need fewer effects than the type's clause allows. Of the
+  return type, two things may differ, neither of which needs a conversion
+  where the call returns: a validated type may stand where its base is
+  written, at any depth, and the error of a `Result` may be narrower, so a
+  function returning `Result[T, BuildError]` fits a type that returns
+  `Result[T]`. The value position does not otherwise vary (`Int` is not
+  `UInt`, and a wider record is not a narrower one), and parameter types do
+  not vary at all. A value of a
   callable type fits `Proc` or `Pure` of its kind; a `Proc`, a `Pure`, or an
   `Any` never fits a callable type.
 - Equality may compare `T` with `T?` in either order; it yields `Bool` and does
@@ -2475,7 +2482,9 @@ which skipped deferred cleanup, has no replacement.
 
 Calls to value-returning procs remain effectful in expressions. First-class
 `Proc` values have `.call(...) -> Result[Any]` and `Pure` values
-`.call(...) -> Any`; their arguments are checked at runtime.
+`.call(...) -> Any`; their arguments are checked at runtime. A dynamic `Proc`
+does not say what its proc returns, so `Proc.call` is the proc's own `Result`
+when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
 
 ### 9.2 Parameters
 
@@ -2583,7 +2592,11 @@ rejected. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was
-made from. The handle does not carry its signature, so the type is never a
+made from, and a call through the type enters the function as a dynamic call
+does: the function tests the number of arguments and each argument against
+its own parameter types before its body starts. That test is the fallback,
+never the first check; nothing a checked program does reaches it. The handle
+does not carry its signature, so the type is never a
 runtime test: it cannot be the target of `.require`, of `is`, or of a type
 pattern, alone or inside a schema (`check.callable-type`), and it is not a
 union member (4.12). A callable type whose parameter has a default, a rest

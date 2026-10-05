@@ -90,3 +90,25 @@ WJj""".base64_decode()? == b"abc"
   test.error_kind("%%%".base64_decode(), "invalid-base64")
   test.error_kind("M!".base32_decode(), "invalid-base32")
 }
+
+pure bytes_byte_at(data: Bytes, index: Int) -> Int? {
+  data.byte_at(index)
+}
+
+pure text_byte_at(text: Str, index: Int) -> Int? {
+  text.byte_at(index)
+}
+
+# `byte_at` is one lowered operation for both receivers; it reads the bytes of
+# a `Bytes` value, not its text, and is null outside the value on either.
+test test_byte_at_reads_bytes_and_text_through_typed_receivers {
+  let data = b"a\xffc"
+  assert bytes_byte_at(data, 0) == 97
+  assert bytes_byte_at(data, 1) == 255
+  assert bytes_byte_at(data, 3) == null
+  assert bytes_byte_at(data, -1) == null
+  assert text_byte_at("abc", 2) == 99
+  assert text_byte_at("abc", 3) == null
+  let dynamic: Any = data
+  assert dynamic.byte_at(1).require(Int)? == 255
+}

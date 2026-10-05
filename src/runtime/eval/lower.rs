@@ -9683,7 +9683,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if name == "call" {
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
-                    return Some(push_build_row!(
+                    let call = push_build_row!(
                         self,
                         expr,
                         BuildExprRow::DynamicCall {
@@ -9691,7 +9691,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             args,
                             span,
                         }
-                    ));
+                    );
+                    // The checker typed `.call` on a dynamic proc handle as
+                    // a Result without knowing what the proc returns.
+                    if self.checked_expr_type(base) == Some(Type::Proc) {
+                        return Some(push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::ProcCallResult(call)
+                        ));
+                    }
+                    return Some(call);
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
                     if let Some(arity) = self.compact_qualified_tag_variant_arity(module, name) {

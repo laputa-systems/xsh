@@ -302,8 +302,9 @@ type Defaults = {argv: NonEmpty[Str] = [], name: Str}
 print ${NONE.len()} ${Defaults(name: "x").name}
 """,
   )?
-  assert count(stderr, "err[check.const]") >= 1, stderr
-  assert count(stderr, "err[check.validated-literal]") + count(stderr, "err[check.record-default]") >= 1, stderr
+  # Each is reported once, by the check that says why.
+  assert count(stderr, "err[check.validated-literal]") == 2, stderr
+  assert count(stderr, "err[") == 2, stderr
 }
 
 # A list is never a `NonEmpty` without the validation, wherever it comes from.
