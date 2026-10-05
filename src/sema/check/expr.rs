@@ -881,9 +881,7 @@ impl Checker {
                     arena,
                     &value_ty,
                     std::iter::once(pattern),
-                    &self.type_defs,
-                    &self.tag_variants,
-                    &self.pattern_test_types,
+                    &self.exhaustiveness_facts(),
                 );
                 // A pattern that cannot fail on its own still has a failure
                 // case over an optional subject: `null`. That is optional
@@ -2173,8 +2171,7 @@ impl Checker {
             arena,
             &value_ty,
             unguarded.iter().map(|(pattern, _)| *pattern),
-            &self.type_defs,
-            &self.tag_variants, &self.pattern_test_types,
+            &self.exhaustiveness_facts(),
         ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);

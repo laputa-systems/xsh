@@ -177,17 +177,209 @@ pub(super) fn stmt_has_exit_point_arena(arena: &ArenaProgram, id: StmtId) -> boo
     }
 }
 
+/// The checker facts that decide which values a set of patterns covers.
+#[derive(Clone, Copy)]
+pub(super) struct ExhaustivenessFacts<'a> {
+    pub(super) type_defs: &'a FxHashMap<Name, TypeDefBody>,
+    pub(super) tag_variants: &'a FxHashMap<Name, TagVariantInfo>,
+    pub(super) pattern_types: &'a FxHashMap<crate::syntax::arena::PatternId, Type>,
+    pub(super) inferred_variant_patterns:
+        &'a std::collections::BTreeMap<Span, super::InferredVariantPattern>,
+    pub(super) error_families: &'a FxHashMap<Name, super::ErrorFamilyInfo>,
+}
+
+impl ExhaustivenessFacts<'_> {
+    /// The variant names of the enum `type_name`, or `None` when no
+    /// declaration of it is visible here. An enum declared in this module is
+    /// read from its definition; one imported under a namespace is read from
+    /// its constructors, which an import brings in all together.
+    pub(super) fn enum_variants(&self, type_name: Name) -> Option<Vec<Name>> {
+        let declared = self.type_defs.get(&type_name).or_else(|| {
+            self.type_defs.values().find(|body| {
+                matches!(body, TypeDefBody::TagUnion(variants)
+                    if variants.first().is_some_and(|variant| variant.type_name == type_name))
+            })
+        });
+        if let Some(TypeDefBody::TagUnion(variants)) = declared {
+            return Some(variants.iter().map(|variant| variant.name).collect());
+        }
+        let mut names: Vec<Name> = self
+            .tag_variants
+            .iter()
+            .filter(|(_, info)| info.type_name == type_name)
+            .map(|(spelling, _)| unqualified_name(*spelling))
+            .collect();
+        names.sort_by_key(|name| name.as_str().to_string());
+        names.dedup();
+        (!names.is_empty()).then_some(names)
+    }
+}
+
+/// The last segment of a constructor or facet spelling: `Binary` for both
+/// `Binary` and `kinds.Binary`.
+fn unqualified_name(name: Name) -> Name {
+    match name.as_str().rsplit_once('.') {
+        Some((_, member)) => Name::intern(member),
+        None => name,
+    }
+}
+
+/// What the unguarded patterns of a match cover of an enum or error family
+/// subject.
+#[derive(Default)]
+pub(super) struct VariantCoverage {
+    /// A wildcard, a binding, or a test for the whole family.
+    pub(super) catch_all: bool,
+    /// Enum variants and `Ok`/`Err`, by unqualified name, matched whatever
+    /// their payload is.
+    pub(super) constructors: FxHashSet<Name>,
+    /// Error variants matched whatever their payload is.
+    pub(super) error_variants: FxHashSet<Name>,
+    /// Facets tested for, by unqualified name.
+    pub(super) facets: FxHashSet<Name>,
+    booleans: [bool; 2],
+}
+
+impl VariantCoverage {
+    /// Whether some pattern matches every value of `variant` of an error
+    /// family.
+    pub(super) fn covers_error_variant(
+        &self,
+        name: Name,
+        variant: &super::ErrorVariantInfo,
+    ) -> bool {
+        self.error_variants.contains(&name)
+            || variant
+                .facets
+                .iter()
+                .any(|facet| self.facets.contains(&unqualified_name(*facet)))
+    }
+}
+
+/// Whether `pattern` matches every value of its position's type.
+fn pattern_is_irrefutable(
+    arena: &ArenaProgram,
+    pattern: crate::syntax::arena::PatternId,
+    variants: &FxHashMap<Name, TagVariantInfo>,
+) -> bool {
+    use crate::syntax::arena::ArenaPatternKind;
+    match arena.arena.pattern(pattern).kind {
+        ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
+            pattern_is_irrefutable(arena, child, variants)
+        }
+        ArenaPatternKind::Alternation(items) => arena
+            .arena
+            .pattern_ids(items)
+            .any(|child| pattern_is_irrefutable(arena, child, variants)),
+        ArenaPatternKind::Wildcard => true,
+        ArenaPatternKind::Binding(name) => !variants.contains_key(&name),
+        ArenaPatternKind::Tuple(items) => arena
+            .arena
+            .pattern_ids(items)
+            .all(|item| pattern_is_irrefutable(arena, item, variants)),
+        // A record shape can reject dynamic payloads even when all fields bind.
+        ArenaPatternKind::Record { .. } => false,
+        _ => false,
+    }
+}
+
+/// Adds what `pattern` covers to `coverage`. A target-typed `.Name` pattern
+/// counts as the qualified pattern the checker resolved it to.
+pub(super) fn collect_variant_coverage(
+    arena: &ArenaProgram,
+    pattern: crate::syntax::arena::PatternId,
+    facts: &ExhaustivenessFacts<'_>,
+    coverage: &mut VariantCoverage,
+) {
+    use crate::syntax::arena::ArenaPatternKind;
+    let node = arena.arena.pattern(pattern);
+    let kind = if node.kind.is_inferred_variant() {
+        match facts
+            .inferred_variant_patterns
+            .get(&arena.arena.span(node.span))
+        {
+            Some(resolved) => resolved.qualify(&node.kind),
+            // An unresolved `.Name` already has its own diagnostic.
+            None => return,
+        }
+    } else {
+        node.kind.clone()
+    };
+    match kind {
+        ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
+            collect_variant_coverage(arena, child, facts, coverage);
+        }
+        ArenaPatternKind::Alternation(items) => {
+            for item in arena.arena.pattern_ids(items) {
+                collect_variant_coverage(arena, item, facts, coverage);
+            }
+        }
+        ArenaPatternKind::Wildcard => coverage.catch_all = true,
+        ArenaPatternKind::Binding(name) if !facts.tag_variants.contains_key(&name) => {
+            coverage.catch_all = true;
+        }
+        ArenaPatternKind::Binding(name) => {
+            coverage.constructors.insert(unqualified_name(name));
+        }
+        ArenaPatternKind::Constructor { name, arg }
+            if arg.is_none_or(|arg| pattern_is_irrefutable(arena, arg, facts.tag_variants)) =>
+        {
+            coverage.constructors.insert(unqualified_name(name));
+        }
+        ArenaPatternKind::ErrorVariant {
+            family,
+            variant,
+            fields,
+        } => {
+            // `namespace.Variant` of an imported enum parses as this shape.
+            if fields.len == 0
+                && facts
+                    .tag_variants
+                    .contains_key(&Name::intern(format!("{family}.{variant}")))
+            {
+                coverage.constructors.insert(variant);
+            } else if arena
+                .arena
+                .pattern_fields(fields)
+                .iter()
+                .all(|field| pattern_is_irrefutable(arena, field.pattern, facts.tag_variants))
+            {
+                coverage.error_variants.insert(variant);
+            }
+        }
+        ArenaPatternKind::Facet(name) => {
+            coverage.facets.insert(unqualified_name(name));
+        }
+        ArenaPatternKind::TestName { .. } | ArenaPatternKind::Type { .. } => {
+            match facts.pattern_types.get(&pattern) {
+                Some(Type::ErrorVariant { variant, .. }) => {
+                    coverage.error_variants.insert(*variant);
+                }
+                Some(Type::ErrorFacet(facet)) => {
+                    coverage.facets.insert(unqualified_name(*facet));
+                }
+                Some(Type::ErrorFamily(_) | Type::Error) => coverage.catch_all = true,
+                _ => {}
+            }
+        }
+        ArenaPatternKind::Literal(expr) => {
+            if let ArenaExprKind::Bool(value) = arena.arena.expr(expr).kind {
+                coverage.booleans[usize::from(value)] = true;
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Returns true if a match on `value_ty` with the given arms is exhaustive —
 /// i.e. every possible value is matched. This is true when the match has a
-/// catch-all (wildcard or non-tag-variant binding) or, for tag unions, when
-/// every variant is explicitly covered.
+/// catch-all (wildcard or non-tag-variant binding) or, for an enum or an
+/// error family, when every variant is explicitly covered.
 fn match_is_exhaustive_arena(
     arena: &ArenaProgram,
     value_ty: &Type,
     arms: &[crate::syntax::arena::ArenaMatchArm],
-    type_defs: &FxHashMap<Name, TypeDefBody>,
-    tag_variants: &FxHashMap<Name, TagVariantInfo>,
-    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
+    facts: &ExhaustivenessFacts<'_>,
 ) -> bool {
     patterns_are_exhaustive_arena(
         arena,
@@ -195,9 +387,7 @@ fn match_is_exhaustive_arena(
         arms.iter()
             .filter(|arm| arm.guard.is_none())
             .map(|arm| arm.pattern),
-        type_defs,
-        tag_variants,
-        pattern_types,
+        facts,
     )
 }
 
@@ -230,69 +420,10 @@ pub(super) fn patterns_are_exhaustive_arena(
     arena: &ArenaProgram,
     value_ty: &Type,
     patterns: impl Iterator<Item = crate::syntax::arena::PatternId>,
-    type_defs: &FxHashMap<Name, TypeDefBody>,
-    tag_variants: &FxHashMap<Name, TagVariantInfo>,
-    pattern_types: &FxHashMap<crate::syntax::arena::PatternId, Type>,
+    facts: &ExhaustivenessFacts<'_>,
 ) -> bool {
     use crate::syntax::arena::ArenaPatternKind;
-    fn irrefutable(
-        arena: &ArenaProgram,
-        pattern: crate::syntax::arena::PatternId,
-        variants: &FxHashMap<Name, TagVariantInfo>,
-    ) -> bool {
-        match arena.arena.pattern(pattern).kind {
-            ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
-                irrefutable(arena, child, variants)
-            }
-            ArenaPatternKind::Alternation(items) => arena
-                .arena
-                .pattern_ids(items)
-                .any(|child| irrefutable(arena, child, variants)),
-            ArenaPatternKind::Wildcard => true,
-            ArenaPatternKind::Binding(name) => !variants.contains_key(&name),
-            ArenaPatternKind::Tuple(items) => arena
-                .arena
-                .pattern_ids(items)
-                .all(|item| irrefutable(arena, item, variants)),
-            // A record shape can reject dynamic payloads even when all fields bind.
-            ArenaPatternKind::Record { .. } => false,
-            _ => false,
-        }
-    }
-    fn covered(
-        arena: &ArenaProgram,
-        pattern: crate::syntax::arena::PatternId,
-        variants: &FxHashMap<Name, TagVariantInfo>,
-        constructors: &mut FxHashSet<Name>,
-        booleans: &mut [bool; 2],
-    ) -> bool {
-        match arena.arena.pattern(pattern).kind {
-            ArenaPatternKind::Wildcard => return true,
-            ArenaPatternKind::Binding(name) if !variants.contains_key(&name) => return true,
-            ArenaPatternKind::Binding(name) => {
-                constructors.insert(name);
-            }
-            ArenaPatternKind::Constructor { name, arg }
-                if arg.is_none_or(|arg| irrefutable(arena, arg, variants)) =>
-            {
-                constructors.insert(name);
-            }
-            ArenaPatternKind::Literal(expr) => {
-                if let ArenaExprKind::Bool(value) = arena.arena.expr(expr).kind {
-                    booleans[usize::from(value)] = true;
-                }
-            }
-            ArenaPatternKind::Alternation(items) => {
-                for item in arena.arena.pattern_ids(items) {
-                    if covered(arena, item, variants, constructors, booleans) {
-                        return true;
-                    }
-                }
-            }
-            _ => {}
-        }
-        false
-    }
+    let tag_variants = facts.tag_variants;
     let mut pending: Vec<_> = patterns.collect();
     let mut patterns = Vec::new();
     while let Some(pattern) = pending.pop() {
@@ -304,22 +435,24 @@ pub(super) fn patterns_are_exhaustive_arena(
             _ => patterns.push(pattern),
         }
     }
-    let mut constructors = FxHashSet::default();
-    let mut booleans = [false; 2];
+    let mut coverage = VariantCoverage::default();
     let mut empty_list = false;
     let mut nonempty_list = false;
     let mut tested = Vec::new();
     for pattern in patterns {
         if matches!(value_ty, Type::Union(_)) {
-            collect_tested_types_arena(arena, pattern, pattern_types, &mut tested);
+            collect_tested_types_arena(arena, pattern, facts.pattern_types, &mut tested);
         }
-        if covered(
-            arena,
-            pattern,
-            tag_variants,
-            &mut constructors,
-            &mut booleans,
-        ) {
+        // A type test covers only the values of the tested type, so it is a
+        // catch-all for an error family subject and for nothing else.
+        let type_test = matches!(
+            arena.arena.pattern(pattern).kind,
+            ArenaPatternKind::TestName { .. } | ArenaPatternKind::Type { .. }
+        );
+        if !type_test || matches!(value_ty, Type::ErrorFamily(_)) {
+            collect_variant_coverage(arena, pattern, facts, &mut coverage);
+        }
+        if coverage.catch_all {
             return true;
         }
         if matches!(value_ty, Type::List(_))
@@ -336,17 +469,27 @@ pub(super) fn patterns_are_exhaustive_arena(
     }
     match value_ty {
         Type::List(_) => empty_list && nonempty_list,
-        Type::Bool => booleans.iter().all(|value| *value),
+        Type::Bool => coverage.booleans.iter().all(|value| *value),
         // A union is covered when each member has a type test that accepts it.
         Type::Union(members) => members
             .iter()
             .all(|member| tested.iter().any(|tested| member.matches_expected(tested))),
-        Type::Result(_, _) => constructors.contains(&Name::intern("Ok")) && constructors.contains(&Name::intern("Err")),
-        Type::Tag(name) => match type_defs.get(name).or_else(|| type_defs.values().find(|body|
-            matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *name)))) {
-            Some(TypeDefBody::TagUnion(variants)) => variants.iter().all(|variant| constructors.contains(&variant.name)),
-            _ => false,
-        },
+        Type::Result(_, _) => {
+            coverage.constructors.contains(&Name::intern("Ok"))
+                && coverage.constructors.contains(&Name::intern("Err"))
+        }
+        Type::Tag(name) => facts.enum_variants(*name).is_some_and(|variants| {
+            variants
+                .iter()
+                .all(|variant| coverage.constructors.contains(variant))
+        }),
+        // A family whose declaration is visible is closed: its variants are
+        // all the values there are.
+        Type::ErrorFamily(family) => facts.error_families.get(family).is_some_and(|info| {
+            info.variants
+                .iter()
+                .all(|(name, variant)| coverage.covers_error_variant(*name, variant))
+        }),
         _ => false,
     }
 }
@@ -3177,7 +3320,7 @@ impl Checker {
                     .get(&arena.arena.expr(value).span)
                     .cloned()
                     .unwrap_or(Type::Unknown);
-                match_is_exhaustive_arena(arena, &ty, arms, &self.type_defs, &self.tag_variants, &self.pattern_test_types)
+                match_is_exhaustive_arena(arena, &ty, arms, &self.exhaustiveness_facts())
                     && arms
                         .iter()
                         .all(|arm| self.block_definitely_exits_arena(arena, arm.block))
@@ -3387,8 +3530,7 @@ impl Checker {
                     arms.iter()
                         .filter(|arm| arm.guard.is_none())
                         .map(|arm| arm.pattern),
-                    &self.type_defs,
-                    &self.tag_variants, &self.pattern_test_types,
+                    &self.exhaustiveness_facts(),
                 ) && arms
                     .iter()
                     .all(|arm| self.return_inference_block_returns(arena, arm.block))
@@ -3792,8 +3934,7 @@ impl Checker {
             arena,
             &value_ty,
             arm_list,
-            &self.type_defs,
-            &self.tag_variants, &self.pattern_test_types,
+            &self.exhaustiveness_facts(),
         ) && arm_list
             .iter()
             .all(|arm| block_always_returns_arena(arena, arm.block));
@@ -3858,8 +3999,7 @@ impl Checker {
             arena,
             &value_ty,
             arm_list,
-            &self.type_defs,
-            &self.tag_variants, &self.pattern_test_types,
+            &self.exhaustiveness_facts(),
         ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             let unguarded = arm_list

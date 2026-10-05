@@ -624,9 +624,9 @@ An enum declares one or more variants; payload-free variants are bare names
 and payload variants are called like functions. Constructors live in the
 declaring module's namespace, not under the enum name; where the expected type
 is the enum, `.Variant` names one without a namespace (5.5). A statement `match`
-over an enum without a catch-all warns about uncovered variants
-(`check.non-exhaustive-match`); a value `match` names them in its
-`check.match-value-exhaustive` error instead.
+over an enum covers every variant or ends in a catch-all
+(`check.non-exhaustive-match`, 6.8); a value `match` names the uncovered
+variants in its `check.match-value-exhaustive` error instead.
 `type Alias = Level` aliases the same nominal type.
 
 A Str-backed enum gives each payload-free variant a unique constant wire
@@ -1238,6 +1238,21 @@ value, so `if done { return x }` may end a block.
 ```
 
 A `match` with no matching arm fails with `match-no-arm`.
+
+A statement `match` over an enum, ordinary or Str-backed, must be exhaustive
+as well: its unguarded arms cover every variant, or it ends in `else =>`. An
+arm covers a variant when it matches the variant whatever its payload is, so
+`Fault("disk") =>` does not cover `Fault`. A missing variant is
+`check.non-exhaustive-match`, so a variant added to an enum is reported at
+every `match` that has not said what to do with it:
+
+```xsh
+{{.spec.non_exhaustive_match.source}}
+```
+
+The checker enumerates no other subject of a statement `match` (a number, a
+string, a record, a `Result`, `Any`): there an unmatched value is still the
+run-time `match-no-arm`.
 
 The last arm of a `match` statement or expression may be `else => ...`, the
 catch-all: it runs for any subject no earlier arm selected, and binds nothing.

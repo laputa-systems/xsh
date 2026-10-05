@@ -1,5 +1,5 @@
 use super::Diagnostic;
-use super::{Binding, Checker, FxHashSet, Name, Span, Type, TypeDefBody, result_types};
+use super::{Binding, Checker, FxHashSet, Name, Span, Type, result_types};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
 
@@ -850,8 +850,7 @@ impl Checker {
                 arena,
                 value_ty,
                 patterns.iter().copied(),
-                &self.type_defs,
-                &self.tag_variants, &self.pattern_test_types,
+                &self.exhaustiveness_facts(),
             ) {
                 self.diagnostics.push(
                     Diagnostic::new(
@@ -874,8 +873,7 @@ impl Checker {
                 arena,
                 value_ty,
                 patterns.into_iter(),
-                &self.type_defs,
-                &self.tag_variants, &self.pattern_test_types,
+                &self.exhaustiveness_facts(),
             )
         {
             self.error(
@@ -899,9 +897,7 @@ impl Checker {
             arena,
             value_ty,
             arm_patterns.iter().map(|(pattern, _)| *pattern),
-            &self.type_defs,
-            &self.tag_variants,
-            &self.pattern_test_types,
+            &self.exhaustiveness_facts(),
         ) {
             return None;
         }
@@ -922,7 +918,20 @@ impl Checker {
         (!missing.is_empty()).then(|| missing.join(", "))
     }
 
-    /// A statement `match` over an enum that misses variants is a warning.
+    pub(super) fn exhaustiveness_facts(&self) -> super::stmt::ExhaustivenessFacts<'_> {
+        super::stmt::ExhaustivenessFacts {
+            type_defs: &self.type_defs,
+            tag_variants: &self.tag_variants,
+            pattern_types: &self.pattern_test_types,
+            inferred_variant_patterns: &self.inferred_variant_patterns,
+            error_families: &self.error_families,
+        }
+    }
+
+    /// A statement `match` over an enum must handle every variant or end in
+    /// a catch-all: an unmatched value would fail at run time, and a variant
+    /// added later must not slip past an old match unnoticed. A statement
+    /// `match` over a union that misses a member is still a warning.
     /// A value-producing `match` reports the same gap through
     /// `check.match-value-exhaustive` instead, so it calls
     /// `missing_tag_variants_arena` directly and never gets both.
@@ -952,20 +961,24 @@ impl Checker {
             return;
         };
         self.diagnostics.push(
-            Diagnostic::new(
-                crate::diagnostic::Severity::Warning,
-                format!("non-exhaustive match: missing variant(s) `{missing_list}`"),
-            )
+            Diagnostic::error(format!(
+                "non-exhaustive match: missing variant(s) `{missing_list}`"
+            ))
             .with_code(DiagnosticCode::CheckNonExhaustiveMatch)
-            .with_label(crate::diagnostic::Label::secondary(
+            .with_label(crate::diagnostic::Label::primary(
                 span,
-                "not all variants of this tag union are handled",
-            )),
+                "not every variant of this enum is handled",
+            ))
+            .with_note(
+                "handle each missing variant, or end the match with `else =>` as the deliberate catch-all",
+            ),
         );
     }
 
-    /// The comma-separated enum variants that no unguarded arm covers, or
-    /// `None` when the value is not an enum or a catch-all arm exists.
+    /// The comma-separated enum variants that the unguarded arms leave some
+    /// value of unmatched, or `None` when the value is not an enum whose
+    /// variants are visible here or the arms cover it. A variant matched
+    /// only with a payload pattern that can fail is missing.
     pub(super) fn missing_tag_variants_arena(
         &self,
         arena: &ArenaProgram,
@@ -975,38 +988,24 @@ impl Checker {
         let Type::Tag(type_name) = value_ty else {
             return None;
         };
-        let body = self.type_defs.get(type_name).or_else(|| self.type_defs.values().find(|body|
-            matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *type_name))))?;
-        let TypeDefBody::TagUnion(variants) = body else {
-            return None;
-        };
+        let facts = self.exhaustiveness_facts();
+        let variants = facts.enum_variants(*type_name)?;
         if super::stmt::patterns_are_exhaustive_arena(
             arena,
             value_ty,
             arm_patterns.iter().map(|(pattern, _)| *pattern),
-            &self.type_defs,
-            &self.tag_variants, &self.pattern_test_types,
+            &facts,
         ) {
             return None;
         }
-        let has_catch_all = arm_patterns.iter().any(|(pattern_id, _)| {
-            match &arena.arena.pattern(*pattern_id).kind {
-                ArenaPatternKind::Wildcard => true,
-                ArenaPatternKind::Binding(name) => !self.tag_variants.contains_key(name),
-                _ => false,
-            }
-        });
-        if has_catch_all {
-            return None;
-        }
-        let mut covered: FxHashSet<Name> = FxHashSet::default();
-        for (pattern_id, _) in arm_patterns {
-            collect_covered_constructors_arena(arena, *pattern_id, &mut covered);
+        let mut coverage = super::stmt::VariantCoverage::default();
+        for (pattern, _) in arm_patterns {
+            super::stmt::collect_variant_coverage(arena, *pattern, &facts, &mut coverage);
         }
         let missing: Vec<String> = variants
             .iter()
-            .filter(|v| !covered.contains(&v.name))
-            .map(|v| v.name.as_str().to_string())
+            .filter(|variant| !coverage.constructors.contains(variant))
+            .map(ToString::to_string)
             .collect();
         (!missing.is_empty()).then(|| missing.join(", "))
     }
@@ -1035,27 +1034,5 @@ impl Checker {
             }
         };
         self.error(span, &message, DiagnosticCode::CheckMatchValueExhaustive);
-    }
-}
-
-#[allow(dead_code)]
-pub(super) fn collect_covered_constructors_arena(
-    arena: &ArenaProgram,
-    pattern_id: PatternId,
-    covered: &mut FxHashSet<Name>,
-) {
-    match &arena.arena.pattern(pattern_id).kind {
-        ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
-            collect_covered_constructors_arena(arena, *child, covered)
-        }
-        ArenaPatternKind::Constructor { name, .. } | ArenaPatternKind::Binding(name) => {
-            covered.insert(*name);
-        }
-        ArenaPatternKind::Alternation(patterns) => {
-            for sub_id in arena.arena.pattern_ids(*patterns) {
-                collect_covered_constructors_arena(arena, sub_id, covered);
-            }
-        }
-        _ => {}
     }
 }
