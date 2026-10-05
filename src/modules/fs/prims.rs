@@ -234,10 +234,18 @@ pub(crate) fn mknod(
     }
     let dev = rfs::makedev(major as u32, minor as u32);
     let shown = path.display().to_string();
+    // Only Linux exposes `mknodat` here. Elsewhere the host lacks the
+    // facility and the call fails with that errno, like any other missing one.
+    #[cfg(target_os = "linux")]
+    let made = rfs::mknodat(CWD, &path, file_type, Mode::from_raw_mode(mode as _), dev);
+    #[cfg(not(target_os = "linux"))]
+    let made: rustix::io::Result<()> = {
+        let _ = (file_type, dev, mode);
+        Err(rustix::io::Errno::NOTSUP)
+    };
     name_error_path(
         &shown,
-        rfs::mknodat(CWD, &path, file_type, Mode::from_raw_mode(mode as _), dev)
-            .map_err(|error| RuntimeError::host("fs-mknod", &error).with_span(span)),
+        made.map_err(|error| RuntimeError::host("fs-mknod", &error).with_span(span)),
     )
 }
 
@@ -246,11 +254,11 @@ pub(crate) fn makedev(major: i64, minor: i64) -> i64 {
 }
 
 pub(crate) fn dev_major(dev: i64) -> i64 {
-    i64::from(rfs::major(dev as u64))
+    i64::from(rfs::major(dev as rfs::Dev))
 }
 
 pub(crate) fn dev_minor(dev: i64) -> i64 {
-    i64::from(rfs::minor(dev as u64))
+    i64::from(rfs::minor(dev as rfs::Dev))
 }
 
 pub(crate) fn link(
@@ -312,8 +320,15 @@ pub(crate) fn statvfs_record(path: PathBuf, span: Span) -> Result<Value, Runtime
         (key("flags"), Value::Int(stats.f_flag.bits() as i64)),
         (key("readonly"), flag(StatVfsMountFlags::RDONLY)),
         (key("nosuid"), flag(StatVfsMountFlags::NOSUID)),
+        // `statvfs` reports these two only on Linux.
+        #[cfg(target_os = "linux")]
         (key("nodev"), flag(StatVfsMountFlags::NODEV)),
+        #[cfg(target_os = "linux")]
         (key("noexec"), flag(StatVfsMountFlags::NOEXEC)),
+        #[cfg(not(target_os = "linux"))]
+        (key("nodev"), Value::Bool(false)),
+        #[cfg(not(target_os = "linux"))]
+        (key("noexec"), Value::Bool(false)),
     ])))
 }
 
