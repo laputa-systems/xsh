@@ -34,6 +34,9 @@ mod lint_read_lines;
 #[path = "lint_size_literal.rs"]
 mod lint_size_literal;
 
+#[path = "lint_prefer_match_else.rs"]
+mod lint_prefer_match_else;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -667,6 +670,11 @@ impl<'a> Linter<'a> {
         linter
             .diagnostics
             .extend(lint_size_literal::lint_size_products(program, source));
+        linter
+            .diagnostics
+            .extend(lint_prefer_match_else::lint_wildcard_catch_all_arms(
+                program, source,
+            ));
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));

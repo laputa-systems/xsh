@@ -423,3 +423,58 @@ fn error_family_forms_are_parsed_and_recognized_alike() {
         );
     }
 }
+
+/// `else =>` is the catch-all arm of a `match` statement or expression: the
+/// parser and the productions agree that it is the last arm, takes no guard,
+/// and is not a pattern.
+#[test]
+fn match_else_arm_forms_are_parsed_and_recognized_alike() {
+    let recognizer = Recognizer::new(grammar());
+    for source in [
+        "match x { else => f() }\n",
+        "match x {\n  1 => f()\n  else => g()\n}\n",
+        "match x {\n  1 => f(),\n  else => g(),\n}\n",
+        "match x {\n  1 => { f() }\n  else => { g() }\n\n}\n",
+        "match x { 1 => f(), else => {} }\n",
+        "match x {\n  1 => if y { f() }\n  else => g()\n}\n",
+        "match x { 1 => if y { f() } else => g() }\n",
+        "match x {\n  _ if y => f()\n  else => return 1\n}\n",
+        "let v = match x { 1 => 2, else => 3 }\n",
+        "let v = match x {\n  1 => 2\n  else => 3\n}\n",
+        "let v = match x {\n  1 => 2,\n  else => { 3 },\n\n}\n",
+        "let v = match x { else => {a: 1} }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "the parser rejects {source:?}: {:?}",
+            parsed.diagnostics
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_ok(),
+            "the grammar rejects {source:?}"
+        );
+    }
+    for source in [
+        "match x {\n  else => f()\n  1 => g()\n}\n",
+        "match x {\n  else => f()\n  else => g()\n}\n",
+        "match x {\n  1 => f()\n  else if y => g()\n}\n",
+        "match x { Some(else) => f() }\n",
+        "match x { 1 | else => f() }\n",
+        "let v = match x { else => 1, 2 => 3 }\n",
+        "let v = match x { 1 => 2, else if y => 3 }\n",
+    ] {
+        assert!(
+            !Parser::parse_source_arena_only(SourceId::new(0), source)
+                .diagnostics
+                .is_empty(),
+            "the parser accepts {source:?}"
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_err(),
+            "the grammar accepts {source:?}"
+        );
+    }
+}

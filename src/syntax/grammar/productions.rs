@@ -1225,32 +1225,16 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 kw(Keyword::Match),
                 r("condition_expression"),
                 t(T::LBrace),
-                star(alt([
-                    sep(),
+                star(alt([sep(), seq([r("arm_head"), r("arm_body")])])),
+                // The catch-all `else` arm is the last arm.
+                opt(alt([
+                    seq([r("arm_head"), r("arm_statement")]),
                     seq([
-                        r("arm_head"),
-                        alt([block(), r("compound_statement")]),
-                        opt(t(T::Comma)),
-                    ]),
-                    seq([r("arm_head"), r("arm_statement"), sep()]),
-                    // `assert` and an error family read a following `,` as
-                    // part of the statement.
-                    seq([
-                        r("arm_head"),
-                        not([
-                            vec![keyword_term(Keyword::Assert)],
-                            vec![
-                                word_term("error", false),
-                                tag_term(T::Ident),
-                                tag_term(T::Equals),
-                            ],
-                            vec![keyword_term(Keyword::Export), word_term("error", false)],
-                        ]),
-                        r("arm_statement"),
-                        t(T::Comma),
+                        r("else_arm_head"),
+                        alt([r("arm_body"), r("arm_statement")]),
+                        star(sep()),
                     ]),
                 ])),
-                opt(seq([r("arm_head"), r("arm_statement")])),
                 t(T::RBrace),
             ]),
         ),
@@ -1261,6 +1245,39 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("pattern"),
                 opt(seq([kw(Keyword::If), r("expression")])),
                 t(T::FatArrow),
+            ]),
+        ),
+        // `else` takes no guard: a guarded catch-all is `_ if cond =>`.
+        rule(
+            Statements,
+            "else_arm_head",
+            seq([kw(Keyword::Else), t(T::FatArrow)]),
+        ),
+        // A statement arm's body with what ends it before a following arm.
+        rule(
+            Statements,
+            "arm_body",
+            alt([
+                seq([
+                    alt([block(), r("compound_statement")]),
+                    opt(t(T::Comma)),
+                ]),
+                seq([r("arm_statement"), sep()]),
+                // `assert` and an error family read a following `,` as
+                // part of the statement.
+                seq([
+                    not([
+                        vec![keyword_term(Keyword::Assert)],
+                        vec![
+                            word_term("error", false),
+                            tag_term(T::Ident),
+                            tag_term(T::Equals),
+                        ],
+                        vec![keyword_term(Keyword::Export), word_term("error", false)],
+                    ]),
+                    r("arm_statement"),
+                    t(T::Comma),
+                ]),
             ]),
         ),
         rule(
@@ -1642,20 +1659,31 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     sep(),
                     seq([r("match_expression_arm"), alt([t(T::Comma), sep()])]),
                 ])),
-                opt(r("match_expression_arm")),
+                // The catch-all `else` arm is the last arm.
+                opt(alt([
+                    r("match_expression_arm"),
+                    seq([
+                        r("else_arm_head"),
+                        r("arm_value"),
+                        opt(t(T::Comma)),
+                        star(sep()),
+                    ]),
+                ])),
                 t(T::RBrace),
             ]),
         ),
         rule(
             Expressions,
             "match_expression_arm",
-            seq([
-                r("arm_head"),
-                alt([
-                    block(),
-                    seq([not([vec![tag_term(T::LBrace)]]), r("expression_item")]),
-                    seq([r("record_expression"), opt(t(T::Question))]),
-                ]),
+            seq([r("arm_head"), r("arm_value")]),
+        ),
+        rule(
+            Expressions,
+            "arm_value",
+            alt([
+                block(),
+                seq([not([vec![tag_term(T::LBrace)]]), r("expression_item")]),
+                seq([r("record_expression"), opt(t(T::Question))]),
             ]),
         ),
         // An arm value that starts with a record, which the parser tells

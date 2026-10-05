@@ -1113,6 +1113,26 @@ value, so `if done { return x }` may end a block.
 
 A `match` with no matching arm fails with `match-no-arm`.
 
+The last arm of a `match` statement or expression may be `else => ...`, the
+catch-all: it runs for any subject no earlier arm selected, and binds nothing.
+
+```xsh
+{{.spec.match_else.source}}
+```
+
+`else` is an arm head, not a pattern. It takes no guard, because a guarded
+catch-all does not catch everything: there is no `else if cond =>`, and the
+guarded form stays `_ if cond =>`. It is the last arm, because an arm after it
+could never run. Both mistakes are `parse.match-else-arm`:
+
+```xsh
+{{.spec.match_else_arm.source}}
+```
+
+Inside a pattern the wildcard is still `_` (6.10): `Fault(_) =>`, `[_, ..] =>`.
+An arm whose whole unguarded pattern is `_` means exactly what `else` means;
+`lint.prefer-match-else` rewrites it, so the catch-all has one spelling.
+
 ### 6.9 Blocks
 
 A bare `{ ... }` is a block when its first entry is a statement and a record or
@@ -1129,7 +1149,7 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 
 | Pattern | Matches |
 |---|---|
-| `_` | anything |
+| `_` | anything; as a whole `match` arm it is written `else` (6.8) |
 | `name` | anything, binding it (or a payload-free variant of that name); a capitalized name that is no known variant is an error (`check.pattern-capitalized-binding`) rather than a binding |
 | literal | an equal value |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |

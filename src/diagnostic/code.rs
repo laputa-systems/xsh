@@ -224,6 +224,7 @@ diagnostic_codes! {
         ParseLineContinuation = "parse.line-continuation", error, "Reject a `\\` line continuation that is not between the parts of a command";
         ParseListPatternRest = "parse.list-pattern-rest", error, "Reject a list pattern whose rest element is repeated or not last";
         ParseMapComprehensionEntries = "parse.map-comprehension-entries", error, "Reject entries written before a map comprehension in the same braces";
+        ParseMatchElseArm = "parse.match-else-arm", error, "Reject an `else` match arm that has a guard or is not the last arm";
         ParseMixedComparison = "parse.mixed-comparison", error, "Reject ordering mixed with equality, membership, or pattern tests without parentheses";
         ParseModuleCycle = "parse.module-cycle", error, "Reject a module import that forms a cycle";
         ParseModuleLoad = "parse.module-load", error, "Reject an imported module that has parse errors";
@@ -557,6 +558,7 @@ diagnostic_codes! {
         LintPreferMapComp = "lint.prefer-map-comp", warning, "Use a map comprehension instead of a for loop that only builds a map";
         LintPreferMapEntryIteration = "lint.prefer-map-entry-iteration", warning, "Iterate map entries instead of looping over keys and looking each value up";
         LintPreferMapLiteral = "lint.prefer-map-literal", warning, "Construct a fresh Map with one literal instead of incremental insertion";
+        LintPreferMatchElse = "lint.prefer-match-else", warning, "Write a last `_ =>` match arm as the catch-all `else =>`";
         LintPreferMethod = "lint.prefer-method", warning, "Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)`";
         LintPreferNamedArgumentPun = "lint.prefer-named-argument-pun", warning, "Use the named-argument shorthand when the argument repeats its value name";
         LintPreferNamedArgumentSpread = "lint.prefer-named-argument-spread", warning, "Forward record fields with a named argument spread such as `...record`";

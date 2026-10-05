@@ -1332,6 +1332,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         pattern: PatternId,
         guard: Option<ExprId>,
         block: BlockId,
+        spelling: ArenaArmSpelling,
         span: Span,
     ) {
         let span = self.lowerer.span(span);
@@ -1339,6 +1340,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             pattern,
             guard,
             block,
+            spelling,
             span,
         });
     }
@@ -1365,6 +1367,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         pattern: PatternId,
         guard: Option<ExprId>,
         value: ExprId,
+        spelling: ArenaArmSpelling,
         span: Span,
     ) {
         let span = self.lowerer.span(span);
@@ -1372,6 +1375,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             pattern,
             guard,
             value,
+            spelling,
             span,
         });
     }
@@ -1398,10 +1402,10 @@ impl<'a> ArenaProgramBuilder<'a> {
     ) -> ExprId {
         self.begin_match_expr_arms();
         let yes = self.push_bool_expr(true, span);
-        self.push_match_expr_arm_input_id(pattern, None, yes, span);
+        self.push_match_expr_arm_input_id(pattern, None, yes, ArenaArmSpelling::Pattern, span);
         let wildcard = self.push_pattern_wildcard(span);
         let no = self.push_bool_expr(false, span);
-        self.push_match_expr_arm_input_id(wildcard, None, no, span);
+        self.push_match_expr_arm_input_id(wildcard, None, no, ArenaArmSpelling::Pattern, span);
         let arms = self.finish_match_expr_arms();
         self.lowerer
             .push_expr_kind(ArenaExprKind::PatternTest { value, arms }, span)
@@ -1415,10 +1419,10 @@ impl<'a> ArenaProgramBuilder<'a> {
     ) -> ExprId {
         self.begin_match_expr_arms();
         let yes = self.push_bool_expr(true, span);
-        self.push_match_expr_arm_input_id(pattern, None, yes, span);
+        self.push_match_expr_arm_input_id(pattern, None, yes, ArenaArmSpelling::Pattern, span);
         let wildcard = self.push_pattern_wildcard(span);
         let no = self.push_bool_expr(false, span);
-        self.push_match_expr_arm_input_id(wildcard, None, no, span);
+        self.push_match_expr_arm_input_id(wildcard, None, no, ArenaArmSpelling::Pattern, span);
         let arms = self.finish_match_expr_arms();
         self.lowerer
             .push_expr_kind(ArenaExprKind::PatternCondition { value, arms }, span)
@@ -5734,11 +5738,24 @@ pub struct ArenaDestructureField {
     pub span: SpanId,
 }
 
+/// How a match arm's head was written. The checker and the runtime never read
+/// it: an `else` arm carries an ordinary wildcard pattern and no guard, so it
+/// is a catch-all to every stage that reads the pattern. Only tools that print
+/// or rewrite the source tell the two spellings apart.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArenaArmSpelling {
+    /// `PATTERN =>` or `PATTERN if GUARD =>`.
+    Pattern,
+    /// `else =>`. The arm's pattern is a wildcard spanning the `else` keyword.
+    Else,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaMatchArm {
     pub pattern: PatternId,
     pub guard: Option<ExprId>,
     pub block: BlockId,
+    pub spelling: ArenaArmSpelling,
     pub span: SpanId,
 }
 
@@ -6172,6 +6189,7 @@ pub struct ArenaMatchExprArm {
     pub pattern: PatternId,
     pub guard: Option<ExprId>,
     pub value: ExprId,
+    pub spelling: ArenaArmSpelling,
     pub span: SpanId,
 }
 

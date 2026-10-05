@@ -87,6 +87,58 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a match arm head through its `=>`: `PATTERN [if GUARD] =>` or
+    /// the catch-all `else =>`. `else_arm` is the `else` keyword of an
+    /// earlier arm of the same match, and this records the one it parses.
+    ///
+    /// An `else` arm becomes a wildcard pattern on the keyword, so everything
+    /// after the parser treats it as the ordinary catch-all. Nothing can
+    /// follow it and it takes no guard, both rejected here: a guarded
+    /// catch-all is not a catch-all, and `_ if COND =>` already says it.
+    pub(super) fn parse_match_arm_head_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+        else_arm: &mut Option<crate::source::Span>,
+    ) -> Option<(
+        crate::syntax::arena::PatternId,
+        Option<crate::syntax::arena::ExprId>,
+        crate::syntax::arena::ArenaArmSpelling,
+    )> {
+        use crate::syntax::arena::ArenaArmSpelling;
+        if else_arm.is_some() {
+            self.diagnostic_here(
+                "`else` must be the last match arm; this arm is unreachable",
+                DiagnosticCode::ParseMatchElseArm,
+            );
+        }
+        let (pattern, mut spelling) = if let Some(span) = self.consume_keyword(Keyword::Else) {
+            *else_arm = Some(span);
+            (arena.push_pattern_wildcard(span), ArenaArmSpelling::Else)
+        } else {
+            (
+                self.parse_pattern_arena_only(arena)?.0,
+                ArenaArmSpelling::Pattern,
+            )
+        };
+        let guard = if self.at_keyword(Keyword::If) {
+            if spelling == ArenaArmSpelling::Else {
+                self.diagnostic_here(
+                    "an `else` match arm takes no guard; write `_ if COND =>` for a guarded arm",
+                    DiagnosticCode::ParseMatchElseArm,
+                );
+                // Keep the guard so the rest of the arm still parses, as the
+                // guarded wildcard arm the message names.
+                spelling = ArenaArmSpelling::Pattern;
+            }
+            self.bump();
+            Some(self.parse_expr_id_arena_only(arena)?)
+        } else {
+            None
+        };
+        self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
+        Some((pattern, guard, spelling))
+    }
+
     pub(super) fn parse_pattern_arena_only(
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,

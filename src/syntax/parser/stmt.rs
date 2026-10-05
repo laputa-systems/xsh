@@ -1588,7 +1588,9 @@ impl<'a> Parser<'a> {
     /// stands for `if` (a misspelled `elif`). A statement never starts with
     /// `else`, so an `else` on the line after the closing `}` can only belong
     /// to this `if`: it is reported with a fix that joins the lines, and the
-    /// parse continues as if it were written there.
+    /// parse continues as if it were written there. `else =>` is the one
+    /// exception: it heads the catch-all arm of the match this `if` is an arm
+    /// body of, and never continues the `if`.
     pub(super) fn consume_else(&mut self) -> Option<bool> {
         let mut offset = 0;
         while matches!(
@@ -1598,7 +1600,8 @@ impl<'a> Parser<'a> {
             offset += 1;
         }
         let is_else = self.peek_tag(offset) == Some(TokenTag::Keyword)
-            && self.peek_keyword(offset) == Some(Keyword::Else);
+            && self.peek_keyword(offset) == Some(Keyword::Else)
+            && self.peek_tag(offset + 1) != Some(TokenTag::FatArrow);
         let is_elif = self.peek_tag(offset) == Some(TokenTag::Ident)
             && self
                 .peek_label_name(offset)
@@ -1893,8 +1896,12 @@ impl<'a> Parser<'a> {
         self.expect(TokenKindMatch::LBrace, "expected `{` to start match arms")?;
         self.skip_separators();
         arena.begin_match_arms();
+        let mut else_arm = None;
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            if self.parse_match_arm_arena_only(arena).is_none() {
+            if self
+                .parse_match_arm_arena_only(arena, &mut else_arm)
+                .is_none()
+            {
                 self.recover_match_arm();
             }
             self.skip_separators();
@@ -1909,15 +1916,13 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    fn parse_match_arm_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) -> Option<()> {
+    fn parse_match_arm_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        else_arm: &mut Option<crate::source::Span>,
+    ) -> Option<()> {
         let start = self.current_start();
-        let (pattern, _pattern_span) = self.parse_pattern_arena_only(arena)?;
-        let guard = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
+        let (pattern, guard, spelling) = self.parse_match_arm_head_arena_only(arena, else_arm)?;
         let block_id = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_field_record() {
             self.parse_block_arena_only(arena)?
         } else {
@@ -1942,7 +1947,7 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
         }
         let span = self.span(start, arm_end);
-        arena.push_match_arm_input_id(pattern, guard, block_id, span);
+        arena.push_match_arm_input_id(pattern, guard, block_id, spelling, span);
         Some(())
     }
 

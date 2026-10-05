@@ -420,6 +420,9 @@ impl CanonicalWriter<'_> {
                 self.put("match;");
                 self.expr(*value);
                 for arm in self.arena.match_arms(*arms) {
+                    // `else` and `_` are one catch-all to the checker but two
+                    // spellings, and the formatter must keep the one written.
+                    self.debug(&arm.spelling);
                     self.pattern(arm.pattern);
                     self.opt_expr(arm.guard);
                     self.block(arm.block);
@@ -980,6 +983,7 @@ impl CanonicalWriter<'_> {
         self.put(";");
         self.expr(value);
         for arm in self.arena.match_expr_arms(arms) {
+            self.debug(&arm.spelling);
             self.pattern(arm.pattern);
             self.opt_expr(arm.guard);
             self.expr(arm.value);

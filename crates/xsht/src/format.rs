@@ -1371,7 +1371,7 @@ impl<'a> Writer<'a> {
                 .start();
             self.write_comments_before(pattern_start, indent + 1, output);
             self.write_indent(indent + 1, output);
-            self.write_pattern(arm.pattern, output);
+            self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
                 output.push_str(" if ");
                 self.write_expr(guard, CLOSE, output);
@@ -1437,6 +1437,22 @@ impl<'a> Writer<'a> {
         if let Some(message) = message {
             output.push_str(", ");
             self.write_expr(message, END, output);
+        }
+    }
+
+    /// A match arm's pattern as its author spelled it: the catch-all stays
+    /// `else` or `_`, whichever was written.
+    fn write_arm_pattern(
+        &mut self,
+        pattern_id: PatternId,
+        spelling: xsh::frontend::syntax::arena::ArenaArmSpelling,
+        output: &mut String,
+    ) {
+        match spelling {
+            xsh::frontend::syntax::arena::ArenaArmSpelling::Else => output.push_str("else"),
+            xsh::frontend::syntax::arena::ArenaArmSpelling::Pattern => {
+                self.write_pattern(pattern_id, output)
+            }
         }
     }
 
@@ -3342,7 +3358,7 @@ impl<'a> Writer<'a> {
             } else {
                 output.push(' ');
             }
-            self.write_pattern(arm.pattern, output);
+            self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
                 output.push_str(" if ");
                 self.write_expr(guard, CLOSE, output);
@@ -3379,7 +3395,7 @@ impl<'a> Writer<'a> {
         for index in 0..arms.len() {
             let arm = self.arena.match_expr_arms(arms)[index].clone();
             self.write_indent(indent + 1, output);
-            self.write_pattern(arm.pattern, output);
+            self.write_arm_pattern(arm.pattern, arm.spelling, output);
             if let Some(guard) = arm.guard {
                 output.push_str(" if ");
                 self.write_expr(guard, CLOSE, output);
