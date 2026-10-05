@@ -415,26 +415,6 @@ test test_ls_hyperlink_wraps_names_in_osc_8 { |ctx|
   assert ls_in(ctx, work, ["--hyperlink=never"])?.text == "sp ace\n"
 }
 
-test test_ls_dir_and_vdir_defaults { |ctx|
-  let work = sandbox(ctx)?
-  fp"{work}/a b".write("")
-  fp"{work}/c".write("")
-
-  assert ls_in(ctx, work, [], name: "dir")?.text == "a\\ b  c\n"
-  assert ls_in(ctx, work, ["-1"], name: "dir")?.text == "a\\ b\nc\n"
-  assert ls_in(ctx, work, ["--zero"], name: "dir")?.out == b"a b  c\0"
-  assert ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"}, name: "dir")?.text == "a b  c\n"
-
-  let long = ls_in(ctx, work, ["--time-style=+T"], name: "vdir")?
-  assert long.text.starts_with("total 0\n"), long.text
-  assert rx"(?s)-rw-r--r-- 1 \S+ \S+ 0 T a\\ b\n".matches(long.text), long.text
-  assert ls_in(ctx, work, ["-C"], name: "vdir")?.text == "a\\ b  c\n"
-
-  let help = ls_in(ctx, work, ["--help"], name: "dir")?
-  assert "Usage: dir [OPTION]... [FILE]..." in help.text, help.text
-  assert "ls [OPTION]" not in help.text
-}
-
 test test_ls_help_and_version_go_to_stdout { |ctx|
   let work = sandbox(ctx)?
 

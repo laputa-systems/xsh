@@ -431,7 +431,7 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "tabsize" => {...c, tabsize: line_option(arg, "tab size")}
     "width" => {...c, width: line_option(arg, "line width")}
     "context" => {...c, context: true}
-    "zero" => {...c, zero: true, format: if c.format_set { c.format } else { "single-column" }, quoting: "literal", hide_control: false, color: "never"}
+    "zero" => {...c, zero: true, format: if c.format == "long" and c.format_set { "long" } else { "single-column" }, quoting: "literal", hide_control: false, color: "never"}
     else => c
   }
 }
@@ -2624,7 +2624,6 @@ proc flush(out: List[Bytes]) [process, env, io] -> Unit {
 
 proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> Int {
   let cfg = ctx.cfg
-  let eol = bytes.from_text(ctx.eol)
   let indent = if cfg.dired { "  " } else { "" }
   var status = 0
   var out: List[Bytes] = []
