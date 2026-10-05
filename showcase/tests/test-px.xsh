@@ -40,7 +40,7 @@ test test_px_finds_current_test_process {
 test test_px_default_search_matches_executable_substrings { |ctx|
   let marker = "xshpxexec"
   let executable = marker_executable(ctx, marker)?
-  let child = process.spawn(process.command_argv(executable, [executable.display()]))?
+  let child = process.spawn(process.command_argv(executable, [executable]))?
   defer process.kill(child.pid, signal: "TERM")
   wait_for_process_marker(child.pid, marker)?
   let output = run.text "xsh" "showcase/px.xsh" -- "pxexec" ?
@@ -51,7 +51,7 @@ test test_px_default_search_matches_executable_substrings { |ctx|
 test test_px_kill_signals_default_matches { |ctx|
   let marker = "xshpxkilld"
   let executable = marker_executable(ctx, marker)?
-  let child = spawn process.command_argv(executable, [executable.display()])?
+  let child = spawn process.command_argv(executable, [executable])?
   wait_for_process_marker(child.pid, marker)?
   let pid_arg = f"{child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill=15" $pid_arg ?
@@ -64,7 +64,7 @@ test test_px_kill_signals_default_matches { |ctx|
 test test_px_kill_accepts_numeric_signal { |ctx|
   let marker = "xshpxkills"
   let executable = marker_executable(ctx, marker)?
-  let child = spawn process.command_argv(executable, [executable.display()])?
+  let child = spawn process.command_argv(executable, [executable])?
   wait_for_process_marker(child.pid, marker)?
   let pid_arg = f"{child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill" "0" $pid_arg ?

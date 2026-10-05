@@ -77,7 +77,7 @@ print ${tags.len()}
 print $default_jobs
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -115,7 +115,7 @@ const schema = {...c.descriptors, verbose: "Bool"}
 let _ = cli.parse([], schema)
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert rejected.success == false
   assert "check.cli-descriptor" in rejected.stderr

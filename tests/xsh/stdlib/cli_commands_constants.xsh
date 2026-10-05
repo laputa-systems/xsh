@@ -89,7 +89,7 @@ let rest: List[Str] = parsed.raw
 print root.display() ${rest[0]}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output

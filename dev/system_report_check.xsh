@@ -4188,7 +4188,7 @@ export pure parse_usb_interface_descriptors(data: Bytes) -> Result[List[UsbInter
           0 => "control",
           1 => "isochronous",
           2 => "bulk",
-          _ => "interrupt",
+          else => "interrupt",
         },
         max_packet_size: bytes.unpack_le(data, 2, offset + 4)?,
         interval: bytes.unpack_le(data, 1, offset + 6)?,
@@ -5223,8 +5223,9 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
     if attributes.state == "complete" {
       for attribute in attributes.children {
         let parsed_index = powercap_constraint_index(attribute.name())?
-        continue when parsed_index == null
-        let constraint_index = parsed_index
+        guard let constraint_index = parsed_index else {
+          continue
+        }
         if constraint_index in indices {
           return Err(check_failure("powercap reference repeats a constraint index"))
         }
@@ -5264,11 +5265,9 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
 
 # Resolves only class-local and sysfs device links without following arbitrary source paths.
 pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] {
-  guard target != null else {
+  guard let raw = target else {
     return Ok(f"sys/class/powercap/{entry_name}")
   }
-
-  let raw = target
   if raw == "" or raw.starts_with("/") {
     return Err(check_failure("powercap class link has an invalid target"))
   }
@@ -5335,8 +5334,9 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
     var indices: List[Int] = []
     for attribute in attributes.children {
       let parsed = powercap_constraint_index(attribute.name())?
-      continue when parsed == null
-      let index = parsed
+      guard let index = parsed else {
+        continue
+      }
       if index in indices {
         return Err(check_failure("powercap capture repeats a constraint index"))
       }
@@ -7325,11 +7325,9 @@ proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs
 
 proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
   let source = reference_cpufreq_text(root, source_path, false)?
-  guard source != null else {
+  guard let value = source else {
     return Ok(null)
   }
-
-  let value = source
   let number = reference_cpu_number(value)?
   if number < 0 or number > 9007199254740991 {
     return Err(check_failure(f"CPUFreq reference source {source_path} exceeds the exact integer range"))
@@ -8666,7 +8664,7 @@ pure meminfo_host_field(name: Str) -> Str? {
     "Writeback" => "writeback_bytes"
     "SwapTotal" => "swap_total_bytes"
     "SwapFree" => "swap_free_bytes"
-    _ => null
+    else => null
   }
 }
 
@@ -9378,7 +9376,7 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
         "avg60" => avg60 = pair[1]
         "avg300" => avg300 = pair[1]
         "total" => total_text = pair[1]
-        _ => return Err(check_failure("PSI reference has an unknown field"))
+        else => return Err(check_failure("PSI reference has an unknown field"))
       }
     }
 
@@ -10815,11 +10813,9 @@ proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Resu
 
 proc reference_thermal_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
   let raw = reference_thermal_text(root, source_path)?
-  guard raw != null else {
+  guard let value = raw else {
     return Ok(null)
   }
-
-  let value = raw
   let digits = if value.starts_with("-") { value.split("") |> drop(1).join("") } else { value }
   return Err(check_failure("thermal reference has an empty integer")) when digits == ""
 
@@ -11937,7 +11933,7 @@ pure ip_link_operstate(value: Str) -> Result[Str] {
     "TESTING" => Ok("testing")
     "DORMANT" => Ok("dormant")
     "UP" => Ok("up")
-    _ => Err(check_failure("ip link reference has an unknown operational state"))
+    else => Err(check_failure("ip link reference has an unknown operational state"))
   }
 }
 
@@ -12747,7 +12743,7 @@ pure ip_rule_table(value: Str) -> Result[Int] {
     "local" => return Ok(255)
     "main" => return Ok(254)
     "default" => return Ok(253)
-    _ => {}
+    else => {}
   }
 
   return Err(check_failure("ip rule reference has an empty table")) when value == ""
@@ -12792,11 +12788,9 @@ pure ip_rule_prefix(value: Str?, length: Int?, family: Str) -> Result[Str?] {
 }
 
 pure ip_rule_hex(value: Str?) -> Result[Int?] {
-  guard value != null else {
+  guard let raw = value else {
     return Ok(null)
   }
-
-  let raw = value
   if raw != "0" and (! raw.starts_with("0x") or raw.byte_len() <= 2) {
     return Err(check_failure("ip rule reference has an invalid hex selector"))
   }
@@ -12819,7 +12813,7 @@ pure ip_rule_action(value: Str) -> Result[Str] {
     "throw" => return Ok("action_9")
     "nat" => return Ok("action_10")
     "xresolve" => return Ok("action_11")
-    _ => {}
+    else => {}
   }
 
   for character in value {
@@ -12838,7 +12832,7 @@ pure ip_rule_action(value: Str) -> Result[Str] {
     6 => Ok("blackhole")
     7 => Ok("unreachable")
     8 => Ok("prohibit")
-    _ => Ok(f"action_{number}")
+    else => Ok(f"action_{number}")
   }
 }
 
@@ -13237,14 +13231,14 @@ pure ip_route_protocol(value: Str) -> Result[Str] {
       8 => return Ok("gated")
       9 => return Ok("router_advertisement")
       16 => return Ok("dhcp")
-      _ => return Ok(f"protocol_{number}")
+      else => return Ok(f"protocol_{number}")
     }
   }
 
   match value {
     "ra" => Ok("router_advertisement")
     "unspec" => Ok("unspecified")
-    _ => Ok(value)
+    else => Ok(value)
   }
 }
 
@@ -13263,7 +13257,7 @@ pure ip_route_type(value: Str) -> Result[Str] {
       9 => return Ok("throw")
       10 => return Ok("nat")
       11 => return Ok("external_resolve")
-      _ => return Ok(f"route_type_{number}")
+      else => return Ok(f"route_type_{number}")
     }
   }
 
@@ -13283,7 +13277,7 @@ pure ip_route_scope(value: Str) -> Result[Str] {
       253 => return Ok("link")
       254 => return Ok("host")
       255 => return Ok("nowhere")
-      _ => return Ok(f"scope_{number}")
+      else => return Ok(f"scope_{number}")
     }
   }
 
@@ -13305,7 +13299,7 @@ pure ip_route_flags(names: List[Str], route_level: Bool) -> Result[Int] {
       "rt_offload" => if route_level { 16384 } else { -1 },
       "rt_trap" => if route_level { 32768 } else { -1 },
       "rt_offload_failed" => if route_level { 536870912 } else { -1 },
-      _ => -1,
+      else => -1,
     }
     if bit < 0 {
       return Err(check_failure("ip route reference has an unknown next-hop flag"))
@@ -15461,7 +15455,7 @@ pure reference_mount_option_safe(option: Str) -> Bool {
 
       true
     }
-    _ => false
+    else => false
   }
 }
 
@@ -15508,7 +15502,7 @@ pure reference_mount_propagation(fields: List[Str]) -> Str {
       "shared" => shared = true
       "master" => slave = true
       "propagate_from" => {}
-      _ => return "unknown"
+      else => return "unknown"
     }
   }
 
@@ -21546,7 +21540,7 @@ export proc read_device_tree_raw_reference(
   let status = process.run(
     process.command_argv(
       "/usr/bin/od",
-      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path.display()],
+      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path],
       cwd: /,
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{name}",
@@ -22084,7 +22078,7 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     let status = process.run(
       process.command_argv(
         "/bin/cat",
-        ["cat", source_path.display()],
+        ["cat", source_path],
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
         stdout: fp"{scratch_path}/{output_name}",
@@ -22387,7 +22381,7 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     let status = process.run(
       process.command_argv(
         "/bin/cat",
-        ["cat", source_path.display()],
+        ["cat", source_path],
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
         stdout: fp"{scratch_path}/{output_name}",
@@ -22528,7 +22522,7 @@ proc read_vulnerability_reference(
     let status = process.run(
       process.command_argv(
         "/bin/cat",
-        ["cat", source_path.display()],
+        ["cat", source_path],
         cwd: /,
         env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
         stdout: fp"{scratch_path}/{output_name}",

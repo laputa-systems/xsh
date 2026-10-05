@@ -45,7 +45,7 @@ pure ext_default_kbps(ext: Str) -> Int {
     "flac" | "wav" | "aiff" | "alac" => 256
     "ogg" => 192
     "opus" => 128
-    _ => 192
+    else => 192
   }
 }
 
@@ -129,14 +129,14 @@ proc main(...argv: List[Str]) [fs, process, error] {
       [
         "ffmpeg",
         "-i",
-        src.display(),
+        src,
         "-c:a",
         "aac_at",
         "-b:a",
         f"{aac_kbps}k",
         "-vn",
         "-y",
-        dest.display(),
+        dest,
       ],
     )
 

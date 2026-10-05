@@ -102,7 +102,7 @@ pure json_label(value: Any) -> Result[Str] {
     s is Str => Ok(f"str {s}")
     _ is Null => Ok("null")
     _ is List[Int] => Ok("int-list")
-    _ => Ok("other")
+    else => Ok("other")
   }
 }
 
@@ -146,7 +146,7 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
       match value {
         Ok(inner) => Ok(inner.message.require()?)
         Err(failure) => Ok(failure.message.require()?)
-        _ => Ok("no rejection")
+        else => Ok("no rejection")
       }
     }
     Err(failure) => Ok(failure.message)
@@ -158,14 +158,14 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
 proc expect_map(label: Str, value: Any) [error] {
   match value {
     _ is Map[Any] => return test.ok(true, label)
-    _ => return test.fail(f"{label}: a Map came back as another container")
+    else => return test.fail(f"{label}: a Map came back as another container")
   }
 }
 
 proc expect_record(label: Str, value: Any) [error] {
   match value {
     _ is Record => return test.ok(true, label)
-    _ => return test.fail(f"{label}: a Record came back as another container")
+    else => return test.fail(f"{label}: a Record came back as another container")
   }
 }
 

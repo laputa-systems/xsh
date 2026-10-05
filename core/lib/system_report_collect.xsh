@@ -333,7 +333,7 @@ pure source_observation_state(state: Str, truncated: Bool) -> report.Observation
     "observed" => report.Observed
     "absent" => report.Absent
     "permission_denied" => report.PermissionDenied
-    _ => report.ReadFailure
+    else => report.ReadFailure
   }
 }
 
@@ -725,9 +725,9 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   }
 
   let parsed = bounded_number({...source, observation: {...observed, value: number_text}}, true)
-  return parsed when parsed.value == null
-
-  let number = parsed.value
+  guard let number = parsed.value else {
+    return parsed
+  }
   if number > maximum {
     return {value: null, state: report.RangeFailure, error_kind: "json_integer_out_of_range", errno: null}
   }

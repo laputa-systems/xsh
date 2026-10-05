@@ -45,7 +45,7 @@ const protocol_event: ConstantEvent = Count(global_constant)
 
 test test_constants_prepare_constructors_paths_regex_and_forward_references {
   assert global_constant == 5
-  assert protocol_path.display() == "relative/config"
+  assert protocol_path == "relative/config"
   assert protocol_pattern.matches("static")
   assert protocol_bytes.len() == 6
   assert protocol_config.name == "static"
@@ -110,7 +110,7 @@ print ${c.values.len()}
 print ${values.len()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details

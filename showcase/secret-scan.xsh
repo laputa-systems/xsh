@@ -26,7 +26,7 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  let root = if opts.root.display() == "." {
+  let root = if opts.root == "." {
     if let Ok(r) = fs.gitroot() {
       r
     } else {

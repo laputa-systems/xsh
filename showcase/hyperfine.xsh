@@ -99,7 +99,7 @@ proc build_command(text: Str, opts: Opts) [] -> Command {
 # baseline: reported always, and subtracted per-run under --subtract-startup.
 proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
   let exe = applet.current_exe()?
-  let probe = process.command_argv(exe.display(), [exe.display(), "--startup"])
+  let probe = process.command_argv(exe, [exe, "--startup"])
 
   repeat 3 times {
     let _ = time.measure(probe, quiet: true)?

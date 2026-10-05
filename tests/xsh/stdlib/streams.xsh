@@ -262,7 +262,7 @@ test test_fold_initial_branch_expression_types_the_accumulator {
   # which then failed preparation instead of checking.
   let prefix = true
   let joined = ["a", "b"] |> fold(if prefix { "<" } else { "" }) { |acc, item| acc + item }
-  let counted = [1, 2, 3] |> fold(match joined { "<ab" => 10, _ => 0 }) { |acc, item| acc + item }
+  let counted = [1, 2, 3] |> fold(match joined { "<ab" => 10, else => 0 }) { |acc, item| acc + item }
   let suffixed = joined + ">"
   assert suffixed == "<ab>"
   assert counted == 16
@@ -1237,7 +1237,7 @@ test test_live_files_par_map_for_matches_collected_rows { |ctx|
         streamed_md_count += row.count
         streamed_md_size += row.size
       }
-      _ => {}
+      else => {}
     }
   }
 

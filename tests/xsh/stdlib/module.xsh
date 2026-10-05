@@ -598,7 +598,7 @@ let _ = module.load(p"{optional_path}")?.require(Plugin)?
 let _ = module.load(p"{effect_path}")?.require(Runner)?
 """,
   ] {
-    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
+    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
     {
       let assertion_condition = ! result.success
       let assertion_message = source
@@ -634,7 +634,7 @@ proc main() [fs, error] -> Result[Unit] {{
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -683,7 +683,7 @@ print ${alpha.sum_numbers()}
 print ${beta.count_words()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -712,7 +712,7 @@ use selector
 print ${selector.select(["unknown"]).len()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -753,7 +753,7 @@ match dynamic {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
@@ -773,7 +773,7 @@ match failure {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = aliased
@@ -791,7 +791,7 @@ let provider = module.load(p"{root}/helper.xsh")?.require(FailureProvider)?
 print ${{provider.failure() is Err(_)}}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = loaded
@@ -855,7 +855,7 @@ proc main() [error] -> Result[Unit] {
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = positive
@@ -882,7 +882,7 @@ match helper.HelperError.Failed(detail: "failed") {
 }
 """,
   ] {
-    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
+    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
     {
       let assertion_condition = ! result.success
       let assertion_message = source
@@ -905,7 +905,7 @@ proc main() [error] -> Result[Unit] {
 main()?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = aliased
@@ -929,7 +929,7 @@ let _: State = h.Ready
 HelperError.Failed(detail: "failed")
 """,
   ] {
-    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
+    let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
     {
       let assertion_condition = ! result.success
       let assertion_message = source
@@ -971,7 +971,7 @@ print ${labeler.call(pkg)}
 shower.call(pkg)?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -1021,7 +1021,7 @@ let context: l.Context = {root: Path("workspace"), target: selected}
 l.normalize(context)?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -1066,7 +1066,7 @@ use caller as c
 c.invoke(p"{src}", p"{out}")?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -1095,7 +1095,7 @@ use pm.configure
 print ${configure.label("pkgconf")}
 """,
     [],
-    {XSH_MODULE_PATH: lib.display()},
+    {XSH_MODULE_PATH: lib},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -1225,7 +1225,7 @@ let pkg = module.load(p"{package}")?.require(Pkg)?
 pkg.build(p"{dynamic_out}")?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = dynamic
@@ -1248,7 +1248,7 @@ proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
 main(@args)?
 """,
     [static_src.display(), static_out.display()],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = static_output
@@ -1277,7 +1277,7 @@ use stream_only
 let _: Runner = stream_only
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let assertion_condition = ! concrete_empty.success
@@ -1293,7 +1293,7 @@ type Invalid = module {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let assertion_condition = ! stream_contract.success

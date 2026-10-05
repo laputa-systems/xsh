@@ -77,7 +77,7 @@ let word = (run.text printf "%s" enum)?
 print $word
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert executed.success, executed.stderr
   assert executed.stdout == """7
@@ -91,7 +91,7 @@ enum
 let value = c.Choice.Chosen(7)
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert ! invalid.success, invalid.stderr
 }

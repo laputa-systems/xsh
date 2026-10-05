@@ -335,7 +335,7 @@ pure lang_for_name_ext(name_raw: Str, ext_raw: Str) -> Language {
     "toml" => return LangToml
     "xml" => return LangXml
     "txt" => return LangPlainText
-    _ => {}
+    else => {}
   }
 
   let name = name_raw.lower()
@@ -344,7 +344,7 @@ pure lang_for_name_ext(name_raw: Str, ext_raw: Str) -> Language {
     "dockerfile" => LangDockerfile
     "makefile" => LangMakefile
     n if n == "post-checkout" or n == "post-merge" or n == "upload_snapshots" => LangBash
-    _ => LangUnknown
+    else => LangUnknown
   }
 }
 
@@ -901,7 +901,7 @@ pure count_markdown(text: Bytes) -> Scan {
             toml = add_stats(toml, scan.stats)
             deep = add_stats(deep, scan.deep)
           }
-          _ => {}
+          else => {}
         }
 
         in_fence = false
@@ -993,7 +993,7 @@ pure count_markdown(text: Bytes) -> Scan {
         toml = add_stats(toml, scan.stats)
         deep = add_stats(deep, scan.deep)
       }
-      _ => {}
+      else => {}
     }
   }
 
@@ -1150,7 +1150,7 @@ pure count_language(language: Language, text: Bytes) -> Scan {
     LangTempl => count_slash_plain(text)
     LangToml => count_hash_language(text)
     LangXml => count_html(text, false)
-    _ => empty
+    else => empty
   }
 }
 
@@ -1233,7 +1233,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
         LangTempl => count_slash_plain(text),
         LangToml => count_hash_language(text),
         LangXml => count_html(text, false),
-        _ => count_language(language, text),
+        else => count_language(language, text),
       }
       text = b""
       {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
@@ -1360,7 +1360,7 @@ proc main(...argv: List[Str]) [fs, error] {
           LangTempl => count_slash_plain(text),
           LangToml => count_hash_language(text),
           LangXml => count_html(text, false),
-          _ => count_language(language, text),
+          else => count_language(language, text),
         }
 
         text = b""

@@ -9,7 +9,7 @@ pure describe(error: FetchError) -> Str {
     Err(FetchError.Usage {message}) => f"usage: {message}"
     Err(FetchError.Offline) => "offline"
     Err(FetchError.Rejected {url, status}) => f"{url} answered {status}"
-    _ => error.message
+    else => error.message
   }
 }
 

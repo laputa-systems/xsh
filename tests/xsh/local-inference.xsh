@@ -265,7 +265,7 @@ export pure destinations() -> List[Path] {
 print ${c.destinations()[1].display()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == """two

@@ -5,6 +5,6 @@ match json.decode(input)? {
   i is Int => print i.float()
   f is Float => print ${f}
   _ is Null => print "null"
-  _ => print "other"
+  else => print "other"
 }
 # end example

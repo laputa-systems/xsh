@@ -66,7 +66,7 @@ use api
 let format = api.format
 print format(prefix: "item:", value: "two")
 """)?
-  let result = test.run_xsh(ctx, entry.read_text()?, env: {XSH_MODULE_PATH: root.display()})?
+  let result = test.run_xsh(ctx, entry.read_text()?, env: {XSH_MODULE_PATH: root})?
   assert result.success, result.stderr
   assert result.stdout == """private:item:two
 """

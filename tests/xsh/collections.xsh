@@ -33,7 +33,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
 test test_nominal_error_payload_and_facet_patterns {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok {text}")?
-    Err(FsError.NotFound {file: file}) => assert file.display() == "missing"
+    Err(FsError.NotFound {file: file}) => assert file == "missing"
     Err(is PermissionDenied) => test.fail("unexpected permission facet")?
     Err(error) => test.fail(error.message)?
   }

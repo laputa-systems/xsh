@@ -455,7 +455,7 @@ export error CountError = Bad(count: UInt)
       """use counts as c
 """ + body + "\n",
       [],
-      {XSH_MODULE_PATH: root.display()},
+      {XSH_MODULE_PATH: root},
     )?
     assert output.success == false
     assert "type-error" in output.stderr

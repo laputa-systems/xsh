@@ -214,7 +214,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
           current = {...current, gateway: fields[1]}
         }
       }
-      _ => {}
+      else => {}
     }
   }
 
@@ -273,7 +273,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
       IF_GATEWAY: stanza.gateway,
     }
 
-    let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
+    let status = process.run(process.command_argv(entry.path, [entry.path], env: env_record))?
 
     return Err(IfdownError.Hook(f"{entry.path} failed for {physical}")) unless status.ok
   }
@@ -380,7 +380,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
     "loopback" | "manual" => linux.link_down(physical)?
     "static" => teardown_static(physical, stanza)?
     "dhcp" => teardown_dhcp(physical)?
-    _ => return Err(IfdownError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
+    else => return Err(IfdownError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.down {

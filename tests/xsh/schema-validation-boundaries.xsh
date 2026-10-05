@@ -51,7 +51,7 @@ assert forwarded.owner.count == 7, "forwarded private owner"
 print "validated"
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == """validated

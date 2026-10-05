@@ -44,13 +44,13 @@ test test_list_pattern_mismatch_does_not_index_or_publish_bindings {
   let short = match [1] {
     [first, 99] => first,
     [matched] => matched + 10,
-    _ => 0,
+    else => 0,
   }
   assert short == 11
   let nested = match [[1, 2], [3]] {
     [[first, ..tail], [99]] => first + tail.len(),
     [[first, ..tail], [last]] => first + tail.len() + last,
-    _ => 0,
+    else => 0,
   }
   assert nested == 5
 }

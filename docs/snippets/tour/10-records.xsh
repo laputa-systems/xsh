@@ -24,5 +24,5 @@ for role in fleet |> group-by .role {
 match "deploy web-2 --force".fields() {
   ["deploy", target, ..flags] => print f"deploy {target} with {flags.len()} flag(s)"
   ["status"] => print "status"
-  _ => print "usage: deploy TARGET | status"
+  else => print "usage: deploy TARGET | status"
 }

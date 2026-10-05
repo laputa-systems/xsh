@@ -71,7 +71,7 @@ let selected = record.require("hello")
 print $selected
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.status == 0
   assert output.stdout == """hello

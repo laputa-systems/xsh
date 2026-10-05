@@ -63,7 +63,7 @@ match build.build(ctx) {{
     [],
     {
       PATH: f"{tools}:{inherited_path}",
-      XSH_MODULE_PATH: fp"{repository}/dev".display(),
+      XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
   assert result.success, result.stderr
@@ -99,7 +99,7 @@ match build.check_lint(ctx) {{
 }}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
+    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout
@@ -140,7 +140,7 @@ let ctx: context.Context = {context_source(root)}
 build.lint_fix(ctx)?
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
+    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
   assert result.success, f"""{result.stdout}
 {result.stderr}"""
@@ -181,8 +181,8 @@ match internal.linux_ci_test(ctx) {{
 """,
     [],
     {
-      PATH: tools.display(),
-      XSH_MODULE_PATH: fp"{repository}/dev".display(),
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
       HOST_UID: "501",
       HOST_GID: "20",
     },
@@ -224,7 +224,7 @@ match docker.run_internal(ctx, "dist", false, []) {{
 }}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
+    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
   assert result.success, result.stderr
   assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
@@ -260,7 +260,7 @@ match docker.run_internal(ctx, "dist", false, []) {{
 }}
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"{repository}/dev".display()},
+    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
   assert result.success, result.stderr
   assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
@@ -388,9 +388,9 @@ match install.darwin(ctx) {{
 """,
     [],
     {
-      PATH: tools.display(),
-      HOME: fp"{root}/home".display(),
-      XSH_MODULE_PATH: fp"{repository}/dev".display(),
+      PATH: tools,
+      HOME: fp"{root}/home",
+      XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
   assert result.success, result.stderr
@@ -440,9 +440,9 @@ match install.darwin(ctx) {{
 """,
     [],
     {
-      PATH: tools.display(),
-      HOME: fp"{root}/home".display(),
-      XSH_MODULE_PATH: fp"{repository}/dev".display(),
+      PATH: tools,
+      HOME: fp"{root}/home",
+      XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
   assert result.success, result.stderr
@@ -488,9 +488,9 @@ match install.linux_install(ctx) {{
 """,
     [],
     {
-      PATH: tools.display(),
-      HOME: fp"{root}/home".display(),
-      XSH_MODULE_PATH: fp"{repository}/dev".display(),
+      PATH: tools,
+      HOME: fp"{root}/home",
+      XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
   assert cross.success, cross.stderr
@@ -522,9 +522,9 @@ match install.linux_install(ctx) {{
 """,
     [],
     {
-      PATH: tools.display(),
-      HOME: fp"{root}/home".display(),
-      XSH_MODULE_PATH: fp"{repository}/dev".display(),
+      PATH: tools,
+      HOME: fp"{root}/home",
+      XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
   assert non_linux.success, non_linux.stderr

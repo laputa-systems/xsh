@@ -201,7 +201,7 @@ witness()
 test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing {
   let selected = match [4, 7] {
     [left, right] | [right, left] => left * 10 + right,
-    _ => 0,
+    else => 0,
   }
   assert selected == 47
   let dynamic = json.decode("\"item\"")?

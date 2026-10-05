@@ -772,7 +772,7 @@ proc code_html(hl: Highlighter, block: CodeBlock) [fs, process, error] -> Result
     "xsh" => xsh_html(hl, block.source)?,
     "bash" => [shell_line(line) for line in block.source.lines()].join("\n"),
     "ini" => [ini_line(line) for line in block.source.lines()].join("\n"),
-    _ => esc(block.source),
+    else => esc(block.source),
   }
 
   let label = fence_labels[block.lang]

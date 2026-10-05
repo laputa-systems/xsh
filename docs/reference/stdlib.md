@@ -591,8 +591,10 @@ Process-scoped utility helpers.
 ### Path methods
 
 - `Path.basename() -> Str` — Returns the final component using POSIX basename semantics.
+- `Path.bytes() -> Bytes` — Returns the native bytes of a path.
 - `Path.bytes_lines() -> Result[Stream[Bytes], Error]` — Streams file lines as Bytes.
 - `Path.chmod(mode: Int) -> Result[Unit, Error]` — Changes permission bits on a path.
+- `Path.components() -> List[Path]` — Splits a path into its components, each a Path.
 - `Path.copy(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
 - `Path.dirname() -> Path` — Returns the directory component using POSIX dirname semantics.
 - `Path.display() -> Str` — Formats a path for display.

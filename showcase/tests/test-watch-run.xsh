@@ -22,7 +22,7 @@ test test_watch_run_cancellation_reaps_child_descendants { |ctx|
   let wrapper = spawn process.command_argv(
     executable,
     [
-      executable.display(),
+      executable,
       "showcase/watch-run.xsh",
       "--",
       "--root",

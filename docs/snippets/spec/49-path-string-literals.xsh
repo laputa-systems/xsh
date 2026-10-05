@@ -11,7 +11,7 @@ proc classify(config: Path, seen: List[Path]) [fs, error] -> Result[Str] {
   let repeated = "/etc/hosts" in seen
   let kind = match relative {
     "hosts" | "resolv.conf" => "network",
-    _ => "other",
+    else => "other",
   }
   # end example
   if default_config or repeated { fallback.display() } else { kind }

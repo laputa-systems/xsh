@@ -123,7 +123,7 @@ print helper.root_path("path")
 print helper.close_root("closed")
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == """path

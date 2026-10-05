@@ -14,7 +14,7 @@ pure file_type_name(kind: Str) -> Str {
     "dir" => "directory"
     "file" => "regular file"
     "symlink" => "symbolic link"
-    _ => kind
+    else => kind
   }
 }
 

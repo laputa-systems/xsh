@@ -20,7 +20,7 @@ export pure parse_request(value: Str) -> Result[CoverageRequest, Error] {
     "" => Automatic
     "native" => NativeRequest
     "docker" => DockerRequest
-    _ => Err(
+    else => Err(
       stages.StageError.Failed(
         stage: "coverage",
         target: "",

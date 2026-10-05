@@ -99,12 +99,12 @@ test test_block_strings_leave_nonblock_and_other_literal_domains_exact {
   let data = b"\n    first\n    "
   assert data == b"\n    first\n    "
   let path_value = p"\n    first\n    "
-  assert path_value.display() == """\n    first
+  assert path_value == """\n    first
     """
   let formatted_path = fp"""
     {"first"}
     """
-  assert formatted_path.display() == """\n    first
+  assert formatted_path == """\n    first
     """
 }
 

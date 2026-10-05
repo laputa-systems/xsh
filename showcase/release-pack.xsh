@@ -37,7 +37,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   let output_parent = opts.output.parent
-  let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
+  let parent = if output_parent == "" { fs.cwd()? } else { output_parent.resolve()? }
   let output = fp"{parent}/{opts.output.name()}"
   if output.exists()? {
     print f"output already exists: {output}"

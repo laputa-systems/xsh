@@ -16,7 +16,7 @@ bad:x:not-int:0:bad:/bad:/bin/sh
   assert passwd.len() == 1
   assert passwd[0].name == "root"
   assert passwd[0].uid == 0
-  assert passwd[0].home.display() == "/root"
+  assert passwd[0].home == "/root"
 
   let shadow = auth.parse_shadow("""root:!:1:0:99999:7:::
 raw-line

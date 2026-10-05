@@ -158,7 +158,7 @@ pure cpu_policy_members(policy: model.CpuFreqPolicy) -> Str {
 }
 """,
     [],
-    {XSH_MODULE_PATH: ctx.core_dir.parent().display()},
+    {XSH_MODULE_PATH: ctx.core_dir.parent()},
   )?
   assert output.status == 2
   assert "expected Str, found List[Int]" in output.stderr
@@ -174,7 +174,7 @@ pure forbidden_live_collection() -> Result[Unit] {
 }
 """,
     [],
-    {XSH_MODULE_PATH: ctx.core_dir.parent().display()},
+    {XSH_MODULE_PATH: ctx.core_dir.parent()},
   )?
   assert output.status == 2
   assert "effectful proc is not allowed in pure functions" in output.stderr

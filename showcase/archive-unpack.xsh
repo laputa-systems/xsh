@@ -19,7 +19,7 @@ on SIGTERM [error] {
 
 proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
   let output_parent = dest.parent
-  let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
+  let parent = if output_parent == "" { fs.cwd()? } else { output_parent.resolve()? }
   let published = fp"{parent}/{dest.name()}"
   if published.exists()? {
     print f"destination already exists: {published}"

@@ -38,6 +38,6 @@ proc main(...argv: List[Str]) [process, error] {
       name,
     )?
     ["route"] | ["route", "show"] => print_route()?
-    _ => return Err(AppletError.Usage("ip: expected addr or route"))
+    else => return Err(AppletError.Usage("ip: expected addr or route"))
   }
 }

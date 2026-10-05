@@ -217,7 +217,7 @@ let values = [1, 2] |> par-map(jobs: 2) { |_|
 print values[0]?[0] values[1]?[0]
 """,
     [],
-    {XSH_MODULE_PATH: module_dir.display()},
+    {XSH_MODULE_PATH: module_dir},
   )?
 
   let succeeded = output.status == 0

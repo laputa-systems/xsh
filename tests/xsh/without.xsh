@@ -152,7 +152,7 @@ without net {
 }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.status == 2, f"{output.stdout}{output.stderr}"
   assert "err[check.effect-violation]" in output.stderr, output.stderr

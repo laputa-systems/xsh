@@ -269,7 +269,7 @@ print ${count.value + values.value[0]}
 print ${count.owner.name.upper()}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert executed.success, executed.stderr
   assert executed.stdout == """10

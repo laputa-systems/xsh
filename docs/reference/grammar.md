@@ -220,8 +220,12 @@ for_statement = "for" binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
 repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
-match_statement = "match" condition_expression "{" ( separator | arm_head ( block | compound_statement ) ","? | arm_head arm_statement separator | arm_head !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," )* ( arm_head arm_statement )? "}" ;
+match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
 arm_head = pattern ( "if" expression )? "=>" ;
+else_arm_head = "else" "=>" ;
+arm_body = ( block | compound_statement ) ","?
+         | arm_statement separator
+         | !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," ;
 arm_statement = !"{" simple_statement
               | &( "{" "." "." | "{" "[" | "{" LABEL ":" | "{" LABEL "." | "{" STRING ":" | "{" NEWLINE "." "." | "{" NEWLINE "[" | "{" NEWLINE LABEL ":" | "{" NEWLINE LABEL "." | "{" NEWLINE STRING ":" ) record_expression "?"? ;
 guard_statement = "guard" ( !"let" guard_condition "else" block | "let" binding_target ( ":" type_expr )? "=" ( expression_item | run_form "?" ) "else" NEWLINE* block ) ;
@@ -314,8 +318,9 @@ record_field = "." ~"." ~"." expression
              | IDENT ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
 if_expression = "if" condition block ( "else" "if" condition block )* "else" block ;
-match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* match_expression_arm? "}" ;
-match_expression_arm = arm_head ( block | !"{" expression_item | record_expression "?"? ) ;
+match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
+match_expression_arm = arm_head arm_value ;
+arm_value = block | !"{" expression_item | record_expression "?"? ;
 record_expression = ( record_literal | map_comprehension ) postfix* logical_tail ( "|>" pipe_stage )* ;
 retry_expression = "retry" "[" list(expression) "]" ( "on" "(" NEWLINE* pattern NEWLINE* ")" ( "as" IDENT )* )? block ;
 operand = ( ( "!" | "-" ) unary | primary ( ~"." MEMBER | ~"[" index "]" | ~"(" call_arguments ")" )* ) !( "." MEMBER | "[" | "(" ) ;
@@ -423,8 +428,9 @@ builtin_type = "List" "[" type_expr "]"
              | "Map" "[" type_expr ( "," type_expr )? "]"
              | "Stream" "[" type_expr "]"
              | "Module" "[" type_expr "]"
-             | "Result" "[" type_expr ( "," type_expr )? "]" ;
-named_type = !( "List" | "Map" | "Stream" | "Module" | "Result" ) IDENT ( "." IDENT )? ;
+             | "Result" "[" type_expr ( "," type_expr )? "]"
+             | "Union" "[" type_expr ( "," type_expr )* "]" ;
+named_type = !( "List" | "Map" | "Stream" | "Module" | "Result" | "Union" ) IDENT ( "." IDENT )? ;
 type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 ```
 

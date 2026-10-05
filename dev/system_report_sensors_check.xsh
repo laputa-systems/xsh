@@ -33,7 +33,7 @@ pure sensors_json_number(value: Any) -> Result[Float] {
   match value {
     number is Float => Ok(number)
     number is Int => Ok(number.float())
-    _ => Err(sensors_check_failure("sensors JSON subfeature is not numeric"))
+    else => Err(sensors_check_failure("sensors JSON subfeature is not numeric"))
   }
 }
 

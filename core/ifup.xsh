@@ -227,7 +227,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
       "mapping" | "allow-auto" | "allow-hotplug" => return Err(
         IfupError.Config(f"{path_value}: unsupported ifupdown directive {fields[0]}"),
       )
-      _ => {}
+      else => {}
     }
   }
 
@@ -312,7 +312,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
       IF_GATEWAY: stanza.gateway,
     }
 
-    let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
+    let status = process.run(process.command_argv(entry.path, [entry.path], env: env_record))?
 
     return Err(IfupError.Hook(f"{entry.path} failed for {physical}")) unless status.ok
   }
@@ -603,7 +603,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
     "loopback" | "manual" => linux.link_up(physical)?
     "static" => configure_static(physical, stanza)?
     "dhcp" => configure_dhcp(physical)?
-    _ => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
+    else => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.up {

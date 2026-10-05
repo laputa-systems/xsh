@@ -3,7 +3,7 @@ enum ValueChoice { ValueEmpty, ValueNumber(Int) }
 pure value_label(code: Int) -> Str {
   match code {
     0 => "ok"
-    _ => {
+    else => {
       let detail = f"exit {code}"
       detail
     }
@@ -41,7 +41,7 @@ test test_value_blocks_and_tails {
       let detail = "selected"
       detail
     },
-    _ => "other",
+    else => "other",
   }
   assert matched == "selected"
   assert value_label(0) == "ok"
@@ -171,7 +171,7 @@ test test_result_bool_tails_and_nested_predicates {
           let selected = false
           selected
         }
-        _ => true
+        else => true
       }
     }
   assert mapped == [false, true]

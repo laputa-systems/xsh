@@ -18,7 +18,7 @@ export pure parse_docker_policy(value: Str) -> Result[DockerPolicy, Error] {
     "auto" => Auto
     "always" => Always
     "never" => Never
-    _ => Err(
+    else => Err(
       stages.StageError.Failed(
         stage: "dist",
         target: "",

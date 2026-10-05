@@ -125,7 +125,7 @@ test helper_test {
     """use helper
 print \${helper.value()}
 """,
-    env: {XSH_MODULE_PATH: root.display()},
+    env: {XSH_MODULE_PATH: root},
   )?
   assert result.status == 0
   assert result.stdout == """7

@@ -55,7 +55,7 @@ export pure host_os(sysname: Str) -> Result[Str, Error] {
   match sysname {
     "Linux" => "linux"
     "Darwin" => "darwin"
-    _ => Err(TargetError.Unsupported(target: f"host OS {sysname}"))
+    else => Err(TargetError.Unsupported(target: f"host OS {sysname}"))
   }
 }
 
@@ -64,7 +64,7 @@ export pure host_os_tag(sysname: Str) -> Result[HostOs, Error] {
   match sysname {
     "Linux" => Linux
     "Darwin" => Darwin
-    _ => Err(TargetError.Unsupported(target: f"host OS {sysname}"))
+    else => Err(TargetError.Unsupported(target: f"host OS {sysname}"))
   }
 }
 
@@ -73,7 +73,7 @@ export pure host_arch(machine: Str) -> Result[Str, Error] {
   match machine {
     "x86_64" | "amd64" => "x86_64"
     "aarch64" | "arm64" => "aarch64"
-    _ => Err(TargetError.Unsupported(target: f"host architecture {machine}"))
+    else => Err(TargetError.Unsupported(target: f"host architecture {machine}"))
   }
 }
 
@@ -82,7 +82,7 @@ export pure host_arch_tag(machine: Str) -> Result[HostArch, Error] {
   match machine {
     "x86_64" | "amd64" => X86_64
     "aarch64" | "arm64" => Aarch64
-    _ => Err(TargetError.Unsupported(target: f"host architecture {machine}"))
+    else => Err(TargetError.Unsupported(target: f"host architecture {machine}"))
   }
 }
 
@@ -92,7 +92,7 @@ export pure target_id(triple: Str) -> Result[TargetId, Error] {
     "x86_64-unknown-linux-musl" => X86_64LinuxMusl
     "aarch64-unknown-linux-musl" => Aarch64LinuxMusl
     "aarch64-apple-darwin" => Aarch64AppleDarwin
-    _ => Err(TargetError.Unsupported(target: triple))
+    else => Err(TargetError.Unsupported(target: triple))
   }
 }
 
@@ -152,7 +152,7 @@ export pure resolve(triple: Str) -> Result[Target, Error] {
       ],
       static_musl: false,
     }
-    _ => Err(TargetError.Unsupported(target: triple))
+    else => Err(TargetError.Unsupported(target: triple))
   }
 }
 
@@ -284,7 +284,7 @@ export pure release_suffix(triple: Str) -> Result[Str, Error] {
     "x86_64-unknown-linux-musl" => "x86_64-linux-musl"
     "aarch64-unknown-linux-musl" => "aarch64-linux-musl"
     "aarch64-apple-darwin" => "aarch64-apple-darwin"
-    _ => Err(TargetError.Unsupported(target: triple))
+    else => Err(TargetError.Unsupported(target: triple))
   }
 }
 
@@ -294,7 +294,7 @@ export pure cflags_variable(triple: Str) -> Result[Str, Error] {
     "x86_64-unknown-linux-musl" => "CFLAGS_x86_64_unknown_linux_musl"
     "aarch64-unknown-linux-musl" => "CFLAGS_aarch64_unknown_linux_musl"
     "aarch64-apple-darwin" => "CFLAGS_aarch64_apple_darwin"
-    _ => Err(TargetError.Unsupported(target: triple))
+    else => Err(TargetError.Unsupported(target: triple))
   }
 }
 
@@ -309,6 +309,6 @@ export pure docker_test_env(triple: Str) -> Result[Record, Error] {
   match triple {
     "x86_64-unknown-linux-musl" => {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
     "aarch64-unknown-linux-musl" => {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
-    _ => Err(TargetError.Unsupported(target: triple))
+    else => Err(TargetError.Unsupported(target: triple))
   }
 }

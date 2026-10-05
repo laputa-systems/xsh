@@ -365,7 +365,7 @@ proc read_cpu_info(root: FsRoot) [fs, error] -> CpuInfoRead {
       "model" | "CPU part" => current = {...current, model_id: value}
       "stepping" => current = {...current, stepping: value}
       "flags" | "Features" => current = {...current, features: parse_words(value)}
-      _ => {}
+      else => {}
     }
   }
 
@@ -1482,7 +1482,7 @@ proc collect_storage(
               "permission_denied" => report.PermissionDenied,
               "malformed" => report.Malformed,
               "range_failure" => report.RangeFailure,
-              _ => report.ReadFailure,
+              else => report.ReadFailure,
             }
             usage_total_bytes = usage.total_bytes
             usage_used_bytes = usage.used_bytes
@@ -1595,7 +1595,7 @@ pure sensor_unit(kind: Str) -> Str {
     "power" => "microwatts"
     "energy" => "microjoules"
     "current" => "milliamps"
-    _ => "raw"
+    else => "raw"
   }
 }
 
@@ -2622,7 +2622,7 @@ proc collect_device_classes(
         "drm" => ["status", "enabled", "modes"],
         "sound" => ["number"],
         "input" => [],
-        _ => [],
+        else => [],
       }
       for attribute_name in allowlisted_attributes {
         let attribute = read_value(root, fp"{entry}/{attribute_name}", max_bytes: 16384)
@@ -3131,7 +3131,7 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
       0 => "control",
       1 => "isochronous",
       2 => "bulk",
-      _ => "interrupt",
+      else => "interrupt",
     }
     let endpoint: report.UsbEndpoint = report.UsbEndpoint(
       address:,
@@ -3244,7 +3244,7 @@ pure live_source_observation_state(state: Str, truncated: Bool) -> report.Observ
     "observed" => report.Observed
     "absent" => report.Absent
     "permission_denied" => report.PermissionDenied
-    _ => report.ReadFailure
+    else => report.ReadFailure
   }
 }
 
@@ -3410,9 +3410,9 @@ pure parse_hex_optional(value: Str?, width: Int) -> Int? {
 
 pure usb_decimal_optional(value: Str?, minimum: Int) -> Int? {
   let parsed = parse_integer(value)
-  return null when parsed == null
-
-  let number = parsed
+  guard let number = parsed else {
+    return null
+  }
   return null when number < minimum or number > 9007199254740991
 
   parsed
@@ -3905,7 +3905,7 @@ proc collect_identity(root: FsRoot, base: report.SystemReport) [fs, error] -> re
         "PRETTY_NAME" => pretty_name = parsed
         "VERSION" => os_version = parsed
         "VERSION_ID" => version_id = parsed
-        _ => {}
+        else => {}
       }
     }
 
@@ -4176,7 +4176,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         }
         "online" => online = ids
         "offline" => offline = ids
-        _ => {}
+        else => {}
       }
     } else {
       issues += [issue("cpu", name, report.Malformed, "invalid_cpu_list", null)]
@@ -5043,7 +5043,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
         "Writeback" => writeback = value
         "SwapTotal" => swap_total = value
         "SwapFree" => swap_free = value
-        _ => {}
+        else => {}
       }
     }
   }
@@ -5277,7 +5277,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
           "avg60" => avg60 = pair[1]
           "avg300" => avg300 = pair[1]
           "total" => total_text = pair[1]
-          _ => {}
+          else => {}
         }
       }
 
@@ -6123,7 +6123,7 @@ pure network_family(value: Str) -> Str {
   match value {
     "inet" => "ipv4"
     "inet6" => "ipv6"
-    _ => value
+    else => value
   }
 }
 
@@ -6182,7 +6182,7 @@ pure network_operstate(value: Int?) -> Str? {
     4 => "testing"
     5 => "dormant"
     6 => "up"
-    _ => f"operstate_{value ?? -1}"
+    else => f"operstate_{value ?? -1}"
   }
 }
 
@@ -6193,7 +6193,7 @@ pure network_address_scope(value: Int) -> Str {
     253 => "link"
     254 => "host"
     255 => "nowhere"
-    _ => f"scope_{value}"
+    else => f"scope_{value}"
   }
 }
 
@@ -6210,7 +6210,7 @@ pure network_route_type(value: Int) -> Str {
     9 => "throw"
     10 => "nat"
     11 => "external_resolve"
-    _ => f"route_type_{value}"
+    else => f"route_type_{value}"
   }
 }
 
@@ -6224,7 +6224,7 @@ pure network_route_protocol(value: Int) -> Str {
     8 => "gated"
     9 => "router_advertisement"
     16 => "dhcp"
-    _ => f"protocol_{value}"
+    else => f"protocol_{value}"
   }
 }
 
@@ -6236,7 +6236,7 @@ pure network_rule_action(value: Int) -> Str {
     6 => "blackhole"
     7 => "unreachable"
     8 => "prohibit"
-    _ => f"action_{value}"
+    else => f"action_{value}"
   }
 }
 
@@ -6249,7 +6249,7 @@ pure network_section_state(value: Str) -> report.SectionState {
     "truncated" => report.SectionTruncated
     "limited" => report.SectionTruncated
     "interrupted" => report.SectionRaced
-    _ => report.Partial
+    else => report.Partial
   }
 }
 
@@ -6262,16 +6262,14 @@ pure network_issue_state(value: Str) -> report.ObservationState {
     "truncated" => report.Truncated
     "limited" => report.Truncated
     "interrupted" => report.Raced
-    _ => report.ReadFailure
+    else => report.ReadFailure
   }
 }
 
 pure link_index_by_name(links: Map[Int], name: Str?) -> Int? {
-  guard name != null else {
+  guard let link_name = name else {
     return null
   }
-
-  let link_name = name
   return links.get(link_name) ?? 0 when link_name in links
 
   null
@@ -6426,7 +6424,7 @@ pure source_error_kind(failure: Error) -> Str {
   match failure {
     is PermissionDenied => "permission_denied"
     is NotFound => "not_found"
-    _ => "read_failure"
+    else => "read_failure"
   }
 }
 
@@ -6829,7 +6827,7 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
       },
       issues: issues,
     }
-    _ => value
+    else => value
   }
 }
 

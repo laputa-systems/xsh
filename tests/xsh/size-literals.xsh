@@ -23,7 +23,7 @@ test test_size_literal_is_a_plain_unsigned_integer {
   assert signed == 5000
   let label = match chunk {
     64KiB => "chunk",
-    _ => "other",
+    else => "other",
   }
   assert label == "chunk"
 }

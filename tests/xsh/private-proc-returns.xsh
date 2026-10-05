@@ -41,7 +41,7 @@ proc inferred_parsed(text: Str) {
 proc inferred_match(text: Str) {
   match text {
     "one" => 1
-    _ => 0
+    else => 0
   }
 }
 

@@ -478,8 +478,9 @@ e"STAGE" = "build" # set for the rest of the script
 env LC_ALL=C {
   e"STAGE" = "test" # undone when this scope ends
   e"RETRIES" = 3 # converted like an argv item
-  let seen = run.text printenv STAGE RETRIES ?
-  print f"child sees: {seen.lines().join(" ")}"
+  let stage = run.text printenv STAGE ?
+  let retries = run.text printenv RETRIES ?
+  print f"child sees: {stage.trim()} {retries.trim()}"
 }
 
 print f"after the scope: STAGE={e"STAGE"?} RETRIES={e"RETRIES" ?? "(unset)"}"
@@ -569,7 +570,7 @@ for role in fleet |> group-by .role {
 match "deploy web-2 --force".fields() {
   ["deploy", target, ..flags] => print f"deploy {target} with {flags.len()} flag(s)"
   ["status"] => print "status"
-  _ => print "usage: deploy TARGET | status"
+  else => print "usage: deploy TARGET | status"
 }
 ```
 
@@ -837,6 +838,8 @@ for {now, delta} in busiest {
 The greedy `(.*)` matches up to the last `)` on the line, so the command name
 can contain anything. `guard let` binds an `Ok` value or runs its `else` block,
 which here skips processes that vanished mid-scan instead of failing the run.
+Over an optional it binds the value that is not `null` the same way:
+`guard let user = lookup(id) else { return }`.
 
 ## JSON Boundaries
 

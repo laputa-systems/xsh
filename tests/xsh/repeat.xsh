@@ -98,7 +98,7 @@ pure repeat_arm(count: Int) -> Int {
   var total = 0
   match count {
     0 => repeat 2 times { total += 10 }
-    _ => repeat count times { total += 1 }
+    else => repeat count times { total += 1 }
   }
 
   total

@@ -19,7 +19,7 @@ pure kind(target: Path) -> Str {
   match target {
     "etc/passwd" => "accounts"
     "etc/hosts" | "etc/resolv.conf" => "network"
-    _ => "other"
+    else => "other"
   }
 }
 

@@ -97,7 +97,7 @@ Builtin type and constructor names:
 ```text
 Any Bool Bytes Command Digest Duration Err Error Float Int List Map Module Null
 Ok Path ProcessError ProcessHandle Proc Pure Record Regex Result Status Str
-Stream UInt Unit
+Stream UInt Union Unit
 ```
 
 ### 2.4 Identifiers and reserved names
@@ -422,6 +422,7 @@ literal configuration data (`lint.prefer-const`).
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
+| `Union[A, B, ...]` | a value of one of the listed member types (4.12) |
 | `Result[T, E]` | `Ok(T)` or `Err(E)`; `Result[T]` is `Result[T, Error]` |
 | `Error`, error families | structured errors |
 | `Status`, `ProcessError`, `ProcessHandle`, `Command` | process values |
@@ -509,10 +510,37 @@ the explicit lossy conversion where a `Str` is required (a `Str` parameter or
 binding, JSON). Path
 construction never joins, normalizes, expands, globs, or checks the filesystem:
 separators and `..` stay exactly as written. `Path(text)` converts trusted
-text and `Path.parse_bytes(bytes)` converts bytes with a `Result`. A string
-literal is accepted where a `Path` is statically expected (a typed parameter,
-binding, or redirection target); a runtime `Str` always needs explicit
-conversion.
+text and `Path.parse_bytes(bytes)` converts bytes with a `Result`.
+
+A string literal takes the `Path` type wherever the expected type is `Path`,
+and is then the value `p"..."` with the same text is. That covers a typed
+binding, constant, parameter, default, return value, or record field; a
+`Path` parameter of a standard function or method; an operand of `==` or `!=`
+whose other operand is a `Path`; the left operand of `in` over a list or map
+of paths; a literal pattern matched against a `Path`; a key of a `Path`-keyed
+map; and a redirection target. An optional `Path` expects a `Path`.
+
+```xsh
+let fallback: Path = "/etc/xsh/config.ini"
+install("build/xsh")? # a user parameter
+let relative = config.strip_prefix("/etc")? # a standard method parameter
+let default_config = config == "/etc/xsh/config.ini"
+let repeated = "/etc/hosts" in seen
+let kind = match relative {
+  "hosts" | "resolv.conf" => "network",
+  else => "other",
+}
+```
+
+Only a literal converts, because only its bytes are the ones the author
+wrote: a `Str` value, an f-string, and a name bound to text always need
+`Path(text)` or `fp"..."`. A literal stays `Str` where no single type is
+expected: `Any`, an unannotated binding, and a standard function whose
+overloads disagree about the parameter (`hash.sha256` takes `Bytes` or a
+`Path`, so a file is `hash.sha256(p"image.bin")`). `"text" in path` stays
+display-text containment. `env.PATH` requires a spelled path for `append`,
+`prepend`, and `in`. A literal that contains NUL cannot be a `Path` and is
+rejected where one is expected.
 
 Questions about a path's spelling are `Path` methods, so they need no
 `.display()` and lose no bytes. `p.starts_with(prefix)` and
@@ -524,15 +552,21 @@ with `txt`; an absolute suffix matches only an equal path;
 filesystem. Components are read as `strip_prefix` reads them (repeated
 separators, a trailing separator, and a `.` after the first component do not
 count; `..` is compared as written), and `p.starts_with(q)` is true exactly
-when `p.strip_prefix(q)` succeeds. `name()`, `ext()`, and `parent()` answer
-the remaining component questions. A text test on `.display()` is a different
+when `p.strip_prefix(q)` succeeds. `p.components()` is that same reading as
+a `List[Path]`, one path per component with its native bytes: `/usr//lib/`
+gives `/`, `usr`, `lib`, and the empty path gives an empty list. `name()`,
+`ext()`, and `parent()` answer the remaining component questions.
+`p.bytes()` is the path's native `Bytes`, lossless where
+`bytes.from_text(p.display())` is not: `Path.parse_bytes(p.bytes())` is `p`. A text test on `.display()` is a different
 question, one about bytes: `p.display().starts_with("/us")` is true for
-`/usr/lib`.
+`/usr/lib`, and `p.display().split("/")` yields text with an empty piece for
+the root and for each repeated separator.
 
 ```xsh
 let library = relative.starts_with(p"lib") # lib/x.xsh, not libexec/x
 let static_library = relative.ends_with(p"out/libc.a") # whole trailing components
 let rooted = relative.starts_with(/) # an absolute path
+let depth = relative.components().len() # lib/x.xsh has two
 ```
 
 ### 4.5 Lists, maps, and records
@@ -877,6 +911,120 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
 Handles are values that alias one live host resource; see 11.8 for ownership.
 
+### 4.12 Union types
+
+`Union[A, B, ...]` is the type of a value that is one of the listed member
+types, for a boundary whose values are a small closed set of types rather
+than `Any`. It is a type, not a runtime wrapper: a `Union[Str, Path]` that
+holds a `Path` is that `Path` value.
+
+```xsh
+type Word = Union[Str, Path]
+
+type Task = {tool: Str, args: List[Word]}
+
+pure describe(word: Word) -> Str {
+  match word {
+    text is Str => f"text {text}"
+    file is Path => f"file {file.name()}"
+  }
+}
+
+proc build(root: Path) [process, error] {
+  let task = Task(tool: "make", args: ["-C", root, "all"])
+  run $task.tool @(task.args) ?
+
+  for word in task.args {
+    if word is Path {
+      print f"in {word}"
+      continue
+    }
+
+    print f"word {word}"
+  }
+}
+```
+
+A union is kept exactly as written. The checker never flattens, reorders,
+deduplicates, or widens one, so each shape that would need such a rewrite is
+`check.union-type` instead:
+
+- fewer than two members;
+- a member that fits another member, which covers a repeated member, `Int`
+  with `UInt`, an error family with `Error`, and a record with a schema it
+  satisfies;
+- `Any` (it already accepts every value), `Null` or `T?` (write
+  `Union[A, B]?`), another union, including one reached through an alias (list
+  its members), or a `Stream` (a type test cannot inspect a stream's items).
+
+```xsh
+type Word = Union[Str, Path]
+
+type Count = Union[Int, UInt] # error: check.union-type
+type Loose = Union[Str, Any] # error: check.union-type
+type Maybe = Union[Str, Int?] # error: check.union-type
+type Nested = Union[Word, Int] # error: check.union-type
+
+let count: Union[Int, Float] = 1
+print ${count == 1}
+```
+
+A value fits a union only when it fits a member (5.2). A union gives its value
+no expected type: the value is typed on its own and then must fit a member, so
+a string literal in a `Union[Str, Path]` slot is a `Str`. Inference never
+produces a union; branches of different types stay the error they are without
+an annotation, and an annotated union accepts them.
+
+Without narrowing, a union value may only:
+
+- flow where that union, a union listing a fitting member for each of its
+  members, `Any`, or the optional form of one of those is expected;
+- be compared with `==` or `!=` against a value that fits the union, and
+  tested with `in`/`not in` against a `List` of it;
+- be a command word or an `@` splice element when every member is an argv
+  type (11.4), which converts the member the value is;
+- be validated by `.require(T)`, tested with `is`, or matched by type
+  patterns.
+
+Every operation that reads the value as one type is `check.union-narrow`: a
+method call, a field, an index or slice, iteration, an ordering comparison,
+interpolation, and a command word when some member is not an argv type. A
+union where a single member is expected (an arithmetic operand, a typed
+binding, parameter, or return) is `check.type-mismatch`. Narrow first (5.4):
+
+```xsh
+type Word = Union[Str, Path]
+
+pure label(word: Word, words: List[Str]) -> Str {
+  let argv: List[Word] = words # error: check.type-mismatch
+  let text: Str = word # error: check.type-mismatch
+  let shown = f"{word}" # error: check.union-narrow
+  let name = word.name() # error: check.union-narrow
+  if word is Int { # error: check.pattern-type
+    return "never"
+  }
+
+  match word { # error: check.match-value-exhaustive
+    file is Path => file.name()
+  }
+}
+
+print ${label("a", [])}
+```
+
+At run time a value belongs to the first member, in the order written, that
+accepts it. `value is Union[A, B]` on an `Any`, `.require(Union[A, B])`, and a
+union slot inside a schema given to `.require` all ask members in that order.
+The order matters only where a member converts: a Str-backed enum listed
+after `Str` never converts a string, because `Str` accepts it first. The
+checker uses the same order to say which member a statically typed value
+fits.
+
+`xsht lint` reports a `List[Any]` binding whose every write is a list literal
+of a few concrete scalar or collection types and names its union
+(`lint.list-any-union`). It offers no fix: the union changes the binding's
+type, so uses that expect `List[Any]` have to change with it.
+
 ## 5. Typing
 
 ### 5.1 Inference and annotations
@@ -902,6 +1050,12 @@ is expected. Incompatible contributions are errors; inference never widens to
 - `List`, `Map`, and `Stream` are invariant in their parameters: `List[Str]` is
   not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`.
 - `null` and `T` both fit `T?`.
+- A value fits `Union[A, B, ...]` when it fits a member. A union fits another
+  union when each of its members fits one of the other's, whatever the order.
+  A union never fits one of its own members; narrow it first (5.4).
+  Invariance is unchanged: `List[Str]` is not `List[Union[Str, Path]]`. A list
+  literal or comprehension written where the union list is expected has that
+  element type.
 - A record fits a schema when it has at least the schema's fields with fitting
   types. Erased `Record` accepts any record but cannot satisfy a named schema;
   `{}` is an exact empty record.
@@ -982,7 +1136,13 @@ Narrowing is local and lexical. A fact holds inside the branch, guarded
 continuation, loop body, or match arm where a condition proved it.
 
 - `x != null` (or `x == null` on the false side) narrows `T?` to `T`.
+- An optional binding (8.6), `guard let y = x else { ... }`, `if let y = x`,
+  or `while let y = x` over `x: T?`, binds `y` as `T` and narrows `x` the same
+  way.
 - `x is Pattern` narrows a stable binding to the pattern's type.
+- `x is T` on a `Union` narrows to `T` where the test passes and to the
+  remaining members where it fails: the one member left, or the smaller union.
+  `x is (T | U)` narrows to those members.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
@@ -1238,7 +1398,10 @@ layers separately, as in `(text?.parse_int() ?? Ok(0))?`.
 needs an `else`; a value `match` must be exhaustive without relying on guards.
 Branches may contain statements followed by a tail value, and all reachable
 branch values must have one type. A branch that returns, breaks, or fails
-contributes no value.
+contributes no value. An `if` statement none of whose branches ends in a value
+(each ends in a control transfer, a binding, or nothing) is a statement even
+as the last statement of a block: it needs no `else` and gives the block no
+value, so `if done { return x }` may end a block.
 
 ```xsh
 let mode = if release { "release" } else { "debug" }
@@ -1250,6 +1413,40 @@ let label = match level {
 ```
 
 A `match` with no matching arm fails with `match-no-arm`.
+
+The last arm of a `match` statement or expression may be `else => ...`, the
+catch-all: it runs for any subject no earlier arm selected, and binds nothing.
+
+```xsh
+if let Fault(reason) = level {
+  print f"fault: {reason}"
+} else {
+  print "fine"
+}
+
+let urgent = level is Fault(_)
+```
+
+`else` is an arm head, not a pattern. It takes no guard, because a guarded
+catch-all does not catch everything: there is no `else if cond =>`, and the
+guarded form stays `_ if cond =>`. It is the last arm, because an arm after it
+could never run. Both mistakes are `parse.match-else-arm`:
+
+```xsh
+match level {
+  Info => print "info"
+  else if quiet => print "quiet"  # error: parse.match-else-arm
+}
+
+match level {
+  else => print "other"
+  Info => print "info"  # error: parse.match-else-arm
+}
+```
+
+Inside a pattern the wildcard is still `_` (6.10): `Fault(_) =>`, `[_, ..] =>`.
+An arm whose whole unguarded pattern is `_` means exactly what `else` means;
+`lint.prefer-match-else` rewrites it, so the catch-all has one spelling.
 
 ### 6.9 Blocks
 
@@ -1267,7 +1464,7 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 
 | Pattern | Matches |
 |---|---|
-| `_` | anything |
+| `_` | anything; as a whole `match` arm it is written `else` (6.8) |
 | `name` | anything, binding it (or a payload-free variant of that name); a capitalized name that is no known variant is an error (`check.pattern-capitalized-binding`) rather than a binding |
 | literal | an equal value |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |
@@ -1285,14 +1482,19 @@ names with the same types; `as` binds tighter than `|`. A guard `if cond` runs
 after the pattern matches, and a false guard moves to the next arm. Guarded
 arms never count toward exhaustiveness. List patterns check the length before
 touching elements and apply only to `List` values. Type patterns apply only to
-`Any` and erased `Record`; for a known shape use `.require(T)?`.
+`Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. On a
+union the tested type must be one of its members (`check.pattern-type`), and
+unguarded type patterns that cover every member make the `match` exhaustive.
+A statement `match` that misses a member warns
+(`check.non-exhaustive-match`); a value `match` names the missing members in
+its `check.match-value-exhaustive` error.
 
 ```xsh
 match json.decode(input)? {
   i is Int => print i.float()
   f is Float => print ${f}
   _ is Null => print "null"
-  _ => print "other"
+  else => print "other"
 }
 ```
 
@@ -1492,25 +1694,121 @@ continue unless entry.kind == "file"
 yield row when row.size > 0
 ```
 
-The condition runs first and the payload runs only if selected. A guarded
-statement can fall through, so it does not end a block, but when its payload
-leaves the block the following statements may rely on the opposite of the
-condition. Group a run payload: `return (run.status make) when ready`; without
-parentheses `when ready` would become argv words.
+Both are sugar, defined by their expansions. `statement when cond`:
+
+```xsh
+return cached when cached != null
+```
+
+means exactly
+
+```xsh
+if cached != null { return cached }
+```
+
+and `statement unless cond`:
+
+```xsh
+continue unless entry.kind == "file"
+```
+
+means exactly
+
+```xsh
+if entry.kind == "file" {} else {
+  continue
+}
+```
+
+So the condition runs first and the payload runs only if selected, the
+condition is a `Bool` or a `Status` and is never negated, and its diagnostics
+are those of an `if` condition (`check.if-condition`). A guarded statement can
+fall through, so it does not end a block, but when its payload leaves the
+block the following statements may rely on the opposite of the condition, as
+after the `if`. Group a run payload: `return (run.status make) when ready`;
+without parentheses `when ready` would become argv words.
 
 `guard cond else { ... }` continues when `cond` holds and otherwise runs the
-block, which must leave the enclosing continuation on every path (by `return`,
-`break`, `continue`, or a terminating call such as `abort`). A fallible call is
-not termination. The block takes no parameter and creates no boundary.
+block. It is sugar too:
 
-`guard let target = expr else { |failure| ... }` binds the `Ok` payload of a
-`Result` (with an optional type annotation) and otherwise runs the block with
-the error. Inside a loop the block may `break` or `continue`.
+```xsh
+guard name != null else {
+  return "anonymous"
+}
+```
+
+means exactly
+
+```xsh
+if name != null {} else {
+  return "anonymous"
+}
+```
+
+with one rule the `if` does not have: the block must leave the enclosing
+continuation on every path (by `return`, `break`, `continue`, or a terminating
+call such as `abort`), or the checker reports `check.guard-fallthrough`. A
+fallible call is not termination. The block takes no parameter and creates no
+boundary.
+
+`guard let target = expr else { ... }` binds `target` (with an optional type
+annotation) when `expr` succeeds and otherwise runs the block. `expr`
+evaluates once, and its type selects the form:
+
+- `Result[T, E]`: `Ok` binds its payload as `T`. `Err` runs the block, which
+  may name the error: `else { |failure| ... }`.
+- `T?`: any value but `null` is bound as `T`. `null` runs the block. A null
+  value carries no error, so the block takes no parameter
+  (`check.block-params`), and like the block of `guard cond` it must leave the
+  enclosing continuation (`check.guard-fallthrough`).
+
+```xsh
+pure executor_name(context: Context) -> Str {
+  guard let executor = context.executor else {
+    return "none"
+  }
+
+  executor.name
+}
+
+pure attempts(context: Context) -> Int {
+  if let retries = context.retries { retries + 1 } else { 1 }
+}
+```
+
+Any other type is `check.guard-binding`. The outermost type decides: a
+`Result[T?]` is a Result binding whose target is still `T?`, so `Ok(null)`
+binds `null` and only `Err` runs the block; a `Result[T]?` is an optional
+binding, where only `null` runs the block and the target is the `Result[T]`.
+Inside a loop the block may `break` or `continue`. `guard let` is a core
+form, not sugar: its binding belongs to the enclosing block, and no other
+statement binds a name there from inside a branch.
+
+```xsh
+pure label(name: Str?) -> Str {
+  guard let found = name else { |failure|  # error: check.block-params
+    return "none"
+  }
+
+  found
+}
+```
 
 `if let pattern = subject` and `while let pattern = subject` test a pattern.
-They do not unwrap `Result` or optional values implicitly: write
-`if let Ok(value) = result`. Captures are immutable and visible only in the
-selected branch or iteration. Irrefutable patterns are rejected.
+They do not unwrap a `Result` implicitly: write `if let Ok(value) = result`.
+Captures are immutable and visible only in the selected branch or iteration.
+A pattern that cannot fail is rejected
+(`check.irrefutable-pattern-condition`), except over an optional subject,
+where it is an optional binding: `if let name = subject` with `subject: T?`
+takes the `else` branch (and `while let` ends the loop) on `null`, and
+otherwise matches the pattern against the value as a `T`. A pattern that can
+fail on its own is matched against an optional subject as it is, with no
+unwrapping.
+
+An optional binding also narrows its subject (5.4): after
+`guard let name = subject else { ... }`, and inside the branch or body selected
+by `if let name = subject` or `while let name = subject`, a `subject` that is
+a binding or a known field path has type `T`, as after `subject != null`.
 
 `with` binds several fallible values with one error handler:
 
@@ -1937,7 +2235,8 @@ env LC_ALL=C {
 - Reads and assignments need the `env` effect and are rejected in `pure`
   functions.
 - `env.PATH` is a scoped mutable view with `prepend(path)`, `append(path)`,
-  `pop()`, and `in`/`not in`. Its operands must be `Path` values.
+  `pop()`, and `in`/`not in`. Its operands must be `Path` values. Its methods
+  assign the environment, so they need the `env` effect like any assignment.
 
 ## 11. Processes
 
@@ -1966,6 +2265,31 @@ The target is resolved as follows: a bare word with no `/` is looked up in
 `PATH`; a target containing `/` is a relative or absolute path; a `Path` value
 uses its native bytes; a `Str` value is UTF-8 and may not contain NUL. Failure
 to find, access, or execute the target is a distinct `ProcessError` variant.
+
+A spliced target, `run @argv` or `run @(expr)`, is a whole command vector: its
+first element is the target, resolved by the rules above exactly as a target
+written in its place; the remaining elements lead the arguments, ahead of any
+written after the splice. Every run form accepts it, as do the segments of a byte
+pipeline, `spawn run`, and the `run` entry of `process.command`.
+
+```xsh
+let compile = ["cc", "-O2", "-c", "main.c"]
+run @compile @extra ?
+
+let status = run.status @compile -fsyntax-only
+let version = run.text @(["cc", "--version"]) ?
+let job = spawn run @compile ?
+let plan = process.command {
+  cwd = p"build"
+  run @compile
+}
+```
+
+An empty vector names no program. The run form fails with
+`ProcessError.InvalidTarget` before anything starts, in value position too,
+and an empty list literal in target position is a check error
+(`check.run-target`). A standalone interpolation in target position
+(`run $program`) is still exactly one argv item.
 
 A grouped body may span lines when `(` is followed by a newline:
 
@@ -2037,6 +2361,7 @@ Every argv item is a byte string without NUL. Conversions:
 | `Int`, `UInt` | decimal |
 | `Bool` | `true` / `false` |
 | `List[T]` | only via `@` or a standalone interpolation, one item per element |
+| `Union[...]` of the scalar types above | as the member the value is |
 
 `Null`, `Bytes`, records, maps, `Result`, `Status`, errors, handles, callables,
 and `Unit` are rejected at check time where the type is known and at runtime
@@ -2044,6 +2369,13 @@ otherwise. Convert explicitly (`.utf8()?`, `.pid`); a `Path` needs no
 `.display()`, which would only replace its non-UTF-8 bytes. There is no
 word splitting at any point: `run rm $file` passes exactly one argument
 whatever `file` contains.
+
+Every place that hands bytes to the operating system converts this way, so a
+`Path` goes there as itself: an item of `process.command_argv`'s `argv` and
+its `target`, a value of an `env` scope overlay, and a value of the `env` of a
+command plan (`process.command`, `process.command_argv`) or of a native test
+run (`test.run_script`, `test.run_xsh`, `test.run_xsht_trace`). `.display()`
+before such a sink only replaces the bytes that are not UTF-8.
 
 ### 11.5 Capture
 
@@ -2158,7 +2490,9 @@ block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `accept`, `detach`, `new_session`, `ignore_hup`, and exactly one `run` or
 `run.status` entry. Missing or multiple run entries are rejected with
 `check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
-`argv` includes `argv[0]`. `process.run(plan)` returns `Ok(Status)` for any
+`argv` includes `argv[0]`. When the executable is `argv[0]`, the vector alone is
+the command (`run @argv`, 11.1); `command_argv` is for an executable that
+intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
 Pipelines, captures, propagation, and redirection syntax are not plan inputs;
 use the builder fields for redirections.
@@ -2399,8 +2733,8 @@ that fit decode as `Int` and other finite numbers as `Float`.
 
 JSON-compatible values are `Null`, `Bool`, representable `Int`, finite
 `Float`, `Str`, lists, `Str`-keyed maps and records of compatible values,
-optional values (absent as `null`), and Str-backed enums (as their wire
-strings). Everything else needs explicit conversion: `Path` (`.display()`),
+optional values (absent as `null`), unions of compatible members, and
+Str-backed enums (as their wire strings). Everything else needs explicit conversion: `Path` (`.display()`),
 `Bytes` (`.base64()`), `Digest` (`.hex()`), `Duration`, `Status`, `Result`,
 errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.
@@ -2428,7 +2762,7 @@ pure scalar_label(v: Any) -> Result[Str, JsonShape] {
     i is Int => f"integer {i}"
     f is Float => f"float {f}"
     s is Str => f"string of {s.count_chars()} characters"
-    _ => Err(JsonShape.NotScalar(message: "expected a scalar"))
+    else => Err(JsonShape.NotScalar(message: "expected a scalar"))
   }
 }
 ```
@@ -2601,6 +2935,7 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] SCRIPT ARGS...` | run with tracing |
 | `xsht api [QUERY...]` | query language and standard-library reference data |
 | `xsht ast SCRIPT` | print the parse tree |
+| `xsht desugar SCRIPT` | print the script with every sugar statement replaced by its expansion |
 | `xsht grep PATTERN [FILE...]`, `xsht refactor PATTERN REPLACEMENT [FILE...]` | structural search and rewrite |
 
 `xsht help [COMMAND]` and `COMMAND --help` print generated usage, collected in

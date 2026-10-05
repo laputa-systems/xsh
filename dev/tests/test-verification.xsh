@@ -53,8 +53,8 @@ test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
 
 test test_distribution_product_paths_are_stable {
   let target_dir = /repo/target
-  assert distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh").display() == "/repo/target/x86_64-unknown-linux-musl/release/xsh"
-  assert distributions.distribution_product_path(target_dir, "aarch64-unknown-linux-musl", "xsht").display() == "/repo/target/aarch64-unknown-linux-musl/dist/xsht"
+  assert distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh") == "/repo/target/x86_64-unknown-linux-musl/release/xsh"
+  assert distributions.distribution_product_path(target_dir, "aarch64-unknown-linux-musl", "xsht") == "/repo/target/aarch64-unknown-linux-musl/dist/xsht"
 }
 
 test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
@@ -99,7 +99,7 @@ proc main() [fs, process, error, io] -> Result[Unit] {{
 main()?
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: module_path},
+    {PATH: tools, XSH_MODULE_PATH: module_path},
   )?
   assert wrong_machine.success, wrong_machine.stderr
   assert "StageError.Failed" in wrong_machine.stdout, wrong_machine.stdout
@@ -131,7 +131,7 @@ proc main() [fs, process, error, io] -> Result[Unit] {{
 main()?
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: module_path},
+    {PATH: tools, XSH_MODULE_PATH: module_path},
   )?
   assert dynamic.success, dynamic.stderr
   assert "StageError.Failed" in dynamic.stdout, dynamic.stdout

@@ -47,7 +47,7 @@ pure test_kind(value: Str) -> Result[TestKind] {
     "xsh" => Xsh
     "linux" => Linux
     "macos" => Macos
-    _ => Err(usage(f"unsupported test target {value}"))
+    else => Err(usage(f"unsupported test target {value}"))
   }
 }
 
@@ -57,7 +57,7 @@ pure release_operation(value: Str) -> Result[ReleaseOperation] {
     "package" => Package
     "core" => Core
     "validate" => Validate
-    _ => Err(usage(f"unsupported release action {value}"))
+    else => Err(usage(f"unsupported release action {value}"))
   }
 }
 
@@ -74,7 +74,7 @@ pure internal_operation(value: Str) -> Result[InternalOperation] {
     "test-linux" => TestLinux
     "test-linux-ci" => TestLinuxCi
     "coverage" => Coverage
-    _ => Err(usage(f"unsupported internal operation {value}"))
+    else => Err(usage(f"unsupported internal operation {value}"))
   }
 }
 
@@ -335,7 +335,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         Coverage => return container_internal.container_coverage(ctx)
       }
     }
-    _ => return Err(usage(f"unknown command {command}"))
+    else => return Err(usage(f"unknown command {command}"))
   }
 }
 

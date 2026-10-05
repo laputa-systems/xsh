@@ -117,7 +117,7 @@ match right { _ is a.State => print "wrong identity"; _ => print "different iden
 match right.require(a.State) { Err(_) => print "require rejected"; Ok(_) => print "incorrectly accepted" }
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
@@ -268,7 +268,7 @@ proc main(source: Path) [fs, error] {
 }
 """,
     [source.display()],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
@@ -307,7 +307,7 @@ match invalid.require(Nested) { Err(failure) => print $failure.message; Ok(_) =>
 print json.encode(invalid)?
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed

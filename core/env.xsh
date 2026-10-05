@@ -63,7 +63,7 @@ proc main(...raw: List[Str]) [process, env, error] {
     match parts[0] {
       "PATH" => path_update = value
       "XSH_MODULE_PATH" => xsh_module_path_update = value
-      _ => return Err(EnvError.Usage(f"env: unsupported assignment {parts[0]}"))
+      else => return Err(EnvError.Usage(f"env: unsupported assignment {parts[0]}"))
     }
 
     index += 1
@@ -98,6 +98,7 @@ proc main(...raw: List[Str]) [process, env, error] {
       process.run(process.command_argv(command_argv[0], command_argv, env: {XSH_MODULE_PATH: xsh_module_path_update}))?,
     )?
   } else {
-    handle_status(process.run(process.command_argv(command_argv[0], command_argv))?)?
+    let status = run.status @command_argv ?
+    handle_status(status)?
   }
 }

@@ -298,7 +298,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     let home = env.Path.HOME?
     let path_list = env.PathList.PATH?
     assert dest == "/tmp/xsh-env-scope"
-    assert dest_path.display() == "/tmp/xsh-env-scope"
+    assert dest_path == "/tmp/xsh-env-scope"
     assert empty == ""
     assert default_bool == false
     assert default_count == 0

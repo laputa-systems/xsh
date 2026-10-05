@@ -260,7 +260,7 @@ let facet_matches = missing is p.NotFound
 print $ready_matches $payload_matches $type_matches $variant_matches $facet_matches $nested_matches
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
@@ -516,7 +516,7 @@ pure sign_name(n: Int) -> Str {
   match n {
     -1 => "minus one"
     0 => "zero"
-    _ => "other"
+    else => "other"
   }
 }
 
@@ -527,7 +527,7 @@ test test_negative_number_literal_patterns {
   assert offset is -2.5
   let label = match -3 {
     -2 | -3 => "small",
-    _ => "other",
+    else => "other",
   }
   assert label == "small"
 }
@@ -539,7 +539,7 @@ pure arm_capture_then_let(r: Int) -> Int {
   let e = 7
   let b = match e {
     7 => 10,
-    _ => 20,
+    else => 20,
   }
   a + b + e
 }
@@ -601,7 +601,7 @@ let local: Result[Int, r.Failure] = Err(r.Failure.Missing(detail: "local"))
 print (r.fail_typed() is Err(r.Failure.Missing)) (r.describe(local))
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == """typed

@@ -23,7 +23,7 @@ pure common_mode(raw: Str) -> Result[Int] {
     "420" => 420
     "384" => 384
     "448" => 448
-    _ => Err(AppletError.Usage(f"unsupported mode '{raw}'"))
+    else => Err(AppletError.Usage(f"unsupported mode '{raw}'"))
   }
 }
 

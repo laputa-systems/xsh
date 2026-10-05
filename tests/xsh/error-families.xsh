@@ -18,7 +18,7 @@ pure fetch_label(error: Error) -> Str {
     Err(FetchError.Offline) => "offline"
     Err(FetchError.Rejected {url, status}) => f"{url} answered {status}"
     Err(FetchError.Refused {message, port}) => f"{message} on {port}"
-    _ => "other"
+    else => "other"
   }
 }
 
@@ -27,7 +27,7 @@ pure pair_fields(error: Error) -> Str {
     Err(OrderError.Pair {second, first}) => f"second={second} first={first}"
     Err(OrderError.Triple {zulu, mike, alpha}) => f"zulu={zulu} mike={mike} alpha={alpha}"
     Err(OrderError.Conflict {path: file, owner}) => f"path={file} owner={owner}"
-    _ => "other"
+    else => "other"
   }
 }
 
@@ -249,7 +249,7 @@ let rejected: Error = fetch.FetchError.Rejected("https://example.test", 403)
 print ${rejected is PermissionDenied}
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert executed.success, executed.stderr
   assert executed.stdout == """usage: not a URL

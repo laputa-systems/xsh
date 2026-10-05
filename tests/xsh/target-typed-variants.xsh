@@ -138,7 +138,7 @@ let pending: State = .Missing
 print (json.encode({ready, pending})?)
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert executed.success, executed.stderr
   assert executed.stdout == """true

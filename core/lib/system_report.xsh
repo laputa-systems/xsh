@@ -859,7 +859,7 @@ export pure parse_report_section(value: Str) -> Result[ReportSection, Error] {
     "kernel" => Ok(ReportKernel)
     "processes" => Ok(ReportProcesses)
     "devices" => Ok(ReportDevices)
-    _ => Err(SystemReportError.InvalidSection(message: f"unknown report section '{value}'"))
+    else => Err(SystemReportError.InvalidSection(message: f"unknown report section '{value}'"))
   }
 }
 
@@ -2846,11 +2846,9 @@ pure optional_text_display(value: Str?) -> Result[Str] {
 }
 
 pure byte_quantity(value: Int?) -> Str {
-  guard value != null else {
+  guard let amount = value else {
     return "unknown"
   }
-
-  let amount = value
   return "out of range" when amount < 0
 
   let divisor = 1073741824
@@ -3429,7 +3427,7 @@ pure allowed_mount_value(key: Str, value: Str) -> Bool {
 
       true
     }
-    _ => false
+    else => false
   }
 }
 
