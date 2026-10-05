@@ -1879,7 +1879,10 @@ enum BuildExprRow {
     // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
     // for the sake of the comparatively rare structured-error-literal case.
     Error(Box<LoweredErrorExpr>),
-    Try(BuildExprId),
+    Try {
+        value: BuildExprId,
+        span: Span,
+    },
     Call {
         function: LoweredFunctionKey,
         args: Vec<LoweredCallArg>,
@@ -6726,6 +6729,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 within: None,
                 propagated: false,
                 propagated_run_error: Some(original),
+                scope_cleanup: false,
                 family_name: Name::PROCESS_ERROR,
                 variant_name,
                 _symbols: symbols,

@@ -2966,6 +2966,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, span)?;
+                // The propagation's own place: a traceback that starts here
+                // names it, not the call that is running.
+                let propagation =
+                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 // The `?` reuses only a traceback that its operand records.
                 self.evaluator.pending_traceback = None;
@@ -2974,7 +2978,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     span,
                     FrameContinuation::Try {
-                        span,
+                        span: propagation,
                         next: Box::new(next),
                     },
                 );
@@ -3987,6 +3991,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 arms, next, span, ..
             } => match value {
                 FrameValue::Value(value) => {
+                    // A `match` on an `Err` handles it: whatever an arm
+                    // produces, even an equal error, is not the failure the
+                    // subject's traceback describes.
+                    if matches!(value, LoweredValue::ResultErr(_)) {
+                        self.evaluator.pending_traceback = None;
+                    }
                     self.select_expr_match_arm(index, arms, 0, value, span, *next)?;
                 }
                 FrameValue::Break(value) => {
@@ -4261,7 +4271,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::ResultFallback { right, span, next } => match value {
                 FrameValue::Value(value) => match lowered_fallback_value(value) {
                     Some(value) => self.push_value(index, FrameValue::Value(value), *next),
-                    None => self.push_expr(index, right, span, *next),
+                    None => {
+                        // Taking the fallback handles the left side's `Err`:
+                        // its traceback describes nothing the fallback
+                        // produces, even an equal error.
+                        self.evaluator.pending_traceback = None;
+                        self.push_expr(index, right, span, *next)
+                    }
                 },
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
@@ -5313,9 +5329,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let mut call = self.calls.pop().expect("active indexed frame");
+        let is_function = matches!(call.owner, FrameOwner::Function(..));
+        let mut returns_result = false;
         if let FrameOwner::Function(function, kind) = call.owner
             && let Ok(header) = self.function_header(function, kind, call.call_span)
         {
+            returns_result = matches!(header.return_kind, LoweredReturnKind::Result(_));
             let _ =
                 self.evaluator
                     .write_back_lowered_captures(&header, &call.slots, call.call_span);
@@ -5349,6 +5368,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     TracePayload::None,
                 );
             }
+        }
+        if returns_result
+            && let Some(error) = self.pending_error.take_if(|error| error.scope_cleanup)
+        {
+            // The body left without a failure and a deferred action then
+            // failed: that failure is what the function returns, so the
+            // caller handles it like any other `Err` of this call.
+            let value = capture_checked_error(error)?;
+            match call.return_to {
+                Some(next) => {
+                    let parent = self.calls.len() - 1;
+                    if let FrameOwner::Block { .. } = self.calls[parent].owner {
+                        let call = &mut self.calls[parent];
+                        self.evaluator
+                            .sync_indexed_root_slots(&mut call.slots, call.call_span)?;
+                    }
+                    self.push_value(parent, FrameValue::Value(value), next);
+                }
+                None => self.result = Some(Ok(value)),
+            }
+            return Ok(());
+        }
+        if is_function && let Some(error) = self.pending_error.as_mut() {
+            error.scope_cleanup = false;
         }
         if let Some(parent) = self.calls.len().checked_sub(1) {
             self.unwind_error_frame(parent)?;

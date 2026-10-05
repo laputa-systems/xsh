@@ -1477,6 +1477,11 @@ pub struct RuntimeError {
     pub(crate) propagated: bool,
     // Retain process payloads that the diagnostic error representation cannot hold.
     pub(crate) propagated_run_error: Option<Box<RunError>>,
+    // A deferred action's failure that became the failure of a scope which
+    // was leaving without one. The function that owns the scope returns it as
+    // its `Err` when it returns a `Result`; past that function it is an
+    // ordinary propagated failure.
+    pub(crate) scope_cleanup: bool,
     pub(crate) family_name: Name,
     pub(crate) variant_name: Name,
     pub(crate) _symbols: SymbolOwner,
@@ -1501,6 +1506,7 @@ impl RuntimeError {
             within: None,
             propagated: false,
             propagated_run_error: None,
+            scope_cleanup: false,
             family_name: Name::ERROR,
             variant_name,
             _symbols: symbols,
@@ -1540,6 +1546,7 @@ impl RuntimeError {
             within: None,
             propagated: false,
             propagated_run_error: None,
+            scope_cleanup: false,
             family_name,
             variant_name,
             _symbols: symbols,
@@ -1573,6 +1580,7 @@ impl RuntimeError {
             contexts: Vec::new(),
             propagated: false,
             propagated_run_error: None,
+            scope_cleanup: false,
             cause: None,
             abort: Some(AbortSignal { status, force }),
             within: None,

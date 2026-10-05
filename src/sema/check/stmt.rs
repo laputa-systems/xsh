@@ -10,6 +10,7 @@ use super::{
 use super::{Binding, TypeDefBody, tail_type_matches_expected};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
+    ArenaSugar,
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef,
     ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, AssignTargetId, BindingTargetId,
     BlockId, ExprId, StmtId, TypeExprId,
@@ -742,7 +743,8 @@ impl Checker {
     /// when the statement is valid as an initializer (`discard_fix`). It is
     /// withheld from a `Result`, whose failure should be handled rather than
     /// dropped, and from a discarded copy update such as `items.push(x)`,
-    /// whose only effect is the value it returns. The edit needs no source
+    /// whose only effect is the value it returns, and from a statement under
+    /// a postfix `when` or `unless`, which a binding cannot take. The edit needs no source
     /// text, so it stays exact for statements of imported modules, which are
     /// checked against the entry script's text.
     pub(super) fn reject_discarded_value(
@@ -771,12 +773,17 @@ impl Checker {
             Diagnostic::error("ignored Result value")
                 .with_label(Label::primary(value, format!("this {ty} is dropped; handle it with `?` or `??`, or discard it with `let _ = ...`")))
         } else {
+            let guarded = self.guarded_statements.contains(&statement);
             let diagnostic =
                 Diagnostic::error(format!("ignored `{ty}` value")).with_label(Label::primary(
                     value,
-                    "bind it, return it, or discard it with `let _ = ...`",
+                    if guarded {
+                        "bind it, return it, or discard it in an `if`: `if COND { let _ = ... }`"
+                    } else {
+                        "bind it, return it, or discard it with `let _ = ...`"
+                    },
                 ));
-            if discard_fix {
+            if discard_fix && !guarded {
                 diagnostic.with_fix_hint(FixHint::replacement(
                     Span::at(statement.source_id, statement.start()),
                     "discard with `let _ =`",
@@ -848,7 +855,17 @@ impl Checker {
             );
         }
         match stmt.kind {
-            ArenaStmtKind::Sugar { expansion, .. } => {
+            ArenaStmtKind::Sugar {
+                form,
+                operands,
+                expansion,
+            } => {
+                if let ArenaSugar::Guarded { stmt: guarded, .. } =
+                    arena.arena.sugar(form, operands)
+                {
+                    self.guarded_statements
+                        .insert(arena.arena.stmt(guarded).span);
+                }
                 self.check_stmt_arena(arena, source, expansion);
             }
             ArenaStmtKind::Use(use_id) => {

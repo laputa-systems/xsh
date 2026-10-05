@@ -134,6 +134,22 @@ test test_a_guard_is_rejected_where_no_statement_takes_one { |ctx|
   }
 }
 
+# `let` takes no postfix guard, so the ignored-value diagnostic of a guarded
+# statement offers no `let _ = ` insertion: the result would not parse.
+test test_a_guarded_statement_with_an_ignored_value_has_no_discard_fix { |ctx|
+  let body = "pure next(count: Int) -> Int {\n  count + 1\n}\n\nlet ready = true\n"
+  let guarded = test.expect(
+    ctx,
+    body + "next(1) when ready\nprint \"done\"\n",
+    status: 2,
+    stderr: ["check.ignored-result"],
+  )?
+  assert "help: discard" not in guarded.stderr, guarded.stderr
+  assert "if COND { let _ = ... }" in guarded.stderr, guarded.stderr
+  let plain = test.expect(ctx, body + "next(1)\nprint \"done\"\n", status: 2, stderr: ["check.ignored-result"])?
+  assert "help: discard with `let _ =`" in plain.stderr, plain.stderr
+}
+
 test test_guarded_statements_format_and_desugar_as_written { |ctx|
   let source = r"""proc stage(tmp: Path, verbose: Bool) -> Result[Int] {
   var copied = 0

@@ -412,6 +412,14 @@ fn expression_statement_stops() -> Vec<Vec<Term>> {
             tag_term(T::LBrace),
         ]
     }));
+    // `exit` and `fail` begin their statements before a `?` or an `as` is
+    // read as the rest of an expression over a binding of that name.
+    leads.extend(["exit", "fail"].into_iter().flat_map(|word| {
+        [
+            vec![word_term(word, false), tag_term(T::Question)],
+            vec![word_term(word, false), word_term("as", false)],
+        ]
+    }));
     leads
 }
 
@@ -2446,9 +2454,18 @@ pub(super) fn rules() -> Vec<super::Rule> {
                                 word_term("atomically", false),
                                 word_term("replace", false),
                             ],
+                            vec![word_term("exit", false)],
+                            vec![word_term("fail", false)],
                         ])),
                     name(),
                     opt(seq([r("lead_argument"), star(r("command_argument"))])),
+                ]),
+                // `exit` and `fail` begin their statements whenever anything
+                // follows them on the line, a postfix guard included, so a
+                // command of either name is the bare word.
+                seq([
+                    alt([w("exit"), w("fail")]),
+                    not([vec![tag_term(T::Question)]]),
                 ]),
                 seq([
                     name(),

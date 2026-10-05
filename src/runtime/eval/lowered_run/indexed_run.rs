@@ -358,6 +358,7 @@ fn capture_checked_error(mut error: RuntimeError) -> Result<LoweredValue, Runtim
         return Err(error);
     }
     error.propagated = false;
+    error.scope_cleanup = false;
     let value = if let Some(mut original) = error.propagated_run_error.take() {
         original.contexts = error.contexts;
         original.cause = error.cause;
@@ -4265,7 +4266,13 @@ impl Evaluator {
                 return match self.eval_indexed_expr(execution, left, slots, call_span)? {
                     ControlFlow::Continue(value) => match lowered_fallback_value(value) {
                         Some(value) => Ok(ControlFlow::Continue(value)),
-                        None => self.eval_indexed_expr(execution, right, slots, call_span),
+                        None => {
+                            // Taking the fallback handles the left side's
+                            // `Err`: its traceback describes nothing the
+                            // fallback produces, even an equal error.
+                            self.pending_traceback = None;
+                            self.eval_indexed_expr(execution, right, slots, call_span)
+                        }
                     },
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
                 };
@@ -8180,13 +8187,16 @@ impl Evaluator {
             }
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, call_span)?;
+                // The propagation's own place: a traceback that starts here
+                // names it, not the call that is running.
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 // The `?` reuses only a traceback that its operand records.
                 self.pending_traceback = None;
                 return match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
                     ControlFlow::Continue(value) => match self
-                        .indexed_question_value(value, call_span)?
+                        .indexed_question_value(value, span)?
                     {
                         Ok(value) => Ok(ControlFlow::Continue(value)),
                         // Statement consumers must distinguish propagation from lexical return.
@@ -8693,7 +8703,12 @@ impl Evaluator {
             }
         }
         self.pending_traceback = primary_traceback.or(first_traceback);
-        first_error.map_or(Ok(()), Err)
+        first_error.map_or(Ok(()), |mut error| {
+            // The caller reports this failure and drops it when the scope
+            // already leaves with an error; otherwise it is the scope's own.
+            error.scope_cleanup = error.abort.is_none() && error.propagated;
+            Err(error)
+        })
     }
 
     fn finish_indexed_pattern_scope(

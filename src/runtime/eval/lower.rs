@@ -53,6 +53,9 @@ pub(super) struct SlotScope {
     // The condition operand being lowered under the propagation the checker
     // decided for it, so the operand itself is lowered once, unwrapped.
     propagated_condition: Option<ExprId>,
+    /// The `?` written on a deferred call. `defer f()?` is `defer f()`, so its
+    /// failure is placed at the call, as the bare form's is.
+    deferred_propagation: Option<ExprId>,
     bound_call_entries: FxHashSet<ExprId>,
     types: FxHashMap<Name, Type>,
     captures: FxHashSet<Name>,
@@ -948,6 +951,7 @@ impl SlotScope {
             postfix_receivers: FxHashMap::default(),
             guarded_postfixes: FxHashSet::default(),
             propagated_condition: None,
+            deferred_propagation: None,
             bound_call_entries: FxHashSet::default(),
             types: FxHashMap::default(),
             captures: FxHashSet::default(),
@@ -4596,7 +4600,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             schema: None,
         };
         let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
-        push_build_row!(self, expr, BuildExprRow::Try(checked))
+        push_build_row!(self, expr, BuildExprRow::Try { value: checked, span })
     }
 
     fn lower_binding_expr_value(
@@ -4639,7 +4643,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::Try(push_build_row!(
+                BuildExprRow::Try { value: push_build_row!(
                     self,
                     expr,
                     BuildExprRow::Require {
@@ -4647,7 +4651,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         check,
                         span,
                     }
-                ))
+                ), span }
             ))
         } else {
             Some(lowered)
@@ -4812,7 +4816,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
         {
-            Some(push_build_row!(self, expr, BuildExprRow::Try(lowered)))
+            Some(push_build_row!(self, expr, BuildExprRow::Try { value: lowered, span: self.program.arena.expr(iter).span }))
         } else {
             Some(lowered)
         }
@@ -6726,7 +6730,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             let capture = push_build_row!(self, expr, BuildExprRow::RunCapture(Box::new(capture)));
             if run.propagate && capture_kind {
-                Some(push_build_row!(self, expr, BuildExprRow::Try(capture)))
+                Some(push_build_row!(self, expr, BuildExprRow::Try { value: capture, span: self.program.arena.span(run.span) }))
             } else {
                 Some(capture)
             }
@@ -6809,7 +6813,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             );
             if run.propagate && (capture_kind || !assert_success) {
-                Some(push_build_row!(self, expr, BuildExprRow::Try(pipeline)))
+                Some(push_build_row!(self, expr, BuildExprRow::Try { value: pipeline, span: self.program.arena.span(run.span) }))
             } else {
                 Some(pipeline)
             }
@@ -6998,7 +7002,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(*receiver);
         }
         let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
-        Some(push_build_row!(self, expr, BuildExprRow::Try(receiver)))
+        Some(push_build_row!(self, expr, BuildExprRow::Try { value: receiver, span: self.program.arena.expr(base).span }))
     }
 
     fn lower_optional_postfix(
@@ -7108,7 +7112,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let outer = slots.propagated_condition.replace(id);
             let operand = self.lower_expr(id, slots, current_function, item_slot);
             slots.propagated_condition = outer;
-            return Some(push_build_row!(self, expr, BuildExprRow::Try(operand?)));
+            return Some(push_build_row!(self, expr, BuildExprRow::Try { value: operand?, span: self.program.arena.expr(id).span }));
         }
         if let Some(value) = self.declarations.prepared_constants.values.get(&id) {
             let origin = self
@@ -7541,7 +7545,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     },
                 };
                 let operation = push_build_row!(self, expr, operation);
-                Some(push_build_row!(self, expr, BuildExprRow::Try(operation)))
+                Some(push_build_row!(self, expr, BuildExprRow::Try { value: operation, span }))
             }
             ArenaExprKind::Require { value, schema } => {
                 let (ty, name) = if let Some(schema) = schema {
@@ -8045,7 +8049,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     })
                 {
                     let value = self.lower_expr(expr, slots, current_function, item_slot)?;
-                    return Some(push_build_row!(self, expr, BuildExprRow::Try(value)));
+                    return Some(push_build_row!(self, expr, BuildExprRow::Try { value, span: self.propagation_span(id, expr, slots) }));
                 }
                 let expr_span = self.program.arena.expr(expr).span;
                 if let ArenaExprKind::Call { callee, args } = self.program.arena.expr(expr).kind {
@@ -8060,7 +8064,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             return Some(push_build_row!(
                                 self,
                                 expr,
-                                BuildExprRow::Try(push_build_row!(
+                                BuildExprRow::Try { value: push_build_row!(
                                     self,
                                     expr,
                                     BuildExprRow::FsFiles {
@@ -8100,7 +8104,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                         result_wrapped: true,
                                         span: expr_span,
                                     }
-                                ))
+                                ), span: self.propagation_span(id, expr, slots) }
                             ));
                         }
                         if module == "fs" && name == "walk" {
@@ -8109,7 +8113,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             return Some(push_build_row!(
                                 self,
                                 expr,
-                                BuildExprRow::Try(push_build_row!(
+                                BuildExprRow::Try { value: push_build_row!(
                                     self,
                                     expr,
                                     BuildExprRow::FsWalk {
@@ -8149,7 +8153,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                         result_wrapped: true,
                                         span: expr_span,
                                     }
-                                ))
+                                ), span: self.propagation_span(id, expr, slots) }
                             ));
                         }
                     }
@@ -8157,7 +8161,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(push_build_row!(
                     self,
                     expr,
-                    BuildExprRow::Try(self.lower_expr(expr, slots, current_function, item_slot,)?)
+                    BuildExprRow::Try { value: self.lower_expr(expr, slots, current_function, item_slot)?, span: self.propagation_span(id, expr, slots) }
                 ))
             }
             ArenaExprKind::Call { callee, args } => {
@@ -9819,7 +9823,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .into(),
             };
             let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
-            return Some(push_build_row!(self, expr, BuildExprRow::Try(checked)));
+            return Some(push_build_row!(self, expr, BuildExprRow::Try { value: checked, span }));
         }
         if let Some((error, bindings)) =
             self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)
@@ -13521,6 +13525,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         ))
     }
 
+    /// The place a `?` reports: itself with its operand, or the operand alone
+    /// when it is the `?` of a deferred call.
+    fn propagation_span(&self, propagation: ExprId, operand: ExprId, slots: &SlotScope) -> Span {
+        if slots.deferred_propagation == Some(propagation) {
+            self.program.arena.expr(operand).span
+        } else {
+            self.program.arena.expr(propagation).span
+        }
+    }
+
     /// Cleanup bodies use statement position even for their final expression.
     fn lower_deferred_expr(
         &mut self,
@@ -13538,7 +13552,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 BuildExprRow::ValueBlock { body, span }
             ))
         } else {
-            self.lower_expr(value, slots, current_function, item_slot)
+            let outer = slots.deferred_propagation.replace(value);
+            let lowered = self.lower_expr(value, slots, current_function, item_slot);
+            slots.deferred_propagation = outer;
+            let lowered = lowered?;
+            // A deferred `Result[Unit]` fails its action with or without a
+            // `?`. Lowering the bare form as the propagation it is gives its
+            // failure the action's own place; the evaluator's handling of a
+            // deferred `Err` value stays as the fallback.
+            let checked = self
+                .checked_expr_type(value)
+                .or_else(|| self.bodies.expr_types.get(&value).cloned());
+            if matches!(checked, Some(Type::Result(..)))
+                && !matches!(self.program.arena.expr(value).kind, ArenaExprKind::Try(_))
+            {
+                let span = self.program.arena.expr(value).span;
+                return Some(push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::Try { value: lowered, span }
+                ));
+            }
+            Some(lowered)
         }
     }
 
@@ -13612,7 +13647,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let inner = slots.enter();
                 let scope = (|| {
                     let removal = remove(self);
-                    let removal = push_build_row!(self, expr, BuildExprRow::Try(removal));
+                    let removal = push_build_row!(self, expr, BuildExprRow::Try { value: removal, span });
                     let mut body = vec![push_build_row!(
                         self,
                         stmt,
@@ -13785,7 +13820,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     }
                 );
-                push_build_row!(lowerer, expr, BuildExprRow::Try(call))
+                push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span })
             };
             let mut body = Vec::new();
             let close = root_method(self, RuntimeOp::FsCloseRoot);

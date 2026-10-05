@@ -341,6 +341,10 @@ fn grammar_rejects_sources_the_parser_rejects() {
         "enum Empty { }\n",
         "f (x\n",
         "guard x is E.V {} else { }\n",
+        "exit when ready\n",
+        "fail unless ready\n",
+        "exit ?\n",
+        "fail as Int\n",
     ] {
         assert!(
             !Parser::parse_source_arena_only(SourceId::new(0), source)

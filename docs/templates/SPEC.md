@@ -2487,7 +2487,10 @@ expression that is a `Result[Unit]` fails its action the same way, with or
 without `?`. Other actions still
 run. The original failure stays primary; if there was none, the first cleanup
 failure becomes primary, and later cleanup failures are reported with their
-locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
+locations. A primary cleanup failure in a function that returns a `Result` is
+the `Err` that function returns, from any of its blocks, so its caller matches
+or propagates it like any other; in any other function it is a failure of the
+call, which `try` captures. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
 the block's defers run (11.8).
 
@@ -4123,7 +4126,16 @@ tests, or replaces it with `??`), the next statement, call, or `?` operand
 discards that record, and a later failure reports its own span and call path.
 A record is kept only for the error it was made for: an `Err` that replaces a
 handled one inside the same operand or statement, as in
-`(f() ?? Err(other))?`, starts its traceback at the `?` that propagates it.
+`(f() ?? Err(other))?`, starts its traceback at the `?` that propagates it,
+whether or not the two errors have the same kind and message. Taking the
+fallback of `??` and matching an `Err` in a value `match` both handle it.
+
+The failing span is the form that propagates: the `?` with its operand, a
+propagating condition, an `as` conversion, a propagating statement, or the
+deferred call that failed. It lies in the function that holds the form, and
+the call that reached that function is the last frame of the call path. An
+error that a function returns with `return Err(...)` or `fail` has propagated
+nowhere yet, so its traceback starts at the caller's form.
 
 ## 17. Native Tests
 

@@ -36,6 +36,57 @@ proc unit_outer(x: Int) [error] -> Result[Result[Unit]] {
 }
 """
 
+# Functions that each hold one propagating form, at a known line.
+const PROPAGATION_SITES = """error Stop = Bad(message: Str)
+
+proc number(x: Int) [error] -> Result[Int] {
+  return Err(Stop.Bad(message: "no number")) when x == 2
+  Ok(x)
+}
+
+proc ready(x: Int) [error] -> Result[Bool] {
+  return Err(Stop.Bad(message: "not ready")) when x == 2
+  Ok(true)
+}
+
+proc release(x: Int) [error] -> Result[Unit] {
+  return Err(Stop.Bad(message: "not released")) when x == 2
+  Ok()
+}
+
+proc bound(x: Int) [error] -> Result[Int] {
+  let value = number(x)?
+  Ok(value)
+}
+
+proc tail(x: Int) [error] -> Result[Int] {
+  number(x)?
+}
+
+proc condition(x: Int) [error] -> Result[Int] {
+  if ready(x) {
+    return Ok(1)
+  }
+  Ok(0)
+}
+
+proc converted(text: Str) [error] -> Result[Int] {
+  let value = text as Int
+  Ok(value)
+}
+
+proc deferred(x: Int) [error] -> Result[Int] {
+  defer release(x)
+  Ok(x)
+}
+
+proc failed(x: Int) [error] -> Result[Int] {
+  fail "no value" when x == 2
+  Ok(x)
+}
+
+"""
+
 pure handled_script(handling: Str, failure: Str) -> Str {
   HANDLED_PRELUDE + handling + "\n" + failure + "\n"
 }
@@ -178,4 +229,66 @@ test test_an_error_replaced_inside_one_operand_gets_its_own_traceback { |ctx|
     assert "proc nested_outer" not in failed.stderr, failed.stderr
     assert "proc unit_outer" not in failed.stderr, failed.stderr
   }
+}
+
+# The replacement need not differ from the error it replaces. An operand that
+# handles an `Err` has dealt with it, whatever it produces next: a new error
+# with the same kind and message is still reported from where it propagates.
+test test_an_error_replaced_by_an_equal_one_gets_its_own_traceback { |ctx|
+  let replacements = [
+    """  let value = (nested_outer(2) ?? Err(Stop.Bad(message: "handled failure")))?
+  value""",
+    """  let value = (match handled_outer(2) {
+    Ok(v) => Ok(v)
+    Err(_) => Err(Stop.Bad(message: "handled failure"))
+  })?
+  value""",
+    """  unit_outer(2) ?? Err(Stop.Bad(message: "handled failure"))
+  1""",
+  ]
+  for replacement in replacements {
+    let failed = test.expect(
+      ctx,
+      HANDLED_PRELUDE + REPLACED_PRELUDE + "proc replacer() [error] -> Result[Int] {\n" + replacement + "\n}\n\nproc caller() [error] -> Result[Int] {\n  replacer()?\n}\n\ncaller()?\n",
+      status: 3,
+      stderr: ["handled failure", "proc caller", "proc replacer"],
+    )?
+    assert "proc handled_outer" not in failed.stderr, failed.stderr
+    assert "proc nested_outer" not in failed.stderr, failed.stderr
+    assert "proc unit_outer" not in failed.stderr, failed.stderr
+  }
+}
+
+# A traceback starts at the form that propagates the failure. Each of these
+# sits inside a called function: the place reported is the form's own, in that
+# function, and the call that reached the function is the last frame.
+test test_a_propagation_inside_a_function_reports_its_own_place { |ctx|
+  let sites = [
+    {call: "bound(2)", at: ":19:15-19:25", frame: "proc bound"},
+    {call: "tail(2)", at: ":24:3-24:13", frame: "proc tail"},
+    {call: "condition(2)", at: ":28:6-28:14", frame: "proc condition"},
+    {call: "converted(\"wide\")", at: ":35:15-35:26", frame: "proc converted"},
+    {call: "deferred(2)", at: ":40:9-40:19", frame: "proc deferred"},
+  ]
+  for site in sites {
+    let _ = test.expect(
+      ctx,
+      PROPAGATION_SITES + "proc caller() [error] -> Result[Int] {\n  let value = " + site.call + "?\n  Ok(value)\n}\n\ncaller()?\n",
+      status: 3,
+      stderr: [site.at + "\n", "proc caller", site.frame],
+    )?
+  }
+}
+
+# `fail` returns its error as `return Err(...)` does: nothing has propagated
+# yet, so the traceback starts at the caller's `?` and has no frame for the
+# function that returned.
+test test_a_returned_error_is_reported_from_the_propagation_that_meets_it { |ctx|
+  let failed = test.expect(
+    ctx,
+    PROPAGATION_SITES + "proc caller() [error] -> Result[Int] {\n  let value = failed(2)?\n  Ok(value)\n}\n\ncaller()?\n",
+    status: 3,
+    stderr: ["no value", ":50:15-50:25\n", "proc caller"],
+  )?
+  assert "proc failed" not in failed.stderr, failed.stderr
 }

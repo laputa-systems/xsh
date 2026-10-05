@@ -381,3 +381,129 @@ test test_defer_block_rejects_yield_delegation { |ctx|
     stderr: ["[check.defer-control-flow]"],
   )?
 }
+
+# A deferred action that fails when its scope was leaving without a failure
+# is that scope's failure. In a function that returns a `Result` it is the
+# `Err` the call returns, which the caller matches like any other.
+test test_a_failing_defer_in_a_result_function_is_the_err_it_returns { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""
+error Stop = Bad(message: Str)
+
+proc release(tag: Str) [error] -> Result[Unit] {
+  Err(Stop.Bad(message: tag))
+}
+
+proc at_function_scope() [error] -> Result[Int] {
+  errdefer { print "errdefer ran" }
+  defer { print "earlier action still runs" }
+  defer release("function scope")
+  Ok(1)
+}
+
+proc in_a_block() [error] -> Result[Int] {
+  if true {
+    defer release("block")
+    print "block body"
+  }
+  print "not reached"
+  Ok(1)
+}
+
+proc on_early_return() [error] -> Result[Int] {
+  if true {
+    defer release("early return")
+    return Ok(1)
+  }
+  Ok(2)
+}
+
+proc in_a_loop() [error] -> Result[Int] {
+  for item in [1, 2] {
+    defer release("loop")
+    break when item == 1
+  }
+  Ok(1)
+}
+
+proc show(name: Str, outcome: Result[Int]) {
+  match outcome {
+    Ok(value) => print f"{name}: ok {value}"
+    Err(error) => print f"{name}: caught {error.message}"
+  }
+}
+
+show("function", at_function_scope())
+show("block", in_a_block())
+show("return", on_early_return())
+show("loop", in_a_loop())
+let recovered = at_function_scope() ?? 7
+print f"recovered {recovered}"
+""",
+    status: 0,
+  )?
+  assert output.stdout == """earlier action still runs
+errdefer ran
+function: caught function scope
+block body
+block: caught block
+return: caught early return
+loop: caught loop
+earlier action still runs
+errdefer ran
+recovered 7
+"""
+}
+
+# The body's own failure stays primary, a function that does not return a
+# `Result` has no `Err` to return, and `try` captures a cleanup failure
+# inside it before the function sees one.
+test test_a_failing_defer_becomes_an_err_only_when_it_is_the_primary_failure { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""
+error Stop = Bad(message: Str)
+
+proc release(tag: Str) [error] -> Result[Unit] {
+  Err(Stop.Bad(message: tag))
+}
+
+proc body_fails() [error] -> Result[Int] {
+  defer release("secondary")
+  Err(Stop.Bad(message: "primary"))
+}
+
+proc captured_inside() [error] -> Result[Int] {
+  let attempt = try {
+    defer release("captured")
+    1
+  }
+  assert attempt is Err(_)
+  Ok(2)
+}
+
+proc plain() [error] -> Int {
+  defer release("plain")
+  1
+}
+
+match body_fails() {
+  Ok(value) => print f"ok {value}"
+  Err(error) => print f"caught {error.message}"
+}
+match captured_inside() {
+  Ok(value) => print f"ok {value}"
+  Err(error) => print f"caught {error.message}"
+}
+let outcome = try { plain() }
+print f"plain failed: {outcome is Err(_)}"
+""",
+    status: 0,
+    stderr: ["cleanup error", "secondary"],
+  )?
+  assert output.stdout == """caught primary
+ok 2
+plain failed: true
+"""
+}

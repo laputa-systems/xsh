@@ -104,6 +104,15 @@ test test_exit_is_not_a_reserved_word { |ctx|
   assert output.stdout == "4\n2\n", output.stdout
 }
 
+# Anything after `exit` on its line is its status, a guard word included:
+# a status is required, and the line is not a command named `exit`.
+test test_exit_before_a_guard_needs_its_status { |ctx|
+  for source in ["let ready = true\nexit when ready\n", "let ready = true\nexit unless ready\n"] {
+    let ran = test.expect(ctx, source, status: 2)?
+    assert "parse.expected-expression" in ran.stderr, ran.stderr
+  }
+}
+
 test test_exit_status_is_checked { |ctx|
   let wrong_type = test.run_script(ctx, "exit \"two\"\n")?
   assert ! wrong_type.success

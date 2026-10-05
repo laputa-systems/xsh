@@ -8594,9 +8594,10 @@ impl_node_codec! {
         BuildExprRow::Error(value) => ExprError {
             value: Box<LoweredErrorExpr>,
         } => BuildExprRow::Error(value),
-        BuildExprRow::Try(value) => ExprTry {
+        BuildExprRow::Try { value, span } => ExprTry {
             value: BuildExprId,
-        } => BuildExprRow::Try(value),
+            span: Span,
+        } => BuildExprRow::Try { value, span },
         BuildExprRow::Call {
             function,
             args,
@@ -10947,6 +10948,43 @@ pure selected() -> Str {
                     .unwrap_err()
                     .message
                     .contains("counts from one")
+            );
+        });
+    }
+
+    /// A propagation carries the place it is written at, after its operand.
+    /// A row whose place is not a location of the program, or that has lost
+    /// it, is rejected before it runs.
+    #[test]
+    fn a_propagation_row_carries_its_own_place() {
+        run_with_large_stack(|| {
+            let source = "pure width(field: Str) -> Result[Int] {\n  let value = field.parse_int()?\n  Ok(value)\n}\n";
+            let program = Arc::new(fixture("propagation-place.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            let propagation = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprTry)
+                .expect("`?` lowers to a propagation");
+            let words = program.store.data[propagation]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
+            assert_eq!(words.len(), 2, "a propagation is its operand and its place");
+
+            let mut misplaced = (*program).clone();
+            misplaced.store.extra[words.start + 1] = u32::MAX;
+            assert!(
+                FullVerifier::verify(&misplaced).is_err(),
+                "a propagation's place must be a location of the program"
+            );
+
+            let mut dangling = (*program).clone();
+            dangling.store.extra[words.start] = u32::MAX;
+            assert!(
+                FullVerifier::verify(&dangling).is_err(),
+                "a propagation's operand must be an instruction of the program"
             );
         });
     }
