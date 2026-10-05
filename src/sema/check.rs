@@ -148,8 +148,9 @@ pub struct CheckOutput {
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     /// Expression statements whose `Result[Unit]` value propagates its failure
-    /// instead of becoming a body's value: every statement outside a tail, and
-    /// a tail whose body yields `Unit`.
+    /// instead of becoming a body's value: every statement outside a tail, a
+    /// tail whose body yields `Unit`, and the direct tail of a `Result[Unit]`
+    /// function.
     pub propagating_statements: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
@@ -683,6 +684,12 @@ pub struct Checker {
     stream_item_types: Vec<Type>,
     loop_depth: usize,
     block_depth: usize,
+    /// The last statement of the function body being checked, when that body
+    /// returns `Result[Unit]` or has its return inferred.
+    /// A `Result[Unit]` there is the function's result and a statement at
+    /// once: it propagates from that tail rather than being handed back as a
+    /// value, so its failure is reported from inside the function.
+    result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
     retry_attempt_depth: usize,
     /// `retry` attempt blocks being checked (a subset of the error
     /// boundaries counted by `retry_attempt_depth`).
@@ -1033,6 +1040,7 @@ impl Checker {
             stream_item_types: Vec::new(),
             loop_depth: 0,
             block_depth: 0,
+            result_unit_function_tail: None,
             retry_attempt_depth: 0,
             retry_block_depth: 0,
             error_boundary_errors: Vec::new(),

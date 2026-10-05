@@ -2049,8 +2049,15 @@ impl Checker {
             binding.schema_expectation = schema;
             self.define(name, binding, span);
         }
+        let body_tail = arena
+            .arena
+            .stmt_ids(arena.arena.block(def.body).statements)
+            .last()
+            .map(|tail| arena.arena.core_stmt_id(tail));
         if inferring {
+            let enclosing_tail = std::mem::replace(&mut self.result_unit_function_tail, body_tail);
             let tail = self.check_tail_block_arena(arena, source, def.body, None);
+            self.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
                 self.inferred_returns
                     .as_mut()
@@ -2058,6 +2065,10 @@ impl Checker {
                     .push((tail, body_span));
             }
         } else {
+            let enclosing_tail = std::mem::replace(
+                &mut self.result_unit_function_tail,
+                body_tail.filter(|_| return_ty.is_result_unit()),
+            );
             if def.test_declaration {
                 if !cfg!(feature = "native-tests") {
                     self.error(body_span, "test declarations require native-test support; use an xsht build with the native-tests feature", DiagnosticCode::CheckTestFeatureDisabled);
@@ -2066,6 +2077,7 @@ impl Checker {
             } else {
                 self.check_value_block_arena(arena, source, def.body, &return_ty);
             }
+            self.result_unit_function_tail = enclosing_tail;
         }
         if !pure
             && self.current_exported
@@ -3425,9 +3437,26 @@ impl Checker {
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Value);
-        // Only a `Unit` body leaves a `Result[Unit]` tail nothing to become:
-        // against any other result type, or none, the tail is the body's value.
-        if matches!(stmt.kind, ArenaStmtKind::Expr(_)) && expected == Some(&Type::Unit) {
+        // A `Unit` body leaves a `Result[Unit]` tail nothing to become, and
+        // the direct tail of a `Result[Unit]` function propagates as that
+        // function's result. Against any other result type, or none, the tail
+        // is the body's value, as is a tail that builds or captures a
+        // `Result`. The question is asked of the operand under a `?`, which
+        // is what remains when the `?` is redundant.
+        let propagating = match stmt.kind {
+            ArenaStmtKind::Expr(expr) => {
+                let operand = match arena.arena.expr(expr).kind {
+                    ArenaExprKind::Try(operand) => operand,
+                    _ => expr,
+                };
+                expected == Some(&Type::Unit)
+                    || (expected.is_some_and(Type::is_result_unit)
+                        && self.result_unit_function_tail == Some(id)
+                        && !tail_expr_uses_result_context_arena(arena, operand))
+            }
+            _ => false,
+        };
+        if propagating {
             self.propagating_statements.insert(stmt.span);
         } else {
             self.propagating_statements.remove(&stmt.span);
@@ -3469,6 +3498,16 @@ impl Checker {
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() {
                     if expected.is_some_and(Type::is_result_unit) {
+                        // The type stays the function's result, so its error
+                        // is still checked against the declared one and no
+                        // `error` effect is asked of a proc that only hands
+                        // its callee's result back.
+                        if expr_ty_auto_propagates(&actual)
+                            && self.propagating_statements.contains(&stmt.span)
+                        {
+                            self.statement_positions
+                                .insert(stmt.span, super::StatementPosition::Statement);
+                        }
                         return actual;
                     }
                     if expr_ty_auto_propagates(&actual) {
@@ -3538,7 +3577,21 @@ impl Checker {
                     schema,
                 );
                 self.context_scope_tail_value = previous;
-                self.resolve_local_tail_type(ty, expected, stmt.span)
+                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
+                // An inferred return takes this tail's `Result[Unit]` as the
+                // function's result, which makes it the propagating tail of a
+                // `Result[Unit]` body. A constructed `Ok()` or `Err(..)` is
+                // the value itself.
+                if expected.is_none()
+                    && expr_ty_auto_propagates(&ty)
+                    && self.result_unit_function_tail == Some(id)
+                    && !tail_stmt_uses_result_context_arena(arena, id)
+                {
+                    self.statement_positions
+                        .insert(stmt.span, super::StatementPosition::Statement);
+                    self.propagating_statements.insert(stmt.span);
+                }
+                ty
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);

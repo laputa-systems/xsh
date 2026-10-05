@@ -230,22 +230,103 @@ work(p"{root}")?
   )?
 }
 
-# The direct tail of a `Result[Unit]` function is the one statement where the
-# two spellings differ: without `?` the `Result` is the function's value, and
-# the traceback starts at the caller instead of inside the function.
-test test_result_unit_function_tail_reports_its_own_propagation { |ctx|
-  let explicit = test.run_script(
+# The direct tail of a `Result[Unit]` function is a statement too: its failure
+# propagates from that tail, so the traceback starts inside the function with
+# or without `?`.
+test test_statement_propagation_matches_at_a_result_unit_function_tail { |ctx|
+  run_both(
+    ctx,
+    r"""
+proc work(fail: Bool) -> Result[Unit, Step] {
+  step(false)<?>
+  step(fail)<?>
+}
+
+proc inferred(fail: Bool) [error] {
+  step(fail)<?>
+}
+
+proc captured() [time, error] -> Result[Unit, Step] {
+  try {
+    step(true)?
+  }
+}
+
+proc outer(which: Int) [time, error] -> Result[Unit] {
+  if which == 1 {
+    work(true)<?>
+  } else if which == 2 {
+    inferred(true)<?>
+  } else {
+    captured()<?>
+  }
+}
+
+work(false)<?>
+let kept = work(true)
+print ${kept is Err(_)} ${outer(2) is Err(_)} ${outer(3) is Err(_)}
+outer(1)<?>
+""",
+  )?
+  run_both(
+    ctx,
+    r"""
+proc inferred(fail: Bool) [error] {
+  step(fail)<?>
+}
+
+print "start"
+inferred(true)<?>
+""",
+  )?
+}
+
+# The tail still supplies the function's `Result`: a caller that binds it gets
+# the `Err` as data, a restricted proc needs no `error` effect for it, and a
+# tail that constructs or is declared a value stays one. A proc whose return
+# is inferred from such a tail reports the failure from inside as well.
+test test_result_unit_function_tail_is_still_the_functions_result { |ctx|
+  let output = test.run_script(
     ctx,
     PRELUDE + r"""
-proc work() -> Result[Unit, Step] {
-  step(true)?
+proc restricted(fail: Bool) [io] -> Result[Unit, Step] {
+  print "restricted"
+  step(fail)
+}
+
+proc constructed(fail: Bool) -> Result[Unit, Step] {
+  if fail { Err(Step.Bad("constructed")) } else { Ok() }
+}
+
+proc block_value() -> Result[Int, Step] {
+  let held: Result[Unit, Step] = {
+    step(true)
+  }
+  print ${held is Err(_)}
+  7
+}
+
+let first = restricted(true)
+let second = restricted(false)
+print ${first is Err(_)} ${second is Ok(_)} ${constructed(true) is Err(_)} ${constructed(false) is Ok(_)}
+print ${block_value()?}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "restricted\nrestricted\ntrue true true true\ntrue\n7\n"
+
+  let failed = test.run_script(
+    ctx,
+    PRELUDE + r"""
+proc work() {
+  step(true)
 }
 
 work()
 """,
   )?
-  assert explicit.status == 3
-  assert "proc work at" in explicit.stderr
+  assert failed.status == 3
+  assert "proc work at" in failed.stderr
 }
 
 # A `cd`, `env`, `try`, or `retry` block in statement position is a
@@ -317,7 +398,7 @@ proc count() -> Result[Int, Step] {
 
 proc finish(fail: Bool) -> Result[Unit, Step] {
   step(false)<removed>
-  step(fail)?
+  step(fail)<removed>
 }
 
 proc work(dir: Path, fail: Bool) [env, io, error] -> Result[Int] {
@@ -349,8 +430,8 @@ print ${work(p"ROOT", true) is Err(_)}
 
 # The three rules through the CLI: every redundant `?` goes, a re-propagating
 # `match` becomes `?` and then loses it where the statement propagates anyway,
-# and each `?` that carries information stays (a function's `Result[Unit]`
-# tail, `defer`, a bound `try` tail, and a value).
+# and each `?` that carries information stays (`defer`, a bound `try` tail, and
+# a value).
 test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
   let root = test.temp_dir(ctx, name: "propagation-lints")?
   let outline = LINT_CANDIDATE.replace("ROOT", root.display())

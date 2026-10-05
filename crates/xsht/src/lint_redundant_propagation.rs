@@ -26,9 +26,10 @@ pub(super) struct RedundantTry {
 /// Three checked facts carry the proof, and syntax only selects the shape:
 /// the statement keeps no value, the checker treats a `Result[Unit]` at this
 /// statement as propagating (a non-tail statement, or the tail of a `Unit`
-/// body), and the operand is a `Result[Unit]`. A tail whose body yields
-/// anything else is excluded by the second fact: there the operand would
-/// become the body's value, which changes a `try` block's type.
+/// body, or the direct tail of a `Result[Unit]` function), and the operand is
+/// a `Result[Unit]`. A tail whose body yields anything else is excluded by the
+/// second fact: there the operand would become the body's value, which
+/// changes a `try` block's type.
 pub(super) fn redundant_statement_try(
     arena: &AstArena,
     source: &str,
@@ -272,12 +273,28 @@ pub(super) mod tests {
         );
     }
 
-    // The direct tail of a `Result[Unit]` function would be returned as a
-    // value, and the traceback would lose the `?` that propagated it.
+    // The direct tail of a `Result[Unit]` function is the function's result
+    // and a propagating statement at once.
     #[test]
-    fn a_result_unit_function_tail_keeps_its_propagation() {
-        unflagged("proc work() -> Result[Unit, E] {\n  step(false)?\n}\n");
-        unflagged("proc work() [error] {\n  step(false)?\n}\n");
+    fn a_result_unit_function_tail_propagates() {
+        fixed(
+            "proc work() -> Result[Unit, E] {\n  step(false)?\n  step(true)?\n}\n",
+            "proc work() -> Result[Unit, E] {\n  step(false)\n  step(true)\n}\n",
+        );
+        fixed(
+            "proc work() [error] -> Result[Unit] {\n  step(false)?\n}\n",
+            "proc work() [error] -> Result[Unit] {\n  step(false)\n}\n",
+        );
+    }
+
+    // A proc without a return annotation returns `Result[Unit]` under either
+    // spelling of its tail.
+    #[test]
+    fn an_unannotated_proc_tail_propagates() {
+        fixed(
+            "proc work() {\n  step(false)?\n}\n",
+            "proc work() {\n  step(false)\n}\n",
+        );
     }
 
     #[test]
