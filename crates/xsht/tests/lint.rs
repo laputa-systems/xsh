@@ -6288,6 +6288,89 @@ fn linter_list_element_assignment_refuses_clipped_bounds_effects_and_comments() 
     }
 }
 
+/// The element-assignment replacements offered in `source`, with `None` for
+/// a finding that has no fix.
+fn list_element_assignments(source: &str) -> Vec<Option<String>> {
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    )
+    .iter()
+    .filter(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-list-element-assignment")
+    })
+    .map(|diagnostic| {
+        diagnostic
+            .fix_hints
+            .first()
+            .map(|hint| hint.replacement.clone().unwrap())
+    })
+    .collect()
+}
+
+#[test]
+fn linter_list_element_assignment_reaches_every_element_that_leaves_the_local_alone() {
+    // The list literal reads the list before and after the element; the
+    // element assignment reads it after. A call, a read of the list, or a
+    // pipeline cannot assign a local, so both spellings store the same list.
+    let source = "\
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+proc build(items: List[Int]) [] -> List[Int] {
+  var values: List[Int] = [1, 2, 3]
+  values = [@values[..1], double(items[0]) + values[0], @values[2..]]
+  var sums = [0, 0]
+  sums = [@sums[..0], items |> sum, @sums[1..]]
+  var counts = [0, 0]
+  counts = [@counts[..1], (items |> map . + 1).len(), @counts[2..]]
+  values + sums + counts
+}
+";
+    assert_eq!(
+        list_element_assignments(source),
+        [
+            Some("values[1] = double(items[0]) + values[0]".to_string()),
+            Some("sums[0] = items |> sum".to_string()),
+            Some("counts[1] = (items |> map . + 1).len()".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn linter_list_element_assignment_keeps_an_element_that_assigns_the_list() {
+    // The callback overwrites `kept` after the literal has read its first
+    // slice, so the literal mixes the old and new lists and the element
+    // assignment would not.
+    let source = "\
+proc build(items: List[Int]) [] -> List[Int] {
+  var kept = [1, 2]
+  kept = [
+    @kept[..0],
+    items |> map {
+      kept = [
+        .,
+        .,
+      ]
+      .
+    } |> sum,
+    @kept[1..],
+  ]
+  kept
+}
+";
+    assert_eq!(list_element_assignments(source), [None]);
+}
+
 #[test]
 fn formatter_list_element_assignment_preserves_nested_selectors_and_comments() {
     let source = "var rows = [{count: 1}]\nrows[if true { # selector\n  0\n} else { 0 }].count += 1 # update\n";

@@ -5994,21 +5994,49 @@ impl<'a> Linter<'a> {
                 node.span.start(),
                 self.arena.expr(value).span.end(),
             );
-            if length.is_some_and(|length| index < length)
-                && list_update_argument_stable(self.arena, replacement.value)
-                && self
-                    .source
-                    .get(edit_span.range())
-                    .is_some_and(|text| !text.contains('#'))
+            // An expression's own span can omit the input of a pipeline, so the
+            // element text is read back from between its two commas.
+            let element_source = suffix
+                .splice_span
+                .and_then(|splice| {
+                    self.source.get(
+                        self.arena.expr(prefix.value).span.end()..self.arena.span(splice).start(),
+                    )
+                })
+                .and_then(|between| between.trim().strip_prefix(',')?.strip_suffix(','))
+                .map(str::trim);
+            // The list literal reads the list, evaluates the element, and
+            // reads the list again; the element assignment evaluates the
+            // element and then stores into the list. The two agree exactly
+            // when the element leaves the list alone. A statement list in
+            // the module scope declares a module-level variable, which any
+            // proc may assign, so only a call-free element is known to.
+            let module_level = self.scopes.len() == 1;
+            let element_leaves_list_alone = element_source.is_some_and(|element_source| {
+                if module_level {
+                    list_update_argument_stable(self.arena, replacement.value)
+                } else {
+                    !expr_may_assign_local(
+                        self.arena,
+                        self.source,
+                        replacement.value,
+                        name.as_str().as_str(),
+                        element_source,
+                    )
+                }
+            });
+            if let Some(rhs) = element_source
+                && length.is_some_and(|length| index < length)
+                && element_leaves_list_alone
+                && !span_may_contain_comment(self.source, edit_span)
             {
-                let rhs = &self.source[self.arena.expr(replacement.value).span.range()];
                 diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                     edit_span,
                     "update the existing list element",
                     format!("{name}[{index}] = {rhs}"),
                 ));
             } else {
-                diagnostic = diagnostic.with_note("slice bounds clip but element indices must exist; unproved lengths, effects, and comments require manual review");
+                diagnostic = diagnostic.with_note("slice bounds clip but element indices must exist; an unproved length, an element that may assign the list, and comments require manual review");
             }
             self.diagnostics.push(diagnostic);
         }
