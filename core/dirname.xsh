@@ -1,21 +1,30 @@
 #!/bin/xsh
-error AppletError = Usage : Usage
+use lib.gnu
 
-pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
+type Options = {zero: Bool, help: Bool, version: Bool, paths: List[Str]}
+
+# dirname removes components lexically, retaining dots and repeated interior slashes.
+pure dirname_value(name: Str) -> Str {
+  let raw = bytes.from_text(name)
+  var end = raw.len()
+  while end > 0 and raw.byte_at(end - 1) == 47 { end -= 1 }
+  return "/" when end == 0 and name != ""
+  while end > 0 and raw.byte_at(end - 1) != 47 { end -= 1 }
+  return "." when end == 0
+  while end > 0 and raw.byte_at(end - 1) == 47 { end -= 1 }
+  if end == 0 { "/" } else { name.byte_slice(0, length: end) }
 }
 
-pure usage_error(applet_name: Str, summary: Str) -> Error {
-  AppletError.Usage(usage(applet_name, summary))
-}
-
-type DirnameOptions = {paths: List[Str]}
-
-proc main(...argv: List[Str]) [error] {
-  let opts: DirnameOptions = cli.applet(argv, {paths: {form: "...PATH"}})?
-  return Err(usage_error("dirname", "PATH...")) when opts.paths.is_empty()
-
-  for arg in opts.paths {
-    print fp"{arg}".parent()
-  }
+proc main(...argv: List[Str]) [process, env, error, io] {
+  let opts: Options = cli.applet(argv, {
+    gnu: {status: 1},
+    zero: {form: "-z --zero", default: false},
+    help: {form: "--help", default: false, stop: true},
+    version: {form: "--version", default: false, stop: true},
+    paths: {form: "...NAME"},
+  })?
+  if opts.help { gnu.help("Usage: dirname [OPTION] NAME...\nPrint NAME with its last component removed.\n  -z, --zero  end output with NUL\n"); return }
+  if opts.version { gnu.version("dirname"); return }
+  if opts.paths.is_empty() { gnu.missing_operand() }
+  for name in opts.paths { gnu.write_text(dirname_value(name) + (if opts.zero { "\0" } else { "\n" })) }
 }
