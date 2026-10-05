@@ -115,8 +115,6 @@ pub enum RuntimeOp {
     RegexReplace,
     SetEmpty,
     SetFrom,
-    SetAdd,
-    SetRemove,
     SetLen,
     SetIsEmpty,
     SetInsert,

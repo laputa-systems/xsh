@@ -925,7 +925,8 @@ fn map_module() -> ModuleSig {
 }
 
 fn set_module() -> ModuleSig {
-    let set_type = || Type::Map(Box::new(Type::Str), Box::new(Type::Bool));
+    let element = || Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Element);
+    let set_type = || Type::Set(Box::new(element()));
     module_sig(vec![
         (
             "empty",
@@ -934,28 +935,10 @@ fn set_module() -> ModuleSig {
         (
             "from",
             sig(
-                vec![param("items", Type::List(Box::new(Type::Str)))],
+                vec![param("items", Type::List(Box::new(element())))],
                 set_type(),
                 true,
                 RuntimeOp::SetFrom,
-            ),
-        ),
-        (
-            "add",
-            sig(
-                vec![param("set", set_type()), param("item", Type::Str)],
-                set_type(),
-                true,
-                RuntimeOp::SetAdd,
-            ),
-        ),
-        (
-            "remove",
-            sig(
-                vec![param("set", set_type()), param("item", Type::Str)],
-                set_type(),
-                true,
-                RuntimeOp::SetRemove,
             ),
         ),
     ])

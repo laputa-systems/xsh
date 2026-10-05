@@ -497,6 +497,7 @@ diagnostic_codes! {
         CheckTextPattern = "check.text-pattern", error, "Reject an f-string pattern with an unsupported spec, two adjacent holes, a repeated name, or a subject that is not text";
         CheckSetElementType = "check.set-element-type", error, "Reject a `Set` element type that is not an ordered scalar a map key can be, such as `Str`, `Int`, or `Path`";
         CheckSetOperator = "check.set-operator", error, "Reject `|` or `&` on operands that are not two sets of one element type; the boolean operators are `or` and `and`";
+        CheckRemovedSetFunction = "check.removed-set-function", error, fixable, "Rewrite a call of the removed `set.add(set, item)` or `set.remove(set, item)` as the `Set[T]` method `set.add(item)` or `set.remove(item)`";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";
@@ -669,7 +670,6 @@ diagnostic_codes! {
         LintPreferSet = "lint.prefer-set", warning, "Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in)";
         LintPreferCollect = "lint.prefer-collect", warning, "Build a list that is declared empty and then only appended to with `collect { ... }`";
         LintPreferWaitUntil = "lint.prefer-wait-until", note, "Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit";
-        LintLegacySetCall = "lint.legacy-set-call", note, "Note a `set.empty`, `set.from`, `set.add`, or `set.remove` call in its `Map[Str, Bool]` form that `lint.prefer-set` has no fix for; a `Set[T]` has `.add` and `.remove`";
         LintRedundantDiscard = "lint.redundant-discard", warning, "Remove `let _ =` from a propagated call whose value the registry marks discardable, such as `test.expect(...)?`";
     }
     Format {

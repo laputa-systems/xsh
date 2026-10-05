@@ -523,8 +523,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::RegexCompile
             | RuntimeOp::SetEmpty
             | RuntimeOp::SetFrom
-            | RuntimeOp::SetAdd
-            | RuntimeOp::SetRemove
             | RuntimeOp::ShlexQuote
             | RuntimeOp::ShlexJoin
             | RuntimeOp::SystemHostname
@@ -10642,8 +10640,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if module == "map" && name == "empty" && positional.is_empty() {
                         return Some(push_build_row!(self, expr, BuildExprRow::EmptyMap));
                     }
-                    // `set.empty()` and `set.from(items)` that the checker
-                    // typed as a set build one.
+                    // `set.empty()` and `set.from(items)` build the set the
+                    // checker typed them as.
                     if module == "set"
                         && matches!(self.bodies.expr_types.get(&id), Some(Type::Set(_)))
                     {

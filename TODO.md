@@ -25,12 +25,6 @@ is the contract for everything that is built; nothing here describes it.
 
 ## Designed, not built
 
-- **The legacy `set` module.** `set.empty()` and `set.from(items)` return a
-  `Set[T]` only where one is expected and the old `Map[Str, Bool]` otherwise,
-  and `set.add` / `set.remove` work on that map. Both corpora are migrated to
-  `Set[T]`; what remains is to make the two constructors always return a set
-  and remove the two functions, with a `check.removed-set-function`
-  diagnostic that names the method.
 - **`FsRoot` operations take a `RelPath`.** They take `Path`; the opt-in note
   `lint.prefer-rel-path` lists 637 call sites here that pass a computed
   `Path`.

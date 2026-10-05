@@ -4,7 +4,7 @@
 
 use super::LoweredTypeCheck;
 use crate::diagnostic::DiagnosticCode;
-use crate::map_key::{MapKey, MapKeyRef};
+use crate::map_key::MapKey;
 
 use crate::modules::{
     RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module,
@@ -2235,32 +2235,6 @@ fn lowered_bytes_list_arg(
         }
     }
     Ok(chunks)
-}
-
-fn lowered_bool_map_arg(
-    value: Option<LoweredValue>,
-    operation: &str,
-    span: Span,
-) -> Result<Arc<BTreeMap<MapKey, LoweredValue>>, RuntimeError> {
-    let Some(LoweredValue::Map(items)) = value else {
-        return Err(
-            RuntimeError::new("type-error", format!("{operation} expected Map[Bool]"))
-                .with_span(span),
-        );
-    };
-    for value in items.values() {
-        if !matches!(value, LoweredValue::Bool(_)) {
-            return Err(RuntimeError::new(
-                "type-error",
-                format!(
-                    "{operation} expected Map[Bool], found Map containing {}",
-                    value.type_name()
-                ),
-            )
-            .with_span(span));
-        }
-    }
-    Ok(items)
 }
 
 fn lowered_record_arg(
@@ -7741,31 +7715,24 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            // Lowering builds both from the checked call; these are what a
+            // call that reaches the module operation itself evaluates to.
             RuntimeOp::SetEmpty if values.is_empty() => {
-                LoweredValue::Map(Arc::new(BTreeMap::new()))
+                LoweredValue::Set(Arc::new(std::collections::BTreeSet::new()))
             }
-            RuntimeOp::SetFrom if values.len() == 1 => {
-                let items = lowered_str_list_arg(values.pop(), "set.from", span)?;
-                let mut set = BTreeMap::new();
-                for item in items {
-                    set.insert(item.into(), LoweredValue::Bool(true));
+            RuntimeOp::SetFrom if values.len() == 1 => match values.pop() {
+                Some(LoweredValue::List(items)) => {
+                    super::set::lowered_set_from_items(&items, span)?
                 }
-                LoweredValue::Map(Arc::new(set))
-            }
-            RuntimeOp::SetAdd if values.len() == 2 => {
-                let item = lowered_str_arg_owned(values.pop(), "", "set.add", span)?;
-                let set = lowered_bool_map_arg(values.pop(), "set.add", span)?;
-                let mut set = take_shared(set);
-                set.insert(item.into(), LoweredValue::Bool(true));
-                LoweredValue::Map(Arc::new(set))
-            }
-            RuntimeOp::SetRemove if values.len() == 2 => {
-                let item = lowered_str_arg_owned(values.pop(), "", "set.remove", span)?;
-                let set = lowered_bool_map_arg(values.pop(), "set.remove", span)?;
-                let mut set = take_shared(set);
-                MapKeyRef::Str(&item).remove(&mut set);
-                LoweredValue::Map(Arc::new(set))
-            }
+                Some(LoweredValue::SharedList(items)) => {
+                    super::set::lowered_set_from_items(&items, span)?
+                }
+                _ => {
+                    return Err(
+                        RuntimeError::new("type-error", "set.from expected a list").with_span(span)
+                    );
+                }
+            },
             RuntimeOp::ShlexQuote if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "shlex.quote", span)?;
                 LoweredValue::Str(shlex::quote(&text).into())

@@ -282,11 +282,11 @@ print \${sizes.len()}
 test test_lint_makes_a_local_map_of_true_a_set { |ctx|
   let source = """proc show(words: List[Str]) [io] {
   var seen: Map[Bool] = {}
-  var extra = set.from(["z"])
+  var extra: Map[Str, Bool] = map.empty()
   for word in words {
     if word not in seen {
       seen[word] = true
-      extra = set.add(extra, word.upper())
+      extra = extra.set(word.upper(), true)
     }
   }
 
@@ -316,7 +316,7 @@ show(["b", "a", "b"])
 
   let rewritten = candidate.read_text()?
   assert "  var seen: Set[Str] = set.empty()\n" in rewritten, rewritten
-  assert "  var extra: Set[Str] = set.from([\"z\"])\n" in rewritten, rewritten
+  assert "  var extra: Set[Str] = set.empty()\n" in rewritten, rewritten
   assert "      seen = seen.add(word)\n" in rewritten, rewritten
   assert "      extra = extra.add(word.upper())\n" in rewritten, rewritten
   assert "seen.to_list().join" in rewritten, rewritten
@@ -326,27 +326,32 @@ show(["b", "a", "b"])
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
-  assert after.stdout == "2 a,b A,B,z 2\n"
+  assert after.stdout == "2 a,b A,B 2\n"
 }
 
-# The fix replaces the text from the declaration to the last use, and a
-# comment between the two is carried along, so the fix still applies.
-test test_lint_fix_keeps_a_comment_between_a_set_and_its_uses { |ctx|
-  let source = """proc show(words: List[Str]) [io] {
-  var seen = set.empty()
+# The fix replaces the text from the declaration to the last use. A comment
+# between the two is carried along, and the binding's name as a method or in
+# a message is not a use of it, so the fix still applies.
+test test_lint_fix_keeps_comments_and_reads_past_the_name_as_text { |ctx|
+  let source = """proc show(row: Map[Int], words: List[Str]) [io] {
+  var keys: Map[Bool] = {}
   var count = 0
   for word in words {
     # A repeated word is counted once.
-    continue when word in seen
+    continue when word in keys
 
-    seen = set.add(seen, word)  # the first sighting
+    if word in row.keys() {
+      print "keys known"
+    }
+
+    keys[word] = true  # the first sighting
     count += 1
   }
 
   print \$count
 }
 
-show(["b", "a", "b"])
+show({a: 1}, ["b", "a", "b"])
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "commented.xsh", contents: bytes.from_text(source))?
@@ -354,50 +359,55 @@ show(["b", "a", "b"])
   assert fixed.status.exited_with(0), fixed.stdout + fixed.stderr
 
   let rewritten = candidate.read_text()?
-  assert "  var seen: Set[Str] = set.empty()\n" in rewritten, rewritten
-  assert "    # A repeated word is counted once.\n" in rewritten, rewritten
-  assert "    seen = seen.add(word)  # the first sighting\n" in rewritten, rewritten
-  let after = test.expect(ctx, rewritten, status: 0)?
-  assert after.stdout == before.stdout
-  assert after.stdout == "2\n"
-}
-
-# A binding whose name is also a method and a word of a message is still
-# rewritten, and a legacy call that no fix covers is noted without failing
-# the run.
-test test_lint_notes_a_legacy_set_call_it_cannot_rewrite { |ctx|
-  let source = """proc show(row: Map[Int], words: List[Str]) [io] {
-  var keys = set.empty()
-  for word in words {
-    if word in row.keys() {
-      print "keys known"
-    }
-
-    keys = set.add(keys, word)
-  }
-
-  let more = set.add(set.from(words), "z")
-  print \${keys.len()} \${more.len()}
-}
-
-show({a: 1}, ["b", "a", "b"])
-"""
-  let before = test.expect(ctx, source, status: 0)?
-  let candidate = test.temp_file(ctx, name: "legacy.xsh", contents: bytes.from_text(source))?
-  run.capture --text "xsht" lint --fix $candidate
-  let left = run.capture --text "xsht" lint $candidate
-  let report = left.stdout + left.stderr
-  assert count(report, "warn[") == 0, report
-  assert count(report, "note[lint.legacy-set-call]") == 2, report
-  assert "on a `Set[Str]` this is the method `.add(item)`" in report, report
-  assert "this is a `Map[Str, Bool]`, not a `Set[Str]`" in report, report
-
-  let rewritten = candidate.read_text()?
   assert "  var keys: Set[Str] = set.empty()\n" in rewritten, rewritten
+  assert "    # A repeated word is counted once.\n" in rewritten, rewritten
   assert "    if word in row.keys() {\n" in rewritten, rewritten
-  assert "    keys = keys.add(word)\n" in rewritten, rewritten
-  assert "  let more = set.add(set.from(words), \"z\")\n" in rewritten, rewritten
+  assert "    keys = keys.add(word)  # the first sighting\n" in rewritten, rewritten
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
-  assert after.stdout == "keys known\n2 3\n"
+  assert after.stdout == "keys known\n2\n"
+}
+
+# The `set` module builds sets and nothing else: `set.from` takes its element
+# type from the list, `set.empty()` needs one from where it is written, and
+# the functions that updated a map of `true` name the method that replaced
+# them.
+test test_set_module_constructs_sets_and_names_the_removed_functions { |ctx|
+  let sizes = set.from([3, 1, 3])
+  assert sizes == {1, 3}
+  let paths: Set[Path] = set.from(["b", "a"])
+  assert paths.to_list() == [p"a", p"b"]
+  assert set.from(["x", "x"]).add("y").len() == 2
+
+  let source = """var seen: Set[Str] = set.from(["a"])
+seen = set.add(seen, "b")
+seen = set.remove(seen, "a")
+let none = set.empty()
+let ratios = set.from([1.5])
+let text = set.from("abc")
+print \${seen.len()} \${none.len()} \${ratios.len()} \${text.len()}
+"""
+  let output = test.expect(ctx, source, status: 2)?
+  assert output.stdout == ""
+  assert count(output.stderr, "err[check.removed-set-function]") == 2, output.stderr
+  assert "`set.add` was removed" in output.stderr, output.stderr
+  assert "call the `.remove` method -> seen.remove(\"a\")" in output.stderr, output.stderr
+  assert count(output.stderr, "err[check.local-inference]") == 1, output.stderr
+  assert "the empty set needs an element type" in output.stderr, output.stderr
+  assert count(output.stderr, "err[check.set-element-type]") == 1, output.stderr
+  assert "`set.from` requires a list, not Str" in output.stderr, output.stderr
+
+  # The rewrite is the diagnostic's fix, so `xsht lint --fix` applies it.
+  let fixable = """var seen: Set[Str] = set.from(["a"])
+seen = set.add(seen, "b")
+seen = set.remove(seen, "a")
+print \${seen.to_list().join(",")}
+"""
+  let candidate = test.temp_file(ctx, name: "removed.xsh", contents: bytes.from_text(fixable))?
+  run.capture --text --accept=[0, 1, 2] "xsht" lint --fix $candidate
+  let rewritten = candidate.read_text()?
+  assert "seen = seen.add(\"b\")\n" in rewritten, rewritten
+  assert "seen = seen.remove(\"a\")\n" in rewritten, rewritten
+  let after = test.expect(ctx, rewritten, status: 0)?
+  assert after.stdout == "b\n"
 }

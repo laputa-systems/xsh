@@ -212,30 +212,128 @@ impl Checker {
         Type::Set(Box::new(inferred))
     }
 
-    /// `set.empty()` and `set.from(items)` written where a `Set[T]` is
-    /// expected build that set. `None` anywhere else, where the two keep
-    /// their `Map[Str, Bool]` result.
+    /// `set.empty()` and `set.from(items)`. The element type is the expected
+    /// set's; without one, `set.from` takes the list's and `set.empty()`
+    /// has none to take. `None` for any other spelling of the two calls,
+    /// which the registered signature then rejects.
     pub(super) fn check_set_constructor_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         name: &str,
         args: &[ArenaCallArg],
+        span: Span,
         expected: Option<&Type>,
     ) -> Option<Type> {
-        let element = expected_set_element(expected)?.clone();
-        let set = Type::Set(Box::new(element.clone()));
+        let element = expected_set_element(expected).cloned();
         match (name, args) {
-            ("empty", []) => Some(set),
+            ("empty", []) => {
+                let Some(element) = element else {
+                    self.diagnostics.push(
+                        Diagnostic::error("the empty set needs an element type")
+                            .with_code(DiagnosticCode::CheckLocalInference)
+                            .with_label(Label::primary(
+                                span,
+                                "annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected",
+                            )),
+                    );
+                    return Some(Type::Unknown);
+                };
+                Some(Type::Set(Box::new(element)))
+            }
             // A positional argument only: lowering reads the call's one
             // positional argument as the list.
             ("from", [items]) if matches!(items.kind, ArenaCallArgKind::Positional(_)) => {
-                let list = Type::List(Box::new(element));
-                let actual = self.check_call_arg_arena(arena, source, &items.kind, Some(&list));
-                self.expect_type(&list, &actual, call_arg_span_arena(arena, &items.kind));
-                Some(set)
+                let items_span = call_arg_span_arena(arena, &items.kind);
+                if let Some(element) = element {
+                    let list = Type::List(Box::new(element.clone()));
+                    let actual = self.check_call_arg_arena(arena, source, &items.kind, Some(&list));
+                    self.expect_type(&list, &actual, items_span);
+                    return Some(Type::Set(Box::new(element)));
+                }
+                match self
+                    .check_call_arg_arena(arena, source, &items.kind, None)
+                    .into_unvalidated()
+                {
+                    Type::List(item) => {
+                        // An element is stored as its base type.
+                        let item = item.into_unvalidated();
+                        self.require_set_element_type(&item, items_span);
+                        Some(Type::Set(Box::new(item)))
+                    }
+                    other => {
+                        if !other.is_recovery() {
+                            self.error(
+                                items_span,
+                                &format!("`set.from` requires a list, not {other}"),
+                                DiagnosticCode::CheckTypeMismatch,
+                            );
+                        }
+                        Some(Type::Unknown)
+                    }
+                }
             }
             _ => None,
+        }
+    }
+
+    /// `set.add(set, item)` and `set.remove(set, item)` were functions over
+    /// a map of `true`; a set has both as methods. The arguments are checked
+    /// so that each has its type and its own reports.
+    pub(super) fn check_removed_set_function_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        name: &str,
+        args: &[ArenaCallArg],
+        span: Span,
+    ) -> Type {
+        let mut diagnostic = Diagnostic::error(format!("`set.{name}` was removed"))
+            .with_code(DiagnosticCode::CheckRemovedSetFunction)
+            .with_label(Label::primary(
+                span,
+                format!("`set.{name}` is no longer a function"),
+            ))
+            .with_note(format!(
+                "a `Set[T]` has the method `.{name}(item)`, which returns the new set"
+            ));
+        let mut receiver_ty = Type::Unknown;
+        for (index, arg) in args.iter().enumerate() {
+            let ty = self.check_call_arg_arena(arena, source, &arg.kind, None);
+            if index == 0 {
+                receiver_ty = ty;
+            }
+        }
+        // The rewrite is offered where the receiver is a set and is spelled
+        // as something a method can follow without grouping.
+        if let [
+            ArenaCallArg {
+                kind: ArenaCallArgKind::Positional(receiver),
+                ..
+            },
+            ArenaCallArg {
+                kind: ArenaCallArgKind::Positional(item),
+                ..
+            },
+        ] = args
+            && matches!(receiver_ty, Type::Set(_))
+            && matches!(
+                arena.arena.expr(*receiver).kind,
+                ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. }
+            )
+            && let Some(receiver) = source.get(arena.arena.expr(*receiver).span.range())
+            && let Some(item) = source.get(arena.arena.expr(*item).span.range())
+        {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                span,
+                format!("call the `.{name}` method"),
+                format!("{receiver}.{name}({item})"),
+            ));
+        }
+        self.diagnostics.push(diagnostic);
+        match receiver_ty {
+            Type::Set(_) => receiver_ty,
+            _ => Type::Unknown,
         }
     }
 

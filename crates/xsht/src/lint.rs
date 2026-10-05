@@ -1812,7 +1812,7 @@ impl<'a> Linter<'a> {
         lint_redundant_discard::lint_redundant_discard(self, stmt_id);
         self.fail_candidates.visit_stmt(self.arena, stmt_id);
         self.set_like_bindings
-            .visit_stmt(self.arena, self.source, stmt_id, &self.expr_types);
+            .visit_stmt(self.arena, self.source, stmt_id);
         match stmt.kind {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),
@@ -10527,6 +10527,7 @@ impl<'a> Linter<'a> {
             Type::Bytes => *item == Type::Bytes,
             Type::List(expected) => item.matches_expected(expected),
             Type::Map(key, _) => item.matches_expected(key),
+            Type::Set(element) => item.matches_expected(element),
             Type::Record(_) => *item == Type::Str,
             _ => false,
         }
@@ -12731,12 +12732,7 @@ impl LintExprVisitor<'_, '_> {
             .visit_expr(self.linter.arena, expr);
         self.linter
             .set_like_bindings
-            .visit_expr(
-                self.linter.arena,
-                self.linter.source,
-                expr,
-                &self.linter.expr_types,
-            );
+            .visit_expr(self.linter.arena, self.linter.source, expr);
         let tested_fallbacks =
             self.linter
                 .empty_fallbacks

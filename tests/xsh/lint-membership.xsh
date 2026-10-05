@@ -284,8 +284,8 @@ test test_lint_migrates_set_negation_and_stream_item_membership { |ctx|
   let root = test.temp_dir(ctx, name: "membership-set")?
   let fixed = migrated(
     fp"{root}/membership.xsh",
-    r"""proc probe(mapping: Map[Int], keys: List[Str]) {
-  assert ! set.has(set.empty(), "missing")
+    r"""proc probe(mapping: Map[Int], keys: List[Str], names: Set[Str]) {
+  assert ! set.has(names, "missing")
   let present = keys |> where mapping.has(.)
   let absent = keys |> where ! mapping.has(.) and ! mapping.has("other")
   let _ = present
@@ -293,7 +293,7 @@ test test_lint_migrates_set_negation_and_stream_item_membership { |ctx|
 }
 """,
   )?
-  assert "\"missing\" not in set.empty()" in fixed, fixed
+  assert "\"missing\" not in names" in fixed, fixed
   assert "(.) in mapping" in fixed, fixed
   assert "(.) not in mapping" in fixed, fixed
 }

@@ -1819,9 +1819,12 @@ impl Checker {
             self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
             return Type::Unknown;
         };
+        if module == "set" && matches!(name, "add" | "remove") {
+            return self.check_removed_set_function_arena(arena, source, name, args, span);
+        }
         if module == "set"
             && let Some(set) =
-                self.check_set_constructor_arena(arena, source, name, args, expected_context)
+                self.check_set_constructor_arena(arena, source, name, args, span, expected_context)
         {
             return set;
         }

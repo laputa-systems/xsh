@@ -150,7 +150,7 @@ fn module_docs(module: &str) -> ApiDocs {
         ),
         "list" => ("List collection helpers.", ""),
         "map" => ("Map collection helpers.", ""),
-        "set" => ("String-key set helpers backed by Map[Bool].", ""),
+        "set" => ("Set constructors.", ""),
         "mime" => ("MIME type lookup and media-type parsing helpers.", ""),
         "module" => (
             "User module loading helpers.",
@@ -1030,19 +1030,14 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["regex", "parsing", "compiled"],
         )),
         ("set", "empty") => Some((
-            "Creates an empty string-key set.",
-            "The set is represented by a map-backed value and starts without inherited entries.",
+            "Creates the empty set.",
+            "The element type comes from where the call is written: an annotated binding, a parameter, a field, or a return type that is a Set[T].",
             &["set", "collection"],
         )),
         ("set", "from") => Some((
-            "Builds a set from a list of strings.",
-            "Duplicate values collapse to one membership entry while input order does not become set ordering.",
+            "Builds a set from a list.",
+            "A repeated element is held once, and the list's order does not become the set's; the element type is the list's unless a Set[T] is expected.",
             &["set", "collection", "deduplication"],
-        )),
-        ("set", "add" | "remove") => Some((
-            "Adds or removes one string membership entry.",
-            "The operation returns the updated set value; it does not mutate an unrelated alias in place.",
-            &["set", "collection", "mutation"],
         )),
         ("shlex", "quote") => Some((
             "Renders one value as a shell-safe word.",
