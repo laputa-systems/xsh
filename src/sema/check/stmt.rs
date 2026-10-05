@@ -2634,7 +2634,9 @@ impl Checker {
         let actual = self.check_expr_or_run_arena(arena, source, value, None);
         let value_span = expr_or_run_span_arena(arena, value);
         if self.reject_dynamic_word(&actual, value_span) {
-        } else if !actual.can_be_argv_item() && !matches!(actual, Type::Unknown | Type::Invalid) {
+        } else if !super::command::can_be_env_value(&actual)
+            && !matches!(actual, Type::Unknown | Type::Invalid)
+        {
             self.error(
                 value_span,
                 &format!("environment value of type `{actual}` cannot convert to one value"),

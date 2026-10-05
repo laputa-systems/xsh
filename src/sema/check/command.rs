@@ -72,6 +72,14 @@ fn is_bare_ident(text: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
+/// An environment value is one argv item, or a `List[Path]`, which the
+/// runtime joins into a search path. A list of anything else has no single
+/// rendering.
+pub(super) fn can_be_env_value(ty: &Type) -> bool {
+    ty.can_be_argv_item()
+        || matches!(ty, Type::List(item) if matches!(**item, Type::Path | Type::Unknown))
+}
+
 pub(super) fn valid_env_name(name: &str) -> bool {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
@@ -935,12 +943,31 @@ impl Checker {
                     );
                     return;
                 }
+                // `NAME=(expr)` is one value, so a path list is a search
+                // path here; every other type keeps the argument rule and
+                // its diagnostic.
+                if let ArenaCommandArgKind::Typed(expr_id) = arg.kind {
+                    let ty = self.check_expr_arena(arena, source, expr_id, None);
+                    let expr_span = arena.arena.expr(expr_id).span;
+                    if !self.reject_dynamic_word(&ty, expr_span)
+                        && !can_be_env_value(&ty)
+                        && !matches!(ty, Type::Unknown)
+                    {
+                        self.report_conversion(
+                            expr_span,
+                            &ty,
+                            "cannot be a command argument",
+                            DiagnosticCode::CheckArgvConversion,
+                        );
+                    }
+                    return;
+                }
                 self.check_external_arg_arena(arena, source, arg);
             }
             ArenaEnvAssignmentValue::Expr(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
                 if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
-                } else if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
+                } else if !can_be_env_value(&ty) && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
                     self.error(
                         expr_span,

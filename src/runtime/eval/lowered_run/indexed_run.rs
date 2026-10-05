@@ -1132,7 +1132,7 @@ impl Evaluator {
                 let mut overlay = BTreeMap::new();
                 for (name, value) in fields {
                     check_env_name(&name, span)?;
-                    let value = super::super::value_to_argv_bytes(value.into_value(), span)?;
+                    let value = super::super::value_to_env_bytes(value.into_value(), span)?;
                     overlay.insert(name.into_bytes(), value);
                 }
                 let previous = self.env.clone();
@@ -1922,17 +1922,18 @@ impl Evaluator {
             ControlFlow::Continue(value) => value.into_value(),
             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
+        Self::run_arg_items(arg, value).map(ControlFlow::Continue)
+    }
+
+    /// The argv items one evaluated run argument contributes.
+    fn run_arg_items(arg: &RunArg, value: Value) -> Result<Vec<Vec<u8>>, RuntimeError> {
         match arg.mode {
-            0 => Ok(ControlFlow::Continue(vec![value_to_argv_bytes(
-                value, arg.span,
-            )?])),
+            0 => Ok(vec![value_to_argv_bytes(value, arg.span)?]),
             1 => match value {
-                Value::List(_) => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
-                value => Ok(ControlFlow::Continue(vec![value_to_argv_bytes(
-                    value, arg.span,
-                )?])),
+                Value::List(_) => splice_to_argv(value, arg.span),
+                value => Ok(vec![value_to_argv_bytes(value, arg.span)?]),
             },
-            RUN_ARG_SPLICE => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
+            RUN_ARG_SPLICE => splice_to_argv(value, arg.span),
             _ => unreachable!("indexed run argument tag was checked"),
         }
     }
@@ -1946,15 +1947,31 @@ impl Evaluator {
     ) -> Result<ControlFlow<LoweredValue, BTreeMap<Vec<u8>, Vec<u8>>>, RuntimeError> {
         let mut overlay = BTreeMap::new();
         for assignment in env {
-            let items =
-                match self.eval_indexed_run_arg(execution, &assignment.value, slots, call_span)? {
-                    ControlFlow::Continue(items) => items,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-            let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
-                RuntimeError::new("env-value", "environment values must be one value")
-                    .with_span(assignment.value.span)
-            })?;
+            let arg = &assignment.value;
+            let value = match self.eval_indexed_expr(execution, arg.value, slots, call_span)? {
+                ControlFlow::Continue(value) => value.into_value(),
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            };
+            // An expression value converts as any environment value does. A
+            // `$name` word is one value too, so its list is a search path
+            // when it holds paths; every other list keeps the word rule that
+            // accepts exactly one item, because an empty list does not say
+            // what it is a list of.
+            let is_path_list = matches!(
+                &value,
+                Value::List(items)
+                    if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Path(_)))
+            );
+            let value = if arg.mode == 0 || (arg.mode == 1 && is_path_list) {
+                super::super::value_to_env_bytes(value, arg.span)?
+            } else {
+                let items = Self::run_arg_items(arg, value)?;
+                let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
+                    RuntimeError::new("env-value", "environment values must be one value")
+                        .with_span(arg.span)
+                })?;
+                value
+            };
             overlay.insert(assignment.name.as_str().as_bytes().to_vec(), value);
         }
         Ok(ControlFlow::Continue(overlay))

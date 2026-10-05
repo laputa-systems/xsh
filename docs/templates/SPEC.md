@@ -2029,6 +2029,32 @@ environment overrides; the overlay is a `Record` or `Map[Str, V]` whose values
 use argv conversion (11.4), and `null` is rejected rather than meaning "unset".
 Names and values must be valid environment entries without NUL.
 
+An environment value may also be a `List[Path]`, a search path:
+
+```xsh
+{{.spec.env_path_list.source}}
+```
+
+Its entries are joined with the platform separator (`:`), each as its native
+bytes, so `env.PathList.NAME` reads back the list that was written and an
+empty list is the empty value. An entry that contains the separator fails
+with `env-value` instead of becoming two entries. This holds wherever a value
+becomes an environment entry: an overlay field, `NAME=(expr)` and `NAME=$dirs`
+words, `e"NAME" = dirs`, and the `env` record of a command plan or native test
+run. A list of anything else is rejected at check time (`check.env-value`;
+`check.argv-conversion` in a `NAME=value` word), or with `env-value` at run time
+where the type is not known. A `NAME=$list` word keeps its older rule for
+every other list, which accepts exactly one item; that includes an empty
+list, which does not say what it is a list of.
+
+`lint.prefer-env-path-list` reports a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
+Its rewrite, `NAME: [fp"{dir}", @env.PathList.NAME ?? []]`, is offered but
+not applied by `--fix`, because it is not the same value in three cases: an
+unset variable no longer leaves a trailing empty entry (which a search treats
+as the current directory), a value that is not UTF-8 is kept instead of
+dropped, and a directory that contains `:` fails instead of becoming two
+entries.
+
 In statement position a scope returns `Result[Unit]`. The parenthesized forms
 `cd (path) { ... }` and `env (overlay) { ... }` may be used in value position
 and return `Result[T]` of the body's tail. A `Result` tail stays nested.
@@ -2088,7 +2114,7 @@ when the name and `{` follow on the same line.
 - `e"NAME" = value` is a statement that sets the variable in the evaluator
   environment. It takes only `=` (`check.assign-target` otherwise). The value
   is an expression or run form whose type converts to one argv item (11.4), as
-  `env NAME=value` values do; `null`, optionals, lists, and `Bytes` are
+  `env NAME=value` values do; `null`, optionals, `Bytes`, and lists other than `List[Path]` (10.4) are
   `check.env-value`, and a value containing NUL fails at runtime. A bare word
   on the right is a binding, as everywhere in expressions: `e"CC" = clang`
   names a binding `clang`, and the literal is `e"CC" = "clang"`. There is no

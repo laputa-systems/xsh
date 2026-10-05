@@ -624,11 +624,13 @@ impl Checker {
                             }
                         };
                         if let Some(values) = values
-                            && values.into_iter().any(|ty| !ty.can_be_argv_item())
+                            && values
+                                .into_iter()
+                                .any(|ty| !super::command::can_be_env_value(ty))
                         {
                             self.error(
                                 arena.arena.expr(*input).span,
-                                "environment values must convert to one scalar argv item",
+                                "environment values must convert to one scalar argv item or be a List[Path]",
                                 DiagnosticCode::CheckEnvValue,
                             );
                         }

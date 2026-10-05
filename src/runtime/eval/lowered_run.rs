@@ -97,7 +97,7 @@ use super::{
     lowered_str_view_value, lowered_value_matches_static_type, module_error, module_io_error,
     path_absolute_value, path_value_from_pathbuf, pathbuf_from_path_value,
     runtime_error_from_value, splice_to_argv, trace_env_overlay, trace_status,
-    value_matches_static_type, value_to_argv_bytes,
+    value_matches_static_type, value_to_argv_bytes, value_to_env_bytes,
 };
 #[cfg(feature = "native-tests")]
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
@@ -2173,10 +2173,13 @@ fn lowered_optional_env_record(
 
     let mut env = BTreeMap::new();
     for (key, value) in fields.iter() {
-        // Text as UTF-8 and a Path as its native bytes; nothing else is an
-        // environment value here.
+        // Text as UTF-8, a Path as its native bytes, and a list of paths as
+        // a search path; nothing else is an environment value here.
         let bytes = match value {
             LoweredValue::Path(path) => path.bytes.clone(),
+            LoweredValue::List(_) | LoweredValue::SharedList(_) => {
+                value_to_env_bytes(value.clone().into_value(), span)?
+            }
             value => match lowered_str_value(value) {
                 Some(text) => text.as_bytes().to_vec(),
                 None => {
@@ -2262,10 +2265,17 @@ fn lowered_path_like_arg(
 /// The bytes one environment value hands to a child: a Path's native bytes,
 /// and for every other value its display text, which is what an argv word
 /// carries. Converting a Path through its display text would replace every
-/// byte sequence that is not UTF-8.
+/// byte sequence that is not UTF-8. A list is a search path: its entries
+/// must be paths, joined by the separator.
 fn lowered_env_value_bytes(value: &LoweredValue, span: Span) -> Result<Vec<u8>, RuntimeError> {
     if let LoweredValue::Path(path) = value {
         return Ok(path.bytes.clone());
+    }
+    if matches!(
+        value,
+        LoweredValue::List(_) | LoweredValue::SharedList(_)
+    ) {
+        return value_to_env_bytes(value.clone().into_value(), span);
     }
     let mut text = String::new();
     push_lowered_display(&mut text, value, span)?;
@@ -5932,7 +5942,7 @@ impl Evaluator {
             RuntimeOp::EnvSet if values.len() == 2 => {
                 let value = values.pop().expect("checked value length");
                 let name = lowered_str_arg_owned(values.pop(), "", "env", span)?;
-                let value = value_to_argv_bytes(value.into_value(), span)?;
+                let value = value_to_env_bytes(value.into_value(), span)?;
                 self.env.insert(name.into_bytes(), value);
                 LoweredValue::Unit
             }

@@ -6724,6 +6724,65 @@ fn value_to_argv_bytes(value: Value, span: Span) -> Result<Vec<u8>, RuntimeError
     Ok(bytes)
 }
 
+/// Separates the entries of a search-path environment value such as `PATH`.
+const ENV_PATH_LIST_SEPARATOR: u8 = b':';
+
+/// Joins the native bytes of path-list entries into one environment value.
+/// An entry that contains the separator would read back as two entries, so
+/// it is an error instead of a silent split.
+fn join_env_path_list<'a>(
+    entries: impl IntoIterator<Item = &'a [u8]>,
+    span: Span,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut joined = Vec::new();
+    for (index, entry) in entries.into_iter().enumerate() {
+        if entry.contains(&ENV_PATH_LIST_SEPARATOR) {
+            return Err(RuntimeError::new(
+                "env-value",
+                format!(
+                    "environment path list entry {index} contains the separator `{}`",
+                    char::from(ENV_PATH_LIST_SEPARATOR)
+                ),
+            )
+            .with_span(span));
+        }
+        if index > 0 {
+            joined.push(ENV_PATH_LIST_SEPARATOR);
+        }
+        joined.extend_from_slice(entry);
+    }
+    reject_nul(
+        &joined,
+        "env-value",
+        "environment values cannot contain NUL",
+        span,
+    )?;
+    Ok(joined)
+}
+
+/// The bytes of one environment value: a `List[Path]` joined as a search
+/// path, and any other value as the argv item it would be.
+fn value_to_env_bytes(value: Value, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    let Value::List(items) = value else {
+        return value_to_argv_bytes(value, span);
+    };
+    let mut entries = Vec::with_capacity(items.len());
+    for item in &items {
+        let Value::Path(path) = item else {
+            return Err(RuntimeError::new(
+                "env-value",
+                format!(
+                    "an environment list value must be a List[Path], found an item of type {}",
+                    item.type_name()
+                ),
+            )
+            .with_span(span));
+        };
+        entries.push(path.bytes.as_slice());
+    }
+    join_env_path_list(entries, span)
+}
+
 fn reject_nul(bytes: &[u8], kind: &str, message: &str, span: Span) -> Result<(), RuntimeError> {
     if bytes.contains(&0) {
         Err(RuntimeError::new(kind, message).with_span(span))

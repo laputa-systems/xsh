@@ -69,6 +69,9 @@ mod lint_redundant_scope_propagation;
 #[path = "lint_prefer_propagation.rs"]
 mod lint_prefer_propagation;
 
+#[path = "lint_env_path_list.rs"]
+mod lint_env_path_list;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -10568,6 +10571,13 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(sinks);
+        let search_paths = lint_env_path_list::env_path_lists(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            expr,
+        );
+        self.diagnostics.extend(search_paths);
     }
 
     fn lint_redundant_named_bool(
