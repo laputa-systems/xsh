@@ -54,8 +54,9 @@ type UniqOptions = {
 # characters compared (-1 for the whole rest), case folded or not.
 type Key = {fields: Int, skip: Int, width: Int, fold: Bool, utf8: Bool}
 
-# Which groups print (`unique` singletons, `first` the first line of a repeated
-# group, `later` every line of a repeated group), and how groups are delimited.
+# Which groups print (`unique` singletons, `first` whether a repeated group
+# prints its last line too, `later` every repeated group line by line), and how
+# groups are delimited.
 type Selection = {unique: Bool, first: Bool, later: Bool, delimit: Str, group: Bool, counts: Bool}
 
 # The ARGMATCH abbreviation rules: an exact name or a unique prefix.
@@ -339,7 +340,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         lines = bunch
       } else if select.later {
         if size > 1 {
-          lines = if select.first { bunch } else { bunch[1..] }
+          lines = if select.first { bunch } else { bunch[..size - 1] }
         }
       } else if (size == 1 and select.unique) or (size > 1 and select.first) {
         lines = [bunch[0]]
