@@ -95,6 +95,16 @@ test test_fmt_command_continuation { |ctx|
   assert after.stdout == before.stdout
 }
 
+# A comment that ends a command's line stays on that line, as it does after
+# any other statement; it used to move to a line of its own below.
+test test_fmt_keeps_a_trailing_comment_on_a_command { |ctx|
+  let source = "print one two # said\nrun true # ran\nlet text = run.text printf x ? # captured\nprint $text \\\n  again # continued\n\nif true {\n  print inside # nested\n}\n"
+  let file = test.temp_file(ctx, name: "trailing.xsh", contents: bytes.from_text(source))?
+  let formatted = run.capture --text "xsht" fmt $file ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  assert file.read_text()? == source
+}
+
 test test_fmt_path_format_specs_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/path-format-specs.xsh".read_text()?
   let before = test.run_script(ctx, source)?

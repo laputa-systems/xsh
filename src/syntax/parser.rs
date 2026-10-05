@@ -333,7 +333,13 @@ impl<'a> Parser<'a> {
     /// stray: it continues nothing.
     fn skip_command_part_gap(&mut self) {
         let gap_start = self.previous_end();
-        self.skip_comments();
+        // The comment that ends the command's line is left for the statement
+        // terminator, so the command's span stops before it as every other
+        // statement's does.
+        while self.current_tag() == TokenTag::Comment && !self.current_comment_is_line_terminator()
+        {
+            self.bump();
+        }
         self.accept_line_continuations_since(gap_start);
     }
 
