@@ -2149,6 +2149,12 @@ position where a command named `exit` would otherwise be read (10.1);
 `exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
 call of a binding named `exit`.
 
+The function `abort(status)` that `exit` replaced is gone, and a call of it is
+`check.removed-abort`. Where the call is a statement the diagnostic carries
+the rewrite to `exit status`, which `xsht lint --fix` applies; a call used as
+an operand has to be moved into a statement by hand, and the `force` argument,
+which skipped deferred cleanup, has no replacement.
+
 ## 9. Functions
 
 ### 9.1 Definitions

@@ -39,11 +39,63 @@ test test_desugar_keeps_exit_as_written { |ctx|
 }
 
 test test_abort_is_gone_and_names_exit { |ctx|
-  let output = test.run_script(ctx, "abort(9)\n")?
-  assert ! output.success
-  assert "err[check.unresolved-call]" in output.stderr, output.stderr
-  assert "`abort` was removed; a deliberate exit is the statement `exit STATUS`" in output.stderr, output.stderr
-  assert "-> exit 9" in output.stderr, output.stderr
+  let _ = test.expect(
+    ctx,
+    "abort(9)\n",
+    status: 2,
+    stderr: [
+      "err[check.removed-abort]: `abort` was removed",
+      "`abort` was removed; a deliberate exit is the statement `exit STATUS`",
+      "-> exit 9",
+    ],
+  )?
+}
+
+test test_abort_statements_are_rewritten_by_lint_fix { |ctx|
+  let source = r"""proc stop(code: Int) {
+  if code > 3 {
+    abort(code + 1)
+  }
+  abort(2)
+}
+
+proc pick(code: Int) -> Int {
+  if code > 3 {
+    code
+  } else {
+    abort(4)
+  }
+}
+
+stop(pick(5))
+"""
+  let file = test.temp_file(ctx, name: "stops.xsh", contents: bytes.from_text(source))?
+  let fixed = run.capture --text "xsht" lint --fix --only "check.removed-abort" $file ?
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert file.read_text()? == source.replace("abort(code + 1)", "exit code + 1")
+    .replace("abort(2)", "exit 2")
+    .replace("abort(4)", "exit 4")
+  let _ = test.expect(ctx, file.read_text()?, status: 6)?
+}
+
+test test_abort_in_an_expression_or_with_force_has_no_rewrite { |ctx|
+  let operand = test.expect(
+    ctx,
+    "let status: Int = abort(3)\n",
+    status: 2,
+    stderr: ["err[check.removed-abort]", "`exit` is a statement: move the exit out of this expression"],
+  )?
+  assert "-> exit" not in operand.stderr, operand.stderr
+  let forced = test.expect(
+    ctx,
+    "abort(2, force: true)\n",
+    status: 2,
+    stderr: [
+      "err[check.removed-abort]",
+      "`force` has no replacement: `exit STATUS` always runs deferred cleanup",
+    ],
+  )?
+  assert "-> exit" not in forced.stderr, forced.stderr
 }
 
 test test_exit_is_not_a_reserved_word { |ctx|

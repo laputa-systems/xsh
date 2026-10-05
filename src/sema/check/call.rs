@@ -1474,6 +1474,9 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
     ) {
+        // Read before the arguments are checked: a block among them has
+        // statements of its own.
+        let is_statement = self.statement_root == Some(span);
         let mut diagnostic = Diagnostic::error(format!("unresolved pure function call `{name}`"))
             .with_code(DiagnosticCode::CheckUnresolvedCall)
             .with_label(Label::primary(span, "unresolved pure function call"));
@@ -1488,14 +1491,37 @@ impl Checker {
             _ => None,
         };
         match (name, argument) {
-            ("abort", Some((text, _))) => {
-                diagnostic = diagnostic
-                    .with_note("`abort` was removed; a deliberate exit is the statement `exit STATUS`")
-                    .with_fix_hint(super::FixHint::replacement(
-                        span,
-                        "use the `exit` statement",
-                        format!("exit {text}"),
-                    ));
+            ("abort", argument) => {
+                diagnostic = Diagnostic::error("`abort` was removed")
+                    .with_code(DiagnosticCode::CheckRemovedAbort)
+                    .with_label(Label::primary(span, "`abort` is no longer a function"))
+                    .with_note("`abort` was removed; a deliberate exit is the statement `exit STATUS`");
+                match argument {
+                    // `exit` is a statement, so the call is rewritten only
+                    // where it is one; as an operand it has no spelling that
+                    // an edit of the call alone could produce.
+                    Some((text, _)) if is_statement => {
+                        diagnostic = diagnostic.with_fix_hint(super::FixHint::replacement(
+                            span,
+                            "use the `exit` statement",
+                            format!("exit {text}"),
+                        ));
+                    }
+                    Some(_) => {
+                        diagnostic = diagnostic.with_note(
+                            "`exit` is a statement: move the exit out of this expression, for example into a `guard ... else { exit STATUS }`",
+                        );
+                    }
+                    None if args.iter().any(|arg| {
+                        matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "force")
+                    }) =>
+                    {
+                        diagnostic = diagnostic.with_note(
+                            "`force` has no replacement: `exit STATUS` always runs deferred cleanup",
+                        );
+                    }
+                    None => {}
+                }
             }
             ("print" | "eprint", Some((text, _))) => {
                 diagnostic = diagnostic

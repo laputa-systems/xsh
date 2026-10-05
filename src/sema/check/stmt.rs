@@ -1039,6 +1039,7 @@ impl Checker {
                     .insert(arena.arena.expr(expr_id).span, Type::Unit);
             }
             ArenaStmtKind::Expr(expr_id) => {
+                self.statement_root = Some(arena.arena.expr(expr_id).span);
                 self.statement_expression_spans
                     .insert(arena.arena.expr(expr_id).span);
                 self.propagating_statements.insert(stmt.span);
@@ -3590,6 +3591,7 @@ impl Checker {
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
+            self.statement_root = Some(arena.arena.expr(expr_id).span);
             self.statement_expression_spans
                 .insert(arena.arena.expr(expr_id).span);
             self.propagating_statements.insert(stmt.span);
@@ -3658,6 +3660,9 @@ impl Checker {
             self.propagating_statements.insert(stmt.span);
         } else {
             self.propagating_statements.remove(&stmt.span);
+        }
+        if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
+            self.statement_root = Some(arena.arena.expr(expr_id).span);
         }
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit())
             && !(expected.is_some_and(Type::is_result_unit)

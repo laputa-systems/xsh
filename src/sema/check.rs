@@ -784,6 +784,10 @@ pub struct Checker {
     /// The final top-level statement of the script, whose `Int` value is
     /// consumed as the exit status rather than discarded.
     exit_status_statement: Option<Span>,
+    /// The expression of the expression statement entered last, tail or
+    /// not. A diagnostic whose fix replaces an expression with a statement
+    /// compares its span with this before it checks anything nested.
+    statement_root: Option<Span>,
 }
 
 impl Checker {
@@ -1181,6 +1185,7 @@ impl Checker {
             root_signal_hooks: FxHashMap::default(),
             current_exported: false,
             exit_status_statement: None,
+            statement_root: None,
         };
         checker.register_builtin_process_error_family();
         checker.define_standard_values();

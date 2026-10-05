@@ -408,6 +408,7 @@ diagnostic_codes! {
         CheckRecursiveType = "check.recursive-type", error, "Reject a recursive type alias or recursive generic schema application";
         CheckRedundantParens = "check.redundant-parens", error, fixable, "Remove parentheses that do not change the parse";
         CheckRegexLiteral = "check.regex-literal", error, "Reject a regex literal that does not compile";
+        CheckRemovedAbort = "check.removed-abort", error, fixable, "Rewrite a call of the removed `abort(STATUS)` as the statement `exit STATUS`";
         CheckRemovedMembership = "check.removed-membership", error, "Reject the removed standard membership API; use `in` or `not in`";
         CheckRemovedRecordRequire = "check.removed-record-require", error, "Reject the removed `record.require`; declare a schema and use `.require(Schema)`";
         CheckRequireTarget = "check.require-target", error, "Reject `.require` when no schema or typed boundary supplies the target type";
