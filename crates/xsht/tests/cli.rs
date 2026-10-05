@@ -215,6 +215,72 @@ fn lint_fix_cancellation_writes_no_file() {
     }
 }
 
+/// One file is one unit of formatting work, so a signal that arrives while a
+/// large file is being formatted is answered by the command and not by the
+/// worker: `xsht fmt` leaves at once, and the file, which only the command
+/// writes after every file is formatted, is untouched.
+///
+/// The signal goes to a spawned `xsht` for the reason given above.
+#[test]
+fn fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file() {
+    // Every function needs formatting, and the file is large enough that
+    // loading, checking, and formatting it takes seconds.
+    let mut functions = String::new();
+    for index in 0..100_000 {
+        functions.push_str(&format!(
+            "pure pick_{index}(n: Int) -> Int {{\n  let chosen = match n {{\n    1 => 10,\n    _ => 20,\n  }}\n  chosen   + 1\n}}\n\n"
+        ));
+    }
+    functions.push_str("print ${pick_0(1)}\n");
+    for signal in [libc::SIGTERM, libc::SIGINT] {
+        let root = TempDir::new().expect("temporary format fixture");
+        let file = root.path().join("large.xsh");
+        fs::write(&file, &functions).expect("write format fixture");
+        let mut format = Command::new(release_bin!("xsht"))
+            .args(["fmt", "large.xsh"])
+            .current_dir(root.path())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("start xsht fmt");
+        // Long enough for the handlers to be installed, far shorter than the
+        // run.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            format.try_wait().expect("poll fmt").is_none(),
+            "the format run ended before it could be interrupted; the fixture is too small"
+        );
+        assert_eq!(unsafe { libc::kill(format.id() as libc::pid_t, signal) }, 0);
+        let started = std::time::Instant::now();
+        let output = format.wait_with_output().expect("wait for fmt");
+        assert_eq!(
+            output.status.code(),
+            Some(128 + signal),
+            "{:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+        let name = if signal == libc::SIGINT { "SIGINT" } else { "SIGTERM" };
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(&format!("interrupted by {name}")),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // The command looks at the signal many times a second while the
+        // worker is inside the file; it does not wait for the file.
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(
+            fs::read_to_string(&file).expect("read format fixture") == functions,
+            "the interrupted run wrote the file"
+        );
+    }
+}
+
 #[test]
 fn test_runner_times_out_hung_tests_and_stops_their_descendants() {
     let root = TempDir::new().expect("temporary timeout fixture");

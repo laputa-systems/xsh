@@ -7,8 +7,10 @@ use crate::xsht::format::Formatter;
 use rustc_hash::FxHashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
+use std::time::Duration;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer};
 use xsh::frontend::check::CheckOptions;
 use xsh::frontend::load::parse_load_check_file;
@@ -52,7 +54,9 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
         }
     };
 
-    let mut results = format_files_parallel(&discovered);
+    let Some(mut results) = format_files_parallel(discovered) else {
+        return cancellation_output().expect("formatting stops early only for a signal");
+    };
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -140,44 +144,77 @@ struct RenderedDiagnostic {
     text: String,
 }
 
-#[allow(clippy::single_call_fn)]
-fn format_files_parallel(files: &[String]) -> Vec<FormatResult> {
-    if files.is_empty() {
-        return Vec::new();
-    }
-    let next = AtomicUsize::new(0);
-    let (tx, rx) = crossbeam_channel::unbounded();
-    let workers = worker_count(files.len());
+/// How often the command looks for a cancellation request while its workers
+/// format.
+const CANCELLATION_POLL: Duration = Duration::from_millis(20);
 
-    thread::scope(|scope| {
-        for _ in 0..workers {
-            let next = &next;
-            let tx = tx.clone();
-            // The writer recurses once per level of source nesting, like the
-            // passes that prepare a script, and the platform's default worker
-            // stack does not hold the deepest source the parser accepts.
-            thread::Builder::new()
-                .name("xsht-fmt".to_string())
-                .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
-                .spawn_scoped(scope, move || {
-                    loop {
-                        if cancellation_output().is_some() {
-                            break;
-                        }
-                        let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(file) = files.get(index) else {
-                            break;
-                        };
-                        if tx.send(format_one_file(index, file)).is_err() {
-                            break;
-                        }
+/// Formats `files` on worker threads. `None` means a cancellation request
+/// arrived first.
+///
+/// A file is one unit of work for a worker, and a large one takes seconds to
+/// load, check, and format, so a worker cannot answer a signal promptly. The
+/// command does instead: it waits for results with a look at the signal
+/// between them and returns as soon as one is requested, leaving the workers
+/// to end with the process. Nothing is lost by that, because a worker only
+/// computes text and the command alone writes files, after every result is
+/// in.
+#[allow(clippy::single_call_fn)]
+fn format_files_parallel(files: Vec<String>) -> Option<Vec<FormatResult>> {
+    if files.is_empty() {
+        return Some(Vec::new());
+    }
+    let file_count = files.len();
+    let files: Arc<[String]> = files.into();
+    let next = Arc::new(AtomicUsize::new(0));
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let mut workers = Vec::new();
+    for _ in 0..worker_count(file_count) {
+        let (files, next, tx) = (Arc::clone(&files), Arc::clone(&next), tx.clone());
+        // The writer recurses once per level of source nesting, like the
+        // passes that prepare a script, and the platform's default worker
+        // stack does not hold the deepest source the parser accepts.
+        let worker = thread::Builder::new()
+            .name("xsht-fmt".to_string())
+            .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
+            .spawn(move || {
+                loop {
+                    if cancellation_output().is_some() {
+                        break;
                     }
-                })
-                .expect("spawn a formatting worker");
-        }
-    });
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(file) = files.get(index) else {
+                        break;
+                    };
+                    if tx.send(format_one_file(index, file)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn a formatting worker");
+        workers.push(worker);
+    }
     drop(tx);
-    rx.into_iter().collect()
+
+    let mut results = Vec::with_capacity(file_count);
+    while results.len() < file_count {
+        match rx.recv_timeout(CANCELLATION_POLL) {
+            Ok(result) => results.push(result),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                if cancellation_output().is_some() {
+                    return None;
+                }
+            }
+            // Every worker is gone with files left: one saw the signal, or
+            // one panicked.
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    for worker in workers {
+        if let Err(panic) = worker.join() {
+            std::panic::resume_unwind(panic);
+        }
+    }
+    (results.len() == file_count).then_some(results)
 }
 
 #[allow(clippy::single_call_fn)]

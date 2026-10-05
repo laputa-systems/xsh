@@ -86,6 +86,14 @@ contract stays in `docs/SPEC.md`.
   callbacks must not gain redundant parentheses when the qualifier moves to
   the next line.
 - Lint diagnostics are unchanged by formatting (`docs/XSHT.md`).
+- A typed command argument loses its parentheses only where the command
+  parser reads the same expression without them: a prefixed string and a
+  chain that calls or indexes. `(name)`, `(7)`, and `("costs $5")` keep
+  theirs, because the bare text is a word.
+- `xsht fmt` writes files only after every file is formatted, and answers
+  SIGINT or SIGTERM without waiting for the file a worker is in, so an
+  interrupted run writes none
+  (`crates/xsht/tests/cli.rs::fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file`).
 
 ## Tests
 
