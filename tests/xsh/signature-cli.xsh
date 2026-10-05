@@ -215,3 +215,57 @@ cli main(name: Str = "world") [io] {
   assert linted.status.exited_with(0), linted.stderr
   assert "check.cli-entry" not in linted.stderr, linted.stderr
 }
+
+# Argument parsing is a preflight: `--help` and rejected arguments end the run
+# before any module-level initializer, of the entry script or of a module it
+# imports, has had an effect.
+test test_signature_cli_preflight_precedes_imported_and_entry_initializers { |ctx|
+  let root = test.temp_dir(ctx, name: "signature-preflight")?
+  let imported_marker = fp"{root}/imported-marker"
+  let entry_marker = fp"{root}/entry-marker"
+  fp"{root}/marker.xsh".write(
+    r"""##! Initializer marker module.
+## An unsigned worker count.
+export type WorkerCount = UInt
+proc initialize() [fs, error] -> Int { fs.write(p"IMPORTED_MARKER", "ran")?; 1 }
+let initialized_marker = initialize()
+## A callable exported value.
+export pure value() -> Int { initialized_marker }
+""".replace("IMPORTED_MARKER", imported_marker.display()),
+  )
+  let script = fp"{root}/entry.xsh"
+  script.write(
+    r"""##! A checked signature CLI.
+use marker
+proc initialize() [fs, error] -> Int { fs.write(p"ENTRY_MARKER", "ran")?; 1 }
+let initialized = initialize()
+cli main(root: Path, jobs: marker.WorkerCount = 4) [error] { print ${marker.value()} $initialized $jobs }
+""".replace("ENTRY_MARKER", entry_marker.display()),
+  )
+  for {arguments, status} in [
+    {arguments: ["--help"], status: 0},
+    {arguments: [], status: 2},
+    {arguments: ["operand", "--jobs=nope"], status: 2},
+    {arguments: ["operand", "--jobs=-1"], status: 2},
+  ] {
+    let output = run.capture --text ${ctx.xsh_bin} $script @arguments ?
+    assert output.status.exited_with(status), output.stderr
+    assert ! imported_marker.exists()?
+    assert ! entry_marker.exists()?
+    let usage = if status == 0 { output.stdout } else { output.stderr }
+    assert "usage:" in usage, usage
+  }
+
+  let output = run.capture --text ${ctx.xsh_bin} $script missing-path-is-allowed --jobs=8 ?
+  assert output.status.exited_with(0), output.stderr
+  assert output.stdout == "1 1 8\n"
+  assert imported_marker.exists()?
+  assert entry_marker.exists()?
+}
+
+test test_signature_cli_preserves_entry_exit_status_and_errors { |ctx|
+  for {body, status} in [{body: "exit 7", status: 7}, {body: "error.fail(\"entry failed\")?", status: 3}] {
+    let output = test.run_script(ctx, f"cli main() [error] {{ {body} }}\n")?
+    assert output.status == status, output.stderr
+  }
+}
