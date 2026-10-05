@@ -47,7 +47,7 @@ proc main(...raw: List[Str]) [process, env, error] {
     }
   }
 
-  if argv.len() == 0 {
+  if argv.is_empty() {
     print_environment()
     return
   }

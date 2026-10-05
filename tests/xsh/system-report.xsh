@@ -748,12 +748,12 @@ Features: fp asimd crc32
   assert cpus.cpu.cpus[1].model == "Cortex-A76"
   let firmware = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
   assert firmware.firmware.source == "device-tree"
-  assert firmware.firmware.records.len() == 0
+  assert firmware.firmware.records.is_empty()
 
   root.remove(p"sys/firmware/devicetree/base/model")
   let compatible_only = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
   assert compatible_only.firmware.source == "device-tree"
-  assert compatible_only.firmware.records.len() == 0
+  assert compatible_only.firmware.records.is_empty()
 
   root.write(p"sys/firmware/devicetree/base/model", "ARM Example Board")
   root.write(p"sys/firmware/devicetree/base/compatible", "vendor,example\0arm,v8")
@@ -761,7 +761,7 @@ Features: fp asimd crc32
   let invalid_platform = invalid.identity.firmware.require(report_model.FirmwareIdentity)?
   assert invalid_platform.source == "unavailable"
   assert invalid_platform.device_tree_model.state == report_model.Malformed
-  assert invalid_platform.device_tree_compatible.len() == 0
+  assert invalid_platform.device_tree_compatible.is_empty()
   assert invalid.issues |> any .field == "firmware.device_tree_model" and .state == report_model.Malformed
   assert invalid.issues |> any .field == "firmware.device_tree_compatible" and .state == report_model.Malformed
   let invalid_firmware = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
@@ -1527,7 +1527,7 @@ test test_system_report_model_relationships {
   assert offline_member_policy.len() == 1
   let selected_policy = offline_member_policy[0]
   assert selected_policy.name == "policy0"
-  assert model.frequency_policies_for_cpu(policies, 4).len() == 0
+  assert model.frequency_policies_for_cpu(policies, 4).is_empty()
 
   let functions = [
     pci_function("0000:00:01.0", null),
@@ -1630,9 +1630,9 @@ test test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable {
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert value.cpu.status.enumeration_succeeded
   assert value.cpu.cpus.len() == 1
-  assert value.cpu.frequency_policies.len() == 0
+  assert value.cpu.frequency_policies.is_empty()
   assert value.cpu.cpus[0].policy == null
-  assert value.cpu.idle_states.len() == 0
+  assert value.cpu.idle_states.is_empty()
   assert value.cpu.global_idle_driver == null
   assert value.identity.kernel_release == "fixture-vm-release"
 }
@@ -2548,7 +2548,7 @@ test test_system_report_assembles_network_links_addresses_routes_and_rules {
   assert result.routes[0].destination.value == "0.0.0.0"
   assert result.routes[0].route_type == "route_type_222"
   assert result.routes[0].protocol == "protocol_77"
-  assert result.routes[0].nexthops.len() == 0
+  assert result.routes[0].nexthops.is_empty()
   assert result.routes[1].family == "ipv6"
   assert result.routes[1].nexthops[0].ifindex == 9
   assert result.routes[1].nexthops[0].flags == 2
@@ -2607,7 +2607,7 @@ test test_system_report_section_selection_marks_excluded_domains {
   assert ! cpu_only_wire.memory.status.enumeration_succeeded
   assert cpu_only_wire.memory.host.total_bytes == null
   assert cpu_only_wire.pci.status.state == "not_requested"
-  assert cpu_only_wire.pci.functions.len() == 0
+  assert cpu_only_wire.pci.functions.is_empty()
   assert cpu_only_wire.network.status.state == "not_requested"
   assert cpu_only.issues.len() == 1
   assert "PCI: not requested" in cpu_only_text
@@ -4579,7 +4579,7 @@ test test_system_report_storage_mounts_reject_truncated_complete_looking_prefix 
   root.write(p"proc/self/mountinfo", valid + padding)
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  assert value.storage.mounts.len() == 0
+  assert value.storage.mounts.is_empty()
   assert value.issues |> any .section == "storage" and .field == "mounts" and .state == report_model.Truncated
 }
 
@@ -4784,7 +4784,7 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
   assert value.pci.functions.len() == 1
   assert value.pci.functions[0].domain == 1
-  if value.storage.devices.len() == 0 {
+  if value.storage.devices.is_empty() {
     test.fail(
       value.issues
         |> where .section == "storage"
@@ -5228,7 +5228,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
   assert value.storage.status.state == report_model.Complete
   assert value.storage.devices.len() == 3
-  assert (value.storage.devices |> where .name == "sda2").len() == 0
+  assert (value.storage.devices |> where .name == "sda2").is_empty()
   let disk = (value.storage.devices |> where .name == "sda")[0]
   assert disk.kind == "disk"
   assert disk.size_bytes == 524288
@@ -5260,7 +5260,7 @@ test test_system_report_storage_keeps_holder_and_slave_enumeration_failures {
     assert matches[0].state == report_model.ReadFailure
   }
 
-  assert (value.issues |> where .section == "storage" and .field == "devices.fixture.sysfs_target").len() == 0
+  assert (value.issues |> where .section == "storage" and .field == "devices.fixture.sysfs_target").is_empty()
 
   root.write(p"sys/class/block/not-a-directory", "not a block device")
   let failed_link = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
@@ -5479,7 +5479,7 @@ Uid:	1234	1235	1235	1235
   )
   let valid = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
   assert valid.processes.processes[0].uid == 1234
-  assert (valid.issues |> where .field == "123.uid").len() == 0
+  assert (valid.issues |> where .field == "123.uid").is_empty()
 
   root.write(
     p"proc/123/status",
@@ -5533,7 +5533,7 @@ Uid:	1234	1234	1234	1234
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
   assert value.scope.page_size_bytes == 65536
   assert value.scope.clock_ticks_per_second == 250
-  if value.processes.processes.len() == 0 {
+  if value.processes.processes.is_empty() {
     test.fail(
       value.issues
         |> where .section == "processes"
@@ -6069,7 +6069,7 @@ test test_system_report_huge_page_pools_reject_unsafe_sizes_and_partial_counts {
 """,
   )
   let empty = collector.collect_from_root(empty_root, "fixture-arch", 4096, 100, "memory", true)?
-  assert empty.memory.huge_pages.len() == 0
+  assert empty.memory.huge_pages.is_empty()
   assert ! (empty.issues |> any .field == "huge_pages.enumeration")
 }
 
@@ -6176,7 +6176,7 @@ full avg10=0.10 avg60=0.20 avg300=0.30 total=5
 """,
   )
   let unavailable = collector.collect_from_root(unavailable_root, "fixture-arch", 4096, 100, "memory", true)?
-  assert unavailable.memory.pressure.len() == 0
+  assert unavailable.memory.pressure.is_empty()
   for resource in ["cpu", "memory", "io"] {
     assert unavailable.issues |> any .field == f"pressure.{resource}" and .state == report_model.Absent
   }
@@ -6200,7 +6200,7 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=0
   )
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  assert (value.memory.pressure |> where .resource == "cpu").len() == 0
+  assert (value.memory.pressure |> where .resource == "cpu").is_empty()
   assert (value.memory.pressure |> where .resource == "memory").len() == 2
   assert value.issues
     |> any .section == "memory" and .field == "pressure.cpu" and .state == report_model.Malformed and .error_kind == "empty_psi_source"
@@ -6249,7 +6249,7 @@ test test_system_report_transparent_huge_page_policy_preserves_unknown_selection
 """,
   )
   let incomplete = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  assert incomplete.memory.transparent_huge_pages.len() == 0
+  assert incomplete.memory.transparent_huge_pages.is_empty()
   assert incomplete.issues |> any .field == "transparent_huge_pages.enabled" and .state == report_model.Truncated
   assert incomplete.issues |> any .field == "transparent_huge_pages.defrag" and .state == report_model.Malformed
 }
@@ -6944,7 +6944,7 @@ test test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts {
   )
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  assert membership.memory.cgroup.len() == 0
+  assert membership.memory.cgroup.is_empty()
   assert membership.issues
     |> any .section == "memory" and .field == "cgroup.membership" and .state == report_model.Truncated
 
@@ -6964,7 +6964,7 @@ test test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts {
 {mount_padding}""",
   )
   let mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  assert mount.memory.cgroup.len() == 0
+  assert mount.memory.cgroup.is_empty()
   assert mount.issues |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Truncated
 }
 
@@ -7331,7 +7331,7 @@ test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources
 {padding}""",
   )
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  assert truncated.memory.swaps.len() == 0
+  assert truncated.memory.swaps.is_empty()
   let incomplete = truncated.issues |> where .section == "memory" and .field == "swaps"
   assert incomplete.len() == 1
   assert incomplete[0].state == report_model.Truncated
@@ -7342,7 +7342,7 @@ test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources
 """,
   )
   let headerless = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  assert headerless.memory.swaps.len() == 0
+  assert headerless.memory.swaps.is_empty()
   assert headerless.issues |> any .field == "swaps" and .error_kind == "invalid_swap_header"
 }
 
@@ -7485,7 +7485,7 @@ test test_system_report_kernel_modules_preserve_unavailable_use_count {
   assert value.kernel.modules.len() == 1
   assert value.kernel.modules[0].name == "permanent"
   assert value.kernel.modules[0].users == null
-  assert (value.issues |> where .section == "kernel" and .field.starts_with("modules")).len() == 0
+  assert (value.issues |> where .section == "kernel" and .field.starts_with("modules")).is_empty()
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   assert "\"permanent\" size=4096 bytes users=unknown state=\"Live\"" in model.render_text(value, true, true)?
 }
@@ -7643,10 +7643,10 @@ test test_system_report_smbios_parser_preserves_records_and_reports_bad_string_i
   let bad_index = b"\x01\x084\x12\x04\x02\x03\0Vendor\0Model\0Version\0\0\x7f\x04\0\0\0\0"
   let partial = collector.parse_smbios_table(bad_index)?
   assert partial.records.len() == 2
-  assert partial.issues.len() > 0
+  assert ! partial.issues.is_empty()
 
   let invalid_length = collector.parse_smbios_table(b"\x01\x03\0\0")?
-  assert invalid_length.records.len() == 0
+  assert invalid_length.records.is_empty()
   assert invalid_length.truncated == false
   assert invalid_length.issues.len() == 1
 
@@ -7671,7 +7671,7 @@ test test_system_report_smbios_unknown_type_keeps_record_identity {
   assert parsed.records[0].record_type == 144
   assert parsed.records[0].handle == 9029
   assert parsed.records[0].formatted_length == 6
-  assert parsed.records[0].fields.len() == 0
+  assert parsed.records[0].fields.is_empty()
 }
 
 test test_system_report_smbios_type16_reads_device_count_from_short_form {
@@ -7712,7 +7712,7 @@ test test_system_report_smbios_sentinel_size_requires_complete_formatted_field {
   assert short_record.records[0].fields
     |> where .name == "size_raw"
     |> first()?.value == 32767
-  assert (short_record.records[0].fields |> where .name == "extended_size_raw").len() == 0
+  assert (short_record.records[0].fields |> where .name == "extended_size_raw").is_empty()
 
   let complete_table = bytes.concat(
     [

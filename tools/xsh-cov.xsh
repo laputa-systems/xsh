@@ -210,7 +210,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
   lines += ["", "uncovered standard APIs"]
   let uncovered = report.uncovered
 
-  if uncovered.len() == 0 {
+  if uncovered.is_empty() {
     lines += ["  none"]
   } else {
     var count = 0
@@ -231,7 +231,7 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
   lines += ["", "APIs covered by examples/tests"]
   let covered_rows = report.covered
 
-  if covered_rows.len() == 0 {
+  if covered_rows.is_empty() {
     lines += ["  none"]
   } else {
     for row in covered_rows {

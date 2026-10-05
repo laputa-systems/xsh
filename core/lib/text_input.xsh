@@ -3,7 +3,7 @@
 export proc read_text(paths: List[Str]) [fs, error, io] -> Result[Str, Error] {
   var out = ""
 
-  return io.stdin_text()? when paths.len() == 0
+  return io.stdin_text()? when paths.is_empty()
 
   for item in paths {
     if item == "-" {

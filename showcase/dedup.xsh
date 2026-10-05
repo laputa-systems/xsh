@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> where .items.len() > 1
     |> sort-by .key
 
-  if dups.len() == 0 {
+  if dups.is_empty() {
     print f"no duplicates found ({file_info.len()} files scanned)"
     return
   }

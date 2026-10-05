@@ -1,6 +1,6 @@
 #!/bin/xsh
 proc main(...names: List[Str]) [env, error] {
-  if names.len() == 0 {
+  if names.is_empty() {
     for item in env.list() |> sort-by .name {
       print f"{item.name}={item.value}"
     }

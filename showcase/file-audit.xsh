@@ -82,11 +82,11 @@ proc main(...argv: List[Str]) [fs, error] {
     print f"{severity_label(row.severity)} {row.kind} {row.path} {row.detail}"
   }
 
-  if rows.len() == 0 and opts.show_ok {
+  if rows.is_empty() and opts.show_ok {
     print f"ok scanned {root}"
   }
 
-  if rows.len() > 0 and opts.fail {
+  if ! rows.is_empty() and opts.fail {
     exit 1
   }
 }

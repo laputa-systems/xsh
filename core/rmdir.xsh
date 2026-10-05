@@ -26,7 +26,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
   let {parents, targets, ..} = opts
 
-  return Err(usage_error("rmdir", "[-p] DIR...")) when targets.len() == 0
+  return Err(usage_error("rmdir", "[-p] DIR...")) when targets.is_empty()
 
   for item in targets {
     var current = fp"{item}"

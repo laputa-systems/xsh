@@ -495,6 +495,7 @@ Process-scoped utility helpers.
 - `Bytes.count_lines() -> Int` — Counts line separators in bytes.
 - `Bytes.dump(format: Str = default) -> Str` — Formats bytes as a diagnostic dump.
 - `Bytes.ends_with(suffix: Bytes) -> Bool` — Checks a byte-prefix or suffix relationship.
+- `Bytes.is_empty() -> Bool` — Tests whether a value has no elements.
 - `Bytes.len() -> Int` — Returns the number of bytes.
 - `Bytes.lines() -> List[Bytes]` — Splits bytes into line-oriented chunks.
 - `Bytes.lower() -> Bytes` — Lowercases ASCII-compatible bytes.
@@ -568,6 +569,7 @@ Process-scoped utility helpers.
 - `List[T].collect() -> List[T]` — Returns an already materialized list.
 - `List[T].extend(other: List[T]) -> List[T]` — Returns a list with another list appended.
 - `List[T].get(index: Int) -> Result[T, Error]` — Reads a list element as Result.
+- `List[T].is_empty() -> Bool` — Tests whether a value has no elements.
 - `List[Str].join(separator: Str = default) -> Str` — Joins list values into text.
 - `List[T].len() -> Int` — Returns the number of list elements.
 - `List[T].push(item: T) -> List[T]` — Returns a list with one value appended.
@@ -575,6 +577,7 @@ Process-scoped utility helpers.
 ### Map
 
 - `Map[K, V].get(key: K) -> Result[V, Error]` — Reads a map value as Result.
+- `Map[K, V].is_empty() -> Bool` — Tests whether a value has no elements.
 - `Map[K, V].keys() -> List[K]` — Lists map keys or values.
 - `Map[K, V].len() -> Int` — Returns the number of entries in a map.
 - `Map[K, List[T]].push(key: K, value: T) -> Self` — Appends a value to a map entry list.
@@ -681,6 +684,7 @@ Process-scoped utility helpers.
 - `Str.ends_with(suffix: Str) -> Bool` — Checks a text relationship.
 - `Str.fields(delimiter: Str = default) -> List[Str]` — Splits text into a structured list.
 - `Str.find(needle: Str, start: Int = default) -> Int?` — Finds a text substring position.
+- `Str.is_empty() -> Bool` — Tests whether a value has no elements.
 - `Str.lines() -> List[Str]` — Splits text into a structured list.
 - `Str.lower() -> Str` — Changes text case.
 - `Str.parse_float() -> Result[Float, Error]` — Parses text as a floating-point value.

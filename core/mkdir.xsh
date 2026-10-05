@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  if opts.directories.len() == 0 {
+  if opts.directories.is_empty() {
     return Err(usage_error("mkdir", "[-p] [-m MODE] DIR..."))
   }
 

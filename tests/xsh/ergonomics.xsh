@@ -117,7 +117,7 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
   let previous = combined
   combined += selected
   combined += ["last"]
-  assert previous.len() == 0
+  assert previous.is_empty()
   assert combined == ["second:3", "second:4", "last"]
 }
 

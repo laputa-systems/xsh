@@ -57,7 +57,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if mode == "create" {
-    return Err(usage_error("tar", "expected entries to archive")) when operands.len() == 0
+    return Err(usage_error("tar", "expected entries to archive")) when operands.is_empty()
 
     archive.tar_create(archive_path, root, operands, compression, overwrite:)
   } else if mode == "list" {

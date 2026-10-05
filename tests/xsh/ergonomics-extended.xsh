@@ -22,7 +22,7 @@ test test_extended_constructor_splices_patterns_and_inferred_values {
   let original = ExtendedOptions(label:)
   var options = original
   options.arguments += ["build", "app", "fast"]
-  assert original.arguments.len() == 0
+  assert original.arguments.is_empty()
   assert options.label == "ship"
   assert extended_command([@options.arguments, "quiet"]) == ["app", "fast", "quiet"]
   assert extended_valid_name(options.label)

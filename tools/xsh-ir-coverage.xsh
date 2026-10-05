@@ -479,7 +479,7 @@ pure method_reasons(
 pure receiver_name(raw: Str) -> Str {
   let fields = raw.replace("(", " ").replace("{", " ").replace("[", " ").fields()
 
-  return "" when fields.len() == 0
+  return "" when fields.is_empty()
 
   fields.get(fields.len() - 1) ?? ""
 }
@@ -627,7 +627,7 @@ pure pure_scan(
     path: script_path,
     line: line,
     name: pure_name(signature),
-    lowerable: reasons.len() == 0,
+    lowerable: reasons.is_empty(),
     reasons: reasons |> sort,
   }
 }
@@ -690,7 +690,7 @@ pure proc_scan(
     line: line,
     name: proc_name(signature),
     effects: effects,
-    lowerable: reasons.len() == 0,
+    lowerable: reasons.is_empty(),
     reasons: reasons |> sort,
   }
 }
@@ -1359,7 +1359,7 @@ proc scan_script_statements_in_file(
       )
 
       scans += [
-        {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.len() == 0, reasons: reasons},
+        {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.is_empty(), reasons: reasons},
       ]
 
       pending_text = ""
@@ -1403,7 +1403,7 @@ proc scan_script_statements_in_file(
     )
 
     scans += [
-      {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.len() == 0, reasons: reasons},
+      {path: path_text, line: pending_line, shape: pending_shape, lowerable: reasons.is_empty(), reasons: reasons},
     ]
   }
 
@@ -1455,7 +1455,7 @@ pure render_row(row: CoverageRow) -> List[Str] {
   var lines = [f"{row.name}: {row.covered}/{row.total} ({row.percent}%)"]
   lines += [f"  supported: {row.supported.join(", ")}"]
 
-  if row.unsupported.len() == 0 {
+  if row.unsupported.is_empty() {
     lines += ["  unsupported: none"]
   } else {
     lines += [f"  unsupported: {row.unsupported.join(", ")}"]
@@ -1467,7 +1467,7 @@ pure render_row(row: CoverageRow) -> List[Str] {
 pure render_reason_groups(groups: List[ReasonGroup]) -> List[Str] {
   var lines = []
 
-  return lines when groups.len() == 0
+  return lines when groups.is_empty()
 
   lines += ["  fallback groups:"]
 
@@ -1499,7 +1499,7 @@ pure render_report(report: CoverageReport) -> Str {
   lines += [f"  roots: {report.corpus.roots.join(", ")}"]
   lines += [f"  lowerable: {report.corpus.lowerable}/{report.corpus.total} ({report.corpus.percent}%)"]
 
-  if report.corpus.reasons.len() == 0 {
+  if report.corpus.reasons.is_empty() {
     lines += ["  fallback reasons: none"]
   } else {
     lines += ["  fallback reasons:"]
@@ -1511,7 +1511,7 @@ pure render_report(report: CoverageReport) -> Str {
 
   lines += render_reason_groups(report.corpus.groups)
 
-  if report.corpus.samples.len() > 0 {
+  if ! report.corpus.samples.is_empty() {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.corpus.samples {
@@ -1524,7 +1524,7 @@ pure render_report(report: CoverageReport) -> Str {
   lines += [f"  roots: {report.procs.roots.join(", ")}"]
   lines += [f"  lowerable: {report.procs.lowerable}/{report.procs.total} ({report.procs.percent}%)"]
 
-  if report.procs.reasons.len() == 0 {
+  if report.procs.reasons.is_empty() {
     lines += ["  fallback reasons: none"]
   } else {
     lines += ["  fallback reasons:"]
@@ -1536,7 +1536,7 @@ pure render_report(report: CoverageReport) -> Str {
 
   lines += render_reason_groups(report.procs.groups)
 
-  if report.procs.samples.len() > 0 {
+  if ! report.procs.samples.is_empty() {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.procs.samples {
@@ -1549,7 +1549,7 @@ pure render_report(report: CoverageReport) -> Str {
   lines += [f"  roots: {report.script.roots.join(", ")}"]
   lines += [f"  lowerable: {report.script.lowerable}/{report.script.total} ({report.script.percent}%)"]
 
-  if report.script.reasons.len() == 0 {
+  if report.script.reasons.is_empty() {
     lines += ["  fallback reasons: none"]
   } else {
     lines += ["  fallback reasons:"]
@@ -1561,7 +1561,7 @@ pure render_report(report: CoverageReport) -> Str {
 
   lines += render_reason_groups(report.script.groups)
 
-  if report.script.samples.len() > 0 {
+  if ! report.script.samples.is_empty() {
     lines += ["  non-lowerable samples:"]
 
     for scan in report.script.samples {

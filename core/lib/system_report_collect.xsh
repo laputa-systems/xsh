@@ -159,7 +159,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
     ids += [cpu_id]
   }
 
-  if ids.len() == 0 {
+  if ids.is_empty() {
     return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty"))
   }
 
@@ -641,7 +641,7 @@ export pure decode_device_tree_strings(raw: Str) -> List[Str]? {
     }
   }
 
-  return null when current != "" or values.len() == 0
+  return null when current != "" or values.is_empty()
 
   values
 }
@@ -805,7 +805,7 @@ pure pci_section_state(enumeration: Str, issues: List[report.CollectionIssue]) -
 
   return report.SectionTruncated when enumeration == "truncated"
 
-  return report.Complete when enumeration == "complete" and issues.len() == 0
+  return report.Complete when enumeration == "complete" and issues.is_empty()
 
   report.Partial
 }

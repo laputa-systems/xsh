@@ -34,7 +34,7 @@ proc main(...argv: List[Str]) [process, env, error] {
     },
   )?
 
-  let all = argv.len() == 0 or parsed.all
+  let all = argv.is_empty() or parsed.all
   let u = system.uname()?
   var cols = []
 

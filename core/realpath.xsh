@@ -13,7 +13,7 @@ type RealpathOptions = {paths: List[Str]}
 
 proc main(...argv: List[Str]) [fs, error] {
   let opts: RealpathOptions = cli.applet(argv, {paths: {form: "...PATH"}})?
-  return Err(usage_error("realpath", "PATH...")) when opts.paths.len() == 0
+  return Err(usage_error("realpath", "PATH...")) when opts.paths.is_empty()
 
   for item in opts.paths {
     print (fp"{item}".resolve()?)

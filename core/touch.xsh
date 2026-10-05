@@ -37,7 +37,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let has_reference = opts.reference != ""
   let paths = opts.paths
 
-  return Err(usage_error("touch", "[-c] [-r FILE] PATH...")) when paths.len() == 0
+  return Err(usage_error("touch", "[-c] [-r FILE] PATH...")) when paths.is_empty()
 
   for item in paths {
     let target = fp"{item}"

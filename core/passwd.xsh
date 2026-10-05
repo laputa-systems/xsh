@@ -42,7 +42,7 @@ pure parse_passwd_args(argv: List[Str]) -> Result[PasswdOptions] {
   )?
 
   let action = if opts.delete { "delete" } else if opts.lock { "lock" } else if opts.unlock { "unlock" } else { "set" }
-  let user_name = if opts.operands.len() == 0 { "" } else { opts.operands[0] }
+  let user_name = if opts.operands.is_empty() { "" } else { opts.operands[0] }
 
   return Err(auth.AuthError.Failed("extra operand")) when opts.operands.len() > 1
 

@@ -486,7 +486,7 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
 
   assert closed.exists()?, "child did not close its descriptor"
   let after = linux.open_files(child.pid)?.collect()
-  assert after.len() > 0, "child must still be visible"
+  assert ! after.is_empty(), "child must still be visible"
   assert ! (after |> any .path == source), "closed descriptor must disappear"
 
   stop.write("")

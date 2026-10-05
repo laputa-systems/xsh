@@ -479,7 +479,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   Ok(
     {
       reference_count: reference.records.len(),
@@ -490,7 +490,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and before == after and reference.complete and reference.invalid_indices.len() == 0 and section.source == "smbios" and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+      exact: eligible and before == after and reference.complete and reference.invalid_indices.is_empty() and section.source == "smbios" and section.status.enumeration_succeeded and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty(),
     },
   )
 }
@@ -570,7 +570,7 @@ export proc capture_smbios_bundle(
   var reference: SmbiosReference? = null
   if stable and first.state == "observed" and ! first.truncated and first.data != null {
     let parsed = parse_smbios_reference(first.data)?
-    if parsed.complete and parsed.invalid_indices.len() == 0 {
+    if parsed.complete and parsed.invalid_indices.is_empty() {
       reference = parsed
     }
   }
@@ -662,7 +662,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
   }
 
   let reference = parse_smbios_reference(raw.data)?
-  if ! reference.complete or reference.invalid_indices.len() > 0 or reference != (capture.reference ?? reference) {
+  if ! reference.complete or ! reference.invalid_indices.is_empty() or reference != (capture.reference ?? reference) {
     return Err(smbios_check_failure("SMBIOS capture reference differs from raw table"))
   }
 
@@ -693,7 +693,7 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
 
 ## Places a captured DMI table at the offset expected by dmidecode's saved-dump reader.
 export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Bytes, Error] {
-  if entry_point.len() > 32 or table.len() == 0 or table.len() > 1048576 {
+  if entry_point.len() > 32 or table.is_empty() or table.len() > 1048576 {
     return Err(smbios_check_failure("SMBIOS dump inputs exceed their bounds or lack a table"))
   }
 
@@ -761,7 +761,7 @@ export type DmidecodeComparison = {
 
 pure dmidecode_hex_row(line: Str) -> Result[List[Int]] {
   let tokens = line.trim().split(" ") |> where . != ""
-  return Err(smbios_check_failure("dmidecode hex row is empty")) when tokens.len() == 0
+  return Err(smbios_check_failure("dmidecode hex row is empty")) when tokens.is_empty()
 
   var octets: List[Int] = []
   for token in tokens {
@@ -832,7 +832,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
     }
 
     if trimmed.starts_with("Handle 0x") {
-      if pending_string.len() > 0 {
+      guard pending_string.is_empty() else {
         return Err(smbios_check_failure("dmidecode string has no terminator"))
       }
 
@@ -925,7 +925,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         return Err(smbios_check_failure("dmidecode string exceeds its bound"))
       }
 
-      if pending_string[pending_string.len() - 1] == 0 {
+      if pending_string[-1] == 0 {
         strings += [bytes.from_ints(pending_string |> take(pending_string.len() - 1))?]
         pending_string = []
         expect_display = true
@@ -933,7 +933,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
     }
   }
 
-  if pending_string.len() > 0 or expect_display {
+  if ! pending_string.is_empty() or expect_display {
     return Err(smbios_check_failure("dmidecode output ends inside a string"))
   }
 
@@ -941,7 +941,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
     records += [dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?]
   }
 
-  if records.len() == 0 {
+  if records.is_empty() {
     return Err(smbios_check_failure("dmidecode output contains no records"))
   }
 
@@ -953,7 +953,7 @@ export pure compare_dmidecode_hex_output(
   reference: SmbiosReference,
   output: Str,
 ) -> Result[DmidecodeComparison, Error] {
-  if ! reference.complete or reference.invalid_indices.len() > 0 {
+  if ! reference.complete or ! reference.invalid_indices.is_empty() {
     return Err(smbios_check_failure("incomplete raw SMBIOS tables cannot be corroborated"))
   }
 
@@ -1043,7 +1043,7 @@ export pure compare_dmidecode_hex_output(
     missing_names: missing_names |> sort-by .,
     unexpected_names: unexpected_names |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
-    exact: missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    exact: missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -1342,7 +1342,7 @@ export proc compare_live_smbios(
   let compared = compare_smbios(candidate, before.data ?? b"", after.data ?? b"")?
   print f"firmware.smbios: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=smbios-raw-rooted-v1; source=/sys/firmware/dmi/tables/DMI; bound=1 MiB, 4096 records; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(smbios_check_failure("SMBIOS records differ from the stable kernel-exported table"))
   }
 

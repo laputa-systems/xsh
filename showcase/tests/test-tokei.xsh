@@ -87,7 +87,7 @@ comment */
   assert data["Markdown"]["children"]["Shell"][0]["stats"]["code"].require(Int)? == 1
   assert data["MDX"]["comments"].require(Int)? == 4
   assert data["MDX"]["blanks"].require(Int)? == 1
-  assert data["MDX"]["children"].require(Record)?.keys().len() == 0
+  assert data["MDX"]["children"].require(Record)?.keys().is_empty()
   assert data["Rust"]["children"]["Markdown"][0]["stats"]["blobs"]["TOML"]["code"].require(Int)? == 1
   assert data["Total"]["code"].require(Int)? == 16
   assert data["Total"]["comments"].require(Int)? == 23

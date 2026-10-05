@@ -35,7 +35,7 @@ pure clean_symbol(raw: Str) -> Str {
 pure frame_symbol(line: Str) -> Str {
   let fields = line.trim().fields()
 
-  return "" when fields.len() == 0
+  return "" when fields.is_empty()
 
   return clean_symbol(fields[0]) when fields.len() == 1
 
@@ -65,7 +65,7 @@ pure stack_key(stack: List[Str], leaf_first: Bool) -> Result[Str] {
 pure comm_from_header(line: Str) -> Str {
   let words = line.trim().fields()
 
-  return "" when words.len() == 0
+  return "" when words.is_empty()
 
   words[0]
 }
@@ -123,7 +123,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
 
   for line in source.lines() {
     if line.trim() == "" {
-      if current_stack.len() > 0 and (opts.comm == "" or current_comm == opts.comm) {
+      if ! current_stack.is_empty() and (opts.comm == "" or current_comm == opts.comm) {
         let key = stack_key(current_stack, opts.leaf_first)?
 
         if include_re.matches(key) and ! exclude_re.matches(key) {
@@ -146,7 +146,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
       continue
     }
 
-    if current_stack.len() > 0 and (opts.comm == "" or current_comm == opts.comm) {
+    if ! current_stack.is_empty() and (opts.comm == "" or current_comm == opts.comm) {
       let key = stack_key(current_stack, opts.leaf_first)?
 
       if include_re.matches(key) and ! exclude_re.matches(key) {
@@ -158,7 +158,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
     current_comm = comm_from_header(line)
   }
 
-  if current_stack.len() > 0 and (opts.comm == "" or current_comm == opts.comm) {
+  if ! current_stack.is_empty() and (opts.comm == "" or current_comm == opts.comm) {
     let key = stack_key(current_stack, opts.leaf_first)?
 
     if include_re.matches(key) and ! exclude_re.matches(key) {
@@ -198,7 +198,7 @@ xsh 1242 [000] 10.002000: cycles:
         0000000000000000 xsh::runtime::eval::Eval::eval_program (/work/target/debug/xsh)
 """
 
-  if argv.len() == 0 {
+  if argv.is_empty() {
     let opts = Options(input: p"", comm: "", include: "", exclude: "", top: 0, leaf_first: false)
 
     print_folded(collapse_text(sample, opts)?, 0)

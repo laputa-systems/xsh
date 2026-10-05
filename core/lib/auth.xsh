@@ -106,14 +106,14 @@ export pure render_shadow(records: List[ShadowRecord]) -> Str {
   for item in records {
     if item.raw {
       lines += [item.line]
-    } else if item.rest.len() == 0 {
+    } else if item.rest.is_empty() {
       lines += [f"{item.username}:{item.password}"]
     } else {
       lines += [f"{item.username}:{item.password}:{item.rest.join(":")}"]
     }
   }
 
-  return "" when lines.len() == 0
+  return "" when lines.is_empty()
 
   f"""{lines.join("\n")}
 """

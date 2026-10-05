@@ -26,7 +26,7 @@ proc main(...argv: List[Str]) [process, error] {
   )?
   let names = opts.names
 
-  return Err(usage_error("which", "NAME...")) when names.len() == 0
+  return Err(usage_error("which", "NAME...")) when names.is_empty()
 
   var missing = false
 

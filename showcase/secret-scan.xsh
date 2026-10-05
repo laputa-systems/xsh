@@ -36,7 +36,7 @@ proc main(...argv: List[Str]) [fs, error] {
     opts.root.resolve()?
   }
 
-  let scan_exts = if opts.ext.len() > 0 {
+  let scan_exts = if ! opts.ext.is_empty() {
     opts.ext
   } else {
     [

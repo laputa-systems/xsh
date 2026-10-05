@@ -17,7 +17,7 @@ pure unescape(raw: Str) -> Str {
 }
 
 pure render_string_lines(values: List[Str]) -> Str {
-  return "" when values.len() == 0
+  return "" when values.is_empty()
 
   f"""{values.join("\n")}
 """

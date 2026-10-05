@@ -6,7 +6,7 @@ test test_unix_fake_covers_module_surface { |ctx|
   let command = process.command_argv("demo", ["demo", "arg"])
 
   test.unix_fake(ctx, {signal: "USR1", log: log})
-  assert unix.reap_child_events()?.collect().len() == 0
+  assert unix.reap_child_events()?.collect().is_empty()
   unix.pid1_setup(["TERM"], subreaper: true, allow_non_pid1: true)
   let event = unix.wait_pid1_event()?
   assert event.kind == "signal"

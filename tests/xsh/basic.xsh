@@ -148,7 +148,7 @@ test test_repeated_if_branches_select_statement_and_expression_arms {
 }
 
 pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
-  if argv.len() > 0 and argv[0] == "--" {
+  if ! argv.is_empty() and argv[0] == "--" {
     []
   } else {
     argv
@@ -159,7 +159,7 @@ test test_local_args_shadows_predeclared_script_arguments {
   assert locally_selected_arguments(["unknown"]) == ["unknown"]
   assert locally_selected_arguments([]) == []
   let argv = ["unknown"]
-  let selected = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
+  let selected = if ! argv.is_empty() and argv[0] == "--" { [] } else { argv }
   assert selected == ["unknown"]
 }
 

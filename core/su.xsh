@@ -31,12 +31,12 @@ pure parse_su_args(argv: List[Str]) -> Result[SuOptions] {
   var login = options.login
   var operands = options.operands
 
-  if operands.len() > 0 and operands[0] == "-" {
+  if ! operands.is_empty() and operands[0] == "-" {
     login = true
     operands = operands |> drop(1)
   }
 
-  let target = if operands.len() == 0 { "root" } else { operands[0] }
+  let target = if operands.is_empty() { "root" } else { operands[0] }
   let empty_rest: List[Str] = []
   let rest = if operands.len() <= 1 { empty_rest } else { operands |> drop(1) }
 

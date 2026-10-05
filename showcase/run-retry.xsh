@@ -36,7 +36,7 @@ proc run_attempt(argv: List[Str], try_num: Int, max_tries: Int) [process, error]
 }
 
 proc main(...cmd: List[Str]) [process, time, error] {
-  if cmd.len() == 0 {
+  if cmd.is_empty() {
     print "usage: xsh showcase/run-retry.xsh -- COMMAND [ARGS...]"
     print "       xsh showcase/run-retry.xsh -- \"COMMAND STRING\"  (parsed as argv)"
     return

@@ -13,7 +13,7 @@ type DirnameOptions = {paths: List[Str]}
 
 proc main(...argv: List[Str]) [error] {
   let opts: DirnameOptions = cli.applet(argv, {paths: {form: "...PATH"}})?
-  return Err(usage_error("dirname", "PATH...")) when opts.paths.len() == 0
+  return Err(usage_error("dirname", "PATH...")) when opts.paths.is_empty()
 
   for arg in opts.paths {
     print fp"{arg}".parent()

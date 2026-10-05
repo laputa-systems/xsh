@@ -133,7 +133,7 @@ test test_path_components_split_as_the_component_queries_read {
   let whole = /srv/data/set/a.bin
   let parts = whole.components()
   assert whole.starts_with(fp"{parts[0]}{parts[1]}/{parts[2]}")
-  assert parts[parts.len() - 1].display() == whole.name()
+  assert parts[-1].display() == whole.name()
 
   # Each component keeps its native bytes.
   let raw = Path.parse_bytes(b"dir/bad\xffname")?

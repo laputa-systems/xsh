@@ -18,7 +18,7 @@ proc main(...argv: List[Str]) [net, error] {
   )?
   let {query_type, operands, ..} = opts
 
-  if operands.len() == 0 or operands.len() > 2 {
+  if operands.is_empty() or operands.len() > 2 {
     return Err(AppletError.Usage("host: expected NAME [SERVER]"))
   }
 

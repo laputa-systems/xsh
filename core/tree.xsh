@@ -112,7 +112,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let {all, dirs_only, max_depth, ..} = options
   var paths = [target for target in options.paths]
 
-  if paths.len() == 0 {
+  if paths.is_empty() {
     paths += ["."]
   }
 

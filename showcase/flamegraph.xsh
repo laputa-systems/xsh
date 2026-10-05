@@ -85,7 +85,7 @@ script;proc:format 1200
     }
   }
 
-  if cum.keys().len() == 0 {
+  if cum.keys().is_empty() {
     print "no data"
     return
   }
@@ -95,7 +95,7 @@ script;proc:format 1200
 
   for key in cum.keys() {
     let parts = key.split(";")
-    let frame: Frame = Frame(key:, name: parts[parts.len() - 1], depth: parts.len() - 1, count: cum.get(key) ?? 0)
+    let frame: Frame = Frame(key:, name: parts[-1], depth: parts.len() - 1, count: cum.get(key) ?? 0)
     all_frames += [frame]
   }
 

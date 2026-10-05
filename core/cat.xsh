@@ -7,7 +7,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let opts: CatOptions = cli.applet(argv, {paths: {form: "...FILE"}})?
   let paths = opts.paths
 
-  if paths.len() == 0 {
+  if paths.is_empty() {
     io.write_stdout_bytes(io.stdin_bytes()?)
     return
   }

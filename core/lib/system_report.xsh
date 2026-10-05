@@ -302,7 +302,7 @@ export pure parse_cpu_list(text: Str) -> Result[List[Int], Error] {
     identifiers += [end]
   }
 
-  if identifiers.len() == 0 {
+  if identifiers.is_empty() {
     return Err(cpu_list_error("CPU list contains no identifiers"))
   }
 
@@ -3062,7 +3062,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
 
   if output_report.cpu.status.state != SectionNotRequested {
     let policies = grouped_policy_lines(output_report.cpu.frequency_policies)?
-    if policies.len() > 0 {
+    if ! policies.is_empty() {
       lines += ["CPU frequency policy groups:"]
       lines += policies
     }
@@ -3417,7 +3417,7 @@ pure allowed_mount_value(key: Str, value: Str) -> Bool {
     "mode" => mount_decimal_text(value, true)
     "vers" => {
       let components = value.split(".")
-      return false when components.len() == 0 or components.len() > 3
+      return false when components.is_empty() or components.len() > 3
 
       for component in components {
         guard mount_decimal_text(component) else {
@@ -3677,13 +3677,13 @@ pure redact_issue_field(section: Str, field: Str) -> Str {
 
   let root = parts[0]
   if section == "pci" and root == "functions" {
-    let leaf = parts[parts.len() - 1]
+    let leaf = parts[-1]
     return f"functions.redacted.{leaf}"
   }
 
   return "devices.redacted" when section == "usb" and root == "devices"
 
-  let leaf = parts[parts.len() - 1]
+  let leaf = parts[-1]
   return f"devices.redacted.{leaf}" when section == "storage" and root == "devices"
 
   if section == "devices" and (root == "drm" or root == "sound" or root == "input") {

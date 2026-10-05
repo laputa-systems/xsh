@@ -29,7 +29,7 @@ Available idle states: POLL C1
   let candidate = """{"cpu":{"frequency_policies":[{"name":"policy7","related_cpus":[0,2],"driver":"amd-pstate-epp","hardware_min_khz":624194,"hardware_max_khz":5756452}],"global_idle_driver":"acpi_idle","global_idle_governor":"menu","idle_states":[{"cpu_id":0,"state_index":0,"name":"POLL"},{"cpu_id":0,"state_index":1,"name":"C1"}]}}"""
   let exact = cpupower_reference.compare_cpupower(candidate, reference)?
   assert exact.matched_fields == 6
-  assert exact.mismatches.len() == 0 and exact.partial.len() == 0
+  assert exact.mismatches.is_empty() and exact.partial.is_empty()
   let wrong = candidate.replace("\"hardware_max_khz\":5756452", "\"hardware_max_khz\":5756451")
   let mismatch = cpupower_reference.compare_cpupower(wrong, reference)?
   assert "hardware_max_khz" in mismatch.mismatches
@@ -98,6 +98,6 @@ printf '{"source_mode":"live_linux","cpu":{"frequency_policies":[{"name":"policy
     fp"{root_path}/cpupower".display(),
   )?
   assert result.comparison.matched_fields == 6
-  assert result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0
+  assert result.comparison.mismatches.is_empty() and result.comparison.partial.is_empty()
   assert result.version == "cpupower 7.1.5-0"
 }

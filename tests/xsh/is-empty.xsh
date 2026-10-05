@@ -31,14 +31,14 @@ test test_is_empty_follows_a_null_safe_hop {
 }
 
 test test_is_empty_is_not_defined_for_other_receivers { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """type Entry = {name: Str}
 let entry: Entry = {name: "a"}
 print \${entry.is_empty()} \${p"x".is_empty()} \${3.is_empty()}
 """,
+    status: 2,
   )?
-  assert output.status == 2, output.stderr
   assert output.stdout == ""
   assert count(output.stderr, "err[check.unknown-method]") == 3, output.stderr
 }
@@ -64,8 +64,7 @@ test test_lint_rewrites_lengths_compared_with_zero { |ctx|
 show("", b"", [], {})
 show(" x ", b"x", [1], {a: 1})
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "lengths.xsh", contents: bytes.from_text(source))?
 
   let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-is-empty $candidate ?
@@ -83,8 +82,7 @@ show(" x ", b"x", [1], {a: 1})
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, rewritten)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
   assert after.stdout == "empty\ntrue false true\nfull\nfalse true true\n"
 }

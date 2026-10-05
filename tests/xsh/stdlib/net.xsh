@@ -220,7 +220,7 @@ test test_net_start_scope_cleanup_releases_admission { |ctx|
   }
   test.mock(ctx, "net.start", {url: "https://example.test/cleanup"}, Ok(response), 65)
 
-  let should_cleanup = ctx.keys().len() > 0
+  let should_cleanup = ! ctx.keys().is_empty()
   if should_cleanup {
     let jobs = [
       net.start({

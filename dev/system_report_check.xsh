@@ -2602,7 +2602,7 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int], Error] 
     }
   }
 
-  return Err(check_failure("lscpu JSON reported no online CPUs")) when online.len() == 0
+  return Err(check_failure("lscpu JSON reported no online CPUs")) when online.is_empty()
 
   online |> sort-by .
 }
@@ -2622,7 +2622,7 @@ export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu], 
     rows += [item]
   }
 
-  return Err(check_failure("lscpu topology has no CPU rows")) when rows.len() == 0
+  return Err(check_failure("lscpu topology has no CPU rows")) when rows.is_empty()
 
   rows |> sort-by .cpu
 }
@@ -2720,7 +2720,7 @@ export pure compare_lscpu_topology(
   var reference_cores: Map[List[Int]] = {}
   var candidate_packages: Map[List[Int]] = {}
   var candidate_cores: Map[List[Int]] = {}
-  var eligible = before.len() > 0
+  var eligible = ! before.is_empty()
   for index in range(before.len()) {
     let item = before[index]
     let key = f"{item.cpu}"
@@ -2811,7 +2811,7 @@ export pure compare_lscpu_topology(
     topology_group_signatures(reference_cores),
     topology_group_signatures(candidate_cores),
   )
-  let exact = eligible and status.enumeration_succeeded and missing_ids.len() == 0 and unexpected_ids.len() == 0 and package_group_mismatches.len() == 0 and core_group_mismatches.len() == 0 and sibling_mismatches.len() == 0 and node_mismatches.len() == 0 and field_missing.len() == 0
+  let exact = eligible and status.enumeration_succeeded and missing_ids.is_empty() and unexpected_ids.is_empty() and package_group_mismatches.is_empty() and core_group_mismatches.is_empty() and sibling_mismatches.is_empty() and node_mismatches.is_empty() and field_missing.is_empty()
   Ok({
     reference_count: before.len(),
     candidate_count: candidate.len(),
@@ -2840,7 +2840,7 @@ pure cache_instance_key(source: CpuCacheReference) -> Str {
 pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCacheReference]] {
   var sources: Map[CpuCacheReference] = {}
   for row in rows {
-    if row.owner_cpu_id < 0 or row.sysfs_index < 0 or row.level <= 0 or row.kind == "" or (row.kernel_id != null and (row.kernel_id ?? -1) < 0) or row.size_bytes < 0 or row.size_bytes > 9007199254740991 or row.shared_cpus.len() == 0 or row.shared_cpus != (row.shared_cpus
+    if row.owner_cpu_id < 0 or row.sysfs_index < 0 or row.level <= 0 or row.kind == "" or (row.kernel_id != null and (row.kernel_id ?? -1) < 0) or row.size_bytes < 0 or row.size_bytes > 9007199254740991 or row.shared_cpus.is_empty() or row.shared_cpus != (row.shared_cpus
       |> sort-by .) or row.owner_cpu_id not in row.shared_cpus {
       return Err(check_failure("cache reference has an invalid identity or size"))
     }
@@ -2885,7 +2885,7 @@ export pure compare_cpu_cache_sharing(
   }
 
   var instances: Map[CpuCacheReference] = {}
-  var eligible = before.len() > 0
+  var eligible = ! before.is_empty()
   for source in before {
     if source.kernel_id == null {
       eligible = false
@@ -3027,7 +3027,7 @@ export pure compare_cpu_cache_sharing(
   }
 
   for cpu_key in actual_by_cpu.keys() {
-    if cpu_key not in expected_by_cpu and (actual_by_cpu.get(cpu_key) ?? []).len() > 0 {
+    if cpu_key not in expected_by_cpu and ! (actual_by_cpu.get(cpu_key) ?? []).is_empty() {
       relationship_mismatches += [f"{cpu_key}.cache_ids"]
     }
   }
@@ -3042,7 +3042,7 @@ export pure compare_cpu_cache_sharing(
       field_mismatches: field_mismatches |> sort-by .,
       relationship_mismatches: relationship_mismatches |> sort-by .,
       eligible: eligible,
-      exact: eligible and status.enumeration_succeeded and missing_keys.len() == 0 and unexpected_keys.len() == 0 and field_mismatches.len() == 0 and relationship_mismatches.len() == 0,
+      exact: eligible and status.enumeration_succeeded and missing_keys.is_empty() and unexpected_keys.is_empty() and field_mismatches.is_empty() and relationship_mismatches.is_empty(),
     },
   )
 }
@@ -3194,7 +3194,7 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
   var seen = set.empty()
   for term in source.split(",") {
     let bounds = term.split("-")
-    if bounds.len() == 0 or bounds.len() > 2 {
+    if bounds.is_empty() or bounds.len() > 2 {
       return Err(check_failure("CPU set contains an invalid range"))
     }
 
@@ -3387,7 +3387,7 @@ export pure compare_cpufreq_policies(
       }
     }
 
-    if item.energy_performance_preference != null or item.available_energy_performance_preferences.len() > 0 or item.boost_supported != null {
+    if item.energy_performance_preference != null or ! item.available_energy_performance_preferences.is_empty() or item.boost_supported != null {
       eligible_controls = true
     }
 
@@ -3434,7 +3434,7 @@ export pure compare_cpufreq_policies(
     }
   }
 
-  let exact_policies = status.enumeration_succeeded and before.len() > 0 and missing_names.len() == 0 and unexpected_names.len() == 0 and policy_mismatches.len() == 0
+  let exact_policies = status.enumeration_succeeded and ! before.is_empty() and missing_names.is_empty() and unexpected_names.is_empty() and policy_mismatches.is_empty()
   Ok(
     {
       reference_count: before.len(),
@@ -3449,11 +3449,11 @@ export pure compare_cpufreq_policies(
       gauge_mismatches: gauge_mismatches |> sort-by .,
       unstable_gauges: unstable_gauges |> sort-by .,
       eligible_bounds: eligible_bounds,
-      exact_bounds: exact_policies and eligible_bounds and bound_mismatches.len() == 0 and unstable_bounds.len() == 0 and gauge_mismatches.len() == 0 and unstable_gauges.len() == 0,
+      exact_bounds: exact_policies and eligible_bounds and bound_mismatches.is_empty() and unstable_bounds.is_empty() and gauge_mismatches.is_empty() and unstable_gauges.is_empty(),
       control_mismatches: control_mismatches |> sort-by .,
       unstable_controls: unstable_controls |> sort-by .,
       eligible_controls: eligible_controls,
-      exact_controls: exact_policies and eligible_controls and control_mismatches.len() == 0 and unstable_controls.len() == 0,
+      exact_controls: exact_policies and eligible_controls and control_mismatches.is_empty() and unstable_controls.is_empty(),
     },
   )
 }
@@ -3646,7 +3646,7 @@ export pure compare_usb_topology(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   Ok(
     {
       reference_count: before.len(),
@@ -3657,7 +3657,7 @@ export pure compare_usb_topology(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and section.status.enumeration_succeeded and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -3909,7 +3909,7 @@ export pure compare_usb_ids(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and section.status.enumeration_succeeded and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -4412,7 +4412,7 @@ export pure compare_usb_interfaces(
   var field_mismatches: List[Str] = []
   var unstable_fields: List[Str] = []
   var matched_count = 0
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   for item in before {
     if item.name not in after_by_name {
       unstable_fields += [f"{item.name}.presence"]
@@ -4546,7 +4546,7 @@ export pure compare_usb_interfaces(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and section.status.enumeration_succeeded and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -4654,7 +4654,7 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
 
 pure power_supply_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
   let parts = target.split("/")
-  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[parts.len() - 1] != name {
+  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[-1] != name {
     return Err(check_failure("power supply class link has an invalid devices target"))
   }
 
@@ -4844,7 +4844,7 @@ export proc capture_power_supply_bundle(
     }
   }
 
-  let scoreable = complete and stable_static and reference != null and reference.len() > 0
+  let scoreable = complete and stable_static and reference != null and ! reference.is_empty()
   let capture = PowerSupplyBundleCapture(
     schema_version: 1,
     origin:,
@@ -4872,7 +4872,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
   if capture.schema_version != 1 or capture.reference_adapter != "power-supply-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
-  ] or ! capture.stable_static or ! capture.scoreable or capture.reference == null or capture.reference.len() == 0 {
+  ] or ! capture.stable_static or ! capture.scoreable or capture.reference == null or capture.reference.is_empty() {
     return Err(check_failure("power supply capture has no stable scoreable reference"))
   }
 
@@ -5128,7 +5128,7 @@ export pure compare_power_supplies(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   Ok(
     {
       reference_count: before.len(),
@@ -5139,7 +5139,7 @@ export pure compare_power_supplies(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and supply_enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and supply_enumeration_complete and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -5286,7 +5286,7 @@ pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] 
     storage += [component]
   }
 
-  if storage[storage.len() - 1] != entry_name {
+  if storage[-1] != entry_name {
     return Err(check_failure("powercap class link does not end at its entry name"))
   }
 
@@ -5440,7 +5440,7 @@ export proc capture_powercap_bundle(
     }
   }
 
-  let scoreable = reference != null and reference.len() > 0
+  let scoreable = reference != null and ! reference.is_empty()
   let capture = PowerCapCapture(
     schema_version: 1,
     origin:,
@@ -5765,7 +5765,7 @@ export pure compare_powercap(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   Ok(
     {
       reference_count: before.len(),
@@ -5776,7 +5776,7 @@ export pure compare_powercap(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and enumeration_complete and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -6085,7 +6085,7 @@ export pure compare_device_classes(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   Ok(
     {
       reference_count: before.len(),
@@ -6096,7 +6096,7 @@ export pure compare_device_classes(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and enumeration_complete and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -6244,7 +6244,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
 
 pure hwmon_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
   let parts = target.split("/")
-  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[parts.len() - 1] != name {
+  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[-1] != name {
     return Err(check_failure("hwmon class entry has an invalid devices target"))
   }
 
@@ -6449,7 +6449,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     }
   }
 
-  let scoreable = complete and stable_static and reference != null and reference.len() > 0
+  let scoreable = complete and stable_static and reference != null and ! reference.is_empty()
   let capture = HwmonBundleCapture(
     schema_version: 1,
     origin:,
@@ -6760,7 +6760,7 @@ export pure compare_hwmon(
       }
     }
 
-    let alarm: Int? = if actual.alarm == null { null } else if actual.alarm ?? false { 1 } else { 0 }
+    let alarm: Int? = if actual.alarm == null { null } else if actual.alarm { 1 } else { 0 }
     if ! channel.alarm.complete or ! following.alarm.complete or channel.alarm.value != following.alarm.value or hwmon_has_issue(
       issues,
       f"hwmon.{channel.chip_entry_name}.{channel.channel}_alarm",
@@ -6785,7 +6785,7 @@ export pure compare_hwmon(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   Ok(
     {
       reference_count: before.len(),
@@ -6796,7 +6796,7 @@ export pure compare_hwmon(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and enumeration_complete and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -6954,7 +6954,7 @@ export pure compare_usb_power(
       field_mismatches: field_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and section.status.enumeration_succeeded and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -7138,7 +7138,7 @@ export pure compare_cpuidle(
     }
   }
 
-  let eligible = before.states.len() > 0 or after.states.len() > 0 or before.driver != null or after.driver != null or before.governor != null or after.governor != null or before.available_governors.len() > 0 or after.available_governors.len() > 0
+  let eligible = ! before.states.is_empty() or ! after.states.is_empty() or before.driver != null or after.driver != null or before.governor != null or after.governor != null or ! before.available_governors.is_empty() or ! after.available_governors.is_empty()
   Ok(
     {
       reference_count: before.states.len(),
@@ -7150,7 +7150,7 @@ export pure compare_cpuidle(
       counter_mismatches: counter_mismatches |> sort-by .,
       unstable_fields: unstable_fields |> sort-by .,
       eligible: eligible,
-      exact: eligible and status.enumeration_succeeded and missing_keys.len() == 0 and unexpected_keys.len() == 0 and field_mismatches.len() == 0 and counter_mismatches.len() == 0 and unstable_fields.len() == 0,
+      exact: eligible and status.enumeration_succeeded and missing_keys.is_empty() and unexpected_keys.is_empty() and field_mismatches.is_empty() and counter_mismatches.is_empty() and unstable_fields.is_empty(),
     },
   )
 }
@@ -7272,7 +7272,7 @@ pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
     ids += [id]
   }
 
-  return Err(check_failure("CPUFreq CPU membership is empty")) when ids.len() == 0
+  return Err(check_failure("CPUFreq CPU membership is empty")) when ids.is_empty()
 
   ids |> sort-by .
 }
@@ -7799,7 +7799,7 @@ export proc capture_cpufreq_bundle(
     }
   }
 
-  let scoreable = stable_static and sets != null and policies != null and policies.len() > 0
+  let scoreable = stable_static and sets != null and policies != null and ! policies.is_empty()
   let capture = CpuFreqBundleCapture(
     schema_version: 1,
     origin:,
@@ -8087,7 +8087,7 @@ export pure compare_cpu_topology_raw(
   }
 
   var unexpected_ids = [item.id for item in candidate if f"{item.id}" not in seen]
-  let eligible = reference.len() > 0
+  let eligible = ! reference.is_empty()
   {
     reference_count: reference.len(),
     candidate_count: candidate.len(),
@@ -8096,7 +8096,7 @@ export pure compare_cpu_topology_raw(
     unexpected_ids: unexpected_ids |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
     eligible: eligible,
-    exact: eligible and status.enumeration_succeeded and missing_ids.len() == 0 and unexpected_ids.len() == 0 and field_mismatches.len() == 0,
+    exact: eligible and status.enumeration_succeeded and missing_ids.is_empty() and unexpected_ids.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -8193,7 +8193,7 @@ export proc capture_cpu_topology_bundle(
     }
   }
 
-  let scoreable = stable and sets != null and topology != null and topology.len() > 0
+  let scoreable = stable and sets != null and topology != null and ! topology.is_empty()
   let capture = CpuTopologyBundleCapture(
     schema_version: 1,
     origin:,
@@ -8519,7 +8519,7 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
     matched_count: matched_count,
     missing_ids: missing_ids |> sort-by .,
     unexpected_ids: unexpected_ids |> sort-by .,
-    exact: missing_ids.len() == 0 and unexpected_ids.len() == 0,
+    exact: missing_ids.is_empty() and unexpected_ids.is_empty(),
   }
 }
 
@@ -8620,7 +8620,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
     }
 
     let fields = pair[1].replace("\t", " ").split(" ") |> where .trim() != ""
-    if fields.len() == 0 or fields.len() > 2 {
+    if fields.is_empty() or fields.len() > 2 {
       return Err(check_failure("meminfo reference has an invalid value column count"))
     }
 
@@ -8770,7 +8770,7 @@ export pure compare_meminfo(
       unexpected_names: unexpected_names |> sort-by .,
       mismatched_names: mismatched_names |> sort-by .,
       scalar_mismatches: scalar_mismatches |> sort-by .,
-      exact_scored: stable_count > 0 and missing_names.len() == 0 and unexpected_names.len() == 0 and mismatched_names.len() == 0 and scalar_mismatches.len() == 0,
+      exact_scored: stable_count > 0 and missing_names.is_empty() and unexpected_names.is_empty() and mismatched_names.is_empty() and scalar_mismatches.is_empty(),
     },
   )
 }
@@ -8783,7 +8783,7 @@ export pure parse_thp_reference(output: Str) -> Result[Str, Error] {
 
   let value = output.trim()
   let words = value.replace("\t", " ").split(" ") |> where .trim() != ""
-  return Err(check_failure("THP reference is empty")) when words.len() == 0
+  return Err(check_failure("THP reference is empty")) when words.is_empty()
 
   var selected_count = 0
   var names = set.empty()
@@ -8883,15 +8883,17 @@ export pure compare_thp(
     }
   }
 
-  Ok({
-    reference_count: before.len(),
-    candidate_count: candidate_values.len(),
-    matched_count: matched_count,
-    missing_names: missing_names |> sort-by .,
-    unexpected_names: unexpected_names |> sort-by .,
-    mismatched_names: mismatched_names |> sort-by .,
-    exact: before.len() > 0 and missing_names.len() == 0 and unexpected_names.len() == 0 and mismatched_names.len() == 0,
-  })
+  Ok(
+    {
+      reference_count: before.len(),
+      candidate_count: candidate_values.len(),
+      matched_count: matched_count,
+      missing_names: missing_names |> sort-by .,
+      unexpected_names: unexpected_names |> sort-by .,
+      mismatched_names: mismatched_names |> sort-by .,
+      exact: ! before.is_empty() and missing_names.is_empty() and unexpected_names.is_empty() and mismatched_names.is_empty(),
+    },
+  )
 }
 
 pure valid_vulnerability_name(name: Str) -> Bool {
@@ -8966,15 +8968,17 @@ export pure compare_vulnerabilities(
     }
   }
 
-  Ok({
-    reference_count: before.len(),
-    candidate_count: candidate_values.len(),
-    matched_count: matched_count,
-    missing_names: missing_names |> sort-by .,
-    unexpected_names: unexpected_names |> sort-by .,
-    mismatched_names: mismatched_names |> sort-by .,
-    exact: before.len() > 0 and missing_names.len() == 0 and unexpected_names.len() == 0 and mismatched_names.len() == 0,
-  })
+  Ok(
+    {
+      reference_count: before.len(),
+      candidate_count: candidate_values.len(),
+      matched_count: matched_count,
+      missing_names: missing_names |> sort-by .,
+      unexpected_names: unexpected_names |> sort-by .,
+      mismatched_names: mismatched_names |> sort-by .,
+      exact: ! before.is_empty() and missing_names.is_empty() and unexpected_names.is_empty() and mismatched_names.is_empty(),
+    },
+  )
 }
 
 ## Saves bounded named vulnerability files and an independently decoded snapshot.
@@ -8998,7 +9002,7 @@ export proc capture_vulnerabilities_bundle(
   var reference: List[VulnerabilityReference] = []
   var names: List[Str] = []
   var captured_bytes = 0
-  var scoreable = first.state == "complete" and first.children.len() > 0
+  var scoreable = first.state == "complete" and ! first.children.is_empty()
   if first.state == "complete" {
     for child in first.children {
       let name = child.name()
@@ -9090,7 +9094,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
   }
 
   let capture = json.decode(metadata.data.utf8()?)?.require(VulnerabilityCapture)?
-  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "vulnerability-sysfs-raw-v1" or ! capture.stable or capture.listing_state != "complete" or capture.listing_errno != null or capture.listing_error_kind != null or capture.sources.len() == 0 or capture.reference == null {
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "vulnerability-sysfs-raw-v1" or ! capture.stable or capture.listing_state != "complete" or capture.listing_errno != null or capture.listing_error_kind != null or capture.sources.is_empty() or capture.reference == null {
     return Err(check_failure("vulnerability capture has no stable complete reference"))
   }
 
@@ -9270,7 +9274,7 @@ export pure compare_huge_pages(
     }
   }
 
-  let exact_stable = missing_keys.len() == 0 and unexpected_keys.len() == 0 and mismatched_fields.len() == 0
+  let exact_stable = missing_keys.is_empty() and unexpected_keys.is_empty() and mismatched_fields.is_empty()
   Ok({
     reference_count: before.len(),
     candidate_count: candidates.len(),
@@ -9280,7 +9284,7 @@ export pure compare_huge_pages(
     mismatched_fields: mismatched_fields |> sort-by .,
     changed_fields: changed_fields |> sort-by .,
     exact_stable: exact_stable,
-    exact_scored: before.len() > 0 and exact_stable and changed_fields.len() == 0,
+    exact_scored: ! before.is_empty() and exact_stable and changed_fields.is_empty(),
   })
 }
 
@@ -9516,7 +9520,7 @@ export pure compare_psi(
     }
   }
 
-  let exact_stable = missing_keys.len() == 0 and unexpected_keys.len() == 0 and mismatched_fields.len() == 0
+  let exact_stable = missing_keys.is_empty() and unexpected_keys.is_empty() and mismatched_fields.is_empty()
   Ok({
     reference_count: before.len(),
     candidate_count: candidates.len(),
@@ -9526,7 +9530,7 @@ export pure compare_psi(
     mismatched_fields: mismatched_fields |> sort-by .,
     changing_averages: changing_averages |> sort-by .,
     exact_stable: exact_stable,
-    exact_scored: before.len() > 0 and exact_stable and changing_averages.len() == 0,
+    exact_scored: ! before.is_empty() and exact_stable and changing_averages.is_empty(),
   })
 }
 
@@ -9549,7 +9553,7 @@ proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiRef
     rows += parse_psi_reference(source_text, resource)?
   }
 
-  return Err(check_failure("pressure capture has no observed rows")) when rows.len() == 0
+  return Err(check_failure("pressure capture has no observed rows")) when rows.is_empty()
 
   rows
 }
@@ -9695,7 +9699,7 @@ export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[P
     let field = f"pressure.{resource}"
     let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"{field}."))
     if capture.sources[index].state == "observed" {
-      if matching.len() > 0 {
+      guard matching.is_empty() else {
         return Err(check_failure(f"pressure collector reported a {resource} source issue"))
       }
     } else if (matching |> where .field == field and .state == "absent").len() != 1 {
@@ -9727,7 +9731,7 @@ pure reference_swap_number(value: Str, signed: Bool) -> Result[Int] {
 ## Parses util-linux's raw byte-valued swap table and rejects rows without unambiguous columns.
 export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice], Error] {
   let lines = output.trim().split("\n")
-  if lines.len() == 0 or lines[0].trim() != "NAME TYPE SIZE USED PRIO" {
+  if lines.is_empty() or lines[0].trim() != "NAME TYPE SIZE USED PRIO" {
     return Err(check_failure("swapon reference has an unexpected header"))
   }
 
@@ -9764,7 +9768,7 @@ pure proc_swap_name(value: Str) -> Str {
 ## Decodes the kernel's KiB-valued swap table independently of the report collector.
 export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenceDevice], Error] {
   let lines = raw.trim().split("\n")
-  if lines.len() == 0 or proc_swap_words(lines[0]) != ["Filename", "Type", "Size", "Used", "Priority"] {
+  if lines.is_empty() or proc_swap_words(lines[0]) != ["Filename", "Type", "Size", "Used", "Priority"] {
     return Err(check_failure("proc swap reference has an unexpected header"))
   }
 
@@ -10026,7 +10030,7 @@ export pure compare_swap_devices(
     size_mismatches: size_mismatches,
     used_mismatches: used_mismatches,
     priority_mismatches: priority_mismatches,
-    exact: ! candidate_field_missing and ! source_issue and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    exact: ! candidate_field_missing and ! source_issue and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -10315,7 +10319,7 @@ export pure compare_lspci_identity(
     unexpected_addresses: unexpected_addresses |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
     candidate_field_missing: candidate_field_missing,
-    exact_static: ! candidate_field_missing and missing_addresses.len() == 0 and unexpected_addresses.len() == 0 and field_mismatches.len() == 0,
+    exact_static: ! candidate_field_missing and missing_addresses.is_empty() and unexpected_addresses.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -10463,7 +10467,7 @@ export pure compare_pci_links(
     unstable_fields: unstable_fields |> sort-by .,
     candidate_field_missing: candidate_field_missing,
     eligible: eligible,
-    exact: eligible and ! candidate_field_missing and missing_addresses.len() == 0 and unexpected_addresses.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+    exact: eligible and ! candidate_field_missing and missing_addresses.is_empty() and unexpected_addresses.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
   }
 }
 
@@ -10593,7 +10597,7 @@ export pure compare_pci_bindings(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   {
     reference_count: before.len(),
     candidate_count: candidate.len(),
@@ -10604,7 +10608,7 @@ export pure compare_pci_bindings(
     unstable_fields: unstable_fields |> sort-by .,
     candidate_field_missing: candidate_field_missing,
     eligible: eligible,
-    exact: eligible and ! candidate_field_missing and missing_addresses.len() == 0 and unexpected_addresses.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+    exact: eligible and ! candidate_field_missing and missing_addresses.is_empty() and unexpected_addresses.is_empty() and field_mismatches.is_empty() and unstable_fields.is_empty(),
   }
 }
 
@@ -10781,7 +10785,7 @@ export pure compare_thermal_zones(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   {
     reference_count: before.len(),
     candidate_count: section.thermal_zones.len(),
@@ -10789,7 +10793,7 @@ export pure compare_thermal_zones(
     unstable_fields: unstable_fields |> sort-by .,
     candidate_field_missing: candidate_field_missing,
     eligible: eligible,
-    exact: eligible and ! candidate_field_missing and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+    exact: eligible and ! candidate_field_missing and field_mismatches.is_empty() and unstable_fields.is_empty(),
   }
 }
 
@@ -11032,7 +11036,7 @@ export proc capture_thermal_bundle(
     }
   }
 
-  let scoreable = reference != null and reference.len() > 0
+  let scoreable = reference != null and ! reference.is_empty()
   let capture = ThermalCapture(
     schema_version: 1,
     origin:,
@@ -11312,7 +11316,7 @@ export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciR
 # Restricts bus entry links to the sysfs devices tree and their own BDF.
 pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
   let components = target.split("/")
-  if components.len() < 4 or components[0] != ".." or components[1] != ".." or components[2] != ".." or components[3] != "devices" or components[components.len() - 1] != address {
+  if components.len() < 4 or components[0] != ".." or components[1] != ".." or components[2] != ".." or components[3] != "devices" or components[-1] != address {
     return Err(check_failure("PCI bus entry has an invalid sysfs target"))
   }
 
@@ -11493,7 +11497,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     }
   }
 
-  let scoreable = stable and identity != null and binding != null and link != null and identity.len() > 0
+  let scoreable = stable and identity != null and binding != null and link != null and ! identity.is_empty()
   let capture = PciBundleCapture(
     schema_version: 1,
     origin:,
@@ -11586,7 +11590,7 @@ export proc replay_pci_bundle(bundle: FsRoot) [fs, time, error] -> Result[PciBun
 # Restricts a USB bus entry link to its named node in the sysfs devices tree.
 pure usb_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
   let components = target.split("/")
-  if components.len() < 5 or components[0] != ".." or components[1] != ".." or components[2] != ".." or components[3] != "devices" or components[components.len() - 1] != name {
+  if components.len() < 5 or components[0] != ".." or components[1] != ".." or components[2] != ".." or components[3] != "devices" or components[-1] != name {
     return Err(check_failure("USB bus entry has an invalid sysfs target"))
   }
 
@@ -11830,7 +11834,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     }
   }
 
-  let scoreable = stable and topology != null and ids != null and power != null and interfaces != null and topology.len() > 0
+  let scoreable = stable and topology != null and ids != null and power != null and interfaces != null and ! topology.is_empty()
   let capture = UsbBundleCapture(
     schema_version: 1,
     origin:,
@@ -12117,7 +12121,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     unexpected_ids: unexpected_ids,
     field_mismatches: field_mismatches,
     candidate_field_missing: candidate_field_missing,
-    exact: ! candidate_field_missing and missing_ids.len() == 0 and unexpected_ids.len() == 0 and field_mismatches.len() == 0,
+    exact: ! candidate_field_missing and missing_ids.is_empty() and unexpected_ids.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -12418,7 +12422,7 @@ export pure compare_network_link_raw(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   {
     reference_count: before.len(),
     candidate_count: section.links.len(),
@@ -12426,7 +12430,7 @@ export pure compare_network_link_raw(
     field_mismatches: field_mismatches |> sort-by .,
     unstable_fields: unstable_fields |> sort-by .,
     eligible: eligible,
-    exact: eligible and enumerated and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+    exact: eligible and enumerated and field_mismatches.is_empty() and unstable_fields.is_empty(),
   }
 }
 
@@ -12626,7 +12630,7 @@ export pure compare_ip_addresses(
     unexpected_keys: unexpected_keys |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
     candidate_field_missing: candidate_field_missing,
-    exact_static: ! candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0 and field_mismatches.len() == 0,
+    exact_static: ! candidate_field_missing and missing_keys.is_empty() and unexpected_keys.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -12724,14 +12728,14 @@ export pure compare_ip_address_lifetimes(
     }
   }
 
-  let eligible = before.len() > 0 or after.len() > 0
+  let eligible = ! before.is_empty() or ! after.is_empty()
   {
     reference_count: before.len(),
     candidate_count: candidate_count,
     field_mismatches: field_mismatches |> sort-by .,
     unstable_fields: unstable_fields |> sort-by .,
     eligible: eligible,
-    exact: eligible and network_candidate_enumerated(state, enumerated) and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+    exact: eligible and network_candidate_enumerated(state, enumerated) and field_mismatches.is_empty() and unstable_fields.is_empty(),
   }
 }
 
@@ -12991,7 +12995,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   var candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   var fully_represented = true
   for rule in reference {
-    if rule.unscored_fields.len() > 0 {
+    if ! rule.unscored_fields.is_empty() {
       fully_represented = false
     }
   }
@@ -13151,7 +13155,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   }
 
   var unexpected_keys = [key for key in candidate_key_list if key not in reference_keys]
-  let exact_static = ! candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0
+  let exact_static = ! candidate_field_missing and missing_keys.is_empty() and unexpected_keys.is_empty()
   {
     reference_count: reference.len(),
     candidate_count: comparable_count,
@@ -13161,7 +13165,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
     unexpected_keys: unexpected_keys |> sort-by .,
     candidate_field_missing: candidate_field_missing,
     exact_static: exact_static,
-    exact_scored: exact_static and reference.len() > 0 and fully_represented,
+    exact_scored: exact_static and ! reference.is_empty() and fully_represented,
   }
 }
 
@@ -13568,7 +13572,7 @@ export pure compare_ip_routes(
   var candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   var fully_represented = true
   for route in reference {
-    if route.unscored_fields.len() > 0 {
+    if ! route.unscored_fields.is_empty() {
       fully_represented = false
     }
   }
@@ -13725,7 +13729,7 @@ export pure compare_ip_routes(
   }
 
   var unexpected_keys = [key for key in candidate_key_list if key not in reference_keys]
-  let exact_static = ! candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0
+  let exact_static = ! candidate_field_missing and missing_keys.is_empty() and unexpected_keys.is_empty()
   {
     reference_count: reference.len(),
     candidate_count: candidate.len(),
@@ -13734,7 +13738,7 @@ export pure compare_ip_routes(
     unexpected_keys: unexpected_keys |> sort-by .,
     candidate_field_missing: candidate_field_missing,
     exact_static: exact_static,
-    exact_scored: exact_static and reference.len() > 0 and fully_represented,
+    exact_scored: exact_static and ! reference.is_empty() and fully_represented,
   }
 }
 
@@ -14087,7 +14091,7 @@ export pure compare_block_devices(
     flag_mismatches: flag_mismatches,
     partition_mismatches: partition_mismatches,
     candidate_field_missing: candidate_field_missing,
-    exact: ! candidate_field_missing and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and missing_edges == 0 and unexpected_edges == 0,
+    exact: ! candidate_field_missing and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and missing_edges == 0 and unexpected_edges == 0,
   }
 }
 
@@ -14255,7 +14259,7 @@ export pure compare_block_queue_fields(
     discard_mismatches: discard_mismatches,
     model_mismatches: model_mismatches,
     candidate_field_missing: candidate_field_missing,
-    exact: ! candidate_field_missing and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    exact: ! candidate_field_missing and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -14380,7 +14384,7 @@ export proc read_block_queue_sources(
 
 pure block_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
   let parts = target.split("/")
-  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[parts.len() - 1] != name {
+  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or parts[2] != "devices" or parts[-1] != name {
     return Err(check_failure("block class entry has an invalid devices target"))
   }
 
@@ -14482,7 +14486,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
           }
 
           let target_parts = (target ?? "").split("/")
-          if target_parts[target_parts.len() - 1] != child_name {
+          if target_parts[-1] != child_name {
             return Err(check_failure("block relation link targets a different device"))
           }
         } else if root.metadata(child)?.kind != "dir" {
@@ -14713,7 +14717,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
         return Err(check_failure("block partition lacks a parent class path"))
       }
 
-      let parent = parts[parts.len() - 2]
+      let parent = parts[-2]
       if parent not in listed {
         return Err(check_failure("block partition parent is not listed"))
       }
@@ -14994,7 +14998,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     }
   }
 
-  let exact = missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and missing_edges == 0 and unexpected_edges == 0
+  let exact = missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty() and missing_edges == 0 and unexpected_edges == 0
   {
     reference_count: reference.devices.len(),
     candidate_count: candidates.len(),
@@ -15126,7 +15130,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     }
   }
 
-  let scoreable = complete and stable_static and reference != null and counters != null and reference.devices.len() > 0
+  let scoreable = complete and stable_static and reference != null and counters != null and ! reference.devices.is_empty()
   let capture = BlockBundleCapture(
     schema_version: 1,
     origin:,
@@ -15386,7 +15390,7 @@ export pure compare_block_queue_sources(
     counter_mismatches: counter_mismatches,
     unstable: unstable,
     candidate_field_missing: candidate_field_missing,
-    exact: ! unstable and ! candidate_field_missing and missing_names.len() == 0 and unexpected_names.len() == 0 and firmware_mismatches == 0 and counter_mismatches == 0,
+    exact: ! unstable and ! candidate_field_missing and missing_names.is_empty() and unexpected_names.is_empty() and firmware_mismatches == 0 and counter_mismatches == 0,
   }
 }
 
@@ -15439,7 +15443,7 @@ pure reference_mount_option_safe(option: Str) -> Bool {
     "mode" => reference_mount_decimal(value, true)
     "vers" => {
       let components = value.split(".")
-      return false when components.len() == 0 or components.len() > 3
+      return false when components.is_empty() or components.len() > 3
 
       for component in components {
         guard reference_mount_decimal(component) else {
@@ -15646,7 +15650,7 @@ export proc capture_mountinfo_bundle(
     if first.state == "observed" and ! first.truncated and first.errno == null and first.error_kind == null {
       if let Ok(text) = data.utf8() {
         if let Ok(parsed) = parse_mountinfo_raw_reference(text) {
-          if parsed.len() > 0 {
+          if ! parsed.is_empty() {
             reference = parsed
           }
         }
@@ -15703,7 +15707,7 @@ export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List
 
   let source = raw.data.utf8()?
   let reference = parse_mountinfo_raw_reference(source)?
-  if reference.len() == 0 or reference != capture.reference {
+  if reference.is_empty() or reference != capture.reference {
     return Err(check_failure("mountinfo capture oracle differs from saved bytes"))
   }
 
@@ -15923,7 +15927,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     option_mismatches: option_mismatches,
     propagation_mismatches: propagation_mismatches,
     candidate_field_missing: false,
-    exact: missing_ids.len() == 0 and unexpected_ids.len() == 0 and field_mismatches.len() == 0,
+    exact: missing_ids.is_empty() and unexpected_ids.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -16138,7 +16142,7 @@ export pure compare_mount_usage(
     matched_count: matched_count,
     mismatched_ids: mismatched_ids |> sort-by .,
     unstable: unstable,
-    exact: mismatched_ids.len() == 0 and ! unstable,
+    exact: mismatched_ids.is_empty() and ! unstable,
   }
 }
 
@@ -16189,7 +16193,7 @@ export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModu
 ## Joins lsmod's size and use count with the state exposed by the same procfs snapshot.
 export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[KernelModuleReference], Error] {
   let lines = formatted.trim().split("\n")
-  if lines.len() == 0 or module_reference_words(lines[0]) != ["Module", "Size", "Used", "by"] {
+  if lines.is_empty() or module_reference_words(lines[0]) != ["Module", "Size", "Used", "by"] {
     return Err(check_failure("lsmod reference has an unexpected header"))
   }
 
@@ -16345,7 +16349,7 @@ export pure compare_kernel_modules(
     enumeration_succeeded: enumeration_succeeded,
     source_issue: source_issue,
     candidate_field_missing: candidate_field_missing,
-    exact: enumeration_succeeded and ! source_issue and ! candidate_field_missing and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    exact: enumeration_succeeded and ! source_issue and ! candidate_field_missing and missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -16669,7 +16673,7 @@ export pure compare_kernel_parameters(
     unexpected_names: unexpected_names |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
     candidate_field_missing: false,
-    exact: missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    exact: missing_names.is_empty() and unexpected_names.is_empty() and field_mismatches.is_empty(),
   }
 }
 
@@ -17284,7 +17288,7 @@ pure parse_reference_device_tree_strings(raw: Bytes) -> Result[List[Str]] {
     index += 1
   }
 
-  if values.len() == 0 or start != raw.len() {
+  if values.is_empty() or start != raw.len() {
     return Err(check_failure("device-tree reference has an unterminated string"))
   }
 
@@ -17843,7 +17847,7 @@ export pure compare_dmi_identity(
     field_mismatches: field_mismatches |> sort-by .,
     unstable_fields: unstable_fields |> sort-by .,
     eligible: eligible,
-    exact: eligible and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+    exact: eligible and field_mismatches.is_empty() and unstable_fields.is_empty(),
   })
 }
 
@@ -18046,7 +18050,7 @@ pure process_reference_stat_fields(output: Str) -> Result[ProcStatReferenceField
   }
 
   let command = command_and_fields |> take(command_and_fields.len() - 1).join(") ")
-  let fields = command_and_fields[command_and_fields.len() - 1].replace("\t", " ").split(" ") |> where .trim() != ""
+  let fields = command_and_fields[-1].replace("\t", " ").split(" ") |> where .trim() != ""
   if pid == 0 or fields.len() < 22 or fields[0].count_chars() != 1 {
     return Err(check_failure("process stat reference has invalid identity or field count"))
   }
@@ -18493,7 +18497,7 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
   var seen = set.empty()
   for line in output.lines() {
     let fields = cgroup2_reference_words(line)
-    continue when fields.len() == 0
+    continue when fields.is_empty()
     if fields.len() != 2 {
       return Err(check_failure("cgroup2 cpu.stat reference has an invalid row"))
     }
@@ -18532,7 +18536,7 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
   var devices = set.empty()
   for line in output.lines() {
     let fields = cgroup2_reference_words(line)
-    continue when fields.len() == 0
+    continue when fields.is_empty()
     let device = fields[0]
     let device_parts = device.split(":")
     if device_parts.len() != 2 or device in devices {
@@ -18623,7 +18627,7 @@ pure cgroup2_mount_row_present(mountinfo: Str) -> Result[Bool] {
   var saw_row = false
   for line in mountinfo.lines() {
     let columns = line.split(" ") |> where . != ""
-    if columns.len() == 0 {
+    if columns.is_empty() {
       return Err(check_failure("cgroup2 reference mountinfo has an empty row"))
     }
 
@@ -18986,7 +18990,7 @@ export proc capture_cgroup2_bundle(
     }
   }
 
-  let scoreable = complete and stable_static and reference_ancestors.len() > 0 and reference_resources.len() > 0
+  let scoreable = complete and stable_static and ! reference_ancestors.is_empty() and ! reference_resources.is_empty()
   let capture = Cgroup2BundleCapture(
     schema_version: 1,
     origin:,
@@ -19015,7 +19019,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
   if capture.schema_version != 1 or capture.reference_adapter != "cgroup2-rooted-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
-  ] or ! capture.stable_static or ! capture.scoreable or capture.reference_ancestors.len() == 0 or capture.reference_resources.len() == 0 {
+  ] or ! capture.stable_static or ! capture.scoreable or capture.reference_ancestors.is_empty() or capture.reference_resources.is_empty() {
     return Err(check_failure("cgroup2 capture has no stable scoreable reference"))
   }
 
@@ -19185,8 +19189,8 @@ export pure compare_cgroup2_resources(
     }
   }
 
-  let exact_stable = missing.len() == 0 and unexpected.len() == 0 and field_mismatches.len() == 0
-  let eligible = before.ancestors.len() > 0 and before.resources.len() > 0
+  let exact_stable = missing.is_empty() and unexpected.is_empty() and field_mismatches.is_empty()
+  let eligible = ! before.ancestors.is_empty() and ! before.resources.is_empty()
   Ok({
     eligible: eligible,
     reference_count: before.resources.len(),
@@ -19197,7 +19201,7 @@ export pure compare_cgroup2_resources(
     field_mismatches: field_mismatches |> sort-by .,
     unscored_gauges: unscored_gauges |> sort-by .,
     exact_stable: exact_stable,
-    exact_scored: eligible and exact_stable and unscored_gauges.len() == 0,
+    exact_scored: eligible and exact_stable and unscored_gauges.is_empty(),
   })
 }
 
@@ -19298,7 +19302,7 @@ export pure compare_cpu_scope_cgroup(
   }
 
   var eligible = false
-  if before.ancestors.len() > 0 {
+  if ! before.ancestors.is_empty() {
     let current = before.ancestors[0]
     eligible = current.hierarchy_level == 0 and current.effective_cpus != null and current.quota != null
     if current.effective_cpus != null {
@@ -19313,7 +19317,7 @@ export pure compare_cpu_scope_cgroup(
     eligible: eligible,
     checked_resources: checked,
     mismatched_fields: mismatches |> sort-by .,
-    exact: mismatches.len() == 0,
+    exact: mismatches.is_empty(),
   })
 }
 
@@ -19740,7 +19744,7 @@ export proc capture_process_bundle(
   sources = sources |> sort-by .path
   var identity: ProcessIdentitySnapshot? = null
   var resources: ProcessResourceSnapshot? = null
-  if listing.state == "complete" and pids.len() > 0 {
+  if listing.state == "complete" and ! pids.is_empty() {
     if let Ok(value) = read_process_identity_snapshot(bundle) {
       identity = value
     }
@@ -19781,7 +19785,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
   if capture.schema_version != 1 or capture.reference_adapter != "procfs-process-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
-  ] or capture.listing_state != "complete" or ! capture.scoreable or capture.page_size_bytes <= 0 or capture.page_size_bytes > 9007199254740991 or capture.pids.len() == 0 or capture.skipped_count != capture.skipped.len() or capture.identity == null or capture.resources == null or capture.sources.len() != capture.pids.len() * 4 {
+  ] or capture.listing_state != "complete" or ! capture.scoreable or capture.page_size_bytes <= 0 or capture.page_size_bytes > 9007199254740991 or capture.pids.is_empty() or capture.skipped_count != capture.skipped.len() or capture.identity == null or capture.resources == null or capture.sources.len() != capture.pids.len() * 4 {
     return Err(check_failure("process capture has no scoreable reference"))
   }
 
@@ -19996,7 +20000,7 @@ export pure compare_process_identity(
     missing_pids: missing_pids |> sort-by .,
     mismatched_pids: mismatched_pids |> sort-by .,
     state_unscored_count: stable_count,
-    exact_static: stable_count > 0 and missing_pids.len() == 0 and mismatched_pids.len() == 0,
+    exact_static: stable_count > 0 and missing_pids.is_empty() and mismatched_pids.is_empty(),
   })
 }
 
@@ -20116,7 +20120,7 @@ export pure compare_process_resources(
     missing_pids: missing_pids |> sort-by .,
     unscored_fields: unscored_fields |> sort-by .,
     mismatched_fields: mismatched_fields |> sort-by .,
-    exact_scored: scored_fields > 0 and missing_pids.len() == 0 and mismatched_fields.len() == 0,
+    exact_scored: scored_fields > 0 and missing_pids.is_empty() and mismatched_fields.is_empty(),
   })
 }
 
@@ -20148,7 +20152,7 @@ export pure compare_namespace_scope(
   candidate_json: Str,
   references: List[NamespaceReference],
 ) -> Result[NamespaceComparison, Error] {
-  if references.len() == 0 {
+  if references.is_empty() {
     return Err(check_failure("namespace comparison has no reference identities"))
   }
 
@@ -20179,7 +20183,7 @@ export pure compare_namespace_scope(
     matched_count: matched_count,
     missing_fields: missing_fields,
     mismatched_fields: mismatched_fields,
-    exact: missing_fields.len() == 0 and mismatched_fields.len() == 0,
+    exact: missing_fields.is_empty() and mismatched_fields.is_empty(),
   }
 }
 
@@ -20217,7 +20221,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
     return Err(check_failure("unsupported coverage manifest schema"))
   }
 
-  if manifest.producer != "system-report" or manifest.assertions.len() == 0 {
+  if manifest.producer != "system-report" or manifest.assertions.is_empty() {
     return Err(check_failure("coverage manifest has no producer or assertions"))
   }
 
@@ -20389,13 +20393,13 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
       return Err(check_failure("usb.lsusb must declare the opt-in inventory, tree, and selected descriptor commands"))
     }
 
-    if assertion.source_abi.trim() == "" or assertion.reference_adapter.trim() == "" or (assertion.reference_commands.len() == 0 and ! rooted_reference) or (rooted_reference and assertion.reference_commands.len() != 0) or rooted_binding_invalid {
+    if assertion.source_abi.trim() == "" or assertion.reference_adapter.trim() == "" or (assertion.reference_commands.is_empty() and ! rooted_reference) or (rooted_reference and ! assertion.reference_commands.is_empty()) or rooted_binding_invalid {
       return Err(check_failure(f"assertion '{assertion.id}' has an invalid source ABI or reference invocation"))
     }
 
     var seen_commands: List[List[Str]] = []
     for command in assertion.reference_commands {
-      if command.len() == 0 or command[0].trim() == "" or command in seen_commands {
+      if command.is_empty() or command[0].trim() == "" or command in seen_commands {
         return Err(check_failure(f"assertion '{assertion.id}' has an empty or duplicate reference command"))
       }
 
@@ -20479,7 +20483,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
       return Err(check_failure(f"assertion '{assertion.id}' must declare the executed reference commands"))
     }
 
-    if assertion.eligibility.trim() == "" or assertion.equality_rule.trim() == "" or assertion.fixture_scenarios.len() == 0 {
+    if assertion.eligibility.trim() == "" or assertion.equality_rule.trim() == "" or assertion.fixture_scenarios.is_empty() {
       return Err(check_failure(f"assertion '{assertion.id}' is missing eligibility, comparison, or fixture policy"))
     }
 
@@ -20537,7 +20541,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
     }
 
     covered_scenarios += [fixture_case.scenario]
-    if fixture_case.tests.len() == 0 {
+    if fixture_case.tests.is_empty() {
       return Err(check_failure(f"fixture case '{fixture_case.scenario}' has no tests"))
     }
 
@@ -21125,7 +21129,7 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
   for component in traced_path.split("/") {
     continue when component == "" or component == "."
     if component == ".." {
-      if components.len() > 0 {
+      if ! components.is_empty() {
         components = components |> take(components.len() - 1)
       }
     } else {
@@ -21223,7 +21227,7 @@ export pure forbidden_process_field_violations(candidate_json: Str) -> Result[Li
 }
 
 pure replay_live_source_path(components: List[Str]) -> Bool {
-  components.len() > 0 and components[0] in ["proc", "sys", "etc"]
+  ! components.is_empty() and components[0] in ["proc", "sys", "etc"]
 }
 
 pure replay_host_read_keys(trace: Str) -> List[Str] {
@@ -21342,7 +21346,7 @@ proc audit_no_subprocess_case(
     return Err(check_failure(f"{label} command had unexpected exit status: {candidate_error.trim()}"))
   }
 
-  return Err(check_failure(violations.join(", "))) when violations.len() > 0
+  return Err(check_failure(violations.join(", "))) when ! violations.is_empty()
 
   if expected_success and output.trim() == "" {
     return Err(check_failure(f"{label} emitted no output"))
@@ -21350,7 +21354,7 @@ proc audit_no_subprocess_case(
 
   if expected_success and "--json" in applet_args {
     let forbidden_fields = forbidden_process_field_violations(output)?
-    return Err(check_failure(forbidden_fields.join(", "))) when forbidden_fields.len() > 0
+    return Err(check_failure(forbidden_fields.join(", "))) when ! forbidden_fields.is_empty()
   }
 
   if ! expected_success and output.trim() != "" {
@@ -21412,7 +21416,7 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   for label in ["offline-replay", "malformed-replay", "unsupported-schema", "invalid-utf8-replay", "missing-replay"] {
     let replay_trace = scratch.read_text(fp"trace-{label}")?
     let replay_reads = replay_host_read_violations_after_baseline(replay_trace, startup_trace)
-    if replay_reads.len() > 0 {
+    if ! replay_reads.is_empty() {
       let reasons = replay_reads.join(", ")
       return Err(check_failure(f"{label}: {reasons}"))
     }
@@ -21800,7 +21804,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
   } else if dmi_compared.eligible {
     dmi_compared.exact
   } else {
-    device_tree_exact and dmi_compared.field_mismatches.len() == 0 and dmi_compared.unstable_fields.len() == 0
+    device_tree_exact and dmi_compared.field_mismatches.is_empty() and dmi_compared.unstable_fields.is_empty()
   }
   let firmware_identity_state = if firmware_identity_scored == 0 {
     "reference unavailable"
@@ -22129,7 +22133,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   }
 
   let after = read_thp_reference(scratch, "after")?
-  if before.policies.len() == 0 and after.policies.len() == 0 {
+  if before.policies.is_empty() and after.policies.is_empty() {
     print "memory.thp: reference unavailable (no policy files are exported)"
     return Ok(false)
   }
@@ -22330,7 +22334,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   }
 
   let compared = compare_huge_pages(candidate, before.pools, after.pools)?
-  if before.pools.len() == 0 and after.pools.len() == 0 {
+  if before.pools.is_empty() and after.pools.is_empty() {
     guard compared.exact_stable else {
       return Err(check_failure("candidate reports a huge-page pool absent from the raw reference"))
     }
@@ -22444,7 +22448,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     let field = f"pressure.{resource}"
     let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"{field}."))
     if resource in before.available_resources {
-      if matching.len() > 0 {
+      guard matching.is_empty() else {
         return Err(check_failure(f"candidate PSI {resource} source has a collection issue"))
       }
     } else if (matching |> where .field == field and .state == "absent").len() != 1 {
@@ -22453,7 +22457,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   }
 
   let compared = compare_psi(candidate, before.rows, after.rows)?
-  if before.rows.len() == 0 {
+  if before.rows.is_empty() {
     guard compared.exact_stable else {
       return Err(check_failure("candidate reports PSI rows absent from the raw reference"))
     }
@@ -22575,7 +22579,7 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
   }
 
   let after = read_vulnerability_reference(scratch, "after")?
-  if before.descriptions.len() == 0 and after.descriptions.len() == 0 {
+  if before.descriptions.is_empty() and after.descriptions.is_empty() {
     print "cpu.vulnerabilities: reference unavailable (no vulnerability files are exported)"
     return Ok(false)
   }
@@ -22876,7 +22880,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"pci.link: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_addresses.len()}, unexpected={compared.unexpected_addresses.len()}, stable_mismatches={compared.field_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=pci-link-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{{current_link_speed,current_link_width,max_link_speed,max_link_width}}; bound=4096 bytes per attribute, 65536 functions; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_addresses.len() > 0 or compared.unexpected_addresses.len() > 0 or compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
+  if ! compared.missing_addresses.is_empty() or ! compared.unexpected_addresses.is_empty() or ! compared.field_mismatches.is_empty() or compared.candidate_field_missing {
     return Err(check_failure("PCIe link fields differ from the stable kernel reference"))
   }
 
@@ -22922,7 +22926,7 @@ proc compare_live_usb_topology(
   let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)
   let compared = compare_usb_topology(candidate, before, after)?
-  if compared.reference_count == 0 and after.len() == 0 {
+  if compared.reference_count == 0 and after.is_empty() {
     guard compared.candidate_count == 0 else {
       return Err(check_failure("candidate USB devices exist without a kernel USB directory"))
     }
@@ -22935,7 +22939,7 @@ proc compare_live_usb_topology(
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"usb.topology: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed={compared.unstable_fields.len()}, exact={compared.exact}"
   print f"reference: adapter=usb-topology-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{busnum,devnum,speed}}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("USB topology differs from stable kernel device paths"))
   }
 
@@ -22982,7 +22986,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"usb.ids: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=usb-ids-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{idVendor,idProduct,bcdDevice,bDeviceClass,bDeviceSubClass,bDeviceProtocol,manufacturer,product}}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("USB identity fields differ from stable kernel attributes"))
   }
 
@@ -23029,7 +23033,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"usb.power: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=usb-power-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{power/control,power/autosuspend_delay_ms,power/runtime_status,bNumConfigurations,bConfigurationValue}}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("USB power fields differ from stable kernel attributes"))
   }
 
@@ -23079,7 +23083,7 @@ proc compare_live_usb_interfaces(
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"usb.interfaces: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=usb-interface-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{{bInterfaceNumber,bAlternateSetting,bInterfaceClass,bInterfaceSubClass,bInterfaceProtocol,bNumEndpoints,driver,descriptors}}; bound=4096 entries, 4096 bytes per attribute, 1048576 descriptor bytes; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("USB interface fields differ from stable kernel attributes and descriptors"))
   }
 
@@ -23129,7 +23133,7 @@ proc compare_live_power_supplies(
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"power.supplies: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=power-supply-sysfs-rooted-v1; source=/sys/class/power_supply/*/{{type,status,health,capacity,energy_now,energy_full,charge_now,charge_full,voltage_now,current_now,cycle_count}}; bound=1024 entries, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("power-supply fields differ from stable kernel attributes"))
   }
 
@@ -23176,7 +23180,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"power.powercap: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=powercap-sysfs-rooted-v1; source=/sys/class/powercap/*/{{name,energy_uj,max_energy_range_uj,constraint_*}}; bound=1024 zones, 256 entries per zone, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("powercap zones or constraints differ from stable kernel attributes"))
   }
 
@@ -23234,7 +23238,7 @@ proc compare_live_device_classes(
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"devices.graphics-audio-input: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_names.len()}, unexpected={compared.unexpected_names.len()}, mismatched={compared.field_mismatches.len()}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=device-class-sysfs-rooted-v1; source=/sys/class/drm|sound|input entries and device links; bound=4096 entries per class, 4096 bytes per label; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("device-class entries or parent links differ from stable kernel sources"))
   }
 
@@ -23289,7 +23293,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"sensors.hwmon: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={json.encode(compared.missing_names)?}, unexpected={json.encode(compared.unexpected_names)?}, mismatched={json.encode(compared.field_mismatches)?}, changed_or_incomplete={compared.unstable_fields.len()}, exposed={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=hwmon-sysfs-rooted-v1; source=/sys/class/hwmon informational input, label, threshold, alarm, and device-link attributes; bound=1024 chips, 1024 entries per chip, 4096 bytes per value; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+  if ! compared.missing_names.is_empty() or ! compared.unexpected_names.is_empty() or ! compared.field_mismatches.is_empty() {
     return Err(check_failure("hwmon channels or parents differ from stable kernel sources"))
   }
 
@@ -23339,7 +23343,7 @@ proc compare_live_pci_bindings(
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"pci.binding: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_addresses.len()}, unexpected={compared.unexpected_addresses.len()}, stable_mismatches={compared.field_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, eligible={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=pci-binding-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{{driver,numa_node,iommu_group}} and bus-entry target; bound=4096 bytes per attribute, 4096 directory entries per function, 65536 functions; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_addresses.len() > 0 or compared.unexpected_addresses.len() > 0 or compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
+  if ! compared.missing_addresses.is_empty() or ! compared.unexpected_addresses.is_empty() or ! compared.field_mismatches.is_empty() or compared.candidate_field_missing {
     return Err(check_failure("PCI binding fields differ from the stable kernel reference"))
   }
 
@@ -23386,7 +23390,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"sensors.thermal: reference={compared.reference_count}, candidate={compared.candidate_count}, stable_mismatches={compared.field_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, eligible={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=thermal-sysfs-rooted-v1; source=/sys/class/thermal/thermal_zone*/{{type,temp,trip_point_N_*}}; bound=4096 bytes per attribute, 256 attributes per zone, 1024 class entries; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
+  if ! compared.field_mismatches.is_empty() or compared.candidate_field_missing {
     return Err(check_failure("thermal zone fields differ from the stable kernel reference"))
   }
 
@@ -23545,7 +23549,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
   print f"reference: adapter=network-link-sysfs-rooted-v1; source=/sys/class/net/*/{{{{ifindex,type,flags,statistics/rx_bytes,statistics/tx_bytes}}}}; bound=65536 links, 4096 bytes per attribute; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={host_claim_display}; before={raw_before_started}..{raw_before_ended} ms; after={raw_after_started}..{raw_after_ended} ms"
   return Err(check_failure("network link static comparison failed")) unless compared.exact
 
-  if raw_compared.field_mismatches.len() > 0 {
+  if ! raw_compared.field_mismatches.is_empty() {
     return Err(
       check_failure(
         f"network link raw fields differ from stable kernel references: {raw_compared.field_mismatches.join(", ")}",
@@ -23648,7 +23652,7 @@ proc compare_live_ip_addresses(
     return Err(check_failure("network address static comparison failed"))
   }
 
-  if lifetimes.field_mismatches.len() > 0 {
+  if ! lifetimes.field_mismatches.is_empty() {
     return Err(check_failure("network address lifetimes differ from bracketing references"))
   }
 
@@ -24824,7 +24828,7 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
-  let has_visible_cgroup = cgroup_before.ancestors.len() > 0
+  let has_visible_cgroup = ! cgroup_before.ancestors.is_empty()
   var has_current_cpuset = false
   if has_visible_cgroup {
     has_current_cpuset = cgroup_before.ancestors[0].effective_cpus != null
@@ -24887,7 +24891,7 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
   require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
-  if before.resources.len() > 0 {
+  if ! before.resources.is_empty() {
     for item in issues {
       if item.section == "memory" and item.field.starts_with("cgroup.") and item.field != "cgroup.v1" {
         return Err(check_failure("candidate cgroup2 resource has a collection issue"))
@@ -25106,7 +25110,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)
   let compared = compare_cpufreq_policies(candidate, before, after)?
-  if before.len() == 0 {
+  if before.is_empty() {
     guard compared.candidate_count == 0 else {
       return Err(check_failure("candidate CPUFreq policies exist without a kernel policy directory"))
     }
@@ -25121,7 +25125,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   print f"cpu.freq-bounds: exposed={compared.eligible_bounds}, bound_mismatches={compared.bound_mismatches.len()}, changed_bounds={compared.unstable_bounds.len()}, gauge_mismatches={compared.gauge_mismatches.len()}, unstable_gauges={compared.unstable_gauges.len()}, exact={compared.exact_bounds}"
   print f"cpu.epp-boost: exposed={compared.eligible_controls}, stable_mismatches={compared.control_mismatches.len()}, changed_controls={compared.unstable_controls.len()}, exact={compared.exact_controls}"
   print f"reference: adapter=cpufreq-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpufreq/policy*; bound=4096 bytes per attribute, 1024 entries; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if ! compared.exact_policies or compared.bound_mismatches.len() > 0 or compared.gauge_mismatches.len() > 0 or compared.control_mismatches.len() > 0 {
+  if ! compared.exact_policies or ! compared.bound_mismatches.is_empty() or ! compared.gauge_mismatches.is_empty() or ! compared.control_mismatches.is_empty() {
     return Err(
       check_failure("CPUFreq policy membership, stable bounds, gauges, or controls differ from the kernel reference"),
     )
@@ -25177,7 +25181,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   print f"cpu.idle: reference={compared.reference_count}, candidate={compared.candidate_count}, matched={compared.matched_count}, missing={compared.missing_keys.len()}, unexpected={compared.unexpected_keys.len()}, field_mismatches={compared.field_mismatches.len()}, counter_mismatches={compared.counter_mismatches.len()}, changed_fields={compared.unstable_fields.len()}, eligible={compared.eligible}, exact={compared.exact}"
   print f"reference: adapter=cpuidle-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpuidle and cpu*/cpuidle/state*; bound=4096 bytes per attribute, 256 states per CPU; locale=C; euid={applet.current_euid()}; source_mode=live_linux; host_claim={json.encode(host_claim)?}; before={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after={after_started}..{after_ended} ms"
-  if compared.missing_keys.len() > 0 or compared.unexpected_keys.len() > 0 or compared.field_mismatches.len() > 0 or compared.counter_mismatches.len() > 0 {
+  if ! compared.missing_keys.is_empty() or ! compared.unexpected_keys.is_empty() or ! compared.field_mismatches.is_empty() or ! compared.counter_mismatches.is_empty() {
     return Err(check_failure("CPUIdle states or stable fields differ from the kernel reference"))
   }
 
@@ -25405,7 +25409,7 @@ export pure fixture_failure_summary(output: Str, stderr_output: Str) -> Str {
   return result when result.starts_with("test result:")
 
   let error_lines = stderr_output.trim().lines() |> collect()
-  return error_lines.get(error_lines.len() - 1) ?? "" when error_lines.len() > 0
+  return error_lines.get(error_lines.len() - 1) ?? "" when ! error_lines.is_empty()
 
   return result when result != ""
 
@@ -26238,7 +26242,7 @@ export proc validate_and_run(
       "partial"
     }
     print f"CPUFreq raw replay: sets={result.sets.exact}; policies={result.policies.exact_policies}; bounds={bounds_state}; controls={controls_state}; policies_count={result.policies.reference_count}"
-    if ! result.sets.exact or ! result.policies.exact_policies or result.policies.bound_mismatches.len() > 0 or result.policies.gauge_mismatches.len() > 0 or result.policies.control_mismatches.len() > 0 {
+    if ! result.sets.exact or ! result.policies.exact_policies or ! result.policies.bound_mismatches.is_empty() or ! result.policies.gauge_mismatches.is_empty() or ! result.policies.control_mismatches.is_empty() {
       return Err(check_failure("CPUFreq raw replay differs from its independent reference"))
     }
 
@@ -26418,7 +26422,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_power_supply_bundle}")?
     defer bundle.close()?
     let result = replay_power_supply_bundle(bundle)?
-    let mismatch = result.missing_names.len() > 0 or result.unexpected_names.len() > 0 or result.field_mismatches.len() > 0
+    let mismatch = ! result.missing_names.is_empty() or ! result.unexpected_names.is_empty() or ! result.field_mismatches.is_empty()
     let state = if result.exact { "exact" } else if mismatch { "mismatch" } else { "partial" }
     print f"power supply raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; matched={result.matched_count}; partial={result.unstable_fields.len()}"
     if mismatch {
@@ -26884,7 +26888,7 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_hwmon_bundle}")?
     defer bundle.close()?
     let result = replay_hwmon_bundle(bundle)?
-    let mismatch = result.field_mismatches.len() > 0 or result.missing_names.len() > 0 or result.unexpected_names.len() > 0
+    let mismatch = ! result.field_mismatches.is_empty() or ! result.missing_names.is_empty() or ! result.unexpected_names.is_empty()
     let state = if result.exact {
       "exact"
     } else if mismatch {
@@ -27004,7 +27008,7 @@ export proc validate_and_run(
     } else {
       "mismatch"
     }
-    let link_unavailable = ! result.link.eligible and ! result.link.candidate_field_missing and result.link.missing_addresses.len() == 0 and result.link.unexpected_addresses.len() == 0 and result.link.field_mismatches.len() == 0 and result.link.unstable_fields.len() == 0
+    let link_unavailable = ! result.link.eligible and ! result.link.candidate_field_missing and result.link.missing_addresses.is_empty() and result.link.unexpected_addresses.is_empty() and result.link.field_mismatches.is_empty() and result.link.unstable_fields.is_empty()
     let link_state = if result.link.exact { "exact" } else if link_unavailable { "unavailable" } else { "mismatch" }
     print f"PCI raw replay: identity={result.identity.exact_static}; binding={binding_state}; link={link_state}; functions={result.identity.reference_count}"
     if ! result.identity.exact_static or binding_state == "mismatch" or link_state == "mismatch" {
@@ -27039,8 +27043,8 @@ export proc validate_and_run(
     let bundle = fs.open_root(fp"{options.replay_usb_bundle}")?
     defer bundle.close()?
     let result = replay_usb_bundle(bundle)?
-    let power_unavailable = ! result.power.eligible and result.power.missing_names.len() == 0 and result.power.unexpected_names.len() == 0 and result.power.field_mismatches.len() == 0 and result.power.unstable_fields.len() == 0
-    let interface_unavailable = ! result.interface.eligible and result.interface.missing_names.len() == 0 and result.interface.unexpected_names.len() == 0 and result.interface.field_mismatches.len() == 0 and result.interface.unstable_fields.len() == 0
+    let power_unavailable = ! result.power.eligible and result.power.missing_names.is_empty() and result.power.unexpected_names.is_empty() and result.power.field_mismatches.is_empty() and result.power.unstable_fields.is_empty()
+    let interface_unavailable = ! result.interface.eligible and result.interface.missing_names.is_empty() and result.interface.unexpected_names.is_empty() and result.interface.field_mismatches.is_empty() and result.interface.unstable_fields.is_empty()
     let power_state = if result.power.exact { "exact" } else if power_unavailable { "unavailable" } else { "mismatch" }
     let interface_state = if result.interface.exact {
       "exact"
@@ -27381,7 +27385,7 @@ export proc validate_and_run(
       return Err(check_failure("--run-fixtures requires --xsh-bin and --xsht-bin"))
     }
 
-    if manifest.fixture_cases.len() == 0 {
+    if manifest.fixture_cases.is_empty() {
       return Err(check_failure("coverage manifest has no executable fixture cases"))
     }
 
@@ -27409,7 +27413,7 @@ export proc validate_and_run(
       return Err(check_failure("--run-macos-fixtures requires --xsh-bin and --xsht-bin"))
     }
 
-    if manifest.macos_fixture_cases.len() == 0 {
+    if manifest.macos_fixture_cases.is_empty() {
       return Err(check_failure("coverage manifest has no macOS fixture cases"))
     }
 
@@ -27926,7 +27930,7 @@ export proc validate_and_run(
     let compared = result.comparison
     print f"sensors.lm-sensors: reference={compared.reference_count}, compared={compared.compared}, mismatched={compared.mismatches.len()}, ambiguous_or_changed={compared.partial.len()}"
     print f"reference: adapter=sensors-json-v1; executable={result.executable}; version={result.version}; argv=-j -c /dev/null; locale=C; euid={applet.current_euid()}; source_mode=live_linux; before={result.before_started_unix_ms} ms; candidate={result.candidate_started_unix_ms} ms; after={result.after_ended_unix_ms} ms; before_sha256={result.before_sha256_hex}; after_sha256={result.after_sha256_hex}"
-    if compared.mismatches.len() > 0 {
+    if ! compared.mismatches.is_empty() {
       return Err(
         check_failure(f"unconfigured sensors JSON differs from stable raw report fields: {compared.mismatches.join(", ")}"),
       )
@@ -27936,7 +27940,7 @@ export proc validate_and_run(
       reference_unavailable = true
     }
 
-    if compared.partial.len() > 0 {
+    if ! compared.partial.is_empty() {
       partial_compared = true
     }
   }
@@ -27956,13 +27960,13 @@ export proc validate_and_run(
     let compared = result.comparison
     print f"cpu.cpupower: matched_fields={compared.matched_fields}, mismatches={json.encode(compared.mismatches)?}, partial={json.encode(compared.partial)?}"
     print f"reference: adapter=cpupower-text-v1; executable={result.executable}; version={result.version}; argv=[--version,-c 0 frequency-info --driver,-c 0 frequency-info --hwlimits,-c 0 idle-info]; locale=C; euid={applet.current_euid()}; source_mode=live_linux; reference={result.reference_started_unix_ms} ms; candidate={result.candidate_started_unix_ms} ms; driver_sha256={result.driver_sha256_hex}; limits_sha256={result.limits_sha256_hex}; idle_sha256={result.idle_sha256_hex}"
-    if compared.mismatches.len() > 0 {
+    if ! compared.mismatches.is_empty() {
       return Err(
         check_failure(f"cpupower disagrees with the report on stable CPU metadata: {compared.mismatches.join(", ")}"),
       )
     }
 
-    if compared.partial.len() > 0 {
+    if ! compared.partial.is_empty() {
       partial_compared = true
     }
   }
@@ -27982,11 +27986,11 @@ export proc validate_and_run(
     let compared = result.comparison
     print f"usb.lsusb: devices={compared.matched_devices}, tree_rows={compared.matched_tree_rows}, descriptor_fields={compared.matched_descriptor_fields}, mismatches={json.encode(compared.mismatches)?}, partial={json.encode(compared.partial)?}"
     print f"reference: adapter=lsusb-text-v1; executable={result.executable}; version={result.version}; argv=[--version,list,-t,-v -s independently_selected_bus:device]; locale=C; euid={applet.current_euid()}; source_mode=live_linux; reference={result.reference_started_unix_ms} ms; candidate={result.candidate_started_unix_ms} ms; list_sha256={result.list_sha256_hex}; tree_sha256={result.tree_sha256_hex}; verbose_sha256={result.verbose_sha256_hex}"
-    if compared.mismatches.len() > 0 {
+    if ! compared.mismatches.is_empty() {
       return Err(check_failure(f"lsusb disagrees with the report: {compared.mismatches.join(", ")}"))
     }
 
-    if compared.partial.len() > 0 {
+    if ! compared.partial.is_empty() {
       partial_compared = true
     }
   }

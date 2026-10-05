@@ -47,7 +47,7 @@ test test_match_else_after_an_if_arm_body {
   var seen = []
   for level in [Info, Warn] {
     match level {
-      Info => if seen.len() > 0 { seen += ["late info"] }
+      Info => if ! seen.is_empty() { seen += ["late info"] }
       else => seen += ["catch-all"]
     }
   }

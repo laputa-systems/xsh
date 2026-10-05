@@ -49,7 +49,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
   let uname = system.uname()?
   let darwin = uname.sysname == "Darwin"
 
-  let mounts = if opts.paths.len() == 0 {
+  let mounts = if opts.paths.is_empty() {
     fs.mounts()? |> sort-by .mounted_on.display()
   } else {
     opts.paths

@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   return Err(usage_error("ln", "[-sfnT] SOURCE... DEST")) when paths.len() < 2
 
-  let dest = fp"{paths[paths.len() - 1]}"
+  let dest = fp"{paths[-1]}"
   let sources = paths |> take(paths.len() - 1)
   var target_is_dir = false
 

@@ -40,7 +40,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let re = regex.compile(opts.pattern)?
   let root = opts.root.resolve()?
-  let exts = if opts.ext.len() == 0 { ["xsh", "txt", "md"] } else { opts.ext }
+  let exts = if opts.ext.is_empty() { ["xsh", "txt", "md"] } else { opts.ext }
   let ext_set = set.from(exts)
 
   if opts.verbose {
@@ -80,7 +80,7 @@ proc main(...argv: List[Str]) [fs, error] {
       }
     }
 
-    if opts.verbose and result.hits.len() > 0 {
+    if opts.verbose and ! result.hits.is_empty() {
       print f"  ({result.hits.len()} matches in {result.rel})"
     }
   }

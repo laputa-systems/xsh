@@ -6,7 +6,7 @@
 type KV = {key: Str, val: Str}
 
 proc main(...argv: List[Str]) [fs, process, error] {
-  if argv.len() == 0 {
+  if argv.is_empty() {
     print "usage: xsh showcase/dot-env-run.xsh -- ENVFILE COMMAND [ARGS...]"
     return
   }
@@ -14,7 +14,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let file = fp"{argv[0]}"
   let cmd_args = argv |> drop(1)
 
-  if cmd_args.len() == 0 {
+  if cmd_args.is_empty() {
     print "error: no command specified"
     return
   }

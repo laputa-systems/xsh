@@ -24,7 +24,7 @@ Device Descriptor:
   assert exact.matched_devices == 2
   assert exact.matched_tree_rows == 2
   assert exact.matched_descriptor_fields == 4
-  assert exact.mismatches.len() == 0 and exact.partial.len() == 0
+  assert exact.mismatches.is_empty() and exact.partial.is_empty()
   let wrong = lsusb_reference.compare_lsusb(
     candidate.replace("\"driver\":\"hub\"", "\"driver\":\"wrong\""),
     devices,
@@ -114,5 +114,5 @@ printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_nu
   assert result.comparison.matched_devices == 1
   assert result.comparison.matched_tree_rows == 1
   assert result.comparison.matched_descriptor_fields == 4
-  assert result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0
+  assert result.comparison.mismatches.is_empty() and result.comparison.partial.is_empty()
 }

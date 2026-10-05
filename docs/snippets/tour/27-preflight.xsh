@@ -24,8 +24,8 @@ proc load_config(file: Path) -> Result[Config] {
 
 proc listening(svc: Service) -> Result[Check] {
   let owners = process.port(svc.port)? |> where .state == "LISTEN" |> map .command
-  let detail = if owners.len() > 0 { owners[0] } else { "nothing listening" }
-  Check(check: f"port {svc.port} ({svc.name})", ok: owners.len() > 0, detail:)
+  let detail = if ! owners.is_empty() { owners[0] } else { "nothing listening" }
+  Check(check: f"port {svc.port} ({svc.name})", ok: ! owners.is_empty(), detail:)
 }
 
 proc healthy(svc: Service, url: Str) -> Check {

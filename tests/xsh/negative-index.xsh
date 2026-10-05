@@ -78,15 +78,15 @@ print "unreachable"
 }
 
 test test_negative_literal_index_past_a_list_literal_is_a_check_error { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """let fits = [1, 2][-2]
 let missing = [1, 2][-3]
 let spliced = [@[1, 2], 3][-4]
 print \$fits \$missing \$spliced
 """,
+    status: 2,
   )?
-  assert output.status == 2, output.stderr
   assert output.stdout == ""
   assert count(output.stderr, "err[check.index-out-of-range]") == 1, output.stderr
   assert "index -3 is out of range for a list of 2 item(s)" in output.stderr, output.stderr
@@ -121,8 +121,7 @@ proc show(items: List[Int], table: Table) [io] {
 
 show([1, 2, 3], {rows: [[4], [5]]})
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "end-index.xsh", contents: bytes.from_text(source))?
 
   let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-negative-index $candidate ?
@@ -139,8 +138,7 @@ show([1, 2, 3], {rows: [[4], [5]]})
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.run_script(ctx, rewritten)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
   assert after.stdout == "3 4 0\n"
 }

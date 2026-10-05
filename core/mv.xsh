@@ -61,7 +61,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   return Err(usage_error("mv", "[-fT] [-t DIR] SOURCE... DEST")) when paths.len() < 1
 
-  let dest = if has_target_directory { target_directory } else { fp"{paths[paths.len() - 1]}" }
+  let dest = if has_target_directory { target_directory } else { fp"{paths[-1]}" }
   let sources = if has_target_directory { paths } else { paths |> take(paths.len() - 1) }
   var target_is_dir = false
 

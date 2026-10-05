@@ -18,7 +18,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
   var targets = opts.targets
 
-  if targets.len() == 0 {
+  if targets.is_empty() {
     targets = ["."]
   }
 

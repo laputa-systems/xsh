@@ -874,7 +874,7 @@ pure tour_title(first: Block) -> Result[HeadingBlock] {
 # The page body: contents list, title block, introduction, and one section per
 # `##` heading.
 proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Result[Str] {
-  guard blocks.len() > 0 else {
+  guard ! blocks.is_empty() else {
     return Err(TourHtmlError.Unsupported(message: "the tour is empty"))
   }
 

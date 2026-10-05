@@ -63,7 +63,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let delim = delimiter(opts.delimiter)
   var paths = opts.paths
 
-  if paths.len() == 0 {
+  if paths.is_empty() {
     paths += ["-"]
   }
 

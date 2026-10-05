@@ -58,7 +58,7 @@ proc default_state_path() [env] -> Result[Path] {
 pure first_word(line: Str) -> Str {
   let words = line.words()
 
-  return "" when words.len() == 0
+  return "" when words.is_empty()
 
   words[0]
 }
@@ -131,7 +131,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
     let line = raw.trim()
     continue when line == "" or line.starts_with("#")
     let fields = line.words()
-    continue when fields.len() == 0
+    continue when fields.is_empty()
 
     match fields[0] {
       "source" => {
@@ -293,7 +293,7 @@ proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
     new_lines += [line]
   }
 
-  if new_lines.len() == 0 {
+  if new_lines.is_empty() {
     state_path.remove()
     return
   }
@@ -440,7 +440,7 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
   )?
   let {all, operands, ..} = opts
 
-  if ! all and operands.len() == 0 {
+  if ! all and operands.is_empty() {
     return Err(IfdownError.Usage("ifdown: expected -a or interface name"))
   }
 

@@ -3333,14 +3333,14 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
     reference,
   )?
   assert ! bad_package.exact
-  assert bad_package.package_group_mismatches.len() > 0
+  assert ! bad_package.package_group_mismatches.is_empty()
   let missing_package = report_checks.compare_lscpu_topology(
     candidate.replace("\"package_id\":7", "\"package_id\":null"),
     reference,
     reference,
   )?
   assert ! missing_package.exact
-  assert missing_package.field_missing.len() > 0
+  assert ! missing_package.field_missing.is_empty()
   let changed = report_checks.parse_lscpu_topology(output.replace("\"node\":1", "\"node\":0"))?
   test.error_kind(report_checks.compare_lscpu_topology(candidate, reference, changed), "SystemReportCheckError.Invalid")
   let duplicate = """{"cpus":[{"cpu":0,"online":true,"socket":0,"core":0,"node":0},{"cpu":0,"online":true,"socket":0,"core":0,"node":0}]}"""
@@ -6799,7 +6799,7 @@ execve("/bin/sh", ["sh"], 0x0) = 0
 42 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 4
 42 sendto(4, [{nlmsg_type=RTM_GETLINK}], 32, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 32
 """
-  assert report_checks.host_effect_trace_violations(read_only_trace).len() == 0
+  assert report_checks.host_effect_trace_violations(read_only_trace).is_empty()
   assert report_checks.host_effect_trace_violations(
     "42 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC, IPPROTO_UDP) = -1 EPERM",
   ) == ["external network socket"]
@@ -6944,8 +6944,8 @@ test test_system_report_trace_ignores_syscall_names_inside_file_paths {
   let trace = """42 execve("/target/xsh", ["xsh"], 0x0) = 0
 42 openat(AT_FDCWD, "/tmp/ execve( fork( clone( socket( O_WRONLY", O_RDONLY) = 3
 """
-  assert report_checks.process_trace_violations(trace).len() == 0
-  assert report_checks.host_effect_trace_violations(trace).len() == 0
+  assert report_checks.process_trace_violations(trace).is_empty()
+  assert report_checks.host_effect_trace_violations(trace).is_empty()
 }
 
 test test_system_report_fixture_definition_check_ignores_comments_and_partial_names {
@@ -7418,7 +7418,7 @@ test test_system_report_lsblk_json_preserves_sparse_partition_identity_and_paren
   let reference = report_checks.parse_lsblk_json(output)?
   assert reference.devices.len() == 3
   assert reference.edges.len() == 2
-  assert (reference.devices |> where .name == "sda2").len() == 0
+  assert (reference.devices |> where .name == "sda2").is_empty()
   let candidate = """{"storage":{"devices":[{"name":"sda3","major":8,"minor":3,"kind":"partition","size_bytes":65536,"logical_sector_bytes":512,"physical_sector_bytes":4096,"removable":false,"rotational":true,"read_only":false,"parent_device_index":1,"holder_indices":[],"slave_indices":[]},{"name":"sda","major":8,"minor":0,"kind":"disk","size_bytes":524288,"logical_sector_bytes":512,"physical_sector_bytes":4096,"removable":false,"rotational":true,"read_only":false,"parent_device_index":null,"holder_indices":[],"slave_indices":[]},{"name":"sda1","major":8,"minor":1,"kind":"partition","size_bytes":65536,"logical_sector_bytes":512,"physical_sector_bytes":4096,"removable":false,"rotational":true,"read_only":false,"parent_device_index":1,"holder_indices":[],"slave_indices":[]}]}}"""
   let exact = report_checks.compare_block_devices(candidate, reference)?
   assert exact.exact

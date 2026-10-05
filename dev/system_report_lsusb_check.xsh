@@ -458,7 +458,7 @@ export proc compare_live_lsusb(
   let started = time.now()
   let before_output = lsusb_output(scratch, executable, "before", [executable])?
   let before = parse_lsusb_list(before_output)?
-  return Err(lsusb_failure("lsusb has no selectable device")) when before.len() == 0
+  return Err(lsusb_failure("lsusb has no selectable device")) when before.is_empty()
 
   let tree_output = lsusb_output(scratch, executable, "tree", [executable, "-t"])?
   let tree = parse_lsusb_tree(tree_output)?

@@ -40,8 +40,8 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
 
   let report = json.read(report_path)?.require(CoverageReport)?
   let {standard_apis, api_hits} = report
-  assert standard_apis.len() > 0
-  assert api_hits.keys().len() > 0
+  assert ! standard_apis.is_empty()
+  assert ! api_hits.keys().is_empty()
   assert text_path.exists()?
 }
 

@@ -32,7 +32,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
   let {recursive, force, targets, ..} = opts
 
-  if targets.len() == 0 {
+  if targets.is_empty() {
     return when force
 
     return Err(AppletError.Usage("usage: xsh applets/rm.xsh -- [-f] [-r|-R] PATH..."))

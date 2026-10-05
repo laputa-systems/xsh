@@ -225,7 +225,7 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
       inside = true
       region = []
     } else if line.trim() == region_end {
-      guard inside and region.len() > 0 else {
+      guard inside and ! region.is_empty() else {
         return Err(DocsError.Layout(message: f"{name} closes an example region that is not open or is empty"))
       }
 
@@ -392,11 +392,11 @@ proc check_snippet_diagnostics(dir: Path, xsht: Path) [fs, process, error] {
       let reported = reported_diagnostics(result.stderr)
       let missing = [d for d in expected if d not in reported]
       let unexpected = [d for d in reported if d not in expected]
-      if file.rejected and expected.len() == 0 {
+      if file.rejected and expected.is_empty() {
         f"{file.name} is rejected but names no `# error: CODE`"
-      } else if ! file.rejected and expected.len() > 0 {
+      } else if ! file.rejected and ! expected.is_empty() {
         f"{file.name} names an expected error outside rejected/"
-      } else if ! result.status.ok and reported.len() == 0 {
+      } else if ! result.status.ok and reported.is_empty() {
         f"xsht check {file.name} failed: {result.stderr.trim()}"
       } else if missing.len() + unexpected.len() > 0 {
         f"{file.name} lacks [{missing.join(", ")}] and reports [{unexpected.join(", ")}]"
@@ -406,7 +406,7 @@ proc check_snippet_diagnostics(dir: Path, xsht: Path) [fs, process, error] {
     }
 
   let problems = [failure for failure in failures if failure != ""]
-  guard problems.len() == 0 else {
+  guard problems.is_empty() else {
     return Err(DocsError.Snippet(message: f"snippet diagnostics differ: {problems.join("; ")}"))
   }
 }
@@ -605,7 +605,7 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
     for doc in render(root, tools)?
     if ! fp"{root}/docs/{doc.rel}".exists()? or fp"{root}/docs/{doc.rel}".read_text()? != doc.text
   ]
-  guard stale.len() == 0 else {
+  guard stale.is_empty() else {
     return Err(DocsError.Stale(message: f"stale generated docs: {stale.join(", ")}; run `make docs`"))
   }
 

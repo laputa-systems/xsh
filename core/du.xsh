@@ -96,7 +96,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let {summarize, human, all, total, apparent, megabytes, ..} = cli_opts
   var targets = cli_opts.targets
 
-  if targets.len() == 0 {
+  if targets.is_empty() {
     targets = ["."]
   }
 

@@ -145,6 +145,8 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-typed-callable` | Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature |
 | `lint.prefer-test-expect` | State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script` |
 | `lint.explicit-missing-ok` | Write `missing_ok: false` on a `remove` that relies on the default, before the default changes (opt-in) |
+| `lint.prefer-is-empty` | Use `is_empty()` instead of comparing a length with zero |
+| `lint.prefer-negative-index` | Use `list[-N]` instead of `list[list.len() - N]` |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

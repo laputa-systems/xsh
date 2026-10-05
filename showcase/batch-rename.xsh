@@ -50,7 +50,7 @@ proc main(...argv: List[Str]) [fs, error] {
       |> sort-by .path
   }
 
-  if files.len() == 0 {
+  if files.is_empty() {
     print f"no files found in {root}"
     return
   }

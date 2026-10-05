@@ -109,7 +109,7 @@ test test_boolean_operators_short_circuit {
     seen += ["ok-or"]
   }
 
-  if items.len() > 0 and items[0] == 1 {
+  if ! items.is_empty() and items[0] == 1 {
     seen += ["ok-and"]
   }
 

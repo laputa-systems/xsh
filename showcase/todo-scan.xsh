@@ -32,7 +32,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let root = opts.root.resolve()?
 
-  let scan_exts = if opts.ext.len() > 0 {
+  let scan_exts = if ! opts.ext.is_empty() {
     opts.ext
   } else {
     [
@@ -70,7 +70,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
         for item in src.lines() |> enumerate() {
           let caps = re.captures(item.value)
-          continue when caps.len() == 0
+          continue when caps.is_empty()
           let tag = caps[1]
           continue when opts.tag != "" and tag != opts.tag
           let body = caps[2].trim()
@@ -84,7 +84,7 @@ proc main(...argv: List[Str]) [fs, error] {
       file_hits
     }
 
-  if hits.len() == 0 {
+  if hits.is_empty() {
     let filter_note = if opts.tag != "" { f" for tag {opts.tag}" } else { "" }
     print f"no findings{filter_note} in {files.len()} files scanned"
     return

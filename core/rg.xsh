@@ -49,7 +49,7 @@ pure selected_by_glob_at(globs: List[Str], text: Str, index: Int, selected: Bool
 }
 
 pure selected_by_glob(globs: List[Str], file_path: Path) -> Bool {
-  return true when globs.len() == 0
+  return true when globs.is_empty()
 
   selected_by_glob_at(globs, file_path.display(), 0, false)
 }
@@ -238,7 +238,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   return Err(AppletError.Usage("rg: missing pattern")) when pattern == ""
 
-  if paths.len() == 0 {
+  if paths.is_empty() {
     paths = [p"."]
   }
 

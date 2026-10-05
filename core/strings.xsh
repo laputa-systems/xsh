@@ -17,7 +17,7 @@ pure common_int(raw: Str, label: Str) -> Result[Int] {
 }
 
 proc read_bytes_input(applet_name: Str, paths: List[Str]) [fs, error, io] -> Result[Bytes] {
-  return io.stdin_bytes()? when paths.len() == 0
+  return io.stdin_bytes()? when paths.is_empty()
 
   return Err(usage_error(applet_name, "FILE")) when paths.len() != 1
 

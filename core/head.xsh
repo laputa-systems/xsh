@@ -36,7 +36,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let count = common_int(opts.count, "line count")?
   let paths = opts.paths
 
-  if paths.len() == 0 {
+  if paths.is_empty() {
     for line in io.stdin_text()?.lines() |> take(count) {
       print $line
     }

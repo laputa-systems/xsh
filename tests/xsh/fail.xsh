@@ -343,8 +343,7 @@ match validate(["a", "", "c"]) {
   Err(problem) => print $problem.message
 }
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "validate.xsh", contents: bytes.from_text(source))?
   let fixing = run.capture --text "xsht" lint --fix $candidate ?
   let fixed = candidate.read_text()?
@@ -353,7 +352,6 @@ match validate(["a", "", "c"]) {
   assert fixing.status.exited_with(0), fixing.stderr
   assert "AppError" not in fixed, fixed
   assert "  fail \"too many\" when argv.len() > 4\n" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
 }

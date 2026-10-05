@@ -90,7 +90,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
   let {format: fmt, paths, ..} = opts
 
-  return Err(usage_error("stat", "[-c FORMAT] PATH...")) when paths.len() == 0
+  return Err(usage_error("stat", "[-c FORMAT] PATH...")) when paths.is_empty()
 
   for item in paths {
     let target = fp"{item}"

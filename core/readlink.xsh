@@ -26,7 +26,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
   let {canonicalize, paths, ..} = opts
 
-  return Err(usage_error("readlink", "[-f] PATH...")) when paths.len() == 0
+  return Err(usage_error("readlink", "[-f] PATH...")) when paths.is_empty()
 
   for item in paths {
     let target = fp"{item}"

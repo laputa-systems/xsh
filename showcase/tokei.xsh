@@ -103,7 +103,7 @@ pure zero_stats() -> Stats {
 }
 
 pure has_stats(stats: Stats) -> Bool {
-  stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or stats.blobs.len() > 0
+  stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or ! stats.blobs.is_empty()
 }
 
 pure add_stats(a: Stats, b: Stats) -> Stats {
@@ -795,7 +795,7 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
   let stats = {blanks, code, comments, blobs: map.empty()}
   var deep = stats
 
-  if doc_lines.len() > 0 {
+  if ! doc_lines.is_empty() {
     let md_scan = count_markdown(join_lines(doc_lines))
     markdown = md_scan.stats
     deep = add_stats(deep, md_scan.deep)
@@ -1274,7 +1274,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
       reports: [],
     }
     let reports = aggregate.reports
-    continue when reports.len() == 0
+    continue when reports.is_empty()
     let children = children_from_reports(reports)?
     output[label] = {
       blanks: aggregate.blanks,
@@ -1472,7 +1472,7 @@ proc main(...argv: List[Str]) [fs, error] {
         f"{totals.blanks}",
       )
 
-      if child_rows.len() == 0 {
+      if child_rows.is_empty() {
         no_child += [lang_row]
       } else {
         let deep_lines = totals.total_blanks + totals.total_code + totals.total_comments
@@ -1503,7 +1503,7 @@ proc main(...argv: List[Str]) [fs, error] {
       print $row
     }
 
-    var printed_any = no_child.len() > 0
+    var printed_any = ! no_child.is_empty()
 
     for block in child_blocks {
       if printed_any {

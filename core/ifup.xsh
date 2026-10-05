@@ -70,7 +70,7 @@ proc default_state_path() [env] -> Result[Path] {
 pure first_word(line: Str) -> Str {
   let words = line.words()
 
-  return "" when words.len() == 0
+  return "" when words.is_empty()
 
   words[0]
 }
@@ -143,7 +143,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
     let line = raw.trim()
     continue when line == "" or line.starts_with("#")
     let fields = line.words()
-    continue when fields.len() == 0
+    continue when fields.is_empty()
 
     match fields[0] {
       "source" => {
@@ -504,7 +504,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
     linux.dhcp_send(fd, dhcp_packet(DHCP_DISCOVER, xid, mac, none, none)?)
     let reply = linux.dhcp_recv(fd, DHCP_TIMEOUT_MS)?
 
-    if reply.len() > 0 {
+    if ! reply.is_empty() {
       let parsed = parse_dhcp_reply(reply, xid)?
 
       if parsed.valid and parsed.message_type == DHCP_OFFER {
@@ -524,7 +524,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
     linux.dhcp_send(fd, dhcp_packet(DHCP_REQUEST, xid, mac, offer.yiaddr, offer.server_id)?)
     let reply = linux.dhcp_recv(fd, DHCP_TIMEOUT_MS)?
 
-    if reply.len() > 0 {
+    if ! reply.is_empty() {
       let parsed = parse_dhcp_reply(reply, xid)?
 
       if parsed.valid and parsed.message_type == DHCP_ACK {
@@ -543,7 +543,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
 }
 
 proc write_resolv_conf(servers: List[Str]) [fs, error] {
-  return when servers.len() == 0
+  return when servers.is_empty()
 
   var body = ""
 
@@ -647,7 +647,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   )?
   let {all, operands, ..} = opts
 
-  if ! all and operands.len() == 0 {
+  if ! all and operands.is_empty() {
     return Err(IfupError.Usage("ifup: expected -a or interface name"))
   }
 

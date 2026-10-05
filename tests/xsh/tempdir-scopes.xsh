@@ -29,7 +29,7 @@ test test_tempdir_value_scope_returns_the_tail_as_a_result {
   }
   assert count == Ok(2)
   let name = tempdir work { work.name() }?
-  assert name.byte_len() > 0
+  assert ! name.is_empty()
 }
 
 test test_tempdir_removes_on_return_loop_control_and_failure {

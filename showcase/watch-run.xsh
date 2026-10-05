@@ -19,7 +19,7 @@ proc stamp(root: Path, exts: List[Str]) [fs] -> Int {
   let ext_set = set.from(exts)
 
   fs.files(root)
-    |> where exts.len() == 0 or .path.ext() in ext_set
+    |> where exts.is_empty() or .path.ext() in ext_set
     |> map .modified
     |> sum
 }

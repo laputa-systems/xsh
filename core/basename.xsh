@@ -1,8 +1,8 @@
 #!/bin/xsh
 pure basename_value(name: Str, suffix: Str) -> Str {
   let parts = name.split("/")
-  let raw = if parts.len() > 0 { parts[parts.len() - 1] } else { name }
-  let base = if raw == "" and parts.len() > 1 { parts[parts.len() - 2] } else { raw }
+  let raw = if ! parts.is_empty() { parts[-1] } else { name }
+  let base = if raw == "" and parts.len() > 1 { parts[-2] } else { raw }
 
   return base.replace(suffix, "") when suffix != "" and base.ends_with(suffix)
 
@@ -32,7 +32,7 @@ proc main(...argv: List[Str]) [error, io] -> Result[Int] {
   var suffix = opts.suffix
   var names = opts.names
 
-  return 2 when names.len() == 0
+  return 2 when names.is_empty()
 
   if ! multiple {
     return 2 when names.len() > 2

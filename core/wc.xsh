@@ -94,7 +94,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     show_bytes = true
   }
 
-  if parsed.paths.len() == 0 {
+  if parsed.paths.is_empty() {
     let counts = count_data(io.stdin_bytes()?, show_words)?
     let width = max_digits([counts], show_lines, show_words, show_bytes)
     let empty = ""

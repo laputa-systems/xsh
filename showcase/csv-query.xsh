@@ -43,7 +43,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let content = opts.file.read_text()?
   let lines = content.lines() |> where . != ""
 
-  if lines.len() == 0 {
+  if lines.is_empty() {
     print "empty file"
     return
   }

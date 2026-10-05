@@ -20,15 +20,15 @@ test test_record_constructors_defaults_aliases_and_puns {
   assert config.name == "demo"
   assert config.enabled == true
   assert config.names == ["initial"]
-  assert config.options.len() == 0
-  assert ConstructorConfig(name: "explicit", options: {}).options.len() == 0
+  assert config.options.is_empty()
+  assert ConstructorConfig(name: "explicit", options: {}).options.is_empty()
   var first = ConstructorConfig(name: "first")
   let second = ConstructorConfig(name: "second")
   first.names += ["changed"]
   var options = first.options
   options["changed"] = "value"
   assert second.names == ["initial"]
-  assert second.options.len() == 0
+  assert second.options.is_empty()
   assert record_default_names == ["initial"]
 }
 

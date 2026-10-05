@@ -2284,7 +2284,7 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
         kept = kept
       }
 
-      return Ok(kept) when kept.len() > 0
+      return Ok(kept) when ! kept.is_empty()
 
       eval(b, input, scope)
     }
@@ -2416,7 +2416,7 @@ pure eval_update(pathexpr: Jq, rhs: Jq, input: Json, scope: Env) -> Result[List[
     let old = getpath(cur, p)?
     let news = eval(rhs, old, scope)?
 
-    if news.len() == 0 {
+    if news.is_empty() {
       cur = delpaths(cur, [p])?
     } else {
       cur = setpath(cur, p, news.get(0) ?? JNull)?
@@ -2718,7 +2718,7 @@ pure kv_by(xs: List[Json], f: Jq, scope: Env) -> Result[List[KV]] {
 }
 
 pure first_or(vs: List[Json], fallback: Json) -> Json {
-  return fallback when vs.len() == 0
+  return fallback when vs.is_empty()
 
   vs.get(0) ?? fallback
 }
@@ -3035,7 +3035,7 @@ pure remove_key(v: Json, seg: Json) -> Result[Json] {
 }
 
 pure del_path(v: Json, pth: List[Json], idx: Int) -> Result[Json] {
-  return Ok(JNull) when pth.len() == 0
+  return Ok(JNull) when pth.is_empty()
 
   let seg = pth.get(idx) ?? JNull
 
@@ -3252,7 +3252,7 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
         let ps = eval_paths(callargs.get(0) ?? Identity, input, scope)?
         let empty: List[Json] = []
 
-        if ps.len() == 0 {
+        if ps.is_empty() {
           let none: List[List[Json]] = []
           return Ok(none)
         }
@@ -3441,7 +3441,7 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
   if name == "add" {
     let xs = require_array(input, "add")?
 
-    return Ok(Handled([JNull])) when xs.len() == 0
+    return Ok(Handled([JNull])) when xs.is_empty()
 
     var acc = xs.get(0) ?? JNull
     var i = 1
@@ -3526,7 +3526,7 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
   if name == "last" {
     let xs = require_array(input, "last")?
 
-    return Ok(Handled([JNull])) when xs.len() == 0
+    return Ok(Handled([JNull])) when xs.is_empty()
 
     return Ok(Handled([xs.get(xs.len() - 1) ?? JNull]))
   }
@@ -3560,7 +3560,7 @@ pure dedupe_sorted(items: List[KV]) -> List[Json] {
 }
 
 pure minmax(xs: List[Json], want_max: Bool) -> Json {
-  return JNull when xs.len() == 0
+  return JNull when xs.is_empty()
 
   var best = xs.get(0) ?? JNull
   var i = 1
@@ -3618,7 +3618,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   if name == "error" and argc == 1 {
     let vs = eval(callargs.get(0) ?? Identity, input, scope)?
 
-    if vs.len() == 0 {
+    if vs.is_empty() {
       let none: List[Json] = []
       return Ok(Handled(none))
     }
@@ -3731,7 +3731,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   if name == "first" and argc == 1 {
     let vs = eval(callargs.get(0) ?? Identity, input, scope)?
 
-    if vs.len() == 0 {
+    if vs.is_empty() {
       let none: List[Json] = []
       return Ok(Handled(none))
     }
@@ -3742,7 +3742,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   if name == "last" and argc == 1 {
     let vs = eval(callargs.get(0) ?? Identity, input, scope)?
 
-    if vs.len() == 0 {
+    if vs.is_empty() {
       let none: List[Json] = []
       return Ok(Handled(none))
     }
@@ -3866,7 +3866,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   if name == "paths" and argc == 0 {
     let empty: List[Json] = []
     let all = paths_from(input, empty)
-    var out = [JArr(p) for p in all if p.len() > 0]
+    var out = [JArr(p) for p in all if ! p.is_empty()]
     return Ok(Handled(out))
   }
 
@@ -3876,7 +3876,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
     var out: List[Json] = []
 
     for p in all {
-      if p.len() > 0 {
+      if ! p.is_empty() {
         let v = getpath(input, p)?
         var keep = false
 
@@ -3901,7 +3901,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
     var out: List[Json] = []
 
     for p in all {
-      if p.len() > 0 {
+      if ! p.is_empty() {
         let v = getpath(input, p)?
 
         if ! (is_arr(v) or is_obj(v)) {
@@ -3968,7 +3968,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
       } else if name == "index" {
         out += [first_or(idxs, JNull)]
       } else {
-        if idxs.len() == 0 {
+        if idxs.is_empty() {
           out += [JNull]
         } else {
           out += [idxs.get(idxs.len() - 1) ?? JNull]
@@ -4043,7 +4043,7 @@ pure group_sorted(items: List[KV]) -> List[Json] {
 }
 
 pure minmax_by(pairs: List[KV], want_max: Bool) -> Json {
-  return JNull when pairs.len() == 0
+  return JNull when pairs.is_empty()
 
   var best = pairs.get(0) ?? {key: JNull, val: JNull}
   var i = 1
@@ -4112,7 +4112,7 @@ pure map_values(input: Json, f: Jq, scope: Env) -> Result[Json] {
       for e in es {
         let vs = eval(f, e.v, scope)?
 
-        if vs.len() > 0 {
+        if ! vs.is_empty() {
           out += [{k: e.k, v: vs.get(0) ?? JNull}]
         }
       }
@@ -4125,7 +4125,7 @@ pure map_values(input: Json, f: Jq, scope: Env) -> Result[Json] {
       for x in xs {
         let vs = eval(f, x, scope)?
 
-        if vs.len() > 0 {
+        if ! vs.is_empty() {
           out += [vs.get(0) ?? JNull]
         }
       }
@@ -4212,7 +4212,7 @@ pure str_indices(s: Str, sub: Str) -> List[Json] {
 pure arr_subseq_indices(xs: List[Json], sub: List[Json]) -> List[Json] {
   var out: List[Json] = []
 
-  return out when sub.len() == 0
+  return out when sub.is_empty()
 
   var i = 0
 
@@ -4461,7 +4461,7 @@ pure eval_regex(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Resul
 
 # Resolve a call: filter parameter (0-arg), then user def, then builtin.
 pure eval_call_resolved(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[List[Json]] {
-  if callargs.len() == 0 {
+  if callargs.is_empty() {
     match lookup_filter(scope, name) {
       FilterFound(clo) => return eval(clo.cbody, input, clo.cenv)
       FilterNone => {}
@@ -4573,7 +4573,7 @@ pure eval_reduce(src: Jq, pat: Pattern, init: Jq, upd: Jq, input: Json, scope: E
       let scope2 = bind_pattern(pat, it, scope)?
       let ups = eval(upd, acc, scope2)?
 
-      if ups.len() == 0 {
+      if ups.is_empty() {
         acc = JNull
       } else {
         acc = ups.get(ups.len() - 1) ?? JNull
@@ -4615,7 +4615,7 @@ pure eval_foreach(
         }
       }
 
-      if ups.len() > 0 {
+      if ! ups.is_empty() {
         acc = ups.get(ups.len() - 1) ?? JNull
       }
     }
@@ -4626,7 +4626,7 @@ pure eval_foreach(
 
 # Builtin / user function dispatch.
 pure eval_call(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[List[Json]] {
-  if callargs.len() == 0 {
+  if callargs.is_empty() {
     let dt = bi_typey(name, input)?
 
     match dt {

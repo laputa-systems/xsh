@@ -41,12 +41,12 @@ proc main(...argv: List[Str]) [fs, error] {
   print f"b: {opts.b}  ({keys_b.len()} keys)"
   print ""
 
-  if removed.len() == 0 and added.len() == 0 and changed.len() == 0 {
+  if removed.is_empty() and added.is_empty() and changed.is_empty() {
     print "identical top-level structure"
     return
   }
 
-  if removed.len() > 0 {
+  if ! removed.is_empty() {
     print f"removed ({removed.len()}):"
 
     for key in removed {
@@ -57,7 +57,7 @@ proc main(...argv: List[Str]) [fs, error] {
     print ""
   }
 
-  if added.len() > 0 {
+  if ! added.is_empty() {
     print f"added ({added.len()}):"
 
     for key in added {
@@ -68,7 +68,7 @@ proc main(...argv: List[Str]) [fs, error] {
     print ""
   }
 
-  if changed.len() > 0 {
+  if ! changed.is_empty() {
     print f"changed ({changed.len()}):"
 
     for key in changed {

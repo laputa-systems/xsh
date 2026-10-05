@@ -7,7 +7,7 @@ export pure set_option(text: Str, key: Str, value: Str) -> Str {
   var done = false
   for line in text.lines() {
     let words = line.replace("#", " ").fields()
-    if ! done and words.len() > 0 and words[0] == key {
+    if ! done and ! words.is_empty() and words[0] == key {
       out += [f"{key} {value}"]
       done = true
     } else {

@@ -116,7 +116,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   let lines = if opts.unique { sorted |> unique-by . } else { sorted }
 
-  let text = if lines.len() == 0 {
+  let text = if lines.is_empty() {
     ""
   } else {
     f"""{lines.join("\n")}

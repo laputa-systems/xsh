@@ -187,7 +187,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
 
   match command {
     "build" => {
-      guard args.len() == 0 else {
+      guard args.is_empty() else {
         return Err(usage("build accepts no arguments"))
       }
 
@@ -196,7 +196,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
     "check" => {
       return builds.check_lint(ctx) when args == ["lint"]
 
-      guard args.len() == 0 else {
+      guard args.is_empty() else {
         return Err(usage("check accepts only the optional lint gate"))
       }
 
@@ -292,7 +292,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       return distributions.build_distribution(ctx, docker_policy, options.ci)
     }
     "install" => {
-      guard args.len() == 0 else {
+      guard args.is_empty() else {
         return Err(usage("install accepts no arguments"))
       }
 
@@ -338,7 +338,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
 }
 
 proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
-  if raw.len() == 0 or raw[0] == "help" or raw[0] == "--help" or raw[0] == "-h" {
+  if raw.is_empty() or raw[0] == "help" or raw[0] == "--help" or raw[0] == "-h" {
     print help_text()
     return
   }

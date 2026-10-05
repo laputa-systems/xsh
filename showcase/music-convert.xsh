@@ -97,7 +97,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> where .path.ext() in audio_ext_set
     |> sort-by .path
 
-  if files.len() == 0 {
+  if files.is_empty() {
     print f"no audio files found in {root}"
     return
   }

@@ -10,7 +10,7 @@ pure count(text: Str, needle: Str) -> Int {
 # The block of a `guard let` must leave the enclosing continuation whatever
 # the subject is: after it the name is bound, and a failed Result binds none.
 test test_result_guard_let_block_must_leave { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """error ParseError = Empty
 
@@ -48,8 +48,8 @@ show("")
 name("")
 leave("")
 """,
+    status: 2,
   )?
-  assert output.status == 2, output.stderr
   assert output.stdout == ""
   assert count(output.stderr, "err[check.guard-fallthrough]") == 2, output.stderr
   assert count(output.stderr, "err[") == 2, output.stderr
@@ -124,7 +124,7 @@ test test_null_test_narrows_every_later_branch {
 
 # A branch whose own condition tested nothing about `x` learns nothing more.
 test test_else_if_does_not_narrow_what_it_did_not_test { |ctx|
-  let output = test.run_script(
+  let output = test.expect(
     ctx,
     """pure shout(name: Str?, other: Str?) -> Str {
   if other == null {
@@ -146,8 +146,8 @@ pure broken(name: Str?, loud: Bool) -> Str {
 
 print shout("a", "b") broken("a", false)
 """,
+    status: 2,
   )?
-  assert output.status == 2, output.stderr
   assert count(output.stderr, "err[check.optional-method]") == 1, output.stderr
   assert ":15:" in output.stderr, output.stderr
 }

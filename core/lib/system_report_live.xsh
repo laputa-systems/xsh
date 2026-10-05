@@ -462,7 +462,7 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
   }
 
   let has_v1 = parsed_membership.has_v1 or inventory.has_v1
-  if group_path == null or inventory.mounts.len() == 0 {
+  if group_path == null or inventory.mounts.is_empty() {
     return {
       cpus: [],
       state: if has_v1 { report.Unsupported } else { report.Absent },
@@ -843,7 +843,7 @@ export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
   }
 
   let command = command_parts.join(") ")
-  let fields = parse_words(pieces[pieces.len() - 1])
+  let fields = parse_words(pieces[-1])
   if fields.len() < 22 {
     return Err(proc_stat_error("process stat record is missing resource fields"))
   }
@@ -1534,7 +1534,7 @@ proc collect_storage(
   var state = report.Complete
   if listing.state == "absent" and mount_source.observation.state == report.Absent {
     state = report.SectionAbsent
-  } else if listing.state != "complete" or mount_source.observation.state != report.Observed or issues.len() > 0 {
+  } else if listing.state != "complete" or mount_source.observation.state != report.Observed or ! issues.is_empty() {
     state = report.Partial
   }
 
@@ -1857,7 +1857,7 @@ proc collect_sensors(
   var state = report.Complete
   if hwmon_listing.state == "absent" and thermal_listing.state == "absent" {
     state = report.SectionAbsent
-  } else if issues.len() > 0 or (hwmon_listing.state != "complete" and hwmon_listing.state != "absent") or (thermal_listing.state != "complete" and thermal_listing.state != "absent") {
+  } else if ! issues.is_empty() or (hwmon_listing.state != "complete" and hwmon_listing.state != "absent") or (thermal_listing.state != "complete" and thermal_listing.state != "absent") {
     state = report.Partial
   }
 
@@ -2085,7 +2085,7 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
   var state = report.Complete
   if supply_listing.state == "absent" and cap_listing.state == "absent" {
     state = report.SectionAbsent
-  } else if issues.len() > 0 {
+  } else if ! issues.is_empty() {
     state = report.Partial
   }
 
@@ -2372,7 +2372,7 @@ proc collect_processes(root: FsRoot, page_size_bytes: Int) [fs, error] -> Proces
     state = report.SectionTruncated
   } else if listing.state == "absent" {
     state = report.SectionAbsent
-  } else if listing.state != "complete" or issues.len() > 0 {
+  } else if listing.state != "complete" or ! issues.is_empty() {
     state = report.Partial
   }
 
@@ -2504,7 +2504,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
   } else {
     report.Partial
   }
-  if issues.len() > 0 {
+  if ! issues.is_empty() {
     state = report.Partial
   }
 
@@ -2657,7 +2657,7 @@ proc collect_device_classes(
   var state = report.Complete
   if available_classes == 0 {
     state = report.SectionAbsent
-  } else if enumerated_classes < 3 or issues.len() > 0 {
+  } else if enumerated_classes < 3 or ! issues.is_empty() {
     state = report.Partial
   }
 
@@ -2695,7 +2695,7 @@ proc collect_firmware(root: FsRoot) [fs, error] -> FirmwareCollection {
       ]
     }
 
-    let state = if parsed.issues.len() == 0 {
+    let state = if parsed.issues.is_empty() {
       report.Complete
     } else if parsed.truncated {
       report.SectionTruncated
@@ -2747,7 +2747,7 @@ proc collect_firmware(root: FsRoot) [fs, error] -> FirmwareCollection {
     }
   }
 
-  if issues.len() == 0 {
+  if issues.is_empty() {
     issues += [issue("firmware", "smbios", report.Absent, "firmware_table_unavailable", null)]
   }
 
@@ -3796,7 +3796,7 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
   var state = report.Complete
   if listing.state == "absent" {
     state = report.SectionAbsent
-  } else if listing.state != "complete" or issues.len() > 0 {
+  } else if listing.state != "complete" or ! issues.is_empty() {
     state = report.Partial
   }
 
@@ -4069,7 +4069,7 @@ proc read_firmware_identity(root: FsRoot) [fs, error] -> FirmwareIdentityRead {
   ]
   var source = "dmi"
   if vendor.observation.state != report.Observed and product.observation.state != report.Observed {
-    if dt_model.observation.state == report.Observed or compatible.len() > 0 {
+    if dt_model.observation.state == report.Observed or ! compatible.is_empty() {
       source = "device-tree"
     } else {
       source = "unavailable"
@@ -4184,7 +4184,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
     issues = append_number_issue(issues, "cpu", f"cpu{cpu_id}.topology.core_id", core_number)
     issues = append_text_issue(issues, "cpu", f"cpu{cpu_id}.topology.thread_siblings_list", siblings)
     let sibling_ids = parse_list(observed_source_text(siblings))
-    if siblings.observation.state == report.Observed and sibling_ids.len() == 0 {
+    if siblings.observation.state == report.Observed and sibling_ids.is_empty() {
       issues += [issue("cpu", f"cpu{cpu_id}.topology.thread_siblings_list", report.Malformed, "invalid_cpu_list", null)]
     }
 
@@ -4311,7 +4311,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         issues = append_text_issue(issues, "cpu", f"cpu{cpu_id}.cache.{cache_path.name()}.id", kernel_id_source)
       }
 
-      let cache_key = if shared_cpus.len() > 0 {
+      let cache_key = if ! shared_cpus.is_empty() {
         if kernel_id != null {
           json.encode({level: level, kind: cache_kind, kernel_id: kernel_id})?
         } else {
@@ -4368,7 +4368,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         },
       ]
       cache_by_key = cache_by_key.set(cache_key, cache_id)
-      let members = if shared_cpus.len() > 0 { shared_cpus } else { [cpu_id] }
+      let members = if ! shared_cpus.is_empty() { shared_cpus } else { [cpu_id] }
       for member in members {
         let key = f"{member}"
         cache_ids_by_cpu = cache_ids_by_cpu.set(key, (cache_ids_by_cpu.get(key) ?? []).push(cache_id))
@@ -4460,7 +4460,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
       issues += [issue("cpu", "affinity", report.Malformed, "missing_cpu_list", null)]
     } else {
       affinity_cpus = parse_list(affinity_text)
-      if affinity_cpus.len() == 0 {
+      if affinity_cpus.is_empty() {
         issues += [issue("cpu", "affinity", report.Malformed, "invalid_cpu_list", null)]
       }
     }
@@ -4953,7 +4953,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       let name = pair[0].trim()
       continue when name in duplicate_names
       let values = parse_words(pair[1].trim().replace("\t", " "))
-      if values.len() == 0 {
+      if values.is_empty() {
         issues += [issue("memory", f"meminfo.{name}", report.Malformed, "missing_integer", null)]
         continue
       }
@@ -5031,7 +5031,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
     issues += [issue("memory", "swaps", swaps_source.observation.state, swaps_source.error_kind, swaps_source.errno)]
   } else {
     let swap_lines = swaps_source.observation.value.lines()
-    if swap_lines.len() == 0 or parse_words(swap_lines[0].replace("\t", " ")) != [
+    if swap_lines.is_empty() or parse_words(swap_lines[0].replace("\t", " ")) != [
       "Filename",
       "Type",
       "Size",
@@ -5532,7 +5532,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
   let has_v1 = parsed_membership.has_v1 or inventory.has_v1
 
   var resources: List[report.CgroupResource] = []
-  if cgroup_path == null or inventory.mounts.len() == 0 {
+  if cgroup_path == null or inventory.mounts.is_empty() {
     if has_v1 {
       issues += [issue("memory", "cgroup.v1", report.Unsupported, "cgroup_v1_or_hybrid", null)]
     } else {
@@ -5953,7 +5953,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
 
       for line in io_stat.observation.value.lines() {
         let fields = parse_words(line)
-        continue when fields.len() == 0
+        continue when fields.is_empty()
         let device_parts = fields[0].split(":")
         if device_parts.len() != 2 or cgroup_token_number(io_stat, device_parts[0]).value == null or cgroup_token_number(
           io_stat,

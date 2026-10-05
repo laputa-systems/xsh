@@ -176,7 +176,7 @@ test test_fs_tree_metadata_install_and_locking { |ctx|
   assert ! file_meta.world_writable
   assert fs.filesystem_stats(root)?.blocks_1k > 0
   let mounts = fs.mounts()?.collect()
-  assert mounts.len() > 0
+  assert ! mounts.is_empty()
   assert mounts |> any .mounted_on == "/"
   let root_mount = fs.mount_for(root)?
   assert root_mount.blocks_1k > 0
@@ -618,7 +618,7 @@ test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext { |ctx|
   assert c_files.len() == 1
   assert c_files[0].name == "main.c"
   assert c_files[0].ext == "c"
-  assert dot_c_files.len() == 0
+  assert dot_c_files.is_empty()
   assert source_headers.len() == 4
   assert "include/top.h" in source_headers
   assert "src/main.c" in source_headers

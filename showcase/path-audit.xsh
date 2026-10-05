@@ -123,7 +123,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
         let same_display = first_path.get(child.name) ?? []
         let earlier = same_display |> where .name == exact_name
 
-        if earlier.len() > 0 {
+        if ! earlier.is_empty() {
           shadows += [{name: child.name, path: child_path, detail: f"shadows {earlier[0].path}"}]
         } else {
           first_path[child.name] = same_display.push({name: exact_name, path: child_path})
@@ -135,7 +135,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
   let dir_rows = dir_findings |> sort-by f"{.severity}:{.path}:{.kind}"
   let shadow_rows = shadows |> sort-by f"{.name}:{.path}"
 
-  if dir_rows.len() > 0 {
+  if ! dir_rows.is_empty() {
     print "Directory problems"
 
     for row in dir_rows {
@@ -143,7 +143,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
     }
   }
 
-  if shadow_rows.len() > 0 {
+  if ! shadow_rows.is_empty() {
     print "Command shadowing"
 
     for row in shadow_rows {
@@ -151,11 +151,11 @@ proc main(...argv: List[Str]) [fs, env, error] {
     }
   }
 
-  if dir_rows.len() == 0 and shadow_rows.len() == 0 and opts.show_ok {
+  if dir_rows.is_empty() and shadow_rows.is_empty() and opts.show_ok {
     print f"ok {opts.env_var} entries={parts.len()}"
   }
 
-  if (dir_rows.len() > 0 or shadow_rows.len() > 0) and opts.fail {
+  if (! dir_rows.is_empty() or ! shadow_rows.is_empty()) and opts.fail {
     exit 1
   }
 }

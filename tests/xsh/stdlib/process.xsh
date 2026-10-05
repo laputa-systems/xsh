@@ -254,7 +254,7 @@ test test_process_argv_words_reads_unicode_text {
   }
 
   let only_space = process.argv_words("\u{2003}\u{205f}")?
-  assert only_space.len() == 0
+  assert only_space.is_empty()
 
   # A multi-byte word and a multi-byte whitespace run together.
   assert process.argv_words("α\u{3000}β γ")? == ["α", "β", "γ"]

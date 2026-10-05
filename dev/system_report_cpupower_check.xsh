@@ -201,7 +201,7 @@ export pure compare_cpupower(candidate_json: Str, reference: CpupowerReference) 
     }
   }
 
-  if states.len() == 0 {
+  if states.is_empty() {
     partial += ["idle_state_names"]
   } else if ! indexes_match or names != reference.idle_state_names {
     mismatches += ["idle_state_names"]

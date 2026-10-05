@@ -49,7 +49,7 @@ proc main(...argv: List[Str]) [fs, error] {
     }
     |> sort-by(desc: true) .size
 
-  if entries.len() == 0 {
+  if entries.is_empty() {
     print f"no .{opts.ext} files found in {root}"
     return
   }

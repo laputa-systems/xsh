@@ -51,9 +51,12 @@ test test_a_result_of_an_optional_takes_one_hop_for_each_layer { |ctx|
   }
 
   let source = "pure both(text: Str) -> Result[Str?] {\n  Ok(text)\n}\n\npure upper(text: Str) -> Result[Str?] {\n  Ok(both(text)?.upper())\n}\n"
-  let output = test.run_script(ctx, source)?
-  assert output.status == 2
-  assert "err[check.optional-method]: Result propagation leaves an Optional receiver; guard the next hop explicitly" in output.stderr, output.stderr
+  let _ = test.expect(
+    ctx,
+    source,
+    status: 2,
+    stderr: ["err[check.optional-method]: Result propagation leaves an Optional receiver; guard the next hop explicitly"],
+  )?
 }
 
 proc trimmed(script: Str) -> Result[Str] {
@@ -82,12 +85,18 @@ test test_guarded_hop_on_a_run_form_propagates_its_failure {
 # Where a run form is an initializer its words are read first, so a `?.`
 # there belongs to the last word and not to the form.
 test test_a_guarded_hop_after_an_initializer_run_form_belongs_to_its_last_word { |ctx|
-  let word = test.run_script(ctx, "let text = run.text sh -c \"echo hi\"?.trim()\n")?
-  assert word.status == 2
-  assert "err[check.null-safe-field]: `?.` requires an Optional or Result value" in word.stderr, word.stderr
-  let splice = test.run_script(ctx, "let words = [\"sh\"]\nlet text = run.text @words?.trim()\n")?
-  assert splice.status == 2
-  assert "err[parse.expected-terminator]" in splice.stderr, splice.stderr
+  let _ = test.expect(
+    ctx,
+    "let text = run.text sh -c \"echo hi\"?.trim()\n",
+    status: 2,
+    stderr: ["err[check.null-safe-field]: `?.` requires an Optional or Result value"],
+  )?
+  let _ = test.expect(
+    ctx,
+    "let words = [\"sh\"]\nlet text = run.text @words?.trim()\n",
+    status: 2,
+    stderr: ["err[parse.expected-terminator]"],
+  )?
 }
 
 test test_a_propagated_run_form_is_not_reported_as_captured { |ctx|
@@ -107,8 +116,7 @@ test test_a_propagated_run_form_is_not_reported_as_captured { |ctx|
 let total = lines("echo ab")?
 print $total
 """
-  let before = test.run_script(ctx, source)?
-  assert before.success, before.stderr
+  let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "lines.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.explicit-run-capture $candidate ?
   # Only the form that is bound keeps its `Result`.
@@ -118,7 +126,6 @@ print $total
   let fixed = candidate.read_text()?
   assert "  let kept = try run.text sh -c $script\n" in fixed, fixed
   assert "  for line in run.text @words?.lines() {\n" in fixed, fixed
-  let after = test.run_script(ctx, fixed)?
-  assert after.success, after.stderr
+  let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
 }

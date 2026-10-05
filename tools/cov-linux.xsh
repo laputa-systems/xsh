@@ -67,7 +67,7 @@ proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
       |> sort-by .path
   ]
 
-  if paths.len() == 0 {
+  if paths.is_empty() {
     fail f"coverage: no .profraw files were produced in {raw_dir}"
   }
 
@@ -169,7 +169,7 @@ proc main() [fs, process, env, error, io] {
 
   objects = objects |> sort
 
-  if objects.len() == 0 {
+  if objects.is_empty() {
     fail f"coverage: no instrumented objects found under {release_dir} or {debug_dir}"
   }
 

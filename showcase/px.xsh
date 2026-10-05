@@ -157,7 +157,7 @@ proc native_stats_for(pid: Int) [process, error] -> Result[ProcessStats] {
 proc stats_map_for(pids: List[Int], os_name: Str) [process, error] -> Result[Map[ProcessStats]] {
   var stats_by_pid: Map[ProcessStats] = {}
 
-  return stats_by_pid when pids.len() == 0
+  return stats_by_pid when pids.is_empty()
 
   var rows: List[StatsRow] = []
 
@@ -291,7 +291,7 @@ pure process_matches_pattern(row: Process, pattern: Query, full: Bool, own_pid: 
 }
 
 pure process_matches_any(row: Process, patterns: List[Query], full: Bool, own_pid: Int) -> Bool {
-  return true when patterns.len() == 0
+  return true when patterns.is_empty()
 
   for pattern in patterns {
     return true when process_matches_pattern(row, pattern, full, own_pid)
@@ -327,7 +327,7 @@ pure thread_matches_pattern(row: Thread, pattern: Query, full: Bool, own_pid: In
 }
 
 pure thread_matches_any(row: Thread, patterns: List[Query], full: Bool, own_pid: Int) -> Bool {
-  return true when patterns.len() == 0
+  return true when patterns.is_empty()
 
   for pattern in patterns {
     return true when thread_matches_pattern(row, pattern, full, own_pid)
@@ -347,7 +347,7 @@ pure port_label(row: PortProcess) -> Str {
 }
 
 pure port_summary(ports: List[PortProcess]) -> Str {
-  return "" when ports.len() == 0
+  return "" when ports.is_empty()
 
   let labels = ports
     |> group-by f"{.protocol}:{.local}"
@@ -519,7 +519,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
 
   let kill_signal = opts.kill
 
-  if kill_signal != null and opts.patterns.len() == 0 and opts.port <= 0 {
+  if kill_signal != null and opts.patterns.is_empty() and opts.port <= 0 {
     return Err(PxError.Usage(message: "--kill requires at least one PATTERN or -p PORT"))
   }
 
@@ -552,7 +552,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   }
 
   if opts.show_threads {
-    if matched_owner_pids.len() > 0 {
+    if ! matched_owner_pids.is_empty() {
       var thread_groups: List[ThreadRows] = []
 
       if matched_owner_pids.len() == 1 {
@@ -584,11 +584,11 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
     }
   }
 
-  if opts.show_threads and matched_owner_pids.len() == 0 {
+  if opts.show_threads and matched_owner_pids.is_empty() {
     exit 1
   }
 
-  if ! opts.show_threads and matched_rows.len() == 0 {
+  if ! opts.show_threads and matched_rows.is_empty() {
     exit 1
   }
 

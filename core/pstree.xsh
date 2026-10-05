@@ -24,7 +24,7 @@ type Process = {
 }
 
 let host = system.uname()?
-let process_records: List[Process] = if host.sysname == "Darwin" and args.len() == 0 {
+let process_records: List[Process] = if host.sysname == "Darwin" and args.is_empty() {
   []
 } else {
   process.list()? |> sort-by .parent_pid * 100000000 + .pid
@@ -103,7 +103,7 @@ pure child_group(parent_pid: Int) -> List[Process] {
 
 pure has_same_named_user_parent(row: Process, name: Str) -> Bool {
   let parents = process_by_pid(row.parent_pid)
-  return false when parents.len() == 0
+  return false when parents.is_empty()
 
   parents[0].user == name
 }
@@ -177,7 +177,7 @@ pure render_process(row: Process, show_args: Bool, show_pids: Bool, ascii: Bool)
 proc print_pid_root(pid: Int, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
   let roots = process_by_pid(pid)
 
-  return Err(AppletError.Usage(f"pstree: no such pid '{pid}'")) when roots.len() == 0
+  return Err(AppletError.Usage(f"pstree: no such pid '{pid}'")) when roots.is_empty()
 
   print render_process(roots[0], show_args, show_pids, ascii)
 }
@@ -187,7 +187,7 @@ proc print_user_roots(name: Str, show_args: Bool, show_pids: Bool, ascii: Bool) 
     |> where .user == name and ! has_same_named_user_parent(., name)
     |> sort-by .pid
 
-  return Err(AppletError.Usage("pstree: no matching processes")) when roots.len() == 0
+  return Err(AppletError.Usage("pstree: no matching processes")) when roots.is_empty()
 
   for item in roots |> enumerate() {
     if item.index > 0 {
@@ -201,12 +201,12 @@ proc print_user_roots(name: Str, show_args: Bool, show_pids: Bool, ascii: Bool) 
 proc print_default_roots(show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
   let roots = process_by_pid(1)
 
-  if roots.len() > 0 {
+  if ! roots.is_empty() {
     print render_process(roots[0], show_args, show_pids, ascii)
     return
   }
 
-  if process_records.len() > 0 {
+  if ! process_records.is_empty() {
     print render_process(process_records[0], show_args, show_pids, ascii)
   }
 }
@@ -222,13 +222,13 @@ proc print_parent_chain(
 
   let rows = process_by_pid(pid)
 
-  return Err(AppletError.Usage(f"pstree: no such pid '{pid}'")) when rows.len() == 0
+  return Err(AppletError.Usage(f"pstree: no such pid '{pid}'")) when rows.is_empty()
 
   let row = rows[0]
   let next_visited = visited.push(pid)
   let parents = process_by_pid(row.parent_pid)
 
-  if row.parent_pid <= 0 or parents.len() == 0 {
+  if row.parent_pid <= 0 or parents.is_empty() {
     print process_label(row, show_args, show_pids)
     return "  "
   }
@@ -249,7 +249,7 @@ type PstreeOptions = {
 }
 
 proc main(...argv: List[Str]) [fs, process, error] {
-  if host.sysname == "Darwin" and argv.len() == 0 {
+  if host.sysname == "Darwin" and argv.is_empty() {
     let tree = run.text pstree -w ?
     print $tree
     return
@@ -304,11 +304,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
 
   return Err(usage_error("pstree", "[-aAcGhlpstT] [PID|USER]")) when operands.len() > 1
 
-  if show_parents and operands.len() == 0 {
+  if show_parents and operands.is_empty() {
     return Err(AppletError.Usage("pstree: -s requires a PID selector"))
   }
 
-  if operands.len() == 0 {
+  if operands.is_empty() {
     print_default_roots(show_args, show_pids, ascii)
     return
   }

@@ -100,7 +100,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     }
   }
 
-  if roots.len() == 0 {
+  if roots.is_empty() {
     roots = [p"."]
   }
 

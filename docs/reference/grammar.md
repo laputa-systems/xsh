@@ -304,6 +304,7 @@ primary = literal
         | "ctx" line(condition_expression) block
         | context_scope
         | tempdir_scope
+        | within_scope
         | builder_call
         | item_expression
         | bare_path ;

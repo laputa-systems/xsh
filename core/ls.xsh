@@ -81,7 +81,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let indicator = if opts.indicator { "/" } else { "" }
   var targets = opts.targets
 
-  if targets.len() == 0 {
+  if targets.is_empty() {
     targets = ["."]
   }
 

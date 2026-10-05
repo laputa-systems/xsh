@@ -42,7 +42,7 @@ test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data {
 }
 
 test test_ctx_value_and_named_ctx_bindings_remain_ordinary { |harness|
-  assert harness.xsh_bin.display().count_chars() > 0
+  assert ! harness.xsh_bin.display().is_empty()
   let value = ctx "compute" {
     42
   }

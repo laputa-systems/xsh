@@ -1184,6 +1184,9 @@ continuation, loop body, or match arm where a condition proved it.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
   binding carries the facts of the condition it holds.
+- What a condition of an `if` proves by failing holds in every later
+  `else if` condition and branch and in the final `else`, in a statement
+  `if` and a value `if` alike.
 - `guard cond else { ... }`, `assert cond`, and an exiting guarded statement
   (`return x when cond`) make the success facts hold for the following
   statements.
@@ -1476,7 +1479,23 @@ spread before it is an error (`parse.map-comprehension-entries`).
 ### 6.6 Indexing and slicing
 
 `list[i]` requires `0 <= i < len` and otherwise fails with
-`index-out-of-range`. `map[key]` and `record["field"]` fail when the key or
+`index-out-of-range`. An index written as a negative integer literal counts
+from the end: `list[-1]` is the last item, and `list[-n]` requires
+`n <= len`. Only the literal does. An index computed at run time that turns
+out negative still fails with `index-out-of-range`, so an off-by-one never
+reads the last item silently, and `-0` is `0`. The rule belongs to reading an
+item of a `List`: `Str` and `Bytes` have no single-element indexing, a value
+of type `Any` is indexed as written, and an assignment target (`list[-1] = x`)
+does not count from the end. A negative literal that reaches past the start
+of a list literal is `check.index-out-of-range`:
+
+```xsh
+let names = ["build", "test"]
+print names[-1]
+let missing = ["build", "test"][-3]  # error: check.index-out-of-range
+```
+
+`lint.prefer-negative-index` rewrites `list[list.len() - 1]`. `map[key]` and `record["field"]` fail when the key or
 field is missing; use `.get(...)` for a `Result`.
 
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same
@@ -1494,9 +1513,20 @@ offsets instead of clamping.
 The receiver evaluates once. When it is `null` the whole operation is `null`
 and its arguments are not evaluated; otherwise the ordinary operation runs and
 its result is made optional. Guard each hop: `config?.server?.host?.trim()`.
-On a `Result` receiver, `?.` and `?[` propagate the outer `Err` first. An
+The receiver's type decides what the `?` of `?.` and `?[` guards. On a
+`Result` receiver it is propagation (8.3) followed by the ordinary operation:
+`load()?.trim()` means `(load()?).trim()`, fails as that does, and its value is
+not optional. One hop is one layer, so a `Result[T?]` receiver needs both:
+`(find()?)?.trim()`; `find()?.trim()` is `check.optional-method`. On any other
+receiver `?.` is `check.null-safe-field`. An
 optional method that returns a `Result` produces `Result[T, E]?`; handle the
 layers separately, as in `(text?.parse_int() ?? Ok(0))?`.
+
+After a grouped run form, `(run.text cmd)?.lines()` propagates the form's
+failure in the same way. Where a run form is the subject of a `for` or of a
+comprehension's `for`, a `?.` written after its last word also applies to the
+whole form; where it is an initializer, the `?.` belongs to that last word.
+Group the run form to say which is meant.
 
 ### 6.8 Conditional and match expressions
 
@@ -1743,7 +1773,7 @@ including `false`; a `Result` tail is returned as a value, not unwrapped.
 
 ```xsh
 assert actual == expected
-assert entries.len() > 0, f"no entries under {root}"
+assert ! entries.is_empty(), f"no entries under {root}"
 ```
 
 `assert condition[, message]` is the only assertion form. It is a `Unit`
@@ -1777,6 +1807,9 @@ statement-position `Result[Unit]` cannot propagate there either
 but the function's `Result`. Error handler blocks, `if`, `match`, loops, and bare
 blocks are not boundaries. In a restricted proc, `?` that can leave the proc
 requires the `error` effect.
+
+`expr?.name`, `expr?.method(...)`, and `expr?[i]` on a `Result` are this
+operator followed by the access (6.7).
 
 `expr ?` with a space is the same operator in expression context. In a command
 argument, a separated `?` belongs to the whole command or run form: write
@@ -2072,8 +2105,11 @@ evaluates once, and its type selects the form:
   may name the error: `else { |failure| ... }`.
 - `T?`: any value but `null` is bound as `T`. `null` runs the block. A null
   value carries no error, so the block takes no parameter
-  (`check.block-params`), and like the block of `guard cond` it must leave the
-  enclosing continuation (`check.guard-fallthrough`).
+  (`check.block-params`).
+
+Either way nothing is bound when the block runs, so like the block of
+`guard cond` it must leave the enclosing continuation
+(`check.guard-fallthrough`).
 
 ```xsh
 pure executor_name(context: Context) -> Str {
@@ -2477,6 +2513,10 @@ Return types may be omitted only on private functions:
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
+
+A function declared `Result[T, E]?` returns `null`, an `Ok`, or an `Err` as
+the value it is: an `Err` it returns is data for the caller, bound by a plain
+`let` like any other value, and not a failure of the call.
 
 An annotation on a private function is never required where inference
 succeeds. The opt-in `lint.prefer-inferred-proc-return` removes a private
@@ -2917,7 +2957,10 @@ The deadline is noticed at checkpoints, not at an arbitrary instant:
   pipe) is not interrupted, and the deadline is noticed when it returns.
 
 At a checkpoint past the deadline the body stops with a failure that only
-the scope can stop: `try` and `retry` inside the body do not capture it. It
+the scope can stop: `try` and `retry` inside the body do not capture it. An
+operation the deadline interrupts while it waits may report that as its own
+`Err`; a body that handles that error instead of propagating it is stopped
+at its next checkpoint all the same. The failure
 unwinds like any failure, so every block it leaves runs its `defer` and
 `errdefer` actions (8.7), a block's owned process handles and network jobs are
 cancelled first (11.8), and a callee's blocks are left before its caller's.
@@ -3448,8 +3491,15 @@ batch at the first limit reached, and keeps a final short batch.
 `par-map` maps items on a bounded pool of workers (by default about one per
 CPU) and keeps input order. When a callback fails with `?`, no new work is
 scheduled and the stage propagates exactly as `map` does: of the items that
-ran, the earliest failure becomes the enclosing function's `Err`. Cancellation stops running workers through the ordinary
-process cancellation rules. Every other stage runs serially. `each`,
+ran, the earliest failure becomes the enclosing function's `Err`. Items that
+are already running then run to their end. The stage maps every item before
+the next stage sees one, so a later `take` or a `break` around the pipeline
+never leaves a worker running. The stage returns only when every worker has:
+when it is given up before that, by cancellation, a `within` deadline
+(10.4), or the script shutting down, each worker stops the child process it
+is running the way a cancelled one is stopped, fails its item at its next
+checkpoint, and runs its cleanup, and the stage then fails with the reason
+it was given up. Every other stage runs serially. `each`,
 `group-by`, and `count` reject `jobs:`.
 
 `sort` and `sort-by` are stable. They order `Int`, `Str`, `Bool`, and `Path`

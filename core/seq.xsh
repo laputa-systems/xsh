@@ -121,7 +121,7 @@ proc main(...argv: List[Str]) [error, io] {
     pos += 1
   }
 
-  if values.len() > 0 {
+  if ! values.is_empty() {
     io.write_stdout(f"""{out}
 """)
   }
