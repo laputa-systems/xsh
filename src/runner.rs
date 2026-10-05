@@ -85,7 +85,6 @@ pub fn run_startup() -> ScriptOutput {
     let mut sources = SourceMap::new();
     let source_id = sources.add_file("<startup>", "");
     let parsed = Parser::parse_source_arena_only(source_id, "");
-    let _ = Checker::check_compact_declarations(&parsed.arena);
     let mut evaluator = Evaluator::new_with_sources_and_command(Vec::new(), sources, "xsh".into());
     let plan = evaluator
         .prepare_compact_indexed_only(&parsed.arena, source_id)
@@ -340,10 +339,14 @@ fn prepare_entry_source(
         .get(source_id)
         .map(|source| source.text())
         .unwrap_or("");
+    // This one check renders the diagnostics and supplies the lowering facts.
     let check = Checker::check_arena_with_options_and_type_program(
         &arena,
         entry_text,
-        CheckOptions::default(),
+        CheckOptions {
+            embedded_bodies: true,
+            ..CheckOptions::default()
+        },
         Arc::clone(&arena),
     );
     if check
@@ -372,8 +375,10 @@ fn prepare_entry_source(
         evaluator =
             evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
     }
-    let plan = evaluator.prepare_compact_indexed_only(&arena, source_id);
-    let Some(plan) = plan else {
+    let Ok(plan) = arena.symbol_owner().with_current(|| {
+        let declarations = Checker::compact_declarations(&arena, check);
+        evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations)
+    }) else {
         return Err(diagnostic_attempt(evaluator.into_sources(), source_id));
     };
     drop(arena);

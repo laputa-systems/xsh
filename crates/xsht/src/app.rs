@@ -1,9 +1,8 @@
 use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
-    AnnotationPolicy, AnnotationSelection, CliOutput, TraceFormat, TraceOptions, api_command,
-    ast_script, check_paths_with_summary_options, format_files, grep_scripts, highlight_script,
-    lint_files,
-    refactor_scripts, trace_script,
+    AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions,
+    api_command, ast_script, check_paths_timed, format_files, grep_scripts, highlight_script,
+    lint_files_timed, refactor_scripts, trace_script,
 };
 use crate::xsht::commands::{self, ParsedArgs};
 use crate::xsht::help::{command_help as generated_command_help, root_help};
@@ -52,8 +51,8 @@ pub fn main() -> ExitCode {
             paths,
             annotation_selection,
             summary,
-        }) => finish_command(|| {
-            check_paths_with_summary_options(&paths, annotation_selection, summary)
+        }) => finish_timed("check", |timings| {
+            check_paths_timed(&paths, annotation_selection, summary, timings)
         }),
         Ok(Command::Fmt { files, check }) => finish_command(|| format_files(&files, check)),
         Ok(Command::Lint {
@@ -61,7 +60,9 @@ pub fn main() -> ExitCode {
             fix,
             runless,
             only,
-        }) => finish_command(|| lint_files(&files, fix, runless, only)),
+        }) => finish_timed("lint", |timings| {
+            lint_files_timed(&files, fix, runless, only, timings)
+        }),
         Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
         Ok(Command::Highlight { script }) => finish_command(|| highlight_script(&script)),
         Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
@@ -617,6 +618,17 @@ fn parse_refactor(args: &[String]) -> Result<Command, String> {
 
 fn finish_command(run: impl FnOnce() -> CliOutput) -> ExitCode {
     finish(run())
+}
+
+/// Run `xsht check` or `xsht lint` and close its stderr with the stage timing
+/// report.
+fn finish_timed(command: &str, run: impl FnOnce(&StageTimings) -> CliOutput) -> ExitCode {
+    let timings = StageTimings::start();
+    let mut output = run(&timings);
+    if let Some(report) = timings.report(command) {
+        output.stderr.extend_from_slice(report.as_bytes());
+    }
+    finish(output)
 }
 
 fn finish(output: CliOutput) -> ExitCode {

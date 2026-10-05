@@ -161,6 +161,9 @@ pub struct CheckOutput {
     /// The schema field each record constructor argument supplies, in source
     /// order, keyed by call expression.
     pub record_constructor_fields: BTreeMap<Span, Vec<Name>>,
+    /// Embedded implementation bodies were checked, so every body lowering
+    /// builds has published facts.
+    pub embedded_bodies_checked: bool,
 }
 
 /// A leading-dot variant resolved against its expected type. It carries the
@@ -182,6 +185,10 @@ pub struct CheckOptions {
     pub interactive_commands: Option<fn(&str) -> bool>,
     pub reveal_types: bool,
     pub migration_diagnostics: bool,
+    /// Check every embedded implementation body. A check whose output feeds
+    /// lowering needs their facts; other checks only need the bodies whose
+    /// inferred returns shape a signature.
+    pub embedded_bodies: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -419,16 +426,19 @@ pub struct Checker {
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,
     streams: FxHashMap<Name, FunctionSig>,
-    qualified_procs: FxHashMap<QualifiedName, FunctionSig>,
-    qualified_pures: FxHashMap<QualifiedName, FunctionSig>,
-    qualified_streams: FxHashMap<QualifiedName, FunctionSig>,
+    // Imported signatures and module contracts change only while
+    // declarations are collected. Sharing them lets the speculative copy made
+    // for each inferred body skip every signature in the program.
+    qualified_procs: Arc<FxHashMap<QualifiedName, FunctionSig>>,
+    qualified_pures: Arc<FxHashMap<QualifiedName, FunctionSig>>,
+    qualified_streams: Arc<FxHashMap<QualifiedName, FunctionSig>>,
     type_defs: FxHashMap<Name, TypeDefBody>,
     type_namespaces: FxHashMap<Name, BTreeMap<Name, Type>>,
     tag_variants: FxHashMap<Name, TagVariantInfo>,
     error_families: FxHashMap<Name, ErrorFamilyInfo>,
     error_facets: FxHashSet<Name>,
     resolving_types: Vec<Name>,
-    user_modules: FxHashMap<String, UserModuleSig>,
+    user_modules: Arc<FxHashMap<String, UserModuleSig>>,
     diagnostics: Vec<Diagnostic>,
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
@@ -450,13 +460,12 @@ pub struct Checker {
     inferred_variants: BTreeMap<Span, InferredVariant>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
-    /// Lowering needs facts for embedded implementation bodies; other checks
-    /// only need the bodies whose inferred returns shape a signature.
-    check_embedded_bodies: bool,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
     pipeline_hole_types: BTreeMap<Span, Type>,
+    /// Collected on first use; a checker checks one program.
+    return_inference_index: Option<Arc<infer_return::ReturnInferenceIndex>>,
     inferred_returns: Option<Vec<(Type, Span)>>,
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
@@ -527,15 +536,6 @@ impl Checker {
         )
     }
 
-    /// Check a program whose bodies will be lowered, including embedded
-    /// implementation modules, so every lowered body has published facts.
-    pub(super) fn check_arena_for_lowering(
-        program: &ArenaProgram,
-        options: CheckOptions,
-    ) -> CheckOutput {
-        Self::check_arena_impl(program, "", options, Arc::new(program.clone()), true)
-    }
-
     /// Check a mutable view of an arena-backed bundle while reusing an owned
     /// program for type references. Tooling can change the root statement
     /// range and module list between checks without cloning the full arena.
@@ -545,25 +545,13 @@ impl Checker {
         options: CheckOptions,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
-        Self::check_arena_impl(program, source, options, type_program, false)
-    }
-
-    fn check_arena_impl(
-        program: &ArenaProgram,
-        source: &str,
-        options: CheckOptions,
-        type_program: Arc<ArenaProgram>,
-        check_embedded_bodies: bool,
-    ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
             let mut probe = Self::new(options);
             probe.collecting_effects = true;
-            probe.check_embedded_bodies = check_embedded_bodies;
             probe.check_program_arena_with_type_program(program, source, type_program.clone());
             let mut checker = Self::new(options);
-            checker.check_embedded_bodies = check_embedded_bodies;
             checker.effect_summaries = probe.effect_graph.solve();
             checker.effect_graph = probe.effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
@@ -600,6 +588,7 @@ impl Checker {
                 inferred_variants: checker.inferred_variants,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
+                embedded_bodies_checked: options.embedded_bodies,
             }
         })
     }
@@ -623,6 +612,7 @@ impl Checker {
                 interactive_commands: Some(interactive_commands),
                 reveal_types: false,
                 migration_diagnostics: false,
+                embedded_bodies: false,
             },
         )
     }
@@ -739,6 +729,7 @@ impl Checker {
                 inferred_variants: checker.inferred_variants,
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
+                embedded_bodies_checked: false,
             }
         })
     }
@@ -752,9 +743,9 @@ impl Checker {
             procs: FxHashMap::default(),
             pures: FxHashMap::default(),
             streams: FxHashMap::default(),
-            qualified_procs: FxHashMap::default(),
-            qualified_pures: FxHashMap::default(),
-            qualified_streams: FxHashMap::default(),
+            qualified_procs: Arc::default(),
+            qualified_pures: Arc::default(),
+            qualified_streams: Arc::default(),
             type_defs: FxHashMap::default(),
             local_inference: local_inference::LocalInference::default(),
             type_constraints: super::constraints::TypeConstraints::default(),
@@ -781,7 +772,7 @@ impl Checker {
             error_families: FxHashMap::default(),
             error_facets: FxHashSet::default(),
             resolving_types: Vec::new(),
-            user_modules: FxHashMap::default(),
+            user_modules: Arc::default(),
             diagnostics: Vec::new(),
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
@@ -803,11 +794,11 @@ impl Checker {
             inferred_variants: BTreeMap::new(),
             redundant_variant_qualifiers: BTreeMap::new(),
             record_constructor_fields: BTreeMap::new(),
-            check_embedded_bodies: false,
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),
             pipeline_hole_types: BTreeMap::new(),
+            return_inference_index: None,
             inferred_returns: None,
             inferred_propagations: Vec::new(),
             return_conflicts: None,
@@ -1090,10 +1081,10 @@ impl Checker {
         for (name, sig) in &self.streams {
             effects.insert(name.to_string(), sig.effects.clone());
         }
-        for (name, sig) in &self.qualified_procs {
+        for (name, sig) in self.qualified_procs.iter() {
             effects.insert(name.to_string(), sig.effects.clone());
         }
-        for (name, sig) in &self.qualified_streams {
+        for (name, sig) in self.qualified_streams.iter() {
             effects.insert(name.to_string(), sig.effects.clone());
         }
         effects

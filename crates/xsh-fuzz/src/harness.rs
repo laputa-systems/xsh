@@ -141,7 +141,7 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
 pub fn check_text(file: &str, text: &str) -> CheckReport {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let mut report = CheckReport::default();
-        let entry = parse_load_check_text(
+        let mut entry = parse_load_check_text(
             file,
             text.to_string(),
             Vec::new(),
@@ -149,6 +149,7 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
                 interactive_commands: None,
                 reveal_types: false,
                 migration_diagnostics: true,
+                embedded_bodies: true,
             },
         );
         span_problems(
@@ -166,7 +167,7 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
         if !report.parse.is_empty() {
             return report;
         }
-        let Some(checked) = &entry.checked else {
+        let Some(checked) = entry.checked.take() else {
             report
                 .check
                 .push("no check output after a clean parse".into());
@@ -182,7 +183,7 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
         if !report.check.is_empty() {
             return report;
         }
-        let declarations = Checker::check_compact_declarations(&entry.parsed.arena);
+        let declarations = Checker::compact_declarations(&entry.parsed.arena, checked);
         let lowered = Evaluator::compact_lowerability_diagnostics_with_parts(
             &entry.parsed.arena,
             entry.entry_source_id,

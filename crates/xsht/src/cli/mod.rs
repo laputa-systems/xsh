@@ -106,6 +106,7 @@ mod highlight;
 mod lint;
 mod refactor;
 mod syntax_tree;
+mod timing;
 mod trace;
 
 // Recursive schema checking and lowering need more stack than the platform's
@@ -114,7 +115,7 @@ pub(crate) const FRONTEND_WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
 
 pub use api::api_command;
 pub use check::{
-    AnnotationPolicy, AnnotationSelection, check_paths_with_options,
+    AnnotationPolicy, AnnotationSelection, check_paths_timed, check_paths_with_options,
     check_paths_with_summary_options, check_script, check_script_with_options,
 };
 pub use coverage::CoverageCollector;
@@ -129,9 +130,10 @@ pub(crate) use files::{
 pub use fmt::format_files;
 pub use grep::grep_scripts;
 pub use highlight::highlight_script;
-pub use lint::lint_files;
+pub use lint::{lint_files, lint_files_timed};
 pub use refactor::refactor_scripts;
 pub use syntax_tree::ast_script;
+pub use timing::StageTimings;
 pub use trace::trace_script;
 
 use xsh::frontend::load::{parse_script, parse_script_with_module_roots};

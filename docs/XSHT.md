@@ -30,6 +30,13 @@ façade rather than building parallel parser/checker pipelines. Shared parse and
 check diagnostics are deduplicated per command, so an imported module's error
 is reported once.
 
+`xsht check` and `xsht lint` end their stderr with one timing line whenever
+they processed a file, for example
+`xsht check: 301 files in 4.75s (thread time by stage: discover 0.03s, load 7.16s, check 30.90s, lower 6.06s)`.
+A stage sums the time of every worker thread that ran it, so stages can add up
+to more than the wall-clock total; a consumer that compares stderr drops that
+last line (`StageTimings`, `crates/xsht/src/cli/timing.rs`).
+
 ## Configuration
 
 `xsht-config.ini` is resolved per file from the nearest ancestor; the current

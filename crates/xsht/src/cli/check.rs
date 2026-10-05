@@ -1,3 +1,4 @@
+use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
     CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
     load_config, text_bytes,
@@ -8,6 +9,9 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
@@ -127,9 +131,21 @@ pub fn check_paths_with_summary_options(
     annotation_selection: Option<AnnotationSelection>,
     summary: bool,
 ) -> CliOutput {
+    check_paths_timed(paths, annotation_selection, summary, &StageTimings::start())
+}
+
+/// `xsht check` over files or directories, recording stage times in `timings`.
+pub fn check_paths_timed(
+    paths: &[String],
+    annotation_selection: Option<AnnotationSelection>,
+    summary: bool,
+    timings: &StageTimings,
+) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
     }
+
+    let discover_started = Instant::now();
 
     let config = match load_config() {
         Ok(config) => config,
@@ -208,282 +224,109 @@ pub fn check_paths_with_summary_options(
     }
     files.sort_unstable();
     files.dedup();
-
-    let check_options = CheckOptions {
-        interactive_commands: None,
-        reveal_types: true,
-        migration_diagnostics: true,
-    };
-
-    let mut sources = SourceMap::new();
-    let mut source_ids: rustc_hash::FxHashMap<String, SourceId> = rustc_hash::FxHashMap::default();
-
     let mut summary_counts = CheckSummary::default();
     let mut status = 0;
     let mut stderr = String::new();
-    let mut seen_diagnostics: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
     let mut checked_files: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
-    std::thread::scope(|scope| {
-        let worker_count = std::thread::available_parallelism()
+    files.retain(|file| {
+        let canonical = file
+            .canonicalize()
+            .unwrap_or_else(|_| file.clone())
+            .to_string_lossy()
+            .into_owned();
+        checked_files.insert(canonical)
+    });
+    timings.record(Stage::Discover, discover_started.elapsed());
+
+    // Annotation rewrites files that later entries import, so each entry must
+    // finish before the next one loads.
+    let worker_count = if annotation_policy.is_some() {
+        1
+    } else {
+        std::thread::available_parallelism()
             .map(|count| count.get())
             .unwrap_or(1)
-            .min(files.len().max(1));
-        let (job_tx, job_rx) = crossbeam_channel::unbounded();
-        let (result_tx, result_rx) = crossbeam_channel::unbounded();
+            .min(files.len().max(1))
+    };
+    let next_file = AtomicUsize::new(0);
+    let mut reports = std::thread::scope(|scope| {
+        let (report_tx, report_rx) = crossbeam_channel::unbounded();
         for _ in 0..worker_count {
-            let job_rx = job_rx.clone();
-            let result_tx = result_tx.clone();
+            let report_tx = report_tx.clone();
+            let (files, config, next_file) = (&files, &config, &next_file);
             std::thread::Builder::new()
                 .name("xsht-check".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
                 .spawn_scoped(scope, move || {
-                    while let Ok((
-                        file_index,
-                        program,
-                        source_id,
-                        sources,
-                        declarations,
-                        command_name,
-                    )) = job_rx.recv()
-                    {
-                        let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
-                            &program,
-                            source_id,
-                            sources,
-                            declarations,
-                            Vec::new(),
-                            command_name,
+                    loop {
+                        if cancellation_output().is_some() {
+                            break;
+                        }
+                        let file_index = next_file.fetch_add(1, Ordering::Relaxed);
+                        let Some(file) = files.get(file_index) else {
+                            break;
+                        };
+                        let report = check_entry(
+                            &file.to_string_lossy(),
+                            config,
+                            annotation_policy,
+                            timings,
                         );
-                        if result_tx.send((file_index, diagnostics)).is_err() {
+                        if report_tx.send((file_index, report)).is_err() {
                             break;
                         }
                     }
                 })
                 .expect("spawn checker worker");
         }
-        drop(result_tx);
-        let mut submitted = 0;
-        for (file_index, file) in files.into_iter().enumerate() {
-            if cancellation_output().is_some() {
-                break;
-            }
-            let path_str = file.to_string_lossy().into_owned();
-
-            let canonical = file
-                .canonicalize()
-                .unwrap_or_else(|_| file.clone())
-                .to_string_lossy()
-                .into_owned();
-            if !checked_files.insert(canonical) {
-                continue;
-            }
-
-            let file_config = match config_for_file(&path_str, &config) {
-                Ok(file_config) => file_config,
-                Err(message) => {
-                    status = 2;
-                    stderr.push_str(&format!("xsht: {message}\n"));
-                    continue;
-                }
-            };
-            let line_width = file_config.line_width();
-            let module_roots = file_config.module_roots();
-
-            let source_id = match source_ids.get(&path_str) {
-                Some(&id) => id,
-                None => {
-                    let bytes = match fs::read(&path_str) {
-                        Ok(b) => b,
-                        Err(err) => {
-                            status = 2;
-                            stderr.push_str(&format!("xsh: failed to read '{path_str}': {err}\n"));
-                            continue;
-                        }
-                    };
-                    let id = match sources.add_file_from_utf8(path_str.clone(), bytes.clone()) {
-                        Ok(id) => id,
-                        Err(error) => {
-                            let text = String::from_utf8_lossy(&bytes).into_owned();
-                            let sid = sources.add_file(path_str.clone(), text);
-                            let offset = error.offset.min(sources.get(sid).map_or(0, |s| s.len()));
-                            let diagnostics = vec![
-                                Diagnostic::error("source file is not valid UTF-8")
-                                    .with_code(DiagnosticCode::SourceInvalidUtf8)
-                                    .with_label(Label::primary(
-                                        Span::new(sid, offset, offset),
-                                        "invalid UTF-8 starts here",
-                                    )),
-                            ];
-                            stderr.push_str(
-                                &DiagnosticRenderer::new().render(&diagnostics, &sources),
-                            );
-                            status = 2;
-                            source_ids.insert(path_str.clone(), sid);
-                            continue;
-                        }
-                    };
-                    source_ids.insert(path_str.clone(), id);
-                    id
-                }
-            };
-
-            let parsed = loader::parse_load_entry_source_shared_arena_only(
-                &path_str,
-                source_id,
-                &mut sources,
-                module_roots,
-            );
-
-            if !parsed.diagnostics.is_empty() {
-                let new_diags: Vec<_> = parsed
-                    .diagnostics
-                    .iter()
-                    .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
-                    .cloned()
-                    .collect();
-                if !new_diags.is_empty() {
-                    stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
-                    summary_counts.observe_diagnostics(&new_diags, &sources);
-                }
-                status = 2;
-                continue;
-            }
-
-            let entry_text = sources.get(source_id).map(|s| s.text()).unwrap_or("");
-            let checked =
-                Checker::check_arena_with_options(&parsed.arena, entry_text, check_options);
-            if !checked.diagnostics.is_empty() {
-                let new_diags: Vec<_> = checked
-                    .diagnostics
-                    .iter()
-                    .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
-                    .cloned()
-                    .collect();
-                if !new_diags.is_empty() {
-                    stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
-                    summary_counts.observe_diagnostics(&new_diags, &sources);
-                }
-                status = 2;
-                continue;
-            }
-
-            let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &sources);
-
-            let declarations = Checker::check_compact_declarations(&parsed.arena);
-
-            if annotation_policy.is_some() {
-                let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
-                    &parsed.arena,
-                    source_id,
-                    sources.clone(),
-                    declarations,
-                    Vec::new(),
-                    xsh::execution::script::script_command_name(&path_str),
-                );
-                if !diagnostics.is_empty() {
-                    let new_diags: Vec<_> = diagnostics
-                        .iter()
-                        .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
-                        .cloned()
-                        .collect();
-                    if !new_diags.is_empty() {
-                        stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
-                        summary_counts.observe_diagnostics(&new_diags, &sources);
-                    }
-                    status = 2;
-                    continue;
-                }
-            } else {
-                let source_snapshot = sources.clone();
-                let command_name = xsh::execution::script::script_command_name(&path_str);
-                job_tx
-                    .send((
-                        file_index,
-                        parsed.arena,
-                        source_id,
-                        source_snapshot,
-                        declarations,
-                        command_name,
-                    ))
-                    .expect("lowerability worker pool disconnected");
-                submitted += 1;
-            }
-
-            if let Some(annotation_policy) = annotation_policy {
-                let Some(original) = sources.get(source_id).map(|s| s.text().to_string()) else {
-                    status = 2;
-                    stderr.push_str("xsht: missing script source\n");
-                    continue;
-                };
-                let edits = annotation_edits(
-                    &checked.annotation_facts,
-                    annotation_policy,
-                    source_id,
-                    &original,
-                );
-                if !edits.is_empty() {
-                    let mut annotated = original.clone();
-                    for (start, end, replacement) in edits {
-                        annotated.replace_range(start..end, &replacement);
-                    }
-
-                    let mut fmt_sources = SourceMap::new();
-                    let fmt_id = fmt_sources.add_file(&path_str, annotated.clone());
-                    let reformatted = Formatter::new()
-                        .with_line_width(line_width)
-                        .format_source(fmt_id, &annotated);
-                    if !reformatted.diagnostics.is_empty() {
-                        stderr.push_str(
-                            &DiagnosticRenderer::new()
-                                .render(&reformatted.diagnostics, &fmt_sources),
-                        );
-                        status = 2;
-                        continue;
-                    }
-                    if reformatted.formatted != original
-                        && let Err(err) = fs::write(&path_str, &reformatted.formatted)
-                    {
-                        stderr.push_str(&format!("xsht: failed to write '{path_str}': {err}\n"));
-                        status = 4;
-                        continue;
-                    }
-                }
-            }
-
-            if !type_stderr.is_empty() && !type_stderr.ends_with('\n') {
-                type_stderr.push('\n');
-            }
-            stderr.push_str(&type_stderr);
-        }
-        drop(job_tx);
-        let mut lowerability_results = Vec::with_capacity(submitted);
-        for _ in 0..submitted {
-            lowerability_results.push(result_rx.recv().expect("lowerability worker panicked"));
-        }
-        lowerability_results.sort_unstable_by_key(|(index, _)| *index);
-        for (_, diagnostics) in lowerability_results {
-            if diagnostics.is_empty() {
-                continue;
-            }
-            let new_diags: Vec<_> = diagnostics
-                .iter()
-                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
-                .cloned()
-                .collect();
-            if !new_diags.is_empty() {
-                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
-                summary_counts.observe_diagnostics(&new_diags, &sources);
-            }
-            status = 2;
-        }
+        drop(report_tx);
+        report_rx.iter().collect::<Vec<_>>()
     });
     if let Some(output) = cancellation_output() {
         return output;
+    }
+    assert_eq!(reports.len(), files.len(), "checker worker panicked");
+
+    // Entries are checked in any order and reported in file order, so the
+    // output and the cross-file deduplication never depend on scheduling.
+    reports.sort_unstable_by_key(|(file_index, _)| *file_index);
+    let mut seen_diagnostics: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+    let mut write_new_diagnostics =
+        |stderr: &mut String, diagnostics: &[Diagnostic], sources: &SourceMap| {
+            let new_diags: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, sources)))
+                .cloned()
+                .collect();
+            if !new_diags.is_empty() {
+                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, sources));
+                summary_counts.observe_diagnostics(&new_diags, sources);
+            }
+        };
+    for (_, report) in &reports {
+        for part in &report.output {
+            match part {
+                EntryOutput::Text(text) => stderr.push_str(text),
+                EntryOutput::Diagnostics(diagnostics) => {
+                    write_new_diagnostics(&mut stderr, diagnostics, &report.sources);
+                }
+            }
+        }
+        if let Some(entry_status) = report.status {
+            status = entry_status;
+        }
+    }
+    for (_, report) in &reports {
+        if !report.lowering_diagnostics.is_empty() {
+            write_new_diagnostics(&mut stderr, &report.lowering_diagnostics, &report.sources);
+            status = 2;
+        }
     }
 
     if summary {
         summary_counts.write_to(&mut stderr);
     }
+    timings.set_files(checked_files.len());
 
     CliOutput {
         status,
@@ -492,6 +335,178 @@ pub fn check_paths_with_summary_options(
         trace_text: String::new(),
         syscall_summary: None,
     }
+}
+
+/// One part of an entry's stderr, in the order the entry produced it.
+enum EntryOutput {
+    Text(String),
+    /// Rendered unless an earlier entry already reported the same diagnostic.
+    Diagnostics(Vec<Diagnostic>),
+}
+
+/// What checking one entry file contributes to `xsht check`. Its spans index
+/// `sources`, which holds only this entry and the modules it loads.
+struct EntryReport {
+    output: Vec<EntryOutput>,
+    /// Reported after every entry's own output.
+    lowering_diagnostics: Vec<Diagnostic>,
+    /// The exit status this entry asks for; a later entry's request replaces it.
+    status: Option<u8>,
+    sources: SourceMap,
+}
+
+impl EntryReport {
+    fn failed(mut self, status: u8, output: EntryOutput) -> Self {
+        self.output.push(output);
+        self.status = Some(status);
+        self
+    }
+}
+
+/// Load, check, and lower one entry file. With an annotation policy, also
+/// write the inferred annotations back to the file.
+fn check_entry(
+    path_str: &str,
+    config: &XshConfig,
+    annotation_policy: Option<AnnotationPolicy>,
+    timings: &StageTimings,
+) -> EntryReport {
+    let mut report = EntryReport {
+        output: Vec::new(),
+        lowering_diagnostics: Vec::new(),
+        status: None,
+        sources: SourceMap::new(),
+    };
+    let file_config = match config_for_file(path_str, config) {
+        Ok(file_config) => file_config,
+        Err(message) => {
+            return report.failed(2, EntryOutput::Text(format!("xsht: {message}\n")));
+        }
+    };
+    let line_width = file_config.line_width();
+    let module_roots = file_config.module_roots();
+
+    let load_started = Instant::now();
+    let bytes = match fs::read(path_str) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return report.failed(
+                2,
+                EntryOutput::Text(format!("xsh: failed to read '{path_str}': {err}\n")),
+            );
+        }
+    };
+    let source_id = match report
+        .sources
+        .add_file_from_utf8(path_str.to_string(), bytes.clone())
+    {
+        Ok(id) => id,
+        Err(error) => {
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            let sid = report.sources.add_file(path_str.to_string(), text);
+            let offset = error
+                .offset
+                .min(report.sources.get(sid).map_or(0, |s| s.len()));
+            let diagnostics = vec![
+                Diagnostic::error("source file is not valid UTF-8")
+                    .with_code(DiagnosticCode::SourceInvalidUtf8)
+                    .with_label(Label::primary(
+                        Span::new(sid, offset, offset),
+                        "invalid UTF-8 starts here",
+                    )),
+            ];
+            let rendered = DiagnosticRenderer::new().render(&diagnostics, &report.sources);
+            return report.failed(2, EntryOutput::Text(rendered));
+        }
+    };
+    drop(bytes);
+
+    let parsed = loader::parse_load_entry_source_shared_arena_only(
+        path_str,
+        source_id,
+        &mut report.sources,
+        module_roots,
+    );
+    timings.record(Stage::Load, load_started.elapsed());
+    if !parsed.diagnostics.is_empty() {
+        return report.failed(2, EntryOutput::Diagnostics(parsed.diagnostics));
+    }
+
+    // This one check renders the diagnostics and supplies the lowering facts.
+    let arena = Arc::new(parsed.arena);
+    let entry_text = report.sources.get(source_id).map(|s| s.text()).unwrap_or("");
+    let mut checked = timings.time(Stage::Check, || {
+        Checker::check_arena_with_options_and_type_program(
+            &arena,
+            entry_text,
+            CheckOptions {
+                interactive_commands: None,
+                reveal_types: true,
+                migration_diagnostics: true,
+                embedded_bodies: true,
+            },
+            Arc::clone(&arena),
+        )
+    });
+    if !checked.diagnostics.is_empty() {
+        return report.failed(2, EntryOutput::Diagnostics(checked.diagnostics));
+    }
+
+    let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &report.sources);
+    let annotation_facts = std::mem::take(&mut checked.annotation_facts);
+    let lowering_diagnostics = timings.time(Stage::Lower, || {
+        Evaluator::compact_lowerability_diagnostics_with_parts(
+            &arena,
+            source_id,
+            report.sources.clone(),
+            Checker::compact_declarations(&arena, checked),
+            Vec::new(),
+            xsh::execution::script::script_command_name(path_str),
+        )
+    });
+
+    if let Some(annotation_policy) = annotation_policy {
+        if !lowering_diagnostics.is_empty() {
+            return report.failed(2, EntryOutput::Diagnostics(lowering_diagnostics));
+        }
+        let Some(original) = report.sources.get(source_id).map(|s| s.text().to_string()) else {
+            return report.failed(2, EntryOutput::Text("xsht: missing script source\n".into()));
+        };
+        let edits = annotation_edits(&annotation_facts, annotation_policy, source_id, &original);
+        if !edits.is_empty() {
+            let mut annotated = original.clone();
+            for (start, end, replacement) in edits {
+                annotated.replace_range(start..end, &replacement);
+            }
+
+            let mut fmt_sources = SourceMap::new();
+            let fmt_id = fmt_sources.add_file(path_str, annotated.clone());
+            let reformatted = Formatter::new()
+                .with_line_width(line_width)
+                .format_source(fmt_id, &annotated);
+            if !reformatted.diagnostics.is_empty() {
+                let rendered =
+                    DiagnosticRenderer::new().render(&reformatted.diagnostics, &fmt_sources);
+                return report.failed(2, EntryOutput::Text(rendered));
+            }
+            if reformatted.formatted != original
+                && let Err(err) = fs::write(path_str, &reformatted.formatted)
+            {
+                return report.failed(
+                    4,
+                    EntryOutput::Text(format!("xsht: failed to write '{path_str}': {err}\n")),
+                );
+            }
+        }
+    } else {
+        report.lowering_diagnostics = lowering_diagnostics;
+    }
+
+    if !type_stderr.is_empty() && !type_stderr.ends_with('\n') {
+        type_stderr.push('\n');
+    }
+    report.output.push(EntryOutput::Text(type_stderr));
+    report
 }
 
 #[derive(Clone, Debug, Default)]
@@ -609,13 +624,15 @@ fn check_one_script(
     module_roots: &[PathBuf],
     line_width: usize,
 ) -> CliOutput {
-    let checked_program = match parse_load_check_file(
+    // This one check renders the diagnostics and supplies the lowering facts.
+    let mut checked_program = match parse_load_check_file(
         script,
         module_roots.to_vec(),
         CheckOptions {
             interactive_commands: None,
             reveal_types: true,
             migration_diagnostics: true,
+            embedded_bodies: true,
         },
     ) {
         Ok(source) => source,
@@ -640,11 +657,7 @@ fn check_one_script(
         };
     }
 
-    let checked = checked_program
-        .checked
-        .as_ref()
-        .expect("checked program after clean parse");
-    if !checked.diagnostics.is_empty() {
+    if !checked_program.check_diagnostics().is_empty() {
         return CliOutput {
             status: 2,
             stdout: Vec::new(),
@@ -653,11 +666,16 @@ fn check_one_script(
             syscall_summary: None,
         };
     }
+    let mut checked = checked_program
+        .checked
+        .take()
+        .expect("checked program after clean parse");
 
     let mut stderr =
         DiagnosticRenderer::new().render(&checked.reveal_types, &checked_program.sources);
+    let annotation_facts = std::mem::take(&mut checked.annotation_facts);
 
-    let declarations = Checker::check_compact_declarations(&checked_program.parsed.arena);
+    let declarations = Checker::compact_declarations(&checked_program.parsed.arena, checked);
     let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
         &checked_program.parsed.arena,
         checked_program.entry_source_id,
@@ -689,7 +707,7 @@ fn check_one_script(
             };
         };
         let edits = annotation_edits(
-            &checked.annotation_facts,
+            &annotation_facts,
             annotation_policy,
             checked_program.entry_source_id,
             original,

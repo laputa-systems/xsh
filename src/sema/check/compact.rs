@@ -161,17 +161,36 @@ impl CompactBodyFacts {
 }
 
 impl Checker {
-    // Compact execution must pass the same checked boundaries as normal source
-    // checking before representation probes can prepare runtime frames.
+    /// Check `program` for lowering when no entry check has run: embedded
+    /// modules, directly prepared programs, and tests. A caller that already
+    /// checked the program with `CheckOptions::embedded_bodies` passes that
+    /// output to `compact_declarations` instead, so each body is checked once.
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
+        // An entry check owns the `reveal_type` gate; a program prepared
+        // without one must not be rejected for it here. Without the entry text
+        // the check cannot judge source spelling and reports nothing for it.
+        let options = super::CheckOptions {
+            reveal_types: true,
+            embedded_bodies: true,
+            ..super::CheckOptions::default()
+        };
+        let checked = Checker::check_arena_with_options(program, "", options);
+        Self::compact_declarations(program, checked)
+    }
+
+    /// The declarations and body facts lowering consumes, re-keyed from the
+    /// check that produced the program's diagnostics. Compact execution passes
+    /// the same checked boundaries as source checking because it is the same
+    /// check.
+    pub fn compact_declarations(
+        program: &ArenaProgram,
+        checked: super::CheckOutput,
+    ) -> CompactDeclOutput {
+        assert!(
+            checked.embedded_bodies_checked,
+            "lowering needs facts for embedded implementation bodies"
+        );
         program.symbol_owner().with_current(|| {
-            // Entry checking owns the `reveal_type` gate; `xsht check` admits it
-            // and runtime lowering skips it, so this replay must not reject it.
-            let options = super::CheckOptions {
-                reveal_types: true,
-                ..super::CheckOptions::default()
-            };
-            let checked = Checker::check_arena_for_lowering(program, options);
             let (bodies, record_constructor_types) = CompactBodyFacts::collect(program, &checked);
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),

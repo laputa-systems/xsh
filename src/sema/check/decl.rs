@@ -26,7 +26,7 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
-                if self.check_embedded_bodies || program.module_statements(module).any(|id| {
+                if self.options.embedded_bodies || program.module_statements(module).any(|id| {
                     let kind = match program.arena.stmt(id).kind {
                         ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                         other => other,
@@ -42,7 +42,7 @@ impl Checker {
                 continue;
             }
             let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
-            self.user_modules.insert(module.key.clone(), sig);
+            Arc::make_mut(&mut self.user_modules).insert(module.key.clone(), sig);
         }
     }
 
@@ -848,15 +848,15 @@ impl Checker {
         binding.static_namespace = true;
         self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
-            self.qualified_procs
+            Arc::make_mut(&mut self.qualified_procs)
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
         for (name, sig) in &module.pures {
-            self.qualified_pures
+            Arc::make_mut(&mut self.qualified_pures)
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
         for (name, sig) in &module.streams {
-            self.qualified_streams
+            Arc::make_mut(&mut self.qualified_streams)
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
     }

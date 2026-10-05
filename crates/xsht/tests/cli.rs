@@ -833,7 +833,12 @@ fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_module
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(output.stdout.is_empty(), "{}", args.join(" "));
-        assert!(output.stderr.is_empty(), "{}", args.join(" "));
+        // `check` and `lint` close stderr with their timing line; `fmt` prints nothing.
+        let stderr = match args[0] {
+            "fmt" => std::str::from_utf8(&output.stderr).expect("UTF-8 stderr"),
+            command => crate::stderr_before_timing_line(command, &output.stderr),
+        };
+        assert!(stderr.is_empty(), "{}: {stderr}", args.join(" "));
     }
 }
 
@@ -1491,11 +1496,8 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        output.stderr.is_empty(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let stderr = crate::stderr_before_timing_line("check", &output.stderr);
+    assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
 #[test]
@@ -1582,7 +1584,7 @@ fn check_accepts_imported_lazy_default_with_embedded_module_loaded() {
         .expect("run xsht check");
 
     assert_eq!(output.status.code(), Some(0));
-    let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostic");
+    let stderr = crate::stderr_before_timing_line("check", &output.stderr);
     assert!(stderr.is_empty(), "{stderr}");
     assert!(!stderr.contains("<xsh-stdlib:"), "{stderr}");
 }
@@ -1752,7 +1754,7 @@ proc fallible() [error] -> Result[Str] {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = crate::stderr_before_timing_line("check", &output.stderr);
     assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
@@ -1829,7 +1831,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = crate::stderr_before_timing_line("check", &output.stderr);
     assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
@@ -1860,7 +1862,7 @@ let report = {corpus: scan_corpus()}
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = crate::stderr_before_timing_line("check", &output.stderr);
     assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
@@ -1899,11 +1901,8 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        output.stderr.is_empty(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let stderr = crate::stderr_before_timing_line("check", &output.stderr);
+    assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
 #[test]

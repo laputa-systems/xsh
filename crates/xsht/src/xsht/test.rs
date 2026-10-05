@@ -21,7 +21,7 @@ use xsh::execution::evaluator::{
 };
 use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
-use xsh::frontend::check::Checker;
+use xsh::frontend::check::{CheckOptions, Checker};
 use xsh::frontend::check::Type;
 use xsh::frontend::load::parse_script_with_module_roots;
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
@@ -617,10 +617,20 @@ fn discover_native_tests(
             .get(source_id)
             .map(|source| source.text().to_string())
             .unwrap_or_default();
-        let checked = Checker::check_arena(&parsed.arena, &entry_text);
+        let arena = Arc::new(parsed.arena);
+        // This one check gates the file and supplies its lowering facts.
+        let checked = Checker::check_arena_with_options_and_type_program(
+            &arena,
+            &entry_text,
+            CheckOptions {
+                embedded_bodies: true,
+                ..CheckOptions::default()
+            },
+            Arc::clone(&arena),
+        );
         if !checked.diagnostics.is_empty() {
             let id = file_name.clone();
-            if test_file_matches(&parsed.arena, &file_name, options) {
+            if test_file_matches(&arena, &file_name, options) {
                 cases.push(TestCase::Invalid {
                     id,
                     message: DiagnosticRenderer::new().render(&checked.diagnostics, &sources),
@@ -629,7 +639,6 @@ fn discover_native_tests(
             continue;
         }
 
-        let arena = Arc::new(parsed.arena);
         let sources = Arc::new(sources);
         let mut matching_tests = Vec::new();
         for stmt_id in arena.statement_ids() {
@@ -652,7 +661,11 @@ fn discover_native_tests(
                 let module_path = child_module_path.cloned();
                 Arc::new(move |request| native_test_host(request, module_path.as_deref()))
             })
-            .prepare_test_program(Arc::clone(&arena), source_id)
+            .prepare_test_program(
+                Arc::clone(&arena),
+                source_id,
+                Checker::compact_declarations(&arena, checked),
+            )
         {
             Ok(prepared) => Arc::new(prepared),
             Err(diagnostic) => {

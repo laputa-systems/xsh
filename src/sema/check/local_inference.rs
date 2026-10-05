@@ -4,6 +4,7 @@ use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
     ArenaStmtKind, BindingTargetId, StmtId,
 };
+use std::sync::Arc;
 
 #[derive(Clone, Default)]
 pub(super) struct LocalInference {
@@ -119,9 +120,9 @@ impl Checker {
             .values_mut()
             .chain(self.pures.values_mut())
             .chain(self.streams.values_mut())
-            .chain(self.qualified_procs.values_mut())
-            .chain(self.qualified_pures.values_mut())
-            .chain(self.qualified_streams.values_mut())
+            .chain(Arc::make_mut(&mut self.qualified_procs).values_mut())
+            .chain(Arc::make_mut(&mut self.qualified_pures).values_mut())
+            .chain(Arc::make_mut(&mut self.qualified_streams).values_mut())
         {
             for parameter in &mut signature.params {
                 finalize_type(
@@ -140,7 +141,7 @@ impl Checker {
                 diagnostics,
             );
         }
-        for module in self.user_modules.values_mut() {
+        for module in Arc::make_mut(&mut self.user_modules).values_mut() {
             for ty in module
                 .values
                 .values_mut()

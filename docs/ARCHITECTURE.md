@@ -64,7 +64,7 @@ the façade.
 | lex | `Lexer::lex_compact`, `TokenTable` | `src/syntax/lexer.rs`, `src/syntax/token.rs` |
 | source structure | `SyntaxTree::from_token_table` (CST), `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` |
 | load | `CompactFileUnit`, `CompactModuleGraph`, `CheckedEntry` | `src/loader.rs` |
-| check | `Checker`, `Checker::check_compact_declarations`, `CheckOutput`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
+| check | `Checker`, `CheckOptions`, `CheckOutput`, `Checker::compact_declarations`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
 | publish facts | `CompactBodyFacts`, `CheckedApiCall`, `CheckedArguments`, `PreparedConstants` | `src/sema/check/compact.rs`, `src/sema/constants.rs` |
 | lower | `FullBuilder::build_compact`, `BuildScratch` | `src/runtime/eval/lower.rs` |
 | verify | `FullVerifier::verify`, `FullStore`, `FullProgram` | `src/runtime/eval/indexed/full.rs` |
@@ -107,7 +107,11 @@ registered call (`CheckedApiCall`), argument bindings for user calls and stages
 (`CheckedArguments`), statement positions, function return and effect facts,
 prepared constants, and terminating calls. `CompactBodyFacts` re-keys them by
 arena identity. Lowering, lint, and annotation all consume these facts instead
-of re-deriving them.
+of re-deriving them. A program is checked once: the runner, `xsht check`, and
+`xsht test` check with `CheckOptions::embedded_bodies`, render that check's
+diagnostics, and pass its output to `Checker::compact_declarations`.
+`Checker::check_compact_declarations` runs the same check for programs prepared
+without an entry check (embedded modules, loaded modules, tests).
 
 **Lowering and verification.** `FullBuilder::build_compact` reserves function
 identities, lowers each checked body into short-lived construction scratch,

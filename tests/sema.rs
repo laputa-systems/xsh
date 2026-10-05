@@ -3005,6 +3005,7 @@ reveal_type(names)
             interactive_commands: None,
             reveal_types: true,
             migration_diagnostics: false,
+            embedded_bodies: false,
         },
     );
 
@@ -3099,6 +3100,7 @@ fn check_with_migration(source: &str) -> Vec<Option<String>> {
             interactive_commands: None,
             reveal_types: false,
             migration_diagnostics: true,
+            embedded_bodies: false,
         },
     )
     .diagnostics
@@ -3117,6 +3119,7 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
             interactive_commands: None,
             reveal_types: true,
             migration_diagnostics: false,
+            embedded_bodies: false,
         },
     );
     RevealCheckOutput {

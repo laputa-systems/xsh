@@ -1074,7 +1074,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
-    fn verify_driver(&self) -> Result<(), IrVerifyError> {
+    fn verify_driver(&self, owned_blocks: &FxHashMap<u32, usize>) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(());
         }
@@ -1084,6 +1084,7 @@ impl FullProgram {
             self.store.driver_root,
             &mut program_states,
             &mut step_states,
+            owned_blocks,
         )?;
         if program_states.iter().any(|state| *state != 2)
             || step_states.iter().any(|state| *state != 2)
@@ -1100,6 +1101,7 @@ impl FullProgram {
         raw: u32,
         program_states: &mut [u8],
         step_states: &mut [u8],
+        owned_blocks: &FxHashMap<u32, usize>,
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -1131,7 +1133,7 @@ impl FullProgram {
                 }
                 _ => unreachable!("driver step state is bounded"),
             }
-            self.verify_driver_step(step_index, program_states, step_states)?;
+            self.verify_driver_step(step_index, program_states, step_states, owned_blocks)?;
             step_states[step_index] = 2;
         }
         program_states[index] = 2;
@@ -1143,16 +1145,18 @@ impl FullProgram {
         step_index: usize,
         program_states: &mut [u8],
         step_states: &mut [u8],
+        owned_blocks: &FxHashMap<u32, usize>,
     ) -> Result<(), IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         let instruction_range = self.store.driver_instruction_range(step_index)?;
+        let owner = driver_owner(step_index)
+            .map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
         let decoder = FullDecoder {
             store: &self.store,
-            owner: driver_owner(step_index)
-                .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
+            owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
             instruction_range,
-            block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
+            block_states: Some(OwnedBlockStates::new(owner, owned_blocks)),
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
             verified: false,
@@ -1186,7 +1190,7 @@ impl FullProgram {
                 Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
                 let child = payload.raw()?;
                 Span::verify(&decoder, &mut payload)?;
-                self.verify_driver_program(child, program_states, step_states)?;
+                self.verify_driver_program(child, program_states, step_states, owned_blocks)?;
             }
             FullDriverTag::Let => {
                 Name::verify(&decoder, &mut payload)?;
@@ -3396,10 +3400,40 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     owner: u32,
     instruction_range: std::ops::Range<usize>,
     instruction_states: Option<RefCell<Vec<u8>>>,
-    block_states: Option<RefCell<Vec<u8>>>,
+    block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
     verified: bool,
+}
+
+/// The blocks one owner's verification entered. Tracking only those keeps
+/// verifying a body proportional to the body, not to the whole program.
+struct OwnedBlockStates {
+    /// 1 while a block is open and 2 once it is finished.
+    states: RefCell<FxHashMap<usize, u8>>,
+    /// Finished blocks that the store assigns to this owner.
+    finished_owned: Cell<usize>,
+    /// Blocks that the store assigns to this owner.
+    owned: usize,
+}
+
+impl OwnedBlockStates {
+    fn new(owner: u32, owned_blocks: &FxHashMap<u32, usize>) -> Self {
+        Self {
+            states: RefCell::default(),
+            finished_owned: Cell::new(0),
+            owned: owned_blocks.get(&owner).copied().unwrap_or(0),
+        }
+    }
+}
+
+/// How many blocks the store assigns to each function or driver step.
+fn owned_block_counts(store: &FullStore) -> FxHashMap<u32, usize> {
+    let mut counts = FxHashMap::default();
+    for block in &store.blocks {
+        *counts.entry(block.owner).or_default() += 1;
+    }
+    counts
 }
 
 impl<'a> FullDecoder<'a> {
@@ -3569,9 +3603,11 @@ impl<'a> FullDecoder<'a> {
         if block.owner != IR_NONE
             && let Some(states) = &self.block_states
         {
-            let state = states.borrow()[id.index()];
-            match state {
-                0 => states.borrow_mut()[id.index()] = 1,
+            let mut states = states.states.borrow_mut();
+            match states.get(&id.index()).copied().unwrap_or(0) {
+                0 => {
+                    states.insert(id.index(), 1);
+                }
                 1 => {
                     return Err(IrVerifyError::new("full IR block graph contains a cycle"));
                 }
@@ -3587,10 +3623,13 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_block(&self, id: IrBlockId) {
-        if self.store.blocks[id.index()].owner != IR_NONE
+        let owner = self.store.blocks[id.index()].owner;
+        if owner != IR_NONE
             && let Some(states) = &self.block_states
+            && states.states.borrow_mut().insert(id.index(), 2) != Some(2)
+            && owner == self.owner
         {
-            states.borrow_mut()[id.index()] = 2;
+            states.finished_owned.set(states.finished_owned.get() + 1);
         }
     }
 
@@ -3705,13 +3744,10 @@ impl<'a> FullDecoder<'a> {
             .instruction_states
             .as_ref()
             .is_none_or(|states| states.borrow().iter().all(|state| *state == 2));
-        let blocks_complete = self.block_states.as_ref().is_none_or(|states| {
-            self.store
-                .blocks
-                .iter()
-                .zip(states.borrow().iter())
-                .all(|(block, state)| block.owner != self.owner || *state == 2)
-        });
+        let blocks_complete = self
+            .block_states
+            .as_ref()
+            .is_none_or(|states| states.finished_owned.get() == states.owned);
         if instructions_complete && blocks_complete {
             Ok(())
         } else {
@@ -4152,6 +4188,7 @@ impl FullVerifier {
             }
             previous_cold_param = Some(cold.param);
         }
+        let owned_blocks = owned_block_counts(store);
         for (index, function) in store.functions.iter().enumerate() {
             store.string(function.name)?;
             let metadata = store.function_metadata[index];
@@ -4196,14 +4233,15 @@ impl FullVerifier {
                 }
             }
             let instruction_len = instructions.len();
+            let owner = IrFunctionId::new(index)
+                .map_err(|_| IrVerifyError::new("function id is invalid"))?
+                .raw();
             let decoder = FullDecoder {
                 store,
-                owner: IrFunctionId::new(index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
-                    .raw(),
+                owner,
                 instruction_range: instructions,
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
-                block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
+                block_states: Some(OwnedBlockStates::new(owner, &owned_blocks)),
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
@@ -4517,7 +4555,7 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.verify_driver()?;
+            program.verify_driver(&owned_blocks)?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(

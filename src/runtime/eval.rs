@@ -4208,7 +4208,23 @@ impl Evaluator {
         source_id: SourceId,
         allow_checker_only: bool,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
-        let mut declarations = Checker::check_compact_declarations(program);
+        self.prepare_checked_compact_indexed_only(
+            program,
+            source_id,
+            allow_checker_only,
+            Checker::check_compact_declarations(program),
+        )
+    }
+
+    /// Prepare a program from the declarations of the check that already
+    /// produced its diagnostics, so its bodies are not checked again.
+    pub(crate) fn prepare_checked_compact_indexed_only(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+        allow_checker_only: bool,
+        mut declarations: CompactDeclOutput,
+    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
         }
@@ -4502,10 +4518,7 @@ impl Evaluator {
     ) -> Vec<Diagnostic> {
         program.symbol_owner().with_current(|| {
             let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-            if let Some(diagnostic) = declarations.diagnostics.first() {
-                return vec![diagnostic.clone()];
-            }
-            match evaluator.prepare_compact_indexed_only_or_diagnostic_with_parts(
+            match evaluator.prepare_checked_compact_indexed_only(
                 program,
                 source_id,
                 true,
@@ -5106,10 +5119,11 @@ impl Evaluator {
         mut self,
         program: Arc<ArenaProgram>,
         source_id: SourceId,
+        declarations: CompactDeclOutput,
     ) -> Result<PreparedTestProgram, Diagnostic> {
         self.capture_process_output = true;
         let plan = program.symbol_owner().with_current(|| {
-            self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false)
+            self.prepare_checked_compact_indexed_only(&program, source_id, false, declarations)
         })?;
         let script_span = plan.script_span;
         let shared = self.lowered_shared_state();
