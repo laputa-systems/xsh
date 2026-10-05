@@ -1627,6 +1627,69 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
+            "xattr_list",
+            sig(
+                vec![param("path", Type::Path), default_param("follow_symlinks", Type::Bool)],
+                result(Type::List(Box::new(Type::Str))),
+                false,
+                RuntimeOp::FsXattrList,
+            ),
+        ),
+        (
+            "xattr_get",
+            sig(
+                vec![param("path", Type::Path), param("name", Type::Str), default_param("follow_symlinks", Type::Bool)],
+                result(Type::Bytes),
+                false,
+                RuntimeOp::FsXattrGet,
+            ),
+        ),
+        (
+            "xattr_set",
+            sig(
+                vec![param("path", Type::Path), param("name", Type::Str), param("value", Type::Bytes), default_param("mode", Type::Str), default_param("follow_symlinks", Type::Bool)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsXattrSet,
+            ),
+        ),
+        (
+            "xattr_remove",
+            sig(
+                vec![param("path", Type::Path), param("name", Type::Str), default_param("follow_symlinks", Type::Bool)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsXattrRemove,
+            ),
+        ),
+        (
+            "sync_path",
+            sig(
+                vec![param("path", Type::Path), default_param("mode", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsSyncPath,
+            ),
+        ),
+        (
+            "rename_exchange",
+            sig(
+                vec![param("source", Type::Path), param("dest", Type::Path)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::FsRenameExchange,
+            ),
+        ),
+        (
+            "path_limits",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Record(btree_map(vec![("name_max", Type::Int), ("path_max", Type::Int)]))),
+                false,
+                RuntimeOp::FsPathLimits,
+            ),
+        ),
+        (
             "rename_noreplace",
             sig(
                 vec![param("source", Type::Path), param("dest", Type::Path)],

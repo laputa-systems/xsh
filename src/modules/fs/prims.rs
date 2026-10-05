@@ -9,6 +9,7 @@ use crate::source::Span;
 use rustix::fs::{self as rfs, AtFlags, CWD, Mode, StatVfsMountFlags, Timespec, Timestamps};
 use rustix::fs::{UTIME_NOW, UTIME_OMIT};
 use std::fs::File;
+use std::io::Read;
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -475,20 +476,32 @@ fn copy_file_unnamed(
     {
         return Err(fail("mode is out of range"));
     }
-    let input = File::open(&source).map_err(host)?;
-    let metadata = input.metadata().map_err(host)?;
-    if !metadata.is_file() {
-        return Err(fail("source is not a regular file"));
+    // Check identity before a blocking FIFO open, and again on opened files
+    // before truncation so a destination replacement cannot clobber the source.
+    let source_metadata = std::fs::metadata(&source).map_err(host)?;
+    let kind = source_metadata.file_type();
+    if !(kind.is_file() || kind.is_fifo() || kind.is_char_device() || kind.is_block_device()) {
+        return Err(fail("source is not a regular file, FIFO, or device"));
     }
     let existed = match std::fs::metadata(&dest) {
         Ok(existing) => {
-            if existing.dev() == metadata.dev() && existing.ino() == metadata.ino() {
+            if existing.dev() == source_metadata.dev() && existing.ino() == source_metadata.ino() {
                 return Err(fail("source and destination are the same file"));
             }
             true
         }
-        Err(_) => std::fs::symlink_metadata(&dest).is_ok(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::symlink_metadata(&dest) {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(host(error)),
+        },
+        Err(error) => return Err(host(error)),
     };
+    if !kind.is_file() && options.reflink == Policy::Always {
+        return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
+    }
+    let input = File::open(&source).map_err(host)?;
+    let metadata = input.metadata().map_err(host)?;
     let len = metadata.len();
     let mode = options
         .mode
@@ -497,17 +510,26 @@ fn copy_file_unnamed(
         .write(true)
         .create(true)
         .create_new(!options.overwrite)
-        .truncate(options.overwrite)
+        .truncate(false)
+        .custom_flags(libc::O_NONBLOCK)
         .mode(mode)
         .open(&dest)
         .map_err(host)?;
+    let destination_metadata = output.metadata().map_err(host)?;
+    if destination_metadata.dev() == metadata.dev() && destination_metadata.ino() == metadata.ino() {
+        return Err(fail("source and destination are the same file"));
+    }
+    if !destination_metadata.is_file() {
+        return Err(fail("destination is not a regular file"));
+    }
+    output.set_len(0).map_err(host)?;
     let outcome = transfer(&input, &output, &metadata, len, &options, span);
     if outcome.is_err() && !existed {
         let _ = std::fs::remove_file(&dest);
     }
-    let (method, hole_bytes) = outcome?;
+    let (method, bytes, hole_bytes) = outcome?;
     Ok(Value::Record(RecordMap::from([
-        (key("bytes"), Value::Int(len as i64)),
+        (key("bytes"), Value::Int(bytes as i64)),
         (key("hole_bytes"), Value::Int(hole_bytes as i64)),
         (key("method"), Value::Str(method.into())),
     ])))
@@ -520,12 +542,12 @@ fn transfer(
     len: u64,
     options: &CopyFile,
     span: Span,
-) -> Result<(&'static str, u64), RuntimeError> {
+) -> Result<(&'static str, u64, u64), RuntimeError> {
     let host = |error: std::io::Error| RuntimeError::host("fs-copy", &error).with_span(span);
     #[cfg(target_os = "linux")]
     if options.reflink != Policy::Never {
         match rfs::ioctl_ficlone(output, input) {
-            Ok(()) => return Ok((METHOD_CLONE, 0)),
+            Ok(()) => return Ok((METHOD_CLONE, len, 0)),
             Err(error) if options.reflink == Policy::Always => return Err(host(error.into())),
             Err(_) => {}
         }
@@ -534,11 +556,14 @@ fn transfer(
     if options.reflink == Policy::Always {
         return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
     }
+    if stream_source(input, metadata).map_err(host)? || options.sparse == Policy::Always {
+        let (bytes, written) = copy_stream(input, output, options.sparse == Policy::Always).map_err(host)?;
+        return Ok((METHOD_USER, bytes, bytes - written));
+    }
     let mut method = METHOD_USER;
     let mut copied = 0;
-    if options.sparse == Policy::Always {
-        copied = copy_zero_skipping(input, output, len).map_err(host)?;
-    } else {
+    let mut bytes = len;
+    {
         // Allocated blocks below the length mean holes worth scanning for.
         let extents = if options.sparse == Policy::Auto && metadata.blocks() * 512 < len {
             data_extents(input, len).map_err(host)?
@@ -548,15 +573,20 @@ fn transfer(
             vec![(0, len)]
         };
         for (offset, length) in extents {
-            if copy_range(input, output, offset, length).map_err(host)? == METHOD_KERNEL {
+            let (used, count) = copy_range(input, output, offset, length).map_err(host)?;
+            if used == METHOD_KERNEL {
                 method = METHOD_KERNEL;
             }
-            copied += length;
+            copied += count;
+            if count < length {
+                bytes = offset + count;
+                break;
+            }
         }
     }
     // Trailing holes exist only once the length is set.
-    output.set_len(len).map_err(host)?;
-    Ok((method, len - copied))
+    output.set_len(bytes).map_err(host)?;
+    Ok((method, bytes, bytes - copied))
 }
 
 /// Copies one extent, preferring the kernel and falling back to `pread`/`pwrite`
@@ -566,7 +596,7 @@ fn copy_range(
     output: &File,
     offset: u64,
     length: u64,
-) -> std::io::Result<&'static str> {
+) -> std::io::Result<(&'static str, u64)> {
     let mut done = 0;
     let mut method = METHOD_USER;
     #[cfg(target_os = "linux")]
@@ -594,27 +624,50 @@ fn copy_range(
         output.write_all_at(&buffer[..read], offset + done)?;
         done += read as u64;
     }
-    Ok(method)
+    Ok((method, done))
 }
 
-/// `--sparse=always`: blocks of zeros are never written, so they become holes
-/// when the length is set. Returns the bytes actually written.
-fn copy_zero_skipping(input: &File, output: &File, len: u64) -> std::io::Result<u64> {
+/// Virtual filesystem lengths describe an interface, rather than the readable
+/// byte count. Never use those lengths or hole maps to bound a transfer.
+fn stream_source(input: &File, metadata: &std::fs::Metadata) -> std::io::Result<bool> {
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Ok(true);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let kind = rfs::fstatfs(input)?.f_type;
+        if kind == 0x9fa0 || kind == 0x62656572 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// A fixed buffer bounds memory for devices and FIFOs. Zero blocks become
+/// holes only when explicitly requested; the final length includes trailing
+/// zeros even when no write materializes them.
+fn copy_stream(mut input: &File, output: &File, sparse: bool) -> std::io::Result<(u64, u64)> {
     const BLOCK: usize = 4096;
     let mut buffer = vec![0; 1 << 16];
     let (mut offset, mut written) = (0u64, 0u64);
-    while offset < len {
-        let read = input.read_at(&mut buffer, offset)?;
+    loop {
+        let read = match input.read(&mut buffer) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if read == 0 {
             break;
         }
         for (index, block) in buffer[..read].chunks(BLOCK).enumerate() {
-            if block.iter().any(|byte| *byte != 0) {
+            if !sparse || block.iter().any(|byte| *byte != 0) {
                 output.write_all_at(block, offset + (index * BLOCK) as u64)?;
                 written += block.len() as u64;
             }
         }
-        offset += read as u64;
+        offset = offset.checked_add(read as u64).ok_or_else(|| {
+            std::io::Error::other("copied byte count exceeds the host file size limit")
+        })?;
     }
-    Ok(written)
+    output.set_len(offset)?;
+    Ok((offset, written))
 }
