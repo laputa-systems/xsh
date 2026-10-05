@@ -35,6 +35,39 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   assert fp"{root}/out.txt".read_text()? == "demo"
 }
 
+type Builder = module {
+  export pure label(value: Str) -> Str
+  export proc build(root: Path) [fs, error] -> Result[Path]
+}
+
+# A callable export is called the same way on a contract-checked module
+# whether the module was bound to a name first or reached through `?.`.
+test test_module_export_call_chains_after_require { |ctx|
+  let root = test.temp_dir(ctx, name: "chained-export-call")?
+  let builder_path = fp"{root}/builder.xsh"
+  builder_path.write("""##! Test builder module.
+
+## Labels a value.
+export pure label(value: Str) -> Str {
+  f"built-{value}"
+}
+
+## Writes the build marker and returns its path.
+export proc build(root: Path) [fs, error] -> Result[Path] {
+  let marker = fp"{root}/marker.txt"
+  marker.write(label("marker"))?
+  marker
+}
+""")?
+
+  let bound = module.load(builder_path)?.require(Builder)?
+  let bound_marker = bound.build(root)?
+  let chained_marker = module.load(builder_path)?.require(Builder)?.build(root)?
+  assert chained_marker == bound_marker
+  assert chained_marker.read_text()? == "built-marker"
+  assert module.load(builder_path)?.require(Builder)?.label("x") == bound.label("x")
+}
+
 type VersionedModule = module {
   export let version: Int
 }

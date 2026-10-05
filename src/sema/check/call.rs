@@ -544,72 +544,13 @@ impl Checker {
                 return Type::Unknown;
             }
 
-            if let Type::Module(exports) = &base_ty
-                && let Some(export) = exports.get(&name)
-            {
-                match export {
-                    ModuleExportType::Proc { sig, .. } => {
-                        self.record_effect_contract(&sig.effects, &name.as_str());
-                        if self.in_pure {
-                            self.error(
-                                span,
-                                "effectful proc is not allowed in pure functions",
-                                DiagnosticCode::CheckPureEffect,
-                            );
-                        } else if let Some(caller_effs) = self.current_effects.clone() {
-                            self.check_module_callable_effects(
-                                &caller_effs,
-                                &sig.effects,
-                                &name.as_str(),
-                                span,
-                            );
-                        }
-                        self.check_module_callable_arg_list_arena(
-                            arena,
-                            source,
-                            args,
-                            &sig.params,
-                            span,
-                        );
-                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                        return sig.return_ty.as_ref().clone();
-                    }
-                    ModuleExportType::Pure { sig, .. } => {
-                        self.check_module_callable_arg_list_arena(
-                            arena,
-                            source,
-                            args,
-                            &sig.params,
-                            span,
-                        );
-                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
-                        return sig.return_ty.as_ref().clone();
-                    }
-                    ModuleExportType::Value { .. } => {}
-                }
-            }
-            let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
-                let callee_span = arena.arena.expr(callee).span;
-                self.removed_compatibility_name(
-                    Span::new(
-                        callee_span.source_id,
-                        callee_span.end() - "count_bytes".len(),
-                        callee_span.end(),
-                    ),
-                    "count_bytes",
-                    "byte_len",
-                    true,
-                );
-                Name::intern("byte_len")
-            } else {
-                name
-            };
-            return self.check_method_dispatch_arena(
+            return self.check_receiver_method_call_arena(
                 arena,
                 source,
+                callee,
                 base,
                 base_ty,
-                &canonical_name.as_str(),
+                name,
                 args,
                 span,
                 expected_context,
@@ -640,22 +581,6 @@ impl Checker {
                 );
                 return Type::Unknown;
             }
-            let canonical_name = if inner_ty == Type::Str && name == "count_bytes" {
-                let callee_span = arena.arena.expr(callee).span;
-                self.removed_compatibility_name(
-                    Span::new(
-                        callee_span.source_id,
-                        callee_span.end() - "count_bytes".len(),
-                        callee_span.end(),
-                    ),
-                    "count_bytes",
-                    "byte_len",
-                    true,
-                );
-                Name::intern("byte_len")
-            } else {
-                name
-            };
             let method_expected = if wrap_optional {
                 expected_context.and_then(|ty| {
                     if let Type::Optional(inner) = ty {
@@ -667,12 +592,13 @@ impl Checker {
             } else {
                 expected_context
             };
-            let return_ty = self.check_method_dispatch_arena(
+            let return_ty = self.check_receiver_method_call_arena(
                 arena,
                 source,
+                callee,
                 base,
                 inner_ty,
-                &canonical_name.as_str(),
+                name,
                 args,
                 span,
                 method_expected,
@@ -691,6 +617,95 @@ impl Checker {
             DiagnosticCode::CheckCallTarget,
         );
         Type::Unknown
+    }
+
+    /// Checks `receiver.name(args)` once the receiver's type is known: a call
+    /// to a module contract's callable export, or a registered method. `.` and
+    /// `?.` calls both end here, so a receiver reached through propagation
+    /// resolves exactly as one bound to a name first.
+    #[allow(clippy::too_many_arguments)]
+    fn check_receiver_method_call_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        base: ExprId,
+        base_ty: Type,
+        name: Name,
+        args: &[ArenaCallArg],
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Type {
+        if let Type::Module(exports) = &base_ty
+            && let Some(export) = exports.get(&name)
+        {
+            match export {
+                ModuleExportType::Proc { sig, .. } => {
+                    self.record_effect_contract(&sig.effects, &name.as_str());
+                    if self.in_pure {
+                        self.error(
+                            span,
+                            "effectful proc is not allowed in pure functions",
+                            DiagnosticCode::CheckPureEffect,
+                        );
+                    } else if let Some(caller_effs) = self.current_effects.clone() {
+                        self.check_module_callable_effects(
+                            &caller_effs,
+                            &sig.effects,
+                            &name.as_str(),
+                            span,
+                        );
+                    }
+                    self.check_module_callable_arg_list_arena(
+                        arena,
+                        source,
+                        args,
+                        &sig.params,
+                        span,
+                    );
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                    return sig.return_ty.as_ref().clone();
+                }
+                ModuleExportType::Pure { sig, .. } => {
+                    self.check_module_callable_arg_list_arena(
+                        arena,
+                        source,
+                        args,
+                        &sig.params,
+                        span,
+                    );
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
+                    return sig.return_ty.as_ref().clone();
+                }
+                ModuleExportType::Value { .. } => {}
+            }
+        }
+        let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
+            let callee_span = arena.arena.expr(callee).span;
+            self.removed_compatibility_name(
+                Span::new(
+                    callee_span.source_id,
+                    callee_span.end() - "count_bytes".len(),
+                    callee_span.end(),
+                ),
+                "count_bytes",
+                "byte_len",
+                true,
+            );
+            Name::intern("byte_len")
+        } else {
+            name
+        };
+        self.check_method_dispatch_arena(
+            arena,
+            source,
+            base,
+            base_ty,
+            &canonical_name.as_str(),
+            args,
+            span,
+            expected,
+        )
     }
 
     fn check_reveal_type_call_arena(
