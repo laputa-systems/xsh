@@ -5200,11 +5200,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_error_deferred_call(&mut self, index: usize) -> Result<(), RuntimeError> {
         let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
+        let leaves_with_error = !self.unwinding_successful_exit();
         let call = &mut self.calls[index];
         let cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
             &defers,
-            true,
+            leaves_with_error,
             &mut call.slots,
             call.call_span,
         );
@@ -6067,6 +6068,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.discard_work_from_with_primary(index, keep, self.pending_error.is_some())
     }
 
+    /// Whether what is unwinding the frames is `exit 0`. The script is ending
+    /// in success, so the scopes it unwinds do not leave with an error and
+    /// their `errdefer` actions stay skipped; a nonzero `exit`, a failure, and
+    /// a cancellation are errors to them.
+    fn unwinding_successful_exit(&self) -> bool {
+        self.pending_error
+            .as_ref()
+            .and_then(|error| error.abort.as_ref())
+            .is_some_and(|signal| signal.status == 0)
+    }
+
     fn discard_work_from_with_primary(
         &mut self,
         index: usize,
@@ -6090,6 +6102,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             })
             .count();
         let mut first_error: Option<RuntimeError> = None;
+        let primary_is_error = primary_failed && !self.unwinding_successful_exit();
         // Discarded work is popped in place, innermost first; nothing it runs
         // reads this frame's work stack, and the stack keeps its capacity.
         while self.calls[index].work.len() > keep {
@@ -6172,7 +6185,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.exit_block_scope(
                         index,
                         scope_id,
-                        primary_failed || first_error.is_some(),
+                        primary_is_error || first_error.is_some(),
                         false,
                         disposition,
                     )

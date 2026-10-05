@@ -5178,11 +5178,12 @@ impl Evaluator {
                     Ok(Flow::Continue(Value::Unit)),
                 );
                 // The script leaves its top level with an error when a
-                // statement failed, it aborted, or a signal is shutting it
-                // down; a failed cleanup action makes that true for the
-                // actions registered before it.
+                // statement failed, it exited with a nonzero status, or a
+                // signal is shutting it down; a failed cleanup action makes
+                // that true for the actions registered before it. `exit 0`
+                // ends the script in success.
                 let script_failed = traceback.is_some()
-                    || abort.is_some()
+                    || abort.is_some_and(|signal: AbortSignal| signal.status != 0)
                     || self.signal_state.shutdown_status.is_some();
                 for index in compact_indexed_defers.into_iter().rev() {
                     let on_error = self

@@ -286,6 +286,64 @@ exit 4
   assert exiting.stdout == "errdefer\n"
 }
 
+# A deliberate `exit` leaves every scope it unwinds with an error exactly when
+# its status is not zero: `exit 0` ends the script in success, so only the
+# `defer` actions run.
+test test_errdefer_follows_the_status_of_an_exit { |ctx|
+  let head = r"""
+proc leave(status: Int) {
+  errdefer { print "function errdefer" }
+  defer { print "function defer" }
+  {
+    errdefer { print "block errdefer" }
+    exit status
+  }
+}
+errdefer { print "script errdefer" }
+defer { print "script defer" }
+"""
+  let succeeding = test.expect(ctx, head + "\nleave(0)\n", status: 0)?
+  assert succeeding.stdout == "function defer\nscript defer\n"
+
+  let failing = test.expect(ctx, head + "\nleave(4)\n", status: 4)?
+  assert failing.stdout == "block errdefer\nfunction defer\nfunction errdefer\nscript defer\nscript errdefer\n"
+
+  # A failing cleanup action makes the scope leave with an error even while
+  # `exit 0` unwinds it: the `errdefer` actions registered before it run.
+  let cleanup = test.run_script(
+    ctx,
+    r"""
+errdefer { print "errdefer" }
+defer { error.fail("cleanup failed")? }
+exit 0
+""",
+  )?
+  assert cleanup.stdout == "errdefer\n"
+  assert "cleanup failed" in cleanup.stderr
+}
+
+# Cancellation unwinds every scope with an error.
+test test_errdefer_runs_on_cancellation { |ctx|
+  let canceled = test.expect(
+    ctx,
+    r"""
+proc work() [process, error] {
+  errdefer { print "function errdefer" }
+  defer { print "function defer" }
+  {
+    errdefer { print "block errdefer" }
+    run sh -c r"kill -TERM $PPID; sleep 5"
+  }
+  print "never"
+}
+errdefer { print "script errdefer" }
+work()
+""",
+    status: 3,
+  )?
+  assert canceled.stdout == "block errdefer\nfunction defer\nfunction errdefer\nscript errdefer\n"
+}
+
 test test_errdefer_removes_a_partial_file_only_on_failure { |ctx|
   let root = test.temp_dir(ctx, name: "errdefer-partial")?
   let kept = fp"{root}/kept"

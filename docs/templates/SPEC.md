@@ -2198,11 +2198,13 @@ an error when
   at an enclosing `try` or `retry`;
 - the function returns an `Err` through it, by `return` or as the function's
   tail value;
-- `exit`, or cancellation, unwinds through it; or
+- `exit` with a nonzero status, or cancellation (12.1), unwinds through it; or
 - one of its own deferred actions, registered later, fails.
 
 It leaves without an error on normal completion, on `break` and `continue`,
-and when the function returns any other value. An `Err` that is the tail of a
+when the function returns any other value, and when `exit 0` unwinds through
+it: a deliberate exit in success is not an error, so only `defer` actions
+run. The status is the evaluated one, whatever expression wrote it. An `Err` that is the tail of a
 value block is that block's value, not a failure. A block inside `try` that the captured failure passes through leaves with an
 error; the block that contains the `try` does not. Each `retry` attempt is a
 block, so a failed attempt runs its `errdefer` actions before the next
@@ -2210,8 +2212,8 @@ attempt. A stream producer that its consumer stops early leaves without an
 error. A failing `errdefer` action is a cleanup failure like any other: the
 failure that triggered it stays primary, the other actions still run, and the
 cleanup failure is reported with its location. At the top level, the scope is
-the script, and it leaves with an error when the script fails or exits with
-`exit`.
+the script, and it leaves with an error when the script fails, is canceled,
+or exits with a nonzero status.
 
 A `tempdir` scope (10.4) removes its directory with a deferred action of this
 kind, registered before the body runs.
@@ -2343,7 +2345,9 @@ different one.
 `exit status` ends the script with `status` as a deliberate exit. It is not an
 error: no traceback is printed and `try` does not capture it. Deferred cleanup
 runs while unwinding, and the status is an `Int` expression from 0 to 255
-(12.3), evaluated once.
+(12.3), evaluated once. Every `defer` action of the scopes it unwinds runs;
+their `errdefer` actions (8.7) run when the status is not zero and are skipped
+by `exit 0`.
 
 ```xsh
 {{.spec.exit.source}}
@@ -3128,7 +3132,9 @@ Every `run` command gets its own process group, and a byte pipeline shares one
 group. When XSH receives `SIGINT` or `SIGTERM` with no matching hook, it
 forwards the same signal to active child groups, waits a short grace period,
 kills the remaining children with `SIGKILL`, cancels live handles and network
-jobs, runs cleanup, and fails with `Canceled`; the script exits `3`. XSH does
+jobs, runs cleanup, and fails with `Canceled`; the script exits `3`. Cleanup
+is every `defer` and every `errdefer` action (8.7) of the scopes that were
+open: cancellation leaves each of them with an error. XSH does
 not manage descendants that move to another process group or session.
 
 OS signal handlers only record that a signal arrived. XSH code runs only at
