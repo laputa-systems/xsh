@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.proc_launch
 
 const USAGE = """Usage: nice [OPTION] [COMMAND [ARG]...]
 Run COMMAND with an adjusted niceness, which affects process scheduling.
@@ -105,23 +106,6 @@ pure failure_text(failure: Error) -> Str {
   gnu.strerror(failure)
 }
 
-# The exit status execvp would produce for COMMAND, or 0 when it can start.
-proc launch_status(command: Str) [fs, process] -> Int {
-  guard command.find("/") == null else {
-    let target = fp"{command}"
-
-    return 127 when ! (target.exists() ?? false)
-    return 126 when ! (target.executable() ?? false)
-
-    return 0
-  }
-
-  match process.which(command) {
-    Ok(_) => 0
-    Err(_) => 127
-  }
-}
-
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: NiceOptions = cli.applet(
     normalize(argv),
@@ -184,7 +168,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let command = opts.command[0]
-  let status = launch_status(command)
+  let status = proc_launch.launch_status(command)
 
   if status != 0 {
     let reason = if status == 127 { "No such file or directory" } else { "Permission denied" }
@@ -200,7 +184,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let plan = process.command_argv(command, opts.command)
 
   if let Err(failure) = unix.exec(plan) {
-    gnu.error(f"{gnu.quote(command)}: {failure.message}")
+    gnu.error(f"{gnu.quote(command)}: {gnu.strerror(failure)}")
     exit 126
   }
 }

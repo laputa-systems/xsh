@@ -188,3 +188,24 @@ test test_nice_help_and_version_go_to_stdout { |ctx|
   assert version.status == 0
   assert version.stdout.starts_with("nice ")
 }
+
+test test_nice_command_tokens_that_look_like_adjustments_survive { |ctx|
+  let result = nice_run(ctx, ["-n", "0", "printf", "%s|%s", "--19", "-n3"])?
+  assert result.status == 0
+  assert result.stdout == "--19|-n3"
+  assert result.stderr == ""
+}
+
+test test_nice_nonexecutable_path_match_is_126 { |ctx|
+  let root = test.temp_dir(ctx, name: "path-permission")?
+  let blocked = fp"{root}/blocked"
+  blocked.write("printf must-not-run\n")
+  blocked.chmod(384)?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/nice.xsh"
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "blocked"], root, {PATH: root, LC_ALL: "C"}, b"", out, err)
+  assert process.run(plan)?.shell_code()? == 126
+  assert out.read_text()? == ""
+  assert err.read_text()? == "nice: 'blocked': Permission denied\n"
+}
