@@ -1426,7 +1426,7 @@ An entry script that needs to do something when signaled declares a hook at
 its top level, one per signal, with a required effect list. A hook is not a
 way to ignore or resume: the first handled signal always starts shutdown, the
 hook runs at most once, and a second signal kills the remaining children
-immediately. `abort(status)` chooses the exit status; a hook for `INT` or
+immediately. `exit STATUS` chooses the exit status; a hook for `INT` or
 `TERM` that finishes normally exits 3.
 
 ```xsh

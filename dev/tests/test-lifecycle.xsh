@@ -45,7 +45,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
     xsh,
     f"""p"{cargo_marker}".write("cargo")?
 exit 23""",
-  )?
+  )
   let inherited_path = env.get_or("PATH", "")?
   let result = test.run_script(
     ctx,
@@ -84,7 +84,7 @@ test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
     xsh,
     f"""p"{cargo_marker}".write(args.join("|"))?
 exit 23""",
-  )?
+  )
   let result = test.run_script(
     ctx,
     f"""
@@ -164,8 +164,8 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
     xsh,
     f"""p"{cargo_marker}".write("cargo")?
 exit 23""",
-  )?
-  write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")?
+  )
+  write_fake_tool(fp"{tools}/chown", xsh, f"""p"{cleanup_marker}".write("cleanup")?""")
   let result = test.run_script(
     ctx,
     f"""
@@ -245,7 +245,7 @@ test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
     xsh,
     f"""p"{docker_marker}".write(args.join("|"))?
 exit 24""",
-  )?
+  )
   let result = test.run_script(
     ctx,
     f"""
@@ -372,7 +372,7 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
     xsh,
     f"""p"{codesign_marker}".write("codesign")?
 exit 25""",
-  )?
+  )
   let result = test.run_script(
     ctx,
     f"""

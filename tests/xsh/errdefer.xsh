@@ -276,23 +276,14 @@ errdefer { print "never registered" }
   assert failing.status == 3
   assert failing.stdout == "body\ndefer\nerrdefer\n"
 
-  let aborting = test.run_script(
+  let exiting = test.run_script(
     ctx,
     """errdefer { print "errdefer" }
-abort(4)
+exit 4
 """,
   )?
-  assert aborting.status == 4
-  assert aborting.stdout == "errdefer\n"
-
-  let forced = test.run_script(
-    ctx,
-    """errdefer { print "errdefer" }
-abort(4, force: true)
-""",
-  )?
-  assert forced.status == 4
-  assert forced.stdout == ""
+  assert exiting.status == 4
+  assert exiting.stdout == "errdefer\n"
 }
 
 test test_errdefer_removes_a_partial_file_only_on_failure { |ctx|

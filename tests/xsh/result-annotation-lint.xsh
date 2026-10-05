@@ -18,7 +18,7 @@ for kind in ["a", "b"] {
   }
 }
 """
-  candidate.write_atomic(source)?
+  candidate.write_atomic(source)
   let before = test.run_script(ctx, source)?
   assert before.success, before.stderr
 

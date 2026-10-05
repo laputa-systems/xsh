@@ -110,8 +110,8 @@ test test_public_result_error_reaches_imported_modules { |ctx|
 
 test test_unspelled_public_results_are_check_errors { |ctx|
   let root = test.temp_dir(ctx, name: "public-result-rejected")?
-  fp"{root}/config.xsh".write_atomic(unspelled_module)?
-  let rejected = test.run_script(ctx, importer, [], {XSH_MODULE_PATH: root.display()})?
+  fp"{root}/config.xsh".write_atomic(unspelled_module)
+  let rejected = test.run_script(ctx, importer, [], {XSH_MODULE_PATH: root})?
   assert ! rejected.success, rejected.stdout
   assert "check.public-result-error" in rejected.stderr, rejected.stderr
 

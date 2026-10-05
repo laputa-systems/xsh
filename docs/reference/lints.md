@@ -49,7 +49,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-defer-block` | Replace a single-use literal cleanup helper with a `defer` block |
 | `lint.prefer-empty-map-literal` | Use `{}` for an empty map in map-typed contexts |
 | `lint.prefer-env-string` | Read an environment variable with a literal identifier name as `e"NAME"` |
-| `lint.prefer-exit` | Write a deliberate exit as the statement `exit STATUS` instead of `abort(STATUS)` |
 | `lint.prefer-file-lines` | Use `path.lines()?` instead of `read_text()?.lines()` in a loop |
 | `lint.prefer-fs-files` | Use `fs.files()` instead of `fs.walk()` filtered to `kind == file` |
 | `lint.prefer-generic-record-constructor` | Let a constructor infer its concrete schema from the supplied fields |

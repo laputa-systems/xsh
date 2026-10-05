@@ -806,11 +806,24 @@ does not; a family written in braces stays in braces.
 
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
-A constructor takes payload fields by name (with puns) or positionally:
-positional arguments fill the leading fields in the order the variant
-declares them, the order record constructors use (4.7). Arguments evaluate
-once in source order, and the error is the same value whether a field was
-passed by name or by position.
+A constructor takes payload fields by name (with puns) or positionally, by
+the rules of a record constructor (4.7): positional arguments come first and
+fill fields in the order the variant declares them, and they are accepted
+only when no single value fits two of the fields they fill, so exchanging two
+of them is always a type error. Other fields are passed by name
+(`check.positional-error-arguments`):
+
+```xsh
+error BuildError = Failed(stage: Str, message: Str) | Exited(code: Int, tool: Str, log: Path)
+
+let swapped = BuildError.Failed("link", "undefined symbol")  # error: check.positional-error-arguments
+let named = BuildError.Failed(stage: "link", message: "undefined symbol")
+let leading = BuildError.Exited(1, "ld", log: p"build/ld.log")
+let late = BuildError.Exited(tool: "ld", log: p"build/ld.log", 1)  # error: check.positional-error-arguments
+```
+
+Arguments evaluate once in source order, and the error is the same value
+whether a field was passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
@@ -1853,8 +1866,8 @@ if name != null {} else {
 ```
 
 with one rule the `if` does not have: the block must leave the enclosing
-continuation on every path (by `return`, `break`, `continue`, `exit`, or a
-terminating call such as `abort`), or the checker reports `check.guard-fallthrough`. A
+continuation on every path (by `return`, `break`, `continue`, or `exit`), or
+the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
 
@@ -1950,7 +1963,7 @@ run. The original failure stays primary; if there was none, the first cleanup
 failure becomes primary, and later cleanup failures are reported with their
 locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
-the block's defers run (11.8). `abort(status, force: true)` skips cleanup.
+the block's defers run (11.8).
 
 `errdefer action` or `errdefer { ... }` registers cleanup that runs only when
 control leaves the enclosing block with an error:
@@ -1975,7 +1988,7 @@ an error when
   at an enclosing `try` or `retry`;
 - the function returns an `Err` through it, by `return` or as the function's
   tail value;
-- `abort` without `force`, or cancellation, unwinds through it; or
+- `exit`, or cancellation, unwinds through it; or
 - one of its own deferred actions, registered later, fails.
 
 It leaves without an error on normal completion, on `break` and `continue`,
@@ -1987,7 +2000,8 @@ attempt. A stream producer that its consumer stops early leaves without an
 error. A failing `errdefer` action is a cleanup failure like any other: the
 failure that triggered it stays primary, the other actions still run, and the
 cleanup failure is reported with its location. At the top level, the scope is
-the script, and it leaves with an error when the script fails or aborts.
+the script, and it leaves with an error when the script fails or exits with
+`exit`.
 
 `tempdir name at path { ... }` runs its block with a scratch directory at a
 path the program chooses. It is sugar, defined by its expansion:
@@ -2120,12 +2134,6 @@ position where a command named `exit` would otherwise be read (10.1);
 `exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
 call of a binding named `exit`.
 
-`abort(status: Int, force: Bool = false)` is the older built-in call.
-`abort(status)` means `exit status`, and `lint.prefer-exit` rewrites it.
-`abort(status, force: true)` exits without unwinding: no deferred action
-runs, including the ones still pending when it is called from a deferred
-action or a signal hook, and scoped processes are not cleaned up.
-
 ## 9. Functions
 
 ### 9.1 Definitions
@@ -2202,6 +2210,39 @@ proc's annotation only when the file checks clean without it and no checked
 type in the file changes; `lint.redundant-result-unit` removes a broad
 `Result[Unit]` that a statement body already means, and leaves
 `Result[Unit, Family]` alone.
+
+A public signature spells the error type of every `Result` it writes
+(`check.public-result-error`): `Result[Config, ConfigError]` where callers can
+rely on a family, or `Result[Config, Error]` where broad failure is the
+contract. The public signatures are the parameters and return type of an
+exported `proc`, `pure`, or `stream`, an exported `type` or annotated binding,
+and every entry of a module contract (4.9). `Result[T]` stays the short
+spelling of `Result[T, Error]` in private signatures and inside bodies.
+
+```xsh
+## Why a configuration was refused.
+export error ConfigError = Empty(file: Path)
+
+## Reads a configuration file.
+export proc read(file: Path) [fs, error] -> Result[Str] {  # error: check.public-result-error
+  first_line(file)
+}
+
+## Reads a configuration file, failing broadly.
+export proc read_any(file: Path) [fs, error] -> Result[Str, Error] {
+  first_line(file)
+}
+
+## Refuses an empty configuration.
+export pure checked(file: Path, text: Str) -> Result[Str, ConfigError] {
+  return Err(.Empty(file:)) when text == ""
+  text
+}
+
+proc first_line(file: Path) [fs, error] -> Result[Str] {
+  file.read_lines()?.get(0)
+}
+```
 
 ### 9.4 Callable aliases
 
