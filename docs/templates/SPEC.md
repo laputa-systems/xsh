@@ -2889,6 +2889,12 @@ A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
 
+At most 10000 function calls are open at once. The call that would be one
+more fails with the runtime error `stack-overflow`, whose message names the
+innermost open calls, so recursion that never ends is an error instead of a
+script that runs until memory does. Recursion over data stays far below the
+limit; write a loop where a list is long enough to reach it.
+
 A function declared `Result[T, E]?` returns `null`, an `Ok`, or an `Err` as
 the value it is: an `Err` it returns is data for the caller, bound by a plain
 `let` like any other value, and not a failure of the call.

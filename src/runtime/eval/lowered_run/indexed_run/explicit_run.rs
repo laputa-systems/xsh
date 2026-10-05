@@ -610,6 +610,18 @@ impl std::ops::DerefMut for FrameSlots<'_> {
     }
 }
 
+/// How many function calls may be open at once.
+///
+/// Call frames live on the heap, so recursion that never ends would
+/// otherwise run until memory does. The limit is far above the depth of
+/// recursion over data and low enough that reaching it takes about a second
+/// in an unoptimized build.
+const MAX_CALL_DEPTH: usize = 10_000;
+
+/// How many of the open calls a `stack-overflow` error names before the call
+/// that was refused.
+const STACK_OVERFLOW_PATH_CALLS: usize = 5;
+
 pub(super) struct CallFrame<'p> {
     pub(super) owner: FrameOwner,
     /// Whether this frame is a stream producer, whose body ends by falling off
@@ -1702,6 +1714,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         call_span: Span,
         return_to: Option<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
+        if self.evaluator.call_stack.len() >= MAX_CALL_DEPTH {
+            // The innermost calls name the cycle; the whole path would be
+            // ten thousand lines of it.
+            let open = &self.evaluator.call_stack;
+            let mut path = open[open.len() - STACK_OVERFLOW_PATH_CALLS..]
+                .iter()
+                .map(|frame| frame.name.text())
+                .collect::<Vec<_>>();
+            path.push(function.display_name());
+            return Err(RuntimeError::new(
+                "stack-overflow",
+                format!(
+                    "more than {MAX_CALL_DEPTH} calls are open; the innermost are {}",
+                    path.join(" -> ")
+                ),
+            )
+            .with_span(call_span));
+        }
         self.evaluator
             .hydrate_lowered_captures(&header, &mut slots, call_span)?;
         let execution = view
