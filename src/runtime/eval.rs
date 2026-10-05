@@ -2920,6 +2920,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "base32_decode",
     "starts_with",
     "ends_with",
+    "write_lines",
     "wait",
     "cancel",
     "context",

@@ -572,6 +572,7 @@ diagnostic_codes! {
         LintPreferStringConcat = "lint.prefer-string-concat", warning, "Use `+` instead of joining literal pieces with an empty separator";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
+        LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";
         LintRedundantBareReturn = "lint.redundant-bare-return", warning, "Remove a bare `return` at the end of a `Result[Unit]` function";
         LintRedundantCommandFmt = "lint.redundant-command-fmt", warning, "Use command value syntax directly for a single-value command f-string";

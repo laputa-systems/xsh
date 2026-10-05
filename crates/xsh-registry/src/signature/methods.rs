@@ -225,6 +225,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::FsWriteAtomic,
                 ),
                 method(
+                    "write_lines",
+                    vec![param("lines", Type::List(Box::new(Type::Str)))],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsWriteLines,
+                ),
+                method(
                     "copy",
                     vec![
                         param("dest", Type::Path),

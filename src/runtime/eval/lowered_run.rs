@@ -11052,6 +11052,22 @@ impl Evaluator {
             let value = lowered_runtime_value(result, *span)?;
             return Ok(ControlFlow::Continue(value));
         }
+        if let LoweredValue::Path(path) = &receiver
+            && name == "write_lines"
+            && values.len() == 1
+        {
+            let lines = lowered_str_list_arg(values.pop(), "Path.write_lines", *span)?;
+            let mut data = Vec::with_capacity(lines.iter().map(|line| line.len() + 1).sum());
+            for line in &lines {
+                data.extend_from_slice(line.as_bytes());
+                data.push(b'\n');
+            }
+            // The same write as `Path.write`, so creation, replacement, mode,
+            // and failures cannot drift from it.
+            let value =
+                lowered_unit_result(fs_module::write_path(self.host_path(path), &data, *span));
+            return Ok(ControlFlow::Continue(value));
+        }
         if let LoweredValue::Path(source) = &receiver
             && name == "copy"
             && (values.len() == 1 || values.len() == 2)

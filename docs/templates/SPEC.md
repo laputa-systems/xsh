@@ -2090,6 +2090,11 @@ Contracts worth knowing without consulting the reference:
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).
   With `stat: false`, metadata fields are unavailable and reading one fails
   with `metadata-unavailable` instead of returning a placeholder.
+- `Path.write_lines(lines)` writes each element of a `List[Str]` followed by
+  `\n`, so every line is terminated and an empty list writes an empty file.
+  Creating, replacing, the file mode, and failures are those of `Path.write`.
+  It is not `p.write(lines.join("\n") + "\n")`, which writes one newline for
+  an empty list.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process.

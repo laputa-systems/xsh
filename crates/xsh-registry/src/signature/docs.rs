@@ -1448,6 +1448,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call.",
             &["path", "filesystem", "write"],
         )),
+        ("Path", "write_lines") => Some((
+            "Writes a list of text lines to a path, each followed by a newline.",
+            "Every element is terminated, so an empty list writes an empty file; elements are written as given. Creating, replacing, the file mode, and failures are those of write.",
+            &["path", "filesystem", "write", "lines"],
+        )),
         ("Path", "copy") => Some((
             "Copies a path to an explicit destination.",
             "Overwrite behavior is explicit and filesystem failures remain errors.",

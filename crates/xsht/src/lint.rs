@@ -20,6 +20,9 @@ mod lint_implicit_message;
 #[path = "lint_path_text_query.rs"]
 mod lint_path_text_query;
 
+#[path = "lint_write_lines.rs"]
+mod lint_write_lines;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -593,6 +596,8 @@ impl<'a> Linter<'a> {
         let path_text_queries =
             lint_path_text_query::lint_path_text_queries(program, source, &linter.expr_types);
         linter.diagnostics.extend(path_text_queries);
+        let write_lines = lint_write_lines::lint_write_lines(program, source, &linter.expr_types);
+        linter.diagnostics.extend(write_lines);
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));
