@@ -7,7 +7,7 @@ error FetchError {
 }
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
-  return Err(ConfigError.Invalid(file, "empty")) when text == ""
+  return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
 }
 
 pure parse_url(url: Str) -> Result[Str, FetchError] {

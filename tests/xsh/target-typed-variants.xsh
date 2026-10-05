@@ -24,7 +24,7 @@ pure deepest() -> Kind {
 
 pure require_binary(entry: Entry) -> Result[Entry, ProofError] {
   if entry.kind != .Binary {
-    return Err(.Failed("proof-kind", f"{entry.path} is {label(entry.kind)}"))
+    return Err(.Failed(kind: "proof-kind", message: f"{entry.path} is {label(entry.kind)}"))
   }
   entry
 }
@@ -114,7 +114,7 @@ pure owner(file: Path) -> Result[Str, k.OwnerError] {
   if file == p"etc/shadow" {
     return Err(.Unowned(file:))
   }
-  Err(.Conflict(file, "base"))
+  Err(.Conflict(file:, owner: "base"))
 }
 
 pure describe(result: Result[Str, k.OwnerError]) -> Str {
@@ -242,7 +242,7 @@ type Entry = {path: Path, kind: kinds.Kind}
 
 proc check(entry: Entry) -> Result[Unit, ProofError] {
   if entry.kind == kinds.Binary {
-    return Err(ProofError.Failed("proof", f"{entry.path} is a binary"))
+    return Err(ProofError.Failed(kind: "proof", message: f"{entry.path} is a binary"))
   }
 }
 
@@ -265,7 +265,7 @@ for entry in entries {
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-variant $candidate ?
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
-  assert "Err(.Failed(\"proof\"" in fixed, fixed
+  assert "Err(.Failed(kind: \"proof\"" in fixed, fixed
   assert "kind: .Binary}" in fixed, fixed
   assert "kind: .File}" in fixed, fixed
   assert "entry.kind == .Binary" in fixed, fixed

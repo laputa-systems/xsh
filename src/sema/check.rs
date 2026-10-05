@@ -167,9 +167,22 @@ pub struct CheckOutput {
     /// `message: Str`, the field a variant without a payload already carries,
     /// keyed by call expression.
     pub message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    /// How each well-formed error constructor call binds its arguments, keyed
+    /// by call expression.
+    pub error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
+}
+
+/// The argument binding of one error constructor call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedErrorConstructor {
+    /// The payload field each argument supplies, in source order.
+    pub fields: Vec<Name>,
+    /// The call omitted the message of a variant declared without a payload;
+    /// the message is then the family and variant name.
+    pub default_message: bool,
 }
 
 /// One constructor call of a variant declared as `Variant(message: Str)`.
@@ -460,6 +473,20 @@ impl ErrorPayloadFields {
         self.0.iter().map(|(_, ty)| ty)
     }
 
+    /// The first two of the leading `count` fields that some value fits both
+    /// of, so exchanging positional arguments between them could still check.
+    pub fn positional_conflict(&self, count: usize) -> Option<(Name, Name)> {
+        let filled = &self.0[..count.min(self.0.len())];
+        filled.iter().enumerate().find_map(|(index, (left, left_ty))| {
+            filled[index + 1..]
+                .iter()
+                .find(|(_, right_ty)| {
+                    crate::sema::constants::types_may_share_a_value(left_ty, right_ty)
+                })
+                .map(|(right, _)| (*left, *right))
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -555,6 +582,7 @@ pub struct Checker {
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
     message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
@@ -686,6 +714,7 @@ impl Checker {
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
+                error_constructors: checker.error_constructors,
                 embedded_bodies_checked: options.embedded_bodies,
             }
         })
@@ -828,6 +857,7 @@ impl Checker {
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
+                error_constructors: checker.error_constructors,
                 embedded_bodies_checked: false,
             }
         })
@@ -894,6 +924,7 @@ impl Checker {
             redundant_variant_qualifiers: BTreeMap::new(),
             record_constructor_fields: BTreeMap::new(),
             message_payload_constructors: BTreeMap::new(),
+            error_constructors: BTreeMap::new(),
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),

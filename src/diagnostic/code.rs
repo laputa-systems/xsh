@@ -386,6 +386,7 @@ diagnostic_codes! {
         CheckPipelineHole = "check.pipeline-hole", error, "Reject `_` used as anything other than a whole-argument placeholder in an immediate pipeline call";
         CheckPipelineStage = "check.pipeline-stage", error, "Reject a value pipeline stage that is not a call";
         CheckPipelineStdin = "check.pipeline-stdin", error, "Reject stdin redirection on a byte pipeline segment other than the first";
+        CheckPositionalErrorArguments = "check.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
         CheckProcCommandSyntax = "check.proc-command-syntax", error, "Reject calling a `proc` with command syntax instead of expression-call syntax";
         CheckProcessArgvEmpty = "check.process-argv-empty", error, "Reject an empty argv list in `process.command_argv`";
         CheckPureAssignment = "check.pure-assignment", error, "Reject assignment in a `pure` function to anything but its own local `var`";
@@ -527,6 +528,7 @@ diagnostic_codes! {
         LintPathConstructor = "lint.path-constructor", warning, "Prefer a `p` string literal or path interpolation over `Path(...)`";
         LintPathTextQuery = "lint.path-text-query", warning, "Test a Path for a root component instead of testing its display text for a leading `/`";
         LintPatternConditional = "lint.pattern-conditional", warning, "Use `if let` for a two-arm match with a complementary pattern";
+        LintPositionalErrorArguments = "lint.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
         LintPreferBareFieldLabel = "lint.prefer-bare-field-label", warning, "Write identifier-shaped record field labels without quotes";
         LintPreferBlockString = "lint.prefer-block-string", warning, "Use a block string for a constant multiline string concatenation";
         LintPreferCallableAlias = "lint.prefer-callable-alias", warning, "Use an immutable alias for a callable that exactly forwards to another";

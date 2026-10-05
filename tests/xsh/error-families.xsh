@@ -1,7 +1,7 @@
 error OrderError {
     Conflict(path: Path, owner: Str)
     Pair(second: Str, first: Str)
-    Triple(zulu: Int, mike: Int, alpha: Int)
+    Triple(zulu: Int, mike: Str, alpha: Bool)
 }
 
 error FetchError {
@@ -32,60 +32,71 @@ pure pair_fields(error: Error) -> Str {
 }
 
 test test_positional_error_arguments_fill_fields_in_declaration_order {
-  assert pair_fields(OrderError.Conflict(p"x", "o")) == "path=x owner=o"
-  assert pair_fields(OrderError.Pair("s", "f")) == "second=s first=f"
-  assert pair_fields(OrderError.Triple(1, 2, 3)) == "zulu=1 mike=2 alpha=3"
-  assert pair_fields(OrderError.Triple(1, alpha: 3, mike: 2)) == "zulu=1 mike=2 alpha=3"
+  assert pair_fields(OrderError.Triple(1, "m", true)) == "zulu=1 mike=m alpha=true"
+  assert pair_fields(OrderError.Triple(1, alpha: true, mike: "m")) == "zulu=1 mike=m alpha=true"
+  assert pair_fields(OrderError.Triple(1, "m", alpha: false)) == "zulu=1 mike=m alpha=false"
 }
 
 test test_error_equality_ignores_argument_order {
-  assert OrderError.Pair("s", "f") == OrderError.Pair(first: "f", second: "s")
-  assert OrderError.Pair("s", "f") == OrderError.Pair(second: "s", first: "f")
-  assert OrderError.Pair("s", "f") != OrderError.Pair("f", "s")
+  assert OrderError.Pair(second: "s", first: "f") == OrderError.Pair(first: "f", second: "s")
+  assert OrderError.Pair(second: "s", first: "f") != OrderError.Pair(second: "f", first: "s")
+  assert OrderError.Triple(1, "m", true) == OrderError.Triple(alpha: true, mike: "m", zulu: 1)
+  assert pair_fields(OrderError.Conflict(owner: "o", path: p"x")) == "path=x owner=o"
 }
 
 test test_target_typed_error_arguments_fill_fields_in_declaration_order {
-  let inferred: OrderError = .Pair("s", "f")
-  assert pair_fields(inferred) == "second=s first=f"
-  assert inferred == OrderError.Pair("s", "f")
+  let inferred: OrderError = .Triple(1, "m", true)
+  assert pair_fields(inferred) == "zulu=1 mike=m alpha=true"
+  assert inferred == OrderError.Triple(1, "m", true)
 }
 
-test test_positional_error_arguments_evaluate_in_source_order { |ctx|
+test test_error_arguments_evaluate_in_source_order { |ctx|
   let executed = test.run_script(
     ctx,
-    r"""error E = Pair(second: Int, first: Int)
+    r"""error E = Mixed(second: Int, first: Str) | Pair(left: Int, right: Int)
 proc marked(value: Int) -> Int {
   print $value
   return value
 }
-match Err(E.Pair(marked(1), marked(2))) {
-  Err(E.Pair {second, first}) => print f"second={second} first={first}"
+proc labeled(value: Str) -> Str {
+  print $value
+  return value
+}
+match Err(E.Mixed(marked(1), labeled("b"))) {
+  Err(E.Mixed {second, first}) => print f"second={second} first={first}"
+  _ => print "other"
+}
+match Err(E.Pair(right: marked(2), left: marked(3))) {
+  Err(E.Pair {left, right}) => print f"left={left} right={right}"
   _ => print "other"
 }
 """,
   )?
   assert executed.success, executed.stderr
   assert executed.stdout == """1
+b
+second=1 first=b
 2
-second=1 first=2
+3
+left=3 right=2
 """
 }
 
 test test_positional_error_arguments_are_checked_against_declaration_order { |ctx|
   let swapped = test.run_script(
     ctx,
-    """error E = Conflict(path: Path, owner: Str)
-let conflict = E.Conflict("o", p"x")
+    """error E = Triple(zulu: Int, mike: Str, alpha: Bool)
+let triple = E.Triple("m", 1, true)
 """,
   )?
   assert ! swapped.success, swapped.stderr
   assert "check.type-mismatch" in swapped.stderr
-  assert "expected Path, found Str" in swapped.stderr
+  assert "expected Int, found Str" in swapped.stderr
 
   let extra = test.run_script(
     ctx,
-    """error E = Conflict(path: Path, owner: Str)
-let conflict = E.Conflict(p"x", "o", "extra")
+    """error E = Triple(zulu: Int, mike: Str, alpha: Bool)
+let triple = E.Triple(1, "m", true, 4)
 """,
   )?
   assert ! extra.success, extra.stderr
@@ -262,7 +273,7 @@ proc check(name: Str) -> Result[Unit, ProofError] {
   let message = f"no {name}"
   return Err(ProofError.Usage(message: "empty name")) when name == ""
   return Err(.Missing(message:)) when name == "gone"
-  return Err(ProofError.Failed("kind", message)) when name == "bad"
+  return Err(ProofError.Failed(kind: "kind", message:)) when name == "bad"
 }
 
 for name in ["", "gone", "bad", "ok"] {
@@ -293,7 +304,7 @@ print ${StageError.Broken("detail").message}
   assert "    Skipped\n    Broken(detail: Str)\n" in fixed, fixed
   assert "ProofError.Usage(\"empty name\")" in fixed, fixed
   assert "Err(.Missing(message))" in fixed, fixed
-  assert "ProofError.Failed(\"kind\", message)" in fixed, fixed
+  assert "ProofError.Failed(kind: \"kind\", message:)" in fixed, fixed
   let after = test.run_script(ctx, fixed)?
   assert after.success, after.stderr
   assert after.stdout == before.stdout
@@ -365,4 +376,51 @@ print ${ProofError.Usage(message: "named").message}
 """)?
   let linted = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
   assert linted.status.exited_with(0), linted.stderr
+}
+
+test test_positional_error_arguments_fix_names_the_fields_they_fill { |ctx|
+  let root = test.temp_dir(ctx, name: "positional-error-arguments")?
+  let candidate = fp"{root}/main.xsh"
+  candidate.write_atomic(
+    r"""error ScriptError = Failed(kind: Str, message: Str) | Triple(zulu: Int, mike: Str, alpha: Int)
+
+proc check(kind: Str) -> Result[Unit, ScriptError] {
+  let message = f"bad {kind}"
+  return Err(ScriptError.Failed(kind, message)) when kind == "a"
+  return Err(.Failed("usage", f"{kind} again")) when kind == "b"
+  return Err(ScriptError.Triple(alpha: 2, 1, "m")) when kind == "c"
+  return Err(ScriptError.Triple(3, "distinct", alpha: 4)) when kind == "d"
+}
+
+for kind in ["a", "b", "c", "d", "e"] {
+  match check(kind) {
+    Err(ScriptError.Failed {kind: label, message}) => print f"{label}: {message}"
+    Err(ScriptError.Triple {zulu, mike, alpha}) => print f"{zulu} {mike} {alpha}"
+    Err(error) => print $error.message
+    Ok(_) => print "ok"
+  }
+}
+""",
+  )?
+  let first = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate ?
+  assert ! first.status.exited_with(0), first.stderr
+  assert "fields `kind` and `message` can hold the same value" in first.stderr, first.stderr
+  assert "positional error constructor arguments must come before named ones" in first.stderr, first.stderr
+  let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $candidate ?
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert "ScriptError.Failed(kind:, message:)" in fixed, fixed
+  assert ".Failed(kind: \"usage\", message: f\"{kind} again\")" in fixed, fixed
+  assert "ScriptError.Triple(alpha: 2, zulu: 1, mike: \"m\")" in fixed, fixed
+  assert "ScriptError.Triple(3, \"distinct\", alpha: 4)" in fixed, fixed
+  let after = test.run_script(ctx, fixed)?
+  assert after.success, after.stderr
+  assert after.stdout == """a: bad a
+usage: b again
+1 m 2
+3 distinct 4
+ok
+"""
+  let second = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate ?
+  assert second.status.exited_with(0), second.stderr
 }

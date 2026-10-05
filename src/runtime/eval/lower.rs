@@ -9430,7 +9430,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(push_build_row!(self, expr, BuildExprRow::Try(checked)));
         }
         if let Some((error, bindings)) =
-            self.lower_compact_error_expr(callee, &args_vec, slots, current_function, item_slot)
+            self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)
         {
             let value = push_build_row!(self, expr, BuildExprRow::Error(Box::new(error)));
             return Some(self.wrap_argument_bindings(value, bindings, span));
@@ -11099,6 +11099,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn lower_compact_error_expr(
         &mut self,
+        call: ExprId,
         callee: ExprId,
         args: &[ArenaCallArg],
         slots: &mut SlotScope,
@@ -11148,6 +11149,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         let family_key = self.resolved_compact_error_family_key(base)?;
         self.lower_error_variant_payload(
+            call,
             family_key,
             variant,
             args,
@@ -11157,10 +11159,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         )
     }
 
-    /// An error variant value from its constructor arguments, bound to payload
-    /// fields as the checker bound them.
+    /// An error variant value from its constructor arguments. The checker
+    /// decided which payload field each argument fills; a call it published
+    /// no binding for is not lowered.
     fn lower_error_variant_payload(
         &mut self,
+        call: ExprId,
         family_key: CompactErrorFamilyKey,
         variant: Name,
         args: &[ArenaCallArg],
@@ -11171,34 +11175,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let family_name = compact_error_family_display(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
             .and_then(|family| family.variants.get(&variant))?;
-        let expected_fields = info.fields.keys().copied().collect::<Vec<_>>();
-        let mut fields = Vec::with_capacity(expected_fields.len());
+        let binding = self.bodies.error_constructors.get(&call)?.clone();
+        if binding.fields.len() != args.len() {
+            return None;
+        }
+        let mut fields = Vec::with_capacity(info.fields.len());
         let mut bindings = Vec::new();
         let checked = info.fields.values().any(Type::has_unsigned_constraint);
-        let mut seen = FxHashSet::default();
-        let mut positional_index = 0usize;
-        for arg in args {
-            let (field, value) = match arg.kind {
-                ArenaCallArgKind::Named { name, value, .. } => {
-                    if info.implicit_message
-                        || !info.fields.contains_key(&name)
-                        || !seen.insert(name)
-                    {
-                        return None;
-                    }
-                    (name, value)
-                }
-                ArenaCallArgKind::Positional(value) => {
-                    let field = *expected_fields.get(positional_index)?;
-                    positional_index += 1;
-                    if !seen.insert(field) {
-                        return None;
-                    }
-                    (field, value)
-                }
-                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
-                    return None;
-                }
+        for (arg, field) in args.iter().zip(&binding.fields) {
+            let (ArenaCallArgKind::Named { value, .. } | ArenaCallArgKind::Positional(value)) =
+                arg.kind
+            else {
+                return None;
             };
             let lowered = self.lower_expr(value, slots, current_function, item_slot)?;
             let lowered = if checked {
@@ -11207,7 +11195,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
                 self.checked_unsigned_value(
                     bound,
-                    info.fields.get(&field)?,
+                    info.fields.get(field)?,
                     self.program.arena.expr(value).span,
                 )
             } else {
@@ -11215,7 +11203,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             fields.push((Arc::<str>::from(field.as_str().as_str()), lowered));
         }
-        if info.implicit_message && seen.is_empty() {
+        if binding.default_message {
             // A variant without a payload always carries its message, so a
             // `{message}` pattern binds what `.message` reads when the
             // constructor omitted it.
@@ -11224,13 +11212,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::Str(format!("{family_name}.{variant}").into())
             );
-            for field in &expected_fields {
-                fields.push((Arc::<str>::from(field.as_str().as_str()), message));
-                seen.insert(*field);
-            }
-        }
-        if expected_fields.iter().any(|field| !seen.contains(field)) {
-            return None;
+            fields.push((Arc::<str>::from("message"), message));
         }
         Some((
             LoweredErrorExpr::Structured {
@@ -11319,6 +11301,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 };
                 let key = self.resolve_compact_error_family_owner(key);
                 let (error, bindings) = self.lower_error_variant_payload(
+                    id,
                     key,
                     variant,
                     &args,

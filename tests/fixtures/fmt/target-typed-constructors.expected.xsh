@@ -6,7 +6,7 @@ type Entry = {path: Path, kind: Kind}
 
 pure check(entry: Entry) -> Result[Entry, ProofError] {
   if entry.kind == .File {
-    return Err(.Failed("proof-kind", f"{entry.path} is a plain file that should have been a binary"))
+    return Err(.Failed(kind: "proof-kind", message: f"{entry.path} is a plain file that should have been a binary"))
   }
 
   entry

@@ -882,7 +882,7 @@ a note. It is rejected everywhere else.
 
 Where the expected type of an expression is known, a leading-dot name selects
 a variant of that type: `.Symlink` is a payload-free variant and
-`.Failed(kind, message)` constructs a payload variant with the arguments the
+`.Missing(file:)` constructs a payload variant with the arguments the
 qualified constructor takes. The expected type comes from an annotated binding
 or constant, a parameter, a declared return type (through `return`, a tail,
 and `Ok` or `Err`), a field of a known record schema or constructor, an element

@@ -2,7 +2,7 @@ enum Kind { File, Binary, Tree(Int) }
 error ProofError = Failed(kind: Str, message: Str)
 type Entry = {path: Path, kind: Kind}
 pure check(entry: Entry) -> Result[Entry, ProofError] {
-  if entry.kind == .File { return Err(.Failed("proof-kind", f"{entry.path} is a plain file that should have been a binary")) }
+  if entry.kind == .File { return Err(.Failed(kind: "proof-kind", message: f"{entry.path} is a plain file that should have been a binary")) }
   entry
 }
 const entries: List[Entry] = [Entry(p"usr/lib/libevdev.so.2.3.0", .Binary), Entry(p"usr/share/doc", .Tree(2)), Entry(p"etc/conf", .File)]

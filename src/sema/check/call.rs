@@ -17,6 +17,22 @@ fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
 }
 
 #[allow(dead_code)]
+/// Rewrites the positional argument at `argument` to name the field it fills,
+/// as a pun when the argument is that name.
+fn named_argument_fix(source: &str, argument: Span, field: Name) -> Option<super::FixHint> {
+    let text = source.get(argument.range())?;
+    let replacement = if field == text {
+        format!("{field}:")
+    } else {
+        format!("{field}: {text}")
+    };
+    Some(super::FixHint::replacement(
+        argument,
+        format!("pass `{field}` by name"),
+        replacement,
+    ))
+}
+
 impl Checker {
     pub(super) fn warn_flattened_error_handler_arena(
         &mut self,
@@ -1518,7 +1534,19 @@ impl Checker {
         let mut seen = FxHashSet::default();
         let field_names: Vec<_> = info.fields.keys().copied().collect();
         let mut positional_index = 0usize;
+        // The binding lowering consumes; it is published only for a call in
+        // which every argument fills one distinct field.
+        let mut arg_fields = Vec::with_capacity(args.len());
+        let mut well_formed = true;
+        let mut named_seen = false;
+        // Positional arguments before any named one, and those after.
+        let mut leading = Vec::new();
+        let mut trailing = Vec::new();
         for arg in args {
+            well_formed &= matches!(
+                arg.kind,
+                ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Positional(_)
+            );
             let (name, expected) = match &arg.kind {
                 // The message of a variant without a payload has one spelling,
                 // so a declaration that later gains a payload cannot silently
@@ -1532,9 +1560,11 @@ impl Checker {
                         DiagnosticCode::CheckErrorConstructor,
                     );
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    well_formed = false;
                     continue;
                 }
                 ArenaCallArgKind::Named { name, .. } => {
+                    named_seen = true;
                     let Some(expected) = info.fields.get(name) else {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
@@ -1542,6 +1572,7 @@ impl Checker {
                             DiagnosticCode::CheckErrorConstructor,
                         );
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
+                        well_formed = false;
                         continue;
                     };
                     (*name, expected.clone())
@@ -1554,9 +1585,16 @@ impl Checker {
                             DiagnosticCode::CheckArity,
                         );
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
+                        well_formed = false;
                         continue;
                     };
                     positional_index += 1;
+                    let argument = (call_arg_span_arena(arena, &arg.kind), name);
+                    if named_seen {
+                        trailing.push(argument);
+                    } else {
+                        leading.push(argument);
+                    }
                     let expected = info.fields.get(&name).cloned().unwrap_or(Type::Unknown);
                     (name, expected)
                 }
@@ -1576,9 +1614,53 @@ impl Checker {
                     "duplicate error payload field",
                     DiagnosticCode::CheckErrorConstructor,
                 );
+                well_formed = false;
             }
+            arg_fields.push(name);
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
+        }
+        let default_message = info.implicit_message && seen.is_empty();
+        well_formed &= default_message || field_names.iter().all(|name| seen.contains(name));
+        if well_formed {
+            self.error_constructors.insert(
+                span,
+                super::CheckedErrorConstructor {
+                    fields: arg_fields,
+                    default_message,
+                },
+            );
+        } else {
+            self.error_constructors.remove(&span);
+        }
+        // The rules record constructors follow: a swapped pair of positional
+        // arguments must be a type error, and positional arguments lead.
+        if let Some((left, right)) = info.fields.positional_conflict(leading.len()) {
+            let mut diagnostic = Diagnostic::warning(format!(
+                "fields `{left}` and `{right}` can hold the same value, so they must be passed by name"
+            ))
+            .with_code(DiagnosticCode::CheckPositionalErrorArguments)
+            .with_label(Label::primary(span, "positional arguments could be swapped unnoticed"))
+            .with_note(format!(
+                "write `{left}: ...` and `{right}: ...`; positional payload fields must have types no single value fits both of"
+            ));
+            for (argument, name) in &leading {
+                if let Some(fix) = named_argument_fix(source, *argument, *name) {
+                    diagnostic = diagnostic.with_fix_hint(fix);
+                }
+            }
+            self.diagnostics.push(diagnostic);
+        }
+        for (argument, name) in &trailing {
+            let mut diagnostic = Diagnostic::warning(
+                "positional error constructor arguments must come before named ones",
+            )
+            .with_code(DiagnosticCode::CheckPositionalErrorArguments)
+            .with_label(Label::primary(*argument, format!("this fills `{name}`")));
+            if let Some(fix) = named_argument_fix(source, *argument, *name) {
+                diagnostic = diagnostic.with_fix_hint(fix);
+            }
+            self.diagnostics.push(diagnostic);
         }
         self.message_payload_constructors.remove(&span);
         let message = Name::intern("message");
@@ -2327,6 +2409,65 @@ impl Checker {
                 "unexpected named parameter",
                 DiagnosticCode::CheckNamedArg,
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod error_constructor_tests {
+    use crate::sema::check::Checker;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    /// The published binding of each error constructor call, in source order.
+    fn bindings(source: &str) -> Vec<(Vec<String>, bool)> {
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        program.symbol_owner().with_current(|| {
+            Checker::check_arena(&program, source)
+                .error_constructors
+                .values()
+                .map(|constructor| {
+                    (
+                        constructor.fields.iter().map(ToString::to_string).collect(),
+                        constructor.default_message,
+                    )
+                })
+                .collect()
+        })
+    }
+
+    #[test]
+    fn checker_publishes_the_field_each_error_argument_fills() {
+        let published = bindings(
+            "error E = Triple(zulu: Int, mike: Str, alpha: Bool) | Usage\n\
+             let a = E.Triple(1, alpha: true, mike: \"m\")\n\
+             let b = E.Usage()\n\
+             let c = E.Usage(\"x\")\n",
+        );
+        let names = |fields: &[&str]| fields.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            published,
+            vec![
+                (names(&["zulu", "alpha", "mike"]), false),
+                (names(&[]), true),
+                (names(&["message"]), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_error_constructors_publish_no_binding() {
+        for call in [
+            "E.Triple(1)",
+            "E.Triple(1, \"m\", true, 4)",
+            "E.Triple(1, zulu: 2, mike: \"m\", alpha: true)",
+            "E.Triple(1, \"m\", other: true)",
+            "E.Usage(message: \"x\")",
+        ] {
+            let source = format!(
+                "error E = Triple(zulu: Int, mike: Str, alpha: Bool) | Usage\nlet a = {call}\n"
+            );
+            assert!(bindings(&source).is_empty(), "{call} published a binding");
         }
     }
 }

@@ -94,6 +94,8 @@ pub struct CompactBodyFacts {
     pub inferred_variants: FxHashMap<ExprId, super::InferredVariant>,
     /// The schema field each record constructor argument supplies, keyed by call.
     pub record_constructor_fields: FxHashMap<ExprId, Vec<Name>>,
+    /// The argument binding of each error constructor, keyed by call.
+    pub error_constructors: FxHashMap<ExprId, super::CheckedErrorConstructor>,
 }
 
 impl CompactBodyFacts {
@@ -132,6 +134,9 @@ impl CompactBodyFacts {
             }
             if let Some(fields) = checked.record_constructor_fields.get(&span) {
                 facts.record_constructor_fields.insert(id, fields.clone());
+            }
+            if let Some(constructor) = checked.error_constructors.get(&span) {
+                facts.error_constructors.insert(id, constructor.clone());
             }
             if let ArenaExprKind::Call { callee, .. } = expression.kind
                 && let Some(fact) = checked.record_constructor_instances.get(&span)
