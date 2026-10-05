@@ -72,16 +72,16 @@ pure unescape(name: Str) -> Str? {
   var result = ""
   var at = 0
   while at < name.byte_len() {
-    let char = name.byte_slice(at, length: 1)
+    let tail = name.byte_slice(at)
+    let slash = tail.find("\\")
+    if slash == null { return result + tail }
+    let distance = slash ?? 0
+    result += tail.byte_slice(0, length: distance)
+    at += distance + 1
+    if at >= name.byte_len() { return null }
+    let escaped_tail = name.byte_slice(at)
+    if escaped_tail.starts_with("n") { result += "\n" } else if escaped_tail.starts_with("r") { result += "\r" } else if escaped_tail.starts_with("\\") { result += "\\" } else { return null }
     at += 1
-    if char != "\\" {
-      result += char
-    } else {
-      if at >= name.byte_len() { return null }
-      let next = name.byte_slice(at, length: 1)
-      at += 1
-      if next == "n" { result += "\n" } else if next == "r" { result += "\r" } else if next == "\\" { result += "\\" } else { return null }
-    }
   }
   result
 }
