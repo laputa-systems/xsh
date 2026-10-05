@@ -276,6 +276,10 @@ pub struct TokenTableData {
     tags: Vec<TokenTag>,
     starts: TokenStarts,
     payloads: Vec<TokenPayloadEntry>,
+    /// The offset of each `\` that joins its line to the next one, in source
+    /// order. A line continuation is whitespace, so it has no token; the
+    /// parser reads this list to reject one written outside a command.
+    line_continuations: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -283,6 +287,7 @@ pub struct TokenTableBuilder {
     tags: Vec<TokenTag>,
     starts: TokenStarts,
     payloads: Vec<TokenPayloadEntry>,
+    line_continuations: Vec<u32>,
 }
 
 impl TokenTableBuilder {
@@ -294,7 +299,14 @@ impl TokenTableBuilder {
             // capacity avoids most of the growth reallocations without
             // over-committing for punctuation-heavy sources.
             payloads: Vec::with_capacity(capacity / 2),
+            line_continuations: Vec::new(),
         }
+    }
+
+    /// Records the `\` at `offset` that joins its line to the next one.
+    pub fn push_line_continuation(&mut self, offset: usize) {
+        self.line_continuations
+            .push(u32::try_from(offset).expect("source offset exceeded u32"));
     }
 
     pub fn push_kind(&mut self, kind: &TokenKind, start: usize) -> TokenId {
@@ -321,6 +333,7 @@ impl TokenTableBuilder {
                 tags: self.tags,
                 starts: self.starts,
                 payloads: self.payloads,
+                line_continuations: self.line_continuations,
             }),
         }
     }
@@ -333,6 +346,11 @@ impl TokenTable {
 
     pub fn is_empty(&self) -> bool {
         self.data.tags.is_empty()
+    }
+
+    /// The offset of each `\` line continuation, in source order.
+    pub fn line_continuations(&self) -> &[u32] {
+        &self.data.line_continuations
     }
 
     pub fn tag(&self, id: TokenId) -> TokenTag {

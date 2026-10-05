@@ -1714,10 +1714,13 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let stmt = self.arena.command_stmt(stmt_id).clone();
+        // The `?` or `{` that follows the last part on its line.
+        let tail = 2 * usize::from(stmt.propagate);
+        let continuation = indent_for_expr(output) + 1;
         match &stmt.command {
             ArenaCommand::Proc { name, args } => {
                 output.push_str(name.as_str().as_str());
-                self.write_command_args(*args, output);
+                self.write_command_args(*args, continuation, tail, output);
             }
             ArenaCommand::Core {
                 name,
@@ -1735,11 +1738,20 @@ impl<'a> Writer<'a> {
                         self.write_block(*block, indent, output);
                     }
                 } else {
-                    self.write_command_args(*args, output);
-                    for assignment in &env_assignments {
-                        output.push(' ');
-                        self.write_env_assignment(assignment, output);
-                    }
+                    let tail = if block.is_some() { 2 } else { tail };
+                    // A continuation line under a command with a block is
+                    // indented twice, so it does not read as the block's
+                    // first statement.
+                    let continuation = continuation + usize::from(block.is_some());
+                    let mut parts: Vec<CommandPart> = self
+                        .arena
+                        .command_args(*args)
+                        .iter()
+                        .cloned()
+                        .map(CommandPart::Arg)
+                        .collect();
+                    parts.extend(env_assignments.iter().cloned().map(CommandPart::Env));
+                    self.write_command_parts(&parts, true, continuation, tail, output);
                     if let Some(block) = block {
                         output.push(' ');
                         self.write_block(*block, indent, output);
@@ -1817,47 +1829,52 @@ impl<'a> Writer<'a> {
         let segments: Vec<xsh::frontend::syntax::arena::ArenaRunSegment> =
             self.arena.run_segments(run.segments).to_vec();
         for (index, segment) in segments.iter().enumerate() {
-            if index > 0 {
-                output.push_str(" | ");
-            }
-            self.write_run_segment(segment, indent, output);
+            let tail = if index + 1 < segments.len() || run.propagate {
+                2
+            } else {
+                0
+            };
+            self.write_run_segment(segment, index > 0, indent, tail, output);
         }
         if run.propagate {
             output.push_str(" ?");
         }
     }
 
+    /// Writes one segment of a run form. `piped` segments follow a `|`, which
+    /// begins a continuation line when the segment does. `tail` is the width
+    /// that follows the segment's last part on its line: ` |` or ` ?`.
     fn write_run_segment(
         &mut self,
         segment: &xsh::frontend::syntax::arena::ArenaRunSegment,
+        piped: bool,
         indent: usize,
+        tail: usize,
         output: &mut String,
     ) {
-        output.push_str(run_head_text(segment.kind));
-        output.push(' ');
-        if let Some(timeout) = segment.timeout {
-            output.push_str("--timeout=");
-            self.write_expr(timeout, CLOSE, output);
-            output.push(' ');
-        }
-        if let Some(cpu_max) = segment.cpu_max {
-            output.push_str("--cpumax=");
-            self.write_expr(cpu_max, CLOSE, output);
-            output.push(' ');
-        }
-        if let Some(accept) = segment.accept {
-            output.push_str("--accept=");
-            self.write_expr(accept, CLOSE, output);
-            output.push(' ');
-        }
-        let env = self.arena.env_assignments(segment.env).to_vec();
-        for assignment in &env {
-            self.write_env_assignment(assignment, output);
-            output.push(' ');
-        }
+        let head = run_head_text(segment.kind);
         let args: Vec<ArenaCommandArg> = self.arena.command_args(segment.args).to_vec();
         let redirections = self.arena.redirections(segment.redirections).to_vec();
         if segment.grouped {
+            if piped {
+                output.push_str(" | ");
+            }
+            output.push_str(head);
+            output.push(' ');
+            for (name, value) in [
+                ("timeout", segment.timeout),
+                ("cpumax", segment.cpu_max),
+                ("accept", segment.accept),
+            ] {
+                if let Some(value) = value {
+                    self.write_command_part_text(&CommandPart::Option { name, value }, output);
+                    output.push(' ');
+                }
+            }
+            for assignment in self.arena.env_assignments(segment.env).to_vec() {
+                self.write_env_assignment(&assignment, output);
+                output.push(' ');
+            }
             output.push_str("(\n");
             self.write_indent(indent + 1, output);
             self.write_command_arg(&segment.target, output);
@@ -1876,15 +1893,164 @@ impl<'a> Writer<'a> {
             output.push(')');
             return;
         }
-        self.write_command_arg(&segment.target, output);
-        for arg in &args {
-            output.push(' ');
-            self.write_command_arg(arg, output);
+        let mut parts = Vec::new();
+        for (name, value) in [
+            ("timeout", segment.timeout),
+            ("cpumax", segment.cpu_max),
+            ("accept", segment.accept),
+        ] {
+            if let Some(value) = value {
+                parts.push(CommandPart::Option { name, value });
+            }
         }
-        for redirection in &redirections {
+        parts.extend(
+            self.arena
+                .env_assignments(segment.env)
+                .iter()
+                .cloned()
+                .map(CommandPart::Env),
+        );
+        parts.push(CommandPart::Arg(segment.target.clone()));
+        parts.extend(args.into_iter().map(CommandPart::Arg));
+        parts.extend(redirections.into_iter().map(CommandPart::Redirection));
+        // The run form's name and its first part are one unit: a line break
+        // never separates them.
+        let first = parts.remove(0);
+        let first_tail = if parts.is_empty() { tail } else { 2 };
+        if piped {
+            let begins_line = self.piped_segment_begins_line(segment);
+            self.write_continued_command_part(begins_line, indent + 1, first_tail, output, |writer, output| {
+                output.push_str("| ");
+                output.push_str(head);
+                output.push(' ');
+                writer.write_command_part_text(&first, output);
+            });
+        } else {
+            output.push_str(head);
             output.push(' ');
-            self.write_redirection(redirection, output);
+            self.write_command_part_text(&first, output);
         }
+        self.write_command_parts(&parts, false, indent + 1, tail, output);
+    }
+
+    /// Writes the parts of a command after its first word. A part goes on
+    /// the current line after a space, or begins a continuation line after
+    /// ` \`, indented one level under the command, when the author began a
+    /// line with it or when it does not fit. The first part of a command
+    /// stays on the command's line, so `glue_first` is set unless the caller
+    /// has already written it. `tail` is the width that follows the last
+    /// part on its line.
+    fn write_command_parts(
+        &mut self,
+        parts: &[CommandPart],
+        glue_first: bool,
+        indent: usize,
+        tail: usize,
+        output: &mut String,
+    ) {
+        for (index, part) in parts.iter().enumerate() {
+            if index == 0 && glue_first {
+                output.push(' ');
+                self.write_command_part_text(part, output);
+                continue;
+            }
+            // A part that is not the last needs room for the ` \` that may
+            // follow it.
+            let tail = if index + 1 == parts.len() { tail } else { 2 };
+            let begins_line = self.command_part_begins_line(part);
+            self.write_continued_command_part(begins_line, indent, tail, output, |writer, output| {
+                writer.write_command_part_text(part, output)
+            });
+        }
+    }
+
+    fn write_continued_command_part(
+        &mut self,
+        begins_line: bool,
+        indent: usize,
+        tail: usize,
+        output: &mut String,
+        write: impl Fn(&mut Self, &mut String),
+    ) {
+        let start = output.len();
+        let next_comment = self.next_comment;
+        if !begins_line {
+            output.push(' ');
+            write(self, output);
+            // Width never breaks an inline-only rendering, and a part that
+            // already begins its line cannot move further.
+            let first_line = output[start..].split('\n').next().unwrap_or_default();
+            let part_width = first_line.chars().count() - 1;
+            let width = current_line_width(&output[..start]) + 1 + part_width;
+            // A part too wide for a line of its own overflows wherever it
+            // is written, so it stays where the author put it.
+            if self.inline_only
+                || width + tail <= self.line_width
+                || indent * 2 + part_width + tail > self.line_width
+            {
+                return;
+            }
+            output.truncate(start);
+            self.next_comment = next_comment;
+        }
+        output.push_str(" \\\n");
+        self.write_indent(indent, output);
+        write(self, output);
+    }
+
+    fn write_command_part_text(&mut self, part: &CommandPart, output: &mut String) {
+        match part {
+            CommandPart::Option { name, value } => {
+                output.push_str("--");
+                output.push_str(name);
+                output.push('=');
+                self.write_expr(*value, CLOSE, output);
+            }
+            CommandPart::Env(assignment) => self.write_env_assignment(assignment, output),
+            CommandPart::Arg(arg) => self.write_command_arg(arg, output),
+            CommandPart::Redirection(redirection) => self.write_redirection(redirection, output),
+        }
+    }
+
+    /// Whether the author began a line with `part`, after a line that ends
+    /// with a `\` continuation.
+    fn command_part_begins_line(&self, part: &CommandPart) -> bool {
+        let (start, lead) = match part {
+            CommandPart::Option { value, .. } => (self.arena.expr(*value).span.start(), "="),
+            CommandPart::Env(assignment) => (self.arena.span(assignment.span).start(), ""),
+            CommandPart::Arg(arg) => (self.arena.span(arg.span).start(), ""),
+            CommandPart::Redirection(redirection) => {
+                (self.arena.span(redirection.span).start(), "")
+            }
+        };
+        let Some(before) = self.source.get(..start) else {
+            return false;
+        };
+        // An option's span starts at its value, after `--name=`.
+        let before = if lead.is_empty() {
+            before
+        } else {
+            let Some(before) = before.strip_suffix(lead) else {
+                return false;
+            };
+            let name = before.trim_end_matches(|ch: char| ch.is_ascii_alphanumeric());
+            let Some(before) = name.strip_suffix("--") else {
+                return false;
+            };
+            before
+        };
+        follows_line_continuation(before)
+    }
+
+    /// Whether the author began a line with the `|` before `segment`.
+    fn piped_segment_begins_line(
+        &self,
+        segment: &xsh::frontend::syntax::arena::ArenaRunSegment,
+    ) -> bool {
+        self.source
+            .get(..self.arena.span(segment.span).start())
+            .and_then(|before| before.trim_end_matches([' ', '\t']).strip_suffix('|'))
+            .is_some_and(follows_line_continuation)
     }
 
     fn write_env_assignment(&mut self, assignment: &ArenaEnvAssignment, output: &mut String) {
@@ -1951,13 +2117,18 @@ impl<'a> Writer<'a> {
     fn write_command_args(
         &mut self,
         args: xsh::frontend::syntax::arena::ArenaRange,
+        indent: usize,
+        tail: usize,
         output: &mut String,
     ) {
-        let args: Vec<ArenaCommandArg> = self.arena.command_args(args).to_vec();
-        for arg in &args {
-            output.push(' ');
-            self.write_command_arg(arg, output);
-        }
+        let parts: Vec<CommandPart> = self
+            .arena
+            .command_args(args)
+            .iter()
+            .cloned()
+            .map(CommandPart::Arg)
+            .collect();
+        self.write_command_parts(&parts, true, indent, tail, output);
     }
 
     fn write_command_arg(&mut self, arg: &ArenaCommandArg, output: &mut String) {
@@ -3195,7 +3366,9 @@ impl<'a> Writer<'a> {
             }
             ArenaBuilderEntryKind::Entry { name, args, block } => {
                 output.push_str(name.as_str().as_str());
-                self.write_command_args(*args, output);
+                let tail = if block.is_some() { 2 } else { 0 };
+                let continuation = indent + 1 + usize::from(block.is_some());
+                self.write_command_args(*args, continuation, tail, output);
                 if let Some(block) = block {
                     output.push(' ');
                     self.write_builder_block(*block, indent, output);
@@ -4405,6 +4578,30 @@ fn assign_op_text(op: AssignOp) -> &'static str {
         AssignOp::Div => "/=",
         AssignOp::Rem => "%=",
     }
+}
+
+/// One part of a command after its first word: the unit a `\` line
+/// continuation separates.
+#[derive(Clone)]
+enum CommandPart {
+    /// A run option, `--name=value`.
+    Option {
+        name: &'static str,
+        value: ExprId,
+    },
+    Env(ArenaEnvAssignment),
+    Arg(ArenaCommandArg),
+    Redirection(xsh::frontend::syntax::arena::ArenaRedirection),
+}
+
+/// Whether the source `before` a command part ends with a `\` line
+/// continuation and the indentation of the line it continues onto.
+fn follows_line_continuation(before: &str) -> bool {
+    let before = before.trim_end_matches([' ', '\t']);
+    before
+        .strip_suffix('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .is_some_and(|line| line.ends_with('\\'))
 }
 
 fn run_head_text(kind: RunKind) -> &'static str {

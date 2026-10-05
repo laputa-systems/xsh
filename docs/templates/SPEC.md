@@ -142,6 +142,33 @@ a line is `parse.detached-else`.
 {{.spec.line_continuation.source}}
 ```
 
+**Command continuation.** A command, and only a command, also continues when
+a line ends with `\`. The backslash follows whitespace and is the last
+character of its line; it and the line break then read as the whitespace
+between two parts of the command, so the next line supplies more of it:
+arguments, `run` options and environment assignments, redirections, the `|`
+of a byte pipeline, the block of `cd` or `env`, or the trailing `?`. The first
+word of the command (`print`, `run`, `run.capture --text`) stays on the first
+line.
+
+```xsh
+{{.spec.command_continuation.source}}
+```
+
+A comment runs to the end of its line, so only the last line of a continued
+command can carry one. Every other backslash outside a string is an error:
+
+- A `\` followed by anything but the line break, including a space or a
+  comment, or written directly after a word, is `lex.unexpected-character`.
+  A continuation never joins two halves of one word.
+- A `\` with nothing of the command after it (a blank line, a comment line,
+  `}`, or the end of the file), inside an expression (including a
+  parenthesized typed argument), or after anything that is not a command is
+  `parse.line-continuation`. Expressions continue only by the rules above.
+
+Inside a quoted word a backslash begins an escape (2.6), never a
+continuation; `"a\` at the end of a line is `lex.invalid-escape`.
+
 ### 2.6 Literals
 
 **Strings.** `"..."` supports the escapes `\\`, `\"`, `\$`, `\n`, `\r`,
@@ -1510,6 +1537,10 @@ Each command argument is one of:
 A name or field path passes its value as `$name` or `$record.field`; plain
 `record.field` is a word. `(name)` and `(record.field)` mean the same as the
 `$` forms, and `xsht lint` reports them as redundant (`lint.command-value`).
+
+A long argument list continues on the next line after a trailing `\` (2.5):
+the line break separates two arguments exactly as a space does, and the
+arguments are the same list either way.
 
 A standalone interpolation that evaluates to a `List` splices its elements,
 as `@` does. Interpolation inside a larger word uses display conversion and

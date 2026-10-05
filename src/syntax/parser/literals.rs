@@ -329,7 +329,8 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
         let expr_id = parser.parse_expr_id_arena_only(arena);
         arena.shift_spans_since(marks, offset);
         let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
-        for diagnostic in &mut parser.diagnostics {
+        let mut diagnostics = parser.finish_diagnostics();
+        for diagnostic in &mut diagnostics {
             diagnostic.span = diagnostic.span.map(shift);
             for label in &mut diagnostic.labels {
                 label.span = shift(label.span);
@@ -338,7 +339,7 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
                 hint.span = hint.span.map(shift);
             }
         }
-        (expr_id, parser.diagnostics)
+        (expr_id, diagnostics)
     })
 }
 
@@ -402,7 +403,7 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
                     .is_none_or(|span| span.start() < expression_end)
             })
             .collect();
-        diagnostics.append(&mut parser.diagnostics);
+        diagnostics.append(&mut parser.finish_diagnostics());
         arena.shift_spans_since(marks, offset);
         let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
         for diagnostic in &mut diagnostics {

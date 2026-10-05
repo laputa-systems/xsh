@@ -127,11 +127,18 @@ struct Token {
     end: usize,
 }
 
-fn lex(source: &str) -> Vec<Token> {
+/// The tokens of `source`, and the offset of each `\` that continues a
+/// command onto the next line: the lexer reads those as whitespace.
+fn lex(source: &str) -> (Vec<Token>, Vec<usize>) {
     let table = Lexer::new(SourceId::new(0), source)
         .lex_compact()
         .token_table;
-    (0..table.len())
+    let continuations = table
+        .line_continuations()
+        .iter()
+        .map(|offset| *offset as usize)
+        .collect();
+    let tokens = (0..table.len())
         .filter_map(|index| {
             let tag = table.tag_at(index)?;
             let span = table.span_at(index, SourceId::new(0), source)?;
@@ -141,7 +148,8 @@ fn lex(source: &str) -> Vec<Token> {
                 end: span.end(),
             })
         })
-        .collect()
+        .collect();
+    (tokens, continuations)
 }
 
 fn fill(kinds: &mut [Kind], base: usize, start: usize, end: usize, kind: Kind) {
@@ -151,7 +159,10 @@ fn fill(kinds: &mut [Kind], base: usize, start: usize, end: usize, kind: Kind) {
 /// Paints the kinds of `source`, which sits at `base` in the whole text, into
 /// `kinds`. An f-string interpolation recurses with its expression's offset.
 fn paint(source: &str, base: usize, kinds: &mut [Kind]) {
-    let tokens = lex(source);
+    let (tokens, continuations) = lex(source);
+    for offset in continuations {
+        fill(kinds, base, offset, offset + 1, Kind::Punctuation);
+    }
     // Where a bare path literal or `@name` splice ends, so the tokens inside
     // are not classified on their own.
     let mut skip_until = 0;
@@ -572,7 +583,7 @@ fn paint_interpolations(source: &str, base: usize, token: Token, kinds: &mut [Ki
 /// outside every bracket, since an expression never has a bare one.
 fn spec_start(expression: &str) -> Option<usize> {
     let mut depth = 0usize;
-    for token in lex(expression) {
+    for token in lex(expression).0 {
         match token.tag {
             TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace | TokenTag::DollarLBrace => {
                 depth += 1;
@@ -677,6 +688,22 @@ mod tests {
         for kind in Kind::ALL {
             assert!(seen.contains(&kind), "{} missing from {:?}", kind.name(), runs(source));
         }
+    }
+
+    #[test]
+    fn continued_command_lines_keep_command_kinds() {
+        let source = "run.text --timeout=5s \\\n  grep -c \\\n  $pattern \\\n  | run sort ?\nprint done\n";
+        assert_eq!(kind_of(source, "\\"), Kind::Punctuation);
+        assert_eq!(kind_of(source, "grep"), Kind::Function);
+        // A word on a continued line is an argument, not the start of a
+        // statement.
+        assert_eq!(kind_of(source, "sort"), Kind::Function);
+        assert_eq!(kind_of(source, "$pattern"), Kind::Variable);
+        assert_eq!(kind_of(source, "print"), kind_of("print done\n", "print"));
+        assert_eq!(
+            kind_of("print one \\\n  two\n", "two"),
+            kind_of("print one two\n", "two")
+        );
     }
 
     #[test]

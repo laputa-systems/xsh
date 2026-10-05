@@ -16,7 +16,10 @@
 //! Productions read a token stream prepared by [`grammar_tokens`]: comments
 //! are dropped, a line break before a line-continuation token (see
 //! [`line_continuation`]) is removed exactly as the parser joins the lines,
-//! and every remaining run of line breaks is one `NEWLINE` terminal. A
+//! and every remaining run of line breaks is one `NEWLINE` terminal. A `\`
+//! that ends a line never reaches the productions: the lexer reads it and
+//! its line break as whitespace, and the parser rejects one written outside
+//! a command (`TokenTable::line_continuations`). A
 //! terminal can require that its token is written directly after the
 //! previous one ([`Term::glued`]), which is how the grammar states the
 //! parser's spacing rules: `f(x)` is a call while `f (x)` passes a typed
@@ -1027,7 +1030,9 @@ pub struct GrammarToken<'s> {
 
 /// The terminals the productions read for `source`: comments are dropped, a
 /// continuation line is joined to the line before it, and each other run of
-/// line breaks becomes one `NEWLINE`. The end-of-input token is not included.
+/// line breaks becomes one `NEWLINE`. A command line continued with `\` has
+/// no line break to join: the lexer emits no token for the backslash or its
+/// line break. The end-of-input token is not included.
 pub fn grammar_tokens<'s>(source: &'s str, table: &TokenTable) -> Vec<GrammarToken<'s>> {
     let length = table.len().saturating_sub(usize::from(
         table.tag_at(table.len().saturating_sub(1)) == Some(TokenTag::Eof),

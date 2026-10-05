@@ -148,6 +148,7 @@ impl<'a> Lexer<'a> {
             let quoted = grammar::quoted_literal_at(self.source.as_bytes(), start);
             match self.peek_byte() {
                 Some(b' ' | b'\t') => self.lex_whitespace(),
+                Some(b'\\') => self.lex_line_continuation(),
                 Some(b'\r') if self.peek_next_byte() == Some(b'\n') => {
                     self.offset += 2;
                     self.push(TokenKind::Newline, start, self.offset);
@@ -317,6 +318,45 @@ impl<'a> Lexer<'a> {
         while matches!(self.peek_byte(), Some(b' ' | b'\t')) {
             self.offset += 1;
         }
+    }
+
+    /// A `\` that follows whitespace and ends its line joins that line to
+    /// the next: the backslash and the line break are whitespace, and the
+    /// parser accepts them only between the parts of a command. Any other
+    /// backslash outside a string is an error, so a word never silently
+    /// absorbs one.
+    fn lex_line_continuation(&mut self) {
+        let start = self.offset;
+        let after_space = start
+            .checked_sub(1)
+            .and_then(|before| self.source.as_bytes().get(before))
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t'));
+        let rest = &self.source.as_bytes()[start + 1..];
+        let line_break = if rest.starts_with(b"\r\n") {
+            2
+        } else {
+            usize::from(rest.starts_with(b"\n"))
+        };
+        self.offset += 1;
+        if after_space && line_break > 0 {
+            self.offset += line_break;
+            if !self.scan_only {
+                self.token_builder.push_line_continuation(start);
+            }
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::error("unexpected character")
+                .with_code(DiagnosticCode::LexUnexpectedCharacter)
+                .with_label(Label::primary(
+                    self.span(start, self.offset),
+                    if line_break > 0 {
+                        "write a space before a `\\` that continues a command"
+                    } else {
+                        "a `\\` continues a command only as the last character of its line"
+                    },
+                )),
+        );
     }
 
     fn lex_comment(&mut self) {

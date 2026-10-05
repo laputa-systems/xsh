@@ -79,6 +79,22 @@ test test_fmt_assigned_conditionals_are_stable { |ctx|
   assert after.stdout == before.stdout
 }
 
+# A continued command keeps the author's line breaks, a command too long for
+# its line is broken with `\`, and neither changes what the commands run.
+test test_fmt_command_continuation { |ctx|
+  let before = test.run_script(ctx, p"tests/fixtures/fmt/command-continuation.xsh".read_text()?)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/command-continuation.xsh",
+    p"tests/fixtures/fmt/command-continuation.expected.xsh",
+    "command-continuation.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/command-continuation.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+}
+
 test test_fmt_path_format_specs_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/path-format-specs.xsh".read_text()?
   let before = test.run_script(ctx, source)?

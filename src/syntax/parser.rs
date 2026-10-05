@@ -55,6 +55,10 @@ pub struct Parser<'a> {
     block_depth: usize,
     parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
+    /// Offsets of the `\` line continuations no command has accepted yet.
+    /// The lexer reads a continuation as whitespace wherever it is written;
+    /// the ones left here when parsing ends were written outside a command.
+    stray_line_continuations: Vec<u32>,
 }
 
 /// The binary operator a token spells (with the keyword after it, for
@@ -131,7 +135,7 @@ impl<'a> Parser<'a> {
             ArenaParseOutput {
                 arena: program,
                 cst,
-                diagnostics: without_repeated_literal_diagnostics(parser.diagnostics),
+                diagnostics: parser.finish_diagnostics(),
             }
         })
     }
@@ -155,10 +159,12 @@ impl<'a> Parser<'a> {
         source: &'a str,
         token_table: TokenTable,
     ) -> Self {
+        let stray_line_continuations = token_table.line_continuations().to_vec();
         Self {
             source_id,
             source,
             token_table,
+            stray_line_continuations,
             index: 0,
             comma_is_terminator: false,
             pipe_is_boundary: false,
@@ -177,7 +183,7 @@ impl<'a> Parser<'a> {
         ArenaParseOutput {
             arena,
             cst,
-            diagnostics: without_repeated_literal_diagnostics(self.diagnostics),
+            diagnostics: self.finish_diagnostics(),
         }
     }
 
@@ -199,7 +205,7 @@ impl<'a> Parser<'a> {
         ArenaParseFragment {
             statements,
             cst,
-            diagnostics: without_repeated_literal_diagnostics(self.diagnostics),
+            diagnostics: self.finish_diagnostics(),
         }
     }
 
@@ -312,7 +318,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn at_command_end(&mut self, stop_before_block: bool) -> bool {
-        self.skip_comments();
+        self.skip_command_part_gap();
         self.at_terminator()
             || (self.comma_is_terminator && self.at(TokenKindMatch::Comma))
             || self.at(TokenKindMatch::Eof)
@@ -320,8 +326,54 @@ impl<'a> Parser<'a> {
             || (stop_before_block && self.at(TokenKindMatch::LBrace))
     }
 
-    pub(in crate::syntax::parser) fn at_run_segment_end(&mut self) -> bool {
+    /// Skips the comments before the next part of a command, and accepts the
+    /// `\` line continuations written in that gap when a part follows them.
+    /// One with only a comment or the end of the statement after it stays
+    /// stray: it continues nothing.
+    fn skip_command_part_gap(&mut self) {
+        let gap_start = self.previous_end();
         self.skip_comments();
+        self.accept_line_continuations_since(gap_start);
+    }
+
+    /// Accepts the line continuations between the previous token and the
+    /// current one, which begins the next part of a command.
+    pub(in crate::syntax::parser) fn accept_line_continuations(&mut self) {
+        self.accept_line_continuations_since(self.previous_end());
+    }
+
+    fn accept_line_continuations_since(&mut self, gap_start: usize) {
+        if self.stray_line_continuations.is_empty()
+            || self.at_terminator()
+            || self.at(TokenKindMatch::Eof)
+        {
+            return;
+        }
+        let gap = gap_start..self.current_start();
+        self.stray_line_continuations
+            .retain(|offset| !gap.contains(&(*offset as usize)));
+    }
+
+    /// The parser's diagnostics once parsing is done, with one for each line
+    /// continuation that no command accepted.
+    pub(in crate::syntax::parser) fn finish_diagnostics(&mut self) -> Vec<Diagnostic> {
+        for offset in std::mem::take(&mut self.stray_line_continuations) {
+            let offset = offset as usize;
+            self.diagnostics.push(
+                Diagnostic::error("line continuation outside a command")
+                    .with_code(DiagnosticCode::ParseLineContinuation)
+                    .with_label(Label::primary(
+                        self.span(offset, offset + 1),
+                        "a `\\` joins lines only between the parts of a command, with more of the command on the next line",
+                    ))
+                    .with_note("an expression continues when the next line begins with an operator, `.name`, or `|>`, or inside an open bracket"),
+            );
+        }
+        without_repeated_literal_diagnostics(std::mem::take(&mut self.diagnostics))
+    }
+
+    pub(in crate::syntax::parser) fn at_run_segment_end(&mut self) -> bool {
+        self.skip_command_part_gap();
         self.at_terminator()
             || self.at(TokenKindMatch::Eof)
             || self.at(TokenKindMatch::Question)

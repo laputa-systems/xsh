@@ -221,6 +221,7 @@ diagnostic_codes! {
         ParseIfExpressionElse = "parse.if-expression-else", error, "Reject an `if` expression without an `else` branch";
         ParseKeywordLabelBinding = "parse.keyword-label-binding", error, "Reject a field label that is a keyword used as an implicit binding name";
         ParseLegacyStderrRedirection = "parse.legacy-stderr-redirection", error, "Reject the legacy stderr redirection spelling in favor of `2>` or `2>>`";
+        ParseLineContinuation = "parse.line-continuation", error, "Reject a `\\` line continuation that is not between the parts of a command";
         ParseListPatternRest = "parse.list-pattern-rest", error, "Reject a list pattern whose rest element is repeated or not last";
         ParseMapComprehensionEntries = "parse.map-comprehension-entries", error, "Reject entries written before a map comprehension in the same braces";
         ParseMixedComparison = "parse.mixed-comparison", error, "Reject ordering mixed with equality, membership, or pattern tests without parentheses";

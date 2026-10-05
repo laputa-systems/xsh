@@ -39,6 +39,16 @@ contract stays in `docs/SPEC.md`.
   cannot fit flat on its own line, every element expands, and so do the
   collections nested in them. Otherwise each element keeps its own layout, so
   rows of short records stay one per line.
+- A command stays on one line while it fits. Its parts are the arguments,
+  `run` options, environment assignments, redirections, and the `| run`
+  segments of a byte pipeline. A part begins a continuation line, after ` \`
+  and indented one level under the command, where the author began a line
+  with it, so a flag stays with its value; a part that does not fit on the
+  current line begins one too, and the following parts fill that line. The
+  first part stays with the command's name, the trailing `?` and the `{` of a
+  block stay on the last line, and a part too wide for a line of its own stays
+  where it is. Continuation lines of a command that has a block are indented
+  two levels, clear of the block's body.
 - Pipeline stages use a two-space continuation. Blank lines mark sections,
   declarations, and multi-line control-flow statements, decided from the
   formatted output so the first and second passes agree.
