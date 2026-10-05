@@ -510,6 +510,10 @@ fn copy_file_unnamed(
     }
     let input = File::open(&source).map_err(host)?;
     let metadata = input.metadata().map_err(host)?;
+    let opened_kind = metadata.file_type();
+    if !(opened_kind.is_file() || opened_kind.is_fifo() || opened_kind.is_char_device() || opened_kind.is_block_device()) {
+        return Err(fail("source is not a regular file, FIFO, or device"));
+    }
     let len = metadata.len();
     let mode = options
         .mode
