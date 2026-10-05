@@ -497,7 +497,9 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
             let offset = start.saturating_add(2);
             scan_until(source, offset, is_ident_continue)
         }
-        TokenTag::Int | TokenTag::Float | TokenTag::Duration => scan_number_end(source, start),
+        TokenTag::Int | TokenTag::Float | TokenTag::Duration => {
+            scan_number_end(source, start, tag)
+        }
         TokenTag::String
         | TokenTag::PathString
         | TokenTag::GlobString
@@ -518,7 +520,11 @@ fn fixed_width(tag: TokenTag) -> usize {
     tag.fixed_text().map_or(1, str::len)
 }
 
-fn scan_number_end(source: &str, start: usize) -> usize {
+/// Where the number token of kind `tag` that starts at `start` ends. Only
+/// the lexer knows which unit it accepted, and the tag records it: a duration
+/// ends with its unit, an integer with a size unit if one follows, and a
+/// float takes none.
+fn scan_number_end(source: &str, start: usize, tag: TokenTag) -> usize {
     let bytes = source.as_bytes();
     let mut offset = start;
     if bytes.get(offset) == Some(&b'0') && bytes.get(offset + 1) == Some(&b'o') {
@@ -540,7 +546,6 @@ fn scan_number_end(source: &str, start: usize) -> usize {
     while matches!(bytes.get(offset), Some(byte) if byte.is_ascii_digit()) {
         offset += 1;
     }
-    let integer_end = offset;
     if bytes.get(offset) == Some(&b'.')
         && matches!(bytes.get(offset + 1), Some(byte) if byte.is_ascii_digit())
     {
@@ -558,14 +563,12 @@ fn scan_number_end(source: &str, start: usize) -> usize {
             offset += 1;
         }
     }
-    // Only an integer takes a size unit: the lexer ends a float before one.
-    let size_suffix = (offset == integer_end)
-        .then(|| crate::syntax::grammar::size_suffix_at(bytes, offset))
-        .flatten();
-    offset
-        + crate::syntax::grammar::duration_suffix_at(bytes, offset)
-            .or(size_suffix)
-            .map_or(0, str::len)
+    let suffix = match tag {
+        TokenTag::Duration => crate::syntax::grammar::duration_suffix_at(bytes, offset),
+        TokenTag::Int => crate::syntax::grammar::size_suffix_at(bytes, offset),
+        _ => None,
+    };
+    offset + suffix.map_or(0, str::len)
 }
 
 fn scan_until(source: &str, start: usize, keep_going: impl Fn(u8) -> bool) -> usize {

@@ -950,6 +950,22 @@ mod tests {
     }
 
     #[test]
+    fn number_token_ends_where_the_lexer_stopped() {
+        // Token ends are recomputed from the source. A float takes no unit,
+        // so the letters after one belong to the next token.
+        for (source, expected) in [
+            ("1.5s", vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "s")]),
+            ("2e3ms", vec![(TokenTag::Float, "2e3"), (TokenTag::Ident, "ms")]),
+            ("1.5MiB", vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "MiB")]),
+            ("90s", vec![(TokenTag::Duration, "90s")]),
+            ("64MiB", vec![(TokenTag::Int, "64MiB")]),
+            ("64", vec![(TokenTag::Int, "64")]),
+        ] {
+            assert_eq!(super::lex_spellings(source), expected, "{source}");
+        }
+    }
+
+    #[test]
     fn regex_tokens_preserve_raw_contents_and_full_delimiter_spans() {
         let source = "rx\"\\d+\\$\\{name\\}\" rx\"\"\"(?x)\n[a-z]+ # flags\n\"\"\" rx";
         let output = Lexer::new(SourceId::new(0), source).lex_compact();
