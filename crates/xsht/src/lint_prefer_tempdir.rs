@@ -3,7 +3,7 @@ use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind,
-    ArenaSugar, AstArena, BlockId, ExprId, StmtId,
+    ArenaSugar, AstArena, BlockId, DeferTrigger, ExprId, StmtId,
 };
 use xsh::frontend::syntax::parser::Parser;
 use xsh::frontend::syntax::token::TokenTag;
@@ -134,7 +134,9 @@ fn created_path(arena: &AstArena, stmt: StmtId) -> Option<Name> {
 
 fn deferred_removal(arena: &AstArena, stmt: StmtId) -> Option<Name> {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expr)) => removed_path(arena, expr),
+        ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expr), DeferTrigger::Exit) => {
+            removed_path(arena, expr)
+        }
         _ => None,
     }
 }

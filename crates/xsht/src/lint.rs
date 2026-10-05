@@ -67,7 +67,7 @@ use xsh::frontend::syntax::arena::{
     ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget,
     ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag, SugarForm,
     ArenaWordPart, AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId,
-    CommandStmtId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
+    CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
 };
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
@@ -856,7 +856,7 @@ impl<'a> Linter<'a> {
             }) { continue; }
             let deferred = statements.iter().find_map(|&id| {
                 let stmt = self.arena.stmt(id);
-                let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(call)) = stmt.kind else { return None };
+                let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(call), DeferTrigger::Exit) = stmt.kind else { return None };
                 let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return None };
                 (args.is_empty() && matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == definition.name)
                     && self.expr_types.get(&self.arena.expr(call).span) == Some(&Type::Unit)
@@ -1031,7 +1031,7 @@ impl<'a> Linter<'a> {
             | ArenaStmtKind::Return(_)
             | ArenaStmtKind::YieldDelegate(_)
             | ArenaStmtKind::Yield(_)
-            | ArenaStmtKind::Defer(_)
+            | ArenaStmtKind::Defer(..)
             | ArenaStmtKind::Break { .. }
             | ArenaStmtKind::Continue
             | ArenaStmtKind::Command(_)
@@ -1524,7 +1524,7 @@ impl<'a> Linter<'a> {
                     self.lint_expr_or_run(&value);
                 }
             }
-            ArenaStmtKind::Defer(value) => self.lint_expr_or_run(&value),
+            ArenaStmtKind::Defer(value, _) => self.lint_expr_or_run(&value),
             ArenaStmtKind::YieldDelegate(value) => self.lint_expr(value),
             ArenaStmtKind::Yield(value) => self.lint_expr_or_run(&value),
             ArenaStmtKind::If {
@@ -10672,7 +10672,7 @@ fn lazy_visit_stmt(
             lazy_visit_assign_target(arena, target, out);
             lazy_visit_expr_or_run(arena, &value, out);
         }
-        ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v) | ArenaStmtKind::Yield(v) => {
+        ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v, _) | ArenaStmtKind::Yield(v) => {
             lazy_visit_expr_or_run(arena, &v, out);
         }
         ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
@@ -13293,7 +13293,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaStmtKind::Return(Some(value))
             | ArenaStmtKind::Yield(value)
-            | ArenaStmtKind::Defer(value) => self.scan_expr_or_run(value),
+            | ArenaStmtKind::Defer(value, _) => self.scan_expr_or_run(value),
             ArenaStmtKind::If {
                 branches,
                 else_block,
@@ -14032,7 +14032,7 @@ fn stmt_flow(
             .then(FlowSummary::returning()),
         // A deferred expression is registered now and runs only during unwind.
         // It must still be linted, but it cannot make following source dead.
-        ArenaStmtKind::Defer(_) => FlowSummary::fallthrough(),
+        ArenaStmtKind::Defer(..) => FlowSummary::fallthrough(),
         ArenaStmtKind::Yield(value) => expr_or_run_flow(arena, &value, terminating_call_spans),
         ArenaStmtKind::If {
             branches,

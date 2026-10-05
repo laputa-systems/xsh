@@ -2357,6 +2357,7 @@ fn is_xsh_source(source: &str) -> bool {
             | "match"
             | "return"
             | "defer"
+            | "errdefer"
             | "guard"
             | "run"
             | "print"

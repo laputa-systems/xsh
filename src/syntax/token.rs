@@ -772,6 +772,7 @@ pub enum Keyword {
     Defer,
     Else,
     Enum,
+    Errdefer,
     Export,
     False,
     For,
@@ -806,7 +807,7 @@ pub enum Keyword {
 }
 
 impl Keyword {
-    pub const ALL: [Keyword; 38] = [
+    pub const ALL: [Keyword; 39] = [
         Keyword::And,
         Keyword::Assert,
         Keyword::Break,
@@ -814,6 +815,7 @@ impl Keyword {
         Keyword::Defer,
         Keyword::Else,
         Keyword::Enum,
+        Keyword::Errdefer,
         Keyword::Export,
         Keyword::False,
         Keyword::For,
@@ -856,6 +858,7 @@ impl Keyword {
             value if value == Self::Defer as u32 => Self::Defer,
             value if value == Self::Else as u32 => Self::Else,
             value if value == Self::Enum as u32 => Self::Enum,
+            value if value == Self::Errdefer as u32 => Self::Errdefer,
             value if value == Self::Export as u32 => Self::Export,
             value if value == Self::False as u32 => Self::False,
             value if value == Self::For as u32 => Self::For,
@@ -900,6 +903,7 @@ impl Keyword {
             "defer" => Self::Defer,
             "else" => Self::Else,
             "enum" => Self::Enum,
+            "errdefer" => Self::Errdefer,
             "export" => Self::Export,
             "false" => Self::False,
             "for" => Self::For,
@@ -944,6 +948,7 @@ impl Keyword {
             Self::Defer => "defer",
             Self::Else => "else",
             Self::Enum => "enum",
+            Self::Errdefer => "errdefer",
             Self::Export => "export",
             Self::False => "false",
             Self::For => "for",

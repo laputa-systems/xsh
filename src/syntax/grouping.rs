@@ -1166,7 +1166,7 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::Return(Some(_))
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::YieldDelegate(_)
-            | ArenaStmtKind::Defer(_)
+            | ArenaStmtKind::Defer(..)
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Break { value: Some(_) }
             | ArenaStmtKind::Sugar {
@@ -1319,7 +1319,7 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
             | ArenaStmtKind::Assign { value, .. }
             | ArenaStmtKind::Return(Some(value))
             | ArenaStmtKind::Yield(value)
-            | ArenaStmtKind::Defer(value) = arena
+            | ArenaStmtKind::Defer(value, _) = arena
                 .stmt(crate::syntax::arena::StmtId::from_index(index))
                 .kind
                 && let crate::syntax::arena::ArenaExprOrRun::Expr(expr) = value

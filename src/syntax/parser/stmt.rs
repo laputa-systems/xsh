@@ -8,7 +8,8 @@ use super::{
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaBuilderEntryKind, ArenaErrorVariant, ArenaExprOrRun, ArenaModuleContractEntryKind,
-    ArenaProgramBuilder, ArenaTypeDefBody, BindingTargetId, BuilderBlockId, ExprId, TypeExprId,
+    ArenaProgramBuilder, ArenaTypeDefBody, BindingTargetId, BuilderBlockId, DeferTrigger, ExprId,
+    TypeExprId,
 };
 use crate::syntax::grammar::{self, StatementForm};
 use std::str::FromStr;
@@ -1795,6 +1796,11 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        let trigger = if self.current_keyword() == Some(Keyword::Errdefer) {
+            DeferTrigger::Error
+        } else {
+            DeferTrigger::Exit
+        };
         self.bump();
         let value = if self.at(TokenKindMatch::LBrace) {
             let block_start = self.current_start();
@@ -1806,7 +1812,7 @@ impl<'a> Parser<'a> {
             self.parse_expr_or_run_arena_only(arena)?
         };
         let end = self.expect_terminator();
-        arena.push_defer(value, self.span(start, end));
+        arena.push_defer(value, trigger, self.span(start, end));
         Some(())
     }
 

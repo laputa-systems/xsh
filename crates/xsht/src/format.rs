@@ -732,8 +732,9 @@ impl<'a> Writer<'a> {
                 output.push_str("yield ");
                 self.write_expr_or_run_safe(value, output);
             }
-            ArenaStmtKind::Defer(value) => {
-                output.push_str("defer ");
+            ArenaStmtKind::Defer(value, trigger) => {
+                output.push_str(trigger.keyword());
+                output.push(' ');
                 self.write_expr_or_run(value, output);
             }
             ArenaStmtKind::If {

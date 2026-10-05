@@ -948,6 +948,9 @@ enum BuildTopKind {
     Expr(BuildExprId),
     Defer {
         value: BuildExprId,
+        /// Whether this is an `errdefer`: the action runs only when its scope
+        /// leaves with an error.
+        on_error: bool,
         span: Span,
     },
     SignalHook {
@@ -1387,6 +1390,9 @@ enum BuildStmtRow {
     Continue,
     Defer {
         value: BuildExprId,
+        /// Whether this is an `errdefer`: the action runs only when its scope
+        /// leaves with an error.
+        on_error: bool,
     },
 }
 
@@ -4954,7 +4960,25 @@ impl Evaluator {
                     self.current_scope_id(),
                     Ok(Flow::Continue(Value::Unit)),
                 );
+                // The script leaves its top level with an error when a
+                // statement failed, it aborted, or a signal is shutting it
+                // down; a failed cleanup action makes that true for the
+                // actions registered before it.
+                let script_failed = traceback.is_some()
+                    || abort.is_some()
+                    || self.signal_state.shutdown_status.is_some();
                 for index in compact_indexed_defers.into_iter().rev() {
+                    let on_error = self
+                        .indexed_program
+                        .as_ref()
+                        .expect("verified indexed program remains installed")
+                        .driver_step_defers_on_error(index)
+                        .expect("a verified deferred step carries its trigger");
+                    let cleanup_failed =
+                        cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_)));
+                    if on_error && !script_failed && !cleanup_failed {
+                        continue;
+                    }
                     let action = self
                         .eval_indexed_driver_step(index, script_span)
                         .unwrap_or_else(|| {

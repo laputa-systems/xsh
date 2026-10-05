@@ -412,7 +412,7 @@ impl StatementForm {
     }
 }
 
-pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 24] = [
+pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 25] = [
     (Keyword::Let, StatementForm::Binding),
     (Keyword::Const, StatementForm::Binding),
     (Keyword::Var, StatementForm::Binding),
@@ -424,6 +424,7 @@ pub const STATEMENT_KEYWORDS: [(Keyword, StatementForm); 24] = [
     (Keyword::Return, StatementForm::Return),
     (Keyword::Yield, StatementForm::Yield),
     (Keyword::Defer, StatementForm::Defer),
+    (Keyword::Errdefer, StatementForm::Defer),
     (Keyword::Break, StatementForm::Break),
     (Keyword::Continue, StatementForm::Continue),
     (Keyword::Match, StatementForm::Match),
@@ -448,12 +449,13 @@ pub fn statement_form(keyword: Keyword) -> Option<StatementForm> {
 }
 
 /// Keyword statements a builder block accepts as entries.
-pub const BUILDER_STATEMENT_KEYWORDS: [Keyword; 14] = [
+pub const BUILDER_STATEMENT_KEYWORDS: [Keyword; 15] = [
     Keyword::Let,
     Keyword::Const,
     Keyword::Var,
     Keyword::Return,
     Keyword::Defer,
+    Keyword::Errdefer,
     Keyword::If,
     Keyword::While,
     Keyword::For,

@@ -783,7 +783,7 @@ impl Checker {
             ArenaStmtKind::Yield(value) => {
                 self.check_yield_arena(arena, source, value, stmt.span);
             }
-            ArenaStmtKind::Defer(value) => {
+            ArenaStmtKind::Defer(value, _) => {
                 self.check_defer_arena(arena, source, value, stmt.span);
             }
             ArenaStmtKind::Break { value } => {

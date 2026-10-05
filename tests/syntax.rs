@@ -1255,7 +1255,7 @@ match Err(Error(kind: "not-found")) {
     let root: Vec<_> = output.arena.statement_ids().collect();
     assert!(
         root.iter()
-            .any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Defer(_)))
+            .any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Defer(..)))
     );
     let block_id = root
         .iter()

@@ -33,6 +33,7 @@ use crate::diagnostic::DiagnosticCode;
 use crate::source::Span;
 use crate::syntax::arena::{
     ArenaCallArgInput, ArenaExprOrRun, ArenaProgramBuilder, ArenaSugarOperand, BindingTargetId,
+    DeferTrigger,
     BlockId, ExprId, StmtId, SugarForm,
 };
 
@@ -476,7 +477,7 @@ fn expand_tempdir(
             call: at,
         },
     );
-    arena.push_defer(ArenaExprOrRun::Expr(remove), at);
+    arena.push_defer(ArenaExprOrRun::Expr(remove), DeferTrigger::Exit, at);
     let inner = arena.push_value_block_expr(body, body_span);
     arena.push_expr_statement(inner, body_span);
     // The block is the scope of the name, so it starts there. The whole

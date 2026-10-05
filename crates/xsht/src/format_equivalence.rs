@@ -336,8 +336,9 @@ impl CanonicalWriter<'_> {
                 self.put("yield*;");
                 self.expr(*expr);
             }
-            ArenaStmtKind::Defer(value) => {
+            ArenaStmtKind::Defer(value, trigger) => {
                 self.put("defer;");
+                self.debug(trigger);
                 self.expr_or_run(value);
             }
             ArenaStmtKind::If {

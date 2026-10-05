@@ -1064,7 +1064,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "defer_statement",
             seq([
-                kw(Keyword::Defer),
+                alt([kw(Keyword::Defer), kw(Keyword::Errdefer)]),
                 alt([
                     block(),
                     seq([not([vec![tag_term(T::LBrace)]]), r("expression_or_run")]),

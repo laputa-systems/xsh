@@ -1061,6 +1061,31 @@ impl FullProgram {
         Ok(self.store.driver_steps[step].tag == FullDriverTag::Defer)
     }
 
+    /// Whether a deferred driver step is an `errdefer`, which runs only when
+    /// the script or module leaves its top level with an error.
+    ///
+    /// A deferred step's payload is its action, this flag, and its span; the
+    /// verifier has checked that the flag is a boolean.
+    pub(in crate::runtime::eval) fn driver_step_defers_on_error(
+        &self,
+        index: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let steps = self.driver_root_steps()?;
+        let step = steps
+            .start
+            .checked_add(index)
+            .filter(|step| *step < steps.end)
+            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        let step = self.store.driver_steps[step];
+        if step.tag != FullDriverTag::Defer {
+            return Err(IrVerifyError::new("driver step is not a deferred action"));
+        }
+        match self.store.payload(step.data.range())? {
+            [_, flag, ..] => Ok(*flag == 1),
+            _ => Err(IrVerifyError::new("deferred driver step has no trigger")),
+        }
+    }
+
     fn driver_root_steps(&self) -> Result<std::ops::Range<usize>, IrVerifyError> {
         let root = self
             .store
@@ -1221,6 +1246,7 @@ impl FullProgram {
             FullDriverTag::Expr => BuildExprRow::verify(&decoder, &mut payload)?,
             FullDriverTag::Defer => {
                 BuildExprRow::verify(&decoder, &mut payload)?;
+                bool::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::SignalHook => {
@@ -2347,8 +2373,13 @@ impl FullBuilder {
                 value.encode(self, &mut payload)?;
                 FullDriverTag::Expr
             }
-            Some(BuildTopKind::Defer { value, span }) => {
+            Some(BuildTopKind::Defer {
+                value,
+                on_error,
+                span,
+            }) => {
                 value.encode(self, &mut payload)?;
+                on_error.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Defer
             }
@@ -8647,9 +8678,10 @@ impl_node_codec! {
             value: BuildExprId,
         } => BuildStmtRow::BreakValue { value },
         BuildStmtRow::Continue => StmtContinue {} => BuildStmtRow::Continue,
-        BuildStmtRow::Defer { value } => StmtDefer {
+        BuildStmtRow::Defer { value, on_error } => StmtDefer {
             value: BuildExprId,
-        } => BuildStmtRow::Defer { value },
+            on_error: bool,
+        } => BuildStmtRow::Defer { value, on_error },
     }
 }
 
@@ -9845,6 +9877,72 @@ pure selected() -> Str {
             "{}",
             error.message
         );
+    }
+
+    /// A deferred action carries whether it is an `errdefer` as one boolean
+    /// word, in a function body and at the top level alike. Any other value
+    /// would be read as one of the two, so the verifier rejects it.
+    #[test]
+    fn verifier_rejects_a_deferred_action_whose_trigger_is_not_a_boolean() {
+        let program = fixture(
+            "indexed-errdefer.xsh",
+            "proc step() -> Int {\n  errdefer { print \"undo\" }\n  defer { print \"done\" }\n  1\n}\n\nerrdefer { print \"undo\" }\ndefer { print \"done\" }\nprint $step()\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        // In a function body the payload is the action and the trigger.
+        let statement_triggers = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| **tag == FullTag::StmtDefer)
+            .map(|(instruction, _)| {
+                let payload = program.store.data[instruction]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap();
+                assert_eq!(payload.len(), 2);
+                payload.start + 1
+            })
+            .collect::<Vec<_>>();
+        let mut written = statement_triggers
+            .iter()
+            .map(|word| program.store.extra[*word])
+            .collect::<Vec<_>>();
+        written.sort_unstable();
+        assert_eq!(written, [0, 1], "one `defer` and one `errdefer`");
+
+        // At the top level it is the action, the trigger, and the span.
+        let driver_triggers = program
+            .store
+            .driver_steps
+            .iter()
+            .filter(|step| step.tag == FullDriverTag::Defer)
+            .map(|step| {
+                step.data
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap()
+                    .start
+                    + 1
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(driver_triggers.len(), 2);
+        assert!(program.driver_step_defers_on_error(0).is_err());
+        assert_eq!(program.driver_step_defers_on_error(1).ok(), Some(true));
+        assert_eq!(program.driver_step_defers_on_error(2).ok(), Some(false));
+
+        for word in statement_triggers.into_iter().chain(driver_triggers) {
+            let mut corrupt = program.clone();
+            corrupt.store.extra[word] = 2;
+            let error = FullVerifier::verify(&corrupt).unwrap_err();
+            assert!(
+                error.message.contains("boolean payload"),
+                "{}",
+                error.message
+            );
+        }
     }
 
     #[test]

@@ -97,6 +97,40 @@ fn run_target_and_leading_argv(
 /// The `RunArg::mode` of an explicit `@` splice.
 const RUN_ARG_SPLICE: u32 = 2;
 
+/// A deferred action a scope registered: the expression to run, and whether
+/// it is an `errdefer`.
+///
+/// Both are packed into the one word a frame's defer list already stored per
+/// action, so registering a `defer` costs what it did.
+#[derive(Clone, Copy)]
+pub(super) struct RegisteredDefer(u32);
+
+impl RegisteredDefer {
+    const ON_ERROR: u32 = 1 << 31;
+
+    fn new(value: u32, on_error: bool) -> Self {
+        // An expression is an index into a program's instructions, which a
+        // verified program keeps far below this bit.
+        assert!(
+            value & Self::ON_ERROR == 0,
+            "deferred expression index overflows its word"
+        );
+        Self(if on_error {
+            value | Self::ON_ERROR
+        } else {
+            value
+        })
+    }
+
+    fn value(self) -> u32 {
+        self.0 & !Self::ON_ERROR
+    }
+
+    fn on_error(self) -> bool {
+        self.0 & Self::ON_ERROR != 0
+    }
+}
+
 #[derive(Clone)]
 struct RunArg {
     mode: u32,
@@ -2923,6 +2957,9 @@ impl Evaluator {
                 }
                 FullDriverTag::Defer => {
                     let value = indexed_raw(&mut payload, call_span)?;
+                    // Whether the action runs at all is the driver's decision,
+                    // made before it reaches this step.
+                    indexed_decode::<bool>(&mut payload, &execution, call_span)?;
                     let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                     indexed_finish(payload, call_span)?;
                     self.eval_indexed_deferred_expr(&execution, value, &mut slots, span)?;
@@ -8329,19 +8366,31 @@ impl Evaluator {
         }
     }
 
+    /// Runs a scope's deferred actions, last registered first.
+    ///
+    /// `leaves_with_error` says whether the scope is leaving with an error,
+    /// which is when its `errdefer` actions run. A failing action makes that
+    /// true for the actions registered before it: from there on the scope
+    /// leaves with that failure.
     pub(super) fn run_indexed_defers(
         &mut self,
         execution: &FullExecution<'_>,
-        defers: &[u32],
+        defers: &[RegisteredDefer],
+        mut leaves_with_error: bool,
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<(), RuntimeError> {
         let primary_traceback = self.pending_traceback.take();
         let mut first_error = None;
         let mut first_traceback = None;
-        for value in defers.iter().rev().copied() {
-            if let Err(error) = self.eval_indexed_deferred_expr(execution, value, slots, call_span)
+        for deferred in defers.iter().rev().copied() {
+            if deferred.on_error() && !leaves_with_error {
+                continue;
+            }
+            if let Err(error) =
+                self.eval_indexed_deferred_expr(execution, deferred.value(), slots, call_span)
             {
+                leaves_with_error = true;
                 if error.abort.as_ref().is_some_and(|signal| signal.force) {
                     self.pending_traceback = primary_traceback;
                     return Err(error);

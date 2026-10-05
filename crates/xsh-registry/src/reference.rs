@@ -862,7 +862,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "defer" => (
             "Registers lexical cleanup actions without executing them.",
-            "`defer { statements }` reads captures at cleanup time; use immutable let snapshots for earlier values. Actions run LIFO at their registering scope exit, including return, failure, loop control and cancellation. Bool statements assert and Result[Unit] failures stop that action; remaining actions still run. An existing failure stays primary and secondary cleanup failures are source-attributed. Cleanup cannot return, yield, or transfer to an outer loop; local loops and nested defers are allowed. Effects are checked normally. Expression and run forms remain supported; forced abort skips cleanup.",
+            "`defer { statements }` reads captures at cleanup time; use immutable let snapshots for earlier values. Actions run LIFO at their registering scope exit, including return, failure, loop control and cancellation. Bool statements assert and Result[Unit] failures stop that action; remaining actions still run. An existing failure stays primary and secondary cleanup failures are source-attributed. Cleanup cannot return, yield, or transfer to an outer loop; local loops and nested defers are allowed. Effects are checked normally. Expression and run forms remain supported; forced abort skips cleanup. `errdefer` registers the same way, in the same order, and its action runs only when the scope leaves with an error: a propagating failure, a function returning an Err, a non-forced abort or cancellation, or a failed later cleanup.",
         ),
         "error-context" => (
             "Adds operation descriptions to outbound lexical failures.",

@@ -724,7 +724,7 @@ fn collect_statement(
         | ArenaStmtKind::Return(_)
         | ArenaStmtKind::YieldDelegate(_)
         | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::Defer(_)
+        | ArenaStmtKind::Defer(..)
         | ArenaStmtKind::Break { .. }
         | ArenaStmtKind::Continue
         | ArenaStmtKind::Command(_)

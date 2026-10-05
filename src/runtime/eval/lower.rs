@@ -7,6 +7,7 @@ use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
 use crate::source::{SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
+use crate::syntax::arena::DeferTrigger;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
@@ -1695,7 +1696,7 @@ fn compact_collect_stmt_call_edges(
         ArenaStmtKind::Let { initializer, .. }
         | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
-        | ArenaStmtKind::Defer(initializer)
+        | ArenaStmtKind::Defer(initializer, _)
         | ArenaStmtKind::Yield(initializer) => {
             compact_collect_expr_or_run_call_edges(
                 program,
@@ -2249,7 +2250,7 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::Return(_) => 11,
         ArenaStmtKind::YieldDelegate(_) => 12,
         ArenaStmtKind::Yield(_) => 12,
-        ArenaStmtKind::Defer(_) => 13,
+        ArenaStmtKind::Defer(..) => 13,
         ArenaStmtKind::If { .. } => 14,
         ArenaStmtKind::While { .. } => 15,
         ArenaStmtKind::For { .. } => 16,
@@ -2286,7 +2287,7 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::Return(_) => "return",
         ArenaStmtKind::YieldDelegate(_) => "yield-delegate",
         ArenaStmtKind::Yield(_) => "yield",
-        ArenaStmtKind::Defer(_) => "defer",
+        ArenaStmtKind::Defer(..) => "defer",
         ArenaStmtKind::If { .. } => "if",
         ArenaStmtKind::While { .. } => "while",
         ArenaStmtKind::For { .. } => "for",
@@ -3744,7 +3745,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             | ArenaStmtKind::Match { .. } => CompactTopLevelBlocker::Control,
             ArenaStmtKind::Command(_) => CompactTopLevelBlocker::Command,
             ArenaStmtKind::Expr(_) => CompactTopLevelBlocker::Expression,
-            ArenaStmtKind::Defer(_) => CompactTopLevelBlocker::Defer,
+            ArenaStmtKind::Defer(..) => CompactTopLevelBlocker::Defer,
             ArenaStmtKind::SignalHook(_) => CompactTopLevelBlocker::Other,
             _ => CompactTopLevelBlocker::Other,
         }
@@ -4157,7 +4158,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let kind = BuildTopKind::Expr(value);
                 Some(lowered_top_level(&self.scratch, kind, known, slots))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), trigger) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_deferred_expr(value, &mut slots, None, None)?;
                 Some(lowered_top_level(
@@ -4165,12 +4166,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildTopKind::Defer {
                         value,
                         span: self.program.arena.stmt(id).span,
+                        on_error: trigger == DeferTrigger::Error,
                     },
                     known,
                     slots,
                 ))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
+            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run), trigger) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
                 Some(lowered_top_level(
@@ -4178,6 +4180,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildTopKind::Defer {
                         value,
                         span: self.program.arena.stmt(id).span,
+                        on_error: trigger == DeferTrigger::Error,
                     },
                     known,
                     slots,
@@ -5967,14 +5970,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildStmtRow::Expr { value, span }
                 ))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), trigger) => {
                 let value = self.lower_deferred_expr(value, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
+                Some(push_build_row!(self, stmt, BuildStmtRow::Defer {
+                        value,
+                        on_error: trigger == DeferTrigger::Error,
+                    }
+                ))
             }
-            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
+            ArenaStmtKind::Defer(ArenaExprOrRun::Run(run), trigger) => {
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
+                Some(push_build_row!(self, stmt, BuildStmtRow::Defer {
+                        value,
+                        on_error: trigger == DeferTrigger::Error,
+                    }
+                ))
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let span = self.program.arena.stmt(id).span;

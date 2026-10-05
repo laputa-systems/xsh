@@ -2482,10 +2482,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
-    pub fn push_defer(&mut self, value: ArenaExprOrRun, span: Span) -> StmtId {
+    pub fn push_defer(
+        &mut self,
+        value: ArenaExprOrRun,
+        trigger: DeferTrigger,
+        span: Span,
+    ) -> StmtId {
         let id = self
             .lowerer
-            .push_stmt_kind(ArenaStmtKind::Defer(value), span);
+            .push_stmt_kind(ArenaStmtKind::Defer(value, trigger), span);
         self.push_current_statement(id);
         id
     }
@@ -4289,10 +4294,16 @@ impl AstArena {
                 ArenaStmtKind::Yield(ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize)))
             }
             ArenaStmtTag::DeferExpr => {
-                ArenaStmtKind::Defer(ArenaExprOrRun::Expr(ExprId::new(data.lhs as usize)))
+                ArenaStmtKind::Defer(
+                    ArenaExprOrRun::Expr(ExprId::new(data.lhs as usize)),
+                    DeferTrigger::from_raw(data.rhs),
+                )
             }
             ArenaStmtTag::DeferRun => {
-                ArenaStmtKind::Defer(ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize)))
+                ArenaStmtKind::Defer(
+                    ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize)),
+                    DeferTrigger::from_raw(data.rhs),
+                )
             }
             ArenaStmtTag::IfNoElse => ArenaStmtKind::If {
                 branches: range_from_stmt_data(data),
@@ -5484,7 +5495,8 @@ pub enum ArenaStmtKind {
     Return(Option<ArenaExprOrRun>),
     Yield(ArenaExprOrRun),
     YieldDelegate(ExprId),
-    Defer(ArenaExprOrRun),
+    /// `defer` or `errdefer`, by when its action runs.
+    Defer(ArenaExprOrRun, DeferTrigger),
     If {
         branches: ArenaRange,
         else_block: Option<BlockId>,
@@ -5815,6 +5827,33 @@ pub struct ArenaMatchArm {
     pub block: BlockId,
     pub spelling: ArenaArmSpelling,
     pub span: SpanId,
+}
+
+/// When a deferred action runs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum DeferTrigger {
+    /// `defer`: however control leaves the scope.
+    Exit,
+    /// `errdefer`: only when the scope leaves with an error.
+    Error,
+}
+
+impl DeferTrigger {
+    fn from_raw(raw: u32) -> Self {
+        match raw {
+            0 => Self::Exit,
+            _ => Self::Error,
+        }
+    }
+
+    /// The keyword that spells this trigger.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            Self::Exit => "defer",
+            Self::Error => "errdefer",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -6999,13 +7038,13 @@ impl ArenaLowerer<'_> {
                 ArenaStmtTag::YieldRun,
                 ArenaStmtData::new(raw_run_form_id(id), 0),
             ),
-            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(id)) => (
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(id), trigger) => (
                 ArenaStmtTag::DeferExpr,
-                ArenaStmtData::new(raw_expr_id(id), 0),
+                ArenaStmtData::new(raw_expr_id(id), trigger as u32),
             ),
-            ArenaStmtKind::Defer(ArenaExprOrRun::Run(id)) => (
+            ArenaStmtKind::Defer(ArenaExprOrRun::Run(id), trigger) => (
                 ArenaStmtTag::DeferRun,
-                ArenaStmtData::new(raw_run_form_id(id), 0),
+                ArenaStmtData::new(raw_run_form_id(id), trigger as u32),
             ),
             ArenaStmtKind::If {
                 branches,

@@ -6,6 +6,7 @@ use super::{
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     IndexedAssignStep, IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedOperands,
     IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
+    RegisteredDefer,
     LoweredTypeCheck, LoweredValue, Name, ResolvedAssignStep, RuntimeError, Span, StmtFlow,
     StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, append_call_argument,
     append_lowered_list_element, append_lowered_map_literal, apply_indexed_assignment,
@@ -616,7 +617,7 @@ pub(super) struct CallFrame<'p> {
     pub(super) call_span: Span,
     pub(super) definition_span: Span,
     work: Vec<FrameWork>,
-    pub(super) defers: Vec<u32>,
+    pub(super) defers: Vec<RegisteredDefer>,
     pub(super) block_scopes: Vec<u64>,
     block_defer_offsets: Vec<usize>,
     return_to: Option<FrameContinuation>,
@@ -1032,7 +1033,7 @@ pub(super) struct ProducerFrameState {
     work: Vec<FrameWork>,
     slots: Vec<LoweredValue>,
     slot_scopes: Vec<u64>,
-    defers: Vec<u32>,
+    defers: Vec<RegisteredDefer>,
     block_scopes: Vec<u64>,
     block_defer_offsets: Vec<usize>,
     scope_id: u64,
@@ -1916,7 +1917,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.complete_call(index, StmtFlow::None)
             } else {
                 if let Some(scope_id) = scope_id {
-                    self.exit_block_scope(index, scope_id, true, CleanupFailureResources::Retain)?;
+                    self.exit_block_scope(index, scope_id, false, true, CleanupFailureResources::Retain)?;
                 }
                 Ok(())
             };
@@ -2463,8 +2464,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtDefer => {
                 let value = indexed_raw(&mut payload, span)?;
+                let on_error =
+                    indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.calls[index].defers.push(value);
+                self.calls[index]
+                    .defers
+                    .push(RegisteredDefer::new(value, on_error));
                 Ok(())
             }
             FullTag::StmtValue => {
@@ -4763,10 +4768,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let cleanup = self.discard_work_from_with_primary(
             index,
             0,
-            matches!(
-                flow,
-                StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))
-            ),
+            flow_leaves_with_error(&flow),
         );
         if cleanup
             .as_ref()
@@ -4775,10 +4777,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         {
             return Err(cleanup.expect_err("forced cleanup abort"));
         }
-        if matches!(
-            flow,
-            StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))
-        ) {
+        if flow_leaves_with_error(&flow) {
             if let Err(error) = cleanup {
                 self.evaluator
                     .report_cleanup_error(&error, self.calls[index].call_span);
@@ -5060,10 +5059,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
+        let leaves_with_error = flow_leaves_with_error(&flow);
         let call = &mut self.calls[index];
         let cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
             &defers,
+            leaves_with_error,
             &mut call.slots,
             call.call_span,
         );
@@ -5073,10 +5074,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force))
         {
             cleanup
-        } else if matches!(
-            flow,
-            StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))
-        ) {
+        } else if leaves_with_error {
             if let Err(error) = cleanup {
                 self.evaluator
                     .report_cleanup_error(&error, self.calls[index].call_span);
@@ -5097,6 +5095,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
             &defers,
+            true,
             &mut call.slots,
             call.call_span,
         );
@@ -5311,10 +5310,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.result = Some(match cleanup {
             Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
             Err(error)
-                if matches!(
-                    flow,
-                    StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))
-                ) =>
+                if flow_leaves_with_error(&flow) =>
             {
                 self.evaluator.report_cleanup_error(&error, call_span);
                 Ok(LoweredValue::Unit)
@@ -5803,7 +5799,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             unreachable!("pattern condition owns its scope");
         };
         self.evaluator.frame_scratch.recycle_statements(statements);
-        self.exit_block_scope(index, scope_id, true, CleanupFailureResources::Retain)
+        self.exit_block_scope(index, scope_id, false, true, CleanupFailureResources::Retain)
     }
 
     fn start_pattern_branch(
@@ -5861,10 +5857,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
+    /// Closes a block scope and runs the deferred actions it registered.
+    /// `leaves_with_error` is whether control is leaving the block with an
+    /// error, which is when its `errdefer` actions run.
     fn exit_block_scope(
         &mut self,
         index: usize,
         scope_id: u64,
+        leaves_with_error: bool,
         include_work_contexts: bool,
         mut disposition: CleanupFailureResources,
     ) -> Result<(), RuntimeError> {
@@ -5884,6 +5884,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let mut cleanup = self.evaluator.run_indexed_defers(
             &call.execution,
             &defers,
+            leaves_with_error,
             &mut call.slots,
             call.call_span,
         );
@@ -6059,7 +6060,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         CleanupFailureResources::Retain
                     };
-                    self.exit_block_scope(index, scope_id, false, disposition)
+                    self.exit_block_scope(
+                        index,
+                        scope_id,
+                        primary_failed || first_error.is_some(),
+                        false,
+                        disposition,
+                    )
                 }
                 FrameWork::ForStream {
                     mut stream, span, ..
@@ -6104,6 +6111,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator.cleanup_error_contexts = previous_contexts;
         first_error.map_or(Ok(()), Err)
     }
+}
+
+/// Whether control that leaves a scope with `flow` leaves it with an error: a
+/// propagating failure, or a `return` whose value is an `Err`. A cleanup
+/// failure is then secondary, and `errdefer` actions run.
+fn flow_leaves_with_error(flow: &StmtFlow) -> bool {
+    matches!(
+        flow,
+        StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))
+    )
 }
 
 fn cleanup_call_scopes(

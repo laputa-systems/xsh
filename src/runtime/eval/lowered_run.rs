@@ -10956,6 +10956,19 @@ impl Evaluator {
             }
         }
         for (index, span) in defers.into_iter().rev() {
+            // Every statement succeeded, so the module's top level is not
+            // leaving with an error and its `errdefer` actions do not run.
+            let on_error = self
+                .indexed_program
+                .as_ref()
+                .expect("indexed module program remains installed")
+                .driver_step_defers_on_error(index)
+                .map_err(|error| {
+                    RuntimeError::new("module-load", error.message).with_span(span)
+                })?;
+            if on_error {
+                continue;
+            }
             let _ = self.eval_indexed_driver_step(index, span).ok_or_else(|| {
                 RuntimeError::new("module-load", "indexed module defer is unavailable")
                     .with_span(span)
