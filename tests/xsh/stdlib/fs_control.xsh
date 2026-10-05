@@ -67,3 +67,43 @@ test test_path_limits_reports_host_byte_limits_and_missing_paths { |ctx|
   assert limits.path_max > limits.name_max
   assert fs.path_limits(fp"{root}/missing") is Err(is NotFound)
 }
+
+test test_access_checks_effective_permissions_and_requires_all_requested_modes { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-access")?
+  let file = fp"{root}/file"
+  file.write("content", mode: 0o600)
+  assert fs.access(file)?
+  assert fs.access(file, read: true, write: true)?
+  assert ! fs.access(file, execute: true)?
+  assert ! fs.access(file, read: true, execute: true)?
+  file.chmod(0o700)
+  assert fs.access(file, read: true, write: true, execute: true)?
+  file.chmod(0o400)
+  assert fs.access(file, read: true)?
+  if applet.current_euid() != 0 {
+    assert ! fs.access(file, write: true)?
+    assert ! fs.access(file, read: true, write: true)?
+  }
+  assert fs.access(root, execute: true)?
+}
+
+test test_access_follow_control_and_host_errors_remain_observable { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-access-follow")?
+  let target = fp"{root}/target"
+  let link = fp"{root}/link"
+  let dangling = fp"{root}/dangling"
+  target.write("content", mode: 0o600)
+  link.symlink(to: p"target")
+  dangling.symlink(to: p"missing")
+  assert fs.access(link, read: true)?
+  assert ! fs.access(link, execute: true)?
+  assert fs.access(link, follow_symlinks: false)?
+  assert fs.access(dangling, follow_symlinks: false)?
+  assert fs.access(dangling) is Err(is NotFound)
+  assert fs.access(fp"{root}/missing") is Err(is NotFound)
+  let not_directory = fs.access(fp"{target}/child")
+  assert not_directory is Err(_)
+  if let Err(failure) = not_directory {
+    assert failure.errno == 20
+  }
+}

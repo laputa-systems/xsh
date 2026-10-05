@@ -69,7 +69,7 @@ use xsh_root::{OpenOptions as RootOpenOptions, Root};
 mod prims;
 mod control;
 mod xattr;
-pub(crate) use control::{path_limits, rename_exchange, sync_path};
+pub(crate) use control::{access, path_limits, rename_exchange, sync_path};
 pub(crate) use xattr::{xattr_get, xattr_list, xattr_remove, xattr_set};
 pub(crate) use prims::chmod as chmod_path;
 pub(crate) use prims::{

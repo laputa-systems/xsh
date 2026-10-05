@@ -1681,6 +1681,21 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
+            "access",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("read", Type::Bool),
+                    default_param("write", Type::Bool),
+                    default_param("execute", Type::Bool),
+                    default_param("follow_symlinks", Type::Bool),
+                ],
+                result(Type::Bool),
+                false,
+                RuntimeOp::FsAccess,
+            ),
+        ),
+        (
             "path_limits",
             sig(
                 vec![param("path", Type::Path)],

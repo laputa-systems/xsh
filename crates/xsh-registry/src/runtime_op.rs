@@ -218,6 +218,7 @@ pub enum RuntimeOp {
     FsRenameNoreplace,
     FsRenameExchange,
     FsPathLimits,
+    FsAccess,
     FsXattrList,
     FsXattrGet,
     FsXattrSet,

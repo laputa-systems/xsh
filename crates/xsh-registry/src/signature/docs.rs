@@ -779,6 +779,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Linux and macOS use the kernel exchange operation, including files, symlinks, and directories. Both names must exist; unsupported filesystems and cross-filesystem exchanges fail without a temporary-name fallback.",
             &["filesystem", "rename", "atomic"],
         )),
+        ("fs", "access") => Some((
+            "Checks path access using effective credentials.",
+            "read, write, and execute default to false; no requested modes checks existence, and every requested mode must be allowed. Effective IDs, supplementary groups, ACLs, and host privileges apply. EACCES or EPERM returns false; missing paths and other host failures return errors with errno. follow_symlinks defaults to true. This observation does not authorize a later operation or prevent races.",
+            &["filesystem", "permissions", "inspection"],
+        )),
         ("fs", "path_limits") => Some((
             "Reads the host name and path byte limits for a path.",
             "name_max and path_max come from pathconf on Linux and macOS. A missing path, indeterminate limit, or unsupported host fails instead of inventing a bound; path_max includes the terminating NUL byte.",

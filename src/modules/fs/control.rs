@@ -82,3 +82,37 @@ pub(crate) fn path_limits(path: PathBuf, span: Span) -> Result<Value, RuntimeErr
     };
     name_error_path(&shown, result.map_err(|error| RuntimeError::host("fs-path-limits", &error).with_span(span)))
 }
+
+/// Effective credentials include supplementary groups, ACLs, and host privilege
+/// rules. This is an observation: a later open must still enforce permissions.
+pub(crate) fn access(
+    path: PathBuf,
+    read: bool,
+    write: bool,
+    execute: bool,
+    follow_symlinks: bool,
+    span: Span,
+) -> Result<bool, RuntimeError> {
+    use rustix::fs::{Access, AtFlags};
+    let mut requested = Access::empty();
+    if read {
+        requested |= Access::READ_OK;
+    }
+    if write {
+        requested |= Access::WRITE_OK;
+    }
+    if execute {
+        requested |= Access::EXEC_OK;
+    }
+    let mut flags = AtFlags::EACCESS;
+    if !follow_symlinks {
+        flags |= AtFlags::SYMLINK_NOFOLLOW;
+    }
+    let shown = path.display().to_string();
+    let result = match rfs::accessat(CWD, &path, requested, flags) {
+        Ok(()) => Ok(true),
+        Err(rustix::io::Errno::ACCESS | rustix::io::Errno::PERM) => Ok(false),
+        Err(error) => Err(RuntimeError::host("fs-access", &error).with_span(span)),
+    };
+    name_error_path(&shown, result)
+}
