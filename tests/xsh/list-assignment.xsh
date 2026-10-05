@@ -265,3 +265,53 @@ test test_str_compound_addition_appends_text {
   assert record.label == "l!"
   assert labels.first == "fab"
 }
+
+test test_compound_assignment_reads_its_target_after_the_right_side {
+  # `x += e` evaluates `e` and then reads `x`, so a right side that assigns
+  # `x` is combined with the new value. `x = x + e` reads `x` first and
+  # keeps the old one.
+  var total = 1
+  total += if true {
+    total = 10
+    5
+  } else {
+    0
+  }
+  assert total == 15
+  var spelled = 1
+  spelled = spelled + (if true {
+    spelled = 10
+    5
+  } else {
+    0
+  })
+  assert spelled == 6
+
+  var names = ["old"]
+  names += if true {
+    names = ["new"]
+    ["added"]
+  } else {
+    []
+  }
+  assert names == ["new", "added"]
+  var pushed = ["old"]
+  pushed = pushed.push(
+    if true {
+      pushed = ["new"]
+      "added"
+    } else {
+      ""
+    },
+  )
+  assert pushed == ["old", "added"]
+
+  var rows = [1, 2]
+  rows[0] += if true {
+    rows = [10, 20]
+    5
+  } else {
+    0
+  }
+  assert rows == [15, 20]
+}

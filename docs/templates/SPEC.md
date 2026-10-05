@@ -1424,7 +1424,10 @@ appending or slice assignment), and `Str`/`Bytes` are immutable. Compound
 operators `+=`, `-=`, `*=`, `/=`, `%=` follow the binary operator rules, and
 the result must keep the target's type. Selectors evaluate once in path order,
 then the right side, then the update commits; a failed update leaves the
-target unchanged. Assignment produces `Unit`. Earlier aliases keep their old
+target unchanged. A compound operator reads the target's current value when
+it commits, after the right side: `x += e` evaluates `e` and then reads `x`,
+so it differs from `x = x + e`, which reads `x` first, exactly when `e`
+assigns `x`. Assignment produces `Unit`. Earlier aliases keep their old
 contents.
 
 Pure functions may assign to their own local `var`s, including their fields
