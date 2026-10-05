@@ -45,6 +45,16 @@ const END: Context = Context::open(Follow::END);
 const BRACE: Context = Context::open(Follow::BRACE);
 /// Before a keyword.
 const WORD: Context = Context::open(Follow::WORD);
+
+/// The context of an element written between `open` and its closing
+/// delimiter: a set's elements are read by how they begin.
+const fn element_context(open: char) -> Context {
+    if open == '{' {
+        Context::set_element(Follow::CLOSE)
+    } else {
+        CLOSE
+    }
+}
 const MULTILINE_SCHEMA_FIELD_THRESHOLD: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3227,7 +3237,7 @@ impl<'a> Writer<'a> {
                 if elements[index].splice_span.is_some() {
                     line.push('@');
                 }
-                writer.write_expr_safe(elements[index].value, line);
+                writer.write_expr_safe_in(elements[index].value, element_context(open), line);
             });
         output.push(open);
         output.push('\n');
@@ -3238,7 +3248,7 @@ impl<'a> Writer<'a> {
             if item.splice_span.is_some() {
                 output.push('@');
             }
-            self.write_expr_safe(item.value, output);
+            self.write_expr_safe_in(item.value, element_context(open), output);
             self.force_collection_expanded = previous_force;
             output.push_str(",\n");
         }
@@ -3298,7 +3308,7 @@ impl<'a> Writer<'a> {
             if item.splice_span.is_some() {
                 output.push('@');
             }
-            self.write_expr_safe(item.value, output);
+            self.write_expr_safe_in(item.value, element_context(open), output);
         }
         // Braces around one expression are a block; the comma makes them a
         // one-element set.
@@ -4521,7 +4531,12 @@ impl<'a> Writer<'a> {
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
-        self.write_expr_safe_in(expr, END, output);
+        let body = if open == '{' {
+            Context::set_element(Follow::END)
+        } else {
+            END
+        };
+        self.write_expr_safe_in(expr, body, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);

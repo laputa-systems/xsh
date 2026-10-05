@@ -244,6 +244,39 @@ print \${one.len()} \${mixed.len()} \${squares.len()} \${wide.len()}
   assert output.stdout == "1 2 2 3\n"
 }
 
+# After `{` or an entry's `,`, a `[` starts a computed map key, so a set
+# element that begins with a list has the list in parentheses. Those
+# parentheses are required, and the formatter writes them.
+test test_a_set_element_that_begins_with_a_list_is_grouped { |ctx|
+  let sizes = {([1, 2]).len(), 3, ([n for n in [4, 5, 6]]).len()}
+  assert sizes == {2, 3}
+  assert {([n, n]).len() + n for n in [1, 2]} == {3, 4}
+
+  let source = """let sizes = {([1, 2].len()), 3}
+let later = {7, ([1, 2, 3]).len()}
+print \${sizes.len()} \${later.len()}
+"""
+  let output = test.expect(ctx, source, status: 0)?
+  assert output.stdout == "2 2\n"
+  let candidate = test.temp_file(ctx, name: "grouped.xsh", contents: bytes.from_text(source))?
+  run.capture --text --accept=[0, 1] "xsht" fmt $candidate
+  let formatted = candidate.read_text()?
+  assert "let sizes = {([1, 2]).len(), 3}\n" in formatted, formatted
+  assert "let later = {7, ([1, 2, 3]).len()}\n" in formatted, formatted
+  let stable = run.capture --text "xsht" fmt --check $candidate
+  assert stable.status.exited_with(0), stable.stdout + stable.stderr
+
+  # Parentheses that no entry needs are still redundant.
+  let redundant = test.expect(
+    ctx,
+    """let sizes = {(1 + 2), 3}
+print \${sizes.len()}
+""",
+    status: 2,
+  )?
+  assert count(redundant.stderr, "err[check.redundant-parens]") == 1, redundant.stderr
+}
+
 # The migration lint makes a local map of `true` a set in one fix, and the
 # result is formatted, checks, and behaves the same.
 test test_lint_makes_a_local_map_of_true_a_set { |ctx|

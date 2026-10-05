@@ -211,6 +211,9 @@ pub enum Lead {
     /// A `let`, assignment, `return`, `yield`, or `defer` value, where a
     /// leading `run` is a run form rather than an expression.
     Initializer,
+    /// An entry of a set literal or the body of a set comprehension, where
+    /// a leading `[` starts a computed map key.
+    SetElement,
 }
 
 /// The operator or construct that holds an expression.
@@ -295,6 +298,13 @@ impl Context {
     pub const fn arm_body(follow: Follow) -> Self {
         Self {
             lead: Some(Lead::ArmBody),
+            ..Self::open(follow)
+        }
+    }
+
+    pub const fn set_element(follow: Follow) -> Self {
+        Self {
+            lead: Some(Lead::SetElement),
             ..Self::open(follow)
         }
     }
@@ -806,6 +816,11 @@ fn comparison_mixes(op: BinaryOp, kind: &ArenaExprKind) -> bool {
 
 /// Statement and arm-body dispatch on the expression's own first token.
 fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context: Context) -> bool {
+    // After `{` or an entry's `,`, the brace-literal parser reads `[` as a
+    // computed key, so a list that begins an element is grouped.
+    if lead == Lead::SetElement {
+        return matches!(kind, ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. });
+    }
     let statement = matches!(lead, Lead::Statement { .. } | Lead::ArmStatement);
     match kind {
         ArenaExprKind::ValueBlock(_) if lead == Lead::ArmStatement => true,
@@ -1025,7 +1040,10 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         | ArenaExprKind::TempDirScope { .. } => open(Follow::BRACE),
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
-        ArenaExprKind::SetComp { expr, .. } if expr == child => open(Follow::WORD),
+        ArenaExprKind::SetComp { expr, .. } if expr == child => {
+            Context::set_element(Follow::WORD)
+        }
+        ArenaExprKind::Set(_) => Context::set_element(Follow::CLOSE),
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
             let has_spec = arena.fmt_parts(parts).any(|part| {
                 matches!(part, ArenaFmtPart::Expr(expr, Some(_)) if expr == child)
@@ -1275,6 +1293,7 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
     }
     let mut parents: FxHashMap<ExprId, ExprId> = FxHashMap::default();
     let mut arm_bodies = Vec::new();
+    let mut set_elements = Vec::new();
     let mut diagnostics = Vec::new();
     for (index, tag) in arena.expr_tags.iter().enumerate() {
         use crate::syntax::arena::ArenaExprTag as Tag;
@@ -1282,6 +1301,16 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
         // they hold nothing and no source text follows them.
         if arena.expr_is_synthetic(ExprId::from_index(index)) {
             continue;
+        }
+        // Delimited, so held by no operator, but read by where they begin.
+        if !grouped.is_empty() {
+            match arena.expr(ExprId::from_index(index)).kind {
+                ArenaExprKind::Set(items) => {
+                    set_elements.extend(arena.list_elements(items).map(|item| item.value));
+                }
+                ArenaExprKind::SetComp { expr, .. } => set_elements.push(expr),
+                _ => {}
+            }
         }
         let logical = matches!(
             tag,
@@ -1373,6 +1402,11 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
         groups
             .statements
             .extend(arm_bodies.into_iter().map(|body| (body, Lead::ArmBody)));
+        groups.statements.extend(
+            set_elements
+                .into_iter()
+                .map(|element| (element, Lead::SetElement)),
+        );
         for index in 0..arena.stmt_tags.len() {
             if let ArenaStmtKind::Let {
                 initializer: value, ..

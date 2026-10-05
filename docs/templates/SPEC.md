@@ -1502,9 +1502,12 @@ types never select an overload.
   block (6.9), so a one-element set has a comma after its element: `{"a",}`.
   Writing `{}` or `{"a"}` where a set is expected is `check.type-mismatch`,
   with a fix. The first entry of a set literal is not a bare name followed by
-  a command word (that is a block whose first statement is a command) and
-  does not begin with `[`, which starts a computed map key; parenthesize such
-  an element. Elements share one type, from context when present, evaluate
+  a command word (that is a block whose first statement is a command). No
+  entry begins with `[`: after `{` or an entry's `,`, a `[` starts a computed
+  map key (`[key]: value`), and braces are told apart by how each entry
+  begins, not by what follows its closing `]`. An element that begins with a
+  list has the list in parentheses, `{([1, 2]).len(), 3}`, which
+  `check.redundant-parens` accepts and `xsht fmt` keeps. Elements share one type, from context when present, evaluate
   once in order, and a repeated element is held once. A literal that writes
   both `key: value` entries and set elements is an error
   (`parse.brace-literal-mixed`):
