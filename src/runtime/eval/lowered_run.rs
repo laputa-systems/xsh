@@ -1902,6 +1902,48 @@ fn lowered_bool_arg_or(
     }
 }
 
+// Reading the descriptor directly keeps all stdin operations on one cursor without
+// a buffered reader consuming bytes that a later operation still needs.
+fn io_read_stdin(data: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match rustix::io::read(rustix::stdio::stdin(), &mut *data) {
+            Ok(count) => return Ok(count),
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn io_read_all_stdin() -> std::io::Result<Vec<u8>> {
+    let mut data = Vec::new();
+    let mut chunk = [0; 8192];
+    loop {
+        let count = io_read_stdin(&mut chunk)?;
+        if count == 0 {
+            return Ok(data);
+        }
+        data.extend_from_slice(&chunk[..count]);
+    }
+}
+
+fn io_read_stdin_line() -> std::io::Result<String> {
+    let mut data = Vec::new();
+    let mut byte = [0];
+    loop {
+        if io_read_stdin(&mut byte)? == 0 {
+            break;
+        }
+        if byte[0] == b'\n' {
+            if data.last() == Some(&b'\r') {
+                data.pop();
+            }
+            break;
+        }
+        data.push(byte[0]);
+    }
+    String::from_utf8(data).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
 fn lowered_int_arg(
     value: Option<LoweredValue>,
     operation: &str,
@@ -4091,6 +4133,33 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Captured stderr belongs to its output sink; only shared host output is
+    /// drained here, so a prompt can become visible before reading stdin.
+    fn flush_stderr_checked(&mut self, span: Span) -> Result<(), RuntimeError> {
+        if !self.shared_stdio || self.capture_process_output || self.stderr.is_empty() {
+            return Ok(());
+        }
+        let bytes = std::mem::take(&mut self.stderr);
+        let mut offset = 0;
+        while offset < bytes.len() {
+            match rustix::io::write(rustix::stdio::stderr(), &bytes[offset..]) {
+                Ok(0) => {
+                    return Err(RuntimeError::host(
+                        "io-flush-stderr",
+                        &std::io::Error::from(std::io::ErrorKind::WriteZero),
+                    ).with_span(span));
+                }
+                Ok(written) => offset += written,
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::AGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(error) => {
+                    return Err(RuntimeError::host("io-flush-stderr", &error).with_span(span));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn lowered_stream_list_result(
         &mut self,
         result: Result<StreamValue, RuntimeError>,
@@ -6078,43 +6147,61 @@ impl Evaluator {
                 }
                 lowered_unit_result(fs_module::write_path(host_path, text.as_bytes(), span))
             }
+            RuntimeOp::IoStdinRead if values.len() == 1 => {
+                let count = lowered_int_arg(values.pop(), "io.stdin_read", span)?;
+                let result = (|| {
+                    let count = usize::try_from(count).ok().filter(|count| *count > 0)
+                        .ok_or_else(|| RuntimeError::new("io-stdin-read", "max_bytes must be positive").with_span(span))?;
+                    let mut data = Vec::new();
+                    data.try_reserve_exact(count).map_err(|error| {
+                        RuntimeError::new("io-stdin-read", error.to_string()).with_span(span)
+                    })?;
+                    data.resize(count, 0);
+                    let read = io_read_stdin(&mut data).map_err(|error| {
+                        RuntimeError::host("io.stdin_read", &error).with_span(span)
+                    })?;
+                    data.truncate(read);
+                    Ok(LoweredValue::Bytes(data.into()))
+                })();
+                match result {
+                    Ok(data) => lowered_result_ok(data),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::IoStdinBytes if values.is_empty() => {
-                let mut data = Vec::new();
-                match std::io::stdin().read_to_end(&mut data) {
-                    Ok(_) => lowered_result_ok(LoweredValue::Bytes(data.into())),
+                match io_read_all_stdin() {
+                    Ok(data) => lowered_result_ok(LoweredValue::Bytes(data.into())),
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_bytes", &error).with_span(span),
                     ),
                 }
             }
             RuntimeOp::IoStdinText if values.is_empty() => {
-                let mut data = String::new();
-                match std::io::stdin().read_to_string(&mut data) {
-                    Ok(_) => lowered_result_ok(LoweredValue::Str(data.into())),
+                let result = io_read_all_stdin().and_then(|data| {
+                    String::from_utf8(data).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+                });
+                match result {
+                    Ok(data) => lowered_result_ok(LoweredValue::Str(data.into())),
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_text", &error).with_span(span),
                     ),
                 }
             }
             RuntimeOp::IoStdinLine if values.is_empty() => {
-                let mut line = String::new();
-                match std::io::BufRead::read_line(
-                    &mut std::io::BufReader::new(std::io::stdin().lock()),
-                    &mut line,
-                ) {
-                    Ok(_) => {
-                        if line.ends_with('\n') {
-                            line.pop();
-                            if line.ends_with('\r') {
-                                line.pop();
-                            }
-                        }
-                        lowered_result_ok(LoweredValue::Str(line.into()))
-                    }
+                match io_read_stdin_line() {
+                    Ok(line) => lowered_result_ok(LoweredValue::Str(line.into())),
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_line", &error).with_span(span),
                     ),
                 }
+            }
+            RuntimeOp::IoWriteStderr if values.len() == 1 => {
+                let text = lowered_str_arg_owned(values.pop(), "", "io.write_stderr", span)?;
+                self.stderr.extend_from_slice(text.as_bytes());
+                lowered_result_ok(LoweredValue::Unit)
+            }
+            RuntimeOp::IoFlushStderr if values.is_empty() => {
+                lowered_unit_result(self.flush_stderr_checked(span))
             }
             RuntimeOp::IoWriteStdout if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stdout", span)?;

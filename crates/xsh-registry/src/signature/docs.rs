@@ -824,6 +824,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Serialization occurs at the explicit path boundary and does not silently discard unsupported values.",
             &["ini", "filesystem", "encoding"],
         )),
+        ("io", "stdin_read") => Some((
+            "Reads up to max_bytes bytes from standard input without reading ahead.",
+            "max_bytes must be positive and fit an allocatable byte buffer. A read can return fewer bytes than requested; an empty result means EOF. Bytes beyond the result remain available to stdin reads and child processes.",
+            &["io", "stdin", "bytes"],
+        )),
+        ("io", "write_stderr") => Some((
+            "Buffers UTF-8 text on standard error without a newline.",
+            "Use flush_stderr before reading an interactive response to make a prompt visible. Captured output remains in the evaluator's output sink.",
+            &["io", "stderr", "utf8"],
+        )),
+        ("io", "flush_stderr") => Some((
+            "Writes buffered standard error to the host and reports write failures.",
+            "Captured output belongs to its output sink, so flushing succeeds without draining it. Host failures carry errno, including EBADF for a closed descriptor.",
+            &["io", "stderr", "flush"],
+        )),
         ("io", "stdin_bytes") => Some((
             "Reads all standard input as Bytes.",
             "The operation preserves arbitrary bytes and consumes the evaluator's stdin source.",
@@ -836,7 +851,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("io", "stdin_line") => Some((
             "Reads one line from standard input.",
-            "Line termination is consumed according to the stream boundary and end-of-input remains distinguishable.",
+            "Consumes LF or CRLF without reading ahead. Invalid UTF-8 is an error; EOF returns an empty string, as does an empty line.",
             &["io", "stdin", "lines"],
         )),
         ("io", "write_stdout") => Some((
