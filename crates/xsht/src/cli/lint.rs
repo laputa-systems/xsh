@@ -1,6 +1,6 @@
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files_below,
     is_path_excluded, load_config, nearest_config_for_file, text_bytes,
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
@@ -200,8 +200,13 @@ fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDisco
         for file in files {
             let path = Path::new(file);
             if path.is_dir() {
-                let dir_config = config_for_dir(path, config)?.config;
-                collect_xsh_files(path, &dir_config.exclude, &mut paths)?;
+                let dir_config = config_for_dir(path, config)?;
+                collect_xsh_files_below(
+                    path,
+                    &dir_config.config_dir,
+                    &dir_config.config.exclude,
+                    &mut paths,
+                )?;
             } else {
                 paths.push(path.to_path_buf());
                 explicit_roots.insert(module_key(path));

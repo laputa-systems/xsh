@@ -1,6 +1,6 @@
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files_below,
     load_config, text_bytes,
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
@@ -194,7 +194,7 @@ pub fn check_paths_timed(
             let path = Path::new(path);
             if path.is_dir() {
                 let dir_config = match config_for_dir(path, &config) {
-                    Ok(tool_config) => tool_config.config,
+                    Ok(tool_config) => tool_config,
                     Err(message) => {
                         return CliOutput {
                             status: 2,
@@ -205,7 +205,12 @@ pub fn check_paths_timed(
                         };
                     }
                 };
-                if let Err(message) = collect_xsh_files(path, &dir_config.exclude, &mut files) {
+                if let Err(message) = collect_xsh_files_below(
+                    path,
+                    &dir_config.config_dir,
+                    &dir_config.config.exclude,
+                    &mut files,
+                ) {
                     if let Some(output) = cancellation_output() {
                         return output;
                     }

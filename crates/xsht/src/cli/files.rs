@@ -12,6 +12,19 @@ pub fn collect_xsh_files(
     excludes: &[String],
     files: &mut Vec<PathBuf>,
 ) -> Result<(), String> {
+    collect_xsh_files_below(root, root, excludes, files)
+}
+
+/// Collects the scripts under `root`. `excludes` are the patterns of the
+/// config in `config_dir` and name paths below that directory, so a walk
+/// that starts deeper in the project excludes exactly what a walk from the
+/// config's directory excludes there.
+pub fn collect_xsh_files_below(
+    root: &Path,
+    config_dir: &Path,
+    excludes: &[String],
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
     check_cancellation()?;
     if root.is_file() {
         if root.extension().is_some_and(|extension| extension == "xsh") {
@@ -19,7 +32,7 @@ pub fn collect_xsh_files(
         }
         return Ok(());
     }
-    let mut discovered = collect_xsh_files_parallel(root, excludes)?;
+    let mut discovered = collect_xsh_files_parallel(root, config_dir, excludes)?;
     files.append(&mut discovered);
     files.sort_unstable();
     files.dedup();
@@ -59,7 +72,7 @@ pub(crate) fn collect_configured_or_explicit_xsh_files(
         for path in paths {
             let path = Path::new(path);
             if path.is_dir() {
-                collect_xsh_files(path, &config.exclude, &mut files)?;
+                collect_xsh_files_below(path, root, &config.exclude, &mut files)?;
             } else {
                 files.push(path.to_path_buf());
             }
@@ -80,8 +93,13 @@ fn configured_include_path(root: &Path, include: &str) -> PathBuf {
 }
 
 #[allow(clippy::single_call_fn)]
-fn collect_xsh_files_parallel(root: &Path, excludes: &[String]) -> Result<Vec<PathBuf>, String> {
+fn collect_xsh_files_parallel(
+    root: &Path,
+    config_dir: &Path,
+    excludes: &[String],
+) -> Result<Vec<PathBuf>, String> {
     let root = root.to_path_buf();
+    let config_dir = config_dir.to_path_buf();
     let excludes = excludes.to_vec();
     let workers = thread::available_parallelism()
         .map(|count| count.get())
@@ -102,7 +120,7 @@ fn collect_xsh_files_parallel(root: &Path, excludes: &[String]) -> Result<Vec<Pa
     let walker = builder.build_parallel();
     walker.run(|| {
         let tx = tx.clone();
-        let root = root.clone();
+        let config_dir = config_dir.clone();
         let excludes = excludes.clone();
         Box::new(move |result| {
             if let Err(error) = check_cancellation() {
@@ -121,7 +139,7 @@ fn collect_xsh_files_parallel(root: &Path, excludes: &[String]) -> Result<Vec<Pa
                 .file_type()
                 .is_some_and(|file_type| file_type.is_file())
                 && path.extension().is_some_and(|extension| extension == "xsh")
-                && !is_path_excluded(&root, path, &excludes)
+                && !is_path_excluded(&config_dir, path, &excludes)
                 && tx.send(Ok(path.to_path_buf())).is_err()
             {
                 return ignore::WalkState::Quit;

@@ -1,5 +1,5 @@
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files_below,
     is_path_excluded, load_config, text_bytes,
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
@@ -113,8 +113,13 @@ fn discover_format_files(files: &[String], config: &XshConfig) -> Result<Vec<Str
         for file in files {
             let path = Path::new(file);
             if path.is_dir() {
-                let dir_config = config_for_dir(path, config)?.config;
-                collect_xsh_files(path, &dir_config.exclude, &mut discovered)?;
+                let dir_config = config_for_dir(path, config)?;
+                collect_xsh_files_below(
+                    path,
+                    &dir_config.config_dir,
+                    &dir_config.config.exclude,
+                    &mut discovered,
+                )?;
             } else {
                 discovered.push(PathBuf::from(path));
             }
