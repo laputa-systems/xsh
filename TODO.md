@@ -106,20 +106,8 @@ rule makes a `?` redundant, a lint removes it, so each site has one spelling.
 ## `ERR`: error families and variants
 
 How error families are declared, constructed, matched, and named in
-signatures. `ERR-1` is a defect found while migrating Laputa.
+signatures.
 
-- `ERR-1` Positional error-constructor arguments bind to payload fields in
-  alphabetical order, not declaration order: with
-  `Conflict(path: Path, owner: Str)`, `Conflict(p"x", "o")` is a type error,
-  and two same-typed fields would silently swap. Laputa's
-  `Failed(kind, message)` works only because its names are alphabetical.
-  Fixing this changes behavior.
-- `ERR-2` **Multi-line error families and implicit messages.** Families cannot span
-  lines today (Laputa's `PmError` is one ~1,100-character line). Use the
-  `enum`-style brace form, one variant per line, and let a variant without a
-  payload take its message positionally (`PmError.Usage("...")`): every error
-  already has `.message`, so 273 `(message: Str)` payloads restate it.
-  Needs `ERR-1`: positional messages must bind by declaration order.
 - `ERR-3` `.Name` in match patterns is not implemented; patterns stay qualified.
 - `ERR-4` `Err(.Variant(...))` needs a family-typed return. Laputa's ~652
   `Err(Family.Variant(...))` sites mostly return `Result[T]` (plain `Error`),
@@ -146,6 +134,16 @@ signatures. `ERR-1` is a defect found while migrating Laputa.
   default after migrating the corpus (347 + 32 sites here, 13 + 7 in Laputa),
   then delete the settings.
   Runs as a migration once `ERR-3` and `ERR-4` have merged.
+- `ERR-7` Error-constructor argument binding is decided by lowering a second
+  time instead of consumed from a checker fact, and error constructors lack
+  two record-constructor rules: a positional argument after a named one is
+  accepted, and there is no same-type overlap rule. Publish the binding as a
+  checker fact and apply the record rules.
+- `ERR-8` `lint.prefer-implicit-message` is opt-in
+  (`[lint] prefer-implicit-messages`) because exported families get a note
+  and no fix: 184 message-only variants here (14 exported), 79 in Laputa (43
+  exported). Migrate both corpora, enable it by default, and delete the
+  setting.
 
 ## `PATH`: paths and the filesystem API
 
@@ -186,29 +184,16 @@ first.
 
 ### Items
 
-- `PATH-1` **Path text queries stay on paths** (table row 4): component-wise
-  `starts_with`/`ends_with` and `ext`/`stem`/`name` coverage, with a lint for
-  `.display().starts_with/ends_with/split/replace` where the rewrite is exact.
-- `PATH-2` **`Path.write_lines(lines)`**: newline-terminated lines, replacing
-  `fs.write(p, lines.join("\n") + "\n")` (about 46 sites); pairs with
-  `collect { ... }`.
-- `PATH-3` **`Path.read_lines()` as the eager inverse-shaped partner to
-  `Path.write_lines(lines)`.** It returns `Result[List[Str]]` with exactly
-  the UTF-8 and line semantics of `path.read_text()?.lines()`; keep it eager
-  initially so an autofix does not move file-I/O or decoding failure from call
-  time into iteration. Laputa has the read-text-plus-lines shape in roughly 16
-  XSH files. This keeps the text boundary explicit on `Path` and does not
-  introduce implicit file opening through ordinary iteration.
-- `PATH-4` **`Path.glob(pattern)` / `Path.rglob(pattern)`** returning `Path`s, no
-  implicit expansion anywhere else (about 23 walk-then-filter sites).
 - `PATH-5` **OS byte sinks accept `Path`** (table row 3): argv, env, and
   process APIs take a `Path` without `.display()`, and `p.bytes()` is the
   lossless byte view. `TYPE-1` gives the argv word type its name.
 - `PATH-6` **A string literal takes the `Path` type wherever the expected type
-  is `Path`** (table row 2): `==` and `!=` against a `Path`, `in` against a
-  collection of paths, a literal pattern in a `match` on a `Path`, and a key
-  of a `Path`-keyed map. One rule, the same as typed bindings and parameters,
-  with a lint for `p.display() == "literal"`.
+  is `Path`** (table row 2): typed bindings, parameters, `==` and `!=`
+  against a `Path`, `in` against a collection of paths, a literal pattern in
+  a `match` on a `Path`, and a key of a `Path`-keyed map. One rule, with a
+  lint for `p.display() == "literal"`. Today `let q: Path = "a"` and `f("a")`
+  are rejected although SPEC 4.4 allows them, and a `Str` literal for a
+  registry `Path` parameter passes the check and fails at run time.
 - `PATH-7` **Path lists as environment values.** A `List[Path]` in an env overlay
   joins with the platform separator, losslessly:
   `PATH: [fp"{root}/usr/bin", ...env.PATH]` instead of
@@ -246,20 +231,30 @@ first.
   `exists()`, with a lint for the kind comparisons they replace (~950
   `exists` calls, ~390 kind comparisons). In a condition they need no `?`
   once `PROP-8` has merged; the methods themselves do not need it.
+- `PATH-14` **`Path.components() -> List[Path]`**, with a lint for
+  `.display().split("/")` (8 sites). About 20 `.display()` prefix and suffix
+  tests remain that are text tests, not component tests (`"lib/"`, `".a"`);
+  they need a manual rewrite or stay as `.display()`.
+- `PATH-15` `Path.lines`, `bytes_lines`, and `touch_from` are missing from
+  the checker's method effect table, so they need no `fs` effect. Fix it and
+  derive a test from the registry that every method's declared effects are
+  enforced.
+- `PATH-16` `lint.prefer-file-lines` never fires: `x.read_text()?.lines()`
+  parses as a guarded hop.
 
 Rejected this round: `/` as path join (keep `fp"..."`).
 
 ## `SCOPE`: scoped blocks, time, and resources
 
 Block forms that own a resource or a deadline, and the ownership rules behind
-them. Most are sugar over `defer`; `SCOPE-1` and `SCOPE-2` are the simplest.
+them. Most are sugar over `defer`. `repeat N times` is merged; it runs
+`range(N)`, so a negative count counts down instead of running zero times.
 
 - `SCOPE-1` **`tempdir NAME at PATH { ... }`**: a scratch directory at a fixed path,
   removed if present, created, and removed on exit. Replaces
   `fs.remove(t, missing_ok: true)?` / `fs.mkdir(t)?` /
   `defer fs.remove(t, missing_ok: true)?` (about 35 full triples, 59
   remove-then-mkdir pairs in Laputa). Extends the `tempdir` block.
-- `SCOPE-2` **`repeat N times { ... }`** (~45 `for _ in range(n)` sites).
 - `SCOPE-3` **`collect { ... }` blocks**: the block's `yield`s (including
   `yield x when c` and yields inside loops) append to a List that is its
   value; lint + autofix for local lists built only by `xs = xs.push(..)` /
@@ -471,59 +466,21 @@ invalid value is noticed. `TYPE-7` depends on the others and goes last.
 ## `MOD`: effects, modules, and inference
 
 Module loading and contracts, effect bounds, and what private code may leave
-to inference. `MOD-1` and `MOD-2` are defects found while migrating Laputa.
+to inference.
 
-- `MOD-1` `module.load(p)?.require(C)?.build()` fails to check ("unknown method
-  `build` on Record") while binding the required module with `let` first
-  works.
-- `MOD-2` A failed `.require(Contract)` on a module reports "schema check failed at
-  $: expected Module, found Module", naming neither the missing or
-  mismatched export nor the reason, and missing exports are not
-  distinguishable from signature mismatches by facet.
-- `MOD-3` **`xsh` reads the project module path like `xsht`.** `xsht` resolves
-  `use pm.proof` from the nearest `xsht-config.ini` `module_path`; `xsh` only
-  honors `XSH_MODULE_PATH`, so code can pass `xsht check` and fail to load at
-  run time. Laputa sets the variable by hand in its Makefile and reads it in
-  11 modules.
-- `MOD-4` **Dotted `use a.b` binds `b`**; lint + autofix the redundant `as b`.
-- `MOD-5` **Exact module contracts for capability minimization.** Existing
-  `type Plugin = module { ... }` contracts allow additional exports. Add an
-  opt-in closed form such as `exact module { ... }` whose
-  `.require(Contract)` rejects an unexpected export as well as a missing or
-  mismatched one. Optional members remain optional; "exact" means the module's
-  exported capability surface is no larger than the contract. This is useful
-  for service modules, recipe/plugin interfaces, and other dynamically loaded
-  code where capability growth should require an explicit contract change.
-  Diagnostics must name every extra export clearly. This is intentionally
-  separate from record/JSON schema exactness, which is deferred below.
-  Needs `MOD-2`: its diagnostics name every extra export.
-- `MOD-6` **Local negative effect bounds.** Inside an effectful proc,
-  `without net { build_from_staged_sources()? }` subtracts `net` from the
-  effects the checker permits in that lexical region. Nested restrictions
-  compose, and diagnostics show the call chain that violates the local bound,
-  just as proc effect clauses do. This is a static claim only: it does not
-  sandbox a spawned child or pretend XSH can prove what an external executable
-  does. The point is to make phase invariants such as "the PM is offline after
-  resolution" executable checker contracts even when the enclosing orchestration
-  proc legitimately has broad effects. Laputa has broad combinations such as
-  `[fs, process, env, error]` across many modules, while individual phases
-  often intend substantially narrower capabilities.
 - `MOD-7` **Infer private proc return types**, as private proc effects already are.
   Exports keep their signatures as the contract. About 2,259
   `-> Result[...]` annotations in Laputa; the lint drops one only when the
   inferred type is identical.
   Pairs with `ERR-5`: exports spell their contract, private procs infer it.
+- `MOD-8` A top-level `let x: Contract = static_module` fails lowering with
+  `top_level_boundary_blocker`; the same line inside a proc works.
 
 ## `CMD`: commands, lexer, CLI, and tooling
 
 Command words, literals, script entry points, the test API, and repository
 tooling. The items are independent of each other.
 
-- `CMD-1` **Backslash continuation for command words.** `run muon setup \` continues
-  argv on the next line (a trailing `\` is a lexer error today, so the syntax
-  is free). 51 Laputa command lines exceed 120 characters.
-- `CMD-2` **Size literals** `KiB MiB GiB KB MB GB` producing `UInt` bytes, like
-  Duration literals (about 79 `64 * 1024 * 1024`-style sites).
 - `CMD-3` **Let `@argv` provide the command head.** A spliced argv in target position
   is one complete command vector: `run @argv`, `spawn run @argv`, and
   `process.command { run @argv }` use element zero as both the executable
@@ -553,15 +510,10 @@ tooling. The items are independent of each other.
   the host and overwrites `target/release` with Linux binaries.
 - `CMD-8` Cargo's `unused_dependencies` lint flags `mimalloc` in xsht and xshi.
   This is a false positive: the binaries use it, the libraries do not.
-- `CMD-9` `xsht fmt` is not idempotent on Laputa's `packages/terminfo/proof.xsh`
-  (a map comprehension with an `if`); `syntax::formatter_is_idempotent_on_laputa_corpus`
-  fails on the host.
-  Blocks `xsht lint --fix` migrations of that file.
-- `CMD-10` Overlapping diagnostic codes that may merge:
-  - `lex.invalid-string` and `parse.invalid-string`
-  - `lex.invalid-escape` and `parse.invalid-string-escape`
-  - `compact.statement-count` and `runtime.compact-statement-count`
-  - `compact.indexed-driver` and `runtime.indexed-driver`
+- `CMD-14` A size literal inside a `const` list or record infers `Int` where
+  `let` infers `UInt`. `xsht fmt` moves a trailing comment on a command
+  statement to the next line. `scan_number_end` appends a duration suffix to
+  a float's end.
 - `CMD-11` **`xsht desugar FILE`** prints a program with every sugar form
   replaced by its expansion into core forms: the formatter printing a sugar
   node's expansion instead of its operands. The output is valid XSH that
@@ -591,17 +543,39 @@ tooling. The items are independent of each other.
 
 ## `LINT`: lint accuracy and migrations
 
-Fixes to existing lints. Every other workstream's migration depends on
-`LINT-1`, so it goes first. The corpus migrations themselves are not items:
-the integrator runs them between waves (`campaign.md`).
+Fixes to existing lints. The corpus migrations themselves are not items: the
+integrator runs them after a merge (`campaign.md`). A lint visits only the
+module it is linting, through the linter's traversal; a scan of an arena
+table costs files times the whole workspace.
 
-- `LINT-1` **Existing lints under-report on Laputa**: `x = x.push(...)` appears
-  ~2,858 times but `prefer-list-compound-assignment` flags ~37; three-line
-  `if c { return Err(..) }` guards ~445 vs 96 flagged. Find why and fix.
 - `LINT-2` **Filter loops become comprehensions.** Rejected: a `for x in xs if c`
   statement form. Instead `lint.prefer-list-comp` must also rewrite loops whose
   first statement is `continue unless c` / `continue when c` (83 sites) when
   the body only accumulates.
+- `LINT-3` `lint.prefer-list-element-assignment` still limits its argument
+  to identifiers and literals, the rule that made
+  `lint.prefer-list-compound-assignment` miss nine sites in ten.
+  `x.extend(a).extend(b)` chains have no single `+=` spelling and stay
+  unflagged.
+- `LINT-4` A `lint.prefer-guard` fix inside a single-statement match-arm
+  block is not format-stable: `xsht fmt` collapses
+  `0 => { return .. when c }` into `0 => return .. when c`.
+- `LINT-5` `xsht lint --fix` re-parses the whole file for each fix that
+  contains `(` (`minimize_fix_grouping`), which made a 1,057-site migration
+  take 39 s of CPU.
+- `LINT-6` SPEC does not say whether `x += e` reads `x` before it evaluates
+  `e`. The implementation does; a lint relies on it.
+
+## Laputa migrations pending
+
+Lints already applied to this repository and not yet to Laputa, with the
+sites each finds there: `lint.redundant-use-alias` 126,
+`lint.prefer-list-compound-assignment` 392, `lint.prefer-read-lines` 21,
+`lint.prefer-size-literal` 17 (6 with a fix), `lint.prefer-write-lines` 5
+(2 with a fix), `lint.path-text-query` 4, `lint.prefer-env-string` (not
+counted). `lint.prefer-repeat` finds none. `guest/qemu-dwl-foot-proof.xsh:15`
+passes `Failed(phase, message)` positionally; since `ERR-1` each argument
+fills its own field, where before the two were swapped.
 
 ## Open, without an accepted design
 

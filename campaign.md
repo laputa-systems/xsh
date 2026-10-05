@@ -21,31 +21,22 @@ from another workstream reports it and the integrator sequences it.
 `xsh-routine` runs corpus migrations: one lint rule, named directories, one
 commit.
 
-## Wave 0: before any lane starts
+## Foundations
 
-1. Frontend cost. `xsht check` and `xsht lint` print their stage times; a lane
-   runs them hundreds of times, so the measured waste (the whole import graph
-   checked four times per entry, serially) is fixed first. Record the timing
-   lines of `xsht check` and `xsht lint` on this repository and on Laputa when
-   this closes. They are the campaign's performance baseline.
-2. Decisions. `TODO.md` "Decisions" records the closed design points and
-   lists the open ones by item. An item with an open point is not assigned.
-3. Sugar expansion. A sugar form has been a first-class arena statement
-   that the checker, lowering, the verifier, and the executor each handle
-   (`GuardedStmt` appears in nine files), and about a dozen backlog items
-   are sugar by the `docs/DESIGN.md` definition. Before the first wave, the
-   parser learns to write a sugar form as one surface node that carries its
-   operands and its expansion into core forms. The formatter, lint, and
-   `xsht grep` read the operands; the checker and everything after it read
-   only the expansion. That makes "desugars trivially" an implementation
-   fact, gives sugar the core forms' verifier and fuzz coverage, and keeps
-   ergonomics items out of `src/sema/check/stmt.rs` and
-   `src/runtime/eval/lower.rs`. `docs/ARCHITECTURE.md` owns the mechanism;
-   `SCOPE-2` is its first form. `CMD-12` and `CMD-11` follow as soon as it
-   merges: the existing sugar moves onto it, and `xsht desugar` prints it.
-4. Lint placement. A new rule lives in its own `crates/xsht/src/lint_NAME.rs`
-   (as `lint_try_capture.rs` does) and adds only its registration to
-   `lint.rs`, so eight lanes do not edit one 15,000-line file.
+Three things were put in place before the first lane and every lane relies
+on them.
+
+- `xsht check` and `xsht lint` end stderr with their stage times. The
+  integrator compares them after each merge; they are the campaign's
+  performance evidence.
+- A sugar form is one surface node that carries its operands and its
+  expansion into core forms (`docs/ARCHITECTURE.md`, "Adding a sugar form").
+  The formatter, lint, and `xsht grep` read the operands; the checker and
+  everything after it read only the expansion. An item that is sugar by
+  `docs/DESIGN.md` adds a form there and does not touch the checker or
+  lowering.
+- `TODO.md` "Decisions" records the closed design points and lists the open
+  ones. An item with an open point is not assigned.
 
 ## The wave loop
 
@@ -58,16 +49,22 @@ commit.
    anything earlier waves learned. It names no gates: a lane runs only the
    tests it wrote. The brief is the lane's only context beyond the
    repository.
-3. **Launch.** Start the wave's lanes together, each with
-   `isolation: "worktree"`. Start with four lanes in the first wave and widen
-   to eight once debug build times under load are known. Lanes build debug
-   only; the release build and the gates are the integrator's, so they run
-   once per merge instead of once per lane.
-4. **Review, merge, then gate**, one lane at a time as they report. Read the
-   diff; use `/code-review` for checker, lowering, verifier, and executor
-   changes. Rebase the lane onto the campaign branch and fast-forward, one
-   commit per item. Then the integrator runs the gates for the areas the
-   lane touched (`docs/TESTING.md` "Broader" column) on the merged tree.
+3. **Launch.** Each lane runs with `isolation: "worktree"` and first
+   fast-forwards its worktree to the campaign branch, because a new worktree
+   can start several commits behind. Lanes build debug only; the release
+   build and the gates are the integrator's, so they run once per merge
+   instead of once per lane. A lane that reports is given its next items in
+   the same session, after `git reset --hard` to the campaign branch, so it
+   keeps what it learned.
+4. **Review, merge, then gate.** Read the report and the diff; use
+   `/code-review` for checker, lowering, verifier, and executor changes.
+   Cherry-pick the lane's commits onto the campaign branch, one commit per
+   item. Lanes that report while a gate run is in progress are merged
+   together and gated once. After a merge the integrator builds release,
+   applies each new lint to this repository (`xsht lint --only RULE --fix`),
+   formats the files `xsht fmt --check` names, regenerates the API surface
+   fixture and the docs (`make docs`, with GNU coreutils first on `PATH`),
+   commits, and runs the gates (`docs/TESTING.md` "Broader" column).
    Gates run here, once, on the code that will ship, not in every lane on
    code that is about to be rebased. A failure goes back to the lane with
    the command and its output; the lane's commits stay merged unless the
@@ -84,11 +81,10 @@ commit.
    - the `xsht check` and `xsht lint` timing lines on this repository and on
      Laputa against the baseline. A wave that slows either by more than a
      tenth is explained or fixed before the next wave.
-6. **Migrate.** For each lint the wave added, in dependency order: apply it
-   to this repository with `xsht lint --only RULE --fix`, run the gates it
-   can affect, commit; then the same in Laputa. Then make the rule a default
-   and delete its opt-in setting. Migrations run only here, between waves,
-   because they rewrite the files lanes read and test against.
+6. **Migrate Laputa.** Apply the lints the wave added to Laputa, one rule
+   per commit, leaving files with uncommitted changes alone. A lint that
+   shipped opt-in because its fix is not automatic becomes a default once
+   both corpora are clean, and its setting is deleted.
 7. **Record.** Delete finished items from `TODO.md`, add defects the wave
    found, and update prerequisites. Report to the owner: what merged, every
    contract change, the timing lines, and the decisions the next wave needs.
@@ -118,6 +114,14 @@ commit.
 - **Shared files.** Add to registries at the end of the relevant group and
   nowhere else. Put a new lint in its own file. Do not reorganize, rename, or
   reformat a shared file.
+- **Lints.** On by default, unless the fix cannot be automatic. A lint
+  visits only the module being linted, through the linter's existing
+  statement and expression traversal; it never scans an arena table, which
+  holds the whole workspace. The report gives the sites found and the sites
+  with a fix in this repository and in Laputa.
+- **API surface.** A change to the standard modules or methods regenerates
+  `tests/fixtures/modules/standard-api-surface.jsonl` with the debug
+  `xsht api summary --format jsonl`.
 - **Debug builds only.** A lane never builds with `--release`; release
   builds, and so every measurement and every Rust test target that spawns a
   binary, belong to the integrator. Build with
@@ -155,26 +159,3 @@ Each is a section of `TODO.md` with ordered, numbered items.
 | `LINT` | fixes to existing lints | `crates/xsht/src/lint.rs` |
 
 Prerequisites that cross workstreams are written on the item in `TODO.md`.
-
-## First wave
-
-Items that need no decision, start their workstream, and overlap least:
-
-| Lane | Items |
-|---|---|
-| `PROP` | `PROP-1`, `PROP-2`, then the `par-map` question in `PROP-3` and `PROP-4` |
-| `ERR` | `ERR-1`, `ERR-2` |
-| `PATH` | `PATH-1` to `PATH-4` |
-| `SCOPE` | `SCOPE-1`, `SCOPE-2` |
-| `MATCH` | `MATCH-1`, `MATCH-2`, `MATCH-3` |
-| `TYPE` | `TYPE-1` |
-| `MOD` | `MOD-1` to `MOD-4` |
-| `CMD` | `CMD-1`, `CMD-2`, `CMD-9`, `CMD-10` |
-
-`LINT-1` (why existing lints under-report on Laputa) runs in wave 0 or takes
-a slot in the first wave: every later migration depends on the lints finding
-their sites.
-
-Items that change the behavior of existing code, or that depend on the most
-other work, go last in their workstream: `PROP-8`, `PROP-9`, `PATH-11`,
-`MATCH-7`, `TYPE-7`, `SCOPE-9`.
