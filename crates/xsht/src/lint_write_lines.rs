@@ -1,10 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId,
-};
+use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, AstArena, ExprId};
 use xsh::frontend::syntax::node::BinaryOp;
 
 /// `fs.write(P, XS.join("\n") + "\n")` and `P.write(XS.join("\n") + "\n")`
@@ -15,64 +13,52 @@ use xsh::frontend::syntax::node::BinaryOp;
 /// file. The fix is therefore applied only to a list literal with an element
 /// that is not a splice; any other list gets the same rewrite as a hint that
 /// `--fix` does not apply.
-pub(super) fn lint_write_lines(
-    program: &ArenaProgram,
+pub(super) fn write_lines(
+    arena: &AstArena,
     source: &str,
     expr_types: &BTreeMap<Span, Type>,
-) -> Vec<Diagnostic> {
-    let arena = &program.arena;
-    let mut reported = BTreeSet::new();
-    let mut diagnostics = Vec::new();
-    for index in 0..arena.expr_tags.len() {
-        let call = arena.expr(ExprId::from_index(index));
-        let Some((path, data)) = written_path_and_data(arena, call.kind) else {
-            continue;
-        };
-        let path = arena.expr(path);
-        if expr_types.get(&path.span) != Some(&Type::Path) {
-            continue;
-        }
-        let data = arena.expr(data);
-        let Some(lines) = joined_lines(arena, data.kind) else {
-            continue;
-        };
-        let lines = arena.expr(lines);
-        if expr_types.get(&lines.span) != Some(&Type::List(Box::new(Type::Str)))
-            || !reported.insert(call.span)
-        {
-            continue;
-        }
-        let nonempty = matches!(lines.kind, ArenaExprKind::List(elements)
-            if arena.list_elements(elements).any(|element| element.splice_span.is_none()));
-        let mut diagnostic =
-            Diagnostic::warning("lines are joined and newline-terminated by hand before a write")
-                .with_code(DiagnosticCode::LintPreferWriteLines)
-                .with_label(Label::secondary(
-                    call.span,
-                    "`write_lines` terminates each line of a `List[Str]`",
-                ));
-        if !nonempty {
-            diagnostic = diagnostic.with_note(
-                "for an empty list this writes one newline and `write_lines` writes an empty file",
-            );
-        }
-        if let Some(replacement) = replacement(source, call.span, path.kind, path.span, data.span)
-        {
-            let hint = if nonempty {
-                FixHint::replacement(call.span, "write the lines with `write_lines`", replacement)
-            } else {
-                FixHint::replacement(
-                    call.span,
-                    "write the lines with `write_lines` (apply manually: an empty list then writes an empty file)",
-                    replacement,
-                )
-                .dangerous()
-            };
-            diagnostic = diagnostic.with_fix_hint(hint);
-        }
-        diagnostics.push(diagnostic);
+    expr: ExprId,
+) -> Option<Diagnostic> {
+    let call = arena.expr(expr);
+    let (path, data) = written_path_and_data(arena, call.kind)?;
+    let path = arena.expr(path);
+    if expr_types.get(&path.span) != Some(&Type::Path) {
+        return None;
     }
-    diagnostics
+    let data = arena.expr(data);
+    let lines = arena.expr(joined_lines(arena, data.kind)?);
+    if expr_types.get(&lines.span) != Some(&Type::List(Box::new(Type::Str))) {
+        return None;
+    }
+    let nonempty = matches!(lines.kind, ArenaExprKind::List(elements)
+        if arena.list_elements(elements).any(|element| element.splice_span.is_none()));
+    let mut diagnostic =
+        Diagnostic::warning("lines are joined and newline-terminated by hand before a write")
+            .with_code(DiagnosticCode::LintPreferWriteLines)
+            .with_label(Label::secondary(
+                call.span,
+                "`write_lines` terminates each line of a `List[Str]`",
+            ));
+    if !nonempty {
+        diagnostic = diagnostic.with_note(
+            "for an empty list this writes one newline and `write_lines` writes an empty file",
+        );
+    }
+    if let Some(replacement) = replacement(source, call.span, path.kind, path.span, data.span)
+    {
+        let hint = if nonempty {
+            FixHint::replacement(call.span, "write the lines with `write_lines`", replacement)
+        } else {
+            FixHint::replacement(
+                call.span,
+                "write the lines with `write_lines` (apply manually: an empty list then writes an empty file)",
+                replacement,
+            )
+            .dangerous()
+        };
+        diagnostic = diagnostic.with_fix_hint(hint);
+    }
+    Some(diagnostic)
 }
 
 /// The path and data of `fs.write(path, data)` or `path.write(data)`, both
@@ -217,21 +203,26 @@ fn unwrapped(text: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{lint_write_lines, unwrapped};
+    use super::unwrapped;
+    use super::super::{LintOptions, Linter};
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
+    // The lint runs from the linter's expression traversal, so the tests
+    // drive the whole linter restricted to this code.
     fn lint(source: &str) -> Vec<Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        parsed
-            .arena
-            .symbol_owner()
-            .with_current(|| lint_write_lines(&parsed.arena, source, &checked.expr_types))
+        let options = LintOptions {
+            expr_types: checked.expr_types,
+            only: Some(vec![DiagnosticCode::LintPreferWriteLines]),
+            ..LintOptions::default()
+        };
+        Linter::lint(&parsed.arena, source, options).diagnostics
     }
 
     /// Applies the hints `--fix` applies, or every hint when `manual` is set.

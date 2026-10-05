@@ -658,20 +658,6 @@ impl<'a> Linter<'a> {
             .extend(redundant_use_alias::lint_redundant_use_aliases(
                 program, source,
             ));
-        let path_text_queries =
-            lint_path_text_query::lint_path_text_queries(program, source, &linter.expr_types);
-        linter.diagnostics.extend(path_text_queries);
-        let write_lines = lint_write_lines::lint_write_lines(program, source, &linter.expr_types);
-        linter.diagnostics.extend(write_lines);
-        let line_loops: Vec<Span> = linter
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFileLines))
-            .flat_map(|diagnostic| diagnostic.labels.iter().map(|label| label.span))
-            .collect();
-        let read_lines =
-            lint_read_lines::lint_read_lines(program, source, &linter.expr_types, &line_loops);
-        linter.diagnostics.extend(read_lines);
         linter
             .diagnostics
             .extend(lint_size_literal::lint_size_products(program, source));
@@ -10276,6 +10262,23 @@ impl<'a> Linter<'a> {
         );
     }
 
+    // Path API migrations, each matched in its own file against the one
+    // expression being visited.
+    fn lint_path_migrations(&mut self, expr: ExprId) {
+        let found = [
+            lint_path_text_query::path_text_query(self.arena, self.source, &self.expr_types, expr),
+            lint_write_lines::write_lines(self.arena, self.source, &self.expr_types, expr),
+            lint_read_lines::read_lines(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+                &self.diagnostics,
+            ),
+        ];
+        self.diagnostics.extend(found.into_iter().flatten());
+    }
+
     fn lint_redundant_named_bool(
         &mut self,
         args: ArenaRange,
@@ -12048,6 +12051,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_json_encode_decode_roundtrip(expr);
             self.linter.lint_inferred_variant(expr);
             self.linter.lint_positional_constructor(expr);
+            self.linter.lint_path_migrations(expr);
         }
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {

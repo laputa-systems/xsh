@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ExprId};
+use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, AstArena, ExprId};
 
 /// `P.display().starts_with("/")` on a checked Path asks whether the path is
 /// absolute, which `P.starts_with(p"/")` answers on the path itself.
@@ -13,107 +13,106 @@ use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram
 /// longer prefix, and every suffix, differs between the two readings
 /// (`"lib/"` is not a text prefix of `lib`, `".a"` is a text suffix of
 /// `x/.a`), so those calls are left alone.
-pub(super) fn lint_path_text_queries(
-    program: &ArenaProgram,
+pub(super) fn path_text_query(
+    arena: &AstArena,
     source: &str,
     expr_types: &BTreeMap<Span, Type>,
-) -> Vec<Diagnostic> {
-    let arena = &program.arena;
-    let mut reported = BTreeSet::new();
-    let mut diagnostics = Vec::new();
-    for index in 0..arena.expr_tags.len() {
-        let query = arena.expr(ExprId::from_index(index));
-        let ArenaExprKind::Call { callee, args } = query.kind else {
-            continue;
-        };
-        let ArenaExprKind::Field {
-            base: display,
-            name,
-        } = arena.expr(callee).kind
-        else {
-            continue;
-        };
-        if name != "starts_with" {
-            continue;
-        }
-        let [argument] = arena.call_args(args) else {
-            continue;
-        };
-        let ArenaCallArgKind::Positional(prefix) = argument.kind else {
-            continue;
-        };
-        let ArenaExprKind::Str(prefix) = arena.expr(prefix).kind else {
-            continue;
-        };
-        if arena.string_literal(prefix).as_ref() != "/" {
-            continue;
-        }
-        let display = arena.expr(display);
-        let ArenaExprKind::Call {
-            callee: display_callee,
-            args: display_args,
-        } = display.kind
-        else {
-            continue;
-        };
-        let ArenaExprKind::Field {
-            base: path,
-            name: display_name,
-        } = arena.expr(display_callee).kind
-        else {
-            continue;
-        };
-        if display_name != "display" || !arena.call_args(display_args).is_empty() {
-            continue;
-        }
-        let path = arena.expr(path).span;
-        if expr_types.get(&path) != Some(&Type::Path) || !reported.insert(query.span) {
-            continue;
-        }
-        let mut diagnostic =
-            Diagnostic::warning("absolute-path test goes through the Path's display text")
-                .with_code(DiagnosticCode::LintPathTextQuery)
-                .with_label(Label::secondary(
-                    query.span,
-                    "`starts_with` on the Path compares components and needs no text conversion",
-                ));
-        // The receiver is kept verbatim. A rewrite that would drop a comment
-        // is left to the author.
-        let conversion = Span::new(query.span.source_id, path.end(), display.span.end());
-        if query.span.start() == path.start()
-            && source.get(conversion.range()) == Some(".display()")
-            && source
-                .get(display.span.end()..query.span.end())
-                .is_some_and(|rest| !rest.contains('#'))
-        {
-            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-                Span::new(query.span.source_id, path.end(), query.span.end()),
-                "ask the Path for its root component",
-                ".starts_with(p\"/\")".to_string(),
-            ));
-        }
-        diagnostics.push(diagnostic);
+    expr: ExprId,
+) -> Option<Diagnostic> {
+    let query = arena.expr(expr);
+    let ArenaExprKind::Call { callee, args } = query.kind else {
+        return None;
+    };
+    let ArenaExprKind::Field {
+        base: display,
+        name,
+    } = arena.expr(callee).kind
+    else {
+        return None;
+    };
+    if name != "starts_with" {
+        return None;
     }
-    diagnostics
+    let [argument] = arena.call_args(args) else {
+        return None;
+    };
+    let ArenaCallArgKind::Positional(prefix) = argument.kind else {
+        return None;
+    };
+    let ArenaExprKind::Str(prefix) = arena.expr(prefix).kind else {
+        return None;
+    };
+    if arena.string_literal(prefix).as_ref() != "/" {
+        return None;
+    }
+    let display = arena.expr(display);
+    let ArenaExprKind::Call {
+        callee: display_callee,
+        args: display_args,
+    } = display.kind
+    else {
+        return None;
+    };
+    let ArenaExprKind::Field {
+        base: path,
+        name: display_name,
+    } = arena.expr(display_callee).kind
+    else {
+        return None;
+    };
+    if display_name != "display" || !arena.call_args(display_args).is_empty() {
+        return None;
+    }
+    let path = arena.expr(path).span;
+    if expr_types.get(&path) != Some(&Type::Path) {
+        return None;
+    }
+    let mut diagnostic =
+        Diagnostic::warning("absolute-path test goes through the Path's display text")
+            .with_code(DiagnosticCode::LintPathTextQuery)
+            .with_label(Label::secondary(
+                query.span,
+                "`starts_with` on the Path compares components and needs no text conversion",
+            ));
+    // The receiver is kept verbatim. A rewrite that would drop a comment
+    // is left to the author.
+    let conversion = Span::new(query.span.source_id, path.end(), display.span.end());
+    if query.span.start() == path.start()
+        && source.get(conversion.range()) == Some(".display()")
+        && source
+            .get(display.span.end()..query.span.end())
+            .is_some_and(|rest| !rest.contains('#'))
+    {
+        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+            Span::new(query.span.source_id, path.end(), query.span.end()),
+            "ask the Path for its root component",
+            ".starts_with(p\"/\")".to_string(),
+        ));
+    }
+    Some(diagnostic)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::lint_path_text_queries;
+    use super::super::{LintOptions, Linter};
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
+    // The lint runs from the linter's expression traversal, so the tests
+    // drive the whole linter restricted to this code.
     fn lint(source: &str) -> Vec<Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        parsed
-            .arena
-            .symbol_owner()
-            .with_current(|| lint_path_text_queries(&parsed.arena, source, &checked.expr_types))
+        let options = LintOptions {
+            expr_types: checked.expr_types,
+            only: Some(vec![DiagnosticCode::LintPathTextQuery]),
+            ..LintOptions::default()
+        };
+        Linter::lint(&parsed.arena, source, options).diagnostics
     }
 
     fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
