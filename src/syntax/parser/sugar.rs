@@ -1022,6 +1022,8 @@ mod tests {
             include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
             include_str!("../../../tests/xsh/atomically.xsh"),
             include_str!("../../../docs/snippets/spec/61-atomically.xsh"),
+            include_str!("../../../tests/xsh/within.xsh"),
+            include_str!("../../../docs/snippets/spec/63-within.xsh"),
         ]);
     }
 

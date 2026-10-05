@@ -402,9 +402,11 @@ test test_within_stops_a_network_wait_on_a_silent_server {
 
   # One listener per request: the listener leaves with its first connection.
   let port = 20000 + process.current_pid()? % 20000
-  let first = (spawn run sh -c f"sleep 30 | nc -l -p {port} > /dev/null 2>&1") ?
+  let listen = f"sleep 30 | nc -l -p {port} > /dev/null 2>&1"
+  let first = spawn run sh -c $listen ?
   defer first.cancel()
-  let second = (spawn run sh -c f"sleep 30 | nc -l -p {port + 1} > /dev/null 2>&1") ?
+  let listen_again = f"sleep 30 | nc -l -p {port + 1} > /dev/null 2>&1"
+  let second = spawn run sh -c $listen_again ?
   defer second.cancel()
   time.sleep(300ms)
 

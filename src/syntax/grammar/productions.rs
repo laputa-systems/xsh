@@ -1598,6 +1598,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([w("ctx"), line(r("condition_expression")), block()]),
                 r("context_scope"),
                 r("tempdir_scope"),
+                r("within_scope"),
                 r("builder_call"),
                 r("item_expression"),
                 r("bare_path"),
