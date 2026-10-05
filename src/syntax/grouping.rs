@@ -1435,14 +1435,27 @@ pub fn remove_redundant_parens(
     source: &str,
     within: &[std::ops::Range<usize>],
 ) -> (String, Vec<std::ops::Range<usize>>) {
+    try_remove_redundant_parens(source, within)
+        .unwrap_or_else(|| (source.to_string(), within.to_vec()))
+}
+
+/// `remove_redundant_parens`, or `None` when `source` does not parse and so
+/// nothing in it could be judged.
+pub fn try_remove_redundant_parens(
+    source: &str,
+    within: &[std::ops::Range<usize>],
+) -> Option<(String, Vec<std::ops::Range<usize>>)> {
     let mut text = source.to_string();
     let mut ranges = within.to_vec();
-    for _ in 0..32 {
+    for round in 0..32 {
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
             crate::source::SourceId::new(0),
             &text,
         );
         if !parsed.diagnostics.is_empty() {
+            if round == 0 {
+                return None;
+            }
             break;
         }
         let mut fixes: Vec<(usize, usize, String)> = grouping_diagnostics(&parsed.arena, &text)
@@ -1473,7 +1486,7 @@ pub fn remove_redundant_parens(
             }
         }
     }
-    (text, ranges)
+    Some((text, ranges))
 }
 
 struct Groups<'a> {

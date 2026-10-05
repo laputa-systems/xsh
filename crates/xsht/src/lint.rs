@@ -105,6 +105,9 @@ mod lint_explicit_missing_ok;
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
+#[cfg(test)]
+#[path = "lint_fix_grouping_tests.rs"]
+mod fix_grouping_tests;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
@@ -253,7 +256,9 @@ fn minimize_fix_grouping(program: &ArenaProgram, source: &str, diagnostics: &mut
     else {
         return;
     };
-    for diagnostic in diagnostics {
+    // One fix's edits: the diagnostic, the hint, where it lands, and its text.
+    let mut pending: Vec<Vec<GroupedEdit>> = Vec::new();
+    for (diagnostic_index, diagnostic) in diagnostics.iter().enumerate() {
         if !diagnostic.fix_hints.iter().any(|hint| {
             hint.replacement
                 .as_deref()
@@ -261,38 +266,107 @@ fn minimize_fix_grouping(program: &ArenaProgram, source: &str, diagnostics: &mut
         }) {
             continue;
         }
-        let mut edits: Vec<(usize, Span, String)> = Vec::new();
-        for (index, hint) in diagnostic.fix_hints.iter().enumerate() {
+        let mut edits = Vec::new();
+        for (hint_index, hint) in diagnostic.fix_hints.iter().enumerate() {
             let (Some(span), Some(replacement)) = (hint.span, hint.replacement.as_ref()) else {
                 continue;
             };
             if span.source_id == source_id && source.get(span.range()).is_some() {
-                edits.push((index, span, replacement.clone()));
+                edits.push(GroupedEdit {
+                    diagnostic: diagnostic_index,
+                    hint: hint_index,
+                    span,
+                    replacement: replacement.clone(),
+                });
             }
         }
-        edits.sort_by_key(|(_, span, _)| (span.start(), span.end()));
+        edits.sort_by_key(|edit| (edit.span.start(), edit.span.end()));
         if edits
             .windows(2)
-            .any(|pair| pair[1].1.start() < pair[0].1.end())
+            .any(|pair| pair[1].span.start() < pair[0].span.end())
         {
             continue;
         }
-        let mut text = String::with_capacity(source.len());
-        let mut ranges = Vec::with_capacity(edits.len());
-        let mut cursor = 0;
-        for (_, span, replacement) in &edits {
-            text.push_str(&source[cursor..span.start()]);
-            ranges.push(text.len()..text.len() + replacement.len());
-            text.push_str(replacement);
-            cursor = span.end();
+        pending.push(edits);
+    }
+    // Judging a pair of parentheses takes a parse of the whole file with the
+    // fix in place. Fixes that touch separate text are judged in one parse:
+    // each sweep takes the fixes that stay clear of those already taken and
+    // leaves the rest, such as a fix nested in another, for the next sweep.
+    pending.sort_by_key(|edits| edits.first().map(|edit| edit.span.start()));
+    while !pending.is_empty() {
+        let mut taken: Vec<GroupedEdit> = Vec::new();
+        let mut taken_fixes = 0;
+        let mut rest = Vec::new();
+        for edits in pending {
+            let clear = edits.iter().all(|edit| {
+                taken.iter().all(|other| {
+                    edit.span.start() > other.span.end() || other.span.start() > edit.span.end()
+                })
+            });
+            if clear {
+                taken.extend(edits);
+                taken_fixes += 1;
+            } else {
+                rest.push(edits);
+            }
         }
-        text.push_str(&source[cursor..]);
-        let (minimal, ranges) =
-            xsh::frontend::syntax::grouping::remove_redundant_parens(&text, &ranges);
-        for ((index, _, _), range) in edits.iter().zip(ranges) {
-            diagnostic.fix_hints[*index].replacement = Some(minimal[range].to_owned());
+        pending = rest;
+        taken.sort_by_key(|edit| edit.span.start());
+        if minimize_grouped_edits(source, &taken, diagnostics) || taken_fixes == 1 {
+            continue;
+        }
+        // One of these fixes leaves text that does not parse, which hides
+        // the others' grouping; judge each fix alone.
+        let mut alone: Vec<Vec<GroupedEdit>> = Vec::new();
+        for edit in taken {
+            match alone.last_mut() {
+                Some(fix) if fix[0].diagnostic == edit.diagnostic => fix.push(edit),
+                _ => alone.push(vec![edit]),
+            }
+        }
+        for fix in &alone {
+            minimize_grouped_edits(source, fix, diagnostics);
         }
     }
+}
+
+/// One edit of a fix whose grouping `minimize_fix_grouping` judges.
+struct GroupedEdit {
+    diagnostic: usize,
+    hint: usize,
+    span: Span,
+    replacement: String,
+}
+
+/// Applies `edits`, which are in source order and clear of each other, drops
+/// the redundant parentheses inside them, and stores each minimal
+/// replacement. Reports whether the edited text parsed.
+fn minimize_grouped_edits(
+    source: &str,
+    edits: &[GroupedEdit],
+    diagnostics: &mut [Diagnostic],
+) -> bool {
+    let mut text = String::with_capacity(source.len());
+    let mut ranges = Vec::with_capacity(edits.len());
+    let mut cursor = 0;
+    for edit in edits {
+        text.push_str(&source[cursor..edit.span.start()]);
+        ranges.push(text.len()..text.len() + edit.replacement.len());
+        text.push_str(&edit.replacement);
+        cursor = edit.span.end();
+    }
+    text.push_str(&source[cursor..]);
+    let Some((minimal, ranges)) =
+        xsh::frontend::syntax::grouping::try_remove_redundant_parens(&text, &ranges)
+    else {
+        return false;
+    };
+    for (edit, range) in edits.iter().zip(ranges) {
+        diagnostics[edit.diagnostic].fix_hints[edit.hint].replacement =
+            Some(minimal[range].to_owned());
+    }
+    true
 }
 
 /// Widens `span` over grouping parentheses that enclose exactly it, so an edit
