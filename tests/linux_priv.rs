@@ -534,7 +534,7 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
         .expect("create kill_all fixture root");
     let marker = root.path().join("ready");
     let mut child = unsafe {
-        let mut command = Command::new(release_bin!("xsh-test-os-probe"));
+        let mut command = Command::new(release_bin!("xsh-test-helper"));
         command
             .arg("ready-sleep")
             .arg(&marker)

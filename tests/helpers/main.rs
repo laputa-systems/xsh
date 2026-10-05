@@ -1,4 +1,13 @@
+//! Native child process for tests that observe the operating-system boundary.
+//!
+//! Each mode is something a test needs from a real process and cannot get from
+//! a standard tool on both Linux and macOS: the exact bytes of its argument
+//! vector, its session, the descriptors it inherited, or scripted signal and
+//! process-group behavior. `xsh-test-helper MODE ARGS...` selects the mode.
+
 #![allow(clippy::single_call_fn)]
+
+mod show_fds;
 
 use std::ffi::OsString;
 use std::io;
@@ -24,6 +33,12 @@ fn main() {
         "group-leak" => group_leak(args),
         "ready-sleep" => ready_sleep(args),
         "self-signal" => self_signal(args),
+        "session" => session(args),
+        "show-argv" => show_argv(args),
+        "show-fds" => {
+            show_fds::print_inherited();
+            Ok(())
+        }
         "signal-parent-after" => signal_parent_after(args, false),
         "signal-parent-sequence" => signal_parent_sequence(args),
         "signal-parent-then-sleep" => signal_parent_after(args, true),
@@ -173,6 +188,37 @@ fn ready_sleep(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     loop {
         std::thread::sleep(Duration::from_secs(1));
     }
+}
+
+/// Reports the process and session IDs as `PID SID`, to the file named by the
+/// first argument or to stdout.
+fn session(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    let pid = unsafe { libc::getpid() };
+    let sid = unsafe { libc::getsid(0) };
+    let report = format!("{pid} {sid}\n");
+    match args.next() {
+        Some(path) => std::fs::write(path, report).map_err(|error| error.to_string()),
+        None => {
+            print!("{report}");
+            Ok(())
+        }
+    }
+}
+
+/// Prints each argument as lowercase hex on its own line, so a test can
+/// compare bytes that are not valid UTF-8 and tell an empty argument from none.
+fn show_argv(args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    use std::os::unix::ffi::OsStrExt;
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    for arg in args {
+        let mut line = String::with_capacity(arg.len() * 2);
+        for byte in arg.as_bytes() {
+            line.push(DIGITS[(byte >> 4) as usize] as char);
+            line.push(DIGITS[(byte & 0x0f) as usize] as char);
+        }
+        println!("{line}");
+    }
+    Ok(())
 }
 
 fn self_signal(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
@@ -328,6 +374,6 @@ fn ignore_signal(signal: i32) -> Result<(), String> {
 }
 
 fn fatal(message: &str) -> ! {
-    eprintln!("xsh-test-os-probe: {message}");
+    eprintln!("xsh-test-helper: {message}");
     std::process::exit(2);
 }

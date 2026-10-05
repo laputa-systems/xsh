@@ -17,7 +17,7 @@ tooling in `docs/XSHT.md`, formatter policy in `docs/XSHT-FMT.md`.
 
 | Package | Owns |
 |---|---|
-| `xsh` (root) | the `libxsh` library, the `xsh` binary, the `xsh-test-*` helper binaries, and the `xsh-frontend-stats`/`xsh-runtime-stats` profiling binaries |
+| `xsh` (root) | the `libxsh` library, the `xsh` binary, the `xsh-test-helper` test child process (`tests/helpers/`, one subcommand per mode), and the `xsh-frontend-stats`/`xsh-runtime-stats` profiling binaries |
 | `crates/xsht` | the `xsht` tooling binary: check, fmt, lint, test, api, trace, grep, refactor, grammar |
 | `crates/xshi` | the `xshi` interactive shell |
 | `crates/xsh-registry` | standard-module signatures, records, API docs, examples, language reference items, and runtime operation IDs |

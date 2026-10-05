@@ -139,43 +139,9 @@ path = "src/entrypoints/runtime_stats.rs"
 test = false
 
 [[bin]]
-name = "xsh-test-show-argv"
-path = "tests/helpers/show_argv.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-show-env"
-path = "tests/helpers/show_env.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-stat-path"
-path = "tests/helpers/stat_path.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-emit-hex"
-path = "tests/helpers/emit_hex.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-sleeper"
-path = "tests/helpers/sleeper.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-session"
-path = "tests/helpers/session.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-os-probe"
-path = "tests/helpers/os_probe.rs"
-test = false
-
-[[bin]]
-name = "xsh-test-show-fds"
-path = "tests/helpers/show_fds.rs"
+# The one native helper process the integration tests spawn; each mode is a subcommand.
+name = "xsh-test-helper"
+path = "tests/helpers/main.rs"
 test = false
 
 [[test]]

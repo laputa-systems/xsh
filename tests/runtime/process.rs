@@ -1,8 +1,8 @@
 use super::common::*;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn os_probe() -> &'static str {
-    cargo_env!("CARGO_BIN_EXE_xsh-test-os-probe")
+fn test_helper() -> &'static str {
+    cargo_env!("CARGO_BIN_EXE_xsh-test-helper")
 }
 
 #[test]
@@ -12,17 +12,15 @@ fn process_argv_words_command_argv_and_run_execute() {
         &format!(
             "\
 let show_argv = Path({})
-let show_env = Path({})
-let words = process.argv_words(\"show ignored 'two words' escaped\\\\ space\")?
+let words = process.argv_words(\"show show-argv ignored 'two words' escaped\\\\ space\")?
 let command = process.command_argv(show_argv, words)
 let status = process.run(command)?
-let env_command = process.command_argv(show_env, [\"show_env\", \"XSH_PLAN\"], Path(\".\"), {{XSH_PLAN: \"ready\"}})
+let env_command = process.command_argv(\"printenv\", [\"printenv\", \"XSH_PLAN\"], Path(\".\"), {{XSH_PLAN: \"ready\"}})
 let env_status = process.run(env_command)?
 let false_status = process.run(process.command_argv(\"false\", [\"false\"]))?
 print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
 ",
-            xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
-            xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-env")),
+            xsh_string_literal(test_helper()),
         ),
     );
 
@@ -33,7 +31,7 @@ print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
     );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "69676e6f726564\n74776f20776f726473\n65736361706564207370616365\nXSH_PLAN=7265616479\ntrue true true\n"
+        "69676e6f726564\n74776f20776f726473\n65736361706564207370616365\nready\ntrue true true\n"
     );
 }
 
@@ -693,7 +691,7 @@ cd (root) {{
         xsh_string_literal(root.to_str().unwrap()),
         xsh_string_literal(ready.to_str().unwrap()),
         xsh_string_literal(leaked.to_str().unwrap()),
-        xsh_string_literal(os_probe())
+        xsh_string_literal(test_helper())
     );
 
     let output = run_cancelable_temp_script(
@@ -730,7 +728,7 @@ let leaked = Path({})
 let output = Path({})
 run ${{helper}} group-leak ${{ready}} ${{leaked}} | run cat > (output) ?
 ",
-        xsh_string_literal(os_probe()),
+        xsh_string_literal(test_helper()),
         xsh_string_literal(ready.to_str().unwrap()),
         xsh_string_literal(leaked.to_str().unwrap()),
         xsh_string_literal(output_path.to_str().unwrap())
@@ -1044,7 +1042,7 @@ let copied = run.capture --bytes --timeout=3s ({}) bytes-echo stderr < (payload)
 if copied.stderr != payload {{ error.fail("stderr payload changed")? }}
 io.write_stdout_bytes(copied.stdout)?
 "#,
-            xsh_string_literal(os_probe())
+            xsh_string_literal(test_helper())
         ),
     );
     assert!(
@@ -1068,7 +1066,7 @@ let copied = run.bytes --timeout=3s ({probe}) bytes-prefix 1 < (payload) ?
 io.write_stdout_bytes(copied)?
 run ({probe}) bytes-echo < b"pipe\0\xff" | run cat
 "#,
-            probe = xsh_string_literal(os_probe())
+            probe = xsh_string_literal(test_helper())
         ),
     );
     assert!(
@@ -1095,7 +1093,7 @@ if status.ok == false {{ error.fail("command failed")? }}
 let streamed = run.stream --bytes ({probe}) bytes-echo < b"stream\n"
 for chunk in streamed {{ io.write_stdout_bytes(chunk)? }}
 "#,
-            probe = xsh_string_literal(os_probe())
+            probe = xsh_string_literal(test_helper())
         ),
     );
     assert!(
@@ -1129,7 +1127,7 @@ if failure is Ok(_) {{ error.fail("timeout expected")? }}
 let cancelled = spawn run ({probe}) ready-sleep (ready) < (payload) ?
 cancelled.cancel(kill_after: 0ms)?
 "#,
-            probe = xsh_string_literal(os_probe()),
+            probe = xsh_string_literal(test_helper()),
             marker = xsh_string_literal(marker.to_str().unwrap()),
             ready = xsh_string_literal(ready.to_str().unwrap())
         ),
@@ -1159,7 +1157,7 @@ proc abandon() [process, error] -> Int {{
 let pid = abandon()
 print $pid
 "#,
-            probe = xsh_string_literal(os_probe()),
+            probe = xsh_string_literal(test_helper()),
             ready = xsh_string_literal(ready.to_str().unwrap())
         ),
     );
@@ -1242,7 +1240,7 @@ match result {{
   Ok(_) => test.fail("capture limit was accepted")?
 }}
 "#,
-            xsh_string_literal(os_probe())
+            xsh_string_literal(test_helper())
         ),
     );
     assert!(
@@ -1313,7 +1311,7 @@ let payload = bytes.concat([b"a\0\xff\n", bytes.zero(2097152)?])
 let rows = run.stream --bytes --timeout=3s --accept=[0] ({}) bytes-echo < (payload) ?
 for row in rows {{ io.write_stdout_bytes(row)? }}
 "#,
-            xsh_string_literal(os_probe())
+            xsh_string_literal(test_helper())
         ),
     );
     assert!(

@@ -56,7 +56,7 @@ target/release/xsht test                                 # full native suite
 ```
 
 Tests never run debug binaries. Every Rust test target that spawns `xsh`,
-`xsht`, `xshi`, `xsh-fuzz`, or a `xsh-test-*` helper resolves it through
+`xsht`, `xshi`, `xsh-fuzz`, or `xsh-test-helper` resolves it through
 `release_bin!` (`tests/release_binary.rs`), which fails with the release command
 when Cargo built the test, and so the binary, in the debug profile. Run those
 targets with `cargo test --release`; Cargo then builds their binaries fresh in

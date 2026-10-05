@@ -1420,10 +1420,6 @@ fn xsh_native_tests() {
         .args(["test"])
         .env("CARGO_BIN_EXE_xsh", cargo_env!("CARGO_BIN_EXE_xsh"))
         .env("CARGO_BIN_EXE_xsht", cargo_env!("CARGO_BIN_EXE_xsht"))
-        .env(
-            "CARGO_BIN_EXE_xsh-test-sleeper",
-            cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper"),
-        )
         .output()
         .expect("run showcase tests");
 

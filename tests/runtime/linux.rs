@@ -366,10 +366,10 @@ print ${uptime >= 0}
 
 #[test]
 fn unix_exec_replaces_child_xsh_process() {
-    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-helper");
     let source = format!(
         "\
-let command = process.command_argv(Path({}), [\"show-argv\", \"ok\"])
+let command = process.command_argv(Path({}), [\"xsh-test-helper\", \"show-argv\", \"ok\"])
 unix.exec(command)?
 print \"not-reached\"
 ",
@@ -414,13 +414,13 @@ print ${events[0].pid == child.pid} ${events[0].status.exited_with(1)}
 fn unix_reap_child_events_reports_signal_status() {
     let marker = temp_path("linux-unix-child-signal-ready");
     let _ = std::fs::remove_file(&marker);
-    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper");
+    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-helper");
     let source = format!(
         "\
 type ChildEvent = {{pid: Int, status: Status}}
 let marker = Path({})
 let term = process.signal(\"TERM\")?
-let command = process.command_argv(Path({}), [\"sleeper\", marker.display()])
+let command = process.command_argv(Path({}), [\"xsh-test-helper\", \"ready-sleep\", marker.display()])
 let child = unix.spawn_process_group(command)?
 var ready_tries = 0
 while ! fs.exists(marker)? and ready_tries < 100 {{
@@ -460,11 +460,11 @@ print ${{events[0].pid == child.pid}} ${{events[0].status.signaled()}} ${{events
 fn unix_spawn_process_group_can_be_signaled_without_killing_parent() {
     let marker = temp_path("linux-process-group-ready");
     let _ = std::fs::remove_file(&marker);
-    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper");
+    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-helper");
     let source = format!(
         "\
 let marker = Path({})
-let command = process.command_argv(Path({}), [\"sleeper\", marker.display()])
+let command = process.command_argv(Path({}), [\"xsh-test-helper\", \"ready-sleep\", marker.display()])
 let child = unix.spawn_process_group(command)?
 var tries = 0
 while ! fs.exists(marker)? and tries < 100 {{
@@ -549,12 +549,12 @@ fn unix_spawn_with_tty_uses_tty_dir_and_new_session() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&tty_dir).expect("create tty dir");
     std::fs::write(&tty_file, "").expect("create tty file");
-    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-session");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-helper");
     let source = format!(
         "\
 let tty_dir = Path({})
 let marker = Path({})
-let command = process.command_argv(Path({}), [\"session\", marker.display()])
+let command = process.command_argv(Path({}), [\"xsh-test-helper\", \"session\", marker.display()])
 env XSH_UNIX_TTY_DIR=(tty_dir) {{
   let child = unix.spawn_with_tty(command, tty: \"tty-test\")?
   var tries = 0

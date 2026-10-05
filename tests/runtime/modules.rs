@@ -661,7 +661,7 @@ fn native_xsh_net_job_trace_contract() {
 #[test]
 fn native_xsh_net_runtime_descriptors_do_not_survive_exec() {
     let server = LocalHttpServer::spawn(1);
-    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-show-fds");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-helper");
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/net.xsh::test_net_runtime_descriptors_do_not_survive_exec",
         &[
@@ -1137,34 +1137,26 @@ fn helper_binaries_cover_raw_argv_env_path_and_glob_boundaries() {
     let glob_pattern = root.join("*");
     let source = format!(
         "\
-let show_argv = Path({})
-let show_env = Path({})
-let stat_path = Path({})
-let emit_hex = Path({})
+let helper = Path({})
 let root = Path({})
 let raw_arg = Path.parse_bytes(b\"raw\\xffarg\")?
-let argv = run.text (show_argv) (raw_arg) \"two words\" ?
-let spliced = run.text (show_argv) ${{[\"one\", \"two words\"]}} ?
-let env_output = run.text XSH_RAW=(raw_arg) (show_env) XSH_RAW ?
+let argv = run.text (helper) show-argv (raw_arg) \"two words\" ?
+let spliced = run.text (helper) show-argv ${{[\"one\", \"two words\"]}} ?
+let env_output = run.bytes XSH_RAW=(raw_arg) printenv XSH_RAW ?
 let raw_path = Path.parse_bytes({})?
-let stat = run.text (stat_path) (raw_path) ?
-let globbed = run.text (show_argv) @(g{}) ?
-let emitted = run.bytes (emit_hex) 00ff41 ?
+let stat = run.status \"test\" -e (raw_path)
+let globbed = run.text (helper) show-argv @(g{}) ?
+let emitted = run.bytes printf r\"\\000\\377A\" ?
 print ${{{} in argv}} ${{\"74776f20776f726473\" in argv}}
 print ${{\"6f6e65\" in spliced}} ${{\"74776f20776f726473\" in spliced}}
-print ${{\"XSH_RAW={}\" in env_output}} ${{{} in stat}} ${{{} in globbed}}
+print ${{env_output == b\"raw\\xffarg\\n\"}} ${{stat.exited_with(0)}} ${{{} in globbed}}
 print ${{emitted == b\"\\0\\xffA\"}}
 ",
-        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
-        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-env")),
-        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-stat-path")),
-        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-emit-hex")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-helper")),
         xsh_string_literal(root.to_str().unwrap()),
         raw_path_expr,
         xsh_string_literal(glob_pattern.to_str().unwrap()),
         xsh_string_literal(raw_arg_hex),
-        raw_arg_hex,
-        xsh_string_literal(&raw_path_hex),
         xsh_string_literal(&raw_path_hex),
     );
 
@@ -1188,10 +1180,10 @@ fn command_path_shorthand_can_be_target_and_compound_interpolation_displays() {
         "\
 let target = Path({})
 let label = Path(\"bin/tool\")
-let output = run.text $target \"${{label}} suffix\" ?
+let output = run.text $target show-argv \"${{label}} suffix\" ?
 print ${{output.trim()}}
 ",
-        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-helper")),
     );
 
     let output = run_temp_script("command-path-shorthand", &source);
@@ -3142,18 +3134,18 @@ let show = Path({show})
 let raw = Path.parse_bytes(b"raw\xff name/'\"")?
 let composed = fp"prefix/{{raw}}/../end"
 print --flush ${{composed == Path.parse_bytes(b"prefix/raw\xff name/'\"/../end")?}}
-let direct = run.text (show) "--target=$raw" ?
+let direct = run.text (show) show-argv "--target=$raw" ?
 print --flush ${{direct == {expected}}}
-let spliced = run.text (show) @([raw, p""]) ?
+let spliced = run.text (show) show-argv @([raw, p""]) ?
 print --flush ${{spliced == {spliced}}}
-let human = run.text (show) (f"--target={{raw}}") ?
+let human = run.text (show) show-argv (f"--target={{raw}}") ?
 print --flush ${{human == {human}}}
 let stored = process.command {{
-  run (show) "--target=${{raw}}"
+  run (show) show-argv "--target=${{raw}}"
 }}
 let _ = process.run(stored)?
 "#,
-        show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+        show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-helper")),
         expected = xsh_string_literal(&(expected.clone() + "\n")),
         spliced = xsh_string_literal(&(hex(b"raw\xff name/\'\"") + "\n\n")),
         human = xsh_string_literal(

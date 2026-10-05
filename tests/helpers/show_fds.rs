@@ -8,7 +8,7 @@
 
 use std::mem::{MaybeUninit, size_of};
 
-fn main() {
+pub(crate) fn print_inherited() {
     for fd in 3..1024 {
         let result = unsafe { libc::fcntl(fd, libc::F_GETFD) };
         if result != -1 {

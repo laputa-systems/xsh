@@ -6,8 +6,8 @@ fn os_fixture(name: &str) -> PathBuf {
     Path::new(OS_FIXTURE_DIR).join(name)
 }
 
-fn os_probe() -> &'static str {
-    cargo_env!("CARGO_BIN_EXE_xsh-test-os-probe")
+fn test_helper() -> &'static str {
+    cargo_env!("CARGO_BIN_EXE_xsh-test-helper")
 }
 
 fn run_os_fixture(name: &str, args: &[&str]) -> std::process::Output {
@@ -128,7 +128,7 @@ fn os_signal_hook_scope_snapshot_uses_registration_bindings() {
 
     let output = run_os_fixture(
         "signal-scope-snapshot.xsh",
-        &[marker.to_str().unwrap(), os_probe()],
+        &[marker.to_str().unwrap(), test_helper()],
     );
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
@@ -144,7 +144,7 @@ fn os_child_signal_disposition_is_reset_before_exec() {
 
     let output = run_os_fixture(
         "signal-child-disposition-reset.xsh",
-        &[os_probe(), marker.to_str().unwrap()],
+        &[test_helper(), marker.to_str().unwrap()],
     );
 
     assert!(output.status.success(), "{output:?}");
@@ -158,11 +158,11 @@ fn os_child_signal_disposition_is_reset_before_exec() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn os_signal_hooks_run_from_loop_sleep_defer_and_wait_checkpoints() {
-    let loop_output = run_os_fixture("signal-checkpoint-loop.xsh", &[os_probe()]);
+    let loop_output = run_os_fixture("signal-checkpoint-loop.xsh", &[test_helper()]);
     assert_eq!(loop_output.status.code(), Some(0), "{loop_output:?}");
     assert_eq!(String::from_utf8(loop_output.stdout).unwrap(), "hook\n");
 
-    let sleep_output = run_os_fixture("signal-checkpoint-sleep.xsh", &[os_probe()]);
+    let sleep_output = run_os_fixture("signal-checkpoint-sleep.xsh", &[test_helper()]);
     assert_eq!(sleep_output.status.code(), Some(0), "{sleep_output:?}");
     assert_eq!(String::from_utf8(sleep_output.stdout).unwrap(), "hook\n");
 
@@ -170,13 +170,13 @@ fn os_signal_hooks_run_from_loop_sleep_defer_and_wait_checkpoints() {
     let _ = std::fs::remove_file(&marker);
     let defer_output = run_os_fixture(
         "signal-checkpoint-defer.xsh",
-        &[marker.to_str().unwrap(), os_probe()],
+        &[marker.to_str().unwrap(), test_helper()],
     );
     assert_eq!(defer_output.status.code(), Some(0), "{defer_output:?}");
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "hook");
     let _ = std::fs::remove_file(marker);
 
-    let wait_output = run_os_fixture("signal-checkpoint-wait.xsh", &[os_probe()]);
+    let wait_output = run_os_fixture("signal-checkpoint-wait.xsh", &[test_helper()]);
     assert_eq!(wait_output.status.code(), Some(0), "{wait_output:?}");
     assert_eq!(String::from_utf8(wait_output.stdout).unwrap(), "hook\n");
 }
@@ -239,7 +239,7 @@ fn os_hook_owned_wait_ignores_primary_signal_but_escalation_kills_it() {
 
     let output = trace_os_fixture(
         "signal-hook-owned-wait-escalates.xsh",
-        &[os_probe(), ready.to_str().unwrap()],
+        &[test_helper(), ready.to_str().unwrap()],
     );
 
     assert_eq!(output.status.code(), Some(3), "{output:?}");
@@ -264,7 +264,7 @@ fn os_hook_owned_wait_ignores_primary_signal_but_escalation_kills_it() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn os_signal_hook_failure_trace_payload_is_json() {
-    let output = trace_os_fixture("signal-hook-failure.xsh", &[os_probe()]);
+    let output = trace_os_fixture("signal-hook-failure.xsh", &[test_helper()]);
 
     assert_eq!(output.status.code(), Some(3), "{output:?}");
     let values = trace_values(&output);
@@ -302,7 +302,7 @@ fn os_byte_pipeline_cancellation_kills_owned_process_group() {
             ready.to_str().unwrap(),
             leaked.to_str().unwrap(),
             output_path.to_str().unwrap(),
-            os_probe(),
+            test_helper(),
         ],
     );
 
@@ -329,7 +329,7 @@ fn os_process_run_cancellation_kills_owned_process_group() {
         &[
             ready.to_str().unwrap(),
             leaked.to_str().unwrap(),
-            os_probe(),
+            test_helper(),
         ],
     );
 
@@ -361,7 +361,7 @@ fn os_nested_proc_scopes_cleanup_multiple_live_handles() {
             leaked1.to_str().unwrap(),
             ready2.to_str().unwrap(),
             leaked2.to_str().unwrap(),
-            os_probe(),
+            test_helper(),
         ],
     );
 
@@ -387,7 +387,7 @@ fn os_spawn_scope_cleanup_kills_live_handle_tree() {
         &[
             ready.to_str().unwrap(),
             leaked.to_str().unwrap(),
-            os_probe(),
+            test_helper(),
         ],
     );
 
@@ -410,7 +410,7 @@ fn os_wait_list_drains_after_timeout_and_duplicate_errors() {
     let output = run_os_fixture(
         "process-wait-list-drain.xsh",
         &[
-            os_probe(),
+            test_helper(),
             slow_ready.to_str().unwrap(),
             fast_marker.to_str().unwrap(),
             dup_marker.to_str().unwrap(),
@@ -432,7 +432,7 @@ fn os_detached_process_is_released_to_background_reaper() {
 
     let output = run_os_fixture(
         "process-detached-release.xsh",
-        &[marker.to_str().unwrap(), os_probe()],
+        &[marker.to_str().unwrap(), test_helper()],
     );
 
     assert!(output.status.success(), "{output:?}");
@@ -454,7 +454,7 @@ fn os_process_group_boundary_leaves_new_session_to_harness_cleanup() {
         &[
             ready.to_str().unwrap(),
             leaked.to_str().unwrap(),
-            os_probe(),
+            test_helper(),
         ],
     );
 
@@ -505,7 +505,7 @@ fn os_trace_json_correlates_signal_spawn_wait_and_cancel_payloads() {
     let signal_output = trace_os_fixture(
         "trace-correlation.xsh",
         &[
-            os_probe(),
+            test_helper(),
             ready.to_str().unwrap(),
             caught.to_str().unwrap(),
         ],
@@ -562,7 +562,7 @@ fn os_trace_json_correlates_signal_spawn_wait_and_cancel_payloads() {
 
     let cancel_output = trace_os_fixture(
         "trace-spawn-cancel.xsh",
-        &[os_probe(), cancel_ready.to_str().unwrap()],
+        &[test_helper(), cancel_ready.to_str().unwrap()],
     );
     assert!(cancel_output.status.success(), "{cancel_output:?}");
     let cancel_values = trace_values(&cancel_output);
@@ -603,7 +603,7 @@ fn os_stress_signal_hooks_and_process_cancellation() {
         let _ = std::fs::remove_file(&marker);
         let output = run_os_fixture(
             "signal-scope-snapshot.xsh",
-            &[marker.to_str().unwrap(), os_probe()],
+            &[marker.to_str().unwrap(), test_helper()],
         );
         assert_eq!(output.status.code(), Some(0), "{output:?}");
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "before");
@@ -619,7 +619,7 @@ fn os_stress_signal_hooks_and_process_cancellation() {
             &[
                 ready.to_str().unwrap(),
                 leaked.to_str().unwrap(),
-                os_probe(),
+                test_helper(),
             ],
         );
         wait_for_path(&ready, Duration::from_secs(3), &mut child);
@@ -630,7 +630,7 @@ fn os_stress_signal_hooks_and_process_cancellation() {
         assert!(!leaked.exists(), "owned process-group child leaked");
         let _ = std::fs::remove_dir_all(root);
 
-        let output = trace_os_fixture("signal-first-wins-escalation.xsh", &[os_probe()]);
+        let output = trace_os_fixture("signal-first-wins-escalation.xsh", &[test_helper()]);
         assert_eq!(
             output.status.code(),
             Some(128 + libc::SIGUSR1),
@@ -643,7 +643,7 @@ fn os_stress_signal_hooks_and_process_cancellation() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn os_selective_retry_sleep_honors_signal_abort_after_attempt_cleanup() {
-    let output = run_os_fixture("signal-checkpoint-selective-retry.xsh", &[os_probe()]);
+    let output = run_os_fixture("signal-checkpoint-selective-retry.xsh", &[test_helper()]);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),

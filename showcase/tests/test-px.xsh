@@ -1,13 +1,15 @@
-pure sleeper_bin(ctx: TestContext) -> Path {
-  fp"{ctx.xsh_bin.parent()}/xsh-test-sleeper"
+pure helper_bin(ctx: TestContext) -> Path {
+  fp"{ctx.xsh_bin.parent()}/xsh-test-helper"
 }
 
-proc marker_executable(ctx: TestContext, marker: Str) [fs, error] -> Result[Path] {
+## A command that sleeps until signaled, run from a copy of the test helper
+## named `marker` so that the process list shows the marker as its executable.
+proc marker_command(ctx: TestContext, marker: Str) [fs, error] -> Result[Command] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"{root}/{marker}"
-  sleeper_bin(ctx).resolve()?.copy(executable)
+  helper_bin(ctx).resolve()?.copy(executable)
   executable.chmod(0o755)
-  executable
+  process.command_argv(executable, [executable, "ready-sleep", fp"{root}/ready"])
 }
 
 proc wait_for_process_marker(pid: Int, marker: Str) [process, time, error] {
@@ -39,8 +41,8 @@ test test_px_finds_current_test_process {
 
 test test_px_default_search_matches_executable_substrings { |ctx|
   let marker = "xshpxexec"
-  let executable = marker_executable(ctx, marker)?
-  let child = process.spawn(process.command_argv(executable, [executable]))?
+  let command = marker_command(ctx, marker)?
+  let child = process.spawn(command)?
   defer process.kill(child.pid, signal: "TERM")
   wait_for_process_marker(child.pid, marker)
   let output = run.text "xsh" "showcase/px.xsh" -- "pxexec" ?
@@ -50,8 +52,8 @@ test test_px_default_search_matches_executable_substrings { |ctx|
 
 test test_px_kill_signals_default_matches { |ctx|
   let marker = "xshpxkilld"
-  let executable = marker_executable(ctx, marker)?
-  let child = spawn process.command_argv(executable, [executable])?
+  let command = marker_command(ctx, marker)?
+  let child = spawn command?
   wait_for_process_marker(child.pid, marker)
   let pid_arg = f"{child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill=15" $pid_arg ?
@@ -63,8 +65,8 @@ test test_px_kill_signals_default_matches { |ctx|
 
 test test_px_kill_accepts_numeric_signal { |ctx|
   let marker = "xshpxkills"
-  let executable = marker_executable(ctx, marker)?
-  let child = spawn process.command_argv(executable, [executable])?
+  let command = marker_command(ctx, marker)?
+  let child = spawn command?
   wait_for_process_marker(child.pid, marker)
   let pid_arg = f"{child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill" "0" $pid_arg ?
