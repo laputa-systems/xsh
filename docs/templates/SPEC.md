@@ -2427,7 +2427,10 @@ The deadline is noticed at checkpoints, not at an arbitrary instant:
   pipe) is not interrupted, and the deadline is noticed when it returns.
 
 At a checkpoint past the deadline the body stops with a failure that only
-the scope can stop: `try` and `retry` inside the body do not capture it. It
+the scope can stop: `try` and `retry` inside the body do not capture it. An
+operation the deadline interrupts while it waits may report that as its own
+`Err`; a body that handles that error instead of propagating it is stopped
+at its next checkpoint all the same. The failure
 unwinds like any failure, so every block it leaves runs its `defer` and
 `errdefer` actions (8.7), a block's owned process handles and network jobs are
 cancelled first (11.8), and a callee's blocks are left before its caller's.
@@ -2908,8 +2911,15 @@ batch at the first limit reached, and keeps a final short batch.
 `par-map` maps items on a bounded pool of workers (by default about one per
 CPU) and keeps input order. When a callback fails with `?`, no new work is
 scheduled and the stage propagates exactly as `map` does: of the items that
-ran, the earliest failure becomes the enclosing function's `Err`. Cancellation stops running workers through the ordinary
-process cancellation rules. Every other stage runs serially. `each`,
+ran, the earliest failure becomes the enclosing function's `Err`. Items that
+are already running then run to their end. The stage maps every item before
+the next stage sees one, so a later `take` or a `break` around the pipeline
+never leaves a worker running. The stage returns only when every worker has:
+when it is given up before that, by cancellation, a `within` deadline
+(10.4), or the script shutting down, each worker stops the child process it
+is running the way a cancelled one is stopped, fails its item at its next
+checkpoint, and runs its cleanup, and the stage then fails with the reason
+it was given up. Every other stage runs serially. `each`,
 `group-by`, and `count` reject `jobs:`.
 
 `sort` and `sort-by` are stable. They order `Int`, `Str`, `Bool`, and `Path`

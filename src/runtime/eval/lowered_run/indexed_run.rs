@@ -1381,6 +1381,10 @@ impl Evaluator {
         // Set once any item fails or leaves a control flow, so no worker
         // starts another item.
         let stopped = std::sync::atomic::AtomicBool::new(false);
+        // Set when this evaluator gives the stage up before the workers are
+        // done: at a deadline, on cancellation, or while shutting down. A
+        // worker then stops the child it is running and fails its item.
+        let abandoned = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (chunks, stderr) = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
             let mut workers = Vec::with_capacity(worker_count);
@@ -1391,6 +1395,7 @@ impl Evaluator {
                 let symbols = symbols.clone();
                 let base_slots = base_slots.clone();
                 let call_stack = call_stack.clone();
+                let abandoned = Arc::clone(&abandoned);
                 let execution = execution.thread_local();
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
@@ -1401,6 +1406,7 @@ impl Evaluator {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
                             let mut worker = Evaluator::new_lowered_worker(shared);
+                            worker.obey_stage_abandonment(abandoned);
                             // A traceback built in the callback names the
                             // functions that are running the stage.
                             worker.call_stack = call_stack;
@@ -1435,9 +1441,14 @@ impl Evaluator {
                                 results.push((item_index, (result, flow, traceback)));
                             }
                         }
-                        sender
-                            .send((chunk_index, results, std::mem::take(&mut worker.stderr)))
-                            .expect("lowered par-map receiver dropped");
+                        // The stage waits for every worker, so the receiver
+                        // is there. Were it gone, there would be no one to
+                        // report to and nothing to do about it.
+                        let _ = sender.send((
+                            chunk_index,
+                            results,
+                            std::mem::take(&mut worker.stderr),
+                        ));
                     })
                     .expect("failed to spawn lowered par-map worker");
                 workers.push((chunk_index, worker));
@@ -1445,34 +1456,20 @@ impl Evaluator {
             drop(sender);
             let mut completed: Vec<Option<(Vec<(usize, ParMapItemOutcome)>, Vec<u8>)>> =
                 (0..workers.len()).map(|_| None).collect();
-            let stop_on_error =
-                |_: &RuntimeError| stopped.store(true, std::sync::atomic::Ordering::Relaxed);
             let mut remaining = workers.len();
-            // A `within` deadline stops the stage, but only once the workers
-            // are back: they obey the same deadline and are about to report,
-            // and they report on this channel.
-            let mut timed_out = None;
-            let mut checkpoint = |evaluator: &mut Self| match evaluator.service_pending_signal(span) {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    stop_on_error(&error);
-                    if error.within.is_none() {
-                        return Err(error);
-                    }
-                    timed_out.get_or_insert(error);
-                    Ok(())
-                }
-            };
+            // The stage never returns before its workers do: they borrow this
+            // frame, report on this channel, and own children that must be
+            // gone when the stage is. When this evaluator has to give the
+            // stage up, it raises `abandoned`, keeps waiting, and fails with
+            // the reason once every worker is back.
+            let mut gave_up: Option<RuntimeError> = None;
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
                     Ok((chunk_index, results, worker_stderr)) => {
                         completed[chunk_index] = Some((results, worker_stderr));
                         remaining -= 1;
-                        checkpoint(self)?;
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        checkpoint(self)?;
-                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         return Err(RuntimeError::new(
                             "par-map",
@@ -1481,14 +1478,33 @@ impl Evaluator {
                         .with_span(span));
                     }
                 }
+                if gave_up.is_some() {
+                    continue;
+                }
+                let reason = match self.service_pending_signal(span) {
+                    Err(error) => Some(error),
+                    Ok(()) if self.shutting_down() => Some(
+                        RuntimeError::abort(
+                            self.signal_state.shutdown_status.unwrap_or(3),
+                            self.signal_state.shutdown_force,
+                        )
+                        .with_span(span),
+                    ),
+                    Ok(()) => None,
+                };
+                if let Some(reason) = reason {
+                    stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+                    abandoned.store(true, std::sync::atomic::Ordering::Relaxed);
+                    gave_up = Some(reason);
+                }
             }
             for (_, worker) in workers {
                 worker
                     .join()
                     .expect("lowered par-map worker thread panicked");
             }
-            if let Some(error) = timed_out {
-                return Err(error);
+            if let Some(reason) = gave_up {
+                return Err(reason);
             }
             let mut ordered: Vec<Option<ParMapItemOutcome>> =
                 (0..item_count).map(|_| None).collect();
@@ -1641,6 +1657,9 @@ impl Evaluator {
         // another item. Chunks are contiguous, so the earliest chunk that
         // failed holds the earliest failing item that ran.
         let stopped = std::sync::atomic::AtomicBool::new(false);
+        // Set when this evaluator gives the stage up before the workers are
+        // done; a worker then stops the child it is running and fails.
+        let abandoned = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let completed = std::thread::scope(|scope| {
             let mut workers = Vec::with_capacity(worker_count);
             for (chunk_index, chunk) in items.chunks(chunk_size).enumerate() {
@@ -1650,6 +1669,7 @@ impl Evaluator {
                 let symbols = symbols.clone();
                 let base_slots = base_slots.clone();
                 let call_stack = call_stack.clone();
+                let abandoned = Arc::clone(&abandoned);
                 let execution = execution.thread_local();
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
@@ -1660,6 +1680,7 @@ impl Evaluator {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
                             let mut worker = Evaluator::new_lowered_worker(shared);
+                            worker.obey_stage_abandonment(abandoned);
                             worker.call_stack = call_stack;
                             (worker, base_slots, BTreeMap::new())
                         };
@@ -1745,6 +1766,9 @@ impl Evaluator {
                     Option<Traceback>,
                 )>,
             > = (0..workers.len()).map(|_| None).collect();
+            // As in `par-map`, the stage waits for every worker even when it
+            // has to give the stage up, and fails with the reason afterwards.
+            let mut gave_up: Option<RuntimeError> = None;
             while !workers.is_empty() {
                 let mut index = 0;
                 let mut progress = false;
@@ -1759,13 +1783,32 @@ impl Evaluator {
                         index += 1;
                     }
                 }
-                self.service_pending_signal(span)
-                    .inspect_err(|_| stopped.store(true, std::sync::atomic::Ordering::Relaxed))?;
+                if gave_up.is_none() {
+                    let reason = match self.service_pending_signal(span) {
+                        Err(error) => Some(error),
+                        Ok(()) if self.shutting_down() => Some(
+                            RuntimeError::abort(
+                                self.signal_state.shutdown_status.unwrap_or(3),
+                                self.signal_state.shutdown_force,
+                            )
+                            .with_span(span),
+                        ),
+                        Ok(()) => None,
+                    };
+                    if let Some(reason) = reason {
+                        stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+                        abandoned.store(true, std::sync::atomic::Ordering::Relaxed);
+                        gave_up = Some(reason);
+                    }
+                }
                 if !progress {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
             }
-            Ok(completed)
+            match gave_up {
+                Some(reason) => Err(reason),
+                None => Ok(completed),
+            }
         })?;
         self.stderr.extend(
             completed

@@ -853,3 +853,23 @@ test test_net_transport_linux_system_ca_dir {
   assert response.status == 200
   assert response.body.utf8()? == "secure"
 }
+
+# A `within` deadline stops a request that is waiting for its response.
+test test_net_request_wait_stops_at_a_within_deadline {
+  let url = env.get_or("XSH_NET_TEST_URL", "")?
+  if url == "" {
+    test.skip("requires XSH_NET_TEST_URL fixture")
+    return
+  }
+
+  let started = time.now()
+  let result = within 20ms {
+    net.request({method: "GET", url: f"{url}/slow"})?.status
+  }
+  match result {
+    Ok(status) => assert false, f"the slow response arrived: {status}"
+    Err(failure) => assert failure is Timeout, failure.message
+  }
+
+  assert time.now() - started < 10000
+}

@@ -3131,6 +3131,11 @@ pub struct Evaluator {
     net_jobs: BTreeMap<u64, LiveNetJob>,
     net_job_reserved_response_bytes: u64,
     network_wait_depth: u32,
+    /// Set on the worker of a parallel stage: the evaluator that started the
+    /// stage raises the flag when it gives the stage up, and the worker then
+    /// stops its running child and fails at its next checkpoint.
+    stage_abandoned: Option<Arc<std::sync::atomic::AtomicBool>>,
+    stage_abandon_delivered: bool,
     /// The open `within` scopes, outermost first.
     within_deadlines: Vec<WithinDeadline>,
     next_within_id: u64,
@@ -3389,6 +3394,8 @@ impl Evaluator {
             net_jobs: BTreeMap::new(),
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
+            stage_abandoned: None,
+            stage_abandon_delivered: false,
             within_deadlines: Vec::new(),
             next_within_id: 1,
             scope_ids: vec![0],
@@ -3604,6 +3611,8 @@ impl Evaluator {
             net_jobs: BTreeMap::new(),
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
+            stage_abandoned: None,
+            stage_abandon_delivered: false,
             within_deadlines: shared.within_deadlines.clone(),
             // Scopes a worker opens never share an identity with the ones it
             // inherited.
@@ -3725,6 +3734,18 @@ impl Evaluator {
             .map(|(index, _)| index)
     }
 
+    /// Called where code runs with no failure unwinding: an interruption that
+    /// was delivered and is not unwinding was swallowed on its way, turned
+    /// into a `Result` value by the operation it interrupted and then
+    /// handled or dropped by the program. It is due again, so the code that
+    /// took it cannot go on past its deadline or its abandoned stage.
+    pub(super) fn rearm_swallowed_interruptions(&mut self) {
+        self.stage_abandon_delivered = false;
+        for deadline in &mut self.within_deadlines {
+            deadline.delivered = false;
+        }
+    }
+
     /// A cancellation checkpoint for `within`: fails with the error that
     /// unwinds to the scope whose deadline has passed.
     pub(super) fn check_within_deadline(&mut self, span: Span) -> Result<(), RuntimeError> {
@@ -3774,7 +3795,32 @@ impl Evaluator {
         .with_span(span)
     }
 
+    /// Makes this evaluator the worker of a parallel stage that `abandoned`
+    /// can stop.
+    pub(super) fn obey_stage_abandonment(&mut self, abandoned: Arc<std::sync::atomic::AtomicBool>) {
+        self.stage_abandoned = Some(abandoned);
+    }
+
+    /// Whether the stage this worker belongs to was given up and the worker
+    /// has not yet failed for it. The failure is raised once, so the cleanup
+    /// it starts runs to its end.
+    fn stage_abandonment_pending(&self) -> bool {
+        !self.stage_abandon_delivered
+            && self
+                .stage_abandoned
+                .as_ref()
+                .is_some_and(|abandoned| abandoned.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
+        if self.stage_abandonment_pending() {
+            self.stage_abandon_delivered = true;
+            return Err(RuntimeError::new(
+                "canceled",
+                "the parallel stage that started this worker was stopped",
+            )
+            .with_span(span));
+        }
         self.check_within_deadline(span)?;
         for live in self.process_handles.values_mut() {
             // Delivery failures remain owned by the handle and surface through
@@ -6229,7 +6275,7 @@ impl CancellationPolicy for Evaluator {
         // A foreground child that outlives a `within` deadline is stopped the
         // way an unhooked SIGTERM stops it; the checkpoint after it delivers
         // the timeout.
-        if self.due_within_deadline().is_some() {
+        if self.due_within_deadline().is_some() || self.stage_abandonment_pending() {
             return CancellationDecision::Forward(libc::SIGTERM);
         }
         match self.test_cancel_request() {

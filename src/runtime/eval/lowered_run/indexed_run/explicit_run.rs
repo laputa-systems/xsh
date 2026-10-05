@@ -1924,6 +1924,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     /// Runs the next statement of the list on top of the work stack. The list
     /// stays in place and comes off the stack once it is exhausted.
     fn step_statements(&mut self, index: usize) -> Result<(), RuntimeError> {
+        if self.pending_error.is_none() {
+            self.evaluator.rearm_swallowed_interruptions();
+        }
         let signal = self
             .evaluator
             .service_pending_signal(self.calls[index].call_span);
@@ -4732,6 +4735,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // A failure that starts to propagate is a `within` checkpoint, as one
         // that starts to unwind is.
         if matches!(flow, StmtFlow::Propagate(_)) {
+            if self.pending_error.is_none() {
+                self.evaluator.rearm_swallowed_interruptions();
+            }
             self.evaluator
                 .check_within_deadline(self.calls[index].call_span)?;
         }

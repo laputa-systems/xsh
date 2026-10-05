@@ -370,3 +370,61 @@ within limits.short {
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
 }
+
+# A mocked request answers at once, so this shows only that a network call
+# and its value pass through the scope. It does not show a wait being
+# stopped; the test below and the fixture test in `stdlib/net.xsh` do.
+test test_within_passes_a_mocked_network_call_through { |ctx|
+  let response = {
+    status: 200,
+    reason: "OK",
+    bytes: 2,
+    headers: [{name: "content-type", value: "text/plain"}],
+    url: "https://example.test/",
+    body: b"ok",
+  }
+  test.mock(ctx, "net.request", {url: "https://example.test/"}, Ok(response))
+  let status = within 30s {
+    net.request({method: "GET", url: "https://example.test/"})?.status
+  }
+  assert status == Ok(200)
+}
+
+# A server that accepts the connection and never answers holds a real
+# request open. The deadline stops the wait, whether the body propagates the
+# interrupted request's error or handles it and tries to go on.
+test test_within_stops_a_network_wait_on_a_silent_server {
+  let probe = run.capture --text --accept=[0, 1, 2, 127] sh -c "nc --help 2>&1" ?
+  if "BusyBox" not in probe.stdout + probe.stderr {
+    test.skip("needs BusyBox nc to hold a connection open")
+    return
+  }
+
+  # One listener per request: the listener leaves with its first connection.
+  let port = 20000 + process.current_pid()? % 20000
+  let first = (spawn run sh -c f"sleep 30 | nc -l -p {port} > /dev/null 2>&1") ?
+  defer first.cancel()
+  let second = (spawn run sh -c f"sleep 30 | nc -l -p {port + 1} > /dev/null 2>&1") ?
+  defer second.cancel()
+  time.sleep(300ms)
+
+  let started = time.now()
+  let propagated = within 200ms {
+    net.request({method: "GET", url: f"http://127.0.0.1:{port}/"})?.status
+  }
+  assert timed_out(propagated)
+
+  var went_on = false
+  let handled = within 200ms {
+    let status = if let Ok(response) = net.request({method: "GET", url: f"http://127.0.0.1:{port + 1}/"}) {
+      response.status
+    } else {
+      -1
+    }
+    went_on = true
+    status
+  }
+  assert timed_out(handled)
+  assert ! went_on
+  assert time.now() - started < 10000
+}
