@@ -17,30 +17,32 @@ unchecked host data.
 
 ## Decisions
 
-Closed on 2026-10-04. Each is written on its item below.
+Closed. Each is written on its item below.
 
 | Item | Decision |
 |---|---|
 | `PROP-8`, `PROP-9`, `MATCH-8` | One propagation rule: a failure leaves a function only through a form visible at the site. See `PROP`. |
-| `PATH-5`, `PATH-6` | Adopt every row of the `.display()` table. A string literal takes the `Path` type wherever the expected type is `Path`: `==`, `!=`, `in`, `match` patterns, and map keys. |
 | `PATH-11` | The defaults flip only after a lint has made today's defaults explicit at every call that relies on them. |
 | `PATH-12` | The type is named `RelPath`. |
 | `PATH-13`, `MATCH-10` | Methods, not phrases: `p.is_dir()` and `xs.is_empty()`. `is` keeps one meaning, the type test. |
 | `ERR-4` | `Err(.Variant(...))` requires a declared family-typed return. There is no rule that guesses a family. |
-| `MATCH-2` | Ordinary and Str-backed enums now. An exactly known error family follows once `ERR-5` has merged. |
+| `MATCH-2` | Ordinary and Str-backed enums now, as a direct change of severity with no autofix. An exactly known error family follows once `ERR-5` has merged. |
 | `MATCH-7` | Only a literal negative index counts from the end. A computed negative index still fails. |
-| `TYPE-1`, `TYPE-2`, `MOD-5` | The spellings written on the items: `Union[A, B]`, `proc(...) [effects] -> T`, `exact module { ... }`. |
+| `TYPE-2` | The spelling written on the item: `proc(...) [effects] -> T`. |
 | `TYPE-4`, `TYPE-5`, `PATH-12` | One checker mechanism for validated types, built with `TYPE-4`. |
 | `TYPE-6` | `nominal type`. Identity only; field privacy is not part of it. |
 | `SCOPE-9` | Last, and narrow: use after a consuming operation in straight-line code of one scope. |
+| `CMD-4` | `exit N` is a core statement. `abort`, with its `force` argument, is removed; nothing replaces `force`. |
 
 Still open; the item is not assigned until it is closed here:
 
 | Item | Open point |
 |---|---|
+| `SCOPE-3` | `collect { }` needs an expression-level sugar form whose body's `yield`s are reinterpreted. The mechanism is statement-level. Decide whether to build that, or make `collect` a core expression. |
 | `SCOPE-5` | The context-manager protocol, and how `with x = m { }` differs from `with ... else`, which always has its `else`. |
 | `SCOPE-8` | Exact spelling; whether jitter is the default. |
 | `SCOPE-9` | How a parameter distinguishes borrowing a handle from taking it. |
+| `SCOPE-10` | Whether a deliberate `exit N` runs `errdefer` actions. |
 | `TYPE-5` | Range syntax and inclusive-bound spelling. |
 | `TYPE-7` | Spelling of the local dynamic-traversal escape hatch. |
 | literal braces | No accepted design (see "Open, without an accepted design"). |
@@ -48,7 +50,9 @@ Still open; the item is not assigned until it is closed here:
 ## `PROP`: propagation and failure flow
 
 What `?` means, where a failure may leave without one, and the statements
-that produce failures. `PROP-1` to `PROP-4` change no language rule.
+that produce failures. The lints for a redundant statement `?`, a redundant
+`}?`, and a re-propagating `match` are merged; applying them is the first
+migration in `campaign.md`.
 
 The propagation rule the later items implement, replacing the list in SPEC 1
 ("Results, not exceptions"): a failure leaves a function only through a form
@@ -65,21 +69,6 @@ Nothing else propagates. A `Result` in a binding, an argument, an operand, or
 a return is data and needs `?`, whatever type the context expects. Where the
 rule makes a `?` redundant, a lint removes it, so each site has one spelling.
 
-- `PROP-1` **One spelling for statement-position propagation; fewer `?` overall.** A
-  statement-position `Result[Unit]` already propagates (SPEC 8.1), so
-  `fs.mkdir(tmp)?` as a statement spells it twice (about 6,400 such lines
-  across this repo and Laputa). Drop the redundant `?` with a lint and
-  autofix. Broader goal: audit where else `?` is ceremony rather than
-  information.
-- `PROP-2` **Lint the redundant `}?` on statement scopes.** Statement scopes
-  already propagate (SPEC 8.1).
-- `PROP-3` **A `match` that only re-propagates is `?`.** `match f() { Ok(_) => {}
-  Err(e) => return Err(e) }` → `f()?` (about 62 Laputa sites). One site
-  (`pm/execute.xsh`) says `?` once escaped a `par-map` worker before the
-  caller's cleanup ran: confirm whether that runtime bug still exists and fix
-  it before the lint.
-- `PROP-4` Traceback gap: an `Err` that is handled and replaced inside one `?`
-  operand can reuse the old traceback, e.g. `(f() ?? Err(x))?`.
 - `PROP-5` **`fail MESSAGE` statement**, desugaring to `return Err(error.failure(msg))`.
   Replaces the 124 one-variant `error X = Failed(message: Str)` families that
   exist only to have something to return. Typed families stay for errors
@@ -102,13 +91,19 @@ rule makes a `?` redundant, a lint removes it, so each site has one spelling.
   `run` is the visible form under the propagation rule. Migrate in two steps:
   first a lint writes `try` on every value-position run form that is captured
   today, then the bare form changes meaning and the trailing `?` is removed.
+- `PROP-10` `let v = f()?` reports the enclosing call site as the failing
+  span. A failing `defer` in a `Result` proc surfaces as
+  `err[runtime.error]`, not as an `Err`. A replaced error with the same kind
+  and message as the one it replaces still reuses the old traceback.
+- `PROP-11` Other `?` that is ceremony, by rough count over both corpora:
+  `defer f()?` 667 and plain `run cmd ?` 272 behave the same without it;
+  13 Laputa `Ok(v) => x = v` matches could be `x = f()?`.
 
 ## `ERR`: error families and variants
 
 How error families are declared, constructed, matched, and named in
 signatures.
 
-- `ERR-3` `.Name` in match patterns is not implemented; patterns stay qualified.
 - `ERR-4` `Err(.Variant(...))` needs a family-typed return. Laputa's ~652
   `Err(Family.Variant(...))` sites mostly return `Result[T]` (plain `Error`),
   which names no family, so they cannot use it. Decide between family-typed
@@ -117,83 +112,40 @@ signatures.
   Decided: the inferred form requires a declared family-typed return, and
   there is no guessing rule. Laputa gains family-typed returns where `ERR-5`
   narrows a signature; other sites keep the qualified spelling.
-- `ERR-5` **Public Result signatures must spell their error type.** Keep
-  `Result[T]` as low-ceremony private code, but reject it on exported procs,
-  module-contract entries, and other declared API boundaries: write
-  `Result[Config, ConfigError]` when callers can rely on a family, or
-  `Result[Config, Error]` when broad failure is intentionally part of the
-  contract. This mirrors the existing rule that private returns/effects may be
-  inferred while exports state their contract. It prevents an API from
-  silently widening its failure surface as implementation calls change, and
-  makes broad `Error` visible in review. A lint can add `, Error` without
-  changing behavior, after which modules may narrow families deliberately.
-  Pairs with `MOD-7`; settle `ERR-4` first so the lint adds the right type.
+- `ERR-5` **Public Result signatures must spell their error type.** The
+  warning and its autofix (`, Error`) are merged and both corpora are
+  migrated. The check error is prepared on the branch `held/err-check-errors`
+  together with the error for an ambiguous positional error-constructor
+  argument; it needs a rebase. A module loaded with `module.load` is not
+  checked at run time. Pairs with `MOD-7`.
 - `ERR-6` The inferred-variant and positional-constructor lints are opt-in
   (`[lint] prefer-inferred-variants`, `prefer-positional-constructors`)
   because the repository lint gate requires zero diagnostics; enable them by
   default after migrating the corpus (347 + 32 sites here, 13 + 7 in Laputa),
   then delete the settings.
   Runs as a migration once `ERR-3` and `ERR-4` have merged.
-- `ERR-7` Error-constructor argument binding is decided by lowering a second
-  time instead of consumed from a checker fact, and error constructors lack
-  two record-constructor rules: a positional argument after a named one is
-  accepted, and there is no same-type overlap rule. Publish the binding as a
-  checker fact and apply the record rules.
 - `ERR-8` `lint.prefer-implicit-message` is opt-in
   (`[lint] prefer-implicit-messages`) because exported families get a note
   and no fix: 184 message-only variants here (14 exported), 79 in Laputa (43
   exported). Migrate both corpora, enable it by default, and delete the
   setting.
+- `ERR-9` Qualified imported-enum arm heads (`k.File => ...`) do not count
+  toward exhaustiveness. The `record.require` migration fix is offered only
+  for a call in the root program, so a module reached only through its
+  importer keeps the site until it is linted directly.
 
 ## `PATH`: paths and the filesystem API
 
 Mostly registry and standard-module work with little new syntax.
 
-### Reduce `.display()` drudgery without lossy Path→Str conversion
+`Path` holds native bytes and `.display()` is its lossy conversion to text.
+The work that made most `.display()` calls unnecessary is merged: sinks take
+a `Path`, a string literal is a `Path` wherever one is expected, and path
+queries are `Path` methods. `.display()` stays at real text boundaries (JSON,
+`Str` parameters, string building), the one explicit point where bytes can
+be lost. Automatic Path→Str conversion and a shorter alias (`.text`,
+`str(p)`) stay rejected.
 
-`Path` holds native bytes, and `.display()` is its lossy conversion to UTF-8
-text. Automatic Path→Str conversion is rejected because it would lose bytes
-silently. A survey of this repo plus `../packages` found ~1,160 lines that call
-`.display()`, and most of them do not need a lossy conversion at all:
-
-| Share | Use | Possible fix |
-|---|---|---|
-| ~1/3 | inside interpolation (`f"..."`, `fp"..."`, command words, `print`) | done: `lint.redundant-path-display` and `lint.path-constructor` autofixes, applied to all three repos |
-| ~80 | comparison with a literal, e.g. `p.display() == "/repo/x"` | let a string literal take the `Path` type when the other side of `==` or `!=` is a `Path`, so you write `p == "/repo/x"`. This is the same rule as typed bindings and parameters, and it is lossless. |
-| dozens | OS byte sinks: `process.command_argv(exe.display(), ...)`, `bytes.from_text(p.display())` | accept `Path` in argv, env, and process APIs, which carry OS bytes anyway; add a lossless `p.bytes()` |
-| ~30 | text queries: `.display().starts_with/ends_with/split/replace` | Path methods: component-wise `starts_with`/`ends_with` and `ext`/`stem`/`name` coverage, so path logic stays on paths |
-| rest | real text boundaries (JSON, `Str` params, string building) | keep `.display()`: this is the one explicit point where bytes can be lost |
-
-Prior art:
-- Rust has the same `.display()`, but `AsRef<Path>`/`AsRef<OsStr>` APIs mean
-  callers rarely convert.
-- Python's `os.PathLike` makes nearly every API accept `Path`, while f-strings
-  convert silently (lossy).
-- Go and Nushell treat paths as strings and accept the lossiness.
-
-The lesson is to make sinks accept `Path` rather than add sugar. A shorter
-alias (`.text`, `str(p)`) would rename the chore without removing it.
-
-Open decisions:
-- which of the rows above to adopt;
-- whether literal-to-Path conversion also applies to `in`, `match` patterns,
-  and map keys.
-
-Each adopted row changes the language contract and goes into `docs/SPEC.md`
-first.
-
-### Items
-
-- `PATH-5` **OS byte sinks accept `Path`** (table row 3): argv, env, and
-  process APIs take a `Path` without `.display()`, and `p.bytes()` is the
-  lossless byte view. `TYPE-1` gives the argv word type its name.
-- `PATH-6` **A string literal takes the `Path` type wherever the expected type
-  is `Path`** (table row 2): typed bindings, parameters, `==` and `!=`
-  against a `Path`, `in` against a collection of paths, a literal pattern in
-  a `match` on a `Path`, and a key of a `Path`-keyed map. One rule, with a
-  lint for `p.display() == "literal"`. Today `let q: Path = "a"` and `f("a")`
-  are rejected although SPEC 4.4 allows them, and a `Str` literal for a
-  registry `Path` parameter passes the check and fails at run time.
 - `PATH-7` **Path lists as environment values.** A `List[Path]` in an env overlay
   joins with the platform separator, losslessly:
   `PATH: [fp"{root}/usr/bin", ...env.PATH]` instead of
@@ -231,16 +183,14 @@ first.
   `exists()`, with a lint for the kind comparisons they replace (~950
   `exists` calls, ~390 kind comparisons). In a condition they need no `?`
   once `PROP-8` has merged; the methods themselves do not need it.
-- `PATH-14` **`Path.components() -> List[Path]`**, with a lint for
-  `.display().split("/")` (8 sites). About 20 `.display()` prefix and suffix
-  tests remain that are text tests, not component tests (`"lib/"`, `".a"`);
-  they need a manual rewrite or stay as `.display()`.
-- `PATH-15` `Path.lines`, `bytes_lines`, and `touch_from` are missing from
-  the checker's method effect table, so they need no `fs` effect. Fix it and
-  derive a test from the registry that every method's declared effects are
-  enforced.
-- `PATH-16` `lint.prefer-file-lines` never fires: `x.read_text()?.lines()`
-  parses as a guarded hop.
+- `PATH-17` Finish the byte sinks: `process.which`, `linux.mount` source,
+  `linux.modinfo`, `applet.su_session`, and `test.run_script` args still
+  take text; argv lists built separately can now be
+  `List[Union[Str, Path]]` (list parameters need an added overload, because
+  `List[Str]` is not `List[Union[Str, Path]]`). `env.PATH` `append`,
+  `prepend`, and `in` still reject a string literal, against the one
+  literal rule. Where overloads disagree (`hash.sha256`, `fs.executable`) a
+  literal stays `Str`.
 
 Rejected this round: `/` as path join (keep `fp"..."`).
 
@@ -250,18 +200,10 @@ Block forms that own a resource or a deadline, and the ownership rules behind
 them. Most are sugar over `defer`. `repeat N times` is merged; it runs
 `range(N)`, so a negative count counts down instead of running zero times.
 
-- `SCOPE-1` **`tempdir NAME at PATH { ... }`**: a scratch directory at a fixed path,
-  removed if present, created, and removed on exit. Replaces
-  `fs.remove(t, missing_ok: true)?` / `fs.mkdir(t)?` /
-  `defer fs.remove(t, missing_ok: true)?` (about 35 full triples, 59
-  remove-then-mkdir pairs in Laputa). Extends the `tempdir` block.
 - `SCOPE-3` **`collect { ... }` blocks**: the block's `yield`s (including
   `yield x when c` and yields inside loops) append to a List that is its
   value; lint + autofix for local lists built only by `xs = xs.push(..)` /
   `xs += [..]` (~2,858 `x = x.push(` lines in Laputa).
-- `SCOPE-4` **`errdefer { ... }`**: cleanup that runs only when the scope leaves with
-  an error. Spelled with `defer` in its name so every deferred action is
-  found by one search (see `docs/DESIGN.md`).
 - `SCOPE-5` **Context-managed resources use `with`, not a new `using` keyword.**
   `with root = fs.open_root(path)? { check(root)? }` acquires a value that
   implements a small context-manager protocol, binds the value returned by its
@@ -313,6 +255,14 @@ them. Most are sugar over `defer`. `repeat N times` is merged; it runs
   fallback for a live owner that leaves scope.
   Needs `SCOPE-5`. The most flow-sensitive item in the backlog; last. Start
   with use after a consuming operation in straight-line code of one scope.
+- `SCOPE-10` `errdefer` runs on `exit N` and on cancellation, as it did on
+  `abort(N)`. Decide whether a deliberate exit should run error-only
+  cleanup.
+- `SCOPE-11` A bare block that is the tail of a `Result[T]` function rejects
+  a `Result[T]` tail; the same holds for a `tempdir` body there. The grammar
+  accepts `for x in xs |> sort-by { |c| ... }` with the block as the loop
+  body while the parser gives it to the stage. Unconfirmed: a module's
+  top-level defers may not run when its top level fails.
 
 Deferred for further design: `atomically at DIR { ... }` (stage writes in a
 hidden sibling directory, rename into place on success, remove on failure).
@@ -322,35 +272,17 @@ hidden sibling directory, rename into place on success, remove on failure).
 Patterns, exhaustiveness, conditional binding, indexing, and explicit
 conversion.
 
-- `MATCH-1` **`else =>`** as the catch-all match arm (~505 `_ =>` arms); `_` keeps its
-  meaning inside patterns.
-- `MATCH-2` **Statement matches over closed types are exhaustive errors, not warnings.**
-  Today value-position matches must be exhaustive while a statement match over
-  an enum can merely warn when a variant is missing. Make a non-exhaustive
-  statement match on a known finite nominal type a check error, so adding
-  `Fetch` to `enum Action { Build, Reuse, Fetch }` breaks an old
-  `match action { Build => ... Reuse => ... }` at check time. A deliberate
-  forward-compatible catch-all is written explicitly with the accepted
-  `else =>` arm. Start with ordinary and Str-backed enums; decide separately
-  whether an exactly known error family or other finite builtins should receive
-  the same rule. This should also eliminate the current per-site severity oddity
-  around `check.non-exhaustive-match` for the closed-type case.
-  Needs `MATCH-1` and its migration, so the autofix can add `else => {}`.
-  Decided: enums now; an exactly known error family once `ERR-5` has merged.
+- `MATCH-2` **Statement matches over closed types are exhaustive errors, not
+  warnings.** A non-exhaustive statement match on an ordinary or Str-backed
+  enum becomes a check error, so adding a variant breaks an old match at
+  check time; a deliberate catch-all is `else =>`. Change the severity
+  directly: the warning finds no site in either corpus, and an autofix that
+  appends `else => {}` would not preserve behavior, because an unmatched
+  statement match fails today with `match-no-arm`. An exactly known error
+  family follows once `ERR-5` has merged.
 - `MATCH-3` Two codes have per-site severity: `check.non-exhaustive-match` and
   `check.reveal-type`.
   `MATCH-2` removes the `check.non-exhaustive-match` case.
-- `MATCH-4` **Optional binding in `guard let` / `if let` / `while let`.** Extend the
-  existing conditional-binding family from `Result[T]` to `T?`: for example,
-  `guard let executor = context.executor else { return Err(...) }` binds an
-  `Executor` on the continuation instead of requiring `executor == null`
-  followed by a type-restating binding. The subject evaluates once; a null
-  optional takes the failure branch and has no error value, so an optional
-  form cannot bind the existing `|failure|` handler parameter. Result binding
-  keeps its current `Ok`/error semantics. Laputa has null-test sites across
-  roughly 30 files (`== null` in 17, `!= null` in 14 by code search), so
-  lint the test-plus-restating-binding shape when the rewrite is local and
-  behavior-preserving.
 - `MATCH-5` **Optionals instead of `""` sentinels.** Lint `?? ""` (~475 Laputa sites)
   whose binding is later compared with `""`, and suggest optional binding:
   collapsing "unset" into "empty" makes the two indistinguishable.
@@ -376,23 +308,15 @@ conversion.
 - `MATCH-10` **`.is_empty()` on `Str`, `Bytes`, `List`, `Map`, and `Set`**, with
   a lint and autofix for `.len() == 0`, `.len() > 0`, and `.len() != 0`
   (about 615 sites).
+- `MATCH-11` A Result `guard let` whose block falls through passes the
+  check. A `Result[T]?` call propagates `Err` at a plain `let`. `x == null`
+  narrowing is lost in the final `else` after an `else if`.
 
 ## `TYPE`: type-level hardening
 
 New type forms. Each keeps a runtime failure from being the first place an
 invalid value is noticed. `TYPE-7` depends on the others and goes last.
 
-- `TYPE-1` **Closed finite union types instead of `Any` at heterogeneous typed
-  boundaries.** Add a greppable type constructor such as
-  `Union[Str, Path]`; do not overload `|`, which already has language
-  meanings. The immediate Laputa case is `MakeTask.argv: List[Any]`, whose
-  real domain is a small set of argv word types. A value fits a union only if
-  it fits a listed member; narrowing uses existing `is`/pattern machinery,
-  and inference never invents a union merely because branches disagree.
-  Start conservatively: exact member signatures, no arbitrary union
-  simplification, and no implicit widening to `Any`. Code search finds
-  `List[Any]` in only a handful of Laputa files, making this a tractable
-  hardening migration with high value at process/data boundaries.
 - `TYPE-2` **Typed first-class callables that retain signatures and effects.** Add a
   callable type form such as
   `type Builder = proc(root: Path) [fs, process, error] -> Result[Unit]`.
@@ -462,37 +386,31 @@ invalid value is noticed. `TYPE-7` depends on the others and goes last.
   typed-callable and union items in this batch remove two important reasons to
   reach for it.
   Needs `TYPE-1` and `TYPE-2`.
+- `TYPE-8` Lowering types a narrowed slot by its declared union, so it
+  accepts any method some member has. Publish narrowed types as checker
+  facts and have lowering consume them.
 
 ## `MOD`: effects, modules, and inference
 
 Module loading and contracts, effect bounds, and what private code may leave
 to inference.
 
-- `MOD-7` **Infer private proc return types**, as private proc effects already are.
-  Exports keep their signatures as the contract. About 2,259
-  `-> Result[...]` annotations in Laputa; the lint drops one only when the
-  inferred type is identical.
-  Pairs with `ERR-5`: exports spell their contract, private procs infer it.
-- `MOD-8` A top-level `let x: Contract = static_module` fails lowering with
-  `top_level_boundary_blocker`; the same line inside a proc works.
+- `MOD-9` `lint.prefer-inferred-proc-return` is opt-in
+  (`[lint] prefer-inferred-proc-returns`): about 162 provable sites here.
+  Decide whether it becomes a default, then migrate. A failed
+  `.require(Contract)` raises a plain `Error` with facets; a built-in
+  `ContractError` family would let user code match it by name.
 
 ## `CMD`: commands, lexer, CLI, and tooling
 
 Command words, literals, script entry points, the test API, and repository
 tooling. The items are independent of each other.
 
-- `CMD-3` **Let `@argv` provide the command head.** A spliced argv in target position
-  is one complete command vector: `run @argv`, `spawn run @argv`, and
-  `process.command { run @argv }` use element zero as both the executable
-  target and `argv[0]`. An empty list fails explicitly (and can become a
-  check-time impossibility once `NonEmpty[T]` below exists). This removes
-  `process.run(process.command_argv(argv[0], argv))` and similar reconstruction
-  while keeping `process.command_argv(target, argv)` for the unusual case
-  where executable selection intentionally differs from `argv[0]`.
-  `process.command_argv` appears in about 49 Laputa XSH files, including about
-  13 files with the direct run-of-command-argv shape.
-- `CMD-4` **`exit N` replaces `abort(N)`**, and `abort` is removed (~131 sites): the
-  exit is deliberate, which "abort" contradicts.
+- `CMD-4` **`exit N` replaces `abort(N)`.** The `exit` statement and
+  `lint.prefer-exit` are merged. The removal of `abort` and of its `force`
+  argument is prepared on the branch `held/cmd4-abort-removal`; it merges
+  after both corpora are migrated with the lint, and it hand-edits the
+  script strings and fixtures the lint cannot reach.
 - `CMD-5` **Subcommand `cli` entries.** `cli main repo check(repo: Path = default_repo()) { ... }`:
   several `cli` entries named by a subcommand path, each with generated help
   and option parsing. Replaces the `var parsed = Placeholder(...)` +
@@ -510,36 +428,15 @@ tooling. The items are independent of each other.
   the host and overwrites `target/release` with Linux binaries.
 - `CMD-8` Cargo's `unused_dependencies` lint flags `mimalloc` in xsht and xshi.
   This is a false positive: the binaries use it, the libraries do not.
-- `CMD-14` A size literal inside a `const` list or record infers `Int` where
-  `let` infers `UInt`. `xsht fmt` moves a trailing comment on a command
-  statement to the next line. `scan_number_end` appends a duration suffix to
-  a float's end.
-- `CMD-11` **`xsht desugar FILE`** prints a program with every sugar form
-  replaced by its expansion into core forms: the formatter printing a sugar
-  node's expansion instead of its operands. The output is valid XSH that
-  checks: a hidden local is printed under a fresh legal name. Three uses
-  ship with it. A reader, or an agent writing XSH, can ask what a form
-  means. The docs generator shows each sugar form's expansion in the SPEC by
-  running the command on the snippet, so the documented expansion is the
-  implemented one. And a differential test over the native test corpus and
-  the fuzzer requires a program and its desugared form to check identically
-  and print the same output. It does not show where a control-position
-  `Result` propagates; that is a typing rule, not sugar.
-  Needs the sugar expansion mechanism, and `CMD-12` so the output is not
-  partial.
-- `CMD-13` The tour snippet `docs/snippets/tour/29-env-set.xsh` runs
-  `printenv STAGE RETRIES`, which prints both values only with GNU
-  `printenv`; the BSD one prints the first. `make docs` therefore writes a
-  different `docs/user-tour.md` on a macOS host without GNU coreutils first
-  on `PATH`, although generation is meant to be host-independent.
-- `CMD-12` **Move postfix `when`/`unless` and `guard ... else` onto the sugar
-  expansion mechanism.** They are sugar by `docs/DESIGN.md` but are still
-  first-class statements that the checker and lowering handle by hand
-  (`GuardedStmt`, `BooleanGuard`, `Guard`). Each becomes a sugar form whose
-  expansion is the `if` it stands for, with the same narrowing and the same
-  diagnostics, and the hand-written checker and lowering paths are deleted
-  in the same change. Until then `xsht desugar` names the forms it leaves
-  as written.
+- `CMD-15` After `abort` is removed nothing populates the checker fact
+  `terminating_call_spans`; its plumbing through the checker output, lint
+  options, and flow analysis (about 30 sites) can go.
+  `dev/tests/test-targets.xsh::test_dev_main_target_override_reaches_context`
+  overflows the stack on a debug binary. Lint flow no longer folds
+  `guard true` and `guard false`.
+- `CMD-16` Measure retained frontend memory for guarded statements, which
+  now take several arena rows where they took one
+  (`xsh-frontend-stats`).
 
 ## `LINT`: lint accuracy and migrations
 
@@ -565,17 +462,23 @@ table costs files times the whole workspace.
   take 39 s of CPU.
 - `LINT-6` SPEC does not say whether `x += e` reads `x` before it evaluates
   `e`. The implementation does; a lint relies on it.
+- `LINT-7` `xsht lint --fix --only CODE` rejects every fix round in a file
+  that has any unselected check warning. `xsht lint --fix` ignored SIGTERM
+  during one long run.
 
-## Laputa migrations pending
+## Laputa
 
-Lints already applied to this repository and not yet to Laputa, with the
-sites each finds there: `lint.redundant-use-alias` 126,
-`lint.prefer-list-compound-assignment` 392, `lint.prefer-read-lines` 21,
-`lint.prefer-size-literal` 17 (6 with a fix), `lint.prefer-write-lines` 5
-(2 with a fix), `lint.path-text-query` 4, `lint.prefer-env-string` (not
-counted). `lint.prefer-repeat` finds none. `guest/qemu-dwl-foot-proof.xsh:15`
-passes `Failed(phase, message)` positionally; since `ERR-1` each argument
-fills its own field, where before the two were swapped.
+Migrated through `lint.prefer-tempdir`, one commit per rule, with its
+`xsht check` clean. Sites without an autofix remain: `lint.prefer-tempdir`
+17, `lint.prefer-size-literal` 9, `lint.prefer-match-else` 7,
+`lint.prefer-write-lines` 5. `packages/flex/files/flex.xsh` and
+`packages/bison/files/bison.xsh` are checksummed local sources and
+`tests/pm/fixtures/plans/basic-aarch64.json` records proof hashes, so a
+migration that rewrites them must update the `sha256` in their
+`PKGBUILD.xsh` and regenerate the fixture. `pm/execute.xsh` carries a comment
+that `?` once escaped a `par-map` worker; it does not reproduce
+(`tests/xsh/par-map-worker-propagation.xsh`), so the site can migrate and
+the comment can go.
 
 ## Open, without an accepted design
 

@@ -3,9 +3,129 @@ Run the `TODO.md` backlog as a campaign: one integrator and up to eight
 one lane per workstream, in waves.
 
 `TODO.md` owns what to build and in which order inside a workstream. This file
-owns how the work moves. `harden.md` is the tone: small finished increments,
-contracts with a test that passes and a test that would catch the violation,
-checks at boundaries, measured performance, and no claim of soundness.
+owns how the work moves, and starts with where it stands.
+
+## Handoff
+
+The campaign paused on 2026-10-04 with every lane reported and none
+running. About two fifths of the backlog is merged on `campaign-harden`;
+`TODO.md` lists only what remains.
+
+**Verified.** Everything up to commit `65ea15b3` was built in release and
+gated. The gate run at that commit left failures that are not yet assigned
+(below).
+
+**Merged but not built in release, migrated, or gated.** The commits after
+`65ea15b3`: the `exit` statement, the module-contract facet source, top-level
+contract bindings, the opt-in private-return lint, target-typed variant
+patterns with two lint fixes, and the six propagation commits. The tree
+compiles (`cargo check --workspace --all-targets`).
+
+**First, in this order.**
+
+1. Build release and run `xsht check`, `xsht lint`, and `xsht fmt --check`
+   on this repository.
+2. Apply the new lints here, one rule at a time, then format the files
+   `xsht fmt --check` names and regenerate the docs and the API surface
+   fixture: `lint.redundant-propagation` (about 4,026 sites),
+   `lint.redundant-scope-propagation` (29), `lint.prefer-propagation` (3, two
+   with a fix), `lint.prefer-exit` (about 35).
+3. Run the gates and assign what fails.
+4. Apply the same lints in Laputa (about 3,573, 116, 1, and 11 sites), then
+   update its checksums and plan fixture (`TODO.md`, "Laputa").
+5. Merge the held commits, each after a rebase:
+   `held/cmd4-abort-removal` once both corpora are migrated to `exit`;
+   `held/err-check-errors` (both corpora are already migrated for it);
+   `held/err-annotation-lint-regression`, a test that should pass now that
+   `lint.redundant-result-unit` leaves `Result[Unit, Family]` alone.
+
+**Gate failures at `65ea15b3`, unassigned.**
+
+- Native: `tests/xsh/mistakes.xsh::test_xsh_typing_mistakes_name_the_real_cause`,
+  `tests/xsh/pattern-conditionals.xsh::test_pattern_conditional_lint_retains_comments_guards_and_error_bindings`,
+  `tests/xsh/pattern-tests.xsh::test_pattern_predicate_lint_preserves_comments_and_bindings`.
+- `xsht` integration: `lint::linter_reports_dead_code_after_all_returning_match`,
+  `lint_format_invariance::formatting_preserves_identical_match_arms`.
+- Root integration: `sema::checker_rejects_stage_5_acceptance_cases`,
+  `syntax::joined_token_pairs_lex_back_to_the_same_tokens` (a pinned count).
+- Fixed by later commits, to confirm: the `xsh-registry` facet test and two
+  lint fixture tests.
+- Load-sensitive, pass alone: `lint_performance::repository_lint_is_clean_within_wall_budget`,
+  `runtime::interactive::parity::extended::edit_combining_marks_and_emoji`.
+- The `xshi` targets and `make docs-check` did not run in that gate run.
+
+**Performance.** No baseline was taken on a quiet machine. Under lane load,
+`xsht check` went from 12.6 s to about 3 s here and from 53.7 s to 5–8 s on
+Laputa, and `xsht lint` here is about 10 s (lint stage about 9 s of thread
+time, against 4.6 s before the campaign's lints). Record the four timing
+lines on a quiet machine before the next wave. A per-module checked-interface
+cache is the next step for `xsht lint`, whose per-root check still rechecks
+shared modules.
+
+**Next items by workstream**, all with closed designs: `PROP-5` to `PROP-7`;
+`ERR-5` (its check error) and `ERR-8`; `PATH-7` to `PATH-10`; `SCOPE-6`;
+`MATCH-2`, `MATCH-3`, `MATCH-5`, `MATCH-6`; `TYPE-2`, `TYPE-3`; `CMD-5`,
+`CMD-6`; `LINT-2` to `LINT-7`. `PROP-8` and `PROP-9` come after `PROP-7`.
+
+**What the first waves taught.**
+
+- The gate cycle is the bottleneck: 25 to 40 minutes with lanes building.
+  Five or six lanes kept the merge queue short; eight did not.
+- Lanes that touch syntax conflict with each other. Merge those one at a
+  time, and hold the branch still while one of them rebases.
+- Every lane adds a `mod` line at the same place in `crates/xsht/src/lint.rs`;
+  that conflict is resolved by keeping both sides.
+- A lane cannot see another lane's change to a shared type until the merge.
+  Three such breaks were compile errors, so a lane runs
+  `cargo check --workspace --all-targets` before it reports.
+- Applying each autofix to Laputa is a gate in its own right: it found a fix
+  that built its replacement from the wrong file's text.
+- `make docs` needs GNU coreutils first on `PATH` on macOS.
+
+Lane worktrees are under `.claude/worktrees/`; their branches hold nothing
+that is not merged or on a `held/` branch.
+
+## Hardening principles
+
+The campaign adds language surface; these keep it from adding ways for the
+checker and the runtime to disagree. They apply to every slice.
+
+- **Practical, not formal.** The goal is fewer opportunities for checker and
+  runtime to disagree, invalid internal states caught earlier, and tests for
+  features that interact. It is not a verified language, and nothing here
+  claims soundness. A report says exactly what became harder to get wrong.
+- **Decide once, validate before execution.** Each semantic decision is made
+  by the checker and published as a fact. Lowering consumes it and never
+  re-derives it; the verifier checks the consequences of a decision on the
+  lowered program and never repeats the decision.
+- **Keep the architecture.** No second frontend, competing inference engine,
+  fallback interpreter, or replacement IR. Strengthen and connect what
+  exists.
+- **Two tests per invariant.** One shows the valid behavior; one would catch
+  the violation: a valid lowered program, deliberately corrupted, must be
+  rejected before it runs. Say whether a finding is a reachable bug or an
+  internal assumption that needed defending.
+- **No silent defaults.** Missing semantic information in a runnable program
+  never becomes "no effects", a guessed type, or an executable placeholder.
+  Erroneous source still gets ordinary diagnostics, not an internal crash.
+- **Expected failure is not a broken promise.** Rejecting untrusted data at
+  run time is ordinary behavior. A concrete operation receiving a value the
+  checker ruled out is a defect; do not classify it away.
+- **Performance is part of correctness here.** No second run of inference,
+  no frontend structures kept after preparation, no recursive validation on
+  hot paths. Expensive observation is opt-in. Measure the paths a change
+  touches.
+- **Be selective about new metadata.** Use the facts already published before
+  adding one, and never carry a whole checker state for one assertion.
+- **Name the evidence.** A production check, a test, a bounded exhaustive
+  check, and a proof are different things, and a bound is stated with its
+  result.
+
+The same principles direct implementation hardening proper, wherever a slice
+reaches it: precise, tested contracts for effects first; verifier rules for
+what lowering assumes; an independent small model for the effect solver;
+exhaustive or symbolic checks of small kernels such as effect-set operations
+and index arithmetic; and opt-in runtime checks of static promises.
 
 ## Roles
 
@@ -21,20 +141,16 @@ from another workstream reports it and the integrator sequences it.
 `xsh-routine` runs corpus migrations: one lint rule, named directories, one
 commit.
 
-## Foundations
+## What every lane relies on
 
-Three things were put in place before the first lane and every lane relies
-on them.
-
-- `xsht check` and `xsht lint` end stderr with their stage times. The
-  integrator compares them after each merge; they are the campaign's
-  performance evidence.
+- `xsht check` and `xsht lint` end stderr with their stage times, which are
+  the campaign's performance evidence.
 - A sugar form is one surface node that carries its operands and its
   expansion into core forms (`docs/ARCHITECTURE.md`, "Adding a sugar form").
   The formatter, lint, and `xsht grep` read the operands; the checker and
-  everything after it read only the expansion. An item that is sugar by
-  `docs/DESIGN.md` adds a form there and does not touch the checker or
-  lowering.
+  everything after it read only the expansion; `xsht desugar` prints it. An
+  item that is sugar by `docs/DESIGN.md` adds a form there and does not touch
+  the checker or lowering.
 - `TODO.md` "Decisions" records the closed design points and lists the open
   ones. An item with an open point is not assigned.
 
