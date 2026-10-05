@@ -107,6 +107,10 @@ Formatter and lint:
 - A lint fix formats at the default width, not the project's `[format]`
   width. `lint.prefer-inferred-pure-return` is silent in a file that has a
   `use`.
+- `lint.redundant-optional-fallback` rewrites `(x ?? 0) + 1` to `(x) + 1`,
+  whose parentheses are then `check.redundant-parens`; the fix should drop
+  them. `check.named-arg`, the error for a positional argument that needs a
+  label, offers no fix.
 - `lint.redundant-propagation` is silent on `let x = (run.text a ?)` and
   `let x = (run.text a)?`, whose `?` is removable.
 - `lint.prefer-fail` changes what an uncaught failure reports, from
@@ -120,7 +124,14 @@ Tests:
 
 - `lint_performance::repository_lint_is_clean_within_wall_budget` passes
   alone and fails when the rest of the `xsht` integration target runs beside
-  it. `xsht lint` on this repository takes about 12 s of its 15 s budget.
+  it. With the utilities merged, `xsht lint` on this repository takes about
+  24 s against a 15 s budget, so the test fails alone too.
+- Three applet tests fail on an x86_64 musl host and did before the
+  utilities were merged: `core/tests/test-stty.xsh` expects glibc's
+  "Inappropriate ioctl for device" where musl says "Not a tty";
+  `core/tests/test-ls.xsh` expects a dangling symlink colored `01;36` and
+  gets the orphan color `40;31;01`; `core/tests/test-uniq.xsh` expects the
+  rejected value quoted in "invalid number of fields to skip".
 - `showcase/tests/test-px.xsh::test_px_default_search_matches_executable_substrings`
   once failed to spawn a file it had just written (`Text file busy`), under
   load.
