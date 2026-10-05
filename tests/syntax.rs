@@ -619,7 +619,7 @@ let plugin: Module[Plugin] = module.load(p"plugin.xsh")?
     let arena = &output.arena.arena;
     assert!(output.arena.statement_ids().any(|id| {
         matches!(arena.stmt(id).kind, ArenaStmtKind::TypeDef(def)
-            if matches!(arena.type_def(def).body, ArenaTypeDefBody::ModuleContract(_)))
+            if matches!(arena.type_def(def).body, ArenaTypeDefBody::ModuleContract { .. }))
     }));
 
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
