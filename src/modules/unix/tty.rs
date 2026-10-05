@@ -12,7 +12,7 @@ use rustix::process::Pid;
 use rustix::termios;
 use std::ffi::CStr;
 use std::io;
-use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd};
+use std::os::fd::IntoRawFd;
 
 pub(crate) fn handles(op: RuntimeOp) -> bool {
     matches!(
@@ -169,54 +169,27 @@ fn close_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
 /// A new pseudo-terminal pair: the controller (master) and the replica
 /// (slave) as descriptor numbers, and the replica's device path.
 fn open_pty(args: &Args<'_>) -> Result<Value, RuntimeError> {
+    use rustix::fs::{Mode, OFlags};
+    use rustix::io::{FdFlags, fcntl_setfd};
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     let span = args.span();
-    let fail = |error: io::Error| host_error("unix-open-pty", error, span);
-    // SAFETY: plain libc calls on a descriptor this function owns until it is
-    // returned; the OwnedFds close both ends on any early exit.
-    unsafe {
-        let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC);
-        if master < 0 {
-            return Err(fail(io::Error::last_os_error()));
-        }
-        let master = OwnedFd::from_raw_fd(master);
-        let raw = std::os::fd::AsRawFd::as_raw_fd(&master);
-        if libc::grantpt(raw) != 0 || libc::unlockpt(raw) != 0 {
-            return Err(fail(io::Error::last_os_error()));
-        }
-        let mut name = [0 as libc::c_char; 128];
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        let named = libc::ptsname_r(raw, name.as_mut_ptr(), name.len()) == 0;
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        let named = {
-            let pointer = libc::ptsname(raw);
-            if !pointer.is_null() {
-                let bytes = CStr::from_ptr(pointer).to_bytes_with_nul();
-                let length = bytes.len().min(name.len());
-                for (slot, byte) in name.iter_mut().zip(&bytes[..length]) {
-                    *slot = *byte as libc::c_char;
-                }
-                name[name.len() - 1] = 0;
-            }
-            !pointer.is_null()
-        };
-        if !named {
-            return Err(fail(io::Error::last_os_error()));
-        }
-        let name = CStr::from_ptr(name.as_ptr());
-        let replica = libc::open(
-            name.as_ptr(),
-            libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
-        );
-        if replica < 0 {
-            return Err(fail(io::Error::last_os_error()));
-        }
-        let record = Value::Record(RecordMap::from([
-            (key("master"), Value::Int(i64::from(master.into_raw_fd()))),
-            (key("replica"), Value::Int(i64::from(replica))),
-            (key("name"), name_of(name)),
-        ]));
-        ok(record)
-    }
+    let fail = |error: rustix::io::Errno| host_error("unix-open-pty", error, span);
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).map_err(fail)?;
+    fcntl_setfd(&master, FdFlags::CLOEXEC).map_err(fail)?;
+    grantpt(&master).map_err(fail)?;
+    unlockpt(&master).map_err(fail)?;
+    let name = ptsname(&master, Vec::new()).map_err(fail)?;
+    let replica = rustix::fs::open(
+        name.as_c_str(),
+        OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(fail)?;
+    ok(Value::Record(RecordMap::from([
+        (key("master"), Value::Int(i64::from(master.into_raw_fd()))),
+        (key("replica"), Value::Int(i64::from(replica.into_raw_fd()))),
+        (key("name"), name_of(&name)),
+    ])))
 }
 
 fn window_size(args: &Args<'_>) -> Result<Value, RuntimeError> {
