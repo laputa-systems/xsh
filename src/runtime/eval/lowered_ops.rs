@@ -2071,6 +2071,18 @@ pub(super) fn lowered_status_method_value(
                 Ok(lowered_result_err("status-kind", "status was not a signal"))
             }
         }
+        "shell_code" if args.is_empty() => match status.kind {
+            ProcessStatusKind::Exit => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Int(
+                status.code.unwrap_or_default() as i64,
+            )))),
+            ProcessStatusKind::Signal => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Int(
+                128 + status.code.unwrap_or_default() as i64,
+            )))),
+            ProcessStatusKind::Exec => Ok(lowered_result_err(
+                "status-kind",
+                "status was neither an exit nor a signal",
+            )),
+        },
         _ => Err(
             RuntimeError::new("unsupported-call", "unsupported lowered Status method")
                 .with_span(span),

@@ -951,6 +951,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     true,
                     RuntimeOp::StatusSignalNumber,
                 ),
+                method(
+                    "shell_code",
+                    Vec::new(),
+                    result(Type::Int),
+                    true,
+                    RuntimeOp::StatusShellCode,
+                ),
             ]),
         },
         MethodReceiverSig {

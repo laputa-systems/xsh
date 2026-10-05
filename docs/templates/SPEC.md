@@ -842,8 +842,9 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 - `Status` is a completed process state, obtained only from process forms.
   It has `ok` and `success: Bool`, `kind` (`"exit"` or `"signal"`), and the
   methods `exited()`, `signaled()`, `exited_with(code)`,
-  `exit_code() -> Result[Int]`, and `signal_number() -> Result[Int]`. `!status`
-  is `!status.ok`.
+  `exit_code() -> Result[Int]`, `signal_number() -> Result[Int]`, and
+  `shell_code() -> Result[Int]`, the code a shell reports: the exit code, or
+  128 plus the signal. `!status` is `!status.ok`.
 - `ProcessHandle` is a live child started by `spawn` (see 11.7).
 - `Command` is a typed process plan from `process.command { ... }` or
   `process.command_argv(...)`. It is not a block literal and runs only when
@@ -2760,6 +2761,46 @@ Contracts worth knowing without consulting the reference:
   `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
   have no environment gate or dry-run switch. Native tests use
   `test.unix_fake` (§17) instead of the host.
+- Process-control primitives report the kernel's view and never emulate it;
+  every failure carries `failure.errno`. `process.signals()` lists the named
+  signals in number order, starting with the pseudo-signal `EXIT` (0) and
+  ending with `RTMIN` and `RTMAX` where the host has real-time signals;
+  `process.signal` also reads `SIGRTMIN+N`, `RTMAX-N`, and the spellings
+  `CLD`, `IOT`, and `POLL`, and a number no name covers is its own name.
+  `process.group_id`, `session_id`, `parent_pid`, `set_group_id`, and
+  `new_session` read and change the process table (a group leader cannot start
+  a session); `process.kill_group` signals a whole group and, unlike
+  `unix.kill_process_group`, reports a missing group (`process-missing`).
+  `process.priority`, `set_priority` (`which` is `process`, `group`, or
+  `user`), and `nice(increment)` act on scheduling priority, and
+  `process.rlimit`, `rlimits`, and `set_rlimit` on resource limits, where an
+  omitted bound is left unchanged and `null` is unlimited; both are inherited
+  by children. `process.set_signal_action(signal, "ignore"|"default")`
+  changes how the running process treats a signal and survives `unix.exec`
+  (which is how `nohup` is built), while a child started with `run` restores
+  the defaults itself; replacing `INT` or `TERM` disables the runtime's
+  cancellation for that signal. `process.wait_timeout(handles, limit)` is
+  `process.wait_any` that returns `null`, consuming nothing, once `limit`
+  passes with no child finished.
+- Terminal primitives in `unix` work on descriptor numbers: `isatty`,
+  `ttyname`, `controlling_tty`, `window_size` and `set_window_size`,
+  `foreground_group` and `set_foreground_group`, `tty_session`, and
+  `tty_attrs` with `set_tty_attrs(attrs, fd, when: "now"|"drain"|"flush")`.
+  `unix.tty_table()` is the host's termios vocabulary (flags as field, mask,
+  and value, control characters as slot indexes, baud rates) so a script edits
+  the words of a `UnixTtyAttrs` by name; `unix.tty_mode(attrs, mode)` applies
+  `stty`'s `raw`, `cooked`, `cbreak`, or `sane` to a copy that reaches the
+  terminal only through `set_tty_attrs`. `unix.open_fd` and `close_fd`
+  give a bare descriptor for a device path, and `unix.open_pty` a
+  pseudo-terminal pair; descriptors are the script's to close. `unix.read_utmp`
+  decodes a utmp or wtmp file (Linux only; a trailing partial record is
+  ignored) and `unix.load_average` reads the system load.
+- `io.flush_stdout()` writes the buffered standard output to the host and
+  fails with the write's errno (`EPIPE`, `ENOSPC`); without it, output leaves
+  the process at exit and its write errors are not visible. Captured output is
+  not buffered for the host, so it succeeds and does nothing there. The runtime
+  ignores `SIGPIPE`; `process.set_signal_action("PIPE", "default")` makes a
+  closed pipe end the process as it would a shell utility.
 
 ### 15.1 `template`
 

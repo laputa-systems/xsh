@@ -23,6 +23,25 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+mod sessions;
+mod tty;
+
+/// Whether `op` is a typed terminal or session primitive from the submodules.
+pub(crate) fn is_prim(op: crate::modules::RuntimeOp) -> bool {
+    tty::handles(op) || sessions::handles(op)
+}
+
+pub(crate) fn prim_call(
+    op: crate::modules::RuntimeOp,
+    args: &crate::modules::process::Args<'_>,
+) -> Result<Value, RuntimeError> {
+    if tty::handles(op) {
+        tty::call(op, args)
+    } else {
+        sessions::call(op, args)
+    }
+}
+
 const LINUX_COMM_LIMIT: usize = 15;
 const WAIT_POLL: Duration = Duration::from_millis(100);
 static PENDING_SIGNAL: AtomicI32 = AtomicI32::new(0);
@@ -481,8 +500,21 @@ pub(crate) fn tty_attrs(fd: i64, span: Span) -> Result<Value, RuntimeError> {
 pub(crate) fn set_tty_attrs(
     record: &crate::runtime::value::RecordMap,
     fd: i64,
+    when: &str,
     span: Span,
 ) -> Result<Value, RuntimeError> {
+    let when = match when {
+        "now" => termios::OptionalActions::Now,
+        "drain" => termios::OptionalActions::Drain,
+        "flush" => termios::OptionalActions::Flush,
+        other => {
+            return Ok(error_value(
+                "invalid-argument",
+                format!("when must be `now`, `drain`, or `flush`, found `{other}`"),
+                span,
+            ));
+        }
+    };
     let fd = match raw_fd_arg(fd, "unix-tty-attrs", span) {
         Ok(fd) => fd,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
@@ -545,6 +577,19 @@ pub(crate) fn set_tty_attrs(
             }
         }
     }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if let Some(Value::Int(line)) = record.get("line") {
+        match u8::try_from(*line) {
+            Ok(line) => attrs.line_discipline = line,
+            Err(_) => {
+                return Ok(error_value(
+                    "invalid-argument",
+                    "line must be between 0 and 255",
+                    span,
+                ));
+            }
+        }
+    }
     let ispeed = record_uint(record, "ispeed", "unix-tty-attrs", span)? as u32;
     let ospeed = record_uint(record, "ospeed", "unix-tty-attrs", span)? as u32;
     if attrs.set_input_speed(ispeed).is_err() || attrs.set_output_speed(ospeed).is_err() {
@@ -554,7 +599,7 @@ pub(crate) fn set_tty_attrs(
             span,
         ));
     }
-    match termios::tcsetattr(borrowed, termios::OptionalActions::Now, &attrs) {
+    match termios::tcsetattr(borrowed, when, &attrs) {
         Ok(()) => Ok(ok_unit()),
         Err(e) => Ok(io_error("unix-tty-attrs", io::Error::from(e), span)),
     }
@@ -1263,6 +1308,17 @@ fn raw_fd_arg(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeErr
     }
 }
 
+/// The line discipline (`c_line`), which only Linux-like hosts carry.
+fn line_discipline(attrs: &termios::Termios) -> i64 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return i64::from(attrs.line_discipline);
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = attrs;
+        0
+    }
+}
+
 fn tty_attrs_record(attrs: &termios::Termios) -> Value {
     // SpecialCodes wraps [u8; NCCS] with layout verified by rustix's own static checks.
     let nccs = std::mem::size_of_val(&attrs.special_codes);
@@ -1288,6 +1344,7 @@ fn tty_attrs_record(attrs: &termios::Termios) -> Value {
             Arc::from("lflag"),
             Value::Int(attrs.local_modes.bits() as i64),
         ),
+        (Arc::from("line"), Value::Int(line_discipline(attrs))),
         (Arc::from("ispeed"), Value::Int(attrs.input_speed() as i64)),
         (Arc::from("ospeed"), Value::Int(attrs.output_speed() as i64)),
         (
