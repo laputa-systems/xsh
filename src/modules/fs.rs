@@ -1253,7 +1253,7 @@ pub(crate) fn path_is_kind(path: PathBuf, kind: PathKind, span: Span) -> Result<
     name_error_path(&shown, found)
 }
 
-/// A `cd` target follows symlinks, unlike the public `fs.metadata` entry.
+/// A `cd` target follows symlinks, unlike the public `Path.metadata` entry.
 pub(crate) fn cd_target_is_dir(path: &Path) -> std::io::Result<bool> {
     std::fs::metadata(path).map(|metadata| metadata.is_dir())
 }

@@ -488,11 +488,11 @@ print ${entry.nmae}
     },
     {
       name: "module_function_typo",
-      source: r"""let present = fs.exits(p"/tmp")?
-print $present
+      source: r"""let here = fs.cwdd()?
+print $here
 """,
       code: "check.unknown-module-api",
-      cause: "did you mean `fs.exists`?",
+      cause: "did you mean `fs.cwd`?",
       fix: "",
     },
     {

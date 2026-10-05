@@ -807,7 +807,7 @@ impl Checker {
     }
 
     /// XSH has no truthiness, so a condition names the type it found. A
-    /// fallible Bool or Status (`fs.exists(path)`) is the usual cause, and
+    /// fallible Bool or Status (`path.exists()`) is the usual cause, and
     /// the hint offers `?`, which propagates the failure instead of guessing.
     /// It changes failure behavior, so `lint --fix` never applies it.
     pub(super) fn report_non_bool_condition(

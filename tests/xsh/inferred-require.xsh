@@ -50,6 +50,8 @@ test test_require_uses_returns_branches_blocks_and_parameters {
   assert constructed.manifest.name == spread_constructed.manifest.name
   let wrapped: Result[RequirementManifest] = Ok(raw.require()?)
   assert wrapped?.jobs == 4
+  let mode: Any = 0o755
+  assert fs.executable(mode.require()?)
 }
 
 test test_require_keeps_validation_and_unsigned_conversion {
@@ -78,7 +80,7 @@ let value: Record = raw.require()?
 let value = raw.require()? ?? 0
 """,
     """let raw: Any = p"."
-let value = fs.executable(raw.require()?)
+let value = hash.sha256(raw.require()?)
 """,
     """let raw: Any = 1
 assert true, raw.require()?

@@ -416,6 +416,7 @@ diagnostic_codes! {
         CheckRedundantParens = "check.redundant-parens", error, fixable, "Remove parentheses that do not change the parse";
         CheckRegexLiteral = "check.regex-literal", error, "Reject a regex literal that does not compile";
         CheckRemovedAbort = "check.removed-abort", error, fixable, "Rewrite a call of the removed `abort(STATUS)` as the statement `exit STATUS`";
+        CheckRemovedFsFunction = "check.removed-fs-function", error, fixable, "Rewrite a call of a removed `fs` function as the `Path` method of the same name";
         CheckRemovedMembership = "check.removed-membership", error, "Reject the removed standard membership API; use `in` or `not in`";
         CheckRemovedRecordRequire = "check.removed-record-require", error, "Reject the removed `record.require`; declare a schema and use `.require(Schema)`";
         CheckRequireTarget = "check.require-target", error, "Reject `.require` when no schema or typed boundary supplies the target type";
@@ -655,7 +656,6 @@ diagnostic_codes! {
         LintPreferWriteMode = "lint.prefer-write-mode", warning, "Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)`";
         LintPreferForIndex = "lint.prefer-for-index", warning, "Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list";
         LintPreferPathKind = "lint.prefer-path-kind", warning, "Test a path's kind with `is_dir()`, `is_file()`, or `is_symlink()` instead of comparing `metadata()?.kind`";
-        LintPreferPathMethod = "lint.prefer-path-method", warning, "Call the `Path` method instead of the `fs` function that takes the path first";
         LintPreferTypedCallable = "lint.prefer-typed-callable", note, "Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature";
         LintPreferTestExpect = "lint.prefer-test-expect", warning, "State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script`";
         LintPreferIsEmpty = "lint.prefer-is-empty", warning, "Use `is_empty()` instead of comparing a length with zero";

@@ -3189,9 +3189,8 @@ name and then `{` or the word `at` follow on the same line; the path after
 Two lints lead to the scope. `lint.prefer-tempdir-scope` reports
 `let root = fs.tempdir()?` with its `defer root.close()?` where the handle is
 used only for its path, and `lint.prefer-tempdir` reports
-`NAME.remove()`, `NAME.mkdir()`, and `defer NAME.remove()` in a row, in
-either spelling of each call. Each offers the rewrite
-of the rest of the block into the scope's body only where that is the same
+`NAME.remove()`, `NAME.mkdir()`, and `defer NAME.remove()` in a row. Each
+offers the rewrite of the rest of the block into the scope's body only where that is the same
 program; in particular a last statement that is the block's value moves only
 out of the body of a function that returns `Result[T]`, as a `T`.
 
@@ -4011,16 +4010,21 @@ Contracts worth knowing without consulting the reference:
 {{.spec.path_glob.source}}
 ```
 
-- An operation on one path is a `Path` method: `out.write(text)`, not
-  `fs.write(out, text)`. Eleven operations still have both spellings, with
-  the same parameters after the path, the same result, and the same failures:
-  `chmod`, `copy`, `executable`, `exists`, `metadata`, `mkdir`, `read_text`,
-  `remove`, `rename`, `write`, and `write_atomic`. `lint.prefer-path-method`
-  rewrites the `fs` call when its first argument is statically a `Path`,
-  moving that argument in front of the call and leaving the rest as written,
-  so operands are still evaluated left to right. `fs` keeps what has no
-  single path to be a method of: the working directory and roots, traversal,
-  locks, mounts, temporary files, and installs.
+- An operation on one path is a `Path` method: `out.write(text)`. The `fs`
+  functions that took the path first and did the same were removed: `chmod`,
+  `copy`, `executable` (of a path), `exists`, `metadata`, `mkdir`,
+  `read_text`, `remove`, `rename`, `write`, and `write_atomic`, with their
+  command forms. A call of one is `check.removed-fs-function`, which names
+  the method. Where the first argument is statically a `Path` or is a string
+  literal, the diagnostic carries the rewrite, which `xsht lint --fix`
+  applies: that argument moves in front of the call and the rest stays as
+  written, so operands are still evaluated left to right, and the destination
+  of `copy` and `rename` gets its label `to:`. Text that is not a literal is
+  converted first (`Path(text)`), and a command form, a comment beside the
+  path, or a literal with no `p"..."` spelling is rewritten by hand.
+  `fs.executable(mode)` tests a mode and stays. `fs` keeps what has no single
+  path to be a method of: the working directory and roots, traversal, locks,
+  mounts, temporary files, and installs.
 - `p.remove()` leaves the path gone. It removes a file, a symlink (itself,
   never its target), or a directory with everything below it, and it succeeds
   when nothing is there: `missing_ok` defaults to `true`, in the method, the
@@ -4045,9 +4049,9 @@ Contracts worth knowing without consulting the reference:
   of entry (a socket, a device) is `false` for all three.
   `lint.prefer-path-kind` rewrites the comparison, and `!=` to the negated
   call.
-- `Path.write(data, mode: M)` and `fs.write(path, data, mode: M)` write a
-  file whose permission bits are exactly `M` (`0` through `0o7777`), as
-  `chmod` would set them, before any of the data is in it:
+- `Path.write(data, mode: M)` writes a file whose permission bits are
+  exactly `M` (`0` through `0o7777`), as `chmod` would set them, before any
+  of the data is in it:
 
   ```xsh
   {{.spec.write_mode.source}}
@@ -4061,8 +4065,7 @@ Contracts worth knowing without consulting the reference:
   fails with `fs-chmod` before the file is opened. Without `mode` a new file
   gets `0o666` narrowed by the umask and an existing file keeps its bits.
   `lint.prefer-write-mode` merges a `write` that is directly followed by a
-  `chmod` of the same path. The command form `fs.write PATH DATA` takes no
-  mode.
+  `chmod` of the same path.
 - `Path.write_lines(lines)` writes each element of a `List[Str]` followed by
   `\n`, so every line is terminated and an empty list writes an empty file.
   Creating, replacing, the file mode, and failures are those of `Path.write`.

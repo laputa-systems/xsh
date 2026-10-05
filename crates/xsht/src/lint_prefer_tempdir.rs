@@ -19,9 +19,8 @@ use xsh::frontend::check::{StatementPosition, Type};
 /// defer NAME.remove(missing_ok: true)
 /// ```
 ///
-/// Each call may be written `NAME.OP(...)` or `fs.OP(NAME, ...)`, and may
-/// carry a `?`, which says again what statement position already
-/// does. `block` is the block whose statements these are; the statements of a
+/// Each call may carry a `?`, which says again what statement position
+/// already does. `block` is the block whose statements these are; the statements of a
 /// file have none and are never rewritten, because a declaration or binding
 /// moved into a block would stop being a top-level one.
 pub(super) fn lint_scratch_directories(
@@ -47,17 +46,9 @@ pub(super) fn lint_scratch_directories(
         let calls = [cleared, created, removed];
         // A method named `remove` or `mkdir` on anything but a `Path` is
         // another operation.
-        if calls.iter().any(|call| {
-            !call.through_module && linter.expr_types.get(&call.span) != Some(&Type::Path)
-        }) {
-            continue;
-        }
-        // A local named `fs` makes the function calls something else.
-        if calls.iter().any(|call| call.through_module)
-            && (linter.scopes.iter().any(|scope| scope.contains_key("fs"))
-                || stmts[..index]
-                    .iter()
-                    .any(|stmt| binds(arena, *stmt, |bound| bound == "fs")))
+        if calls
+            .iter()
+            .any(|call| linter.expr_types.get(&call.span) != Some(&Type::Path))
         {
             continue;
         }
@@ -81,19 +72,14 @@ pub(super) fn lint_scratch_directories(
     }
 }
 
-/// One of the three calls, in either spelling of the operation.
+/// One of the three calls.
 struct PathCall {
-    /// The path operand: the method's receiver or the function's first
-    /// argument.
+    /// The path operand: the method's receiver.
     path: ExprId,
-    /// The arguments after the path.
     arguments: Vec<ArenaCallArgKind>,
-    /// Whether the call is written `fs.OPERATION(path, ...)`, which a local
-    /// named `fs` turns into something else.
-    through_module: bool,
 }
 
-/// `path.OPERATION(...)` or `fs.OPERATION(path, ...)`, under an optional `?`.
+/// `path.OPERATION(...)`, under an optional `?`.
 fn path_call(arena: &AstArena, expr: ExprId, operation: &str) -> Option<PathCall> {
     let expr = match arena.expr(expr).kind {
         ArenaExprKind::Try(inner) => inner,
@@ -108,28 +94,14 @@ fn path_call(arena: &AstArena, expr: ExprId, operation: &str) -> Option<PathCall
     if name != operation {
         return None;
     }
-    let mut arguments = arena
+    let arguments = arena
         .call_args(args)
         .iter()
         .map(|argument| argument.kind.clone())
         .collect::<Vec<_>>();
-    if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "fs") {
-        return Some(PathCall {
-            path: base,
-            arguments,
-            through_module: false,
-        });
-    }
-    if arguments.is_empty() {
-        return None;
-    }
-    let ArenaCallArgKind::Positional(path) = arguments.remove(0) else {
-        return None;
-    };
     Some(PathCall {
-        path,
+        path: base,
         arguments,
-        through_module: true,
     })
 }
 
@@ -139,7 +111,6 @@ struct Operand {
     name: Name,
     /// The span of the name where the call reads it.
     span: Span,
-    through_module: bool,
 }
 
 fn local(arena: &AstArena, call: &PathCall) -> Option<Operand> {
@@ -147,7 +118,6 @@ fn local(arena: &AstArena, call: &PathCall) -> Option<Operand> {
         ArenaExprKind::Ident(name) => Some(Operand {
             name,
             span: arena.expr(call.path).span,
-            through_module: call.through_module,
         }),
         _ => None,
     }
@@ -743,15 +713,14 @@ mod tests {
         assert_eq!(scratch_directories(source).len(), 1, "{source}");
     }
 
-    // Each of the three calls may still be written through the `fs` module,
-    // in any mix with the method; the statement is the same one.
+    // A removal accepts a missing path by default, so the argument that says
+    // so may be left out of either removal.
     #[test]
-    fn the_function_spelling_is_the_same_sequence() {
-        let methods = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  scratch.remove(missing_ok: true)\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: true)\n  print $scratch\n}\n";
-        let functions = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: true)\n  print $scratch\n}\n";
-        let mixed = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  fs.remove(scratch)\n  scratch.mkdir()\n  defer scratch.remove()\n  print $scratch\n}\n";
+    fn a_removal_without_its_default_argument_is_the_same_sequence() {
+        let explicit = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  scratch.remove(missing_ok: true)\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: true)\n  print $scratch\n}\n";
+        let defaulted = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  scratch.remove()\n  scratch.mkdir()\n  defer scratch.remove()\n  print $scratch\n}\n";
         let expected = "proc stage(root: Path) [fs, error] {\n  tempdir scratch at fp\"{root}/s\" {\n    print $scratch\n  }\n}\n";
-        for source in [methods, functions, mixed] {
+        for source in [explicit, defaulted] {
             let diagnostics = scratch_directories(source);
             assert_eq!(diagnostics.len(), 1, "{source}");
             assert_eq!(apply(&diagnostics, source), expected, "{source}");

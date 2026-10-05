@@ -39,6 +39,9 @@ mod expr;
 mod record_require;
 pub use expected::RequirementTarget;
 pub use record_require::RecordRequireMigration;
+#[path = "check/removed_fs.rs"]
+mod removed_fs;
+pub use removed_fs::call_receiver_text;
 #[path = "check/inferred_variant.rs"]
 mod inferred_variant;
 #[path = "check/effect_bounds.rs"]

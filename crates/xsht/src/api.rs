@@ -347,7 +347,7 @@ const INTRO_SCRIPT: &str = include_str!("../../../docs/snippets/api/hello.xsh");
 
 fn intro_text() -> String {
     format!(
-        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module or receiver overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api method:Str\n  xsht api api:fs.read_text\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api search:rooted extraction\n\n`method:Str` lists every method on the Str receiver by purpose; append a member name (method:Str.lower) to read one exact item. Exact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
+        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module or receiver overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api method:Str\n  xsht api api:fs.files\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api search:rooted extraction\n\n`method:Str` lists every method on the Str receiver by purpose; append a member name (method:Str.lower) to read one exact item. Exact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
         INTRO_SCRIPT.trim_end(),
     )
 }
@@ -374,7 +374,7 @@ fn intro_jsonl() -> String {
         &[
             "language:core".to_string(),
             "module:fs".to_string(),
-            "api:fs.read_text".to_string(),
+            "api:fs.files".to_string(),
             "method:Str".to_string(),
             "method:Path.read_text".to_string(),
             "record:FsEntry".to_string(),

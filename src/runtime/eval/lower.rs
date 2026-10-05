@@ -104,21 +104,6 @@ struct LoweredArchiveTarCreateArgs {
     overwrite: Option<ExprId>,
 }
 
-struct LoweredFsWriteArgs {
-    path: ExprId,
-    data: ExprId,
-}
-
-struct LoweredFsMkdirArgs {
-    path: ExprId,
-    parents: Option<ExprId>,
-}
-
-struct LoweredFsRemoveArgs {
-    path: ExprId,
-    missing_ok: Option<ExprId>,
-}
-
 struct LoweredPathMkdirArgs {
     parents: Option<ExprId>,
 }
@@ -671,27 +656,6 @@ fn lower_archive_tar_create_args(
         entries: args.get("entries")?,
         compression: args.get("compression"),
         overwrite: args.get("overwrite"),
-    })
-}
-
-fn lower_fs_write_args(args: &CheckedApiArguments) -> Option<LoweredFsWriteArgs> {
-    Some(LoweredFsWriteArgs {
-        path: args.get("path")?,
-        data: args.get("data")?,
-    })
-}
-
-fn lower_fs_mkdir_args(args: &CheckedApiArguments) -> Option<LoweredFsMkdirArgs> {
-    Some(LoweredFsMkdirArgs {
-        path: args.get("path")?,
-        parents: args.get("parents"),
-    })
-}
-
-fn lower_fs_remove_args(args: &CheckedApiArguments) -> Option<LoweredFsRemoveArgs> {
-    Some(LoweredFsRemoveArgs {
-        path: args.get("path")?,
-        missing_ok: args.get("missing_ok"),
     })
 }
 
@@ -9459,19 +9423,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .and_then(|_| self.checked_api_arguments(call, args))
     }
 
-    /// Whether the overload the checker chose for this call has the named
-    /// parameter. A write with a mode is a separate overload and lowers as
-    /// an ordinary API call; only the two-operand write has its own
+    /// The data and mode of a checked `PATH.write(data, mode)`. A write with
+    /// a mode is a separate overload and lowers as an ordinary operation
+    /// call with the receiver first; only the two-operand write has its own
     /// instruction.
-    fn api_call_takes(&self, call: ExprId, param: &str) -> bool {
-        self.bodies
-            .api_calls
-            .get(&call)
-            .is_some_and(|plan| plan.sig.params.iter().any(|sig| sig.name == param))
-    }
-
-    /// The data and mode of a checked `PATH.write(data, mode)`. With the
-    /// receiver first they are the operands of the `fs.write` call it is.
     fn path_write_mode_args(&self, call: ExprId, args: &[ArenaCallArg]) -> Option<(ExprId, ExprId)> {
         let checked = self.checked_path_method_arguments(call, args)?;
         Some((checked.get("data")?, checked.get("mode")?))
@@ -10172,81 +10127,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::FsTempDir { span }
-                        ));
-                    }
-                    if module == "fs" && name == "write" && !self.api_call_takes(id, "mode") {
-                        let options =
-                            lower_fs_write_args(&self.checked_api_arguments(id, &args_vec)?)?;
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::FsWrite {
-                                path: self.lower_expr(
-                                    options.path,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                data: self.lower_expr(
-                                    options.data,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
-                    if module == "fs" && name == "mkdir" {
-                        let options =
-                            lower_fs_mkdir_args(&self.checked_api_arguments(id, &args_vec)?)?;
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::FsMkdir {
-                                path: self.lower_expr(
-                                    options.path,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                parents: match options.parents {
-                                    Some(expr) => Some(self.lower_expr(
-                                        expr,
-                                        slots,
-                                        current_function,
-                                        item_slot,
-                                    )?),
-                                    None => None,
-                                },
-                                span,
-                            }
-                        ));
-                    }
-                    if module == "fs" && name == "remove" {
-                        let options =
-                            lower_fs_remove_args(&self.checked_api_arguments(id, &args_vec)?)?;
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::FsRemove {
-                                path: self.lower_expr(
-                                    options.path,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                missing_ok: match options.missing_ok {
-                                    Some(expr) => Some(self.lower_expr(
-                                        expr,
-                                        slots,
-                                        current_function,
-                                        item_slot,
-                                    )?),
-                                    None => None,
-                                },
-                                span,
-                            }
                         ));
                     }
                     if module == "archive" && name == "tar_create" {

@@ -106,9 +106,6 @@ mod lint_prefer_as_conversion;
 #[path = "lint_prefer_text_pattern.rs"]
 mod lint_prefer_text_pattern;
 
-#[path = "lint_fs_method.rs"]
-mod lint_fs_method;
-
 #[path = "lint_prefer_typed_callable.rs"]
 mod lint_prefer_typed_callable;
 #[path = "lint_argument_label.rs"]
@@ -10139,7 +10136,7 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_redundant_defaults(&mut self, callee: ExprId, args: ArenaRange) {
-        if is_fs_call(self.arena, callee, "mkdir") || is_method_call(self.arena, callee, "mkdir") {
+        if is_method_call(self.arena, callee, "mkdir") {
             let rooted = matches!(self.arena.expr(callee).kind, ArenaExprKind::Field { base, .. }
                 if self.expr_types.get(&self.arena.expr(base).span) == Some(&Type::FsRoot));
             self.lint_redundant_named_bool(
@@ -10214,9 +10211,9 @@ impl<'a> Linter<'a> {
         }
     }
 
-    /// `fs.remove(...)` on the standard module, or `.remove(...)` on a value
-    /// that is statically a `Path`. A map's `remove`, a rooted `remove`, and a
-    /// user function of the same name have no `missing_ok` default to match.
+    /// `.remove(...)` on a value that is statically a `Path`. A map's
+    /// `remove`, a rooted `remove`, and a user function of the same name have
+    /// no `missing_ok` default to match.
     fn is_path_remove(&self, callee: ExprId) -> bool {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
             return false;
@@ -10224,13 +10221,7 @@ impl<'a> Linter<'a> {
         if name != "remove" {
             return false;
         }
-        let base = self.arena.expr(base);
-        match base.kind {
-            ArenaExprKind::Ident(module) if module == "fs" => {
-                !self.scopes.iter().any(|scope| scope.contains_key("fs"))
-            }
-            _ => self.expr_types.get(&base.span) == Some(&Type::Path),
-        }
+        self.expr_types.get(&self.arena.expr(base).span) == Some(&Type::Path)
     }
 
     fn lint_fs_root_receiver(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
@@ -11211,23 +11202,10 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(search_paths);
-        let fs_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("fs"));
-        let kind = lint_path_kind::path_kind_comparison(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            fs_is_shadowed,
-            expr,
-        );
+        let kind =
+            lint_path_kind::path_kind_comparison(self.arena, self.source, &self.expr_types, expr);
         self.diagnostics.extend(kind);
-        let method = lint_fs_method::fs_function_with_a_path_method(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            fs_is_shadowed,
-            expr,
-        );
-        self.diagnostics.extend(method);
+        let fs_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("fs"));
         let symlink =
             lint_argument_label::positional_symlink(self.arena, self.source, fs_is_shadowed, expr);
         self.diagnostics.extend(symlink);
@@ -11271,6 +11249,14 @@ impl<'a> Linter<'a> {
         let Some((arg_span, deletion_span)) = named_bool_arg_info(self.arena, args, name, value)
         else {
             return;
+        };
+        // An only argument written on its own line leaves its trailing comma
+        // and the line breaks behind, so everything between the parentheses
+        // goes with it.
+        let deletion_span = if deletion_span == arg_span {
+            only_argument_with_layout(self.source, arg_span)
+        } else {
+            deletion_span
         };
         let val_str = if value { "true" } else { "false" };
         self.diagnostics.push(
@@ -12588,6 +12574,23 @@ fn named_bool_arg_info(
         };
         Some((span, deletion_span))
     })
+}
+
+/// The span from just after `(` to just before `)` around an only argument,
+/// when nothing but whitespace and one trailing comma stand between them;
+/// otherwise the argument's own span.
+fn only_argument_with_layout(source: &str, arg: Span) -> Span {
+    let before = source.get(..arg.start()).map(str::trim_end);
+    let after = source.get(arg.end()..).map(|rest| {
+        let rest = rest.trim_start();
+        rest.strip_prefix(',').map_or(rest, str::trim_start)
+    });
+    match (before, after) {
+        (Some(before), Some(after)) if before.ends_with('(') && after.starts_with(')') => {
+            Span::new(arg.source_id, before.len(), source.len() - after.len())
+        }
+        _ => arg,
+    }
 }
 
 // Returns the minimum expected argument count for a module.function call that

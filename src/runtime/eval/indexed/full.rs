@@ -173,7 +173,6 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprFsWalk,
     ExprFsList,
     ExprFsTempDir,
-    ExprFsWrite,
     ExprFsMkdir,
     ExprFsRemove,
     ExprPathReadText,
@@ -2844,7 +2843,6 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::ExprFsWalk
                 | FullTag::ExprFsList
                 | FullTag::ExprFsTempDir
-                | FullTag::ExprFsWrite
                 | FullTag::ExprFsMkdir
                 | FullTag::ExprFsRemove
                 | FullTag::ExprPathReadText
@@ -8451,11 +8449,6 @@ impl_node_codec! {
         BuildExprRow::FsTempDir { span } => ExprFsTempDir {
             span: Span,
         } => BuildExprRow::FsTempDir { span },
-        BuildExprRow::FsWrite { path, data, span } => ExprFsWrite {
-            path: BuildExprId,
-            data: BuildExprId,
-            span: Span,
-        } => BuildExprRow::FsWrite { path, data, span },
         BuildExprRow::FsMkdir {
             path,
             parents,

@@ -7100,23 +7100,14 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 })
             }
-            FullTag::ExprFsWrite | FullTag::ExprPathWrite => {
+            FullTag::ExprPathWrite => {
                 let path = indexed_raw(&mut payload, call_span)?;
                 let data = indexed_raw(&mut payload, call_span)?;
-                let atomic = if tag == FullTag::ExprPathWrite {
-                    indexed_decode::<bool>(&mut payload, execution, call_span)?
-                } else {
-                    false
-                };
+                let atomic = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let operation = if tag == FullTag::ExprFsWrite {
-                    "fs.write"
-                } else {
-                    "write"
-                };
                 let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
+                    ControlFlow::Continue(value) => lowered_path_arg(value, "write", span)?,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let data = match self.eval_indexed_expr(execution, data, slots, span)? {
@@ -9280,65 +9271,6 @@ impl Evaluator {
                 indexed_finish(args, span)?;
                 let (positionals, flags) = lowered_parse_command_values(values, span)?;
                 let result = match op {
-                    RuntimeOp::FsWrite => {
-                        if positionals.len() != 2 {
-                            return Err(RuntimeError::new(
-                                "arity",
-                                "fs.write expected path and data",
-                            )
-                            .with_span(span));
-                        }
-                        let data = lowered_bytes_or_str_owned(
-                            positionals.last().cloned().expect("checked length"),
-                            "fs.write",
-                            span,
-                        )?;
-                        let path = lowered_path_arg(
-                            positionals.first().cloned().expect("checked length"),
-                            "fs.write",
-                            span,
-                        )?;
-                        lowered_unit_result(fs_module::write_path(
-                            self.host_path(&path),
-                            &data,
-                            span,
-                        ))
-                    }
-                    RuntimeOp::FsMkdir => {
-                        let parents = flags.get("parents").copied().unwrap_or(true);
-                        let path = lowered_path_arg(
-                            positionals.first().cloned().ok_or_else(|| {
-                                RuntimeError::new("arity", "fs.mkdir expected path").with_span(span)
-                            })?,
-                            "fs.mkdir",
-                            span,
-                        )?;
-                        lowered_unit_result(fs_module::mkdir_path(
-                            self.host_path(&path),
-                            parents,
-                            None,
-                            span,
-                        ))
-                    }
-                    RuntimeOp::FsRemove => {
-                        let missing_ok = flags
-                            .get("missing_ok")
-                            .copied()
-                            .unwrap_or(xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT);
-                        let path = lowered_path_arg(
-                            positionals.first().cloned().ok_or_else(|| {
-                                RuntimeError::new("arity", "fs.remove expected path")
-                                    .with_span(span)
-                            })?,
-                            "fs.remove",
-                            span,
-                        )?;
-                        lowered_unit_result(fs_module::remove_path(
-                            self.host_path(&path),
-                            missing_ok,
-                            span,
-                        ))
-                    }
                     RuntimeOp::JsonWrite => {
                         if positionals.len() != 2 {
                             return Err(RuntimeError::new(

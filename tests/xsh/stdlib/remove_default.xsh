@@ -33,17 +33,13 @@ test test_remove_with_missing_ok_false_fails_on_a_missing_path { |ctx|
   assert file.remove(missing_ok: strict) is Err(_)
 }
 
-# The function and command spellings have the same default, and writing the
-# default out changes nothing.
-test test_every_spelling_of_remove_has_the_same_default { |ctx|
+# Writing the default out changes nothing, in a script as in a test.
+test test_remove_with_the_default_written_out_is_the_same_call { |ctx|
   let root = test.temp_dir(ctx, name: "remove-spellings")?
   let script = r"""let gone = p"ROOT/gone"
+gone.remove()?
 gone.remove(missing_ok: true)?
-fs.remove(gone)?
-fs.remove(gone, missing_ok: true)?
-fs.remove $gone
-fs.remove $gone --missing-ok
-print (fs.remove(gone, missing_ok: false) is Err(_))
+print (gone.remove(missing_ok: false) is Err(_))
 """.replace("ROOT", with: root.display())
   let _ = test.expect(ctx, script, status: 0, stdout: ["true\n"])?
 }

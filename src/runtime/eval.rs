@@ -1760,11 +1760,6 @@ enum BuildExprRow {
     FsTempDir {
         span: Span,
     },
-    FsWrite {
-        path: BuildExprId,
-        data: BuildExprId,
-        span: Span,
-    },
     FsMkdir {
         path: BuildExprId,
         parents: Option<BuildExprId>,

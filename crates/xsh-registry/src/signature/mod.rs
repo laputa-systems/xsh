@@ -321,6 +321,25 @@ pub fn legacy_fs_root_method(function: &str) -> Option<&'static str> {
     }
 }
 
+/// The `fs` functions removed because the `Path` method of the same name is
+/// the one spelling of the operation: `fs.NAME(path, rest...)` was
+/// `path.NAME(rest...)`. Used only for the checked migration diagnostic.
+/// `executable` is listed for its `Path` overload; `fs.executable(mode: Int)`
+/// has no path receiver and is still a function.
+pub const REMOVED_FS_PATH_FUNCTIONS: [&str; 11] = [
+    "chmod",
+    "copy",
+    "executable",
+    "exists",
+    "metadata",
+    "mkdir",
+    "read_text",
+    "remove",
+    "rename",
+    "write",
+    "write_atomic",
+];
+
 pub fn api_spec() -> &'static ApiSpec {
     static SPEC: OnceLock<ApiSpec> = OnceLock::new();
     SPEC.get_or_init(build_api_spec)
@@ -458,7 +477,7 @@ pub fn labeled_param(name: &'static str, ty: Type) -> ParamSig {
     }
 }
 
-/// What `Path.remove` and `fs.remove` do about a missing path when a call
+/// What `Path.remove` does about a missing path when a call
 /// leaves `missing_ok` out: nothing, because the caller wants the path gone
 /// and it is. The registry records only that the parameter has a default, so
 /// every runtime path reads the value here.

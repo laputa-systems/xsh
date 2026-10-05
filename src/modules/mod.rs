@@ -221,24 +221,16 @@ mod tests {
         assert!(modules["fs"].function_overloads("truncate").is_none());
         assert!(modules["fs"].function_overloads("unlink").is_none());
         assert!(modules["fs"].function_overloads("hardlink").is_none());
-        assert_eq!(
-            only_overload(modules["fs"].function_overloads("read_text").unwrap()).return_ty,
-            Type::Result(Box::new(Type::Str), Box::new(Type::Error))
-        );
-        assert!(
-            modules["fs"]
-                .function_overloads("write")
-                .unwrap()
-                .iter()
-                .any(|sig| sig.params[1].ty == Type::Bytes)
-        );
-        assert!(
-            modules["fs"]
-                .function_overloads("write")
-                .unwrap()
-                .iter()
-                .any(|sig| sig.params[1].ty == Type::Str)
-        );
+        // An operation on one path is a `Path` method only; the mode test
+        // has no path to be called on and is still a function.
+        for removed in xsh_registry::signature::REMOVED_FS_PATH_FUNCTIONS {
+            let remaining = modules["fs"].function_overloads(removed);
+            if removed == "executable" {
+                assert_eq!(only_overload(remaining.unwrap()).params[0].ty, Type::Int);
+            } else {
+                assert!(remaining.is_none(), "{removed}");
+            }
+        }
         assert!(
             modules["hash"]
                 .function_overloads("sha256")
@@ -259,7 +251,7 @@ mod tests {
         assert!(modules["json"].function_overloads("stream").is_none());
         assert!(!modules.contains_key("record"));
         assert!(
-            only_overload(modules["fs"].function_overloads("mkdir").unwrap())
+            only_overload(modules["fs"].function_overloads("copy_tree").unwrap())
                 .params
                 .iter()
                 .any(|param| param.name == "parents" && param.defaulted)

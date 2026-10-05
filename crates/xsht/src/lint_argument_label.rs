@@ -95,7 +95,7 @@ fn symlink_function(
             "the call spans lines or holds a comment; rewrite it as `LINK.symlink(to: TARGET)` by hand",
         ));
     }
-    let Some(receiver) = super::lint_path_kind::call_receiver_text(arena, source, link) else {
+    let Some(receiver) = xsh::frontend::check::call_receiver_text(arena, source, link) else {
         return Some(diagnostic.with_note(
             "the link has no spelling a method can follow; bind it to a name first",
         ));

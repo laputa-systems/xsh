@@ -75,7 +75,7 @@ pub(super) fn redundant_statement_try(
         .then_some(RedundantTry { operand, removal })
 }
 
-/// `fs.mkdir(tmp)?` as a statement spells propagation twice: a
+/// `tmp.mkdir()?` as a statement spells propagation twice: a
 /// statement-position `Result[Unit]` already propagates. Only a call operand
 /// is reported here. A bare name would become a command word without its `?`,
 /// and block-valued operands belong to `lint.redundant-scope-propagation`.
@@ -431,7 +431,7 @@ pub(super) fn redundant_capture_try<'a>(
     Some(diagnostic)
 }
 
-/// `if fs.exists(path)? { ... }` spells propagation twice: a `Result[Bool]`
+/// `if path.exists()? { ... }` spells propagation twice: a `Result[Bool]`
 /// in a control position of a condition already propagates. The checker
 /// decided which `?` those are; this only finds the text to remove.
 ///

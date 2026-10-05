@@ -586,11 +586,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The operation is shallow; use walk or files when recursive traversal is intended.",
             &["filesystem", "listing", "streaming"],
         )),
-        ("fs", "metadata") => Some((
-            "Reads filesystem metadata into an FsEntry record.",
-            "Metadata reflects the host at read time and follows the path's symlink and permission behavior.",
-            &["filesystem", "metadata", "record"],
-        )),
         ("fs", "filesystem_stats") => Some((
             "Reads filesystem capacity statistics for a path.",
             "Capacity fields are host filesystem observations and may change between calls.",
@@ -606,50 +601,15 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Mount information is a host-global snapshot and may be unavailable on unsupported platforms. A mount that refuses its statistics is an error.",
             &["filesystem", "mount", "host-state"],
         )),
-        ("fs", "read_text") => Some((
-            "Reads a UTF-8 file into Str.",
-            "Invalid byte sequences are an error; use the byte API when opaque content is valid input.",
-            &["filesystem", "read", "utf8"],
-        )),
-        ("fs", "write") => Some((
-            "Writes text or bytes to a path.",
-            "The input type selects the boundary explicitly and the write replaces the destination according to host filesystem policy. With a mode the file has exactly those permission bits before any data is in it: a new file is never wider than the mode, and an existing file has its bits set before it is truncated.",
-            &["filesystem", "write"],
-        )),
-        ("fs", "write_atomic") => Some((
-            "Replaces a file through an atomic write path.",
-            "Use when readers must not observe a partially written replacement. The result keeps an existing file's mode, and a new file gets the mode a plain write would.",
-            &["filesystem", "atomic", "write"],
-        )),
-        ("fs", "mkdir") => Some((
-            "Creates a directory with an explicit parent policy.",
-            "The parents option controls whether missing ancestors are created; existing non-directories remain errors.",
-            &["filesystem", "directory", "creation"],
-        )),
-        ("fs", "remove") => Some((
-            "Removes a file, symlink, or directory tree, leaving the path gone.",
-            "A directory is removed with everything below it; a symlink is removed itself and never followed. A missing path is success by default; missing_ok: false makes it an error. Use Path.remove_dir to remove only an empty directory.",
-            &["filesystem", "remove", "destructive"],
-        )),
         ("fs", "remove_manifest") => Some((
             "Removes files and empty parents listed by a manifest.",
             "Manifest paths are cleaned and constrained before removal, and the result reports what was removed.",
             &["filesystem", "remove", "manifest"],
         )),
-        ("fs", "copy") => Some((
-            "Copies one file to a destination path.",
-            "Overwrite behavior is explicit; source and destination errors are returned without pretending a partial copy succeeded.",
-            &["filesystem", "copy"],
-        )),
         ("fs", "copy_tree") => Some((
             "Copies a directory tree and returns copy statistics.",
             "Symlink and overwrite policy are explicit; the returned record describes completed entries.",
             &["filesystem", "copy", "tree"],
-        )),
-        ("fs", "rename") => Some((
-            "Renames a path with an explicit overwrite policy.",
-            "The operation is a host rename boundary; it does not silently copy across filesystems.",
-            &["filesystem", "rename"],
         )),
         ("fs", "symlink") => Some((
             "Creates a symbolic link with explicit target and link paths.",
@@ -734,11 +694,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The result is metadata observed at the time of the call and does not change the path.",
             &["filesystem", "permissions", "metadata"],
         )),
-        ("fs", "exists") => Some((
-            "Checks whether a filesystem path exists.",
-            "A false result describes absence; permission and other lookup failures remain errors.",
-            &["filesystem", "lookup", "status-data"],
-        )),
         ("fs", "du") => Some((
             "Calculates disk usage for a filesystem path.",
             "The count follows host filesystem allocation semantics rather than only logical file length.",
@@ -763,11 +718,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Releases a filesystem lock record.",
             "Unlock consumes the lock ownership; do not use the record after release.",
             &["filesystem", "locking", "ownership"],
-        )),
-        ("fs", "chmod") => Some((
-            "Changes permission bits on a filesystem path.",
-            "The supplied mode is applied as an explicit host permission value and may require privilege.",
-            &["filesystem", "permissions", "privileged"],
         )),
         ("group", "current") => Some((
             "Returns the current process group record.",

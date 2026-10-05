@@ -14,8 +14,7 @@ use xsh::frontend::syntax::arena::{
 ///
 /// is `key.write(secret, mode: 0o600)?`, which sets the bits before any of
 /// the data is in the file, so the data is never readable under the mode a
-/// plain write leaves. Both the `PATH.op(...)` and the `fs.op(PATH, ...)`
-/// spellings are matched, and the merged call keeps the write's spelling.
+/// plain write leaves.
 ///
 /// When both calls succeed the file ends with the same contents and bits. The
 /// rewrite is offered only where nothing else can tell the two apart:
@@ -39,10 +38,10 @@ pub(super) fn lint_write_then_chmod(linter: &mut super::Linter<'_>, stmts: &[Stm
     }
 }
 
-/// `PATH.NAME(args)` or `fs.NAME(PATH, args)` as a statement.
+/// `PATH.NAME(args)` as a statement.
 struct PathCall {
     path: ExprId,
-    /// The arguments after the path, all positional.
+    /// The arguments, all positional.
     args: Vec<ExprId>,
     /// Whether the statement is the call under `?`.
     propagated: bool,
@@ -125,7 +124,7 @@ fn path_call(linter: &super::Linter<'_>, stmt: StmtId, function: &str) -> Option
     if name != function {
         return None;
     }
-    let mut positional = arena
+    let positional = arena
         .call_args(args)
         .iter()
         .map(|argument| match argument.kind {
@@ -133,21 +132,11 @@ fn path_call(linter: &super::Linter<'_>, stmt: StmtId, function: &str) -> Option
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;
-    let path = if matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "fs")
-        // A local named `fs` makes the call something else.
-        && !linter.scopes.iter().any(|scope| scope.contains_key("fs"))
-    {
-        if positional.is_empty() {
-            return None;
-        }
-        positional.remove(0)
-    } else if linter.expr_types.get(&arena.expr(base).span) == Some(&Type::Path) {
-        base
-    } else {
+    if linter.expr_types.get(&arena.expr(base).span) != Some(&Type::Path) {
         return None;
-    };
+    }
     Some(PathCall {
-        path,
+        path: base,
         args: positional,
         propagated,
     })
@@ -209,14 +198,14 @@ mod tests {
     }
 
     #[test]
-    fn a_write_and_its_chmod_merge_in_the_spelling_of_the_write() {
-        let source = "type Service = {path: Path, mode: Int}\n\nproc install(key: Path, unit: Service, root: Path, secret: Str, bits: Int) [fs, error] {\n  key.write(secret)?\n  key.chmod(0o600)?\n  fs.write(unit.path, b\"unit\")?\n  fs.chmod(unit.path, unit.mode)?\n  fs.write(fp\"{root}/run\", secret)?\n  fp\"{root}/run\".chmod(bits)?\n  p\"/tmp/plain\".write(secret)\n  fs.chmod(p\"/tmp/plain\", 0o644)\n}\n";
+    fn a_write_and_its_chmod_merge_into_the_write() {
+        let source = "type Service = {path: Path, mode: Int}\n\nproc install(key: Path, unit: Service, root: Path, secret: Str, bits: Int) [fs, error] {\n  key.write(secret)?\n  key.chmod(0o600)?\n  unit.path.write(b\"unit\")?\n  unit.path.chmod(unit.mode)?\n  fp\"{root}/run\".write(secret)?\n  fp\"{root}/run\".chmod(bits)?\n  p\"/tmp/plain\".write(secret)\n  p\"/tmp/plain\".chmod(0o644)\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "type Service = {path: Path, mode: Int}\n\nproc install(key: Path, unit: Service, root: Path, secret: Str, bits: Int) [fs, error] {\n  key.write(secret, mode: 0o600)?\n  fs.write(unit.path, b\"unit\", mode: unit.mode)?\n  fs.write(fp\"{root}/run\", secret, mode: bits)?\n  p\"/tmp/plain\".write(secret, mode: 0o644)\n}\n"
+            "type Service = {path: Path, mode: Int}\n\nproc install(key: Path, unit: Service, root: Path, secret: Str, bits: Int) [fs, error] {\n  key.write(secret, mode: 0o600)?\n  unit.path.write(b\"unit\", mode: unit.mode)?\n  fp\"{root}/run\".write(secret, mode: bits)?\n  p\"/tmp/plain\".write(secret, mode: 0o644)\n}\n"
         );
         assert!(lint(&fixed).is_empty());
     }

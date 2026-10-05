@@ -23,8 +23,7 @@ use super::prefer_tempdir::{binds, expr_owns_nothing, text_end_of, tokens_spanni
 /// ```
 ///
 /// A statement list is reported when it binds a `Path`, clears it, and later
-/// renames it. Each call may be written `fs.OP(path, ...)` or
-/// `path.OP(...)`, and may carry a `?`, which says again what statement
+/// renames it. Each call may carry a `?`, which says again what statement
 /// position already does. `block` is the block whose statements these are;
 /// the statements of a file have none and are never rewritten, because a
 /// binding moved into a block would stop being a top-level one.
@@ -130,8 +129,8 @@ struct Rename {
     overwrite: bool,
 }
 
-/// The receiver and the other arguments of `fs.OPERATION(path, ...)` or
-/// `path.OPERATION(...)`, under an optional `?`.
+/// The receiver and the arguments of `path.OPERATION(...)`, under an
+/// optional `?`.
 fn path_operation(
     arena: &AstArena,
     expr: ExprId,
@@ -150,21 +149,12 @@ fn path_operation(
     if name != operation {
         return None;
     }
-    let mut arguments = arena
+    let arguments = arena
         .call_args(args)
         .iter()
         .map(|argument| argument.kind.clone())
         .collect::<Vec<_>>();
-    if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "fs") {
-        return Some((base, arguments));
-    }
-    if arguments.is_empty() {
-        return None;
-    }
-    let ArenaCallArgKind::Positional(path) = arguments.remove(0) else {
-        return None;
-    };
-    Some((path, arguments))
+    Some((base, arguments))
 }
 
 fn local(arena: &AstArena, expr: ExprId) -> Option<Name> {
@@ -854,19 +844,7 @@ mod tests {
     // statement's own removals do.
     #[test]
     fn a_removal_without_missing_ok_is_the_same_removal() {
-        let source = "proc publish(dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  partial.remove()\n  defer partial.remove()\n  partial.write(\"text\")\n  partial.rename(dest, overwrite: true)\n}\n";
+        let source = "proc publish(dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  partial.remove()\n  defer partial.remove()\n  partial.write(\"text\")\n  partial.rename(to: dest, overwrite: true)\n}\n";
         assert_eq!(published_files(source).len(), 1, "{source}");
-    }
-
-    // Each call may still be written through the `fs` module.
-    #[test]
-    fn the_function_spelling_is_the_same_sequence() {
-        let source = "proc publish(source: Path, dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  fs.copy(source, partial)\n  fs.rename(partial, dest, overwrite: true)\n}\n";
-        let diagnostics = published_files(source);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert_eq!(
-            apply(&diagnostics, source),
-            "proc publish(source: Path, dest: Path) [fs, error] {\n  atomically replace dest as partial {\n    fs.copy(source, partial)\n  }\n}\n"
-        );
     }
 }

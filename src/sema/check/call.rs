@@ -1895,6 +1895,24 @@ impl Checker {
         } else {
             None
         };
+        // `fs.executable(mode)` is the one removed name that is still a
+        // function, so its argument decides which call this is; it is
+        // checked here once, as the mode.
+        let mut executable_mode_checked = false;
+        if module == "fs" && super::removed_fs::is_removed_fs_function(name) {
+            if name != "executable" {
+                return self.check_removed_fs_function_arena(arena, source, name, args, span);
+            }
+            if let [arg] = args
+                && matches!(arg.kind, ArenaCallArgKind::Positional(_))
+            {
+                if let Some(removed) = self.check_fs_executable_argument(arena, source, arg, span)
+                {
+                    return removed;
+                }
+                executable_mode_checked = true;
+            }
+        }
         let Some(overloads) = module_sig.function_overloads(name).or(migration.as_deref()) else {
             self.report_unknown_module_api(module, name, span);
             return Type::Unknown;
@@ -1903,7 +1921,7 @@ impl Checker {
             return self.check_process_command_argv_call_arena(arena, source, args, span);
         }
         let (sig, args_checked) = if overloads.len() == 1 {
-            (&overloads[0], false)
+            (&overloads[0], executable_mode_checked)
         } else {
             (
                 self.check_module_overload_args_arena(

@@ -70,7 +70,7 @@ p"report.txt".write_lines([1, 2])?
 test test_write_lines_lint_fixes_only_lists_proven_nonempty { |ctx|
   let root = test.temp_dir(ctx, name: "write-lines-lint")?
   let source = r"""proc save(out: Path, names: List[Str]) [fs, error] {
-  fs.write(out, ["header", @names].join("\n") + "\n")?
+  out.write(["header", @names].join("\n") + "\n")?
   print (out.read_text()?)
   out.write(names.join("\n") + "\n")?
   print (out.read_text()?.byte_len())
@@ -89,7 +89,7 @@ save(p"ROOT/out.txt", [])?
   # `names` may be empty, where the join writes one newline and write_lines
   # writes nothing, so that call keeps its spelling and is only reported.
   assert fixed == source.replace(
-    r"""fs.write(out, ["header", @names].join("\n") + "\n")?""",
+    r"""out.write(["header", @names].join("\n") + "\n")?""",
     with: r"""out.write_lines(["header", @names])?""",
   )
   assert fixed != source
@@ -170,9 +170,9 @@ test test_read_lines_lint_fix_keeps_values_and_failures { |ctx|
   fp"{root}/binary".write(b"ok\n\xff\n")
   let source = r"""proc count(source: Path) [fs, error] -> Result[Int] {
   let direct = source.read_text()?.lines()
-  let by_module = fs.read_text(source)?.lines()
+  let again = source.read_text()?.lines()
   let trimmed = source.read_text()?.trim().lines()
-  direct.len() + by_module.len() * 10 + trimmed.len() * 100
+  direct.len() + again.len() * 10 + trimmed.len() * 100
 }
 
 proc describe(source: Path) [fs, error] -> Str {
@@ -195,7 +195,7 @@ print (describe(p"ROOT/binary"))
 
   # A read that is trimmed before the split is a different program.
   assert fixed == source.replace("let direct = source.read_text()?.lines()", with: "let direct = source.read_lines()?")
-    .replace("let by_module = fs.read_text(source)?.lines()", with: "let by_module = source.read_lines()?")
+    .replace("let again = source.read_text()?.lines()", with: "let again = source.read_lines()?")
   assert "source.read_text()?.trim().lines()" in fixed
   let before = test.run_script(ctx, source)?
   let after = test.run_script(ctx, fixed)?

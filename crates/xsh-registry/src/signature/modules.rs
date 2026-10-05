@@ -5,7 +5,7 @@ use super::streams::fs_entry_stream;
 use super::{
     ApiArgCheck, ApiDocs, ApiSpec, BTreeMap, ModuleEntry, ModuleSig, RuntimeOp, Type,
     archive_entry_type, btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type,
-    elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
+    elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_type, group_record_type, hash_check_line_type, linux_blkid_type,
     linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
@@ -1278,15 +1278,6 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
-            "metadata",
-            sig(
-                vec![param("path", Type::Path)],
-                result(fs_entry_type()),
-                false,
-                RuntimeOp::FsMetadata,
-            ),
-        ),
-        (
             "filesystem_stats",
             sig(
                 vec![param("path", Type::Path)],
@@ -1316,104 +1307,6 @@ fn fs_module() -> ModuleSig {
         (
             "cwd",
             sig(Vec::new(), result(Type::Path), false, RuntimeOp::FsCwd),
-        ),
-        (
-            "read_text",
-            sig(
-                vec![param("path", Type::Path)],
-                result(Type::Str),
-                false,
-                RuntimeOp::FsReadText,
-            ),
-        ),
-        (
-            "write",
-            sig(
-                vec![param("path", Type::Path), param("data", Type::Bytes)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsWrite,
-            ),
-        ),
-        (
-            "write",
-            sig(
-                vec![param("path", Type::Path), param("data", Type::Str)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsWrite,
-            ),
-        ),
-        // The mode is a separate overload, not a defaulted parameter, so the
-        // command form `fs.write PATH DATA` keeps its two words: a command
-        // word cannot be told from a mode.
-        (
-            "write",
-            super::ModuleFnSig {
-                command: false,
-                ..sig(
-                    vec![
-                        param("path", Type::Path),
-                        param("data", Type::Bytes),
-                        param("mode", Type::Int),
-                    ],
-                    result(Type::Unit),
-                    false,
-                    RuntimeOp::FsWrite,
-                )
-            },
-        ),
-        (
-            "write",
-            super::ModuleFnSig {
-                command: false,
-                ..sig(
-                    vec![
-                        param("path", Type::Path),
-                        param("data", Type::Str),
-                        param("mode", Type::Int),
-                    ],
-                    result(Type::Unit),
-                    false,
-                    RuntimeOp::FsWrite,
-                )
-            },
-        ),
-        (
-            "write_atomic",
-            sig(
-                vec![param("path", Type::Path), param("data", Type::Bytes)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsWriteAtomic,
-            ),
-        ),
-        (
-            "write_atomic",
-            sig(
-                vec![param("path", Type::Path), param("data", Type::Str)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsWriteAtomic,
-            ),
-        ),
-        (
-            "exists",
-            sig(
-                vec![param("path", Type::Path)],
-                result(Type::Bool),
-                false,
-                RuntimeOp::FsExists,
-            ),
-        ),
-        (
-            "executable",
-            sig(
-                vec![param("path", Type::Path)],
-                result(Type::Bool),
-                false,
-                RuntimeOp::FsExecutable,
-            ),
         ),
         (
             "executable",
@@ -1514,19 +1407,6 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
-            "copy",
-            sig(
-                vec![
-                    param("source", Type::Path),
-                    param("dest", Type::Path),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsCopy,
-            ),
-        ),
-        (
             "copy_tree",
             sig(
                 vec![
@@ -1539,43 +1419,6 @@ fn fs_module() -> ModuleSig {
                 result(fs_copy_tree_result_type()),
                 false,
                 RuntimeOp::FsCopyTree,
-            ),
-        ),
-        (
-            "rename",
-            sig(
-                vec![
-                    param("source", Type::Path),
-                    param("dest", Type::Path),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRename,
-            ),
-        ),
-        (
-            "mkdir",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    default_param("parents", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsMkdir,
-            ),
-        ),
-        (
-            "remove",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    default_param("missing_ok", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRemove,
             ),
         ),
         (
@@ -1622,15 +1465,6 @@ fn fs_module() -> ModuleSig {
                 result(Type::Unit),
                 false,
                 RuntimeOp::FsInstallAs,
-            ),
-        ),
-        (
-            "chmod",
-            sig(
-                vec![param("path", Type::Path), param("mode", Type::Int)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsChmod,
             ),
         ),
         (

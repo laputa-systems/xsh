@@ -66,28 +66,14 @@ test test_write_with_a_mode_out_of_range_writes_nothing { |ctx|
   test.error_kind(fp"{root}/missing/file".write("text", mode: 0o600), "fs-write")
 }
 
-test test_fs_write_command_form_takes_no_mode { |ctx|
-  let root = test.temp_dir(ctx, name: "write-mode-command")?
-  let file = fp"{root}/command"
-  fs.write $file "words"
-  assert file.read_text()? == "words"
-
-  let _ = test.expect(
-    ctx,
-    "fs.write p\"/tmp/xsh-write-mode-never\" \"words\" 384\n",
-    status: 2,
-    stderr: ["check.arity"],
-  )?
-}
-
 test test_prefer_write_mode_lint_merges_a_write_and_its_chmod { |ctx|
   let root = test.temp_dir(ctx, name: "write-mode-lint")?
   let source = r"""proc install(key: Path, secret: Str) [fs, error] {
   key.write(secret)?
   key.chmod(0o640)?
-  fs.write(fp"{key}.pub", "public\n")?
-  fs.chmod(fp"{key}.pub", 0o604)?
-  print (fs.metadata(key)?.mode % 4096) (fs.metadata(fp"{key}.pub")?.mode % 4096) (key.read_text()?)
+  fp"{key}.pub".write("public\n")?
+  fp"{key}.pub".chmod(0o604)?
+  print (key.metadata()?.mode % 4096) (fp"{key}.pub".metadata()?.mode % 4096) (key.read_text()?)
 }
 
 install(p"ROOT/host.key", "secret")?
@@ -101,10 +87,10 @@ install(p"ROOT/host.key", "secret")?
     with: "  key.write(secret, mode: 0o640)?\n",
   )
     .replace(
-      r"""  fs.write(fp"{key}.pub", "public\n")?
-  fs.chmod(fp"{key}.pub", 0o604)?
+      r"""  fp"{key}.pub".write("public\n")?
+  fp"{key}.pub".chmod(0o604)?
 """,
-      with: r"""  fs.write(fp"{key}.pub", "public\n", mode: 0o604)?
+      with: r"""  fp"{key}.pub".write("public\n", mode: 0o604)?
 """,
     )
   assert fixed == merged

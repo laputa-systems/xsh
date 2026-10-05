@@ -46,13 +46,13 @@ fn the_default_the_row_removes_is_the_runtime_default() {
 
 #[test]
 fn a_written_missing_ok_true_is_removed() {
-    let source = "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove(missing_ok: true)\n  fs.remove(root, missing_ok: true)\n  fs.remove(\n    root,\n    missing_ok: true,\n  )\n  let _ = fp\"{root}/cache\".remove(missing_ok: true)\n}\n";
+    let source = "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove(missing_ok: true)\n  root.remove(missing_ok: true)\n  root.remove(\n    missing_ok: true,\n  )\n  let _ = fp\"{root}/cache\".remove(missing_ok: true)\n}\n";
     let diagnostics = lint(source);
     assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
     let fixed = apply(&diagnostics, source);
     assert_eq!(
         fixed,
-        "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove()\n  fs.remove(root)\n  fs.remove(\n    root,\n  )\n  let _ = fp\"{root}/cache\".remove()\n}\n"
+        "proc clean(stale: Path, root: Path) [fs, error] {\n  stale.remove()\n  root.remove()\n  root.remove()\n  let _ = fp\"{root}/cache\".remove()\n}\n"
     );
     assert!(lint(&fixed).is_empty());
 }
@@ -62,6 +62,6 @@ fn a_written_missing_ok_true_is_removed() {
 // directory or an atomic replacement expands to are other calls.
 #[test]
 fn other_removals_are_left_alone() {
-    let source = "proc remove(stale: Path, missing_ok: Bool = false) [fs, error] {\n  stale.remove(missing_ok: false)\n  fs.remove(stale, missing_ok: missing_ok)\n}\n\nproc clean(stale: Path, root: FsRoot, seen: Map[Int]) [fs, error] {\n  var counts = seen\n  counts = counts.remove(\"stale\")\n  root.remove(p\"cache\", dir: true)\n  remove(stale, missing_ok: true)\n  tempdir scratch at stale {\n    fp\"{scratch}/stamp\".write(\"staged\")\n  }\n  atomically replace stale as partial {\n    partial.write(f\"{counts.len()}\")\n  }\n}\n";
+    let source = "proc remove(stale: Path, missing_ok: Bool = false) [fs, error] {\n  stale.remove(missing_ok: false)\n  stale.remove(missing_ok: missing_ok)\n}\n\nproc clean(stale: Path, root: FsRoot, seen: Map[Int]) [fs, error] {\n  var counts = seen\n  counts = counts.remove(\"stale\")\n  root.remove(p\"cache\", dir: true)\n  remove(stale, missing_ok: true)\n  tempdir scratch at stale {\n    fp\"{scratch}/stamp\".write(\"staged\")\n  }\n  atomically replace stale as partial {\n    partial.write(f\"{counts.len()}\")\n  }\n}\n";
     assert!(lint(source).is_empty(), "{:?}", lint(source));
 }

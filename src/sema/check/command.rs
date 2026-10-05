@@ -481,6 +481,10 @@ impl Checker {
             return Type::Unknown;
         };
         let Some(overloads) = module_sig.function_overloads(name) else {
+            if module == "fs" && super::removed_fs::is_removed_fs_function(name) {
+                self.report_removed_fs_command(name, span);
+                return Type::Unknown;
+            }
             self.report_unknown_module_api(module, name, span);
             return Type::Unknown;
         };

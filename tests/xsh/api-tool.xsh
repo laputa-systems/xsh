@@ -111,7 +111,7 @@ test test_api_without_query_is_a_standalone_onboarding_guide {
       "xsht fmt hello.xsh",
       "xsht lint hello.xsh",
       "xsht api module:fs",
-      "xsht api api:fs.read_text",
+      "xsht api api:fs.files",
     ],
   )
 }
@@ -141,7 +141,7 @@ test test_api_onboarding_script_passes_xsht_check { |ctx|
 test test_api_module_query_lists_the_module_and_its_members {
   api(["module:fs"])? |> assert_contains(
     _,
-    ["status: matches", "api: module.fs\n", "api: module.fs.read_text\n", "purpose:"],
+    ["status: matches", "api: module.fs\n", "api: module.fs.copy_tree\n", "purpose:"],
   )
 }
 
@@ -154,7 +154,7 @@ test test_api_error_fail_is_exactly_registered_and_searchable {
 }
 
 test test_api_exact_item_explains_effects_and_contract {
-  api(["api:fs.read_text"])? |> assert_contains(_, ["contract:", "effects: fs", "signature: fs.read_text"])
+  api(["api:fs.copy_tree"])? |> assert_contains(_, ["contract:", "effects: fs", "signature: fs.copy_tree"])
 }
 
 test test_api_filesystem_walk_contract_documents_hidden_default {

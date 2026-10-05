@@ -77,7 +77,7 @@ test test_prefer_path_kind_lint_rewrites_a_kind_comparison { |ctx|
   if out.metadata()?.kind == "symlink" {
     return Ok("link")
   }
-  if fs.metadata(out)?.kind != "dir" {
+  if out.metadata()?.kind != "dir" {
     return Ok("not a directory")
   }
   Ok("directory")
@@ -91,7 +91,7 @@ print (classify(p"ROOT/absent")?)
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   let expected = source.replace("out.metadata()?.kind == \"symlink\"", with: "out.is_symlink()?")
-    .replace("fs.metadata(out)?.kind != \"dir\"", with: "! out.is_dir()?")
+    .replace("out.metadata()?.kind != \"dir\"", with: "! out.is_dir()?")
   assert fixed == expected
   assert fixed != source
 

@@ -5,8 +5,8 @@ use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, AstArena, ExprId};
 use xsh::frontend::syntax::node::BinaryOp;
 
-/// `fs.write(P, XS.join("\n") + "\n")` and `P.write(XS.join("\n") + "\n")`
-/// with a checked `List[Str]` are `P.write_lines(XS)`.
+/// `P.write(XS.join("\n") + "\n")` with a checked `List[Str]` is
+/// `P.write_lines(XS)`.
 ///
 /// The two agree for every list except the empty one: joining nothing and
 /// appending a newline writes one newline, while `write_lines` writes an empty
@@ -61,8 +61,7 @@ pub(super) fn write_lines(
     Some(diagnostic)
 }
 
-/// The path and data of `fs.write(path, data)` or `path.write(data)`, both
-/// with positional arguments only.
+/// The path and data of `path.write(data)` with a positional argument.
 fn written_path_and_data(arena: &AstArena, call: ArenaExprKind) -> Option<(ExprId, ExprId)> {
     let ArenaExprKind::Call { callee, args } = call else {
         return None;
@@ -73,20 +72,13 @@ fn written_path_and_data(arena: &AstArena, call: ArenaExprKind) -> Option<(ExprI
     if name != "write" {
         return None;
     }
-    let mut positional = Vec::new();
-    for argument in arena.call_args(args) {
-        let ArenaCallArgKind::Positional(value) = argument.kind else {
-            return None;
-        };
-        positional.push(value);
-    }
-    let module_call =
-        matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "fs");
-    match positional.as_slice() {
-        [path, data] if module_call => Some((*path, *data)),
-        [data] if !module_call => Some((base, *data)),
-        _ => None,
-    }
+    let [data] = arena.call_args(args) else {
+        return None;
+    };
+    let ArenaCallArgKind::Positional(data) = data.kind else {
+        return None;
+    };
+    Some((base, data))
 }
 
 /// The list in `LIST.join("\n") + "\n"`.
@@ -146,7 +138,7 @@ fn replacement(
 /// A bare path word such as `./out` would absorb the call into the path, and
 /// a lower-precedence expression would need parentheses that a rewrite must
 /// not add silently, so both are refused.
-pub(super) fn path_receiver_text(source: &str, kind: ArenaExprKind, span: Span) -> Option<&str> {
+fn path_receiver_text(source: &str, kind: ArenaExprKind, span: Span) -> Option<&str> {
     let text = source.get(span.range())?;
     match kind {
         ArenaExprKind::Ident(_)
@@ -244,8 +236,8 @@ mod tests {
     }
 
     #[test]
-    fn literal_lines_are_rewritten_for_both_write_spellings() {
-        let source = "proc save(out: Path, name: Str) [fs, error] {\n  fs.write(out, [\"a\", name].join(\"\\n\") + \"\\n\")?\n  fp\"{out}.bak\".write([name].join(\"\\n\") + \"\\n\")?\n}\n";
+    fn literal_lines_are_rewritten() {
+        let source = "proc save(out: Path, name: Str) [fs, error] {\n  out.write([\"a\", name].join(\"\\n\") + \"\\n\")?\n  fp\"{out}.bak\".write([name].join(\"\\n\") + \"\\n\")?\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         assert!(
@@ -266,7 +258,7 @@ mod tests {
     // after it, so `--fix` leaves it and the hint is for a person to apply.
     #[test]
     fn possibly_empty_lines_get_a_manual_hint_only() {
-        let source = "proc save(out: Path, files: List[Str]) [fs, error] {\n  fs.write(out, (files |> sort).join(\"\\n\") + \"\\n\")?\n  out.write([@files].join(\"\\n\") + \"\\n\")?\n}\n";
+        let source = "proc save(out: Path, files: List[Str]) [fs, error] {\n  out.write((files |> sort).join(\"\\n\") + \"\\n\")?\n  out.write([@files].join(\"\\n\") + \"\\n\")?\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         assert!(
@@ -289,11 +281,11 @@ mod tests {
         assert!(lint(source).is_empty());
     }
 
-    // A bare path word would absorb `.write_lines(...)` into the path.
+    // The rewrite copies the receiver verbatim and adds no parentheses.
     #[test]
     fn a_path_that_cannot_stand_as_a_receiver_gets_no_rewrite() {
         let source =
-            "proc save(name: Str) [fs, error] {\n  fs.write(./out.txt, [name].join(\"\\n\") + \"\\n\")?\n}\n";
+            "proc save(out: Path, other: Path, first: Bool, name: Str) [fs, error] {\n  (if first { out } else { other }).write([name].join(\"\\n\") + \"\\n\")?\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].fix_hints.is_empty());
